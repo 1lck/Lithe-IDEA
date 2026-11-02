@@ -126,7 +126,6 @@ function ProjectMenuRow({
   );
 }
 
-
 export function TitleProjectMenu({ onOpenProjectPicker }: TitleProjectMenuProps) {
   const { t } = useTranslation();
   const projectTabs = useWorkspaceTabsStore.use.projectTabs();
@@ -169,7 +168,7 @@ export function TitleProjectMenu({ onOpenProjectPicker }: TitleProjectMenuProps)
             size="xs"
             // IntelliJ ToolbarComboButton: 30px tall, 12px arc (6px radius), insets 10px left and
             // 6px right, 6px between icon and text, 2px before the chevron.
-            className="h-[30px] max-w-56 justify-start gap-1.5 rounded-[6px] pr-1.5 pl-2.5"
+            className="h-(--lithe-main-toolbar-button-size) max-w-56 justify-start gap-1.5 rounded-[6px] pr-1.5 pl-2.5"
             aria-label={t("titleProject.trigger", { project: projectLabel })}
           />
         }

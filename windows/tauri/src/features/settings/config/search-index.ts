@@ -521,6 +521,14 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     keywords: ["activity", "bar", "rail", "expanded", "labels", "sidebar"],
   },
   {
+    id: "appearance-compact-mode",
+    tab: "appearance",
+    section: "Layout",
+    label: "Compact mode",
+    description: "Smaller workbench controls leave more room for code",
+    keywords: ["compact", "density", "紧凑", "紧凑模式", "toolbar", "tabs", "sidebar"],
+  },
+  {
     id: "appearance-window-chrome-density",
     tab: "appearance",
     section: "Layout",

@@ -7233,6 +7233,8 @@
     "settings.appearance.activityBarWidthAria": "Activity bar width: {size} pixels",
     "settings.appearance.activityBarWidthDescription": "Set the width of the expanded activity bar",
     "settings.appearance.always": "Always",
+    "settings.appearance.compactMode": "Compact mode",
+    "settings.appearance.compactModeDescription": "Use smaller toolbars, tool window headers, tabs, and activity buttons to leave more room for code. Applies to all Lithe windows immediately; editor text and saved panel sizes stay unchanged.",
     "settings.appearance.colorTheme": "Color Theme",
     "settings.appearance.colorThemeDescription": "Choose your preferred color theme",
     "settings.appearance.comfortable": "Comfortable",

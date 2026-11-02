@@ -171,7 +171,7 @@ struct GenericDebugView: View {
         }
         .padding(.leading, 12)
         .padding(.trailing, 8)
-        .frame(height: 41)
+        .frame(height: LitheTheme.Metrics.toolWindowHeaderHeight)
         .litheWorkbenchSurface(LitheTheme.toolHeader)
         .overlay(alignment: .bottom) { LitheToolWindowHeaderDivider() }
     }

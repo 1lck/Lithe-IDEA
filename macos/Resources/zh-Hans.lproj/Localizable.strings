@@ -859,6 +859,7 @@
 "Community plugin installed from disk. Its publisher and repository have not been verified." = "从磁盘安装的社区插件，尚未验证发布者与源码仓库。";
 "Community plugin maintained by a third party. Report plugin problems in its own repository." = "社区插件由第三方维护，插件问题请到它自己的仓库反馈。";
 "Community plugins are maintained by third parties and can run the programs above on your Mac. Only install plugins you trust." = "社区插件由第三方维护，可以在你的 Mac 上运行上面列出的程序。请只安装你信任的插件。";
+"Compact mode" = "紧凑模式";
 "Compare" = "比较";
 "Compare '%@' with '%@'" = "比较“%@”与“%@”";
 "Compare changes" = "比较更改";
@@ -4614,6 +4615,7 @@
 "Use project or file directory" = "使用项目或文件目录";
 "Use service JDK" = "使用服务 JDK";
 "Use shared instructions" = "使用共享指令";
+"Use smaller toolbars, tool window headers, tabs, and activity buttons to leave more room for code. Applies to all Lithe windows immediately; editor text and saved panel sizes stay unchanged." = "缩小工具栏、工具窗口标题栏、标签和活动栏按钮，为代码留出更多空间。立即应用于所有 Lithe 窗口；保留编辑器文字大小和已保存的面板尺寸。";
 "Use soft wraps" = "启用自动换行";
 "Use system proxy" = "使用系统代理";
 "Use temporary directory" = "使用临时目录";
@@ -9700,6 +9702,8 @@
 "scope updated from %@" = "scope 由 %@ 提升";
 "search.search" = "搜索";
 "selected version" = "已选版本";
+"settings.appearance.compactMode" = "紧凑模式";
+"settings.appearance.compactModeDescription" = "缩小工具栏、工具窗口标题栏、标签和活动栏按钮，为代码留出更多空间。立即应用于所有 Lithe 窗口；保留编辑器文字大小和已保存的面板尺寸。";
 "settings.keyboard.back" = "后退";
 "settings.mac.appearance" = "外观";
 "settings.mac.editorTabs" = "编辑器标签栏";

@@ -99,6 +99,7 @@ export const defaultSettings: Settings = {
   tabCloseButtonVisibility: "active",
   editorTabLayoutMode: "singleLine",
   windowChromeDensity: "focused",
+  compactMode: false,
   // Theme
   theme: "lithe-dark",
   iconTheme: "idea-icons",

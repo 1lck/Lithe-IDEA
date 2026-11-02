@@ -80,7 +80,7 @@ Project/Dependencies 下拉。顶部项目切换器只是消费者，不是其�
 - 普通工具窗口工具栏按钮使用 `LitheTheme.swift` 的 `litheToolbarIconButton` / `LitheIconButtonStyle`，
   保留禁用、悬停反馈与默认箭头光标。22pt 命中区不推广到所有按钮，
   主工具栏切换器等保留各自共享尺寸；指针与 I-beam 是明确的控件语义。
-- 普通工具窗口标题栏使用 `LitheToolWindowHeader`，由其拥有当前 41pt 高度、13pt Bold 标题、
+- 普通工具窗口标题栏使用 `LitheToolWindowHeader`，由其拥有常规 41pt / 紧凑 32pt 高度、13pt Bold 标题、
   外边距与动作间距。标题纯文本，不加标题图标、外框、底部分隔线或 `LitheToolWindowHeaderDivider`。
   真实会话标签栏保留标签语义，不把静态标题伪装成标签。
 

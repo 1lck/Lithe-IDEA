@@ -100,7 +100,7 @@ struct TerminalView: View {
         }
         .padding(.leading, 12)
         .padding(.trailing, 8)
-        .frame(height: 41)
+        .frame(height: LitheTheme.Metrics.toolWindowHeaderHeight)
         .litheWorkbenchSurface(LitheTheme.toolHeader)
         .overlay(alignment: .bottom) {
             LitheToolWindowHeaderDivider()
@@ -121,7 +121,7 @@ struct TerminalView: View {
             .foregroundStyle(LitheTheme.primaryText)
             .padding(.leading, 8)
             .padding(.trailing, 3)
-            .frame(height: 28)
+            .frame(height: LitheTheme.Metrics.editorTabContentHeight)
             .contentShape(Rectangle())
             .overlay {
                 TerminalTabInteraction(sessionID: session.id, title: title) {

@@ -516,7 +516,7 @@ struct GitLogView: View {
         }
         .padding(.leading, 12)
         .padding(.trailing, 8)
-        .frame(height: 41)
+        .frame(height: LitheTheme.Metrics.toolWindowHeaderHeight)
         .background(background.hasImage ? Color.clear : LitheTheme.toolHeader)
         .overlay(alignment: .bottom) {
             LitheToolWindowHeaderDivider()
@@ -547,7 +547,7 @@ struct GitLogView: View {
                     .lineLimit(1)
                     .padding(.leading, 8)
                     .padding(.trailing, showsCloseButton ? 3 : 8)
-                    .frame(height: 28)
+                    .frame(height: LitheTheme.Metrics.editorTabContentHeight)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.litheNoPress)

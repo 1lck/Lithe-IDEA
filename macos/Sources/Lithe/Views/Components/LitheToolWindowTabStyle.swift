@@ -12,7 +12,7 @@ struct LitheToolWindowTabStyle: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .frame(height: 28)
+            .frame(height: LitheTheme.Metrics.editorTabContentHeight)
             .background {
                 if let fileColor {
                     // IslandsTabPainter: colored editor tabs retain the editor surface and border.

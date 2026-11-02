@@ -18,6 +18,7 @@ import {
   saveSettingsToStore,
   commitAgentPanelSettings,
   observeAgentPanelSettings,
+  observeCompactMode,
   type AgentCredentialChange,
 } from "@/features/settings/lib/settings-persistence";
 import { parseSettingsImportJson } from "@/features/settings/lib/settings-import-export";
@@ -229,6 +230,13 @@ const useSettingsStoreBase = create(
 );
 
 export const useSettingsStore = createSelectors(useSettingsStoreBase);
+
+observeCompactMode((enabled) => {
+  useSettingsStoreBase.setState((state) => {
+    state.settings.compactMode = enabled;
+  });
+  applySettingSideEffect("compactMode", enabled, () => useSettingsStoreBase.getState().settings);
+});
 
 observeAgentPanelSettings((settings) => {
   useSettingsStoreBase.setState((state) => { state.settings.agentPanel = settings; });

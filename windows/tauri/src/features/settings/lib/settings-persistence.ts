@@ -20,6 +20,12 @@ let agentPanelRevision: unknown;
 let agentPanelQueue: Promise<unknown> = Promise.resolve();
 let agentPanelPending = 0;
 let publishAgentPanel: ((settings: AgentPanelSettings) => void) | null = null;
+let publishCompactMode: ((enabled: boolean) => void) | null = null;
+
+/** The application-owned store subscription lives for this webview's lifetime. */
+export function observeCompactMode(publish: (enabled: boolean) => void) {
+  publishCompactMode = publish;
+}
 
 export function observeAgentPanelSettings(publish: (settings: AgentPanelSettings) => void) {
   publishAgentPanel = publish;
@@ -103,6 +109,9 @@ export async function getSettingsStore() {
         autoSave: true,
       } as Parameters<typeof load>[1]);
       await initializeStoreDefaults(store);
+      await store.onKeyChange("compactMode", (value) => {
+        publishCompactMode?.(typeof value === "boolean" ? value : defaultSettings.compactMode);
+      });
       agentPanelRevision = await store.get("agentPanel");
       await store.onKeyChange("agentPanel", (value) => {
         if (agentPanelPending > 0) return;

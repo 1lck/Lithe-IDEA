@@ -4,8 +4,8 @@ import LitheGitModule
 import LitheModuleAPI
 
 enum WorkbenchLayoutMetrics {
-    static let rightActivityBarWidth: CGFloat = 40
-    static let workspaceTrailingInset = rightActivityBarWidth
+    static var rightActivityBarWidth: CGFloat { LitheTheme.compactMode ? 32 : 40 }
+    static var workspaceTrailingInset: CGFloat { rightActivityBarWidth }
     static let projectTabGap: CGFloat = 4
 
     @MainActor
@@ -20,13 +20,13 @@ enum WorkbenchLayoutMetrics {
 }
 
 enum ActivityBarMetrics {
-    static let width: CGFloat = 40
-    static let rightWidth = WorkbenchLayoutMetrics.rightActivityBarWidth
-    static let buttonWidth: CGFloat = 30
-    static let buttonHeight: CGFloat = 30
-    static let iconSize: CGFloat = 20
-    static let slotWidth: CGFloat = 37
-    static let slotHeight: CGFloat = 40
+    static var width: CGFloat { LitheTheme.compactMode ? 32 : 40 }
+    static var rightWidth: CGFloat { WorkbenchLayoutMetrics.rightActivityBarWidth }
+    static var buttonWidth: CGFloat { LitheTheme.compactMode ? 24 : 30 }
+    static var buttonHeight: CGFloat { LitheTheme.compactMode ? 24 : 30 }
+    static var iconSize: CGFloat { LitheTheme.compactMode ? 16 : 20 }
+    static var slotWidth: CGFloat { LitheTheme.compactMode ? 29 : 37 }
+    static var slotHeight: CGFloat { LitheTheme.compactMode ? 32 : 40 }
     static let toolViewportHeight: CGFloat = 280
 }
 
@@ -61,7 +61,7 @@ private enum WorkbenchTopBarMetrics {
     static let leadingInset: CGFloat = 83
     // ponytail: Reserve the reference's extra right-hand actions without adding them;
     // replace this space with their actual widths if those actions join the toolbar.
-    static let executionTrailingSpace = 4 * LitheTheme.Metrics.toolbarHeight
+    static var executionTrailingSpace: CGFloat { 4 * LitheTheme.Metrics.toolbarHeight }
     static let projectAvatarSize: CGFloat = 20
     static let projectAvatarLeadingInset: CGFloat = 6
     static let projectAvatarCenterX = leadingInset + projectAvatarLeadingInset + projectAvatarSize / 2
@@ -792,7 +792,7 @@ struct WorkbenchView: View {
                 }
                 .padding(.leading, WorkbenchTopBarMetrics.projectAvatarLeadingInset)
                 .padding(.trailing, 10)
-                .frame(height: 30)
+                .frame(height: LitheTheme.MainToolbar.buttonSize)
                 .litheRowHover(isActive: isProjectSwitcherPresented, cornerRadius: 6,
                                activeBackground: LitheTheme.hoverBackground)
             }
@@ -824,7 +824,7 @@ struct WorkbenchView: View {
                         .foregroundStyle(LitheTheme.secondaryText)
                 }
                 .padding(.horizontal, 9)
-                .frame(height: 32)
+                .frame(height: LitheTheme.compactMode ? 24 : 32)
                 .litheRowHover(isActive: isBranchSwitcherPresented, cornerRadius: 6,
                                activeBackground: LitheTheme.hoverBackground)
             }

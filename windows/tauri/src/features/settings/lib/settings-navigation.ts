@@ -87,6 +87,8 @@ export const settingsCategories: Array<{
       "settings.mac.appearance",
       "settings.mac.colorTheme",
       "settings.mac.appearanceMode",
+      "settings.appearance.compactMode",
+      "settings.appearance.compactModeDescription",
       "settings.mac.appearanceDescription",
       "settings.mac.language",
       "settings.mac.languageDescription",

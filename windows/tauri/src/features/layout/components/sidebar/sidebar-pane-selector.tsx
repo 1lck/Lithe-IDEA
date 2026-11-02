@@ -102,7 +102,11 @@ export const SidebarPaneSelector = ({
   const isVertical = orientation === "vertical";
   const tooltipSide = isVertical ? "right" : "bottom";
   // IntelliJ Islands tool window stripe icons are 20px (StripeToolbar.Button.iconSize).
-  const iconClassName = isVertical ? "size-5" : compact ? "size-4" : undefined;
+  const iconClassName = isVertical
+    ? "size-(--lithe-activity-icon-size)"
+    : compact
+      ? "size-4"
+      : undefined;
   const isBufferOwnedSurfaceActive = isSearchActive;
   const isPrimarySidebarItemActive = isSidebarVisible && !isBufferOwnedSurfaceActive;
   const isFilesActive =
@@ -308,7 +312,7 @@ export const SidebarPaneSelector = ({
           showLabels
             ? "ui-text-sm min-h-6 py-1"
             : // IntelliJ Islands stripe button: a 30x30 highlight with a 12px arc (6px radius).
-              "ui-text-sm mx-auto size-[30px] min-h-[30px] shrink-0 rounded-[6px] p-0",
+              "ui-text-sm mx-auto size-(--lithe-activity-button-size) min-h-(--lithe-activity-button-size) shrink-0 rounded-[6px] p-0",
           item.id === "terminal" && "cursor-grab touch-none",
           item.isActive &&
             !item.disabled &&
@@ -342,7 +346,7 @@ export const SidebarPaneSelector = ({
 
   if (isVertical) {
     // IntelliJ stripe buttons are 40px tall around a 30px highlight, leaving a 10px gap.
-    const itemGap = showLabels ? "gap-1" : "gap-2.5";
+    const itemGap = showLabels ? "gap-1" : "gap-(--lithe-activity-gap)";
     return (
       // Stripe icons use IntelliJ's 20x20 tool window artwork rather than scaled 16px icons.
       <IconContext.Provider value={STRIPE_ICON_CONTEXT}>

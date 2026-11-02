@@ -143,7 +143,7 @@ struct VcsProviderToolWindowView: View {
         }
         .padding(.leading, 12)
         .padding(.trailing, 10)
-        .frame(height: 41)
+        .frame(height: LitheTheme.Metrics.toolWindowHeaderHeight)
         .background(LitheTheme.toolHeader)
         .overlay(alignment: .bottom) { LitheToolWindowHeaderDivider() }
     }
@@ -157,7 +157,7 @@ struct VcsProviderToolWindowView: View {
                 .font(LitheTheme.uiFont(size: LitheTheme.Commit.toolbarFontSize, weight: .regular))
                 .foregroundStyle(tab == value ? LitheTheme.primaryText : LitheTheme.secondaryText)
                 .padding(.horizontal, LitheTheme.Commit.tabItemHorizontalPadding)
-                .frame(height: 28)
+                .frame(height: LitheTheme.Metrics.editorTabContentHeight)
         }
         .buttonStyle(.litheNoPress)
         .modifier(LitheToolWindowTabStyle(isSelected: tab == value, isActive: listActive))
