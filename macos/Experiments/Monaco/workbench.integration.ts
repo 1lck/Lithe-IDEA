@@ -1398,6 +1398,9 @@ async function verify() {
       const edited = model.getValue();
       configure(8, false, false);
       assert(model.getOptions().tabSize === 8 && !model.getOptions().insertSpaces, "existing model ignored explicit indentation");
+      let reports = await send({ type: "indentationReports" });
+      assert(reports["import-indent"].tabSize === 8 && reports["import-indent"].insertSpaces === false,
+        "host status did not receive explicit Tab indentation");
       assert(model.getValue() === edited, "indentation import rewrote content");
       await window.lithe.showSecondary({ id: "import-indent", readonly: false });
       const secondary = monacoEditor.getEditors().find(view => view !== editor)!;
@@ -1406,6 +1409,11 @@ async function verify() {
       assert(model.getOptions().tabSize === 2 && model.getOptions().indentSize === 2 && model.getOptions().insertSpaces, "automatic indentation ignored document content");
       await window.lithe.activate({ id: "import-indent-new", text: "", revision: 0, language: "javascript", readonly: false });
       assert(editor.getModel()!.getOptions().tabSize === 4, "new model ignored fallback indentation");
+      reports = await send({ type: "indentationReports" });
+      assert(reports["import-indent"].tabSize === 2 && reports["import-indent"].insertSpaces === true,
+        "host status received global fallback instead of detected indentation");
+      assert(reports["import-indent-new"].tabSize === 4,
+        "new document status reused the other split's indentation");
       await window.lithe.activate({ id: "import-indent", text: edited, revision: 1, language: "javascript", readonly: false });
       editor.trigger("indent-test", "undo", null);
       assert(model.getValue() === text, "indentation import damaged undo history");

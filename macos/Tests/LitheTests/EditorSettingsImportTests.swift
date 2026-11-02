@@ -6,6 +6,22 @@ import Testing
 
 @Suite("Editor settings import")
 struct EditorSettingsImportTests {
+    @Test @MainActor func detectedIndentationBelongsToEachDocumentAndRejectsInvalidWidths() {
+        let first = EditorDocument(url: URL(fileURLWithPath: "/fixture/first.js"), text: "", modificationDate: nil)
+        let second = EditorDocument(url: URL(fileURLWithPath: "/fixture/second.js"), text: "", modificationDate: nil)
+        #expect(first.indentation == nil)
+        first.updateIndentation(tabSize: 2, insertSpaces: true)
+        second.updateIndentation(tabSize: 8, insertSpaces: false)
+        #expect(first.indentation == .init(tabSize: 2, insertSpaces: true))
+        #expect(second.indentation == .init(tabSize: 8, insertSpaces: false))
+        first.updateIndentation(tabSize: 0, insertSpaces: false)
+        first.updateIndentation(tabSize: -1, insertSpaces: false)
+        #expect(first.indentation == .init(tabSize: 2, insertSpaces: true))
+        first.updateIndentation(tabSize: 4, insertSpaces: false)
+        #expect(first.indentation == .init(tabSize: 4, insertSpaces: false))
+        #expect(second.indentation == .init(tabSize: 8, insertSpaces: false))
+    }
+
     @Test @MainActor func legacyIndentationMigratesAndImportUndoUsesOneValue() throws {
         let store = ImportTestStore()
         store.set(8, forKey: "settings.tabWidth")

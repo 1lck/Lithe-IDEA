@@ -51,6 +51,7 @@ export interface WorkbenchHost {
   javaRunIconsDark?: Partial<Record<RunMarkerIcon, string>>;
   /** Native IDEA order: line numbers, then action decorations. */
   lineNumbersFirst?: boolean;
+  reportIndentation?: boolean;
   /** Opt in only when the host handles setBlameVisibility for repository files. */
   gitBlameMenu?: boolean;
   foldingIcons?: Record<"expanded" | "collapsed", { light: string; dark: string }>;
@@ -366,6 +367,14 @@ export function mountWorkbench(host: WorkbenchHost) {
       model.setEOL(monaco.editor.EndOfLineSequence.LF);
       entry = { languageID, source: new SourceText(payload.text, model.getAlternativeVersionId()), model, release: acquired.release, revision: payload.revision, chain: Promise.resolve(), readonly: payload.readonly, frozen: false, pendingEdits: 0, state: null, filename: payload.filename, locationRevision: payload.locationRevision ?? 0, contextGeneration: 0 };
       entries.set(payload.id, entry);
+      const reportIndentation = () => {
+        const { tabSize, insertSpaces } = model.getOptions();
+        void send({ type: "indentation", id: payload.id, tabSize, insertSpaces }).catch(fail);
+      };
+      if (host.reportIndentation) {
+        model.onDidChangeOptions(reportIndentation);
+        reportIndentation();
+      }
       const owned = entry;
       model.onDidChangeContent(event => {
         scheduleNavigation(payload.id, owned);

@@ -1819,10 +1819,8 @@ struct WorkbenchView: View {
                 .fixedSize()
                 .help("File encoding")
             }
-            if settings.editorAppearance.insertSpaces {
-                Text("\(settings.editorAppearance.tabSize) spaces")
-            } else {
-                Text("Tab width: \(settings.editorAppearance.tabSize)")
+            if let document = model.focusedEditorDocument ?? model.activeDocument {
+                EditorIndentationStatusLabel(document: document)
             }
             Button {
                 model.saveActiveDocument()
