@@ -865,7 +865,7 @@ Git Log 保留原输入底色。打开菜单不强制搜索框获得焦点；点
 
 ## AI 开发约束的范围
 
-强制规则集中在 `develop-lithe` 的 `macOS shared frontend controls`，这篇 Note
+强制规则集中在 `develop-lithe` 的参考页 `.agents/skills/develop-lithe/references/macos-ui.md`，这篇 Note
 只记录原因和范围。规则覆盖已有产品下拉/右键菜单、菜单定位与宽度、搜索输入、
 工具栏图标按钮、树行和字体；每类都指明真实组件路径，修改样式要先检查共享所有者
 和调用方，再对照对应 Community 控件/动作/主题源码。不能根据截图猜一个新样式，
