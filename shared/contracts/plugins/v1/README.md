@@ -2406,9 +2406,11 @@ The Node.js and Java SDKs each have a sample build provider
 (`sdk/*/examples/sample-build`) that answers one end-to-end scenario driven
 through a real Core session; the Rust SDK's sample backend
 (`sdk/rust/examples/sample-backend`) answers a plugin backend scenario in which
-the test plays the host and serves the credential requests. That repository
-runs them against the Lithe commit its contract copy pins, and weekly against
-the latest `preview`, the branch Lithe changes merge into.
+the test plays the host: it serves the credential requests and the protocol 3
+workspace, file watch and window requests, delivers a command and a context
+change, and checks that cancellation reaches the host. That repository runs
+them against the Lithe commit its contract copy pins, and weekly against the
+latest `preview`, the branch Lithe changes merge into.
 
 No SDK adds a wire field: a backend written without one is equally valid.
 
