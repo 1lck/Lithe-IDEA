@@ -48,7 +48,13 @@ SDK `3596a4d14bab2f4e19d187a136c8515bfd51eb88` 对该宿主的
 包含显式确认/取消、注册身份、请求取消确认、Run 退出观察和迟到回执清理。资源复用 33 项、
 i18n 35 项及 TypeScript/生产 bundle 和架构门禁通过。host 的生产/测试编译检查仍只有
 macOS 上既有的两项 Windows API 错误，没有新增错误；不算原生 Windows 通过。
-报告使用 `stage-d-registry-debug-*` 前缀；本批原生 Windows CI 尚未运行，不复用上一提交的通过结果。
+报告使用 `stage-d-registry-debug-*` 前缀；`b810a0abe348b7fd1c4ce43c1a513c9df9822b0c`
+的 [Windows CI 41440877663](https://github.com/1lck/Lithe-IDEA/actions/runs/41440877663) 已全部通过：
+host 398/3 跳过、Project 104/1 跳过、Core/真实 JDT 各 1587 项；Run 366、Build 132、
+Debug service 14、LSP 86、错误映射 2 项均通过。同一宿主的
+[SDK 41440952515](https://github.com/Lithe-IDEA/lithe-plugin-docs/actions/runs/41440952515) 与
+[Maven 41440957155](https://github.com/Lithe-IDEA/lithe-plugin-maven/actions/runs/41440957155)
+也已全部通过。这是 Debug 接线检查点；后续工具偏好增量不能借用它作为原生结果。
 首次将相互隔离的 mock 套件放进一个 Bun 进程出现 Channel 导出失败，按现有 CI 隔离方式
 复验通过；首轮 DOM portal 夹具未挂载，改用已有共享 portal 的局部 spy 后确认/取消均通过。
 保留失败报告，不放宽断言、超时或生产行为。
@@ -56,6 +62,34 @@ macOS 上既有的两项 Windows API 错误，没有新增错误；不算原生 
 仍未完成的退出条件：通用项目/全局工具默认和旧默认的动态继承迁移；官方 Windows
 适配器/Build 完整准入与旧 Maven/Java/Agent 生产消费者切换；正式 SDK/插件发行；两端
 完整 GUI 与发行组合验收。连接调试接线缩小了 Windows 缺口，没有完成阶段 D。
+
+### 通用工具偏好与两端消费（2026-11-02，实现中）
+
+Core 新增无 I/O 的 `toolchains.resolveConsumerPreferences`：按 Run 明确值、当前消费者、
+目录与工作区选择输入，工作区/消费者继承保持引用而非复制路径；引用不能形成循环。
+共享 schema/fixture 覆盖最近目录、跳过父消费者覆盖、默认变化、明确覆盖和严格拒绝。
+现有 `.lithe/run/local.json` 的 `toolchain.preferences` 是唯一持有方，旧编辑器省略字段
+时原样保留，显式空 v1 文档重置；读取、编辑都校验，不新建配置副本。
+
+macOS Build invocation 与 Windows native Build 使用当前插件/构建系统身份消费它。
+原生端读取当前文档、交同一 Core 选择惰性固定输入，再复用已安装定义、目录 pin、版本
+与本机文件证据；探测后核对来源字节，变更、取消、无效路径及越出工作区的来源拒绝。
+没有增加 Maven/Java 名字分支，也没有改变公开 Build invocation JSON。资源清单新增
+现有 Run 偏好的拒绝项；不写安装包、签名资源或跨 worktree 共享缓存。
+
+本批只接通存储协议与两端运行前读取；设置页写入、全局默认及旧 Project/Maven 默认的
+一次性无损转换尚未接通，旧数据没有删改。不能把这项基础标成工具迁移全部完成。
+本批 Core 1631 项全量通过，消费者 ID 按实际插件清单语法校验后的 8 项定向计时也通过
+（6–12ms）；原生 Project 107 项全通过，新默认变化/探测期失效/无效文档为 27/11/7ms。
+macOS 166 项回归通过（默认重读/来源变化/越界输入为 56/14/2ms）；随后补充 Run 文档
+2MiB 上限与大型无关元数据后，最终 macOS 186 项扩展回归全部通过，报告为
+`stage-d-tool-preferences-macos-complete`。host 生产/测试检查仍只有
+macOS 上既有的两处 Windows API 错误，不能算本批原生 Windows 通过。
+
+验证报告前缀 `stage-d-tool-preferences-*`；首次 Core golden 因多加公开 consumerID 字段
+失败，移除该字段并让平台从当前已安装贡献提供身份；首次 Swift 夹具每次重新编码清单
+触发来源字节变化，改为持有同一清单快照。后续版本检查同时接受 JSON 整数的编码类型，
+保留无效版本拒绝；所有失败报告保留，不放宽生产条件或等待预算。
 
 ### 通用运行配置生成（2026-11-01）
 

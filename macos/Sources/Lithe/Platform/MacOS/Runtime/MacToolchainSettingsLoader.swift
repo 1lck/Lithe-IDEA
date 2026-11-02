@@ -385,6 +385,13 @@ struct MacToolchainSettingsLoader: ToolchainSettingsLoading {
 
     /// Refuses links and special files before any read, including FIFO targets.
     static func safeNativeRead(_ url: URL) throws -> Data? {
+        try safeNativeRead(url, maximumBytes: 1_048_576)
+    }
+
+    /// Run documents also contain unrelated configurations. Their native
+    /// document owner permits 2 MiB; pin files retain their smaller limit.
+    static func safeNativeRead(_ url: URL, maximumBytes: Int) throws -> Data? {
+        guard maximumBytes > 0, maximumBytes <= 2_097_152 else { throw ToolchainSettingsLoadError.invalidLocal }
         try Task.checkCancellation()
         let descriptor = url.withUnsafeFileSystemRepresentation { path -> Int32 in
             guard let path else { return -1 }
@@ -399,12 +406,12 @@ struct MacToolchainSettingsLoader: ToolchainSettingsLoading {
         guard fstat(descriptor, &status) == 0, status.st_mode & S_IFMT == S_IFREG else {
             throw ToolchainSettingsLoadError.readFailed
         }
-        guard status.st_size <= 1_048_576 else { throw ToolchainSettingsLoadError.invalidLocal }
+        guard status.st_size <= maximumBytes else { throw ToolchainSettingsLoadError.invalidLocal }
         var data = Data()
         var buffer = [UInt8](repeating: 0, count: 65_536)
-        while data.count <= 1_048_576 {
+        while data.count <= maximumBytes {
             try Task.checkCancellation()
-            let wanted = min(buffer.count, 1_048_577 - data.count)
+            let wanted = min(buffer.count, maximumBytes + 1 - data.count)
             let count = buffer.withUnsafeMutableBytes { Darwin.read(descriptor, $0.baseAddress, wanted) }
             if count < 0 {
                 if errno == EINTR { continue }

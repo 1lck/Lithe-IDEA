@@ -447,6 +447,8 @@ async function main() {
       // is owned by the server, never copied or deleted by a Debug session.
       // Operation-owned toolchain backends keep mutable workspace state beneath
       // the same plugin owner; neither their state nor query facts may be reused.
+      // consumer-tool-preferences are user-owned Run data, including symbolic
+      // inheritance. No validator or copy phase can turn them into build input.
       if (excludedResources.some((resource) => resource.id === identifier)) {
         // Per-launch relays also own their provider admission route; they stay
         // excluded even when their embedded source matches another worktree.

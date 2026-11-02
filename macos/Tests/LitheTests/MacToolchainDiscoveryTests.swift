@@ -11,6 +11,111 @@ import LitheModuleAPI
 struct MacToolchainDiscoveryTests {
     private static let pluginID = "dev.lithe.fixture.discovery"
 
+    @MainActor @Test func consumerDefaultsAreReadAgainAndRemainIndependentFromExplicitRuns() async throws {
+        let root = try DiscoveryFixtureRoot()
+        defer { root.remove() }
+        let first = try root.installation("selected-one"), second = try root.installation("selected-two")
+        let probes = DiscoveryProbes(outputs: [first + "/bin/compiler": "compiler 17", second + "/bin/compiler": "compiler 21"])
+        let url = root.url("workspace/.lithe/run/local.json")
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        func save(_ home: String) throws {
+            let value: [String: Any] = ["version": 2, "configurations": [], "toolchain": ["preferences": ["version": 1,
+                "workspace": ["tools": ["compiler": ["home": home]],
+                    "consumers": ["dev.example.build/engine": ["compiler": ["inherit": "workspace"]]]]]]]
+            try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]).write(to: url)
+        }
+        let resolver = MacDefinedToolchainResolver()
+        let source = Self.source()
+        resolver.sources = { [source] }; resolver.discovery = discovery(root: root, probes: probes)
+        try save(first)
+        let selected = try await resolver.resolve(tool: "compiler", directory: ".", workspace: root.url("workspace"), environment: [:],
+            minimumVersion: "11", projectCodeAllowed: true, fixed: nil, use: .installation, consumerID: "dev.example.build/engine")
+        #expect(selected?.executable.path == first + "/bin/compiler")
+        try save(second)
+        let inherited = try await resolver.resolve(tool: "compiler", directory: ".", workspace: root.url("workspace"), environment: [:],
+            minimumVersion: "11", projectCodeAllowed: true, fixed: nil, use: .installation, consumerID: "dev.example.build/engine")
+        #expect(inherited?.executable.path == second + "/bin/compiler")
+        let explicit = try await resolver.resolve(tool: "compiler", directory: ".", workspace: root.url("workspace"), environment: [:],
+            minimumVersion: "11", projectCodeAllowed: true, fixed: .installation(home: first), use: .installation, consumerID: "dev.example.build/engine")
+        #expect(explicit?.executable.path == first + "/bin/compiler")
+        let before = try Data(contentsOf: url)
+        await #expect(throws: BuildToolResolutionError.self) {
+            try await resolver.resolve(tool: "compiler", directory: ".", workspace: root.url("workspace"), environment: [:],
+                minimumVersion: "11", projectCodeAllowed: true, fixed: .installation(home: root.path + "/missing"), use: .installation,
+                consumerID: "dev.example.build/engine")
+        }
+        #expect(try Data(contentsOf: url) == before)
+    }
+
+    @MainActor @Test func consumerDefaultsChangedDuringNativeProofCannotPublishASelection() async throws {
+        let root = try DiscoveryFixtureRoot()
+        defer { root.remove() }
+        let home = try root.installation("selected")
+        let url = root.url("workspace/.lithe/run/local.json")
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: ["version": 2, "toolchain": ["preferences": ["version": 1,
+            "workspace": ["tools": ["compiler": ["home": home]]]]]]).write(to: url)
+        let resolver = MacDefinedToolchainResolver(), source = Self.source()
+        resolver.sources = { [source] }
+        var discovery = MacToolchainDiscovery()
+        discovery.consumerProbe = { _, _, _ in
+            do { try Data(#"{"version":2,"toolchain":{"preferences":{"version":1}}}"#.utf8).write(to: url) }
+            catch { return nil }
+            return "compiler 21"
+        }
+        resolver.discovery = discovery
+        await #expect(throws: CancellationError.self) {
+            try await resolver.resolve(tool: "compiler", directory: ".", workspace: root.url("workspace"), environment: [:],
+                minimumVersion: "11", projectCodeAllowed: true, fixed: nil, use: .installation, consumerID: "dev.example.build/engine")
+        }
+    }
+
+    @MainActor @Test func invalidConsumerPreferenceDocumentsAndExternalAliasesNeverProbeTools() async throws {
+        let root = try DiscoveryFixtureRoot()
+        defer { root.remove() }
+        let source = Self.source(), resolver = MacDefinedToolchainResolver()
+        resolver.sources = { [source] }
+        let probes = DiscoveryProbes(outputs: [:]); resolver.discovery = discovery(root: root, probes: probes)
+        let url = root.url("workspace/.lithe/run/local.json")
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        for value in [#"{"version":99}"#, #"{"version":2,"toolchain":[]}"#, #"{"version":2,"toolchain":{"preferences":{"version":1,"unknown":true}}}"#] {
+            try Data(value.utf8).write(to: url)
+            await #expect(throws: BuildToolResolutionError.self) {
+                try await resolver.resolve(tool: "compiler", directory: ".", workspace: root.url("workspace"), environment: [:],
+                    minimumVersion: nil, projectCodeAllowed: true, fixed: nil, use: .installation, consumerID: "dev.example.build/engine")
+            }
+        }
+        let external = root.url("external-run")
+        try FileManager.default.createDirectory(at: external, withIntermediateDirectories: true)
+        try Data(#"{"version":2}"#.utf8).write(to: external.appendingPathComponent("local.json"))
+        try FileManager.default.removeItem(at: url.deletingLastPathComponent())
+        try FileManager.default.createSymbolicLink(at: url.deletingLastPathComponent(), withDestinationURL: external)
+        await #expect(throws: BuildToolResolutionError.self) {
+            try await resolver.resolve(tool: "compiler", directory: ".", workspace: root.url("workspace"), environment: [:],
+                minimumVersion: nil, projectCodeAllowed: true, fixed: nil, use: .installation, consumerID: "dev.example.build/engine")
+        }
+        #expect(probes.calls.isEmpty)
+    }
+
+    @MainActor @Test func unrelatedRunMetadataKeepsTheExistingNativeDocumentBudget() async throws {
+        let root = try DiscoveryFixtureRoot()
+        defer { root.remove() }
+        let home = try root.installation("selected"), source = Self.source()
+        let probes = DiscoveryProbes(outputs: [home + "/bin/compiler": "compiler 21"])
+        let resolver = MacDefinedToolchainResolver(); resolver.sources = { [source] }
+        resolver.discovery = discovery(root: root, probes: probes)
+        let url = root.url("workspace/.lithe/run/local.json")
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let document: [String: Any] = ["version": 2, "metadata": String(repeating: "x", count: 1_100_000),
+            "toolchain": ["preferences": ["version": 1, "workspace": ["tools": ["compiler": ["home": home]]]]]]
+        let bytes = try JSONSerialization.data(withJSONObject: document)
+        try bytes.write(to: url)
+        let selected = try await resolver.resolve(tool: "compiler", directory: ".", workspace: root.url("workspace"), environment: [:],
+            minimumVersion: "11", projectCodeAllowed: true, fixed: nil, use: .installation, consumerID: "dev.example.build/engine")
+        #expect(selected?.executable.path == home + "/bin/compiler")
+        #expect(try Data(contentsOf: url) == bytes)
+    }
+
     private static func manifest(complete: Bool = true) -> Data {
         let definition: [String: Any] = [
             "id": "compiler", "displayName": "Fixture compiler", "icon": ["host": "plugin"],

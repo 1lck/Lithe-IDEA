@@ -4,6 +4,80 @@ use std::sync::atomic::{AtomicU64, Ordering};
 static SEQUENCE: AtomicU64 = AtomicU64::new(0);
 const TOOL: &str = "dev.example.tools:compiler";
 
+#[test]
+fn consumer_defaults_follow_workspace_edits_and_explicit_runs_stay_independent() {
+    let fixture = Fixture::new();
+    let first = fixture.install("first-default");
+    let second = fixture.install("second-default");
+    let file = fixture.workspace.join(".lithe/run/local.json");
+    fs::create_dir_all(file.parent().unwrap()).unwrap();
+    let save = |home: &Path| {
+        fs::write(&file,json!({"version":2,"configurations":[],"toolchain":{"preferences":{"version":1,
+        "workspace":{"tools":{TOOL:{"home":native_path(home)}},"consumers":{"dev.example.build/engine":{TOOL:{"inherit":"workspace"}}}}}}}).to_string()).unwrap()
+    };
+    for home in [&first, &second] {
+        save(home);
+        let before = fs::read(&file).unwrap();
+        let mut request = fixture.request();
+        request.consumer = Some("dev.example.build/engine");
+        let selected = resolve(request, |path, _, _, _| {
+            assert_eq!(path, home.join(launcher()));
+            Ok("compiler 21".into())
+        })
+        .unwrap()
+        .unwrap();
+        assert_eq!(selected.executable, home.join(launcher()));
+        assert_eq!(fs::read(&file).unwrap(), before);
+    }
+    let explicit = json!({"home":native_path(&first)});
+    let mut request = fixture.request();
+    request.consumer = Some("dev.example.build/engine");
+    request.fixed = Some(&explicit);
+    assert_eq!(
+        resolve(request, |path, _, _, _| {
+            assert_eq!(path, first.join(launcher()));
+            Ok("compiler 21".into())
+        })
+        .unwrap()
+        .unwrap()
+        .executable,
+        first.join(launcher())
+    );
+    let invalid = json!({"home":native_path(&fixture.root.join("missing"))});
+    let mut request = fixture.request();
+    request.fixed = Some(&invalid);
+    assert!(resolve(request, |_, _, _, _| panic!(
+        "Invalid explicit choice cannot fall back"
+    ))
+    .is_err());
+}
+
+#[test]
+fn consumer_preferences_changed_during_native_probe_revoke_the_result() {
+    let fixture = Fixture::new();
+    let home = fixture.install("selected");
+    let file = fixture.workspace.join(".lithe/run/local.json");
+    fs::create_dir_all(file.parent().unwrap()).unwrap();
+    fs::write(&file,json!({"version":2,"toolchain":{"preferences":{"version":1,"workspace":{"tools":{TOOL:{"home":native_path(&home)}}}}}}).to_string()).unwrap();
+    let result = resolve(fixture.request(), |_, _, _, _| {
+        fs::write(&file, "{\"version\":2}").unwrap();
+        Ok("compiler 21".into())
+    });
+    assert_eq!(result.err().as_deref(), Some(CHANGED));
+}
+
+#[test]
+fn invalid_consumer_preference_documents_fail_before_native_probes_or_provider_queries() {
+    let fixture=Fixture::new();let file=fixture.workspace.join(".lithe/run/local.json");
+    fs::create_dir_all(file.parent().unwrap()).unwrap();
+    for value in [json!({"version":99}),json!({"version":2,"toolchain":[]}),
+        json!({"version":2,"toolchain":{"preferences":{"version":1,"unknown":true}}})] {
+        fs::write(&file,value.to_string()).unwrap();
+        assert!(resolve_with_queries(fixture.request(),|_,_,_,_|panic!("No probe for invalid preferences"),
+            |_,_,_,_|panic!("No provider query for invalid preferences")).is_err());
+    }
+}
+
 fn provider_fixture() -> Fixture {
     let mut fixture = Fixture::new();
     let mut provider: Value = serde_json::from_str(include_str!(
@@ -291,6 +365,7 @@ impl Fixture {
     }
     fn request(&self) -> Request<'_> {
         Request {
+            consumer: None,
             registry: &self.registry,
             workspace: &self.workspace,
             user_home: &self.root,

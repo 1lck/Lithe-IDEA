@@ -116,6 +116,8 @@ pub enum CoreCommand {
     ToolchainsFailureReply,
     /// Resolves the nearest machine-local directory pin.
     ToolchainsResolvePins,
+    /// Resolves consumer defaults while keeping workspace inheritance symbolic.
+    ToolchainsResolveConsumerPreferences,
     /// Resolves the four toolchain layers from a captured value snapshot.
     ToolchainsResolve,
     /// Checks a plugin-defined version probe without per-tool parsing.
@@ -634,6 +636,9 @@ impl CoreCommand {
             "toolchains.decodeReply" => Some(Self::ToolchainsDecodeReply),
             "toolchains.failureReply" => Some(Self::ToolchainsFailureReply),
             "toolchains.resolvePins" => Some(Self::ToolchainsResolvePins),
+            "toolchains.resolveConsumerPreferences" => {
+                Some(Self::ToolchainsResolveConsumerPreferences)
+            }
             "toolchains.resolve" => Some(Self::ToolchainsResolve),
             "toolchains.checkVersion" => Some(Self::ToolchainsCheckVersion),
             "toolchains.discoveryPlan" => Some(Self::ToolchainsDiscoveryPlan),

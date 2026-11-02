@@ -506,6 +506,8 @@ package struct BuildInvocation: Equatable, Sendable {
 
     /// Operation-owned choices supplied by a saved Run, never by the manifest.
     package var toolSelections: [String: FixedToolchainSelection] = [:]
+    /// Installed contribution whose defaults this operation consumes.
+    package var toolConsumerID: String? = nil
 
     /// After resolution fails, a provider must not discard a configured tool
     /// or runtime by doing its own lookup. Check this only on failure: an

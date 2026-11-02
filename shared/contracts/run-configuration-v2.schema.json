@@ -26,6 +26,7 @@
       "type": "object",
       "description": "Machine-local project toolchain defaults. Stored only in the local layer; non-empty per-configuration paths override matching defaults.",
       "properties": {
+        "preferences": { "$ref": "toolchain-consumer-preferences-v1.schema.json" },
         "java": {
           "type": "object",
           "properties": {

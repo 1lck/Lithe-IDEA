@@ -362,6 +362,13 @@ Swift 单元和插件 CI 通道复用已有 Cargo 下载缓存。先通过
 
 ### 独立工作树的本地编译
 
+通用工具使用方偏好保存在工作区现有 `.lithe/run/local.json` 的 `toolchain.preferences`，
+生命周期随该工作区本机配置，显式重置或移除后结束；没有增加并行缓存。目录/消费者引用
+每次运行重新解析，运行前 native adapter 读取文档并在探测后核对原始内容，不写应用或
+插件资源，不影响代码签名/Sparkle delta。它没有可靠构建 identity stamp，资源清单
+`consumer-tool-preferences` 和复用脚本在所有校验/复制阶段拒绝共享，包括相邻原子替换文件。
+
+
 Windows 注册表 stdio 调试器状态位于
 `<windows-local-app-data>/<app-id>/plugin-state/<plugin-id>/debug-adapters/<adapter-id>/<workspace-digest>/`。
 由当前插件/适配器/工作区拥有；停止会话关闭进程，卸载插件清理其状态。语言服务器托管适配器

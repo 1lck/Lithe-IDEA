@@ -6,6 +6,92 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
+#[test]
+fn project_tool_preferences_preserve_symbolic_choices_across_legacy_editor_saves_and_explicit_reset(
+) {
+    let root = temporary_root("project-tool-preferences");
+    fs::create_dir_all(&root).unwrap();
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/toolchains/consumer-preferences.json"
+    ))
+    .unwrap();
+    let call = |command: &str, payload: Value| -> Value {
+        serde_json::from_str(&execute_json(
+            &serde_json::json!({"id":"preferences-store","command":command,"payload":payload})
+                .to_string(),
+        ))
+        .unwrap()
+    };
+    let document = serde_json::json!({"version":2,"configurations":[],"toolchain":{"preferences":fixture["document"]}});
+    let changed = call(
+        "runConfig.updateOptions",
+        serde_json::json!({"root":root,"scope":"local","configurationId":"","localDocument":document,
+        "toolchain":{"javaHomePath":"/fixture/changed-jdk"}}),
+    );
+    assert_eq!(changed["ok"], true, "{changed}");
+    let saved: Value = serde_json::from_str(changed["data"]["document"].as_str().unwrap()).unwrap();
+    assert_eq!(saved["toolchain"]["preferences"], fixture["document"]);
+    let inspected = call(
+        "runConfig.projectToolchain",
+        serde_json::json!({"root":root,"path":".","localDocument":saved}),
+    );
+    assert_eq!(inspected["ok"], true, "{inspected}");
+    assert_eq!(inspected["data"]["toolPreferences"], fixture["document"]);
+    let reset = call(
+        "runConfig.updateOptions",
+        serde_json::json!({"root":root,"scope":"local","configurationId":"","localDocument":saved,
+        "toolchain":{"preferences":{"version":1}}}),
+    );
+    assert_eq!(reset["ok"], true, "{reset}");
+    let reset: Value = serde_json::from_str(reset["data"]["document"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        reset["toolchain"]["preferences"],
+        serde_json::json!({"version":1})
+    );
+    assert!(!root.join(".lithe/run/local.json").exists());
+}
+
+#[test]
+fn project_tool_preferences_reject_invalid_references_in_reads_and_edits_without_clearing_sources()
+{
+    let root = temporary_root("invalid-tool-preferences");
+    fs::create_dir_all(&root).unwrap();
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    let invalid = serde_json::json!({"version":1,"workspace":{"tools":{"dev.example.runtime:sdk":{"inherit":"workspace"}}}});
+    for (command, payload) in [
+        (
+            "runConfig.projectToolchain",
+            serde_json::json!({"root":root,"path":".","localDocument":{"version":2,"configurations":[],"toolchain":{"preferences":invalid}}}),
+        ),
+        (
+            "runConfig.updateOptions",
+            serde_json::json!({"root":root,"scope":"local","configurationId":"","localDocument":{"version":2,"configurations":[]},"toolchain":{"preferences":invalid}}),
+        ),
+    ] {
+        let reply: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({"id":"invalid-preferences","command":command,"payload":payload})
+                .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(reply["ok"], false, "{reply}");
+        assert!(reply["data"].is_null());
+    }
+    assert!(!root.join(".lithe/run/local.json").exists());
+}
+
 /// Native editors format exact argv without shell expansion; an empty quoted
 /// item must survive the common document mutation path on both platforms.
 #[test]

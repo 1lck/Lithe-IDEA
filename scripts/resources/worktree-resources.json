@@ -532,6 +532,17 @@
       ],
       "identity": "Worktree-owned frontend perf bundles, local baselines and CPU profiles. They follow that worktree's sources and machine and carry no identity stamp.",
       "reason": "Never copy or share this state at any worktree reuse stage. A bundle or baseline from another worktree would compare different sources. run-windows-perf.mjs rebuilds the bundle in its own worktree; nothing here reaches an app bundle, install directory or Sparkle delta baseline."
+    },
+    {
+      "id": "consumer-tool-preferences",
+      "path": ".lithe/run/local.json",
+      "reusable": false,
+      "locations": [
+        ".lithe/run/local.json (toolchain.preferences)",
+        "<native-document-adapter>/.lithe/run/local.json adjacent atomic replacement files"
+      ],
+      "identity": "Machine-local user choices and symbolic workspace/consumer inheritance, not a generated resource; no version/platform/architecture/toolchain build identity stamp.",
+      "reason": "The existing Run document owns these preferences until explicit reset or workspace removal. Native operations capture and recheck the source after discovery; only guarded explicit Run/settings saves may replace it. Never copy, share, symlink or hardlink this state between worktrees at any validation or publication stage. App/plugin resources and code signatures/Sparkle delta remain unchanged. References are re-resolved at use time and do not become reusable execution evidence."
     }
   ]
 }

@@ -72,8 +72,10 @@ pub async fn declarative_plugins_build_tool(
         if check_versions { std::fs::create_dir_all(&workspace_state).map_err(|error| error.to_string())?; }
         let inherited: HashMap<String, String> = std::env::vars().collect();
         let user_home = app.path().home_dir().map_err(|_| "toolchain.native.unavailable")?;
+        let consumer = format!("{plugin_id}/{build_system_id}");
         let defined_context = DefinitionContext { registry:&tool_registry, normalized:&normalized_tools,
             inherited:&inherited, user_home:&user_home, state:&workspace_state, explicit:check_versions,
+            consumer:Some(&consumer),
             selections:&choices["definedTools"], current:&current };
         let referenced: std::collections::HashSet<_> = invocation["executables"].as_array().into_iter().flatten()
             .chain(invocation["runtimeDependencies"].as_array().into_iter().flatten()
@@ -139,6 +141,7 @@ struct Resolver<'a> {
 }
 
 struct DefinitionContext<'a> {
+    consumer: Option<&'a str>,
     current: &'a dyn Fn() -> Result<(), String>,
     registry: &'a Value,
     normalized: &'a Value,
@@ -210,6 +213,7 @@ impl Resolver<'_> {
             }
             let selected = lithe_project::defined_toolchain::resolve_current(
                 lithe_project::defined_toolchain::Request {
+                    consumer: context.consumer,
                     registry: context.registry,
                     workspace: self.workspace,
                     user_home: context.user_home,

@@ -99,6 +99,9 @@ pub(crate) fn project_toolchain(request: ProjectToolchainRequest) -> Result<Valu
         "mavenJavaHomePath": path("mavenJavaHomePath", &maven_java),
         "runtimeExecutablePaths": runtimes,
     }});
+    if let Some(preferences) = toolchain.get("preferences") {
+        result["toolPreferences"] = preferences.clone();
+    }
     if let Some(id) = request.configuration_id.as_deref() {
         let mut explicit = document.clone();
         // Reuse the existing layer merge, without materializing global

@@ -1,6 +1,6 @@
 //! Native evidence for plugin-defined tools. Core owns ordering, versions and
 //! path policy; this adapter reads declarations and never interprets tool names.
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -18,6 +18,8 @@ mod providers;
 
 /// Inputs captured by the native host, including independently checked origins.
 pub struct Request<'a> {
+    /// Installed contribution consuming this tool; absent selects general defaults.
+    pub consumer: Option<&'a str>,
     pub registry: &'a Value,
     pub workspace: &'a Path,
     pub user_home: &'a Path,
@@ -152,12 +154,11 @@ impl Capture<'_> {
         })
     }
     fn values(&self) -> Value {
-        json!(
-            self.facts
-                .values()
-                .map(|value| &value.fact)
-                .collect::<Vec<_>>()
-        )
+        json!(self
+            .facts
+            .values()
+            .map(|value| &value.fact)
+            .collect::<Vec<_>>())
     }
 }
 
@@ -205,6 +206,36 @@ pub fn resolve_current(
         current: &current,
     };
     let workspace = request.workspace.canonicalize().map_err(|_| INVALID)?;
+    let preferences_path = workspace.join(".lithe/run/local.json");
+    let preferences_bytes = read_local(&preferences_path, &workspace)?;
+    let stored: Value = preferences_bytes
+        .as_deref()
+        .map(serde_json::from_str)
+        .transpose()
+        .map_err(|_| INVALID)?
+        .unwrap_or(json!({"version":2}));
+    if !stored.is_object()
+        || !matches!(stored["version"].as_u64(), Some(1 | 2))
+        || stored
+            .get("toolchain")
+            .is_some_and(|value| !value.is_object())
+    {
+        return Err(INVALID.into());
+    }
+    let preferences = stored["toolchain"]
+        .get("preferences")
+        .cloned()
+        .unwrap_or(json!({"version":1}));
+    let choice = core(
+        "toolchains.resolveConsumerPreferences",
+        json!({"document":preferences,"tool":request.tool,
+        "directory":request.directory,"consumer":request.consumer,"fixed":request.fixed}),
+    )?;
+    let fixed = choice["preferences"]["fixed"].clone();
+    let request = Request {
+        fixed: (!fixed.is_null()).then_some(&fixed),
+        ..request
+    };
     let root = native_path(&workspace);
     let plan = core(
         "toolchains.discoveryPlan",
@@ -458,7 +489,10 @@ pub fn resolve_current(
         }
     }
     capture.check()?;
-    if !capture.unchanged() || read_local(&local_path, &workspace)? != local {
+    if !capture.unchanged()
+        || read_local(&local_path, &workspace)? != local
+        || read_local(&preferences_path, &workspace)? != preferences_bytes
+    {
         return Err(CHANGED.into());
     }
     input["probes"] = json!(probes);

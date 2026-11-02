@@ -181,6 +181,10 @@ pub struct ToolchainPaths {
     /// selections; an explicit empty map clears them.
     #[serde(default)]
     pub path_overrides: Option<BTreeMap<String, PathToolchainOverride>>,
+    /// Generic consumer preferences in the same machine-local document.
+    /// Absent preserves saved choices; an empty v1 document resets them.
+    #[serde(default)]
+    pub preferences: Option<Value>,
 }
 
 /// Tool paths owned by a subproject; empty fields inherit the project defaults.
@@ -1795,6 +1799,9 @@ fn update_toolchain_document(
 ) -> Result<Value, CoreError> {
     let mut document = local_layer_document(root, local_document)?;
     validate_version_value(&document)?;
+    let preferences = toolchain
+        .preferences
+        .or_else(|| document["toolchain"].get("preferences").cloned());
     let overrides = toolchain
         .path_overrides
         .map(|value| json!(value))
@@ -1813,6 +1820,9 @@ fn update_toolchain_document(
     });
     if let Some(overrides) = overrides {
         document["toolchain"]["pathOverrides"] = overrides;
+    }
+    if let Some(preferences) = preferences {
+        document["toolchain"]["preferences"] = preferences;
     }
     validate_toolchain_path_overrides(&document)?;
     Ok(document)
@@ -3018,6 +3028,13 @@ fn validate_version_value(document: &Value) -> Result<(), CoreError> {
 }
 
 fn validate_toolchain_path_overrides(document: &Value) -> Result<(), CoreError> {
+    if let Some(preferences) = document
+        .get("toolchain")
+        .and_then(|value| value.get("preferences"))
+    {
+        crate::toolchain::preferences::validate(preferences)
+            .map_err(|error| CoreError::new(ErrorCode::InvalidRequest, error.message))?;
+    }
     let Some(value) = document
         .get("toolchain")
         .and_then(|value| value.get("pathOverrides"))

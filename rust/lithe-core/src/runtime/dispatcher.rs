@@ -288,6 +288,11 @@ fn execute(request: &str) -> CoreResponse {
         CoreCommand::ToolchainsResolvePins => {
             plugin_response(id, parsed.payload, crate::toolchain::resolve_pins_command)
         }
+        CoreCommand::ToolchainsResolveConsumerPreferences => plugin_response(
+            id,
+            parsed.payload,
+            crate::toolchain::resolve_consumer_preferences_command,
+        ),
         CoreCommand::ToolchainsResolve => {
             plugin_response(id, parsed.payload, crate::toolchain::resolve_command)
         }

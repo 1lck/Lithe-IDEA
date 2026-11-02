@@ -1167,6 +1167,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `toolchains.decodeReply` | Validate an inert toolchain query/reply pair against bound provider identity, generation, declared tools and host-native filesystem evidence; no transport or native I/O |
 | `toolchains.failureReply` | Build the JSON-RPC error reply for a query that missed its deadline or found no backend, so the host passes it to `toolchains.decodeReply` like a provider's own error; cancellation has none |
 | `toolchains.resolvePins` | Validate a captured local document and find the nearest ancestor directory pin, retaining dormant and legacy entries without probing or writing |
+| `toolchains.resolveConsumerPreferences` | Validate an inert consumer preference document and resolve one tool's explicit Run, consumer, directory or workspace choice while keeping workspace/consumer inheritance symbolic; no native files or launch authority |
 | `toolchains.resolve` | Resolve the fixed/project/global/automatic layers from one generation-bound snapshot, retaining unmet requirements, unavailable providers with their cause, conflicts and terminal fixed-value failures |
 | `toolchains.checkVersion` | Match captured output with an enabled plugin definition's version expression and compare generic numeric components with an optional minimum; never starts a probe |
 | `toolchains.discoveryPlan` | Return platform-filtered definition-owned scan declarations, layouts, probes, PATH entries, login-shell home variables and budgets; never scans native directories |
@@ -4924,3 +4925,26 @@ indexing policies or retired roots. Hosts discard in-flight results when their
 workspace root set changes. Removing a nested root restores parent scanning.
 An unavailable non-current root does not fail a scoped request for an accessible
 root; a missing descendant retains its ownership boundary until removed by the host.
+
+### Consumer tool preferences (development)
+
+`toolchains.resolveConsumerPreferences` accepts `{document, directory, consumer?, tool, fixed?}`.
+The document follows `toolchain-consumer-preferences-v1.schema.json`; `directory` is workspace-relative
+and `consumer` is an inert `pluginID/contributionID` identity. A non-null explicit Run `fixed` value
+wins. Otherwise the nearest consumer choice precedes general directory/workspace choices.
+`inherit: workspace` reads the workspace tool afresh; `inherit: consumer` in a directory reads that
+consumer's workspace preference and then the workspace tool. References cannot target directory
+scopes or themselves, so they cannot form cycles. Missing workspace tools return `fixed: null`,
+which means the normal toolchain resolver still owns automatic/project/global selection.
+
+The response is `{status: ok, preferences: {fixed, source, inheritance}}`, or the standard rejected
+`plugin.toolchain.invalidParams` / `plugin.toolchain.limitExceeded` envelope. Fixed values remain
+inert inputs to the existing resolver; this command cannot register a tool, prove package trust,
+resolve a version, write preferences or grant permission to run a program. Native consumers must
+recheck their source bytes and active definitions after discovery. The shared fixture is
+`shared/fixtures/toolchains/consumer-preferences.json`. The machine-local Run document stores it at `toolchain.preferences`. Run editor updates omit to
+preserve, or pass an empty v1 document to reset. `runConfig.projectToolchain` returns the inert
+`toolPreferences` alongside existing fields. The native host supplies the current
+installed plugin/build-system contribution identity; both native Build consumers read these preferences
+before the existing proof pipeline and recheck their bytes afterwards. Settings UI, global defaults
+and one-time legacy migration remain incomplete; this API alone does not complete Stage D.

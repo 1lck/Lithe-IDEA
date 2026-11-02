@@ -17,6 +17,9 @@ enum DefinedToolchainUse: Sendable, Equatable { case executable, installation }
 @MainActor
 protocol DefinedToolchainResolving: AnyObject {
     func resolve(tool: String, directory: String, workspace: URL, environment: [String: String],
+                 minimumVersion: String?, projectCodeAllowed: Bool,
+                 fixed: FixedToolchainSelection?, use: DefinedToolchainUse, consumerID: String?) async throws -> ResolvedDefinedToolchain?
+    func resolve(tool: String, directory: String, workspace: URL, environment: [String: String],
                  minimumVersion: String?, projectCodeAllowed: Bool) async throws -> ResolvedDefinedToolchain?
     func resolve(tool: String, directory: String, workspace: URL, environment: [String: String],
                  minimumVersion: String?, projectCodeAllowed: Bool,
@@ -27,6 +30,12 @@ protocol DefinedToolchainResolving: AnyObject {
 }
 
 extension DefinedToolchainResolving {
+    func resolve(tool: String, directory: String, workspace: URL, environment: [String: String],
+                 minimumVersion: String?, projectCodeAllowed: Bool,
+                 fixed: FixedToolchainSelection?, use: DefinedToolchainUse, consumerID: String?) async throws -> ResolvedDefinedToolchain? {
+        try await resolve(tool: tool, directory: directory, workspace: workspace, environment: environment,
+                          minimumVersion: minimumVersion, projectCodeAllowed: projectCodeAllowed, fixed: fixed, use: use)
+    }
     func resolve(tool: String, directory: String, workspace: URL, environment: [String: String],
                  minimumVersion: String?, projectCodeAllowed: Bool,
                  fixed: FixedToolchainSelection?, use: DefinedToolchainUse) async throws -> ResolvedDefinedToolchain? {

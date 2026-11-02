@@ -54,7 +54,11 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
             target: target,
             request: InvocationRequest(root: root, platform: "macos", settings: settings)
         )
-        return try outcome.value.invocation.invocation()
+        var invocation = try outcome.value.invocation.invocation()
+        guard let manifest = try JSONSerialization.jsonObject(with: target.manifest) as? [String: Any],
+              let pluginID = manifest["id"] as? String else { throw BuildToolResolutionError(L10n.string("The selected toolchain is unavailable."), terminal: true) }
+        invocation.toolConsumerID = pluginID + "/" + target.buildSystemID
+        return invocation
     }
 
     func checkToolVersion(_ target: BuildSystemTarget, runtime: String?, output: String) throws -> BuildVersionCheck {
