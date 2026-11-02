@@ -71779,8 +71779,13 @@
       "id": "settings.mac.shortcuts",
       "description": "Windows UI: settings.mac.shortcuts",
       "platforms": [
-        "windows"
-      ]
+        "windows",
+        "macos"
+      ],
+      "macos": {
+        "key": "Keyboard shortcuts",
+        "arguments": []
+      }
     },
     {
       "id": "settings.mac.shortcutsDescription",
@@ -93161,6 +93166,787 @@
       "macos": {
         "key": "Add clickable actions beside document text",
         "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.choose.ide.configuration.directory",
+      "description": "macOS editor settings import: Choose IDE configuration directory",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Choose IDE configuration directory",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.column.based.wrapping.is.not.supported.and",
+      "description": "macOS editor settings import: Column-based wrapping is not supported and was skipped.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Column-based wrapping is not supported and was skipped.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.custom.idea.schemes.may.override.fonts.scheme",
+      "description": "macOS editor settings import: Custom IDEA schemes may override fonts; scheme colors and font settings were skipped.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Custom IDEA schemes may override fonts; scheme colors and font settings were skipped.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.custom.themes.are.not.supported.the.current",
+      "description": "macOS editor settings import: Custom themes are not supported; the current Lithe palette is preserved.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Custom themes are not supported; the current Lithe palette is preserved.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.editor.settings.imported.and.verified.existing.editors",
+      "description": "macOS editor settings import: Editor settings imported and verified. Existing editors update immediately.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Editor settings imported and verified. Existing editors update immediately.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.file.specific.soft.wrapping.is.not.supported",
+      "description": "macOS editor settings import: File-specific soft wrapping is not supported and was skipped.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "File-specific soft wrapping is not supported and was skipped.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.ide.configuration",
+      "description": "macOS editor settings import: IDE configuration",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "IDE configuration",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.idea.font.spacing.is.mapped.approximately.rendering",
+      "description": "macOS editor settings import: IDEA font spacing is mapped approximately; rendering can differ between editors.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "IDEA font spacing is mapped approximately; rendering can differ between editors.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.idea.whitespace.subsets.cannot.be.mapped.exactly",
+      "description": "macOS editor settings import: IDEA whitespace subsets cannot be mapped exactly and were skipped.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "IDEA whitespace subsets cannot be mapped exactly and were skipped.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.import.ide.settings",
+      "description": "macOS editor settings import: Import IDE settings",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Import IDE settings",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.import.selected",
+      "description": "macOS editor settings import: Import selected",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Import selected",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.indent.guides",
+      "description": "macOS editor settings import: Indent guides",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Indent guides",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.no.supported.ide.configuration.was.found.you",
+      "description": "macOS editor settings import: No supported IDE configuration was found. You can choose a configuration directory.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No supported IDE configuration was found. You can choose a configuration directory.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.only.explicit.user.settings.are.imported.defaults",
+      "description": "macOS editor settings import: Only explicit user settings are imported. Defaults, workspace and language overrides, keybindings, formatters, extensions and account data are skipped.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Only explicit user settings are imported. Defaults, workspace and language overrides, keybindings, formatters, extensions and account data are skipped.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.only.one.installed.font.family.is.imported",
+      "description": "macOS editor settings import: Only one installed font family is imported; fallback lists and font weights are not supported.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Only one installed font family is imported; fallback lists and font weights are not supported.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.only.selected.editor.settings.are.copied.into",
+      "description": "macOS editor settings import: Only selected editor settings are copied into Lithe. Source files are never modified. Existing custom settings are unchecked by default.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Only selected appearance and editor settings are copied into Lithe. Source files are never modified. Existing custom settings are unchecked by default.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.pixel.line.height.needs.an.explicit.supported",
+      "description": "macOS editor settings import: Pixel line height needs an explicit supported font size; line height was skipped.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Pixel line height needs an explicit supported font size; line height was skipped.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.scaled.idea.font.sizes.are.not.supported",
+      "description": "macOS editor settings import: Scaled IDEA font sizes are not supported and were skipped.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Scaled IDEA font sizes are not supported and were skipped.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.scan.again",
+      "description": "macOS editor settings import: Scan again",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Scan again",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.settings.changed.scan.again.before.importing.or",
+      "description": "macOS editor settings import: Settings changed. Scan again before importing or restoring.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Settings changed. Scan again before importing or restoring.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.settings.could.not.be.verified.the.recovery",
+      "description": "macOS editor settings import: Settings could not be verified. The recovery backup has been retained.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Settings could not be verified. The recovery backup has been retained.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.some.settings.have.unsupported.values.and.were",
+      "description": "macOS editor settings import: Some settings have unsupported values and were skipped.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Some settings have unsupported values and were skipped.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.the.bundled.palette.is.an.approximation.custom",
+      "description": "macOS editor settings import: The bundled palette is an approximation; custom theme colors are not imported.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The bundled palette is an approximation; custom theme colors are not imported.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.the.configuration.could.not.be.read.check",
+      "description": "macOS editor settings import: The configuration could not be read. Check the selected directory and file permissions.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The configuration could not be read. Check the selected directory and file permissions.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.the.previous.editor.settings.have.been.restored",
+      "description": "macOS editor settings import: The previous editor settings have been restored.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The previous editor settings have been restored.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.the.requested.font.is.not.installed.the",
+      "description": "macOS editor settings import: The requested font is not installed; the current Lithe font is preserved.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The requested font is not installed; the current Lithe font is preserved.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.this.configuration.contains.unsupported.or.invalid.settings",
+      "description": "macOS editor settings import: This configuration contains unsupported or invalid settings.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This configuration contains unsupported or invalid settings.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.undo.last.import",
+      "description": "macOS editor settings import: Undo last import",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Undo last import",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.whitespace",
+      "description": "macOS editor settings import: Whitespace",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Whitespace",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.pixelLineHeightDependency",
+      "description": "macOS import line-height dependency",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Select the source font size together with pixel line height, or keep the current line height.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.noDifferences",
+      "description": "macOS editor import startup",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No supported settings differ from your current configuration.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.skip",
+      "description": "macOS editor import startup",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Skip import",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.importable",
+      "description": "Compact IDE settings import panel",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Importable settings",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.recognizedMatch",
+      "description": "Compact IDE settings import panel",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The settings we can read already match Lithe.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.chooseSource",
+      "description": "IDE import source chooser heading",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Import settings from",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.noSupportedSettings",
+      "description": "Import source was read but has no supported explicit editor settings",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This configuration has no supported explicit editor settings to import.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.noSavedUserSettings",
+      "description": "Detected editor user directory without a settings file",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This editor has no saved user settings yet. Save settings in the editor, then scan again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.skipChoice",
+      "description": "IDE settings import dialog skip",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Skip",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.userSettings",
+      "description": "IDE settings import dialog userSettings",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "User settings",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.emptyTitle",
+      "description": "IDE settings import dialog emptyTitle",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No settings to import yet",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.readFailureTitle",
+      "description": "IDE settings import dialog readFailureTitle",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Unable to read settings",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.matchingTitle",
+      "description": "IDE settings import dialog matchingTitle",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Settings already match",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.noSavedSettingsForProduct",
+      "description": "IDE settings import dialog noSavedSettingsForProduct",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ has no saved user settings.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "settings.editorImport.appearanceGroup",
+      "description": "IDE settings import category",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Appearance settings",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.preferencesGroup",
+      "description": "IDE settings import category",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Editor preferences",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.referenceDefault",
+      "description": "IDE appearance import provenance",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Reference default",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.approximateMapping",
+      "description": "IDE appearance import provenance",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Approximate mapping",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.scopeAppearance",
+      "description": "IDE appearance import provenance",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Appearance defaults are labeled separately. Workspace and language overrides, keybindings, formatters, extensions and account data are skipped.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.progress",
+      "description": "IDE settings import result",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Importing settings…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.complete",
+      "description": "IDE settings import result",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Import complete",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.resultCount",
+      "description": "IDE settings import result",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Applied: %lld. Not selected: %lld.",
+        "arguments": [
+          "arg1",
+          "arg2"
+        ]
+      },
+      "parameters": {
+        "arg1": "integer",
+        "arg2": "integer"
+      }
+    },
+    {
+      "id": "settings.editorImport.currentValue",
+      "description": "IDE import comparison layout",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Current value",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.incomingValue",
+      "description": "IDE import comparison layout",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Import value",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.approximateLabel",
+      "description": "IDE import comparison layout",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Approximate",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.referenceHelp",
+      "description": "IDE import comparison layout",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This reference appearance value fills a setting absent from the source. It may differ by version or profile.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.editorImport.mappingHelp",
+      "description": "IDE import comparison layout",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Mapped to Lithe's supported appearance. Rendering may differ from the source IDE.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "mac.editorImport.extended0",
+      "description": "macOS IDE settings import",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Tab size",
+        "arguments": []
+      }
+    },
+    {
+      "id": "mac.editorImport.extended1",
+      "description": "macOS IDE settings import",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Insert spaces",
+        "arguments": []
+      }
+    },
+    {
+      "id": "mac.editorImport.extended2",
+      "description": "macOS IDE settings import",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Detect indentation",
+        "arguments": []
+      }
+    },
+    {
+      "id": "mac.editorImport.extended3",
+      "description": "macOS IDE settings import",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Code settings",
+        "arguments": []
+      }
+    },
+    {
+      "id": "mac.editorImport.extended4",
+      "description": "macOS IDE settings import",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Reference shortcuts are merged with supported user overrides. Conditional rules, chords and removals suppress the affected mappings; extension keymaps are skipped.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "mac.editorImport.extended5",
+      "description": "macOS IDE settings import",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Only global indentation is imported. Language-specific code styles and formatter rules are skipped.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "mac.editorImport.extended6",
+      "description": "macOS IDE settings import",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Keyboard shortcut conflicts with %@. Adjust your keymap before importing.",
+        "arguments": [
+          "command"
+        ]
+      },
+      "parameters": {
+        "command": "string"
+      }
+    },
+    {
+      "id": "mac.editorImport.extended7",
+      "description": "macOS IDE settings import",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Appearance defaults are labeled separately. Workspace and language overrides, formatters, extensions and account data are skipped.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "mac.editorImport.inheritedKeymapScope",
+      "description": "IDE keymap import scope",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Supported keyboard commands are mapped; unknown keymaps, mouse shortcuts and chords are skipped.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "mac.editorImport.customTheme",
+      "description": "Imported editor theme",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Imported editor theme",
+        "arguments": []
+      }
+    },
+    {
+      "id": "mac.editorImport.customThemeHelp",
+      "description": "Imported editor theme",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Imported editor colors override the built-in palette. Remove the imported theme to use the built-in colors again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "mac.editorImport.customThemeScope",
+      "description": "Imported editor theme",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Imported theme colors are applied to source editors. Unmapped effects and language-specific rules are skipped; built-in base colors are approximate.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "mac.editor.tabWidthStatus",
+      "description": "macOS editor status for tab indentation",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Tab width: %lld",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "integer"
       }
     }
   ]

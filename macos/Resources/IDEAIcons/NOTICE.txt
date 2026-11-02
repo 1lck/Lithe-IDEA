@@ -449,3 +449,19 @@ are unmodified platform/icons/src/expui/fileTypes assets, and fileTypes/custom{,
 is the unmodified platform/icons/src/fileTypes/custom.svg (IDEA's icon for its "Native"
 file type, which has no separate dark variant), both from Community revision
 fb72b4df43ab (Apache-2.0).
+
+The importSettings/idea.svg and importSettings/vscode.svg product logos come from
+JetBrains IntelliJ Community revision e12d185a335d02f3831c12f2af64130b3ace46db:
+plugins/ide-startup/importSettings/resources/ideIcons/IU_20.svg
+plugins/ide-startup/importSettings/resources/vscode/VSCode_20.svg
+They identify the source products in the settings import chooser; respective
+product names and trademarks remain the property of their owners.
+
+The importSettings/cursor.svg product logo is the unmodified
+plugins/ide-startup/importSettings/resources/cursor/Cursor_20.svg from the same
+Community revision e12d185a335d02f3831c12f2af64130b3ace46db above.
+Cursor names and trademarks remain the property of their owners.
+
+Import category colorPicker.svg, keyboard.svg, configFile.svg and settings.svg are copied unchanged from
+plugins/ide-startup/importSettings/resources/icons at Community revision
+e12d185a335d02f3831c12f2af64130b3ace46db (Apache-2.0).

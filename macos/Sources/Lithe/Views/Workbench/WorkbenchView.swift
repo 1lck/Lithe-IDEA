@@ -1819,7 +1819,11 @@ struct WorkbenchView: View {
                 .fixedSize()
                 .help("File encoding")
             }
-            Text("\(settings.tabWidth) spaces")
+            if settings.editorAppearance.insertSpaces {
+                Text("\(settings.editorAppearance.tabSize) spaces")
+            } else {
+                Text("Tab width: \(settings.editorAppearance.tabSize)")
+            }
             Button {
                 model.saveActiveDocument()
             } label: {

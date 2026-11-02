@@ -583,6 +583,7 @@ struct SettingsView: View {
 
     private var editorSettings: some View {
         VStack(alignment: .leading, spacing: 10) {
+            EditorSettingsImportControl(feature: model.editorSettingsImport)
             group("Display") {
                 row("Font") {
                     VStack(alignment: .leading, spacing: 4) {
@@ -637,6 +638,12 @@ struct SettingsView: View {
                     }
                 }
                 LitheSettingsCheckbox(isOn: $settings.editorAppearance.fontLigatures, title: "Font ligatures")
+                row("Tab size") {
+                    LitheSettingsStepper(value: $settings.editorAppearance.tabSize, in: 1...16, step: 1,
+                        width: 126, accessibilityLabel: "Tab size", title: { String($0) })
+                }
+                LitheSettingsCheckbox(isOn: $settings.editorAppearance.insertSpaces, title: "Insert spaces")
+                LitheSettingsCheckbox(isOn: $settings.editorAppearance.detectIndentation, title: "Detect indentation")
                 row("File tree row height") {
                     LitheSettingsStepper(
                         value: $settings.projectTreeRowHeight,
@@ -672,17 +679,7 @@ struct SettingsView: View {
                     )
                 }
             }
-            group("Indentation") {
-                row("Tab width") {
-                    LitheSettingsSelect(
-                        selection: $settings.tabWidth,
-                        options: [2, 4, 8],
-                        width: 130,
-                        accessibilityLabel: "Tab width",
-                        title: { "\($0) spaces" }
-                    )
-                }
-            }
+
         }
         .task {
             guard viewState.editorFontFamilies.isEmpty else { return }
@@ -755,6 +752,12 @@ struct SettingsView: View {
                         options: EditorAppearanceSettings.ColorScheme.allCases,
                         width: 190, accessibilityLabel: "Editor color scheme", title: \.title
                     )
+                }
+                if let imported = ImportedEditorTheme.decode(settings.editorAppearance.customTheme) {
+                    row("Imported editor theme", info: "Imported editor colors override the built-in palette. Remove the imported theme to use the built-in colors again.") {
+                        Text(verbatim: imported.name).lineLimit(1).truncationMode(.middle)
+                        Button("Remove") { settings.editorAppearance.customTheme = "" }
+                    }
                 }
                 LitheSettingsCheckbox(isOn: $settings.editorAppearance.italicComments, title: "Italic comments")
                 row("Colorize bracket pairs", info: "Bracket colors follow the selected editor color scheme.") {
