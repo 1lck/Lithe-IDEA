@@ -497,6 +497,15 @@ macOS Debug 的源码兜底定位现在优先使用 `buildProject.root`，把模
 测试稳定性、Notes、矩阵和 bundle 只读检查通过。没有改公共字段、Core 或 Windows
 实现，不把这项源码选择回归当成完整 Registry/DAP 或 GUI 验收。
 
+### 原生编辑器重置的两层继承复验（2026-11-02）
+
+补充了团队层提供两个工具、本机只改其中一个的原生存储场景：先从 Core 解析实际
+编辑草稿，再通过同一个 Reset 保存；准备输入没有残留工具，重开仍是显式清空，
+团队配置文件字节保持不变。参数按钮同时复用现有已打包 IDEA 图标，没有新增资源。
+当前 macOS 124 项计时通过，报告为 `stage-d-provider-run-inherited-reset-final`。
+新增用例首轮因误写 Swift 枚举名而在编译阶段失败、未执行测试，修正后全部通过；
+失败日志与零用例报告保留，没有调整预算或断言。
+
 ### D-MIGRATION-REMOVAL：旧 Maven 数据迁移器清理
 
 这是 #1495 下独立跟踪的删除项，状态为未完成。`MacLegacyMavenConfigurationMigration`

@@ -31,7 +31,7 @@ struct ProviderRunOptionsEditor: View {
                             ), height: 22)
                             .accessibilityLabel(Text("Runtime arguments"))
                             Button { update { if $0.runtimeArguments.indices.contains(index) { $0.runtimeArguments.remove(at: index) } } } label: {
-                                Image(systemName: "minus")
+                                LitheIDEAIcon(resourcePath: "expui/general/closeSmall.svg", size: 16, preservesOriginalColors: true)
                             }
                             .litheIconButton()
                             .help("Remove")
@@ -43,7 +43,9 @@ struct ProviderRunOptionsEditor: View {
             .frame(height: CGFloat(min(arguments.count, 6)) * 36)
             .litheScrollViewChrome(hideHorizontal: true)
             Button { update { $0.runtimeArguments.append("") } } label: {
-                Label("Add argument", systemImage: "plus")
+                Label { Text("Add argument") } icon: {
+                    LitheIDEAIcon(resourcePath: "expui/general/add.svg", size: 16, preservesOriginalColors: true)
+                }
             }
             .buttonStyle(LitheActionButtonStyle())
             .disabled(arguments.count >= 1024)

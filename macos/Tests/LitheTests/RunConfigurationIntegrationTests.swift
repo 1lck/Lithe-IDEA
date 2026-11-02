@@ -60,6 +60,36 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
+    func providerResetClearsTeamToolsFromTheResolvedEditorDraftWithoutChangingTheTeamDocument() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("provider-reset-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = MacRunConfigurationStore(core: RustCoreBridge(), storage: MacFileStorage(), preferences: RunTestKeyValueStore())
+        let reference = BuildProviderRunReference(pluginID: "dev.example.engine", buildSystemID: "engine", root: ".", run: "task",
+            projectID: "project", targetID: "target", execution: .task)
+        let id = try store.saveBuildProviderConfiguration(reference, name: "Team task", at: root)
+        let localURL = root.appendingPathComponent(".lithe/run/local.json")
+        let teamURL = root.appendingPathComponent(".lithe/run/configurations.json")
+        try FileManager.default.moveItem(at: localURL, to: teamURL)
+        let teamTools: [String: FixedToolchainSelection?] = ["dev.example.engine:compiler": .executable(path: "/fixture/team compiler"),
+            "dev.example.engine:vm": .installation(home: "/fixture/team vm")]
+        try store.saveOptions(RunOptions(providerRunOptions: BuildProviderRunOptions(tools: teamTools)), configurationID: id, scope: .project, at: root)
+        let teamBytes = try Data(contentsOf: teamURL)
+        try store.saveOptions(RunOptions(providerRunOptions: BuildProviderRunOptions(runtimeArguments: ["local argument"],
+            tools: ["dev.example.engine:compiler": .executable(path: "/fixture/local compiler")])), configurationID: id, scope: .local, at: root)
+        let editor = try #require(store.resolve(at: root, toolchainCandidates: []).configurations.first { $0.configuration.id == id }).options
+        #expect(editor.providerRunOptions?.tools["dev.example.engine:vm"] == teamTools["dev.example.engine:vm"])
+        try store.saveOptions(editor.resettingProviderRunOptions(), configurationID: id, scope: .local, at: root)
+        let reset = try store.providerLaunchInputs(at: root, configurationID: id, providerRoot: ".")
+        #expect(reset.tools.isEmpty)
+        #expect(reset.launchOptions.runtimeArguments.isEmpty)
+        #expect(try Data(contentsOf: teamURL) == teamBytes)
+        let reopened = try #require(store.resolve(at: root, toolchainCandidates: []).configurations.first { $0.configuration.id == id }).options
+        #expect(reopened.providerRunOptions?.tools.count == teamTools.count)
+        #expect(reopened.providerRunOptions?.tools.values.allSatisfy { $0 == nil } == true)
+    }
+
+    @Test
     func nativeGenerationUsesProviderOwnershipThroughTheRealBridgeWithoutReadingPomsForJavaMembership() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("provider-generation-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
