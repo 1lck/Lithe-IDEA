@@ -32,6 +32,7 @@ enum ActivityBarMetrics {
 
 /// Shared 30pt paint area centered in the activity rail's 37×40pt slot.
 struct LitheActivityBarButtonStyle: ButtonStyle {
+    @ObservedObject private var themeRuntime = AppThemeRuntime.shared
     var isSelected = false
     var isDragging = false
     @Environment(\.isEnabled) private var isEnabled
@@ -273,6 +274,7 @@ final class ProjectReplaceKeyMonitorView: NSView {
 }
 
 struct WorkbenchView: View {
+    @ObservedObject private var themeRuntime = AppThemeRuntime.shared
     private var moduleUIRegistry: WorkbenchModuleUIRegistry { model.workbenchUIRegistry }
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var projectSessions: ProjectSessionManager

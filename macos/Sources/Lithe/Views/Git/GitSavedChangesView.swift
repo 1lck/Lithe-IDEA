@@ -4,6 +4,7 @@ import LitheGitModule
 
 /// SavedPatchesUi: records above, changed files and restore actions below.
 struct GitSavedChangesView: View {
+    @ObservedObject private var themeRuntime = AppThemeRuntime.shared
     @ObservedObject var feature: GitFeatureModel
     let openDiff: (GitSavedChangesSnapshot, String, GitCommitFile) -> Void
     let dropStash: (GitStash) -> Void

@@ -20,6 +20,7 @@ struct VcsProviderToolWindowActions {
 /// Every provider uses this view, so no VCS is named here; an action shows
 /// only when the provider declares its capability.
 struct VcsProviderToolWindowView: View {
+    @ObservedObject private var themeRuntime = AppThemeRuntime.shared
     @ObservedObject var feature: VcsProvidersFeatureModel
     let title: String
     let pluginID: String

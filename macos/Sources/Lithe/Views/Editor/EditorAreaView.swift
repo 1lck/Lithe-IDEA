@@ -92,6 +92,7 @@ private struct EditorDocumentTabIcon: View {
 
 
 struct EditorAreaView: View {
+    @ObservedObject private var themeRuntime = AppThemeRuntime.shared
     var groupID: UUID? = nil
     var groupDrag: EditorGroupDragState? = nil
     @State private var ownedGroupDrag = EditorGroupDragState()

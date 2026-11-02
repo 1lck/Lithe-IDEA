@@ -3,6 +3,7 @@ import SwiftUI
 import LitheGitModule
 
 struct ChangesSidebarView: View {
+    @ObservedObject private var themeRuntime = AppThemeRuntime.shared
     private let changeRowHeight = LitheTheme.Tree.rowHeight
 
     @ObservedObject var feature: GitFeatureModel

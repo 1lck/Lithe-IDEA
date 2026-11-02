@@ -3,6 +3,7 @@ import SwiftUI
 import LitheTerminalModule
 
 struct TerminalView: View {
+    @ObservedObject private var themeRuntime = AppThemeRuntime.shared
     @ObservedObject var feature: TerminalFeatureModel
     @EnvironmentObject private var model: AppModel
     @State private var terminalToolActive = false

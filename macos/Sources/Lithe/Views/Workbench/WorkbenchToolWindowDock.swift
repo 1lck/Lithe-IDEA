@@ -3,6 +3,7 @@ import SwiftUI
 
 /// SquareStripeButtonLook paints a normal floating surface, independent of source selection.
 struct LitheToolWindowDragButtonStyle: ViewModifier {
+    @ObservedObject private var themeRuntime = AppThemeRuntime.shared
     @Environment(\.colorScheme) private var scheme
     func body(content: Content) -> some View {
         let surface = LitheTheme.toolWindowFloatingButtonBackground(for: scheme)

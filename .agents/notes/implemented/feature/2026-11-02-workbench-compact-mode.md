@@ -19,8 +19,9 @@ macOS 的工具面板有独立且保留的 SwiftUI 宿主，仅重绘主窗口�
   偏好保存在现有应用设置存储中，不读写外部工具配置，不写安装资源，因此不影响代码签名或 Sparkle 增量更新。
 - Windows 沿用根节点属性与 CSS 变量（层叠样式表的共享尺寸值），紧凑覆盖在已有聚焦/舒适密度之后。
   开关不改写原密度选择，关闭后恢复；扩展活动栏仍使用用户宽度，收起的活动栏才从 38px 缩至 32px。
-- macOS 沿用 `AppThemeRuntime` 的线程安全快照，并为紧凑状态提供 Observation（SwiftUI 的属性读取追踪）。
-  所有读取共享尺寸的宿主都能收到通知，不重建编辑器、不按视图身份重置会话，也不依赖高频全局广播。
+- macOS 沿用 `AppThemeRuntime` 的线程安全快照，并通过 Combine（项目已有的状态变更通知框架）发布紧凑状态变化。
+  读取共享尺寸的视图、按钮样式与标签修饰器用 `@ObservedObject` 直接订阅，独立保留的工具宿主同样收到通知；
+  不重建编辑器、不按视图身份重置会话，重复赋相同值不发布通知。原生布局读取仍受锁保护。
   Terminal、Commit、Git Log、Run、Debug、Tests、Problems 和 VCS 的自有标签标题栏同样读取共享高度，不能继续保留固定 41pt。
 - 保留平台差异：macOS 主工具栏 40→32pt、工具标题栏 41→32pt、标签条 36→28pt；Windows 主工具栏 40→32px、工具标题栏 36→28px、标签条随标题栏缩小。
   两端活动按钮 30→24、活动图标 20→16，原生菜单与普通 16pt 工具图标保留原资源，不改几何或描边。
@@ -38,7 +39,9 @@ macOS 的工具面板有独立且保留的 SwiftUI 宿主，仅重绘主窗口�
 
 - 把 Windows 的聚焦密度直接改名：改变已有偏好的含义，且不能解决 macOS 和外侧活动栏，因此保留原设置。
 - 全局缩放或减小字体：实现较短，但影响代码、终端、弹窗和原生命中区，不采用。
-- 只在主窗口监听设置后重建所有工具面板：可能丢失输入、焦点和会话状态，使用尺寸读取追踪。
+- 只在主窗口监听设置后重建所有工具面板：可能丢失输入、焦点和会话状态，因此由尺寸消费者直接订阅变更。
+- 使用 `@Observable` 自动追踪读取：该框架从 macOS 14 起可用，而产品最低支持 macOS 13，
+  会使 Swift 测试、插件验证与 Release 构建在编译阶段失败；因此复用已有 Combine，不提高最低系统要求或引入回移植依赖。
 
 ## 后果
 
@@ -49,7 +52,7 @@ macOS 的工具面板有独立且保留的 SwiftUI 宿主，仅重绘主窗口�
 ## 验证
 
 - Windows：`./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend -FrontendTestPath src/features/settings/lib/compact-mode.test.ts`，检查旧设置、非法值、保存重读、即时属性更新及其他偏好不变。
-- macOS：`./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter CompactModeTests`，检查持久化、重置、尺寸读取追踪、控件边界与关闭后的恢复。
+- macOS：`./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter CompactModeTests`，检查持久化、重置、变更通知去重、控件边界与关闭后的恢复；深浅主题下两个保留的原生标题宿主无需替换根视图即可更新高度。
 - 真实产品在深浅主题、多个窗口、Project/Commit/Terminal/Agent 打开时反复切换；确认标题、标签、按钮和图标不裁切，窗口拖动、菜单、活动项、面板拖动、编辑器滚动与焦点正常。
 - 重启确认设置保留；开启前后对照代码字号、文件树行高和自定义面板宽度；关闭后恢复原密度。
 - 运行 `node scripts/i18n/generate-i18n.mjs --check`、`node scripts/i18n/verify-app-language-localization.mjs`、`./scripts/agent-notes/verify-agent-notes.sh`、`./scripts/macos/verify/verify-runtime-bundle-immutability.sh` 和功能矩阵检查。平台运行时验证状态以功能矩阵为准。

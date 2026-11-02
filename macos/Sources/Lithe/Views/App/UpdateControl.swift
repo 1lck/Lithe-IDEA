@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct UpdateControl: View {
+    @ObservedObject private var themeRuntime = AppThemeRuntime.shared
     let compact: Bool
 
     @EnvironmentObject private var updateChecker: UpdateChecker

@@ -2,6 +2,7 @@ import Charts
 import SwiftUI
 
 struct DebugConsoleWithPerformance<Console: View>: View {
+    @ObservedObject private var themeRuntime = AppThemeRuntime.shared
     @ObservedObject var feature: DebugPerformanceFeatureModel
     @Binding var isExpanded: Bool
     @Binding var width: CGFloat

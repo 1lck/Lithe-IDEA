@@ -3,6 +3,7 @@ import SwiftUI
 
 /// IDEA Islands tool-window tabs share colors and geometry across tool windows.
 struct LitheToolWindowTabStyle: ViewModifier {
+    @ObservedObject private var themeRuntime = AppThemeRuntime.shared
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.controlActiveState) private var controlActiveState
     @State private var isHovered = false

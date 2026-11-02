@@ -5,6 +5,7 @@ import LitheModuleAPI
 /// and menu styles own hover, selected tint and disabled opacity; template
 /// icons inherit their foreground, while brand assets preserve their pixels.
 struct WorkbenchContributionIcon: View {
+    @ObservedObject private var themeRuntime = AppThemeRuntime.shared
     enum Role { case toolWindow, action, header, listItem
         var size: CGFloat {
             switch self {

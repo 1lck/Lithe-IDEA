@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct RunView: View {
+    @ObservedObject private var themeRuntime = AppThemeRuntime.shared
     @EnvironmentObject private var model: AppModel
     @Environment(\.openURL) private var openURL
     @Environment(\.locale) private var locale

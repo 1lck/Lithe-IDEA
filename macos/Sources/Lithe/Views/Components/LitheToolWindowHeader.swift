@@ -4,6 +4,7 @@ import SwiftUI
 /// their own controls while the title, spacing, and minimize affordance remain
 /// visually consistent.
 struct LitheToolWindowHeader<Actions: View>: View {
+    @ObservedObject private var themeRuntime = AppThemeRuntime.shared
     let title: String
     let subtitle: String?
     let actions: Actions

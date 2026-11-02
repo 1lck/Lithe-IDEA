@@ -1,5 +1,6 @@
-import Foundation
-import Observation
+import AppKit
+import Combine
+import SwiftUI
 import Testing
 @testable import Lithe
 
@@ -33,21 +34,23 @@ struct CompactModeTests {
     }
 
     @Test
-    func sharedMetricReadsAreObservedAndRegularMetricsReturnWhenDisabled() {
+    func densityChangesNotifyConsumersAndRegularMetricsReturnWhenDisabled() {
         let runtime = AppThemeRuntime.shared
         let original = runtime.compactMode
         defer { runtime.compactMode = original }
         runtime.compactMode = false
         let observation = DensityObservation()
-        let regular = withObservationTracking {
-            [LitheTheme.Metrics.toolbarHeight, LitheTheme.Metrics.toolWindowHeaderHeight,
-             LitheTheme.Metrics.tabHeight, ActivityBarMetrics.width, ActivityBarMetrics.slotHeight]
-        } onChange: {
-            MainActor.assumeIsolated { observation.changed = true }
+        let regular = [LitheTheme.Metrics.toolbarHeight, LitheTheme.Metrics.toolWindowHeaderHeight,
+                       LitheTheme.Metrics.tabHeight, ActivityBarMetrics.width, ActivityBarMetrics.slotHeight]
+        let subscription = runtime.objectWillChange.sink {
+            MainActor.assumeIsolated { observation.changes += 1 }
         }
+        defer { subscription.cancel() }
         #expect(regular == [40, 41, 36, 40, 40])
         runtime.compactMode = true
-        #expect(observation.changed)
+        #expect(observation.changes == 1)
+        runtime.compactMode = true
+        #expect(observation.changes == 1)
         #expect(LitheTheme.Metrics.toolbarHeight == 32)
         #expect(LitheTheme.Metrics.toolWindowHeaderHeight == 32)
         #expect(LitheTheme.Metrics.tabHeight == 28)
@@ -56,12 +59,32 @@ struct CompactModeTests {
         #expect(ActivityBarMetrics.buttonWidth <= ActivityBarMetrics.width)
         #expect(LitheTheme.Metrics.toolbarIconButtonSize <= LitheTheme.Metrics.toolWindowHeaderHeight)
         runtime.compactMode = false
+        #expect(observation.changes == 2)
         #expect(regular == [LitheTheme.Metrics.toolbarHeight, LitheTheme.Metrics.toolWindowHeaderHeight,
                             LitheTheme.Metrics.tabHeight, ActivityBarMetrics.width, ActivityBarMetrics.slotHeight])
+    }
+
+    @Test(arguments: [ColorScheme.dark, .light])
+    func retainedHeaderHostsFollowDensityWithoutReplacingTheirRoots(scheme: ColorScheme) {
+        let runtime = AppThemeRuntime.shared
+        let original = runtime.compactMode
+        defer { runtime.compactMode = original }
+        runtime.compactMode = false
+        let hosts = ["Terminal", "Commit"].map { title in
+            NSHostingView(rootView: LitheToolWindowHeader(title: title)
+                .environment(\.colorScheme, scheme))
+        }
+        for (compact, height) in [(false, CGFloat(41)), (true, CGFloat(32)), (false, CGFloat(41))] {
+            runtime.compactMode = compact
+            for host in hosts {
+                host.layoutSubtreeIfNeeded()
+                #expect(host.fittingSize.height == height)
+            }
+        }
     }
 }
 
 @MainActor
 private final class DensityObservation {
-    var changed = false
+    var changes = 0
 }

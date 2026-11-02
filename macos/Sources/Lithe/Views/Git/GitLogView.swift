@@ -12,6 +12,7 @@ struct GitLogNavigation {
 }
 
 struct GitLogView: View {
+    @ObservedObject private var themeRuntime = AppThemeRuntime.shared
     @Environment(\.locale) private var locale
     @ObservedObject var feature: GitFeatureModel
     @ObservedObject var workbench: WorkbenchFeatureModel

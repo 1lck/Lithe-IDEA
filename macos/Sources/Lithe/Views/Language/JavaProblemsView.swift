@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 
 struct ProblemsView: View {
+    @ObservedObject private var themeRuntime = AppThemeRuntime.shared
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var diagnosticsStore: EditorDiagnosticsStore
     private let runnableFileURLs: Set<URL>

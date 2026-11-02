@@ -1,6 +1,5 @@
 import Combine
 import Foundation
-import Observation
 import LitheModuleAPI
 import LitheCoreContracts
 import LitheGitModule
@@ -1200,30 +1199,28 @@ enum AppColorTheme: String, CaseIterable, Identifiable {
     }
 }
 
-@Observable
-final class AppThemeRuntime: @unchecked Sendable {
+final class AppThemeRuntime: ObservableObject, @unchecked Sendable {
     static let shared = AppThemeRuntime()
 
-    @ObservationIgnored private let lock = NSLock()
-    @ObservationIgnored private var value: AppColorTheme = .lithe
-    @ObservationIgnored private var compactValue = false
+    let objectWillChange = ObservableObjectPublisher()
+    private let lock = NSLock()
+    private var value: AppColorTheme = .lithe
+    private var compactValue = false
 
-    // Track metric reads in every SwiftUI hosting root, including retained tool
-    // windows. Lock the snapshot for native layout readers outside view bodies.
+    // Metric consumers observe this object directly, including retained tool
+    // hosts. Combine preserves macOS 13 support; native readers use the lock.
     var compactMode: Bool {
         get {
-            access(keyPath: \.compactMode)
             lock.lock()
             defer { lock.unlock() }
             return compactValue
         }
         set {
             guard newValue != compactMode else { return }
-            withMutation(keyPath: \.compactMode) {
-                lock.lock()
-                compactValue = newValue
-                lock.unlock()
-            }
+            objectWillChange.send()
+            lock.lock()
+            compactValue = newValue
+            lock.unlock()
         }
     }
 

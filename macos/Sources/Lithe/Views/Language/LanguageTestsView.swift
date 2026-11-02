@@ -4,6 +4,7 @@ import LitheExecutionModule
 /// Language-neutral test tool window. Discovery is metadata-only; a process is
 /// created only after the user chooses a workspace or file item and presses Run.
 struct LanguageTestsView: View {
+    @ObservedObject private var themeRuntime = AppThemeRuntime.shared
     @EnvironmentObject private var model: AppModel
     @ObservedObject var service: LanguageTestService
 

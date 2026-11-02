@@ -1184,6 +1184,7 @@ struct LitheIconButtonStyle: ButtonStyle {
 
 /// Main-toolbar insets are outside the painted 30pt surface, as in HeaderToolbarButtonLook.
 struct LitheMainToolbarButtonStyle: ButtonStyle {
+    @ObservedObject private var themeRuntime = AppThemeRuntime.shared
     var insets = LitheTheme.MainToolbar.actionInsets
     var isActive = false
     var executionBackground: Color? = nil

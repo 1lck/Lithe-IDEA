@@ -141,6 +141,7 @@ enum AgentWelcomeVisit {
 
 /// One title row; history and search retain their original independent actions.
 struct AgentChatHeader: View {
+    @ObservedObject private var themeRuntime = AppThemeRuntime.shared
     @Environment(\.locale) private var locale
     let agentName: String?
     let onHistory: (() -> Void)?

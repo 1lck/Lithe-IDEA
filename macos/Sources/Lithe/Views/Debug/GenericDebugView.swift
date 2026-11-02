@@ -5,6 +5,7 @@ import LitheCoreContracts
 import LitheDebugModule
 
 struct GenericDebugView: View {
+    @ObservedObject private var themeRuntime = AppThemeRuntime.shared
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var model: AppModel
     @ObservedObject var feature: GenericDebugFeatureModel
