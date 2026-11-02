@@ -11,9 +11,12 @@ use super::manifest::{BuildSystemDeclaration, ModelSource, Nesting};
 use super::options;
 use super::outputs::{model_value, read_model, source_marker};
 use crate::plugins::declarative::{validate_manifest_value, PluginRejection, Validation};
+use crate::protocol::CoreError;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
+use std::io::ErrorKind;
+use std::path::Path;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -121,6 +124,29 @@ fn instance(
     instance
 }
 
+// Detection historically accepts absent/non-directory roots as an empty view.
+// Keep that boundary local: scans of real directories must still report I/O
+// failures, and the shared run scanner retains its required-root semantics.
+fn scan_directory_root(
+    root: &Path,
+    scan: impl FnOnce(&Path) -> Result<Vec<crate::execution::DirectoryContext>, CoreError>,
+) -> Validation<Vec<crate::execution::DirectoryContext>> {
+    match std::fs::metadata(root) {
+        Ok(metadata) if !metadata.is_dir() => return Ok(Vec::new()),
+        Err(error) if matches!(error.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory) => {
+            return Ok(Vec::new());
+        }
+        Err(error) => {
+            return Err(PluginRejection::new(
+                "plugin.build.invalidSelection",
+                error.to_string(),
+            ));
+        }
+        Ok(_) => {}
+    }
+    scan(root).map_err(|error| PluginRejection::new("plugin.build.invalidSelection", error.message))
+}
+
 /// `build.detect`: every instance of every build system the enabled plugins
 /// declare. Invalid manifests are reported, not fatal; when two plugins
 /// declare one build-system ID, the higher priority answers for it.
@@ -177,8 +203,7 @@ pub(crate) fn detect(request: DetectRequest) -> Validation<Value> {
     if owners.is_empty() {
         return Ok(json!({ "instances": [], "rejected": rejected, "shadowed": shadowed }));
     }
-    let directories = crate::execution::scan(&workspace.path)
-        .map_err(|error| PluginRejection::new("plugin.build.invalidSelection", error.message))?;
+    let directories = scan_directory_root(&workspace.path, crate::execution::scan)?;
     let empty = BTreeMap::new();
     let mut seen = BTreeSet::new();
     let mut instances = Vec::new();
@@ -196,4 +221,30 @@ pub(crate) fn detect(request: DetectRequest) -> Validation<Value> {
         "rejected": rejected,
         "shadowed": shadowed,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn existing_directory_scan_errors_are_not_empty_detections() {
+        // A real readable directory passes metadata. Inject the subsequent
+        // failure so ACL differences and elevated test users cannot bypass it.
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        assert!(root.is_dir());
+        for kind in [
+            ErrorKind::PermissionDenied,
+            ErrorKind::NotFound,
+            ErrorKind::Other,
+        ] {
+            let error = scan_directory_root(root, |scanned| {
+                assert_eq!(scanned, root);
+                Err(std::io::Error::new(kind, "controlled directory scan failure").into())
+            })
+            .expect_err("an existing directory's scan failure must reject detection");
+            assert_eq!(error.code, "plugin.build.invalidSelection");
+            assert_eq!(error.message, "controlled directory scan failure");
+        }
+    }
 }

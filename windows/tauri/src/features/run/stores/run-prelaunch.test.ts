@@ -592,7 +592,7 @@ describe("Java project launch preparation feedback", () => {
     }
   });
 
-  test("does not show the notice for standalone Java compiled with javac", async () => {
+  test("shows Java preparation for a Java project without Maven metadata", async () => {
     let outputWhilePreparing: string | undefined = "not called";
     const { dependencies } = standaloneDependencies({
       prepareJavaRunLaunch: mock(async () => {
@@ -610,7 +610,7 @@ describe("Java project launch preparation feedback", () => {
 
     await store.getState().actions.runConfiguration(configuration.id);
 
-    expect(outputWhilePreparing).toBe("");
+    expect(outputWhilePreparing).toContain("waiting for the Java language service");
   });
 
   test("continues the same launch after one failed build without rebuilding", async () => {

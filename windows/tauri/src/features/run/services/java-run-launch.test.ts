@@ -67,6 +67,22 @@ beforeEach(() => {
 afterEach(() => restoreMocks());
 
 describe("Java project launch preparation", () => {
+  test.each(["plain", "gradle"])("prepares %s Java entries without Maven metadata through the existing owner", async () => {
+    const entry = configuration("java.main");
+    entry.mavenReactorPath = undefined;
+    entry.toolchains = { java: "project-jdk" };
+    const result = await prepareJavaRunLaunch({ workspaceId: "workspace", root: "D:/work/RuoYi" }, entry);
+    expect(result?.kind).toBe("ready");
+    expect(prewarm).toHaveBeenCalledTimes(1);
+    expect(invokeLsp).toHaveBeenCalledTimes(1);
+  });
+
+  test("does not reinterpret cancellation as a continuable compilation failure", async () => {
+    const failure = Object.assign(new Error("cancelled"), { code: "javaBuildCancelled" });
+    invokeLsp.mockRejectedValueOnce(failure);
+    await expect(prepareJavaRunLaunch({ workspaceId: "workspace", root: "D:/work/RuoYi" }, configuration("java.main"))).rejects.toBe(failure);
+  });
+
   test("localizes a continuable build failure while retaining its target and evidence", async () => {
     useSettingsStore.setState((state) => ({ settings: { ...state.settings, displayLanguage: "zh-CN" } }));
     const target = { mainClass: "demo.Main", projectName: "app", classPaths: ["C:/work/classes"], modulePaths: [] };

@@ -382,9 +382,10 @@ interface PrimitiveConfirmOptions {
   title?: string;
   confirmLabel?: string;
   cancelLabel?: string;
+  signal?: AbortSignal;
 }
 
-interface PrimitivePromptOptions extends PrimitiveConfirmOptions {
+interface PrimitivePromptOptions extends Omit<PrimitiveConfirmOptions, "signal"> {
   defaultValue?: string;
   placeholder?: string;
 }
@@ -413,6 +414,7 @@ const outlinedChoiceButtonClass = "border border-border bg-transparent hover:bg-
 
 let nextDialogId = 1;
 let enqueueDialog: ((request: PrimitiveDialogRequest) => void) | null = null;
+let dismissDialog: ((id: number) => void) | null = null;
 const pendingDialogs: PrimitiveDialogRequest[] = [];
 
 const getDialogTranslator = () =>
@@ -441,14 +443,30 @@ export function showConfirmDialog(
   options: PrimitiveConfirmOptions = {},
 ): Promise<boolean> {
   return new Promise((resolve) => {
+    if (options.signal?.aborted) {
+      resolve(false);
+      return;
+    }
+    const id = nextDialogId++;
+    const finish = (value: boolean) => {
+      options.signal?.removeEventListener("abort", abort);
+      resolve(value);
+    };
+    const abort = () => {
+      const index = pendingDialogs.findIndex((request) => request.id === id);
+      if (index >= 0) pendingDialogs.splice(index, 1);
+      dismissDialog?.(id);
+      finish(false);
+    };
+    options.signal?.addEventListener("abort", abort, { once: true });
     enqueue({
-      id: nextDialogId++,
+      id,
       type: "confirm",
       title: options.title ?? getDialogTranslator()("ui.confirm"),
       message,
       confirmLabel: options.confirmLabel ?? getDialogTranslator()("ui.confirm"),
       cancelLabel: options.cancelLabel ?? getDialogTranslator()("ui.cancel"),
-      resolve,
+      resolve: finish,
     });
   });
 }
@@ -512,6 +530,7 @@ export function DialogServiceProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     enqueueDialog = (request) => setQueue((current) => [...current, request]);
+    dismissDialog = (id) => setQueue((current) => current.filter((request) => request.id !== id));
 
     if (pendingDialogs.length > 0) {
       setQueue((current) => [...current, ...pendingDialogs.splice(0)]);
@@ -519,13 +538,14 @@ export function DialogServiceProvider({ children }: { children: ReactNode }) {
 
     return () => {
       enqueueDialog = null;
+      dismissDialog = null;
     };
   }, []);
 
   const activeDialog = queue[0] ?? null;
   const closeActive = (resolve: () => void) => {
     resolve();
-    setQueue((current) => current.slice(1));
+    setQueue((current) => current.filter((request) => request.id !== activeDialog?.id));
   };
 
   return (

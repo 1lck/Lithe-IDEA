@@ -1,0 +1,5 @@
+plugins { id 'java' }
+group = '{{ field.groupId }}'
+version = '1.0-SNAPSHOT'
+java { toolchain { languageVersion = JavaLanguageVersion.of({{ field.jdk.major }}) } }
+repositories { mavenCentral() }

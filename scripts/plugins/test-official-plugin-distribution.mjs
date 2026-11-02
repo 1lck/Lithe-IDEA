@@ -10,7 +10,7 @@ import { loadConfig, releaseFor, updateIndex } from "./official-plugin-releases.
 const id = "dev.lithe.plugin.java-support";
 const config = loadConfig();
 const java = config.find((entry) => entry.id === id);
-const release = releaseFor(java);
+const release = releaseFor({ ...java, requiredPlatforms: undefined, assets: java.assets.filter((asset) => asset.platforms[0].startsWith("darwin-")) });
 const empty = { schemaVersion: 1, plugins: [] };
 function published() {
   return structuredClone(updateIndex(empty, release, {
@@ -72,4 +72,13 @@ test("broken index input fails the CLI instead of returning an omit decision", {
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test("adding Windows downloads preserves the existing macOS transition cutoff", () => {
+  const index = published();
+  index.plugins[0].versions[0].downloads.push(...releaseFor(java).assets.filter((asset) => asset.os === "windows").map((asset) => ({
+    platforms: asset.platforms, sha256: "a".repeat(64),
+    downloadURL: `${release.index.repository}/releases/download/${release.tag}/${asset.assetName}`,
+  })));
+  assert.equal(isBundledOfficialPlugin(id, index), false);
 });

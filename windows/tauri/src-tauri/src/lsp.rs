@@ -8,6 +8,9 @@
 //! discovered separately by `run.rs` and remain user-owned.
 
 mod jdt_workspace;
+#[cfg(test)]
+#[path = "lsp_plugin_tests.rs"]
+mod plugin_tests;
 
 use crate::{blocking::run_blocking, logging::LogManager, run};
 use jdt_workspace::{
@@ -41,6 +44,8 @@ static JDT_CACHE_OPERATION_ID: AtomicU64 = AtomicU64::new(1);
 #[serde(rename_all = "camelCase")]
 pub struct JavaLspLaunch {
     pub provider_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plugin_id: Option<String>,
     pub language_id: String,
     pub executable_path: String,
     pub arguments: Vec<String>,
@@ -128,6 +133,10 @@ struct JavaLspResolution {
     executable: PathBuf,
     java_home: PathBuf,
     jdtls_launch_resources: Option<ResolvedJdtlsLaunchResources>,
+    plugin_id: Option<String>,
+    arguments: Vec<String>,
+    version: Option<String>,
+    cache_directory: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -170,27 +179,49 @@ fn resolve_java_launch(
 ) -> Result<JavaLspLaunch, String> {
     let workspace = PathBuf::from(workspace_path);
     let project_root = workspace.is_dir().then_some(workspace.as_path());
-    let bundled_root = bundled_jdtls_root(app);
-    let bundled_jdk = bundled_jdk_root(app);
-    let resolution = resolve_java_lsp_launch(
-        std::env::var_os("PATH").as_deref(),
-        bundled_root.as_deref(),
-        &jdtls_search_roots(project_root),
-        bundled_jdk.as_deref(),
-    )?;
+    // The legacy host-resource path is a transition for hosts that still keep
+    // packageTrust closed. Once admitted, only an enabled verified JDT plugin
+    // may supply Java resources; absence, quarantine or disable never falls back.
+    let (resolution, _package_lease) = if crate::plugin_host::host_capabilities()
+        .get("packageTrust")
+        .is_some()
+    {
+        let (resolution, lease) = resolve_plugin_java_lsp_launch(app, workspace_path)?;
+        // Keep the selected package in use until every returned launch field,
+        // fingerprint and cache operation has been constructed from this owner.
+        (resolution, Some(lease))
+    } else {
+        let bundled_root = bundled_jdtls_root(app);
+        let bundled_jdk = bundled_jdk_root(app);
+        (
+            resolve_java_lsp_launch(
+                std::env::var_os("PATH").as_deref(),
+                bundled_root.as_deref(),
+                &jdtls_search_roots(project_root),
+                bundled_jdk.as_deref(),
+            )?,
+            None,
+        )
+    };
 
     let operation_id = format!(
         "windows-jdt-cache-{}",
         JDT_CACHE_OPERATION_ID.fetch_add(1, Ordering::Relaxed)
     );
-    let jdtls_version = jdtls_version_for_executable(&resolution.executable)?;
+    let jdtls_version = match &resolution.version {
+        Some(version) => version.clone(),
+        None => jdtls_version_for_executable(&resolution.executable)?,
+    };
     let workspace_fingerprint = project_root
         .map(|root| {
             let inputs = collect_workspace_fingerprint_inputs(root)?;
             resolve_workspace_fingerprint(inputs, &jdtls_version, &operation_id)
         })
         .transpose()?;
-    let cache_directory = language_server_cache_directory(app);
+    let cache_directory = resolution
+        .cache_directory
+        .clone()
+        .unwrap_or_else(|| legacy_language_server_cache_directory(app));
     let active_workspace_key =
         lithe_core::jdt_workspace_key(&workspace, workspace_fingerprint.as_deref());
     log_manager.emit_json(
@@ -234,9 +265,10 @@ fn resolve_java_launch(
 
     Ok(JavaLspLaunch {
         provider_id: JAVA_PROVIDER_ID.to_string(),
+        plugin_id: resolution.plugin_id,
         language_id: JAVA_PROVIDER_ID.to_string(),
         executable_path: normalize_path(&resolution.executable),
-        arguments: Vec::new(),
+        arguments: resolution.arguments,
         runtime_executable_path: run::java_executable(&resolution.java_home)
             .as_deref()
             .map(normalize_path),
@@ -288,6 +320,181 @@ fn resolve_java_lsp_launch(
         executable,
         java_home,
         jdtls_launch_resources,
+        plugin_id: None,
+        arguments: Vec::new(),
+        version: None,
+        cache_directory: None,
+    })
+}
+
+fn unique_jdt_package(
+    packages: Vec<crate::plugin_host::ScannedPackage>,
+) -> Result<crate::plugin_host::ScannedPackage, String> {
+    let mut candidates = packages.into_iter().filter(|package| {
+        package.entry.status == "accepted"
+            && package.entry.enabled
+            && package.manifest["languageServers"]
+                .as_array()
+                .is_some_and(|servers| {
+                    servers.iter().any(|server| {
+                        server["languageID"] == "java" && server["hostIntegration"]["id"] == "jdt"
+                    })
+                })
+    });
+    let package = candidates
+        .next()
+        .ok_or("No enabled verified JDT plugin is installed")?;
+    if candidates.next().is_some() {
+        return Err(
+            "Multiple enabled JDT plugins claim Java; disable the conflicting package".into(),
+        );
+    }
+    Ok(package)
+}
+
+fn resolve_plugin_java_lsp_launch(
+    app: &AppHandle,
+    workspace_path: &str,
+) -> Result<
+    (
+        JavaLspResolution,
+        crate::plugin_host::lifecycle::NativeLease,
+    ),
+    String,
+> {
+    let candidate = unique_jdt_package(
+        app.state::<crate::plugin_host::PluginHostState>()
+            .packages(),
+    )?;
+    let lease = app
+        .state::<crate::plugin_host::lifecycle::LifecycleState>()
+        .acquire(&candidate.entry.plugin_id)?;
+    let package =
+        crate::plugin_host::launch::verified_package_by_id(app, &candidate.entry.plugin_id)?;
+    let state = crate::plugin_host::store::plugin_state_directory(app, &package.entry.plugin_id)?;
+    let layers =
+        crate::plugin_host::settings::load_layers(app, &package.entry.plugin_id, workspace_path)?;
+    let outcome = crate::plugin_host::scan::core_execute(
+        "plugins.declarative.languageServerLaunchPlan",
+        json!({
+            "manifest": package.manifest,
+            "languageID": "java",
+            "request": crate::plugin_host::launch::launch_request(&state, &package, workspace_path, layers),
+        }),
+    )?;
+    if outcome["status"] != "ok" {
+        return Err(format!(
+            "JDT plugin launch plan rejected: {}",
+            outcome["error"]
+        ));
+    }
+    let resolution = resolve_packaged_jdt_resolution(&package, &outcome["plan"], &state)?;
+    Ok((resolution, lease))
+}
+
+fn resolve_packaged_jdt_resolution(
+    package: &crate::plugin_host::ScannedPackage,
+    plan: &serde_json::Value,
+    state: &Path,
+) -> Result<JavaLspResolution, String> {
+    use crate::plugin_host::launch::{resolve_launch_passive, verified_package_resource};
+    if plan["hostIntegration"]["id"] != "jdt"
+        || plan["launch"]["kind"] != "runtime"
+        || plan["launch"]["tool"] != "java"
+        || !plan["launch"]["packagedRuntime"].is_string()
+    {
+        return Err("JDT plugin must declare its packaged Java runtime and JDT resources".into());
+    }
+    let resolved = resolve_launch_passive(package, "java", plan, state)?;
+    let resource = |name: &str| -> Result<PathBuf, String> {
+        verified_package_resource(
+            &package.root,
+            plan["hostIntegration"]["resources"][name]
+                .as_str()
+                .ok_or("JDT resource is missing")?,
+        )
+    };
+    let configuration_directory = resource("configuration")?;
+    if !configuration_directory.join("config.ini").is_file() {
+        return Err("JDT plugin configuration is incomplete".into());
+    }
+    let mut bundles = Vec::new();
+    for directory in plan["hostIntegration"]["resources"]["extensionBundleDirectories"]
+        .as_array()
+        .ok_or("JDT extension directories are missing")?
+    {
+        let relative = directory
+            .as_str()
+            .ok_or("JDT extension directory is invalid")?;
+        let path = verified_package_resource(&package.root, relative)?;
+        for entry in std::fs::read_dir(path).map_err(|error| error.to_string())? {
+            let entry = entry.map_err(|error| error.to_string())?;
+            if entry
+                .path()
+                .extension()
+                .is_some_and(|extension| extension == "jar")
+            {
+                let name = entry
+                    .file_name()
+                    .into_string()
+                    .map_err(|_| "JDT bundle name is not UTF-8")?;
+                bundles.push(verified_package_resource(
+                    &package.root,
+                    &format!("{relative}/{name}"),
+                )?);
+            }
+        }
+    }
+    bundles.sort();
+    bundles.dedup();
+    let java_debug_bundle_path = bundles
+        .iter()
+        .find(|path| {
+            path.file_name()
+                .is_some_and(|name| name.to_string_lossy().starts_with(JAVA_DEBUG_BUNDLE_PREFIX))
+        })
+        .cloned()
+        .ok_or("JDT debug bundle is missing")?;
+    let executable = PathBuf::from(&resolved.server_path);
+    let java_home = executable
+        .parent()
+        .and_then(Path::parent)
+        .ok_or("JDT Java runtime has no home")?
+        .to_path_buf();
+    let jar_index = resolved
+        .server_args
+        .iter()
+        .position(|argument| argument == "-jar")
+        .ok_or("JDT launch plan has no launcher")?;
+    let launcher_jar_path = verified_package_resource(
+        &package.root,
+        plan["launch"]["entry"]
+            .as_str()
+            .ok_or("JDT launcher is missing")?,
+    )?;
+    // Preserve Core's complete direct-launch argument layout. Normalize the
+    // one declared launcher path to the same spelling returned in resources;
+    // Core's JDT adapter owns JVM options, server args and writable config.
+    let mut arguments = resolved.server_args;
+    *arguments
+        .get_mut(jar_index + 1)
+        .ok_or("JDT launcher argument is missing")? = normalize_path(&launcher_jar_path);
+    let version = jdtls_version_from_root(&package.root.join("language-server"))?
+        .ok_or("JDT upstream version manifest is missing")?;
+    Ok(JavaLspResolution {
+        executable,
+        java_home,
+        jdtls_launch_resources: Some(ResolvedJdtlsLaunchResources {
+            launcher_jar_path,
+            configuration_directory,
+            lombok_agent_path: resource("lombokAgent")?,
+            java_debug_bundle_path,
+            java_extension_bundle_paths: bundles,
+        }),
+        plugin_id: Some(package.entry.plugin_id.clone()),
+        arguments,
+        version: Some(version),
+        cache_directory: Some(state.join("jdtls")),
     })
 }
 
@@ -687,7 +894,22 @@ fn resolve_java_home(bundled_jdk: Option<&Path>) -> Result<PathBuf, String> {
     })
 }
 
-fn language_server_cache_directory(app: &AppHandle) -> PathBuf {
+fn language_server_cache_directory(app: &AppHandle) -> Result<PathBuf, String> {
+    if crate::plugin_host::host_capabilities()
+        .get("packageTrust")
+        .is_some()
+    {
+        let package = unique_jdt_package(
+            app.state::<crate::plugin_host::PluginHostState>()
+                .packages(),
+        )?;
+        return crate::plugin_host::store::plugin_state_directory(app, &package.entry.plugin_id)
+            .map(|directory| directory.join("jdtls"));
+    }
+    Ok(legacy_language_server_cache_directory(app))
+}
+
+fn legacy_language_server_cache_directory(app: &AppHandle) -> PathBuf {
     app.path()
         .app_cache_dir()
         .unwrap_or_else(|_| std::env::temp_dir().join("lithe-lsp"))
@@ -706,7 +928,7 @@ pub async fn lsp_rebuild_java_index(
 ) -> Result<(), String> {
     run_blocking(move || {
         clear_java_index_directory(
-            &language_server_cache_directory(&app),
+            &language_server_cache_directory(&app)?,
             Path::new(&workspace_path),
             workspace_fingerprint.as_deref(),
         )

@@ -1,0 +1,107 @@
+// Gradle owns evaluation, tasks, source sets and dependency resolution. This
+// adapter serializes that evaluated model; it never parses build files or
+// supplies Java launch classpaths (those remain owned by JDT/Buildship).
+import groovy.json.JsonOutput
+import org.gradle.api.GradleException
+import org.gradle.api.artifacts.result.ResolvedDependencyResult
+import org.gradle.api.artifacts.result.UnresolvedDependencyResult
+import org.gradle.api.tasks.JavaExec
+import org.gradle.api.tasks.SourceSetContainer
+
+def limit = 10000
+def writeDocument = { project, property, document ->
+    def output = project.findProperty(property)
+    if (!output) throw new GradleException("Missing host-owned output: " + property)
+    def file = new File(output.toString())
+    if (!file.isAbsolute() || !file.parentFile.isDirectory())
+        throw new GradleException("Expected an absolute host-owned output file")
+    def text = JsonOutput.toJson(document)
+    if (text.getBytes('UTF-8').length > 8 * 1024 * 1024)
+        throw new GradleException("Build model exceeds the output budget")
+    file.setText(text + '\n', 'UTF-8')
+}
+
+gradle.projectsEvaluated {
+    def root = gradle.rootProject
+    if (root.allprojects.size() > 2000)
+        throw new GradleException("Build model exceeds the project budget")
+    // Refuse collisions rather than executing a workspace task masquerading as
+    // the package's adapter. Registration happens only for this invocation.
+    root.allprojects.each { project ->
+        if (project.tasks.findByName('litheModel') || project.tasks.findByName('litheDependencies'))
+            throw new GradleException("Reserved model adapter task already exists")
+    }
+    root.tasks.register('litheModel') {
+        doLast {
+            def projects = [], tasks = [], targets = [], contentRoots = []
+            root.allprojects.sort { it.path }.each { project ->
+                def directory = project.projectDir.absolutePath
+                def prefix = project.path == ':' ? ':' : project.path + ':'
+                def row = [path: directory, name: project.name,
+                           properties: [path: project.path, taskPrefix: prefix,
+                                        group: project.group.toString(), version: project.version.toString()]]
+                if (project.parent) row.parent = project.parent.projectDir.absolutePath
+                projects.add(row)
+                // Adapter tasks require host-owned output paths and are not user tasks.
+                project.tasks.findAll { !(it.name in ['litheModel', 'litheDependencies']) }.sort { it.path }.each { task ->
+                    def item = [project: directory, name: task.name, template: 'gradle-task',
+                                category: ['Tasks', task.group ?: 'other'],
+                                properties: [path: task.path]]
+                    if (task.description) item.description = task.description
+                    if (task instanceof JavaExec) item.execution = 'application'
+                    tasks.add(item)
+                    if (tasks.size() > limit) throw new GradleException("Build model exceeds the task budget")
+                }
+                def sets = project.extensions.findByType(SourceSetContainer)
+                sets?.each { sourceSet ->
+                    targets.add([project: directory, path: directory, name: sourceSet.name,
+                                 tags: [sourceSet.name == 'test' ? 'test' : 'library']])
+                    sourceSet.allJava.srcDirs.sort { it.absolutePath }.each { source ->
+                        contentRoots.add([project: directory, path: source.absolutePath,
+                                          kind: sourceSet.name == 'test' ? 'testSource' : 'source'])
+                    }
+                    sourceSet.resources.srcDirs.sort { it.absolutePath }.each { resource ->
+                        contentRoots.add([project: directory, path: resource.absolutePath,
+                                          kind: sourceSet.name == 'test' ? 'testResource' : 'resource'])
+                    }
+                    if (targets.size() > limit || contentRoots.size() > limit)
+                        throw new GradleException("Build model exceeds the source-set budget")
+                }
+            }
+            writeDocument(root, 'litheModelOutput', [format: 'litheBuildModel', version: 1,
+                          projects: projects, tasks: tasks, targets: targets, contentRoots: contentRoots])
+        }
+    }
+    root.allprojects.each { project ->
+        project.tasks.register('litheDependencies') {
+            doLast {
+                int count = 0
+                def dependency
+                dependency = { edge, Set ancestors, int depth ->
+                    if (++count > limit || depth > 64)
+                        throw new GradleException("Dependency model exceeds the traversal budget")
+                    if (edge instanceof UnresolvedDependencyResult)
+                        throw new GradleException("Unresolved dependency: " + edge.attempted.displayName, edge.failure)
+                    if (!(edge instanceof ResolvedDependencyResult))
+                        throw new GradleException("Unsupported dependency result")
+                    def id = edge.selected.id.displayName
+                    def row = [name: id, properties: [kind: 'component'], children: []]
+                    if (!ancestors.contains(id)) {
+                        def next = new HashSet(ancestors)
+                        next.add(id)
+                        row.children = edge.selected.dependencies.sort { it.requested.displayName }
+                            .collect { dependency(it, next, depth + 1) }
+                    }
+                    row
+                }
+                def configurations = project.configurations.findAll { it.canBeResolved }.sort { it.name }.collect { configuration ->
+                    [name: configuration.name, properties: [kind: 'configuration'],
+                     children: configuration.incoming.resolutionResult.root.dependencies.sort { it.requested.displayName }
+                        .collect { dependency(it, new HashSet(), 0) }]
+                }
+                writeDocument(project, 'litheDependenciesOutput', [format: 'litheDependencies', version: 1,
+                              dependencies: [[name: project.name, properties: [kind: 'project', path: project.path], children: configurations]]])
+            }
+        }
+    }
+}
