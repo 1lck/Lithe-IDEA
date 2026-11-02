@@ -11,7 +11,7 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
 $windowsApp = Join-Path $root "windows/tauri"
 . (Join-Path $PSScriptRoot "windows-build-preflight.ps1")
-$cargoTargetRoot = Resolve-WindowsCargoTargetRoot -RepositoryRoot $root
+$cargoTargetRoot = Resolve-WindowsCargoTargetRoot -RepositoryRoot $root -RequireDefaultTarget
 Initialize-WindowsNativeBun -RepositoryRoot $root -NativeBunPath $NativeBunPath
 $bundledExtensionsSource = [System.IO.Path]::GetFullPath((Join-Path $windowsApp "src/extensions/bundled"))
 if (-not (Test-Path -LiteralPath $bundledExtensionsSource -PathType Container)) {

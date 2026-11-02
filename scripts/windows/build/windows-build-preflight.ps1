@@ -1,12 +1,19 @@
-# Normalize once before invoking Tauri so Cargo and resource staging use one path.
+# Cargo-only callers may select a target, but resource staging must stay in
+# this worktree's default profile: a shared cache has no resource ownership.
 function Resolve-WindowsCargoTargetRoot {
-    param([Parameter(Mandatory)][string]$RepositoryRoot)
+    param([Parameter(Mandatory)][string]$RepositoryRoot, [switch]$RequireDefaultTarget)
     $cargoDirectory = Join-Path $RepositoryRoot "windows/tauri/src-tauri"
+    $defaultTarget = [IO.Path]::GetFullPath((Join-Path $cargoDirectory "target"))
     if ([string]::IsNullOrWhiteSpace($env:CARGO_TARGET_DIR)) {
-        return [IO.Path]::GetFullPath((Join-Path $cargoDirectory "target"))
+        return $defaultTarget
     }
-    $env:CARGO_TARGET_DIR = [IO.Path]::GetFullPath($env:CARGO_TARGET_DIR, $cargoDirectory)
-    return $env:CARGO_TARGET_DIR
+    $selectedTarget = [IO.Path]::GetFullPath($env:CARGO_TARGET_DIR, $cargoDirectory)
+    if ($RequireDefaultTarget -and -not $selectedTarget.TrimEnd('\', '/').Equals(
+        $defaultTarget.TrimEnd('\', '/'), [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Windows resource staging requires this worktree's default Cargo target; unset CARGO_TARGET_DIR."
+    }
+    $env:CARGO_TARGET_DIR = $selectedTarget
+    return $selectedTarget
 }
 
 # Build-only preparation; no download, installation or published resource writes.

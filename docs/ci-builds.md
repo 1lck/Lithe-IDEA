@@ -992,6 +992,12 @@ ui:1 字面文本验收由 `text_window_acceptance.py` 为本次已绑定端口�
 `-InstallTimeoutSeconds` 默认为 300，范围为 1～1200 秒，逐层传到既有安装 worker；
 这是每次安装尝试的时限，缓存失败后的既有无缓存重试各自使用该值，不能当作整个构建时限。
 
+Windows 产品构建和插件产品验收将资源暂存到当前工作树的默认
+`windows/tauri/src-tauri/target/<triple>/<profile>/`，因此拒绝非默认 `CARGO_TARGET_DIR`；
+请在这两个入口前取消覆盖。共享 Cargo 目录没有本工作树独占的资源身份，不能据此
+删除、覆盖 JDK/JDTLS/extensions，或生成源码绑定产品证据。普通 Cargo 编译入口仍可
+规范化调用者的 target，但不因此获得产品资源暂存权限；这些可变产物按 `windows-build-profile-state` 拒绝跨工作树复用，没有可复用身份印记。
+
 Tauri 构建包装器保留原始 `Cargo.toml` 字节。动作结束后，只有内容恰好等于原始字节的
 CRLF→LF 转换才允许恢复；比较和恢复使用同一个独占文件句柄，未改动的字节和写入时间不变。
 其它语义改动、删除或被并发进程锁定的文件保持现状并使构建失败，不能重新创建或覆盖它们；

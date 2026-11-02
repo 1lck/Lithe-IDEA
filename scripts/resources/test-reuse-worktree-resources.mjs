@@ -76,6 +76,16 @@ try {
     assert.match(diagnostics(refused), /markdown-preview-assets is isolated.*cannot be reused/);
   });
 
+  await test("Windows Cargo profiles and staged resources stay owned by their worktree", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "windows-build-profile-state");
+    assert.equal(resource.reusable, false);
+    assert.deepEqual(resource.locations, ["windows/tauri/src-tauri/target/<triple>/<profile>/"]);
+    const refused = reuse(["--resource", resource.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /windows-build-profile-state is isolated.*cannot be reused/);
+  });
+
   await test("offline PlantUML assets and live renderer state cannot cross worktrees", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const resource = registry.excludedResources.find(item => item.id === "markdown-plantuml-assets");

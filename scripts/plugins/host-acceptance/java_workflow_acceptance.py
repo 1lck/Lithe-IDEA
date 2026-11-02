@@ -59,12 +59,12 @@ def preflight(plan: dict, capabilities: dict) -> dict:
         requires = manifest["requires"]
         if variant != "plain":
             # validate_plan bound these requirements to the actual archive.
-            build_requires = plan.get("buildPackage", {}).get("requires", {"buildSystems": 1, "packageTrust": 1})
+            build_requires = plan.get("buildPackage", {}).get("requires", {"buildSystems": 1})
     except (ValueError, OSError, KeyError, TypeError, AttributeError, zipfile.BadZipFile) as error:
         blocked.append("invalid fixed input: " + str(error))
     blocked.extend("closed capability " + item for item in missing_capabilities(requires, capabilities))
     if variant in ("maven", "gradle"):
-        build_requires = build_requires or {"buildSystems": 1, "packageTrust": 1}
+        build_requires = build_requires or {"buildSystems": 1}
         blocked.extend("closed build capability " + item for item in missing_capabilities(build_requires, capabilities))
     reason = "Not executed. " + ("; ".join(blocked) if blocked else "Explicit isolated final-source product invocation required.")
     return {"complete": False, "variant": variant, "workflowPassed": False, "buildPluginPassed": False,

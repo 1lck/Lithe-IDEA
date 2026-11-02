@@ -196,7 +196,6 @@ def validate_build_package(plan: dict) -> list[str]:
     systems = [system for system in manifest.get("buildSystems", []) if system.get("id") == package.get("buildSystemId")]
     if (manifest.get("id") != package.get("pluginId") or manifest["id"] == PLUGIN_ID
             or not isinstance(required.get("buildSystems"), int) or required["buildSystems"] < 1
-            or required.get("packageTrust") != 1
             or manifest.get("vendor", {}).get("signatureRequirement") != "publisherPackage"
             or len(systems) != 1 or systems[0]["id"] != plan["variant"]):
         raise ValueError("independent complete production-trusted variant build package is required")

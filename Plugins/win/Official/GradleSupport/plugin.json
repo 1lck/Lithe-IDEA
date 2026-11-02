@@ -5,8 +5,7 @@
   "version": "0.1.0",
   "pluginAPIVersion": 3,
   "requires": {
-    "buildSystems": 1,
-    "packageTrust": 1
+    "buildSystems": 1
   },
   "vendor": {
     "id": "dev.lithe",
@@ -130,6 +129,8 @@
         "source": "command",
         "arguments": [
           "-q",
+          "--no-configuration-cache",
+          "--no-configure-on-demand",
           "--init-script",
           "${pluginDir}/lithe-model.init.gradle",
           "litheModel",
@@ -274,6 +275,8 @@
         ],
         "arguments": [
           "-q",
+          "--no-configuration-cache",
+          "--no-configure-on-demand",
           "--init-script",
           "${pluginDir}/lithe-model.init.gradle",
           {

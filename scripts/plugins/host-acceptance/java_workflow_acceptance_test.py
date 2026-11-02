@@ -105,7 +105,7 @@ class JavaWorkflowHelperTests(unittest.TestCase):
         result = packages.build_packages(self.root)
         for variant, path in result.items():
             manifest, files = packages.inventory(path)
-            self.assertEqual(manifest['requires'], {'buildSystems': 1, 'packageTrust': 1})
+            self.assertEqual(manifest['requires'], {'buildSystems': 1})
             self.assertEqual(manifest['vendor']['signatureRequirement'], 'publisherPackage')
             system = manifest['buildSystems'][0]
             self.assertEqual(system['languageImport']['kind'], variant)
@@ -113,6 +113,9 @@ class JavaWorkflowHelperTests(unittest.TestCase):
                 self.assertIn('lithe-model.init.gradle', files)
                 self.assertEqual(system['model']['source'], 'command')
                 self.assertIn('--no-daemon', system['invocation']['globalArguments'])
+                for section in ('model', 'dependencies'):
+                    self.assertIn('--no-configuration-cache', system[section]['arguments'])
+                    self.assertIn('--no-configure-on-demand', system[section]['arguments'])
             else:
                 self.assertEqual(system['model']['source'], 'hostIntegration')
 
@@ -412,7 +415,7 @@ class JavaWorkflowHelperTests(unittest.TestCase):
 
     def build_package(self, plan, *, variant=None, provider=False):
         variant = variant or plan["variant"]
-        required = {"buildSystems": 1, "packageTrust": 1}
+        required = {"buildSystems": 1}
         system = {"id": variant, "model": {"source": "command"},
                   "tasks": [{"id": "upstream-build", "displayName": "Build", "scopes": ["workspace"]}]}
         if provider:
@@ -446,7 +449,7 @@ class JavaWorkflowHelperTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "independent complete"):
             inputs.validate_plan(plan)
         self.build_package(plan)
-        plan["buildPackage"]["requires"] = {"buildSystems": 1}
+        plan["buildPackage"]["requires"] = {"buildSystems": 2}
         with self.assertRaisesRegex(ValueError, "requires identity"):
             inputs.validate_plan(plan)
 

@@ -216,8 +216,15 @@ Windows、供应商及 JDK 类型逐项比较。清单顶层版本不能覆盖 A
 
 实际 Maven/Gradle 插件分别位于 `Plugins/win/Official/MavenSupport/` 与 `GradleSupport/`，
 不注册到正式发行。Maven 复用已有 Core hostIntegration；Gradle init script 只读取上游已求值公开 API，
-不维护第二份配置解析器。JDT LS 1.61.0 与 Java Debug 继续拥有导入、编译、main class、classpath 和
+不维护第二份配置解析器。模型与依赖查询显式关闭 configuration cache（配置结果缓存）和
+configure-on-demand（按需配置子项目），因为读取 evaluated Project API 的任务需要完整的多项目配置，
+不能沿用用户项目中与该查询不兼容的优化。普通构建任务仍保留用户选择。JDT LS 1.61.0 与 Java Debug 继续拥有导入、编译、main class、classpath 和
 `java.prepareLaunch`，宿主不拼 Java 启动路径。
+
+构建包只声明实际使用的 `buildSystems:1`；`publisherPackage` 仍要求安装时验签，
+它本身不使用 `packageTrust` 能力。只有声明 bundled host-seal 信任的包才使用该能力；
+为两个构建包添加空置的要求会被 Core 的精确能力校验拒绝。真实 Core 清单回归覆盖它们，
+不能只用 Python helper 中的字典断言证明可安装。
 
 输入计划、临时公钥、签名副本和运行证据均为本次调用所有，按 `plugin-host-acceptance-state`
 拒绝跨 worktree 复用，没有版本/平台/架构/工具链复用印记。它们写入外部验收目录，

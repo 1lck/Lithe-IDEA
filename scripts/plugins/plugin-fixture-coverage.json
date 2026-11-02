@@ -819,6 +819,30 @@
       "gapDetail": "共享公开向量已被 Rust 签名验证测试消费；Swift 向量测试等待 macOS 执行，签名包的完整安装审批、失败恢复及回滚生产链仍由 M1 修复任务验证。"
     },
     {
+      "path": "tool-definition.plugin.json",
+      "category": "valid-manifest",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/toolchain_definitions.rs production_toolchain_fixtures_require_explicit_host_capabilities"
+      ],
+      "windowsEvidence": [],
+      "windowsStatus": "unwired",
+      "gapStage": "followup",
+      "gapDetail": "最新 preview 的工具定义与工具链 Provider 契约夹具；Windows 未声明 toolDefinitions/toolchainProviders，尚无此夹具的产品接线验收。保留能力门控与后续阶段缺口，不以 Core 校验升级 Windows 状态。"
+    },
+    {
+      "path": "toolchain-provider.plugin.json",
+      "category": "valid-manifest",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/toolchain_definitions.rs production_toolchain_fixtures_require_explicit_host_capabilities"
+      ],
+      "windowsEvidence": [],
+      "windowsStatus": "unwired",
+      "gapStage": "followup",
+      "gapDetail": "最新 preview 的工具定义与工具链 Provider 契约夹具；Windows 未声明 toolDefinitions/toolchainProviders，尚无此夹具的产品接线验收。保留能力门控与后续阶段缺口，不以 Core 校验升级 Windows 状态。"
+    },
+    {
       "path": "vcs-provider.plugin.json",
       "category": "vcs-provider",
       "outcome": "success",

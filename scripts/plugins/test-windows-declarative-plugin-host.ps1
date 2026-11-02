@@ -75,7 +75,7 @@ $artifactRoot = [IO.Path]::GetFullPath((Join-Path $artifactParent "plugin-host-a
 $stabilityRoot = [IO.Path]::GetFullPath((Join-Path $artifactParent "test-stability"))
 $fixtureRoot = Join-Path $root "scripts/plugins/host-acceptance"
 . (Join-Path $root "scripts/windows/build/windows-build-preflight.ps1")
-$cargoTargetRoot = Resolve-WindowsCargoTargetRoot -RepositoryRoot $root
+$cargoTargetRoot = Resolve-WindowsCargoTargetRoot -RepositoryRoot $root -RequireDefaultTarget
 $profileRoot = [IO.Path]::GetFullPath((Join-Path $cargoTargetRoot "$RustTarget/release"))
 $sourceExecutable = Join-Path $profileRoot "lithe-windows.exe"
 $identityMarker = Join-Path $artifactRoot "build-identity.json"

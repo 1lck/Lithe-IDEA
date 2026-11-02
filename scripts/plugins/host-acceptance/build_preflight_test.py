@@ -325,6 +325,32 @@ if(-not [IO.Path]::IsPathFullyQualified($env:CARGO_TARGET_DIR)){throw 'Cargo ove
                 )
                 assert "two-attempts" in output and manifest.read_bytes() == original
 
+            def resource_staging_rejects_shared_targets_before_any_mutation():
+                output = ps("""
+. ./scripts/windows/build/windows-build-preflight.ps1
+$default=Join-Path $PSScriptRoot 'windows/tauri/src-tauri/target'
+$env:CARGO_TARGET_DIR=''
+if((Resolve-WindowsCargoTargetRoot $PSScriptRoot -RequireDefaultTarget) -ne $default){throw 'wrong default'}
+$env:CARGO_TARGET_DIR='target'
+if((Resolve-WindowsCargoTargetRoot $PSScriptRoot -RequireDefaultTarget) -ne $default){throw 'explicit default rejected'}
+$external=Join-Path (Split-Path -Parent $PSScriptRoot) 'caller-owned-shared-cargo-target'
+foreach($selected in @($external,'another-target')) {
+    $env:CARGO_TARGET_DIR=$selected
+    try { Resolve-WindowsCargoTargetRoot $PSScriptRoot -RequireDefaultTarget; throw 'unexpected target accepted' }
+    catch { if($_ -notmatch 'resource staging requires'){throw} }
+    if($env:CARGO_TARGET_DIR -ne $selected){throw 'rejection changed caller input'}
+}
+if(Test-Path $external){throw 'rejection created caller target'}
+$env:CARGO_TARGET_DIR=$external
+if((Resolve-WindowsCargoTargetRoot $PSScriptRoot) -ne $external){throw 'Cargo-only override lost'}
+'owned-resource-staging'
+""")
+                assert 'owned-resource-staging' in output
+                for relative in ('scripts/windows/build/build-windows.ps1', 'scripts/plugins/test-windows-declarative-plugin-host.ps1'):
+                    source = (ROOT / relative).read_text(encoding='utf-8')
+                    assert 'Resolve-WindowsCargoTargetRoot -RepositoryRoot $root -RequireDefaultTarget' in source
+                    assert source.index('Resolve-WindowsCargoTargetRoot') < source.index('Initialize-WindowsNativeBun')
+
             def installer_budget_reaches_each_owned_worker():
                 (scripts / "invoke-windows-bun-install.ps1").write_text("""
 param([switch]$NoCache,[int]$TimeoutSeconds)
@@ -437,6 +463,7 @@ Invoke-Expression $call.Extent.Text
                 ("concurrent manifest reader prevents exclusive restoration without changing bytes", locked_manifest_is_preserved_without_racing_a_read_and_write),
                 ("removed manifest is not recreated and the action error remains visible", removed_manifest_is_not_recreated_and_keeps_action_failure),
                 ("existing Tauri retry owner restores original manifest bytes", real_tauri_owner_wraps_both_attempts),
+                ("resource staging rejects shared targets before any mutation", resource_staging_rejects_shared_targets_before_any_mutation),
                 ("installer preserves default and explicit per-attempt budgets through retry", installer_budget_reaches_each_owned_worker),
                 ("existing install Job deadline reaps offline fake Bun and IPC child", real_install_job_deadline_reaps_fake_bun_tree),
                 ("real build entry passes its explicit budget to installer", build_budget_reaches_installer),

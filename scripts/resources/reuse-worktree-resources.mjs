@@ -491,6 +491,8 @@ async function main() {
       // editor-theme-assets rebuild palettes and license notices together; no build stamp permits reuse.
       // Includes project-generator-transactions: operation-owned staging, ZIPs
       // and reviews have no build identity, even after Core extraction succeeds.
+      // windows-build-profile-state follows this fail-closed route: Cargo outputs
+      // and staged runtime resources have no transferable worktree identity.
       if (excludedResources.some((resource) => resource.id === identifier)) {
         // Per-launch relays also own their provider admission route; they stay
         // excluded even when their embedded source matches another worktree.

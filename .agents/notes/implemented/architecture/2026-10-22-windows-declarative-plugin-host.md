@@ -304,3 +304,16 @@ Maven/Gradle 验收输入按变体绑定源码、Java 包、独立构建包、JD
 - `scripts/plugins/host-acceptance/java_workflow_inputs.py`
 - `scripts/plugins/host-acceptance/java_workflow_acceptance.py`
 - `scripts/plugins/host-acceptance/java_workflow_observer.js`
+
+## 构建资源与工作树隔离
+
+产品构建和原生验收只在当前工作树默认 Cargo profile 中暂存扩展、JDTLS、JDK 和辅助程序；
+非默认 `CARGO_TARGET_DIR` 在下载、构建或覆盖资源前拒绝。Cargo 输出目录可由调用者共享，
+但没有独占资源身份；直接删除和复制它的资源会让不同工作树的程序和资源混合。
+因此未采用“将任意 target 当资源暂存目录”的方式，也不把运行前后哈希不变当作资源来源证明。
+普通 Cargo 编译可选目录，但不获得产品暂存权限。可变 profile 按 `windows-build-profile-state`
+排除跨工作树复用，发布后的资源仍只读，不改变签名和增量更新基线。
+
+正确做法是在每棵工作树默认 target 下构建和验收；不要让两棵工作树指向一个外部 target
+再互相覆盖 JDK/JDTLS。`build_preflight_test.py` 覆盖默认值、显式默认值、外部和其它相对路径
+的拒绝及拒绝前无写入；资源复用回归覆盖排除路由。
