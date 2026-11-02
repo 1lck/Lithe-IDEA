@@ -102,7 +102,7 @@ test(`stdio MCP ${mode}: discovery, calls and tool failures`, {timeout:15000}, a
   assert.deepEqual(windows.result.tools.map(tool => tool.name).sort(), exposure.windows.map(tool => tool.name).sort());
   assert.ok(windows.result.tools.some(tool => tool.name === "lithe_build_execute"));
   assert.ok(windows.result.tools.some(tool => tool.name === "lithe_maven_execute"));
-  assert.ok(!windows.result.tools.some(tool => tool.name === "lithe_build_configure"));
+  assert.ok(windows.result.tools.some(tool => tool.name === "lithe_build_configure"));
   const inspected = await send("tools/call",{...params,name:"lithe_project_inspect",arguments:{}});
   assert.equal(inspected.result.structuredContent.workspaceID,"fixture-project");
   assert.notEqual(inspected.result.isError,true,"a nullable domain error field is a successful inspection");

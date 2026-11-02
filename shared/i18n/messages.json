@@ -95832,6 +95832,62 @@
         "key": "Downloading and verifying plugin…",
         "arguments": []
       }
+    },
+    {
+      "id": "build.options.title",
+      "description": "Windows local Build option editor and native storage",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.options.local",
+      "description": "Windows local Build option editor and native storage",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.options.option",
+      "description": "Windows local Build option editor and native storage",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.options.custom",
+      "description": "Windows local Build option editor and native storage",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.options.reset",
+      "description": "Windows local Build option editor and native storage",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.options.resetHint",
+      "description": "Windows local Build option editor and native storage",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.options.conflict",
+      "description": "Windows local Build option editor and native storage",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.options.invalid",
+      "description": "Windows local Build option editor and native storage",
+      "platforms": [
+        "windows"
+      ]
     }
   ]
 }

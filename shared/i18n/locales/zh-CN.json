@@ -9979,7 +9979,15 @@
     "plugin.terminal.running": "插件终端仍在运行。",
     "plugin.terminal.busy": "插件终端正在切换状态，请完成后重试。",
     "plugin.terminal.permission": "打开并管理自己的原生终端，保留有限的显示历史用于重新打开",
-    "native.downloadingAndVerifyingPlugin": "正在下载并校验插件…"
+    "native.downloadingAndVerifyingPlugin": "正在下载并校验插件…",
+    "build.options.title": "构建选项",
+    "build.options.local": "本机 · 当前工作区",
+    "build.options.option": "选项",
+    "build.options.custom": "自定义值",
+    "build.options.reset": "使用继承值",
+    "build.options.resetHint": "移除本机覆盖，重新读取团队配置或声明的默认值。",
+    "build.options.conflict": "构建选项已更改。请重新加载后保存，草稿已保留。",
+    "build.options.invalid": "无法读取、保存或验证构建选项，请重新加载后重试。"
   },
   "overrides": {
     "macos": {

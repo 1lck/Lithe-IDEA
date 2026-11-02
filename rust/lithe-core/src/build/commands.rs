@@ -144,6 +144,16 @@ pub(crate) fn build_resolve_options_command(payload: Value) -> Result<Value, Cor
     )
 }
 
+/// `build.editStoredOption`: checks a local preference edit against its declaration.
+pub(crate) fn build_edit_stored_option_command(payload: Value) -> Result<Value, CoreError> {
+    with_build_system(
+        payload,
+        "build.editStoredOption",
+        "edit",
+        |system, request| super::stored_options::edit(system, request),
+    )
+}
+
 /// `build.modelPlan`: the command that prints a command-sourced model.
 pub(crate) fn build_model_plan_command(payload: Value) -> Result<Value, CoreError> {
     with_build_system(

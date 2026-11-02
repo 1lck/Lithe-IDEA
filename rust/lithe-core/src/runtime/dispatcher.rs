@@ -306,6 +306,16 @@ fn execute(request: &str) -> CoreResponse {
         CoreCommand::BuildProjectOptions => {
             plugin_response(id, parsed.payload, crate::build::project_options_command)
         }
+        CoreCommand::BuildResolveStoredOptions => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::resolve_stored_options_command,
+        ),
+        CoreCommand::BuildEditStoredOption => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_edit_stored_option_command,
+        ),
         CoreCommand::BuildInvocationPlan => plugin_response(
             id,
             parsed.payload,

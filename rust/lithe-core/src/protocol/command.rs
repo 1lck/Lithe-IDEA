@@ -128,6 +128,10 @@ pub enum CoreCommand {
     BuildDetect,
     /// Validates a native team's persisted Build options (`build.projectOptions`).
     BuildProjectOptions,
+    /// Merges checked team and machine-local Build preferences without I/O.
+    BuildResolveStoredOptions,
+    /// Edits one declared option in a machine-local Build document without I/O.
+    BuildEditStoredOption,
     /// Lists a build system's executable candidates and version probes (`build.invocationPlan`).
     BuildInvocationPlan,
     /// Compares a build tool's or runtime's version output with its minimum (`build.checkToolVersion`).
@@ -636,6 +640,8 @@ impl CoreCommand {
             "toolchains.candidates" => Some(Self::ToolchainsCandidates),
             "build.detect" => Some(Self::BuildDetect),
             "build.projectOptions" => Some(Self::BuildProjectOptions),
+            "build.resolveStoredOptions" => Some(Self::BuildResolveStoredOptions),
+            "build.editStoredOption" => Some(Self::BuildEditStoredOption),
             "build.invocationPlan" => Some(Self::BuildInvocationPlan),
             "build.checkToolVersion" => Some(Self::BuildCheckToolVersion),
             "build.resolveOptions" => Some(Self::BuildResolveOptions),

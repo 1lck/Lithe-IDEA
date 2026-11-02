@@ -346,7 +346,7 @@ fn current_inputs(
     )
 }
 
-fn immutable_roots(app: &AppHandle) -> Result<Vec<PathBuf>, Failure> {
+pub(super) fn immutable_roots(app: &AppHandle) -> Result<Vec<PathBuf>, Failure> {
     let executable = std::env::current_exe().map_err(|_| invalid())?;
     let mut roots = vec![
         app.path().resource_dir().map_err(|_| invalid())?,

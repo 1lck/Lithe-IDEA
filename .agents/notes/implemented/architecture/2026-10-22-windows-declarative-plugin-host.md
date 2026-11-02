@@ -345,6 +345,31 @@ WebView2 的 NavigationStarting 可以阻止外站文档提交，但实测外站
 
 M1 包存储 + 启动校验 + 语言注册 + LSP 启动（已落地）；M2 磁盘安装链路 + 管理界面 v1 + 死链处置（已落地）；M3 声明式设置 + 运行/测试计划 + PHP 契约包（已落地，Worker 版保留见上文）；M4 Web 工具窗口（已落地，桥 v0 只含 state/openFile/主题，build.* 与 functions.* 等 Windows 构建系统能力接入后开放）。每个里程碑独立 PR，矩阵条目随代码同 PR 更新。总体方向遵循[公共扩展契约与 Provider 接入方向](../../proposed/architecture/2026-10-13-public-extension-contract-and-provider-api.md)，本 Note 只落地其中 Windows 契约宿主的第一阶段。
 
+### Windows Build 本机选项与 Agent 配置
+
+团队 Build 选项保留在工作区 `.lithe/build/options.json`；本机覆盖使用平台 app-data
+下 `build-options/<规范工作区摘要>.json`，只保存声明式选项和当前根的明确空选择。
+它是用户拥有的 Lithe 偏好，不是 Maven/settings 的影子副本，不存秘密或模型事实。
+共享 Core 校验两层语法、声明作用域和值，平台只负责读取、原字节版本、取消和原子
+发布；新增工具不需要在宿主增加工具名、格式或任务枚举。
+
+Build 面板只读回显，输入修改工作区拥有的草稿。隐藏面板保留草稿，取消不写入；
+明确保存或“使用继承值”才调用原生 adapter。选择器一次编辑一个声明，较长模型
+选择列表只挂载可见行。Agent 的 `lithe_build_configure` 使用相同 controller、存储和
+configure 授权；活动构建仍返回忙碌，不创建第二份后端或配置。
+
+本机保存同时核对团队与本机版本，写入前重新校验路径及窗口取消租约。外部修改、
+插件撤销、工作区关闭和旧编辑版本不能发布迟到结果；失败保留草稿，保存后重新读回
+并重新检测，使旧模型失效。恢复继承只移除本机值，保留团队文件；实例选项不改变
+兄弟根，工作区多选保留其他实例仍需要的值，明确空选择不会复活默认值。
+
+例如在实例 A 取消选择 `alpha` 时，不能删除只有实例 B 使用的 `beta`；也不能把
+一次本机修改写回整份团队默认值。原生存储回归以真实 Core 验证两层保存/重置、外部
+冲突、无效值、取消和只读安装根。路径和临时替换由现有 document adapter 拥有，
+没有可复用构建身份，资源清单拒绝跨 worktree 复制；运行期不会改变插件包、代码签名
+或 Sparkle delta 基线。Build/Debug 完整产品准入仍按其未完成的消费者验收，不能因
+配置 API 已接通就提前开放整个 Maven/Java 包。
+
 ## 考虑过的备选方案
 
 - 把 Worker 扩展模型整体改造成契约宿主：契约没有主题、AI provider 这些概念，改造成本高且无收益，不采用。

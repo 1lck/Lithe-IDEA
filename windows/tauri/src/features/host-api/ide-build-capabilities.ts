@@ -86,6 +86,12 @@ export class IdeBuildCapabilities {
     const entry = snapshot.entries.find(entry => entry.id === args.instanceID);
     if (!entry) return failure("NOT_FOUND", "Choose a detected build instance");
     if (this.busy(controller)) return failure("BUSY", "A build operation is already active");
+    if(name==="lithe_build_configure") {
+      if(!controller.canConfigureOptions) return failure("NOT_AVAILABLE","Build option persistence is unavailable");
+      const result=await controller.configureOption(entry,args.optionID as string,args.value);
+      this.current();
+      return {instanceID:entry.id,saved:true,option:result.options.find(option=>option.id===args.optionID),reloadRequired:true};
+    }
     if (name === "lithe_build_reload") {
       const operation = this.start(controller, entry, () => controller.domain.loadModel(entry));
       return operation ? { instanceID: entry.id, reloadRequested: true }

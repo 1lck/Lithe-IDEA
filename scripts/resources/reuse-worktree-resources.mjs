@@ -85,7 +85,8 @@ async function readRegistry() {
   // owner, including after removing the old macOS Maven tree output allocator.
   // They are mutable upstream state and must never gain a download validator.
   // User-authored Build preferences, machine-local differences and source-identity migration receipts are never reusable.
-  // Private instance defaults and runtime-preference migration receipts follow that same refusal route.
+  // Private instance defaults, Windows app-data/build-options/<workspace-digest>.json
+  // and runtime-preference migration receipts follow that same refusal route; no validator or copy stage.
   // Per-operation Maven report snapshots have no reusable identity and must remain isolated.
   // Native configuration probes (including their isolated repository manager), source-identity cache v2 and secret-bearing
   // conditional replacements and private provider-written outputs/<operation-id>.json use the same explicit rejection route.

@@ -9,6 +9,7 @@ import { applyRightToolWindowIntent } from "@/features/layout/actions/right-tool
 import { useBuildWorkspace } from "../hooks/use-build-workspace";
 import type { BuildWorkspaceController } from "../services/build-workspace-controller";
 import { BuildTaskList } from "./build-task-list";
+import { BuildOptionsEditor } from "./build-options-editor";
 
 export function openBuildOutput(): void {
   const state = useUIState.getState();
@@ -50,6 +51,7 @@ export function BuildPaneContent({ controller, snapshot }: ReturnType<typeof use
         {busy ? <Spinner compact /> : null}{t("build.window.load")}
       </Button>
       {model?.truncated ? <div role="alert" className="p-2 ui-text-sm">{t("build.errors.incompleteModel")}</div> : null}
+      {controller.canConfigureOptions ? <BuildOptionsEditor key={`options:${selected.id}`} controller={controller} entry={selected} revision={snapshot.modelRevision}/> : null}
       {model ? <BuildTaskList key={selected.id} controller={controller} instance={selected} model={model}
         manifest={snapshot.manifests[selected.pluginID]} openOutput={openBuildOutput} /> : null}
     </> : snapshot.status === "ready" ? <div className="p-2 text-subtle-foreground ui-text-sm">{t("build.window.empty")}</div> : null}

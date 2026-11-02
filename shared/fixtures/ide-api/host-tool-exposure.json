@@ -93,6 +93,9 @@
       "name": "lithe_build_reload"
     },
     {
+      "name": "lithe_build_configure"
+    },
+    {
       "name": "lithe_build_execute"
     }
   ]

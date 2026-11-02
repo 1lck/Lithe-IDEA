@@ -293,16 +293,20 @@ mod tests {
             &windows
         )
         .is_ok());
-        assert_eq!(
-            validate_exposed(
-                "lithe_build_configure",
-                &json!({"instanceID":"example:.","optionID":"offline","value":true}),
-                &permissions,
-                &windows
-            )
-            .unwrap_err()["error"]["code"],
-            "NOT_SUPPORTED"
-        );
+        assert!(validate_exposed(
+            "lithe_build_configure",
+            &json!({"instanceID":"example:.","optionID":"offline","value":true}),
+            &permissions,
+            &windows
+        )
+        .is_ok());
+        assert!(validate_exposed(
+            "lithe_build_configure",
+            &json!({"instanceID":"example:.","optionID":"offline","value":false}),
+            &Permissions::default(),
+            &windows
+        )
+        .is_err());
         let exposure: Vec<ToolExposure> = serde_json::from_value(fixture["macos"].clone()).unwrap();
         assert!(validate_exposed(
             "lithe_environment_configure",

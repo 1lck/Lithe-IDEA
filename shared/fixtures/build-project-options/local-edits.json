@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "team": {"version": 1, "systems": {"cargo": {"options": {"offline": true, "features": ["alpha", "beta"]}, "instanceDefaults": {"release": true}, "instances": {"other": {"label": "team other"}}, "savedChoices": {"features": ["remembered"]}}, "dormant": {"options": {"label": "keep"}}}},
+  "emptyLocal": {"version": 1, "document": {"version": 1, "systems": {}}, "emptySelections": {}},
+  "cases": [
+    {"name": "instance false overrides team default", "root": "app", "optionID": "release", "value": false, "modelValues": {}, "valid": true},
+    {"name": "workspace false remains explicit", "root": "app", "optionID": "offline", "value": false, "modelValues": {}, "valid": true},
+    {"name": "explicit empty preserves sibling feature", "root": "app", "optionID": "features", "value": [], "modelValues": {"features": ["alpha"]}, "valid": true},
+    {"name": "invalid model feature refuses whole edit", "root": "app", "optionID": "features", "value": ["alpha", "unknown"], "modelValues": {"features": ["alpha"]}, "valid": false},
+    {"name": "unknown option refuses", "root": "app", "optionID": "unknown", "value": true, "modelValues": {}, "valid": false},
+    {"name": "wrong type refuses", "root": "app", "optionID": "offline", "value": "false", "modelValues": {}, "valid": false},
+    {"name": "escaping root refuses", "root": "../other", "optionID": "release", "value": true, "modelValues": {}, "valid": false}
+  ]
+}

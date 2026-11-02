@@ -305,9 +305,13 @@ function buildFixture() {
   const domain = new WindowsBuildProviderWorkspace(root, { core, providers, guard: () => () => {}, translate: createTranslator("en-US"),
     tools: async () => ({ manifest, identity: "current", pluginDirectory: "C:/plugin", workspaceStateDirectory: "C:/state",
       tool: { executable: "C:/builder/build.cmd" }, environment: {}, executesProjectCode: false }) });
+  let optionsRevision="first";
+  const savedOptions=mock(async (_entry:unknown,_id:string,_value:unknown,_revision:string)=>{optionsRevision="second";return {
+    options:[{id:"offline",displayName:"Offline",kind:"boolean" as const,value:_value,source:"user" as const,choices:[],allowCustom:false}],dropped:[],fingerprint:"saved"};});
   const catalog = (): WindowsBuildCatalog => ({ detection: { instances: [entry], rejected: [], shadowed: [] },
-    plugins: [{ manifest }], document: { version: 1, systems: {} } });
+    plugins: [{ manifest }], document: { version: 1, systems: {} },optionsRevision });
   const controller = new BuildWorkspaceController(root, { domain, guard: () => () => {},
+    options:{save:savedOptions,resolve:async()=>({options:[],dropped:[],fingerprint:"empty"})},
     detect: mock(async () => { detectionEntered.resolve(); if (holdDetection) await detection.promise; return catalog(); }) });
   f.dependencies.buildWorkspace = (_id: string, _root: string) => controller;
   f.dependencies.buildCore = core;
@@ -320,11 +324,26 @@ function buildFixture() {
     unsubscriptions.push(() => { unsubscribe(); done.resolve(); });
     return done.promise;
   };
-  return { ...f, api, controller, domain, entry, model, calls, sent, taskEntered, taskResult, detectionEntered, inspecting, inspectResult,
+  return { ...f, api, controller, domain, entry, model, calls, sent, savedOptions, taskEntered, taskResult, detectionEntered, inspecting, inspectResult,
     until, holdInspection: () => { holdInspection = true; }, holdDetection: () => { holdDetection = true; },
     async dispose() { detection.resolve(); inspectResult.resolve(); taskResult.resolve({ exitCode: 0, output: "finished" });
       for (const unsubscribe of unsubscriptions) unsubscribe(); await controller.dispose(); } };
 }
+
+test("Agent configure saves through the product option store and preserves exact value/reset semantics",async()=>{
+  const f=buildFixture();try{
+    expect(await f.api.call("lithe_build_configure",{instanceID:f.entry.id,optionID:"offline",value:false}))
+      .toMatchObject({saved:true,option:{id:"offline",value:false},reloadRequired:true});
+    expect(f.savedOptions.mock.calls[0]?.slice(0,4)).toEqual([f.entry,"offline",false,"first"]);
+    expect(f.sent).toHaveLength(0);expect(f.controller.snapshot().optionsRevision).toBe("second");
+    expect(await f.api.call("lithe_build_configure",{instanceID:f.entry.id,optionID:"offline",value:null}))
+      .toMatchObject({saved:true,option:{id:"offline",value:null}});
+    expect(f.savedOptions).toHaveBeenCalledTimes(2);
+    f.dependencies.validate.mockImplementationOnce(async()=>({ok:false,mutation:true}));
+    expect(await f.api.call("lithe_build_configure",{instanceID:f.entry.id,optionID:"offline",value:true})).toEqual({ok:false,mutation:true});
+    expect(f.savedOptions).toHaveBeenCalledTimes(2);
+  }finally{await f.dispose();}
+},5000);
 
 test("Agent Build inspection reads admitted declarations and shared options without starting tooling", async () => {
   const f = buildFixture();

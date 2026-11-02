@@ -323,6 +323,7 @@ try {
     const resource = registry.excludedResources.find(item => item.id === "build-project-preferences");
     assert.equal(resource.reusable, false);
     assert.ok(resource.locations.includes(".lithe/build/options.json"));
+    assert.ok(resource.locations.includes("<windows-app-data>/<app-id>/build-options/<canonical-workspace-digest>.json"));
     assert.ok(resource.locations.includes("<platform-preferences>/BuildSystems.Migrations.Maven.<workspace-digest>"));
     assert.ok(resource.locations.includes("<platform-preferences>/BuildSystems.Options.<build-system-id>.<workspace-digest>.InstanceDefaults"));
     assert.ok(resource.locations.includes("<platform-preferences>/BuildSystems.Migrations.Maven.<workspace-digest>.Runtime"));

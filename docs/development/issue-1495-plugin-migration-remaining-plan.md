@@ -516,6 +516,38 @@ Project/host 和 broker 车道通过。原始报告下载在
 Windows/Core/共享契约与该 CI 提交相同，macOS 另由上述 124 项报告验证。
 这仍不代替 Windows 产品包、完整 GUI 或正式 SDK/插件发行验收，阶段 D 不关闭。
 
+### Windows Build 选项保存与 Agent 配置（2026-11-02）
+
+已经接通此前缺失的本机 Build 选项流程：Core 统一检查团队/本机合并和声明式编辑，
+Windows 平台在 app-data 保存独立工作区覆盖，使用已有文档 adapter 的条件原子替换。
+Build 面板与 Agent configure 共用 controller；开页只读、隐藏保留草稿，显式保存、
+取消和恢复继承有独立动作。实例覆盖、兄弟多选保留、明确空选择、无关系统/根/记忆
+选项保留、两层冲突及关闭/插件撤销均有回归；团队原文件不被本机编辑改写。
+
+新增两个纯 Core 操作和共享 fixture，没有新增插件 RPC 或 Maven 语义；Windows
+`lithe_build_configure` 清单、权限校验和实际调用已同步。产品能力表继续关闭，旧
+Maven/Java 消费者尚未完成切换。资源复用清单和拒绝路由登记本机可变状态；它不进入
+app/plugin 安装目录，也不跨 worktree 共享。
+
+当前本机 Core 全量 1623 项、原生 Project 104 项、受影响前端 520 项计时通过；
+TypeScript 与生产 bundle 通过，Windows host 检查仍仅两项既有 macOS Windows API
+错误。报告为 `stage-d-build-options-core-full`、`stage-d-build-local-native` 和
+`stage-d-build-options-frontend-final-v2`；原生存储最终报告为 `stage-d-build-local-native-final`，Core 最终报告为 `stage-d-build-options-core-final`（包含继承状态重置不创建本机文件）。后续原生 Windows CI 结果单独登记，
+尚不声称完整产品验收。同步整合最新 preview `8b1d66693` 的公开终端协议与实现；
+SDK 分支整合其 main 原生终端增量，公开镜像仍来自已合并提交，未发布新版本。
+
+本批已补完 14 项 broker 和三个真实 MCP stdio 会话，Windows 清单包含 configure，
+缺少配置权限仍拒绝；计时为 795/9/10 毫秒，报告前缀 `stage-d-build-options-broker-final`
+及 `stage-d-build-options-mcp-stdio`。首轮仍断言旧清单不支持 configure，已同步 fixture
+和测试并保留失败记录。最新 preview 合并后的 macOS 原生回归 130 项通过，报告
+`stage-d-build-options-macos-merged`；共享/服务/Windows 边界、bundle 只读、Notes、矩阵、
+i18n、测试稳定性和资源拒绝复用回归均通过。
+
+SDK `3596a4d` 整合公开 main 的三种 SDK 终端 API，公开镜像固定已合并的 `f64d262c48f1ff5ad1778b301138596493a09ad5`，77 文件校验通过；未手改镜像、未发行。
+当前本地 Node/工具脚本 97 项、Java 62 项、Rust 38 项及一个文档用例通过，真实
+Node/Java 原生 Build/Run/配置/报告与三种 SDK 函数/宿主服务共六项 E2E 通过。
+这些开发验证不替代正式发行地址与锁定值，也不把完整产品验收标成完成。
+
 ### D-MIGRATION-REMOVAL：旧 Maven 数据迁移器清理
 
 这是 #1495 下独立跟踪的删除项，状态为未完成。`MacLegacyMavenConfigurationMigration`

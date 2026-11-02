@@ -20,6 +20,35 @@ export interface WindowsBuildCatalog {
   };
   plugins: Array<{ manifest: Record<string, unknown> }>;
   document: { version: 1; systems: Record<string, unknown> };
+  optionsRevision?: string;
+}
+
+export async function saveWindowsBuildOption(workspacePath: string, entry: BuildInstance, optionID: string, value: unknown,
+  expectedRevision: string, modelValues: BuildModel["optionValues"] | undefined, signal: AbortSignal): Promise<BuildOptionsResolution> {
+  try {
+    return await prepareNativeBuildTool({
+      begin: () => invoke<string>("declarative_plugins_begin_tool_preparation"),
+      resolve: operationId => invoke("declarative_plugins_build_save_option", { workspacePath, pluginId: entry.pluginID,
+        buildSystemId: entry.buildSystemID, root: entry.root, optionId: optionID, value, modelValues, expectedRevision, operationId }),
+      cancel: operationId => invoke("declarative_plugins_cancel_tool_preparation", { operationId }),
+    },signal);
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    const key = message.includes("build.options.conflict") ? "build.options.conflict" : "build.options.invalid";
+    throw Object.assign(new Error(createTranslator(useSettingsStore.getState().settings.displayLanguage)(key)),{cause});
+  }
+}
+
+export interface BuildResolvedOption {
+  id: string; displayName: string; kind: "boolean" | "singleSelect" | "multiSelect" | "text" | "file" | "directory";
+  scope?: "workspace" | "instance"; value: unknown; source: "user" | "default" | "none";
+  choices: Array<{value: string; title: string | null}>; allowCustom: boolean;
+}
+export interface BuildOptionsResolution { options: BuildResolvedOption[]; dropped: string[]; fingerprint: string }
+
+export async function resolveWindowsBuildOptions(path: string, manifest: Record<string,unknown>, entry: BuildInstance, modelValues?: BuildModel["optionValues"]) {
+  return (await buildCore<{options: BuildOptionsResolution}>("build.resolveOptions",manifest,entry.buildSystemID,
+    {options:entry.options,modelValues},path)).options;
 }
 
 export async function detectWindowsBuildProjects(workspacePath: string): Promise<WindowsBuildCatalog> {

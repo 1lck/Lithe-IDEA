@@ -333,6 +333,7 @@ fn main() {
                             plugin_host::launch::declarative_plugins_language_launch,
                             plugin_host::build::declarative_plugins_build_launch,
                             plugin_host::build::declarative_plugins_build_detect,
+                            plugin_host::build::declarative_plugins_build_save_option,
                             plugin_host::build_tools::declarative_plugins_build_tool,
                             plugin_host::toolchain_preparation::declarative_plugins_begin_tool_preparation,
                             plugin_host::toolchain_preparation::declarative_plugins_cancel_tool_preparation,

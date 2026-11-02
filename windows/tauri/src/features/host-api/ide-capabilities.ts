@@ -326,9 +326,8 @@ export class IdeCapabilities {
       case "lithe_build_inspect":
       case "lithe_build_reload":
       case "lithe_build_execute":
-        return this.build.call(name, args);
       case "lithe_build_configure":
-        return fail("NOT_AVAILABLE", createTranslator(useSettingsStore.getState().settings.displayLanguage)("ide.build.windowsUnavailable"));
+        return this.build.call(name, args);
       case "lithe_maven_execute": {
         if (!this.maven.project) return fail("NOT_READY", "Load a Maven project first");
         if (["running", "stopping"].includes(this.maven.taskStatus))

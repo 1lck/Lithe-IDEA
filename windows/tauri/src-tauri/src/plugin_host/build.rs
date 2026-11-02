@@ -6,7 +6,7 @@
 
 use super::{launch, lifecycle::LifecycleState, scan::core_execute, settings, store};
 use serde::Serialize;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use tauri::{AppHandle, Manager};
 
 /// A provider process ready for the shared Core session runtime. This transport
@@ -49,9 +49,9 @@ pub async fn declarative_plugins_build_detect(
             leases.push(lease);
             plugins.push(json!({"manifest":package.manifest}));
         }
-        let document = lithe_project::build_options::read_build_options(std::path::Path::new(
-            &workspace_path,
-        ))?;
+        let stored = lithe_project::build_options::read_snapshot(std::path::Path::new(&workspace_path),
+            &options_path(&app, &workspace_path)?).map_err(|_| "build.options.invalid")?;
+        let document = stored.document;
         let mut options = serde_json::Map::new();
         let mut defaults = serde_json::Map::new();
         let mut instances = serde_json::Map::new();
@@ -66,14 +66,85 @@ pub async fn declarative_plugins_build_detect(
         let mut detected = core_execute(
             "build.detect",
             json!({"workspaceRoot":workspace_path,"plugins":plugins,
-            "options":options,"instanceDefaults":defaults,"instanceOptions":instances}),
+            "options":options,"instanceDefaults":defaults,"instanceOptions":instances,"emptySelections":stored.empty_selections}),
         )?;
         if detected["status"] != "ok" {
             return Err("Build detection failed".into());
         }
         detected["plugins"] = json!(plugins);
         detected["document"] = document;
+        detected["optionsRevision"] = json!(stored.revision);
         Ok(detected)
+    })
+    .await
+}
+
+/// One machine-local preference document per canonical workspace. It is user
+/// state, never part of the app/package and never copied between worktrees.
+fn options_path(app: &AppHandle, workspace: &str) -> Result<std::path::PathBuf, String> {
+    let root = std::path::Path::new(workspace)
+        .canonicalize()
+        .map_err(|_| "build.options.invalid")?;
+    Ok(app
+        .path()
+        .app_data_dir()
+        .map_err(|_| "build.options.invalid")?
+        .join("build-options")
+        .join(format!(
+            "{}.json",
+            build_workspace_key(&root.to_string_lossy())
+        )))
+}
+
+/// Edits a declared local option only after an explicit UI/Agent configure
+/// action. No tool process is started, and team preferences remain read-only.
+#[tauri::command]
+pub async fn declarative_plugins_build_save_option(
+    app: AppHandle,
+    window: tauri::Window,
+    workspace_path: String,
+    plugin_id: String,
+    build_system_id: String,
+    root: String,
+    option_id: String,
+    value: Value,
+    model_values: Option<Value>,
+    expected_revision: String,
+    operation_id: String,
+) -> Result<Value, String> {
+    let operation = super::toolchain_preparation::claim(&app, &window, &operation_id)?;
+    crate::blocking::run_blocking(move || {
+        let _lease = app.state::<LifecycleState>().acquire(&plugin_id)?;
+        let package = launch::package_by_id(&app, &plugin_id).ok_or("build.options.conflict")?;
+        let path = options_path(&app, &workspace_path)?;
+        let immutable = super::build_configuration::immutable_roots(&app)
+            .map_err(|_| "build.options.invalid")?;
+        lithe_project::build_options::save_option(
+            std::path::Path::new(&workspace_path),
+            &path,
+            &package.manifest,
+            &build_system_id,
+            json!({"root":root,"optionID":option_id,"value":value,"modelValues":model_values}),
+            &expected_revision,
+            &immutable,
+            || {
+                operation.current().map_err(|_| {
+                    lithe_project::native_configuration::NativeConfigurationError::Conflict
+                })
+            },
+        )
+        .map_err(|error| {
+            match error {
+                lithe_project::native_configuration::NativeConfigurationError::Conflict => {
+                    "build.options.conflict"
+                }
+                lithe_project::native_configuration::NativeConfigurationError::ReadOnly => {
+                    "build.options.readOnly"
+                }
+                _ => "build.options.invalid",
+            }
+            .into()
+        })
     })
     .await
 }

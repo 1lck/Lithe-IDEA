@@ -7,7 +7,7 @@
 //! projects without running a build tool.
 
 use super::decode::Workspace;
-use super::manifest::{BuildSystemDeclaration, ModelSource, Nesting, OptionScope};
+use super::manifest::{BuildSystemDeclaration, ModelSource, Nesting, OptionKind, OptionScope};
 use super::options;
 use super::outputs::{model_value, read_model, source_marker};
 use crate::plugins::declarative::{validate_manifest_value, PluginRejection, Validation};
@@ -32,6 +32,10 @@ pub(crate) struct DetectRequest {
     /// Team-owned defaults for instance-scoped options, before root overrides.
     #[serde(default)]
     pub(crate) instance_defaults: BTreeMap<String, BTreeMap<String, Value>>,
+    /// Explicit per-root empty workspace multi-selections, preserving values
+    /// needed by sibling models. Unknown or changed option kinds ignore markers.
+    #[serde(default)]
+    pub(crate) empty_selections: BTreeMap<String, BTreeMap<String, BTreeSet<String>>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -216,6 +220,16 @@ pub(crate) fn detect(request: DetectRequest) -> Validation<Value> {
                     };
                     if let Some(value) = value {
                         values.insert(option.id.clone(), value.clone());
+                    }
+                    if option.scope == OptionScope::Workspace
+                        && option.kind == OptionKind::MultiSelect
+                        && request
+                            .empty_selections
+                            .get(&owner.declaration.id)
+                            .and_then(|roots| roots.get(&root))
+                            .is_some_and(|ids| ids.contains(&option.id))
+                    {
+                        values.insert(option.id.clone(), json!([]));
                     }
                 }
                 instances.push(instance(owner, &workspace, &root, markers, &values));

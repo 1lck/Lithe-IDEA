@@ -362,6 +362,14 @@ Swift 单元和插件 CI 通道复用已有 Cargo 下载缓存。先通过
 
 ### 独立工作树的本地编译
 
+Windows Build 本机选项位于平台 app-data 的 `build-options/<canonical-workspace-digest>.json`，
+由应用用户配置拥有，保留到用户显式重置/移除配置；团队层仍是工作区的
+`.lithe/build/options.json`。该文档、显式空选择标记及文档 adapter 的相邻临时替换均是
+可变状态，没有版本/平台/架构/工具链构建 identity stamp，归入 `build-project-preferences`
+拒绝路由。任何校验或复制阶段均不得跨 worktree 复用，不从安装目录推导写入目标；
+本机保存检查两层原始版本并回读，不改变插件包、代码签名或 Sparkle delta 基线。
+
+
 SwiftPM 的 `.build/`、资源 bundle 和 `.lithe-swift-toolchain` 标记登记为
 `swiftpm-build-state`，所有工作树复用阶段均拒绝复制。编译器标记只用于本工作树
 缓存失效，不是可转移的源码、平台、架构、SDK 和工具链完整性证明；只复用经过校验的

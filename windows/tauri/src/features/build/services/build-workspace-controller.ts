@@ -1,4 +1,5 @@
-import type { WindowsBuildCatalog } from "@/platform/build-provider-platform";
+import type { WindowsBuildCatalog, BuildOptionsResolution } from "@/platform/build-provider-platform";
+import type { BuildModel } from "./build-provider-types";
 import type { BuildInstance, WindowsBuildProviderWorkspace } from "./build-provider-workspace";
 import { BuildNativeConfigurationController } from "./build-native-configuration-controller";
 import { buildCatalogMayChange } from "./build-file-inputs";
@@ -13,6 +14,7 @@ export interface BuildWorkspaceSnapshot {
   operationID?: string;
   modelRevision: number;
   error?: string;
+  optionsRevision?: string;
 }
 export interface BuildWorkspaceControllerPorts {
   detect: (path: string) => Promise<WindowsBuildCatalog>;
@@ -20,6 +22,10 @@ export interface BuildWorkspaceControllerPorts {
   guard: () => (plugin: string) => void;
   scheduleRefresh?: (refresh: () => Promise<void>) => () => void;
   runTarget?: (choice: BuildTargetChoice, assertCurrent: () => void, signal: AbortSignal) => Promise<void>;
+  options?: {
+    resolve: (manifest: Record<string,unknown>,entry: BuildEntry,modelValues?: BuildModel["optionValues"]) => Promise<BuildOptionsResolution>;
+    save: (entry: BuildEntry,id: string,value: unknown,revision: string,modelValues: BuildModel["optionValues"] | undefined,signal: AbortSignal) => Promise<BuildOptionsResolution>;
+  };
 }
 
 /** Product catalog/model state. High-volume progress remains subscribed by the
@@ -31,6 +37,8 @@ export class BuildWorkspaceController {
   private generation = 0;
   private targetRevision = 0;
   private readonly targetPreparations = new Set<AbortController>();
+  private readonly optionWrites = new Set<AbortController>();
+  private readonly optionDrafts=new Map<string,{value:unknown;revision:string|undefined}>();
   private detection?: { generation: number; completion: Promise<void> };
   private disposed = false;
   private cancelScheduledRefresh?: () => void;
@@ -71,7 +79,7 @@ export class BuildWorkspaceController {
           try { guard(manifest.id); manifests[manifest.id] = manifest; } catch { /* Revoked declarations cannot reappear after detection. */ }
         }
         const entries = catalog.detection.instances.filter(entry => manifests[entry.pluginID]);
-        this.publish({ status: "ready", entries, manifests,
+        this.publish({ status: "ready", entries, manifests, optionsRevision: catalog.optionsRevision,
           selectedID: entries.some(entry => entry.id === this.state.selectedID) ? this.state.selectedID : entries[0]?.id });
       } catch (error) {
         if (!this.disposed && generation === this.generation) this.publish({ status: "failed", error: error instanceof Error ? error.message : String(error) });
@@ -100,11 +108,11 @@ export class BuildWorkspaceController {
         // A Run rechecks canonical saved options even if a file notification
         // was missed. Unchanged catalogs retain their object/model identities
         // so concurrent services do not cancel each other's preparations.
-        if (JSON.stringify({ entries, manifests }) === JSON.stringify({ entries: this.state.entries, manifests: this.state.manifests })) return;
+        if (JSON.stringify({ entries, manifests, revision:catalog.optionsRevision }) === JSON.stringify({ entries: this.state.entries, manifests: this.state.manifests, revision:this.state.optionsRevision })) return;
         for (const entry of this.state.entries) this.domain.invalidate(entry);
         this.generation++;
         if (this.detection) this.detection.generation = this.generation;
-        this.publish({ status: "ready", entries, manifests, error: undefined, modelRevision: this.state.modelRevision + 1,
+        this.publish({ status: "ready", entries, manifests, optionsRevision:catalog.optionsRevision, error: undefined, modelRevision: this.state.modelRevision + 1,
           selectedID: entries.some(entry => entry.id === this.state.selectedID) ? this.state.selectedID : entries[0]?.id });
       } catch (error) {
         if (this.disposed || generation !== this.generation) return;
@@ -120,6 +128,45 @@ export class BuildWorkspaceController {
   }
   select(id: string): void { if (this.state.entries.some(entry => entry.id === id)) this.publish({ selectedID: id, error: undefined }); }
   get canRunTargets(): boolean { return Boolean(this.ports.runTarget); }
+  get canConfigureOptions(): boolean { return Boolean(this.ports.options && this.state.optionsRevision); }
+  private optionKey(entry:BuildEntry,id:string) {return JSON.stringify([entry.pluginID,entry.buildSystemID,entry.root,id]);}
+  optionDraft(entry:BuildEntry,id:string) {return this.optionDrafts.get(this.optionKey(entry,id));}
+  editOptionDraft(entry:BuildEntry,id:string,value:unknown) {
+    const key=this.optionKey(entry,id),previous=this.optionDrafts.get(key);
+    this.optionDrafts.set(key,{value,revision:previous?.revision??this.state.optionsRevision});
+  }
+  discardOptionDraft(entry:BuildEntry,id:string) {this.optionDrafts.delete(this.optionKey(entry,id));}
+
+  async resolveOptions(entry: BuildEntry): Promise<BuildOptionsResolution> {
+    if (!this.ports.options || !this.state.entries.includes(entry)) throw new Error("build.options.conflict");
+    const manifest = this.state.manifests[entry.pluginID]!;
+    const generation=this.generation,guard=this.ports.guard(), model=this.domain.model(entry);
+    const current=model ? this.domain.modelGuard(entry) : undefined;
+    const result=await this.own(this.ports.options.resolve(manifest,entry,model?.optionValues));
+    guard(entry.pluginID); current?.();
+    if(this.disposed || generation!==this.generation || !this.state.entries.includes(entry)) throw new Error("build.options.conflict");
+    return result;
+  }
+
+  configureOption(entry: BuildEntry,id: string,value: unknown,revision=this.state.optionsRevision): Promise<BuildOptionsResolution> {
+    const cancellation=new AbortController();
+    const completion=(async () => {
+      if(!this.ports.options || !revision || this.disposed || !this.state.entries.includes(entry)
+        || revision!==this.state.optionsRevision || this.optionWrites.size) throw new Error("build.options.conflict");
+      const guard=this.ports.guard(),model=this.domain.model(entry),current=model ? this.domain.modelGuard(entry) : undefined;
+      current?.(); guard(entry.pluginID); this.optionWrites.add(cancellation);
+      try {
+        const result=await this.ports.options.save(entry,id,value,revision,model?.optionValues,cancellation.signal);
+        cancellation.signal.throwIfAborted();guard(entry.pluginID);
+        if(this.disposed) throw new DOMException("Aborted","AbortError");
+        await this.refresh();
+        if(this.state.status!=="ready") throw new Error(this.state.error ?? "build.options.invalid");
+        this.discardOptionDraft(entry,id);
+        return result;
+      } finally {this.optionWrites.delete(cancellation);}
+    })();
+    return this.own(completion);
+  }
 
   runTarget(instance: BuildInstance, choice: BuildTargetChoice, userArguments: string[]) {
     const cancellation = new AbortController();
@@ -154,6 +201,7 @@ export class BuildWorkspaceController {
     if (this.disposed) return;
     const affected = this.domain.filesChanged(path, rescan);
     if (!affected && !buildCatalogMayChange(this.state.manifests, this.workspacePath, path, rescan)) return;
+    for(const write of this.optionWrites) write.abort();
     // Revoke the old catalog before debounce or any asynchronous native call.
     // Redetection reads declarations/files only; it never starts a Provider.
     this.generation++;
@@ -199,6 +247,7 @@ export class BuildWorkspaceController {
   }
 
   async revokePlugin(pluginID: string): Promise<void> {
+    for(const write of this.optionWrites) write.abort();
     const entries = this.state.entries.filter(entry => entry.pluginID === pluginID);
     for (const entry of entries) this.domain.invalidate(entry);
     const manifests = { ...this.state.manifests }; delete manifests[pluginID];
@@ -211,7 +260,9 @@ export class BuildWorkspaceController {
 
   async dispose(): Promise<void> {
     this.disposed = true; this.generation++;
+    this.optionDrafts.clear();
     for (const preparation of this.targetPreparations) preparation.abort();
+    for (const write of this.optionWrites) write.abort();
     this.cancelScheduledRefresh?.(); this.cancelScheduledRefresh = undefined;
     this.unsubscribeFacts();
     for (const editor of this.nativeEditors.values()) editor.dispose();

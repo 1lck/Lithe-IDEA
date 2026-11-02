@@ -2,6 +2,8 @@
 //! semantics; discovery never creates defaults or rewrites malformed data.
 use serde_json::{Value, json};
 use std::{fs, io::Read, path::Path};
+mod local;
+pub use local::{BuildOptionsSnapshot, read_snapshot, save_option};
 
 pub fn read_build_options(workspace: &Path) -> Result<Value, String> {
     let root = workspace

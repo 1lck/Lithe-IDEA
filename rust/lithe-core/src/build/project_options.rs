@@ -63,7 +63,7 @@ fn values_valid(values: &BTreeMap<String, StoredValue>) -> bool {
         })
 }
 
-fn root_valid(root: &str) -> bool {
+pub(super) fn root_valid(root: &str) -> bool {
     root == "."
         || !root.is_empty()
             && root.chars().count() <= 1024
@@ -74,7 +74,7 @@ fn root_valid(root: &str) -> bool {
                 .all(|part| !part.is_empty() && part != "." && part != "..")
 }
 
-fn validate(value: Value) -> Validation<Value> {
+pub(super) fn validate(value: Value) -> Validation<Value> {
     if serde_json::to_vec(&value).map_or(true, |bytes| bytes.len() > 2 * 1024 * 1024) {
         return Err(invalid());
     }
