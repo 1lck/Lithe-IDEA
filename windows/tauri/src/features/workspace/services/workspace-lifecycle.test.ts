@@ -10,9 +10,21 @@ const ownedByThisWindow = new Set<string>();
 const revokedIdeWorkspaces: string[] = [];
 const stoppedDeclarativeWorkspaces: string[] = [];
 const closedPluginWorkspaces: string[] = [];
-mock.module("@/platform/tauri-core", () => ({ invoke: async (command: string, args: { workspaceId: string }) => {
-  if (command === "declarative_plugins_close_workspace_pages") closedPluginWorkspaces.push(args.workspaceId);
-} }));
+const closedVcsWorkspaces: string[] = [];
+mock.module("@/features/vcs/vcs-root-service", () => ({
+  closeWorkspaceVcsRoots: async (id: string) => {
+    closedVcsWorkspaces.push(id);
+  },
+}));
+const executionCleanup: string[] = [];
+mock.module("@/platform/tauri-core", () => ({
+  invoke: async (command: string, args: { workspaceId: string }) => {
+    if (command === "declarative_plugins_close_workspace_pages")
+      closedPluginWorkspaces.push(args.workspaceId);
+    if (command === "declarative_plugins_close_execution_workspace")
+      executionCleanup.push(`revoke:${args.workspaceId}`);
+  },
+}));
 mock.module("@/features/host-api/mcp-connection", () => ({
   disableMcp: async (id: string) => {
     revokedIdeWorkspaces.push(id);
@@ -48,6 +60,7 @@ mock.module("@/features/plugins/declarative-plugin-process-owner", () => ({
   declarativePluginProcessOwner: {
     stop: async (workspaceId: string) => {
       stoppedDeclarativeWorkspaces.push(workspaceId);
+      executionCleanup.push(`drain:${workspaceId}`);
     },
   },
 }));
@@ -105,12 +118,28 @@ beforeEach(() => {
   revokedIdeWorkspaces.length = 0;
   stoppedDeclarativeWorkspaces.length = 0;
   closedPluginWorkspaces.length = 0;
+  closedVcsWorkspaces.length = 0;
+  executionCleanup.length = 0;
 });
 afterEach(() => {
   mock.restore();
 });
 
 const descriptor = { path: "C:/projects/example", name: "example" };
+
+test("workspace close retires passive VCS sources before disposing its files", async () => {
+  await openWorkspaceRuntime({ descriptor, initialize: async () => true });
+  const id = createProjectTabId(descriptor.path);
+  expect(
+    await closeWorkspaceRuntime(id, {
+      dispose: async () => {
+        expect(closedVcsWorkspaces).toContain(id);
+      },
+      showWelcome: async () => {},
+    }),
+  ).toBe(true);
+  expect(closedVcsWorkspaces).toEqual([id]);
+});
 
 test("a project owned by another window does not mutate the current workspace", async () => {
   redirected = true;
@@ -186,6 +215,7 @@ test("closing a project revokes IDE access before disposal and then releases own
   ).toBe(true);
   expect(disposed).toBe(true);
   expect(stoppedDeclarativeWorkspaces).toEqual([id]);
+  expect(executionCleanup).toEqual([`revoke:${id}`, `drain:${id}`]);
   expect(closedPluginWorkspaces).toEqual([id]);
   expect(released).toEqual([id]);
   expect(tabs).toEqual([]);
@@ -685,9 +715,9 @@ test("a failed successor switch stops the close before anything is revoked", asy
   expect(workspaces.has(id)).toBe(true);
   expect(isWorkspaceClosing(id)).toBe(false);
   // Edits after the rollback are safe, and the user can retry the close.
-  expect(await closeWorkspaceRuntime(id, { switchTo: async (next) => ((active = next), true) })).toBe(
-    true,
-  );
+  expect(
+    await closeWorkspaceRuntime(id, { switchTo: async (next) => ((active = next), true) }),
+  ).toBe(true);
   expect(tabs.map((tab) => tab.id)).toEqual([otherId]);
 });
 

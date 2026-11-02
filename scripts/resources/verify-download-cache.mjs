@@ -5,6 +5,7 @@ import { createReadStream, promises as fs } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { spawnSync } from "node:child_process";
+import { hashFileSet } from "./hash-file-set.mjs";
 import { fileURLToPath } from "node:url";
 
 const SCRIPT_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
@@ -563,9 +564,11 @@ async function clearBunCache(cacheRoot, reason) {
 async function writeBunManifest(cacheRoot, identity) {
   await fs.mkdir(cacheRoot, { recursive: true });
   const files = {};
-  for (const filePath of await bunCacheFiles(cacheRoot)) {
+  const paths = await bunCacheFiles(cacheRoot);
+  const hashes = await hashFileSet(paths);
+  for (const [index, filePath] of paths.entries()) {
     const relative = path.relative(cacheRoot, filePath).split(path.sep).join("/");
-    files[relative] = await sha256(filePath);
+    files[relative] = hashes[index];
   }
   const manifest = {
     schemaVersion: 1,
@@ -614,8 +617,9 @@ async function verifyBunCache(cacheRoot, identity) {
     await clearBunCache(cacheRoot, "file set does not match the integrity manifest");
     return;
   }
+  const hashes = await hashFileSet(actualFiles);
   for (let index = 0; index < actualFiles.length; index += 1) {
-    const actualHash = await sha256(actualFiles[index]);
+    const actualHash = hashes[index];
     if (actualHash !== manifest.files[actualNames[index]]) {
       await clearBunCache(cacheRoot, `${actualNames[index]} has a SHA-256 mismatch`);
       return;

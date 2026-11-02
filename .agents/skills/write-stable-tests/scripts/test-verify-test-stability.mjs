@@ -111,6 +111,26 @@ const typescriptViolations = scanFile(
 );
 assert.deepEqual(typescriptViolations.map((violation) => violation.rule), ["typescript-real-timer"]);
 
+// Browser fixtures must obey the same timer rules, including owned watchdog exceptions.
+for (const extension of ["ts", "tsx"]) {
+  const browserTimerContent = `setTimeout(observe, 10);
+// test-stability: allow(typescript-real-timer) reason: Browser frames may stop; an owned watchdog bounds observation and is cancelled in cleanup.
+setTimeout(failObservation, 1000);
+`;
+  const browserViolations = scanFile(
+    `windows/tauri/src/example.browser-test.${extension}`,
+    browserTimerContent,
+  );
+  assert.deepEqual(browserViolations.map(({ rule, line }) => ({ rule, line })), [
+    { rule: "typescript-real-timer", line: 1 },
+  ]);
+  assert.deepEqual(scanFile(
+    `windows/tauri/src/example.browser-test.${extension}`,
+    browserTimerContent,
+    new Set([3]),
+  ), []);
+}
+
 const rustViolations = scanFile(
   "rust/lithe-core/src/example.rs",
   `use std::thread;
@@ -215,6 +235,45 @@ try {
   assert.ok(existsSync(reportPath.replace(/\.json$/, ".html")));
 } finally {
   rmSync(bunTimeoutRoot, { recursive: true, force: true });
+}
+
+// Import/loader failures can stop Bun before it creates JUnit. Keep evidence
+// and fail discovery instead of losing the report or accepting an empty suite.
+const bunDiscoveryRoot = mkdtempSync(path.join(os.tmpdir(), "lithe-bun-discovery-"));
+try {
+  const report = path.join(bunDiscoveryRoot, "discovery.json");
+  await assert.rejects(runBunTestsWithTiming({
+    workingDirectory: bunDiscoveryRoot, warnMs: 50, maxMs: 200,
+    suiteTimeoutMs: 500, report, testArguments: [],
+  }, { runProcessImpl: async () => ({
+    code: 1, timedOut: false, durationMs: 10, stderr: "fixture import failed",
+  }) }), /Bun did not produce a readable JUnit report/);
+  const result = JSON.parse(readFileSync(report, "utf8"));
+  assert.equal(result.tests[0].status, "error");
+  assert.match(result.tests[0].details, /fixture import failed/);
+  assert.match(readFileSync(report.replace(/\.json$/, ".junit.xml"), "utf8"), /errors="1"/);
+  assert.ok(existsSync(report.replace(/\.json$/, ".html")));
+} finally {
+  rmSync(bunDiscoveryRoot, { recursive: true, force: true });
+}
+
+const bunPartialRoot = mkdtempSync(path.join(os.tmpdir(), "lithe-bun-partial-"));
+try {
+  const report = path.join(bunPartialRoot, "partial.json");
+  await assert.rejects(runBunTestsWithTiming({
+    workingDirectory: bunPartialRoot, warnMs: 50, maxMs: 200,
+    suiteTimeoutMs: 500, report, testArguments: [],
+  }, { runProcessImpl: async () => {
+    writeFileSync(report.replace(/\.json$/, ".junit.xml"),
+      '<testsuite><testcase name="completed" time="0.001"/></testsuite>');
+    return { code: 1, timedOut: false, durationMs: 10, stderr: "second file import failed" };
+  } }), /Bun test command exited with code 1/);
+  const result = JSON.parse(readFileSync(report, "utf8"));
+  assert.deepEqual(result.tests.map(({ status }) => status), ["passed", "error"]);
+  assert.match(result.tests[1].details, /second file import failed/);
+  assert.match(readFileSync(report.replace(/\.json$/, ".junit.xml"), "utf8"), /errors="1"/);
+} finally {
+  rmSync(bunPartialRoot, { recursive: true, force: true });
 }
 
 const swiftTimeoutRoot = mkdtempSync(path.join(os.tmpdir(), "lithe-test-stability-swift-timeout-"));

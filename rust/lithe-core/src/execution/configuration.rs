@@ -2074,10 +2074,11 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
     let uses_maven_toolchain = config["toolchains"]["maven"]
         .as_str()
         .is_some_and(|value| !value.is_empty());
-    let is_direct_java_project_launch = uses_maven_toolchain
-        && (is_java_main
-            || (provider == "spring-boot.maven"
-                && config["extensions"]["java"]["source"].is_string()));
+    let is_direct_java_project_launch = (is_java_main && request.java_launch.is_some())
+        || (uses_maven_toolchain
+            && (is_java_main
+                || (provider == "spring-boot.maven"
+                    && config["extensions"]["java"]["source"].is_string())));
     let goal = framework_goal(provider);
     // A framework that owns its own debug agent takes a port instead of raw JVM
     // flags, so JDWP must not also be forced into `jvmArguments`: two agents on
@@ -2165,10 +2166,9 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
                 "Java project launch is missing its main class",
             )
         })?;
-        // The Java project model already built the workspace and resolved the
-        // exact target module paths. Maven remains the project model, but it no
-        // longer receives a reactor-wide Java launch goal that would try the
-        // same main class in parent and dependency projects.
+        // JDT already built and resolved the target's paths. This applies to
+        // unmanaged and Gradle projects too; never compile the one source again
+        // with javac and discard upstream dependency/module paths.
         plan_classpath.extend(java_launch.class_paths.iter().cloned().map(Value::String));
         plan_modulepath.extend(java_launch.module_paths.iter().cloned().map(Value::String));
         arguments.extend(jvm_arguments);
@@ -2180,14 +2180,12 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
         }
         arguments.push(json!(java_launch.main_class));
         arguments.extend(program_arguments);
-        // JDT's incremental build is not Maven's resource-processing phase.
-        // Maven owns filtering, custom resource roots and reactor dependencies.
-        let reactor_path = maven["reactorPath"].as_str().unwrap_or(".");
-        let mut context =
-            request
-                .maven_context
-                .clone()
-                .unwrap_or(crate::project::MavenLaunchContextRequest {
+        if uses_maven_toolchain {
+            // JDT's incremental build is not Maven's resource-processing phase.
+            // Maven owns filtering, custom resource roots and reactor dependencies.
+            let reactor_path = maven["reactorPath"].as_str().unwrap_or(".");
+            let mut context = request.maven_context.clone().unwrap_or(
+                crate::project::MavenLaunchContextRequest {
                     version: 1,
                     reactor_path: reactor_path.to_string(),
                     profiles: Vec::new(),
@@ -2196,60 +2194,62 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
                     skip_tests: false,
                     maven_executable_path: None,
                     java_home_path: None,
-                });
-        context.reactor_path = reactor_path.to_string();
-        let mut resource_module = maven["module"].as_str().map(str::to_string);
-        if let Some(module) = resource_module.as_deref().filter(|module| *module != ".") {
-            let reactor_root = workspace_root.join(reactor_path);
-            let declared = crate::project::declared_modules(&reactor_root)?;
-            if !declared
-                .iter()
-                .any(|candidate| candidate.relative_path == module)
-            {
-                // An independently imported child POM is not selectable with -pl.
-                // Let the shared planner validate its own project boundary instead.
-                context.reactor_path = format!("{reactor_path}/{module}");
-                resource_module = None;
+                },
+            );
+            context.reactor_path = reactor_path.to_string();
+            let mut resource_module = maven["module"].as_str().map(str::to_string);
+            if let Some(module) = resource_module.as_deref().filter(|module| *module != ".") {
+                let reactor_root = workspace_root.join(reactor_path);
+                let declared = crate::project::declared_modules(&reactor_root)?;
+                if !declared
+                    .iter()
+                    .any(|candidate| candidate.relative_path == module)
+                {
+                    // An independently imported child POM is not selectable with -pl.
+                    // Let the shared planner validate its own project boundary instead.
+                    context.reactor_path = format!("{reactor_path}/{module}");
+                    resource_module = None;
+                }
             }
+            if let Some(profiles) = maven["profiles"]
+                .as_array()
+                .filter(|items| !items.is_empty())
+            {
+                context.profiles = profiles
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect();
+            }
+            if let Some(skip_tests) = maven.get("skipTests").and_then(Value::as_bool) {
+                context.skip_tests = skip_tests;
+            }
+            let reactor_pom = workspace_root.join(&context.reactor_path).join("pom.xml");
+            let mut resource_arguments = vec![
+                "-f".to_string(),
+                reactor_pom.to_string_lossy().into_owned(),
+                "resources:resources".to_string(),
+            ];
+            if config["extensions"]["java"]["sourceSet"] == "test" {
+                resource_arguments.push("resources:testResources".to_string());
+            }
+            let resource_plan = crate::project::launch_plan_with_arguments(
+                request.root.clone(),
+                context,
+                resource_module,
+                resource_arguments,
+                true,
+            )?;
+            pre_launch_steps.push(json!({
+                "executable": resource_plan.executable,
+                "arguments": resource_plan.arguments,
+                // The reactor directory is the step's own resolution root: the host
+                // finds the project's Maven wrapper there even when the application
+                // working directory is overridden, and the absolute `-f` above keeps
+                // the POM anchored.
+                "workingDirectory": resource_plan.working_directory,
+            }));
         }
-        if let Some(profiles) = maven["profiles"]
-            .as_array()
-            .filter(|items| !items.is_empty())
-        {
-            context.profiles = profiles
-                .iter()
-                .filter_map(Value::as_str)
-                .map(str::to_string)
-                .collect();
-        }
-        if let Some(skip_tests) = maven.get("skipTests").and_then(Value::as_bool) {
-            context.skip_tests = skip_tests;
-        }
-        let reactor_pom = workspace_root.join(&context.reactor_path).join("pom.xml");
-        let mut resource_arguments = vec![
-            "-f".to_string(),
-            reactor_pom.to_string_lossy().into_owned(),
-            "resources:resources".to_string(),
-        ];
-        if config["extensions"]["java"]["sourceSet"] == "test" {
-            resource_arguments.push("resources:testResources".to_string());
-        }
-        let resource_plan = crate::project::launch_plan_with_arguments(
-            request.root.clone(),
-            context,
-            resource_module,
-            resource_arguments,
-            true,
-        )?;
-        pre_launch_steps.push(json!({
-            "executable": resource_plan.executable,
-            "arguments": resource_plan.arguments,
-            // The reactor directory is the step's own resolution root: the host
-            // finds the project's Maven wrapper there even when the application
-            // working directory is overridden, and the absolute `-f` above keeps
-            // the POM anchored.
-            "workingDirectory": resource_plan.working_directory,
-        }));
     } else if is_java_main {
         let source = config["extensions"]["java"]["source"]
             .as_str()

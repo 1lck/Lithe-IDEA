@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import * as tauriCore from "@tauri-apps/api/core";
 
 let response = { bytes: [] as number[], truncated: false };
 const invoke = mock(async (_command: string, _args?: unknown) => response);
@@ -6,6 +7,7 @@ const invoke = mock(async (_command: string, _args?: unknown) => response);
 // Bun, and replacing `tauri-core` would hide the real router from every later
 // test file in the same run.
 mock.module("@tauri-apps/api/core", () => ({
+  ...tauriCore,
   Channel: class {},
   convertFileSrc: (path: string) => path,
   invoke: (command: string, args?: unknown) => invoke(command, args),

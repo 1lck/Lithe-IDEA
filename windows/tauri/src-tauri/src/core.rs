@@ -362,6 +362,46 @@ pub async fn core_execute(window: tauri::WebviewWindow, request: String) -> Stri
     let app = window.app_handle().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let parsed = serde_json::from_str::<serde_json::Value>(&request).ok();
+        if let Some(parsed) = &parsed {
+            if crate::plugin_host::vcs::private_core_request(&app, parsed["command"].as_str().unwrap_or_default(), &parsed["payload"]) {
+                return serde_json::json!({"id":parsed["id"],"ok":false,"error":{
+                    "code":"invalid_request","message":"VCS request requires its native owner","details":"vcs.provider.unavailable"
+                }}).to_string();
+            }
+            if let Some(result) = crate::plugin_host::provider::core_preflight(
+                &app,
+                &owner,
+                parsed["command"].as_str().unwrap_or_default(),
+                &parsed["payload"],
+            ) {
+                return match result {
+                    Ok(data) => {
+                        serde_json::json!({"id":parsed["id"],"ok":true,"data":data}).to_string()
+                    }
+                    Err(error) => serde_json::json!({"id":parsed["id"],"ok":false,"error":{
+                        "code":"invalid_request","message":error.detail,"details":error.code,
+                    }})
+                    .to_string(),
+                };
+            }
+            if parsed["command"] == "lsp.startServer" {
+                if let Some(result) = crate::plugin_host::provider::language_start(
+                    &app,
+                    &owner,
+                    &parsed["payload"],
+                ) {
+                    return match result {
+                        Ok(data) => {
+                            serde_json::json!({"id":parsed["id"],"ok":true,"data":data}).to_string()
+                        }
+                        Err(error) => serde_json::json!({"id":parsed["id"],"ok":false,"error":{
+                            "code":"process_failed","message":error.detail,"details":error.code,
+                        }})
+                        .to_string(),
+                    };
+                }
+            }
+        }
         let previous = parsed.as_ref().and_then(|value| {
             let root = canonical_indexing_root(value["payload"]["root"].as_str()?);
             let runtime = format!("{owner}/{}", value["payload"]["ownerId"].as_str()?);
@@ -374,6 +414,12 @@ pub async fn core_execute(window: tauri::WebviewWindow, request: String) -> Stri
                 .copied()
         });
         let response = execute_for_window(&owner, &request, lithe_core::execute_json);
+        if let (Some(parsed), Ok(response_value)) = (parsed, serde_json::from_str(&response)) {
+            crate::plugin_host::provider::observe_core(
+                &app, &owner, parsed["command"].as_str().unwrap_or_default(),
+                &parsed["payload"], &response_value,
+            );
+        }
         if let (Ok(request), Ok(result)) = (
             serde_json::from_str::<serde_json::Value>(&request),
             serde_json::from_str::<serde_json::Value>(&response),
