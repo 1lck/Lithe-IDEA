@@ -896,6 +896,28 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
+    func providerJavaDebugSourceUsesTheGenericInstanceRootWithoutCrossingIntoAnotherProject() {
+        let root = URL(fileURLWithPath: "/workspace/providers", isDirectory: true)
+        let wrong = root.appendingPathComponent("app/src/main/java/com/acme/Main.java")
+        let current = root.appendingPathComponent("nested/engine/app/src/main/java/com/acme/Main.java")
+        let configuration = RunConfiguration(id: "java-main:engine", name: "Engine Main", kind: .javaMain,
+            modulePath: "app", mainClass: "com.acme.Main", mavenReactorPath: "obsolete-owner",
+            buildProject: .init(pluginID: "dev.example.engine", buildSystemID: "engine", root: "nested/engine", projectID: "opaque-project"))
+        let resolver = DebugLaunchSourceResolver()
+        #expect(resolver.resolve(configuration: configuration, activeDocumentURL: wrong,
+            projectFiles: [wrong, current], workspaceURL: root) == current)
+        // The current module has no source in the second snapshot. A matching
+        // class in another instance is not a replacement launch target.
+        #expect(resolver.resolve(configuration: configuration, activeDocumentURL: wrong,
+            projectFiles: [wrong], workspaceURL: root) == nil)
+        let workspaceOwner = RunConfiguration(id: "java-main:root", name: "Root Main", kind: .javaMain,
+            modulePath: "app", mainClass: "com.acme.Main", mavenReactorPath: "obsolete-owner",
+            buildProject: .init(pluginID: "dev.example.other", buildSystemID: "other", root: ".", projectID: "other-project"))
+        #expect(resolver.resolve(configuration: workspaceOwner, activeDocumentURL: current,
+            projectFiles: [wrong, current], workspaceURL: root) == wrong)
+    }
+
+    @Test
     func currentFileDebugStillUsesTheActiveEditorDocument() throws {
         let root = URL(fileURLWithPath: "/workspace/current-file", isDirectory: true)
         let current = root.appendingPathComponent("src/main/java/com/acme/Main.java")

@@ -18,11 +18,11 @@
 | 修正项 | 当前状态与退出条件 |
 | --- | --- |
 | 通用测试报告 | macOS 改为直接消费 `BuildTestResults`；移除三种 Maven 报告类型和转换。上游摘要、调用次数、耗时、来源位置与不透明重跑引用保持原义；JDT 发现适配器明确关联报告名称，通用 UI 不解析用例名称。Windows 的现有行标记字段保留兼容别名。验证记录见本次计时报告，不替代整机验收。 |
-| 原生配置 v7 | 已移除 XML 绑定和 Core XML 编辑器，新增提供者编辑计划及不含文档的回执。两端暂存/校验/原子发布接线已更新；Node/Java JSON E2E、真实 Maven 编辑/回读、127 项 macOS、71 项 Windows 前端和类型检查通过。Windows 原生 4 个既有 watcher 失败、整机未验收；完整正式组合仍待验证。 |
+| 原生配置 v7 | 已移除 XML 绑定和 Core XML 编辑器，新增提供者编辑计划及不含文档的回执。两端暂存/校验/原子发布接线已更新；Node/Java JSON E2E、真实 Maven 编辑/回读、127 项 macOS、71 项 Windows 前端和类型检查通过。后续整合 preview 修复了旧 watcher 基线，Windows CI 41410144912 的 Project/host 全部通过；完整产品与正式发行组合仍待验收。 |
 | 服务调试 v11 | 已删除本入口的 `runtime: jvm` 与内置 Java attach；协议传递适配器身份、公开配置类型和 `connection` 目标，宿主从当前 Registry 选择并验证配置，跨准备/监听/连接检查包与注册代次。Java Support 自己声明同包 JDT 托管适配器，Maven 仅声明配置类型；真实断点 UI 与发行组合仍待验收。 |
 | 工具选择 | #1581 已实际合并，本分支从已授权的 b87 预集成继续适配最终版本及最新 preview，仍保持 Draft、不合并发布。macOS Build/Provider Run 已接 `toolDefinitions` / `toolchainProviders` 与四层选择；删除新增的 Maven JDK 注册和 Java 准备按 Maven 名字选工具的分支。按 Run 的明确工具选择现已接入两端 adapter，并保留两层继承和显式清空；旧 Maven 明确路径可一次性转移。Windows 已补来源证明和操作内 Provider 查询；项目/全局默认与应用 JDK 联动、Windows 完整产品准入和现有 Java 消费者仍待完成。 |
-| Maven 运行配置与准备任务 | 待修改：Core 不增加 Maven profile/reactor/framework 的稳定解析面；提供者拥有语义。准备任务已改为 `buildSystems: 4` 清单的通用用途和适用源码角色，宿主不约定固定任务 ID。自动运行配置已由声明/目标生成 `build.provider` 选择器，独立于 Java 导入，删除 `mavenRunProvider` 字段与 Core 框架名单；快照指纹、目标撤回和用户通用覆盖已接线。旧 Run v2 中可确认的服务/显式任务已保留 ID 转为通用引用并通过两层预检及冲突保护；v1、旧偏好、自定义工具与隐式模块语义，以及归属中的 reactor/Wrapper/版本字段、工具链和 Windows 旧路径仍待处理。 |
-| SDK 与版本 | 2026-10-31 核实 SDK main 两种实现最高为 6，GitHub 仅有 sdk-node-v0.1.0 发布；7～11 仍在 Draft。重写 v7 为提供者暂存编辑，保留 8～10 版本及处理器，v11 改为注册表连接目标，正式发行组合仍待验收。只在宿主合并后同步契约副本，正式 SDK 锁定值不变。 |
+| Maven 运行配置与准备任务 | 新 Provider 路径已改为不透明通用选择器：Core 不解释 Maven profile/reactor/framework，提供者拥有语义。准备任务已改为 `buildSystems: 4` 清单的通用用途和适用源码角色，宿主不约定固定任务 ID。自动运行配置已由声明/目标生成 `build.provider` 选择器，独立于 Java 导入，删除 `mavenRunProvider` 字段与 Core 框架名单；快照指纹、目标撤回和用户通用覆盖已接线。旧 Run v2 中可确认的服务/显式任务已保留 ID 转为通用引用并通过两层预检及冲突保护；后续已补 v1、可确认偏好、隐式模块及明确的按 Run 工具转换，当前归属投影已移除 reactor/Wrapper/版本字段；项目/全局默认的动态继承、Windows 旧生产路径与旧 Java 扩展兼容消费者仍待处理。 |
+| SDK 与版本 | 当前分支已整合公开 main 的函数协议 3、源码版本 0.2.0 与 preview@04b1fb848 契约副本，Node 20/Java 8 固定组合 CI 已通过；Build 7～11 增量仍在 Draft、未正式发布。重写 v7 为提供者暂存编辑，保留 8～10 版本及处理器，v11 改为注册表连接目标，正式发行组合仍待验收。只在宿主合并后同步契约副本，正式 SDK 锁定值不变。 |
 
 ### 通用运行配置生成（2026-11-01）
 
@@ -483,6 +483,19 @@ inspect/reload/execute 复用同一模型、任务记录及后端；还验证 Ja
 `stage-d-provider-editor-macos-final`、`stage-d-provider-editor-frontend-final`。
 这批没有新增公共 API、资源下载或缓存，不改写工具原生配置；完整 GUI 验收、旧默认
 JDK 联动、Windows 原生 Debug/产品准入和旧消费者替换仍是待办。
+
+### 通用 Build 归属下的 Debug 源码定位（2026-11-02）
+
+macOS Debug 的源码兜底定位现在优先使用 `buildProject.root`，把模块相对路径拼到
+当前 Provider 实例。旧实现只看 Maven reactor 字段，通用嵌套实例会错误定位到工作区
+根的同名模块；找不到源码时还可能选择其他实例的同名主类。现在当前归属缺少源码就
+返回不可用，残留旧字段不能覆盖通用归属。精确源码路径和 Current File 的原有行为
+保持，Windows 已有 Java 启动要求精确源码，不复用这条 macOS 定位器。
+
+本机原生集成 123 项逐项计时通过，新增回归覆盖两种非 Maven 提供者身份、嵌套实例、
+工作区根实例和源码缺失。报告为 `stage-d-provider-debug-root-macos`；服务边界、
+测试稳定性、Notes、矩阵和 bundle 只读检查通过。没有改公共字段、Core 或 Windows
+实现，不把这项源码选择回归当成完整 Registry/DAP 或 GUI 验收。
 
 ### D-MIGRATION-REMOVAL：旧 Maven 数据迁移器清理
 
