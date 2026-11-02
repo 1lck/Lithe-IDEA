@@ -1448,6 +1448,7 @@ final class MacServiceContainer {
                     || $0.manifest.id == .debugAdaptersExtension(descriptor.id.rawValue)
                     || $0.manifest.id == .grammarsExtension(descriptor.id.rawValue)
                     || $0.manifest.id == .backendExtension(descriptor.id.rawValue)
+                    || $0.manifest.id == .toolchainsExtension(descriptor.id.rawValue)
                     || $0.manifest.id == .projectGeneratorsExtension(descriptor.id.rawValue)
             }.map { declaration in
                 ModuleFactory(manifest: declaration.manifest, contributions: declaration.contributions) {

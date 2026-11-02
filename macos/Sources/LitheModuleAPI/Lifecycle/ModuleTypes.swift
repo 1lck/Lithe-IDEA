@@ -324,6 +324,11 @@ public extension ModuleID {
         ModuleID("\(pluginID).backend")
     }
 
+    /// Enablement for tool definitions with no process or other contribution module.
+    static func toolchainsExtension(_ pluginID: String) -> ModuleID {
+        ModuleID("\(pluginID).toolchains")
+    }
+
     /// The language grammars one declarative plugin declares, enabled
     /// together. Nothing runs while it is enabled; it only gates highlighting.
     static func grammarsExtension(_ pluginID: String) -> ModuleID {

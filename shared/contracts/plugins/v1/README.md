@@ -56,13 +56,14 @@ admit new sources into existing Build candidate sets. Definitions are entirely
 plugin-owned, with reserved short IDs checked against host-verified official
 provenance when constructing the registry.
 
-Neither native host advertises or integrates this foundation yet. Core consumes
-captured host facts; it does not start a provider, run a probe, watch files, scan
-the system, persist pins, or change current Java/Maven selection. The broader
-proposal remains unsupported where it exceeds this implemented slice. In
-particular, `toolchainConsumers`, generic runtime launches, settings pages, mise
-and SDKMAN providers, and live backend activation are not implemented here.
-Proposal envelopes remain separate from production manifests.
+macOS advertises these capabilities for its read-only toolchain settings pages.
+The native adapter scans declarations, probes checked executables, queries plugin
+backends and watches their inputs; Core consumes captured facts and owns validation
+and resolution. Windows does not advertise the capabilities. Saving pins,
+`toolchainConsumers`, generic runtime launches and live backend activation remain
+unsupported, and current Java/Maven/Build/Run selection is unchanged. Version-manager
+implementations such as mise belong to their own plugin packages. Proposal
+envelopes remain separate from production manifests. See [the implemented slice](toolchains.md).
 
 ## Package layout
 
@@ -96,7 +97,7 @@ symbolic links. A host treats an installed package as read-only.
 | `settings` | User-adjustable plugin options (level 2 and later). |
 | `ui` | Host-rendered tool windows and commands (level 2 and later). |
 | `buildSystems` | Project-level build tools (level 3). |
-| `toolDefinitions` | Plugin-owned tool policy ([Core foundation](toolchains.md)); requires `toolDefinitions: 1` and `executableResolution: 2`; native adapters are not connected. |
+| `toolDefinitions` | Plugin-owned tool policy ([Core foundation](toolchains.md)); requires `toolDefinitions: 1` and `executableResolution: 2`; macOS hosts read-only discovery. |
 | `toolchainProviders` | Backend fact-provider declarations ([Core foundation](toolchains.md)); requires `toolchainProviders: 1`, backend/server-process capabilities and `toolchains.provide`. |
 
 Unknown fields are refused (`plugin.manifest.invalid`) so an older host
@@ -513,9 +514,9 @@ hosts. Level 3 versions each section on its own. A level 3 manifest lists in
 | `debugAdapters` | [`debugAdapters[]`](#api-level-4-debug-adapters); v2 adds target arguments/environment | `1`, `2` |
 | `projectGenerators` | [`projectGenerators[]`](#project-generators): entries of the New Project window | `1` |
 | `backend` | [`backend`](#plugin-backend): the plugin's own long-lived process | `1`, `2` (adds [start without a page and workspace contexts](#backend-2-workspace-contexts)) |
-| `toolDefinitions` | [Tool identities, layouts, discovery and four-layer candidates](toolchains.md) | `1` (Core only) |
-| `toolchainProviders` | [Provider declarations and permission-bound answer validation](toolchains.md) | `1` (Core only) |
-| `executableResolution` | [Shared executable candidates](#shared-executable-candidates-executableresolution-1); v2 adds tool-definition candidates without changing existing Build candidate sets | `1`, `2` (v2 Core only) |
+| `toolDefinitions` | [Tool identities, layouts, discovery and four-layer candidates](toolchains.md) | `1` (Core; macOS read-only settings) |
+| `toolchainProviders` | [Provider declarations and permission-bound answer validation](toolchains.md) | `1` (Core; macOS read-only settings) |
+| `executableResolution` | [Shared executable candidates](#shared-executable-candidates-executableresolution-1); v2 adds tool-definition candidates without changing existing Build candidate sets | `1`, `2` (v2 Core; macOS read-only settings) |
 
 Version 1 of every capability means what its section means at level 2
 (runtime launches, launch templates, `initializationOptions`, and so on), so
