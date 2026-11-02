@@ -2,9 +2,9 @@
 
 use super::{
     canonicalize_simplified, capture_git_process_streaming, discover_containing_repository,
-    git_entry_opens_as_repository, ignored_paths_checked, is_safe_pathspec, path_sort_key,
-    repository_scan_error, sort_workspace_repository_paths, untracked_directory_candidates_checked,
-    validate_root, WorkspaceRepositoriesRequest,
+    git_entry_opens_as_repository, ignored_paths_checked, path_sort_key, repository_scan_error,
+    sort_workspace_repository_paths, untracked_directory_candidates_checked, validate_root,
+    WorkspaceRepositoriesRequest,
 };
 use crate::project::files::VisibilityRules;
 use crate::protocol::{
@@ -129,9 +129,14 @@ fn manual_exclusions(root: &Path, paths: &[String]) -> Result<Vec<PathBuf>, Core
         .map(|value| {
             let value = value.trim_end_matches('/');
             if value != "."
-                && (!is_safe_pathspec(value)
-                    || value.contains(['\\', '\0', ':'])
-                    || value.split('/').any(|part| part.is_empty() || part == "."))
+                && (value.is_empty()
+                    || value.contains(['\\', '\0'])
+                    || value
+                        .split('/')
+                        .any(|part| part.is_empty() || part == "." || part == "..")
+                    || !Path::new(value)
+                        .components()
+                        .all(|part| matches!(part, std::path::Component::Normal(_))))
             {
                 return Err(CoreError::new(
                     ErrorCode::InvalidRequest,

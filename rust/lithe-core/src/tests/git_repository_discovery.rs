@@ -327,6 +327,19 @@ fn discovery_reports_invalid_rules_and_git_failures_instead_of_empty_success() {
     assert_eq!(response["error"]["code"], "process_failed", "{response}");
 }
 
+#[cfg(unix)]
+#[test]
+fn discovery_accepts_colons_in_literal_unix_exclusion_components() {
+    let workspace = Workspace::new();
+    let root = workspace.initialize(".");
+    workspace.initialize("cache:old/nested");
+    let visible = workspace.initialize("visible");
+    assert_eq!(
+        discover_with(&root, &["cache:old"], &[]),
+        vec![canonical(&root), canonical(&visible)]
+    );
+}
+
 #[test]
 fn discovery_respects_explicit_depth_limits() {
     let workspace = Workspace::new();
