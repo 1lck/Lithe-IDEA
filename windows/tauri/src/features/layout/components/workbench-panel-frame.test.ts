@@ -28,7 +28,7 @@ test("workbench panels are borderless solid islands separated only by the gap co
   expect(resizablePaneSource).toContain('!hidden && "rounded-(--lithe-island-radius)"');
   expect(resizablePaneSource).not.toContain("border-border border-x");
   expect(pluginRailSource).toContain(
-    'className="lithe-plugin-activity-rail flex w-9.5 shrink-0 flex-col items-center gap-2.5 bg-surface pt-1"',
+    'className="lithe-plugin-activity-rail flex w-(--lithe-activity-rail-width) shrink-0 flex-col items-center gap-(--lithe-activity-gap) bg-surface pt-1"',
   );
   expect(pluginRailSource).not.toContain('ml-(--lithe-workbench-gap)');
   expect(pluginRailSource).not.toContain("border-l");
