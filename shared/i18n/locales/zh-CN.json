@@ -9878,7 +9878,8 @@
     "plugin.terminal.closed": "插件终端已关闭，请先重新打开。",
     "plugin.terminal.running": "插件终端仍在运行。",
     "plugin.terminal.busy": "插件终端正在切换状态，请完成后重试。",
-    "plugin.terminal.permission": "打开并管理自己的原生终端，保留有限的显示历史用于重新打开"
+    "plugin.terminal.permission": "打开并管理自己的原生终端，保留有限的显示历史用于重新打开",
+    "native.downloadingAndVerifyingPlugin": "正在下载并校验插件…"
   },
   "overrides": {
     "macos": {

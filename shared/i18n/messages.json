@@ -94920,6 +94920,17 @@
         "key": "Open and manage its own native terminals, retaining bounded display history for reopening",
         "arguments": []
       }
+    },
+    {
+      "id": "native.downloadingAndVerifyingPlugin",
+      "description": "Plugin marketplace installation preparation progress",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Downloading and verifying plugin…",
+        "arguments": []
+      }
     }
   ]
 }

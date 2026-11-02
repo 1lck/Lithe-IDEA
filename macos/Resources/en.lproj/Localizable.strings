@@ -1296,6 +1296,7 @@
 "Downloaded (%lld of %lld enabled)" = "Downloaded (%lld of %lld enabled)";
 "Downloaded data was kept. Try again to resume from where it stopped." = "Downloaded data was kept. Try again to resume from where it stopped.";
 "Downloading %@…" = "Downloading %@…";
+"Downloading and verifying plugin…" = "Downloading and verifying plugin…";
 "Downloading full stable release…" = "Downloading full stable release…";
 "Downloading packages…" = "Downloading packages…";
 "Downloading update %@…" = "Downloading update %@…";
@@ -6111,6 +6112,7 @@
 "native.downloadedLldOfLldEnabled" = "Downloaded (%1$lld of %2$lld enabled)";
 "native.downloadedS" = "Downloaded %1$@ · %2$@/s";
 "native.downloading" = "Downloading %1$@…";
+"native.downloadingAndVerifyingPlugin" = "Downloading and verifying plugin…";
 "native.downloadingFullStableRelease" = "Downloading full stable release…";
 "native.downloadingPackages" = "Downloading packages…";
 "native.downloadingUpdate" = "Downloading update %1$@…";

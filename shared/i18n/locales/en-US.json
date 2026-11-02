@@ -9878,7 +9878,8 @@
     "plugin.terminal.closed": "The plugin terminal is closed. Reopen it first.",
     "plugin.terminal.running": "The plugin terminal is still running.",
     "plugin.terminal.busy": "The plugin terminal is changing state. Try again when it finishes.",
-    "plugin.terminal.permission": "Open and manage its own native terminals, retaining bounded display history for reopening"
+    "plugin.terminal.permission": "Open and manage its own native terminals, retaining bounded display history for reopening",
+    "native.downloadingAndVerifyingPlugin": "Downloading and verifying plugin…"
   },
   "overrides": {
     "windows": {
