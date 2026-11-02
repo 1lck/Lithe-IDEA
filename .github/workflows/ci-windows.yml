@@ -320,7 +320,7 @@ jobs:
         run: |
           $runner = ".agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs"
           # Native/event and presentation mocks must not leak between suites.
-          $pluginSuites = @('declarative-plugin-lifecycle', 'declarative-plugin-run', 'declarative-plugin-ui', 'plugin-lifecycle-listener', 'plugin-web-open-file', 'plugin-web-appearance')
+          $pluginSuites = @('declarative-plugin-lifecycle', 'declarative-plugin-run', 'declarative-plugin-ui', 'plugin-lifecycle-listener', 'plugin-web-open-file', 'plugin-web-appearance', 'plugin-native-errors')
           foreach ($suite in $pluginSuites) {
             node $runner --suite-timeout-ms 60000 --report ".artifacts/test-stability/windows-$suite.json" -- "src/features/plugins/$suite.test.ts"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

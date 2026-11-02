@@ -417,8 +417,8 @@ fn runtime_environment(environment: HashMap<String, String>) -> BTreeMap<String,
         .collect()
 }
 
-/// Installation records currently prove no official publisher identity on Windows.
-/// Never infer reserved short-ID ownership from a manifest or its directory name.
+/// Only a freshly verified publisher signature proves official origin.
+/// Legacy unsigned installation records and directory names confer no ownership.
 fn installed_tool_registry(
     app: &AppHandle,
 ) -> Result<(Value, Vec<super::lifecycle::NativeLease>), String> {
@@ -437,7 +437,8 @@ fn installed_tool_registry(
         })
     {
         leases.push(lifecycle.acquire(&package.entry.plugin_id)?);
-        plugins.push(json!({"manifest":package.manifest,"verifiedOfficial":false}));
+        if !super::trust::current(&package) { return Err("toolchain.native.unavailable".into()); }
+        plugins.push(json!({"manifest":package.manifest,"verifiedOfficial":package.publisher.is_some()}));
     }
     Ok((json!({"plugins":plugins}), leases))
 }

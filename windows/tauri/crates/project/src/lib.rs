@@ -2,6 +2,7 @@ pub mod document_file;
 pub mod build_options;
 pub mod defined_toolchain;
 pub mod native_configuration;
+pub mod plugin_signature;
 pub mod provider_run_configuration;
 pub mod document_watcher;
 use anyhow::{Context, Result, bail};

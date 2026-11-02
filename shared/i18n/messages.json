@@ -86135,7 +86135,8 @@
       "id": "native.thePluginPackageSignatureIsInvalid",
       "description": "Native UI: The plugin package signature is invalid.",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "The plugin package signature is invalid.",

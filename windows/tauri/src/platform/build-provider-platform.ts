@@ -5,6 +5,7 @@ import { windowsBuildProviders } from "./build-provider-sessions";
 import { WindowsBuildProviderWorkspace, type BuildInstance, type BuildModel } from "@/features/build/services/build-provider-workspace";
 import { createTranslator } from "@/i18n/locale";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { translatePluginHostFailure } from "@/features/plugins/plugin-native-errors";
 import { watchBuildConfiguration, type BuildConfigurationSourceVersion, type BuildConfigurationCheck } from "@/features/build/services/build-configuration-watch";
 import { documentWatchInputs } from "./document-watch-inputs";
 import type { CoreBuildProviderTarget } from "./lsp-core-adapter";
@@ -36,10 +37,7 @@ export function createWindowsBuildProviderWorkspace(workspacePath: string): Wind
     tools: async (target, root, checkVersions, configurationID) => {
       try { return await invoke("declarative_plugins_build_tool", { ...target, root, checkVersions, configurationId: configurationID }); }
       catch (cause) {
-        if (typeof cause === "string" && cause.startsWith("toolchain.native.")) {
-          throw Object.assign(new Error(createTranslator(useSettingsStore.getState().settings.displayLanguage)("native.selectedToolchainUnavailable")), { code: cause, cause });
-        }
-        throw cause;
+        throw translatePluginHostFailure(cause, createTranslator(useSettingsStore.getState().settings.displayLanguage));
       }
     },
     configurationCheck: check,

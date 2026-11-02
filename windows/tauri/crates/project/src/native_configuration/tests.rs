@@ -2,6 +2,70 @@ use super::*;
 use std::sync::atomic::{AtomicU64, Ordering};
 static SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
+#[test]
+fn windows_uri_and_canonical_paths_share_identity_without_rewriting_other_namespaces() {
+    assert_eq!(
+        native_path_key(r"\\?\C:\Users\User\Stage\file.json", true),
+        native_path_key("c:/users/user/stage/file.json", true)
+    );
+    assert_eq!(
+        native_path_key(r"\\?\UNC\server\share\Stage\file.json", true),
+        native_path_key("//SERVER/share/stage/file.json", true)
+    );
+    assert_ne!(
+        native_path_key(r"\\.\C:\file.json", true),
+        native_path_key("C:/file.json", true)
+    );
+    assert_ne!(
+        native_path_key("//?/C:/file.json", false),
+        native_path_key("C:/file.json", false)
+    );
+    assert_ne!(
+        native_path_key("C:/file.json.", true),
+        native_path_key("C:/file.json", true)
+    );
+}
+
+#[test]
+fn windows_ambiguous_names_cannot_be_used_for_native_staging() {
+    for name in [
+        "settings.xml.",
+        "settings.xml ",
+        "settings.xml:stream",
+        "NUL",
+        "Con.txt",
+        "com1.log",
+        "lpt9",
+    ] {
+        assert!(windows_ambiguous_component(name), "{name}");
+    }
+    for name in ["settings.xml", ".m2", "nullish", "com10", "project"] {
+        assert!(!windows_ambiguous_component(name), "{name}");
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_dos_aliases_and_device_paths_are_refused_before_creation() {
+    let fixture = Fixture::new();
+    for suffix in [
+        "settings.xml.",
+        "settings.xml ",
+        "settings.xml:stream",
+        "NUL.txt",
+        "COM1",
+    ] {
+        assert_eq!(
+            resolve_target(&fixture.root.join(suffix)),
+            Err(NativeConfigurationError::ReadOnly)
+        );
+    }
+    assert_eq!(
+        resolve_target(Path::new(r"\\.\C:\settings.xml")),
+        Err(NativeConfigurationError::ReadOnly)
+    );
+}
+
 struct Fixture {
     root: PathBuf,
     path: PathBuf,

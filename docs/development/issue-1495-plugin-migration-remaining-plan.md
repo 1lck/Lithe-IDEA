@@ -244,6 +244,34 @@ preview 的漂移检查失败。按既定顺序等待宿主合入后同步，不
 verbatim 前缀而失败。本批只修正该夹具通过文件 URI 的路径拼写，生产校验不变；完整
 Windows 仍须在本批提交上通过，不能把这一轮记为成功。
 
+### Windows 发布者证据与原生路径修正（2026-11-02）
+
+Windows 已复用既有 Ed25519 发布包格式实现原生只读验签，算法交给现有依赖 ring；
+导入准备/确认、暂存激活、扫描和启动都复核存在的签名。扫描记录完整内容摘要，签名
+移除或文件改变即撤销；工具定义的官方来源只来自独立验证结果。安装记录与包名仍不
+证明官方身份，无签名旧路线不获得该证据。共享测试向量同时通过 Swift CryptoKit 和
+Rust ring，含 Unicode 文件名、完整字节、篡改/增删、身份/钥匙/算法、重复字段及预算。
+
+本地 Swift 签名 7 项、Windows 前端 466 项及类型检查/生产构建通过，i18n 35 项通过。
+原生项目库最终 79 项中 75 项通过，四项既有 macOS watcher 超时不变；新增签名及
+路径回归全部通过。Windows host 测试编译在 macOS 仍仅两个既有平台 API 错误。
+报告为 `stage-d-publisher-vector-macos-final.html`、`stage-d-publisher-windows-frontend.html` 和
+`stage-d-publisher-and-native-paths-nfc-final.html`；宿主特有扫描/安装回归须由 Windows CI 执行。
+
+上一提交 `cef257782` 的 [Windows CI 41373760510](https://github.com/1lck/Lithe-IDEA/actions/runs/41373760510)
+中共享 Core 和真实 JDT 通过；前端因新增测试漏必填 name 而失败，现已修正并实际确认
+本地类型检查成功。原生项目库又暴露暂存身份比较错误：普通 drive/UNC 路径与等价的
+verbatim 路径被当成不同文件。现在只统一这两种规范拼写，仍拒绝设备路径、DOS 保留名、
+尾点/尾空格及流路径，链接重定向和安装根只读约束不变；需要重新跑完整 Windows 组合。
+
+CI 脚本在系统 Bash 3.2 下保留既有 21 项门禁失败和大小写语法不兼容记录；用临时
+Bash 5.2.37 按 Linux CI 语义复验，113 项门禁、分类器及 19 项复用规划全部通过。
+临时源码和可执行文件已清理，不加入产品或资源复用清单。
+
+本增量不开放 packageTrust/Build/Debug 产品能力，也不包含 Windows 调试 Registry、
+Provider 查询和旧 Maven 生产消费者替换；完整准入和阶段 D 仍未完成。没有新运行时
+下载、缓存或可复用工件目录，验签全程只读，不影响安装包哈希、代码签名或更新源基线。
+
 ### D-MIGRATION-REMOVAL：旧 Maven 数据迁移器清理
 
 这是 #1495 下独立跟踪的删除项，状态为未完成。`MacLegacyMavenConfigurationMigration`

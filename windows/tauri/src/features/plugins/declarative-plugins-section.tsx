@@ -300,7 +300,7 @@ function DeclarativePluginRow({
           </p>
           {rejected && plugin.rejection && (
             <p className="text-destructive ui-text-sm">
-              {plugin.rejection.code}: {plugin.rejection.message}
+              {plugin.rejection.code === "plugin.packageSignature.invalid" ? t("native.thePluginPackageSignatureIsInvalid") : `${plugin.rejection.code}: ${plugin.rejection.message}`}
             </p>
           )}
           {error && <p className="text-destructive ui-text-sm">{error}</p>}

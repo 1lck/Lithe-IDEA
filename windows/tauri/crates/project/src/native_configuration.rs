@@ -306,6 +306,20 @@ fn resolve_target(path: &Path) -> Result<PathBuf, NativeConfigurationError> {
     {
         return Err(ReadOnly);
     }
+    #[cfg(windows)]
+    if path.components().any(|part| match part {
+        std::path::Component::Normal(name) => name.to_str().is_none_or(windows_ambiguous_component),
+        std::path::Component::Prefix(prefix) => !matches!(
+            prefix.kind(),
+            std::path::Prefix::Disk(_)
+                | std::path::Prefix::VerbatimDisk(_)
+                | std::path::Prefix::UNC(_, _)
+                | std::path::Prefix::VerbatimUNC(_, _)
+        ),
+        _ => false,
+    }) {
+        return Err(ReadOnly);
+    }
     let mut parent = path;
     let mut missing = Vec::new();
     loop {
@@ -325,16 +339,46 @@ fn resolve_target(path: &Path) -> Result<PathBuf, NativeConfigurationError> {
     Ok(target)
 }
 
+#[cfg(any(windows, test))]
+fn windows_ambiguous_component(name: &str) -> bool {
+    if name.ends_with(['.', ' ']) || name.contains(':') {
+        return true;
+    }
+    let stem = name.split('.').next().unwrap_or("").to_ascii_lowercase();
+    matches!(stem.as_str(), "con" | "prn" | "aux" | "nul")
+        || ["com", "lpt"].iter().any(|prefix| {
+            stem.strip_prefix(prefix).is_some_and(|suffix| {
+                suffix.len() == 1 && (b'1'..=b'9').contains(&suffix.as_bytes()[0])
+            })
+        })
+}
+
 fn same_path(left: &Path, right: &Path) -> bool {
     path_key(left) == path_key(right)
 }
 fn path_key(path: &Path) -> String {
-    let path = path.to_string_lossy().replace('\\', "/");
-    if cfg!(windows) {
-        path.to_lowercase()
-    } else {
-        path
+    native_path_key(&path.to_string_lossy(), cfg!(windows))
+}
+
+// Canonical Windows paths use verbatim prefixes, while file URIs use ordinary
+// drive/UNC paths. This changes spelling only; resolve_target separately rejects
+// device paths and DOS aliases whose spelling could select a different file.
+fn native_path_key(path: &str, windows: bool) -> String {
+    let path = path.replace('\\', "/");
+    if !windows {
+        return path;
     }
+    let path = path.to_lowercase();
+    if let Some(unc) = path.strip_prefix("//?/unc/") {
+        return format!("//{unc}");
+    }
+    if let Some(drive) = path.strip_prefix("//?/") {
+        let bytes = drive.as_bytes();
+        if bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && &bytes[1..3] == b":/" {
+            return drive.to_owned();
+        }
+    }
+    path
 }
 
 #[cfg(test)]

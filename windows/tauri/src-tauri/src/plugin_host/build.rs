@@ -119,7 +119,8 @@ pub async fn declarative_plugins_build_launch(
         std::fs::create_dir_all(&state).map_err(|error| error.to_string())?;
         let resolved = launch::resolve_launch(&package, &build_system_id, plan, &state)?;
         Ok(BuildProviderLaunch {
-            identity: json!({ "packageDirectory": package.root, "manifest": package.manifest, "plan": plan }),
+            identity: json!({ "packageDirectory": package.root, "manifest": package.manifest, "plan": plan,
+                "publisher": package.publisher.as_ref().map(|proof| json!({"keyID":proof.key_id,"contentDigest":proof.content_digest})) }),
             plugin_id,
             build_system_id,
             server_path: resolved.server_path,

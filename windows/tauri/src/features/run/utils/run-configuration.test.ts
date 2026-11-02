@@ -62,7 +62,7 @@ describe("run configuration mapping", () => {
     expect(configuration.providerRunOptions).toEqual(choicesFixture.choices);
     draft.providerRunOptions!.tools!["dev.example.engine:compiler"] = null;
     expect(configuration.providerRunOptions!.tools).toEqual(choicesFixture.choices.tools);
-    const cleared = mapCoreConfiguration({ id: "user:cleared", provider: "build.provider", extensions: { "build-run": choicesFixture.changed } });
+    const cleared = mapCoreConfiguration({ id: "user:cleared", name: "Cleared", provider: "build.provider", extensions: { "build-run": choicesFixture.changed } });
     expect(cleared.providerRunOptions?.tools?.["dev.example.engine:vm"]).toBeNull();
     expect(runOptionsFromConfiguration(mapCoreConfiguration({ id: "user:old", name: "Old", provider: "build.provider" })).providerRunOptions).toBeUndefined();
   });

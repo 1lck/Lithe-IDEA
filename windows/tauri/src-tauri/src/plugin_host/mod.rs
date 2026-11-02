@@ -20,6 +20,7 @@ pub mod run_plans;
 pub mod scan;
 pub mod settings;
 pub mod store;
+mod trust;
 #[cfg(test)]
 mod tests;
 pub mod web;
@@ -118,6 +119,8 @@ pub struct ScannedPackage {
     pub root: PathBuf,
     /// Raw manifest; plan commands are pure functions and take it every time.
     pub manifest: Value,
+    /// Exact signed content seen during the scan; absent never proves origin.
+    pub publisher: Option<lithe_project::plugin_signature::VerifiedPublisher>,
 }
 
 /// Cached scan result. The frontend rescans at startup and after installs,

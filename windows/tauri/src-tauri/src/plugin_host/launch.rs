@@ -122,6 +122,7 @@ pub(crate) fn package_by_id(app: &AppHandle, plugin_id: &str) -> Option<ScannedP
             package.entry.status == "accepted"
                 && package.entry.enabled
                 && package.entry.plugin_id == plugin_id
+                && super::trust::current(package)
         })
 }
 
@@ -845,6 +846,7 @@ mod tests {
             },
             root,
             manifest,
+            publisher: None,
         }
     }
 
