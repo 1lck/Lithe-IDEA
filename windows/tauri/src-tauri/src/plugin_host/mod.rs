@@ -8,17 +8,42 @@
 //! capability rollout are recorded in
 //! .agents/notes/implemented/architecture/2026-10-22-windows-declarative-plugin-host.md
 
+pub mod build;
+pub mod build_registry;
+pub(crate) mod build_resolver;
+#[cfg(test)]
+mod build_resolver_tests;
+#[cfg(test)]
+mod build_tests;
+pub mod details;
+#[cfg(test)]
+mod details_tests;
+pub mod functions;
 pub mod install;
 #[cfg(test)]
 mod install_tests;
 pub mod launch;
 pub mod lifecycle;
+pub mod marketplace;
+pub(crate) mod marketplace_coordinator;
+pub mod marketplace_download;
+pub mod marketplace_index;
+pub mod marketplace_sources;
+#[cfg(test)]
+mod marketplace_sources_tests;
+#[cfg(test)]
+mod marketplace_tests;
+pub mod native_ui;
+pub mod project_generators;
+pub(crate) mod provider;
 pub mod run_plans;
 pub mod scan;
 pub mod settings;
+pub mod signature;
 pub mod store;
 #[cfg(test)]
 mod tests;
+pub mod vcs;
 pub mod web;
 
 use serde::Serialize;
@@ -33,15 +58,44 @@ use tauri::{AppHandle, Manager};
 /// grows per milestone of the declarative plugin host work. `languageServers`
 /// 2 and `settings` 2 add workspace configuration push and scoped settings
 /// (M3); `ui` 2 adds package web pages in host windows (M4);
+/// `projectGenerators` 1 admits the existing consent-bound creation workflow.
 /// `executionProviders`, `buildProviders` and `buildSystems` remain unhosted.
 pub fn host_capabilities() -> Value {
+    #[cfg(test)]
+    if let Some(capabilities) = TEST_HOST_CAPABILITIES.with(|value| value.borrow().clone()) {
+        return capabilities;
+    }
     json!({
         "languages": [1],
         "languageServers": [1, 2],
         "serverProcess": [1],
         "settings": [1, 2],
         "ui": [1, 2],
+        "projectGenerators": [1],
     })
+}
+
+#[cfg(test)]
+thread_local! {
+    static TEST_HOST_CAPABILITIES: std::cell::RefCell<Option<Value>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Exercises a complete candidate install with its declared requirements.
+/// This seam is absent from production; packageTrust remains unadvertised
+/// until the signed-package and JDT lifecycle acceptance is complete.
+#[cfg(test)]
+pub(crate) fn with_package_trust_for_tests<R>(run: impl FnOnce() -> R) -> R {
+    struct Restore(Option<Value>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            TEST_HOST_CAPABILITIES.with(|value| *value.borrow_mut() = self.0.take());
+        }
+    }
+    let mut capabilities = host_capabilities();
+    capabilities["packageTrust"] = json!([1]);
+    let _restore =
+        Restore(TEST_HOST_CAPABILITIES.with(|value| value.borrow_mut().replace(capabilities)));
+    run()
 }
 
 /// Host CPU architecture in the vocabulary Core launch templates expect
@@ -108,6 +162,19 @@ pub struct ScannedPackage {
     pub root: PathBuf,
     /// Raw manifest; plan commands are pure functions and take it every time.
     pub manifest: Value,
+    /// Trust evidence the launch path re-verifies against the live bytes;
+    /// `None` for quarantined packages, which never reach a launch.
+    pub trust: Option<TrustEvidence>,
+}
+
+/// Origin and approved-bytes evidence recorded when the package was
+/// accepted, so every later launch can prove the on-disk bytes again.
+#[derive(Debug, Clone)]
+pub struct TrustEvidence {
+    pub origin: signature::InstallOrigin,
+    /// Content digest recorded for a community approval; bundled and signed
+    /// packages verify through the pinned policy instead.
+    pub expected_content_digest: Option<String>,
 }
 
 /// Cached scan result. The frontend rescans at startup and after installs,

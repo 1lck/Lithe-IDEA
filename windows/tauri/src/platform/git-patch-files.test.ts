@@ -1,15 +1,17 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 let response = { bytes: [] as number[], truncated: false };
 const invoke = mock(async (_command: string, _args?: unknown) => response);
-// Mock the Tauri boundary, not `./tauri-core`: a module mock is process-wide in
-// Bun, and replacing `tauri-core` would hide the real router from every later
-// test file in the same run.
-mock.module("@tauri-apps/api/core", () => ({
-  Channel: class {},
-  convertFileSrc: (path: string) => path,
-  invoke: (command: string, args?: unknown) => invoke(command, args),
-}));
+// Keep the real router and Tauri module graph. Stub only the native IPC entry;
+// replacing the API module drops exports imported by indirect dependencies.
+const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+Object.defineProperty(globalThis, "window", { configurable: true, value: {
+  __TAURI_INTERNALS__: { invoke: (command: string, args?: unknown) => invoke(command, args) },
+} });
+afterAll(() => {
+  if (originalWindow) Object.defineProperty(globalThis, "window", originalWindow);
+  else Reflect.deleteProperty(globalThis, "window");
+});
 const { readGitPatchFile, writeGitPatchFile } = await import("./git-patch-files");
 
 beforeEach(() => {

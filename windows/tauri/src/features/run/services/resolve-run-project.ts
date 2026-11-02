@@ -1,6 +1,7 @@
 import { mavenLaunchContextForWorkspace } from "@/features/maven/stores/maven.store";
 import { resolveRunConfiguration } from "../api/run-core-api";
 import { discoverRunToolchains } from "../api/run-host-api";
+import { workspaceToolchainSelection } from "../utils/workspace-toolchain-paths";
 import {
   EMPTY_GLOBAL_TOOLCHAIN,
   type GenericRuntime,
@@ -59,11 +60,11 @@ export async function resolveConfigurations(
     : null;
   // Keep persisted Run selections separate from the Maven panel fallback.
   // Displaying a diagnostic must not copy that fallback into Run configuration.
-  const effectiveToolchain = {
+  const effectiveToolchain = workspaceToolchainSelection(root, {
     ...globalToolchain,
     mavenExecutablePath:
       globalToolchain.mavenExecutablePath || mavenContext?.mavenExecutablePath || "",
-  };
+  });
   const hasSelectedToolchain = Boolean(
     globalToolchain.javaHomePath ||
     effectiveToolchain.mavenExecutablePath ||
@@ -74,7 +75,7 @@ export async function resolveConfigurations(
     : automatic;
   const effectiveRuntimePaths = effectiveRuntimeExecutablePaths(
     discovered.runtimes,
-    globalToolchain.runtimeExecutablePaths,
+    effectiveToolchain.runtimeExecutablePaths,
   );
   const candidates = selectedToolchainCandidates(discovered, {
     ...effectiveToolchain,

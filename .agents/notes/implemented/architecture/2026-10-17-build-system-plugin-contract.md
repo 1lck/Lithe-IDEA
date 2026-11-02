@@ -43,6 +43,8 @@ Rust Core 负责校验声明、识别工程、展开每一条命令行，并把�
 
 没有声明的能力不报错，也不会出现在界面上。例如 Cargo fixture 没有声明依赖树，Build 工具窗口就不显示依赖区。
 
+`build.detect` 对普通文件根或不存在的根保留空实例结果，这属于检测入口的既有兼容边界。共用工作区扫描器后仍在此入口区分根的类型；真实目录的读取、权限或扫描失败继续返回拒绝，不能把所有 I/O 错误当作“未检测到项目”。不要为了修复 Windows 的非目录错误而放宽共用扫描器，也不要让宿主按操作系统错误码猜测空结果。
+
 字段全集只写在 `shared/contracts/plugins/v1/README.md` 的 “API level 3: build systems” 一节和 `plugin-manifest.schema.json` 里，本 Note 不重复。四个 fixture 各示范一种模型来源，按能力命名而不是按真实插件命名：`build-static-file`（读项目文件，内容用 Cargo）、`build-command-stdout`（解码命令输出，内容用 Go）、`build-command-output-file`（解码命令写出的文件，内容用 Gradle）、`build-host-integration`（交给宿主集成，内容用 Maven）。`build-provider`、`build-provider-language-server` 分别示范 Provider 的两种写法。
 
 ### 2. Core 与宿主的分工
@@ -277,6 +279,19 @@ macOS 接入规则（2026-10-18）：
 - 在宿主里自己拼 argv 或解析输出。即使只差一个参数，也要改声明或 Core，否则两端会各写一份。
 - 为 Provider 另写一份启动字段和校验，或者新增 `build.providerLaunchPlan`。宿主也不要直接使用 Provider 的回复，必须先交给 Core 解码。
 
+### Windows 的项目运行时路径
+
+项目级 Run 配置可以把 JDK（Java 开发工具包）保存为相对工作区的路径。
+Build 在冻结这份选择时也必须以同一工作区为根；例如 `.lithe/toolchains/jdk`
+应指向该工作区下的 JDK，不能把相对的 `bin/java.exe` 直接交给要求绝对路径的原生层。
+已有绝对路径和 UNC 网络路径保留原位置；其他运行时仍按不透明 ID 处理。
+
+转换只确定路径归属，不证明文件存在或 JDK 有效。原生解析器继续在计划真正消费该
+运行时后验证它：消费了失效的显式选择必须报错，不能换成 PATH 上的另一份 JDK；
+没有消费它的任务也不能因为保存过一个坏 JDK 而被阻断。不要在前端为了“提前检查”
+再启动工具、复制 Java 版本选择规则或维护第二份构建设置。这些转换只发生在内存，
+不新增下载、缓存或安装目录写入，不影响签名与更新基线。
+
 ## 考虑过的备选方案
 
 ### 每个构建工具一个宿主集成，继续在 Core 写解析器
@@ -339,6 +354,9 @@ macOS 接入规则（2026-10-18）：
 - 每个 Provider 都是独立的常驻进程，多个构建系统插件同时加载时会多占内存；这是隔离的代价，进程只在用户加载后启动、随工作区关闭。
 
 ## 验证
+
+- `windows/tauri/src/features/run/services/build-runtime-selection.test.ts` 覆盖工作区相对 JDK、空格、UNC、通用运行时优先级及保留无效显式路径的原生拒绝边界。组件通过不能代表完整 Java 产品工作流已验收。
+- Java 产品驱动对构建成功同时要求退出码 0、stdout、与 IPC 一致的单个有序终态；同一操作内任何工作区、插件或代次身份改变都拒绝，不能靠过滤掉错误事件取得成功。
 
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib build_systems`：四个 fixture 通过校验；`build-plans.json` 的全部标准答案；在临时工作区里验证 Cargo 运行入口与内置探测器逐字一致、嵌套、优先级与拒绝、Maven reactor 识别、Gradle 规范格式输出文件、JUnit 报告、同步指纹、Maven 任务参数与内置实现一致，以及互斥条件下允许重复引用选项。
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib build_systems` 还覆盖 Provider：`build-plans.json` 里 `build-provider`、`build-provider-language-server` 的请求计划和 `result` 解码；`provider_processes_are_install_review_programs`（自有进程和共享写法在安装审查中的条目）；`launch_plans_name_exactly_one_process`；`provider_models_are_not_read_during_detection`。

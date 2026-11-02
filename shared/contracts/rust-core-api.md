@@ -2737,6 +2737,14 @@ session's child process, stdin/stdout/stderr, framing buffer, JSON-RPC request
 IDs, document versions, pending deadlines, capabilities, diagnostics, and
 graceful/forced termination.
 
+If ordinary `lsp.startServer` fails after process creation, Core retains any
+incomplete disposal in an internal cleanup backlog, since no session identity
+was returned to the caller. A subsequent explicit startup attempt retries at
+most one bounded disposal and refuses to launch another process while cleanup
+remains incomplete. The original startup error is preserved. Native owners
+using the in-process registration callback retain their registered identity
+even when startup returns an error and retry `lsp.destroyServer` themselves.
+
 JDT LS remains `initializing` until `language/status: ServiceReady`. During this
 phase Rust reduces changed `$/progress` notifications into throttled JSON log
 details containing the current phase, percentage, project, observed project

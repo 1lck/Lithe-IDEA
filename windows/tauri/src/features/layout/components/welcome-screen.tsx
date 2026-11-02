@@ -14,6 +14,7 @@ import {
   GearIcon,
   GitBranchIcon,
   MagnifyingGlassIcon,
+  PlusIcon,
   XIcon,
 } from "@/ui/icons";
 
@@ -102,6 +103,16 @@ export function WelcomeScreen() {
             />
           </label>
           <div className="ml-auto flex items-center gap-2.5">
+            <Button
+              type="button"
+              variant="default"
+              size="sm"
+              className="min-w-17"
+              onClick={() => setIsProjectPickerVisible(true, "new-project")}
+            >
+              <PlusIcon className="size-4" />
+              {t("welcome.newProject")}
+            </Button>
             <Button
               type="button"
               variant="default"

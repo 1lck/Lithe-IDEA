@@ -2,6 +2,8 @@ import { createStore } from "zustand/vanilla";
 import { createWorkspaceScopedStore } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { createSelectors } from "@/utils/zustand-selectors";
 import { discoverWorkspaceRepositories, normalizeRepositoryPath } from "../api/git-repo-api";
+import { workspaceVcsRoots } from "@/features/vcs/vcs-root-service";
+import type { VcsRootController } from "@/features/vcs/vcs-root-controller";
 
 interface RepositoryState {
   workspaceRootPath: string | null;
@@ -15,6 +17,8 @@ interface RepositoryState {
   hasDiscoveredWorkspace: boolean;
   discoveryRequestId: number;
   error: string | null;
+  /** Independent passive projection; never used as a Git repository path. */
+  vcsRoots: VcsRootController | null;
 
   actions: {
     syncWorkspaceRepositories: (
@@ -64,15 +68,20 @@ const initialState = {
   hasDiscoveredWorkspace: false,
   discoveryRequestId: 0,
   error: null,
+  vcsRoots: null,
 };
 
-export const createGitRepositoryStore = () =>
+export const createGitRepositoryStore = (workspaceId?: string) =>
   createStore<RepositoryState>()((set, get) => ({
     ...initialState,
 
     actions: {
       syncWorkspaceRepositories: async (workspaceRootPath, options) => {
         const force = options?.force ?? false;
+        const vcsRoots = workspaceId ? workspaceVcsRoots(workspaceId) : null;
+        if (vcsRoots !== get().vcsRoots) set({ vcsRoots });
+        if (vcsRoots && (force || vcsRoots.getSnapshot().status === "idle"))
+          void vcsRoots.refresh();
         const normalizedRoots = (
           Array.isArray(workspaceRootPath) ? workspaceRootPath : [workspaceRootPath]
         )
@@ -143,7 +152,10 @@ export const createGitRepositoryStore = () =>
               workspaceRootPath: normalizedRoot,
               workspaceDiscoveryKey,
               workspaceRepoPaths: reuseRepositoryPaths(state.workspaceRepoPaths, discoveredRepos),
-              availableRepoPaths: reuseRepositoryPaths(state.availableRepoPaths, availableRepoPaths),
+              availableRepoPaths: reuseRepositoryPaths(
+                state.availableRepoPaths,
+                availableRepoPaths,
+              ),
               activeRepoPath: nextActiveRepoPath,
               isDiscovering: false,
               hasDiscoveredWorkspace: true,
@@ -166,7 +178,9 @@ export const createGitRepositoryStore = () =>
 
       refreshWorkspaceRepositories: async () => {
         const { workspaceDiscoveryKey, actions } = get();
-        await actions.syncWorkspaceRepositories(workspaceDiscoveryKey?.split("\0"), { force: true });
+        await actions.syncWorkspaceRepositories(workspaceDiscoveryKey?.split("\0"), {
+          force: true,
+        });
       },
 
       selectRepository: (repoPath) => {

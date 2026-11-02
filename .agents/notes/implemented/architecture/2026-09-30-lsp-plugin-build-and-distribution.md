@@ -68,6 +68,8 @@ LSP 控制中心和语言工具发现沿用现有 Rust Core LSP 会话。组合�
 
 macOS 使用声明式插件包和 publisher Ed25519 包签名；Windows 使用自己的 Tauri 插件包和平台签名、缓存适配器，接入共享契约 `shared/contracts/plugins/v1/` 时复用同一份声明语义。Windows 不得因为跨平台而把 macOS 的目录或构建脚本复制到 Windows。两端都必须满足：插件自有资源、构建时校验、运行时只读安装目录、禁用和卸载可清理自有资源。
 
+Windows Java 候选由 `Plugins/win/Official/JavaSupport/` 与 `scripts/plugins/assemble-windows-java-support.py` 独立维护，离线校验固定下载并选择 Windows JDK、PE 架构和 JDT configuration。候选输出与输入回执走不可复用的 `official-plugin-packages` 路由，只有既有哈希校验路由覆盖的 JDT/JDK 下载缓存可以复用。Windows 文件签名不封装相邻资源，当前未签名 bundled Java 仍拒绝，生产 `packageTrust` 保持关闭；具体门槛见 [Java 来源与独立发布笔记](2026-10-25-java-plugin-distribution-foundation.md)。
+
 ## 考虑过的备选方案
 
 1. 把所有语言服务器随主程序打包：启动简单，但增加主程序体积和每个用户的维护成本，也无法实现按需安装。
@@ -79,13 +81,14 @@ macOS 使用声明式插件包和 publisher Ed25519 包签名；Windows 使用�
 
 用户只为安装的语言承担下载和索引成本，插件包可以独立发布、验证、重装和卸载。构建过程需要访问固定的上游归档，发布环境必须准备对应架构和签名身份；Node.js 等外部运行时仍由平台能力检查，不由插件偷偷写入安装目录。
 
-插件包、解压结果、语言服务器下载缓存和运行时语言工具没有可靠的跨工作树身份标记，继续在 `scripts/resources/worktree-resources.json` 中作为隔离资源处理，不能通过工作树复用脚本复制。
+插件包、解压结果和运行时语言工具没有可靠的跨工作树身份标记，继续在 `scripts/resources/worktree-resources.json` 中作为隔离资源处理。只有注册表明确列出、按固定版本/平台/架构及来源哈希独立校验的下载缓存允许复用，不能用下载哈希替代完整包签名或运行时状态归属。
 
 ## 验证
 
 - `./scripts/plugins/verify-official-plugins.sh`：检查官方插件组装、语言服务器清单、启动器、包内无原生代码和包签名。
 - `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`：确认典型启动和插件工作流不会改写已安装 bundle。
-- `node scripts/resources/test-reuse-worktree-resources.mjs`：确认语言服务器下载和插件包不能跨工作树复用。
+- `node scripts/resources/test-reuse-worktree-resources.mjs`：确认未注册的资源与完整插件包拒绝复用，固定下载缓存只走独立校验路由。
+- `python scripts/plugins/test-assemble-windows-java-support.py`：确认离线 Windows 候选的完整资源、架构、输入哈希和归档安全边界；不当作正式签名或真实 JDT 验收。
 - `./scripts/agent-notes/verify-agent-notes.sh`：确认本笔记格式、路径和验证命令有效。
 - 相关 macOS 测试：`MacPluginPackageDownloaderTests`、`LanguageServerToolServiceTests`、`LanguageExtensionProcessLifecycleTests` 和 `PluginPackageStoreTests`。
 - 新增插件还必须验证下载失败、校验失败、取消、等待重启、重装、回滚、禁用和卸载后的进程与文件清理。
@@ -93,6 +96,8 @@ macOS 使用声明式插件包和 publisher Ed25519 包签名；Windows 使用�
 ## 适用范围
 
 - `Plugins/mac/Official/`
+- `Plugins/win/Official/JavaSupport/`
+- `scripts/plugins/assemble-windows-java-support.py`
 - `scripts/plugins/build-official-plugins.sh`
 - `macos/Sources/Lithe/Platform/MacOS/Plugins/`
 - `macos/Sources/Lithe/Platform/MacOS/Runtime/MacRuntimeToolDiscovery.swift`

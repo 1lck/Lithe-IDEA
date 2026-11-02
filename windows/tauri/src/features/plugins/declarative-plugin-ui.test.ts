@@ -3,6 +3,7 @@ import { enableMapSet } from "immer";
 import { createRequire } from "node:module";
 import hello from "../../../../../shared/contracts/plugins/v1/fixtures/hello-lithe.plugin.json";
 import { useUIExtensionStore } from "@/extensions/ui/stores/ui-extension-store";
+import { setPluginActive } from "./declarative-plugin-lifecycle";
 enableMapSet();
 // Zustand's Bun CJS adapter loads the CommonJS Immer export. Enable its
 // MapSet plugin as well as the ESM export used by the product bundler.
@@ -14,21 +15,50 @@ mock.module("./declarative-plugin-launch", () => ({
     { pluginId: hello.id, displayName: hello.displayName, enabled: true, status: "accepted" },
   ],
   listDeclarativeWebWindows: async () => [
-    { pluginId: hello.id, windowId: hello.ui.toolWindows[0].id, title: hello.displayName },
+    {
+      pluginId: hello.id,
+      windowId: hello.ui.toolWindows[0].id,
+      title: hello.displayName,
+      packageIdentity: "fixture-bytes",
+      placement: "right",
+      order: 0,
+      entry: "__lithe_host__/text.html",
+    },
   ],
   getDeclarativePluginManifest: async () => {
     await manifestGate;
     return hello;
   },
-  openDeclarativeWebWindow: open,
+}));
+mock.module("./native-ui/native-contributions", () => ({
+  listNativeContributions: async () => [],
+  nativePanelStates: { revoke: () => {} },
+  openNativeContribution: open,
 }));
 const { refreshDeclarativeUI, removeDeclarativeUI, useDeclarativePluginUI } =
   await import("./declarative-plugin-ui");
 afterEach(() => {
+  setPluginActive(hello.id, true);
   removeDeclarativeUI(hello.id);
   open.mockClear();
   manifestGate = null;
 });
+
+test("a later catalog refresh cannot restore a plugin whose global reload failed", async () => {
+  await refreshDeclarativeUI();
+  setPluginActive(hello.id, false);
+  removeDeclarativeUI(hello.id);
+  await refreshDeclarativeUI();
+  expect(useDeclarativePluginUI.getState().windows).toEqual([]);
+  expect(
+    [...useUIExtensionStore.getState().commands.values()].some(
+      (command) => command.extensionId === `declarative:${hello.id}`,
+    ),
+  ).toBe(false);
+  setPluginActive(hello.id, true);
+  await refreshDeclarativeUI();
+  expect(useDeclarativePluginUI.getState().windows).toHaveLength(1);
+}, 1000);
 
 test("hello ui1 contributes a text window and all three command placements and revokes them", async () => {
   await refreshDeclarativeUI();
@@ -40,11 +70,13 @@ test("hello ui1 contributes a text window and all three command placements and r
   expect(useDeclarativePluginUI.getState().windows).toHaveLength(1);
   expect([...state.toolbarActions.values()].some((action) => action.id === command.id)).toBe(true);
   await command.execute();
-  expect(open).toHaveBeenCalledWith(hello.id, hello.ui.toolWindows[0].id);
+  expect(open).toHaveBeenCalledWith(useDeclarativePluginUI.getState().windows[0]);
   removeDeclarativeUI(hello.id);
   expect(useDeclarativePluginUI.getState().windows).toHaveLength(0);
   expect(useUIExtensionStore.getState().commands.has(command.id)).toBe(false);
   expect(useUIExtensionStore.getState().toolbarActions.has(command.id)).toBe(false);
+  await command.execute();
+  expect(open).toHaveBeenCalledTimes(1);
 });
 
 test("removing another plugin does not cancel an in-flight refresh", async () => {
