@@ -71,7 +71,7 @@ export function finishChildren(children: AgentSubagent[], parentID?: string): Ag
     ? { ...child, state: "disconnected", messages: interruptPendingTools({ ...createConversation(), messages: child.messages }).messages } : child));
 }
 
-export function updateChild(child: AgentSubagent, update: Record<string, unknown>): AgentSubagent {
+export function updateChild(child: AgentSubagent, update: Record<string, unknown>, usesThoughtSummaryHeadings = false): AgentSubagent {
   if (terminalChild(child)) return child;
   let view = { ...createConversation(), messages: child.messages };
   const text = record(update.content) && typeof update.content.text === "string" ? update.content.text : null;
@@ -79,7 +79,8 @@ export function updateChild(child: AgentSubagent, update: Record<string, unknown
     case "agent_message_chunk":
     case "agent_thought_chunk":
     case "user_message_chunk":
-      if (text !== null) view = appendMessage(view, update.sessionUpdate === "agent_message_chunk" ? "agent" : update.sessionUpdate === "agent_thought_chunk" ? "reasoning" : "user", text);
+      if (text !== null) view = appendMessage(view, update.sessionUpdate === "agent_message_chunk" ? "agent" : update.sessionUpdate === "agent_thought_chunk" ? "reasoning" : "user", text,
+        typeof update.messageId === "string" ? update.messageId : undefined, usesThoughtSummaryHeadings);
       break;
     case "tool_call":
     case "tool_call_update":

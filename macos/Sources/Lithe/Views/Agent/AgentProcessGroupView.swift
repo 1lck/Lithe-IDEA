@@ -72,10 +72,15 @@ struct AgentProcessGroupView: View {
                                 }
                             }
                         case .message(let message):
-                            AgentMarkdownMessage(text: message.text.trimmingCharacters(in: .whitespacesAndNewlines), size: 12)
-                                .equatable()
-                                .foregroundStyle(LitheTheme.secondaryText)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                            if message.role == .thought {
+                                AgentThoughtContent(text: message.text, isStreaming: isStreaming && message.id == messages.last?.id,
+                                                    usesSummaryHeadings: message.usesThoughtSummaryHeadings)
+                            } else {
+                                AgentMarkdownMessage(text: message.text.trimmingCharacters(in: .whitespacesAndNewlines), size: 12)
+                                    .equatable()
+                                    .foregroundStyle(LitheTheme.secondaryText)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
                         case .toolGroup(let tools):
                             AgentToolGroupView(messages: tools, searchText: searchText, onOpenFile: onOpenFile,
                                                initiallyExpanded: true)

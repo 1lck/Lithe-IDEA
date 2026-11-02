@@ -122,9 +122,9 @@ public final class AgentConnectionModel: ObservableObject {
     private var supplements: [String: Supplement] = [:]
     private var continuations: [String: Supplement] = [:]
     private var loadTokens: [String: String] = [:]
-    /// Streamed text not yet shown, per session. One buffer holds one role so
-    /// interleaved reasoning and reply chunks become separate messages.
-    private var pendingText: [String: (role: AgentConversationMessage.Role, text: String, subagentSessionID: String?)] = [:]
+    /// One buffer holds one upstream message/role/child, preserving boundaries
+    /// while batching partial words and Markdown without extra separators.
+    private var pendingText: [String: (role: AgentConversationMessage.Role, text: String, subagentSessionID: String?, messageID: String?)] = [:]
     /// Child associations are rebuilt with the owning conversation's history snapshot.
     private var subagentOwners: [String: String] = [:]
     private var flushTask: Task<Void, Never>?
@@ -137,9 +137,6 @@ public final class AgentConnectionModel: ObservableObject {
     /// square of the history. The replay lands in `conversations` once, when it ends.
     private var replayMessages: [String: [AgentConversationMessage]] = [:]
     private var replayToolIndex: [String: [String: Int]] = [:]
-    /// Upstream id of the user message a replay last appended to; consecutive user
-    /// messages are separate entries even though ACP delivers them as chunks.
-    private var replayUserMessageID: [String: String] = [:]
     /// Locally prepared sessions without a submitted prompt or upstream history evidence.
     /// Codex does not persist their rollout until the first prompt, so they cannot be resumed.
     private var unpromptedSessionIDs: Set<String> = []
@@ -1001,11 +998,13 @@ public final class AgentConnectionModel: ObservableObject {
         case "agent_message_chunk":
             guard let text = Self.text(of: update) else { return }
             if !text.isEmpty, subagentSessionID == nil { markResponseProgress(.responding, in: sessionID) }
-            buffer(text, role: .agent, in: sessionID, subagentSessionID: subagentSessionID)
+            buffer(text, role: .agent, in: sessionID, subagentSessionID: subagentSessionID,
+                   messageID: update["messageId"] as? String)
         case "agent_thought_chunk":
             guard let text = Self.text(of: update) else { return }
             if !text.isEmpty, subagentSessionID == nil { markResponseProgress(.thinking, in: sessionID) }
-            buffer(text, role: .thought, in: sessionID, subagentSessionID: subagentSessionID)
+            buffer(text, role: .thought, in: sessionID, subagentSessionID: subagentSessionID,
+                   messageID: update["messageId"] as? String)
         case "plan":
             guard let plan = AgentPlan.parse(update) else { return }
             conversations[sessionID, default: AgentConversation()].plan = plan.entries.isEmpty ? nil : plan
@@ -1267,14 +1266,12 @@ public final class AgentConnectionModel: ObservableObject {
     private func commitReplay(_ sessionID: String) {
         guard let messages = replayMessages.removeValue(forKey: sessionID) else { return }
         replayToolIndex[sessionID] = nil
-        replayUserMessageID[sessionID] = nil
         conversations[sessionID, default: AgentConversation()].messages = messages
     }
 
     private func discardReplay(_ sessionID: String) {
         replayMessages[sessionID] = nil
         replayToolIndex[sessionID] = nil
-        replayUserMessageID[sessionID] = nil
     }
 
     private func append(_ text: String, role: AgentConversationMessage.Role, to sessionID: String,
@@ -1284,19 +1281,15 @@ public final class AgentConnectionModel: ObservableObject {
                !message.images.contains(where: { $0.id == image.id }) { message.images.append(image) }
         }
         if conversations[sessionID]?.isLoading == true {
-            // Two user messages in a row (a prompt after a background notice, say) must
-            // not fuse into one bubble, which would also stop the notice being recognised.
-            var startsNewMessage = false
-            if role == .user, let messageID {
-                startsNewMessage = replayUserMessageID[sessionID].map { $0 != messageID } ?? false
-                replayUserMessageID[sessionID] = messageID
-            }
-            if !startsNewMessage, let last = replayMessages[sessionID]?.indices.last, replayMessages[sessionID]?[last].role == role,
+            if let last = replayMessages[sessionID]?.indices.last, replayMessages[sessionID]?[last].role == role,
+               replayMessages[sessionID]?[last].upstreamMessageID == messageID,
                replayMessages[sessionID]?[last].subagentSessionID == subagentSessionID {
                 replayMessages[sessionID]?[last].text += text
                 attach(image, to: &replayMessages[sessionID]![last])
             } else {
                 var message = AgentConversationMessage(role: role, text: text)
+                message.upstreamMessageID = messageID
+                message.usesThoughtSummaryHeadings = role == .thought && agentID == "codex-acp"
                 message.subagentSessionID = subagentSessionID
                 attach(image, to: &message)
                 replayMessages[sessionID, default: []].append(message)
@@ -1305,11 +1298,14 @@ public final class AgentConnectionModel: ObservableObject {
         }
         var conversation = conversations[sessionID] ?? AgentConversation()
         if let last = conversation.messages.indices.last, conversation.messages[last].role == role,
+           conversation.messages[last].upstreamMessageID == messageID,
            conversation.messages[last].subagentSessionID == subagentSessionID {
             conversation.messages[last].text += text
             attach(image, to: &conversation.messages[last])
         } else {
             var message = AgentConversationMessage(role: role, text: text)
+            message.upstreamMessageID = messageID
+            message.usesThoughtSummaryHeadings = role == .thought && agentID == "codex-acp"
             message.subagentSessionID = subagentSessionID
             attach(image, to: &message)
             conversation.messages.append(message)
@@ -1605,9 +1601,12 @@ public final class AgentConnectionModel: ObservableObject {
         }
     }
 
-    private func buffer(_ text: String, role: AgentConversationMessage.Role, in sessionID: String, subagentSessionID: String? = nil) {
-        if let pending = pendingText[sessionID], pending.role != role || pending.subagentSessionID != subagentSessionID { flushPendingText() }
-        pendingText[sessionID, default: (role, "", subagentSessionID)].text += text
+    private func buffer(_ text: String, role: AgentConversationMessage.Role, in sessionID: String,
+                        subagentSessionID: String? = nil, messageID: String? = nil) {
+        // Preserve message boundaries before batching discards the individual updates.
+        if let pending = pendingText[sessionID], pending.role != role
+            || pending.subagentSessionID != subagentSessionID || pending.messageID != messageID { flushPendingText() }
+        pendingText[sessionID, default: (role, "", subagentSessionID, messageID)].text += text
         scheduleFlush()
     }
 
@@ -1615,7 +1614,8 @@ public final class AgentConnectionModel: ObservableObject {
         let pending = pendingText
         pendingText.removeAll()
         for (sessionID, chunk) in pending where !chunk.text.isEmpty {
-            append(chunk.text, role: chunk.role, to: sessionID, subagentSessionID: chunk.subagentSessionID)
+            append(chunk.text, role: chunk.role, to: sessionID, subagentSessionID: chunk.subagentSessionID,
+                   messageID: chunk.messageID)
         }
     }
 

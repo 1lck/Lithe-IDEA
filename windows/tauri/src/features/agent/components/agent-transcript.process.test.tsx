@@ -66,6 +66,33 @@ function header(): HTMLButtonElement {
 }
 
 describe("Agent turn process disclosure", () => {
+  test("summary titles render independently from body Markdown and drive only reasoning status", () => {
+    const entries = [message("u1", "user", "Explain"),
+      { ...message("r1", "reasoning", "**Defining groups****Choosing keys**\nRead the **README**."), usesThoughtSummaryHeadings: true }];
+    render("", entries, "first", true);
+    expect(container.querySelector('[data-agent-response-status]')?.textContent).toBe("Choosing keys");
+    act(() => header().click());
+    expect(Array.from(container.querySelectorAll('[data-agent-thought-title]')).map((node) => node.textContent))
+      .toEqual(["Defining groups", "Choosing keys"]);
+    expect(container.querySelector("strong")?.textContent).toBe("README");
+    expect(container.textContent).not.toContain("****");
+    render("", [...entries, message("t1", "tool", "Read")], "first", true);
+    expect(container.querySelector('[data-agent-response-status]')?.textContent).not.toBe("Choosing keys");
+    render("", [...entries, message("a1", "agent", "**ordinary****reply**")], "first", false);
+    expect(entries[1].text).toBe("**Defining groups****Choosing keys**\nRead the **README**.");
+  });
+
+  test("Claude thinking remains Markdown prose instead of becoming a Codex activity heading", () => {
+    const entries = [message("u1", "user", "Explain"), message("r1", "reasoning", "**Important** details remain inline.")];
+    render("", entries, "claude", true);
+    expect(container.querySelector('[data-agent-response-status]')?.textContent).not.toBe("Important");
+    act(() => header().click());
+    expect(container.querySelector('[data-agent-thought-title]')).toBeNull();
+    expect(container.querySelector("strong")?.textContent).toBe("Important");
+    expect(container.textContent).toContain("Important details remain inline.");
+    expect(entries[1].text).toBe("**Important** details remain inline.");
+  });
+
   test("streaming activity stays collapsed until the user expands it", () => {
     render("", messages.slice(0, 2), "first", true);
     expect(header().getAttribute("aria-expanded")).toBe("false");

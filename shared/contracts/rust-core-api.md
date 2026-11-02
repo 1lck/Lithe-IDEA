@@ -277,6 +277,28 @@ is appended, so adapter command parsing and `/usage` detection keep working.
 No optional prompt capability, private system prompt, new command field, or
 provider-specific path override is required.
 
+Text updates retain ACP `messageId` when supplied. Clients batch and append
+only consecutive chunks with the same role, child owner and upstream message
+identity; local row/navigation IDs stay independent. Missing IDs retain legacy
+consecutive-chunk behavior, without inferring boundaries from text. Codex's
+pinned adapter loses separators between structured native reasoning parts on
+history replay; the existing per-launch relay joins those parts with blank
+lines in thread responses only, leaving live events and on-disk history intact.
+Codex thought presentation separates activity headings from Markdown bodies, following
+Codex's public reasoning presentation boundary rather than treating a summary as
+an ordinary reply. A paragraph-leading plain `**title**` and consecutive titles
+become ordered sections; headings use literal text and bodies use the existing
+Markdown renderer. In streaming output, an incomplete title can be shown as a
+draft section but cannot replace the last completed activity heading. Current
+headings appear only during reasoning; tools, permission, retry and stop status
+retain precedence. Repeats and the stored transcript remain intact. Ordinary
+reply rendering, code, links, entities and escapes are not rewritten. Live and
+replayed sections share `fixtures/agent/thought-presentation-v1.json`. Clients
+mark the presentation kind from the owning `codex-acp` connection, including
+replayed and child messages. Claude and other agents keep their original thinking
+Markdown, even when it starts with bold text; they never infer Codex activity
+headings from content. Message-ID batching remains common to all agents.
+
 Only the exact Host-added workspace text suffix is omitted from
 `user_message_chunk` presentation, including adapters that join adjacent text
 blocks in history. Generated `session_info_update.title` and session-list titles

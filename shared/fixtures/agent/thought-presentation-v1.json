@@ -1,0 +1,304 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "adjacent native summary titles",
+      "source": "**Defining groups****Choosing keys****Inspecting tree naming**",
+      "sections": [
+        {
+          "title": "Defining groups",
+          "body": "",
+          "isTitleComplete": true
+        },
+        {
+          "title": "Choosing keys",
+          "body": "",
+          "isTitleComplete": true
+        },
+        {
+          "title": "Inspecting tree naming",
+          "body": "",
+          "isTitleComplete": true
+        }
+      ],
+      "currentTitle": "Inspecting tree naming"
+    },
+    {
+      "name": "repeated titles are not deduplicated",
+      "source": "**Choosing keys****Choosing keys**",
+      "sections": [
+        {
+          "title": "Choosing keys",
+          "body": "",
+          "isTitleComplete": true
+        },
+        {
+          "title": "Choosing keys",
+          "body": "",
+          "isTitleComplete": true
+        }
+      ],
+      "currentTitle": "Choosing keys"
+    },
+    {
+      "name": "Chinese titles",
+      "source": "**确定分组****检查边界**",
+      "sections": [
+        {
+          "title": "确定分组",
+          "body": "",
+          "isTitleComplete": true
+        },
+        {
+          "title": "检查边界",
+          "body": "",
+          "isTitleComplete": true
+        }
+      ],
+      "currentTitle": "检查边界"
+    },
+    {
+      "name": "existing paragraphs",
+      "source": "**First**\n\n**Second**",
+      "sections": [
+        {
+          "title": "First",
+          "body": "",
+          "isTitleComplete": true
+        },
+        {
+          "title": "Second",
+          "body": "",
+          "isTitleComplete": true
+        }
+      ],
+      "currentTitle": "Second"
+    },
+    {
+      "name": "ordinary prose",
+      "source": "Use **first****second** as labels.",
+      "sections": [
+        {
+          "title": null,
+          "body": "Use **first****second** as labels.",
+          "isTitleComplete": true
+        }
+      ],
+      "currentTitle": null
+    },
+    {
+      "name": "incomplete streaming title",
+      "source": "**First****Second",
+      "isStreaming": true,
+      "sections": [
+        {
+          "title": "First",
+          "body": "",
+          "isTitleComplete": true
+        },
+        {
+          "title": "Second",
+          "body": "",
+          "isTitleComplete": false
+        }
+      ],
+      "currentTitle": "First"
+    },
+    {
+      "name": "inline code",
+      "source": "**`a****b`**",
+      "sections": [
+        {
+          "title": null,
+          "body": "**`a****b`**",
+          "isTitleComplete": true
+        }
+      ],
+      "currentTitle": null
+    },
+    {
+      "name": "multiline inline code",
+      "source": "`code\n**one****two**\nend`",
+      "sections": [
+        {
+          "title": null,
+          "body": "`code\n**one****two**\nend`",
+          "isTitleComplete": true
+        }
+      ],
+      "currentTitle": null
+    },
+    {
+      "name": "soft line break within prose",
+      "source": "Text\n**one****two**",
+      "sections": [
+        {
+          "title": null,
+          "body": "Text\n**one****two**",
+          "isTitleComplete": true
+        }
+      ],
+      "currentTitle": null
+    },
+    {
+      "name": "literal entity",
+      "source": "**&ast;one****two**",
+      "sections": [
+        {
+          "title": null,
+          "body": "**&ast;one****two**",
+          "isTitleComplete": true
+        }
+      ],
+      "currentTitle": null
+    },
+    {
+      "name": "indented code",
+      "source": "    **one****two**\n\t**three****four**",
+      "sections": [
+        {
+          "title": null,
+          "body": "    **one****two**\n\t**three****four**",
+          "isTitleComplete": true
+        }
+      ],
+      "currentTitle": null
+    },
+    {
+      "name": "escaped stars",
+      "source": "**one\\****two**",
+      "sections": [
+        {
+          "title": null,
+          "body": "**one\\****two**",
+          "isTitleComplete": true
+        }
+      ],
+      "currentTitle": null
+    },
+    {
+      "name": "link labels",
+      "source": "**[one](url)****two**",
+      "sections": [
+        {
+          "title": null,
+          "body": "**[one](url)****two**",
+          "isTitleComplete": true
+        }
+      ],
+      "currentTitle": null
+    },
+    {
+      "name": "backtick code fence",
+      "source": "```md\n**one****two**\n```\n\n**three****four**",
+      "sections": [
+        {
+          "title": null,
+          "body": "```md\n**one****two**\n```",
+          "isTitleComplete": true
+        },
+        {
+          "title": "three",
+          "body": "",
+          "isTitleComplete": true
+        },
+        {
+          "title": "four",
+          "body": "",
+          "isTitleComplete": true
+        }
+      ],
+      "currentTitle": "four"
+    },
+    {
+      "name": "tilde code fence",
+      "source": "~~~~\n**one****two**\n~~~\n**three****four**\n~~~~",
+      "sections": [
+        {
+          "title": null,
+          "body": "~~~~\n**one****two**\n~~~\n**three****four**\n~~~~",
+          "isTitleComplete": true
+        }
+      ],
+      "currentTitle": null
+    },
+    {
+      "name": "heading and body retain distinct roles",
+      "source": "**Inspecting repository**\n\nRead the **README** and `src/**/file`.",
+      "sections": [
+        {
+          "title": "Inspecting repository",
+          "body": "Read the **README** and `src/**/file`.",
+          "isTitleComplete": true
+        }
+      ],
+      "currentTitle": "Inspecting repository"
+    },
+    {
+      "name": "same line heading and body",
+      "source": "**Checking tests**: running suite",
+      "sections": [
+        {
+          "title": "Checking tests",
+          "body": ": running suite",
+          "isTitleComplete": true
+        }
+      ],
+      "currentTitle": "Checking tests"
+    },
+    {
+      "name": "adjacent headings followed by body",
+      "source": "**Defining groups****Choosing keys**\nThe first **value** is valid.",
+      "sections": [
+        {
+          "title": "Defining groups",
+          "body": "",
+          "isTitleComplete": true
+        },
+        {
+          "title": "Choosing keys",
+          "body": "The first **value** is valid.",
+          "isTitleComplete": true
+        }
+      ],
+      "currentTitle": "Choosing keys"
+    },
+    {
+      "name": "unclosed completed snapshot is literal",
+      "source": "**Unclosed title",
+      "sections": [
+        {
+          "title": null,
+          "body": "**Unclosed title",
+          "isTitleComplete": true
+        }
+      ],
+      "currentTitle": null
+    },
+    {
+      "name": "single streaming title hides raw delimiter",
+      "source": "**Checking tests",
+      "isStreaming": true,
+      "sections": [
+        {
+          "title": "Checking tests",
+          "body": "",
+          "isTitleComplete": false
+        }
+      ],
+      "currentTitle": null
+    },
+    {
+      "name": "title then fenced body",
+      "source": "**Inspecting code**\n```md\n**literal****stars**\n```",
+      "sections": [
+        {
+          "title": "Inspecting code",
+          "body": "```md\n**literal****stars**\n```",
+          "isTitleComplete": true
+        }
+      ],
+      "currentTitle": "Inspecting code"
+    }
+  ]
+}

@@ -10,6 +10,50 @@ struct AgentMarkdownTests {
     private func plain(_ text: AttributedString) -> String { String(text.characters) }
 
     @Test
+    func thoughtSectionsSeparateActivityHeadingsFromMarkdownBodies() throws {
+        struct Fixture: Decodable {
+            struct Section: Decodable { let title: String?; let body: String; let isTitleComplete: Bool }
+            struct Example: Decodable {
+                let name: String; let source: String; let sections: [Section]
+                let currentTitle: String?; let isStreaming: Bool?
+            }
+            let cases: [Example]
+        }
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf:
+            root.appendingPathComponent("shared/fixtures/agent/thought-presentation-v1.json")))
+        for example in fixture.cases {
+            let sections = AgentThoughtPresentation.sections(example.source, isStreaming: example.isStreaming ?? false)
+            #expect(sections.map(\.title) == example.sections.map(\.title), "\(example.name)")
+            #expect(sections.map(\.body) == example.sections.map(\.body), "\(example.name)")
+            #expect(sections.map(\.isTitleComplete) == example.sections.map(\.isTitleComplete), "\(example.name)")
+            #expect(AgentThoughtPresentation.currentTitle(example.source) == example.currentTitle, "\(example.name)")
+            let prose = AgentThoughtPresentation.sections(example.source, isStreaming: true, usesSummaryHeadings: false)
+            #expect(prose.count == 1)
+            #expect(prose.first?.title == nil)
+            #expect(prose.first?.body == example.source, "Claude thinking must keep every Markdown byte")
+        }
+        let source = "**Choosing keys****Choosing keys**"
+        #expect(try paragraph(source).characters.contains("*"), "Ordinary replies keep their original Markdown semantics")
+    }
+
+    @Test
+    func streamingThoughtPrefixesConvergeToReplayedSections() {
+        let source = "**Defining groups****Choosing keys**\nRead the **README**."
+        var title: String?
+        for length in 2...source.count {
+            let prefix = String(source.prefix(length))
+            let sections = AgentThoughtPresentation.sections(prefix, isStreaming: true)
+            #expect(sections.allSatisfy { $0.title?.contains("**") != true })
+            if !prefix.contains("\n") { #expect(sections.allSatisfy { $0.body.isEmpty }) }
+            title = AgentThoughtPresentation.currentTitle(prefix) ?? title
+        }
+        #expect(title == "Choosing keys")
+        #expect(AgentThoughtPresentation.sections(source, isStreaming: true) == AgentThoughtPresentation.sections(source))
+    }
+
+    @Test
     func blockSyntaxBecomesStructuredBlocks() throws {
         let source = """
         # Title

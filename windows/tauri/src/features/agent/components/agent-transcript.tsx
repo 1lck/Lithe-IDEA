@@ -23,6 +23,7 @@ import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/ui/hover-card";
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/ui/popover";
 import { Spinner } from "@/ui/spinner";
 import MarkdownRenderer from "@/features/ai/components/messages/markdown-renderer";
+import { currentThoughtTitle, thoughtSections } from "../services/agent-thought-presentation";
 import { cn } from "@/utils/cn";
 import { classifyMarkdownLink } from "@/utils/markdown-links";
 import { tryWriteClipboardText } from "@/utils/clipboard";
@@ -292,12 +293,28 @@ function PlanEntryIcon({
  * A turn's process stays behind one quiet disclosure, including while streaming.
  * Search temporarily reveals matches without replacing the user's preference.
  */
+function ThoughtContent({ text, isStreaming = false, usesSummaryHeadings = false, onOpenLocation }: {
+  text: string;
+  isStreaming?: boolean;
+  usesSummaryHeadings?: boolean;
+  onOpenLocation: (location: AgentToolLocation) => void;
+}) {
+  return <div className="space-y-2">
+    {thoughtSections(text, isStreaming, usesSummaryHeadings).map((section, index) => <div key={index} className="space-y-1">
+      {section.title === null ? null : <div className="font-semibold" data-agent-thought-title>{section.title}</div>}
+      {section.body === "" ? null : <MarkdownRenderer content={section.body} showLinkIcons
+        onOpenLink={(href) => openAgentLink(href, onOpenLocation)} />}
+    </div>)}
+  </div>;
+}
+
 function ReasoningRow({
   text = "",
   messages,
   searchText = "",
   isStreaming = false,
   isSearching = false,
+  usesSummaryHeadings = false,
   expandedKey,
   onOpenLocation,
 }: {
@@ -306,6 +323,7 @@ function ReasoningRow({
   searchText?: string;
   isStreaming?: boolean;
   isSearching?: boolean;
+  usesSummaryHeadings?: boolean;
   expandedKey: string;
   onOpenLocation: (location: AgentToolLocation) => void;
 }) {
@@ -350,14 +368,15 @@ function ReasoningRow({
             : "pl-2.5")}
         >
           <div className="space-y-2 select-text">
-            {messages === undefined ? <MarkdownRenderer
-              content={text.trim()}
-              showLinkIcons
-              onOpenLink={(href) => openAgentLink(href, onOpenLocation)}
-            /> : processContents(messages).filter((item) => itemMatches(item, searchText)).map((item) => {
+            {messages === undefined ? <ThoughtContent text={text} isStreaming={isStreaming}
+              usesSummaryHeadings={usesSummaryHeadings} onOpenLocation={onOpenLocation} />
+              : processContents(messages).filter((item) => itemMatches(item, searchText)).map((item) => {
               switch (item.kind) {
                 case "message":
-                  return <MarkdownRenderer key={item.id} content={item.message.text.trim()} showLinkIcons
+                  return item.message.role === "reasoning" ? <ThoughtContent key={item.id} text={item.message.text}
+                    usesSummaryHeadings={item.message.usesThoughtSummaryHeadings === true}
+                    isStreaming={isStreaming && item.id === messages[messages.length - 1]?.id} onOpenLocation={onOpenLocation} />
+                    : <MarkdownRenderer key={item.id} content={item.message.text.trim()} showLinkIcons
                     onOpenLink={(href) => openAgentLink(href, onOpenLocation)} />;
                 case "toolGroup":
                   return <ToolGroup key={item.id} tools={item.tools} searchText={searchText}
@@ -641,6 +660,7 @@ function MessageRow({
     return (
       <ReasoningRow
         text={message.text}
+        usesSummaryHeadings={message.usesThoughtSummaryHeadings === true}
         expandedKey={`${sessionID ?? "pending"}:${message.id}`}
         onOpenLocation={onOpenLocation}
         isStreaming={isStreaming}
@@ -688,7 +708,7 @@ function ThinkingRow({
       : t("agent.activity.retrying", { attempt: retry.attempt, max: retry.maxAttempts })
     : conversation?.quiet ? t("agent.activity.quiet")
     : conversation?.messages.some((message) => message.role === "tool" && (message.toolStatus === "pending" || message.toolStatus === "in_progress")) ? t("agent.activity.executing")
-    : last?.role === "reasoning" ? t("agent.activity.reasoning")
+    : last?.role === "reasoning" ? (last.usesThoughtSummaryHeadings ? currentThoughtTitle(last.text) : null) ?? t("agent.activity.reasoning")
     : last?.role === "agent" ? t("agent.activity.responding")
     : t("agent.activity.waiting");
   return (
@@ -697,7 +717,7 @@ function ThinkingRow({
       title={t("agent.turn.elapsedHint")}
     >
       <Spinner className="size-3.5" />
-      <span role="status">{label}</span>
+      <span role="status" data-agent-response-status className="min-w-0 truncate" title={label}>{label}</span>
       {elapsed === null ? null : <span className="tabular-nums">{durationLabel(elapsed, t)}</span>}
     </div>
   );

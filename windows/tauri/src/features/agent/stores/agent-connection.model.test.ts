@@ -207,6 +207,39 @@ describe("Agent connection lifecycle", () => {
     expect(messages[0].text).toBe("This project **builds** an IDE. And more.");
   });
 
+  test.each([[false, "codex-acp"], [true, "codex-acp"], [false, "claude-acp"], [true, "claude-acp"]] as const)(
+    "upstream message boundaries survive streaming and replay (replay=%s agent=%s)", async (replaying, agentId) => {
+    await model.connect({ ...launch(), agentId });
+    transport.emit(fixture.events.ready);
+    if (replaying) model.selectSession("session-1");
+    else {
+      model.startNewConversation();
+      transport.emit({ ...fixture.events.sessionCreated, token: transport.command("newSession")?.token });
+    }
+    const chunk = (sessionUpdate: string, messageId: string | undefined, text: string) => transport.emit({
+      kind: "update", sessionId: "session-1", update: { sessionUpdate, messageId, content: { type: "text", text } },
+    });
+    chunk("agent_thought_chunk", "thought-1", "**Choosing ");
+    chunk("agent_thought_chunk", "thought-1", "keys**");
+    chunk("agent_thought_chunk", "thought-2", "**Choosing keys**");
+    chunk("agent_message_chunk", "reply-1", "First ");
+    chunk("agent_message_chunk", "reply-1", "reply.");
+    chunk("agent_message_chunk", "reply-2", "Second reply.");
+    chunk("agent_message_chunk", undefined, "Legacy ");
+    chunk("agent_message_chunk", undefined, "chunks.");
+    scheduler.flush();
+    if (replaying) transport.emit({ ...fixture.events.sessionLoaded, token: transport.command("loadSession")?.token });
+    const messages = model.getSnapshot().conversations["session-1"].messages;
+    expect(messages.map((message) => message.text)).toEqual([
+      "**Choosing keys**", "**Choosing keys**", "First reply.", "Second reply.", "Legacy chunks.",
+    ]);
+    expect(messages.map((message) => message.upstreamMessageID)).toEqual(["thought-1", "thought-2", "reply-1", "reply-2", undefined]);
+    expect(messages.map((message) => message.usesThoughtSummaryHeadings === true)).toEqual([
+      agentId === "codex-acp", agentId === "codex-acp", false, false, false,
+    ]);
+    expect(new Set(messages.map((message) => message.id)).size).toBe(messages.length);
+  });
+
   test("reasoning, plan and mode updates stay separate from prose", async () => {
     await connectReady();
     model.startNewConversation();

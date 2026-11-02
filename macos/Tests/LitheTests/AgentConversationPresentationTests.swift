@@ -8,6 +8,16 @@ import Testing
 @Suite("Agent conversation presentation")
 struct AgentConversationPresentationTests {
     @Test
+    func reasoningTitleCannotOverridePermissionRecoveryOrStoppingStatus() {
+        let heading = "Checking **literal** labels"
+        #expect(AgentResponseStatusRow(responseStatus: .thinking, thoughtTitle: heading).status == heading)
+        for status in [AgentResponseStatus.waitingForPermission, .runningTools, .retrying, .stopping, .responding] {
+            #expect(AgentResponseStatusRow(responseStatus: status, thoughtTitle: heading).status
+                    == AgentResponseStatusRow(responseStatus: status).status)
+        }
+    }
+
+    @Test
     func liveSessionNoticeFitsNarrowAndWidePanelsInBothThemes() throws {
         let notice = try #require(AgentSessionNotice.parse(["severity": "warning", "title": "Auto mode unavailable",
             "description": "The selected model does not support Auto mode; using Accept edits instead."]))

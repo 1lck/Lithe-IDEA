@@ -87,6 +87,27 @@ test('unrelated requests and providers are unchanged', { timeout: 1000 }, t => {
   }
 });
 
+test('native history reasoning parts keep paragraph boundaries in both authentication modes', { timeout: 1000 }, t => {
+  for (const nativeRecovery of [false, true]) {
+    const r = relay(t, 'darwin', null, nativeRecovery);
+    const thought = { type: 'reasoning', id: 'thought-1', summary: ['**Choosing keys**', '**Choosing keys**'], content: [] };
+    const contentOnly = { type: 'reasoning', id: 'thought-2', summary: [], content: ['Plain text', 'Next paragraph'] };
+    const reply = { type: 'agentMessage', id: 'reply-1', text: '**literal****markers**' };
+    r.notify({ id: 7, result: { thread: { id: 'session-1', turns: [{ id: 'turn-1', items: [thought, reply, contentOnly] }] } } });
+    const items = r.output.at(-1).result.thread.turns[0].items;
+    assert.deepEqual(items, [{ ...thought, summary: ['**Choosing keys**\n\n**Choosing keys**'] }, reply,
+      { ...contentOnly, content: ['Plain text\n\nNext paragraph'] }]);
+    for (const notification of [
+      { method: 'item/reasoning/summaryTextDelta', params: { itemId: 'thought-1', delta: '**Choosing ' } },
+      { method: 'item/reasoning/summaryPartAdded', params: { itemId: 'thought-1', summaryIndex: 1 } },
+      { method: 'item/completed', params: { item: thought } },
+    ]) {
+      r.notify(notification);
+      assert.deepEqual(r.output.at(-1), notification, 'Live events stay byte-for-byte equivalent as JSON');
+    }
+  }
+});
+
 test('native failures keep structured detail, current turn ownership and monotonic sequence', { timeout: 1000 }, t => {
   const r = relay(t);
   r.notify({ method: 'turn/started', params: { threadId: 'thread-1', turn: { id: 'turn-1' } } });

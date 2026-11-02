@@ -299,6 +299,7 @@ try {
     const resource = registry.excludedResources.find(item => item.id === "codex-retry-relay");
     assert.match(resource.identity, /context reports.*per-load tickets/);
     assert.match(resource.identity, /explicit provider admission route/);
+    assert.match(resource.identity, /structured reasoning paragraph boundaries/);
     const refused = reuse(["--resource", "codex-retry-relay"]);
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /codex-retry-relay.*lithe-codex-retry.*cannot be reused/);

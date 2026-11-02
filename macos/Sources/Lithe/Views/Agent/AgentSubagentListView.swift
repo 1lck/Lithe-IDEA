@@ -118,7 +118,9 @@ private struct AgentSubagentDetailsView: View {
                 Text(verbatim: agent.task).textSelection(.enabled)
             }
             if !thought.isEmpty {
-                AgentThoughtRow(text: thought, isStreaming: agent.state == .running, expansion: $thoughtExpansion)
+                AgentThoughtRow(text: thought, isStreaming: agent.state == .running,
+                                usesSummaryHeadings: messages.contains { $0.role == .thought && $0.usesThoughtSummaryHeadings },
+                                expansion: $thoughtExpansion)
             }
             if !tools.isEmpty {
                 AgentToolGroupView(messages: tools, searchText: "", onOpenFile: onOpenFile, embedded: true)
