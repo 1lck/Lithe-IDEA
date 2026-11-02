@@ -42,6 +42,7 @@ final class Probe: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithRe
     var window: NSWindow!
     var webView: WKWebView!
     var watchdog: DispatchWorkItem?
+    var indentationReports: [String: [String: Any]] = [:]
     var text = ""
     var revision = 0
     var actionCommandCount = 0
@@ -272,6 +273,10 @@ final class Probe: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithRe
                 codeVisionActions.append(body["action"] as? String ?? "")
                 replyHandler(["ok": true], nil)
             case "codeVisionActions": replyHandler(["actions": codeVisionActions], nil)
+            case "indentation":
+                if let id = body["id"] as? String { indentationReports[id] = body }
+                replyHandler(["ok": true], nil)
+            case "indentationReports": replyHandler(indentationReports, nil)
             case "focus", "cursor", "findState": replyHandler(["ok": true], nil)
             case "editorNotification":
                 imagePasteNotification = body["message"] as? String

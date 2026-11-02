@@ -1,5 +1,6 @@
 import { languages } from "monaco-editor/esm/vs/editor/editor.api.js";
 
+import { refineLanguageTokenRoles } from "./language-token-roles";
 import "monaco-editor/esm/vs/basic-languages/cpp/cpp.contribution.js";
 import "monaco-editor/esm/vs/basic-languages/css/css.contribution.js";
 import "monaco-editor/esm/vs/basic-languages/csharp/csharp.contribution.js";
@@ -39,7 +40,7 @@ import { hasPluginGrammar } from "./plugin-languages";
 
 type MonarchLanguageModule = {
   conf: Parameters<typeof languages.setLanguageConfiguration>[1];
-  language: Parameters<typeof languages.setMonarchTokensProvider>[1];
+  language: languages.IMonarchLanguage;
 };
 
 const monarchLanguageLoaders: Record<string, () => Promise<MonarchLanguageModule>> = {
@@ -64,7 +65,7 @@ const monarchLanguageLoaders: Record<string, () => Promise<MonarchLanguageModule
   markdown: () => import("monaco-editor/esm/vs/basic-languages/markdown/markdown.js"),
   "objective-c": () => import("monaco-editor/esm/vs/basic-languages/objective-c/objective-c.js"),
   php: () => import("monaco-editor/esm/vs/basic-languages/php/php.js"),
-  protobuf: () => import("monaco-editor/esm/vs/basic-languages/protobuf/protobuf.js"),
+  proto: () => import("monaco-editor/esm/vs/basic-languages/protobuf/protobuf.js"),
   python: () => import("monaco-editor/esm/vs/basic-languages/python/python.js"),
   r: () => import("monaco-editor/esm/vs/basic-languages/r/r.js"),
   ruby: () => import("monaco-editor/esm/vs/basic-languages/ruby/ruby.js"),
@@ -112,7 +113,7 @@ export function ensureMonacoLanguageTokenizer(languageId: string): Promise<boole
   const promise = loader()
     .then((module) => {
       languages.setLanguageConfiguration(languageId, module.conf);
-      languages.setMonarchTokensProvider(languageId, module.language);
+      languages.setMonarchTokensProvider(languageId, refineLanguageTokenRoles(module.language, languageId));
       return true;
     })
     .catch((error) => {
@@ -210,6 +211,7 @@ languages.setMonarchTokensProvider("gitattributes", {
 
 ensureLanguage("toml", [".toml"], ["TOML", "toml"]);
 languages.setMonarchTokensProvider("toml", {
+  tokenPostfix: ".toml",
   tokenizer: {
     root: [
       [/^\s*#.*$/, "comment"],

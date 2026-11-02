@@ -1144,6 +1144,7 @@ final class MacServiceContainer {
             debugPerformanceSampler: MacDebugPerformanceSampler(processRegistry: processRegistry),
             testJVMPerformance: MacTestJVMPerformance(processRegistry: processRegistry)
         )
+        services.editorSettingsImportScan = { try await MacEditorSettingsImportReader.scan(directory: $0) }
         services.ideCapabilityRegistry = ideCapabilityRegistry
         services.pluginRegistrationChanges = livePlugins.changes
         // Static editor resources follow their own enablement; ordinary tool

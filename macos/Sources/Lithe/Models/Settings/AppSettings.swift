@@ -157,7 +157,6 @@ final class AppSettings: ObservableObject {
     @Published var projectTreeRowHeight: Double {
         didSet { defaults.set(projectTreeRowHeight, forKey: Key.projectTreeRowHeight) }
     }
-    @Published var tabWidth: Int { didSet { defaults.set(tabWidth, forKey: Key.tabWidth) } }
     @Published var editorTabLayoutMode: EditorTabLayoutMode {
         didSet { defaults.set(editorTabLayoutMode.rawValue, forKey: Key.editorTabLayoutMode) }
     }
@@ -467,9 +466,14 @@ final class AppSettings: ObservableObject {
         editorFontSize = EditorAppearanceSettings.normalizedFontSize(
             defaults.object(forKey: Key.editorFontSize) as? Double ?? 13
         )
-        editorAppearance = EditorAppearanceSettings(
-            values: defaults.object(forKey: Key.editorAppearance) as? [String: Any] ?? [:]
-        )
+        var appearanceValues = defaults.object(forKey: Key.editorAppearance) as? [String: Any] ?? [:]
+        // Preserve legacy choices only until the unified setting has its own value.
+        if appearanceValues["tabSize"] == nil, let legacy = defaults.object(forKey: Key.tabWidth) as? Int,
+           (1...16).contains(legacy) {
+            appearanceValues["tabSize"] = legacy
+            defaults.set(appearanceValues, forKey: Key.editorAppearance)
+        }
+        editorAppearance = EditorAppearanceSettings(values: appearanceValues)
         editorFontFamily = EditorFontResolution.normalizedFamily(
             defaults.string(forKey: Key.editorFontFamily)
         )
@@ -477,7 +481,6 @@ final class AppSettings: ObservableObject {
         editorMinimapEnabled = defaults.object(forKey: Key.editorMinimap) as? Bool ?? true
         javaKeywordNavigationFilterEnabled = defaults.object(forKey: Key.javaKeywordNavigationFilter) as? Bool ?? true
         projectTreeRowHeight = defaults.object(forKey: Key.projectTreeRowHeight) as? Double ?? 24
-        tabWidth = defaults.object(forKey: Key.tabWidth) as? Int ?? 4
         editorTabLayoutMode = EditorTabLayoutMode(
             rawValue: defaults.string(forKey: Key.editorTabLayoutMode) ?? ""
         ) ?? .singleLine
@@ -570,6 +573,125 @@ final class AppSettings: ObservableObject {
         // network layer reads must be synced explicitly once, here at the end
         // of initialization — a reload must keep the saved policy effective.
         updateNetworkProxyPreferences()
+        recoverEditorSettingsImport()
+    }
+
+    private static let editorImportJournalKey = "settings.editorImportJournal.v1"
+    var didOfferEditorSettingsImport: Bool {
+        get { defaults.object(forKey: "settings.didOfferEditorImport") as? Bool ?? false }
+        set { defaults.set(newValue, forKey: "settings.didOfferEditorImport") }
+    }
+    @Published private(set) var editorImportRecoveryFailed = false
+
+    func editorImportValues(persisted: Bool = false) -> [String: String] {
+        let appearance = persisted
+            ? EditorAppearanceSettings(values: defaults.object(forKey: Key.editorAppearance) as? [String: Any] ?? [:])
+            : editorAppearance
+        var result = appearance.storedValues.mapValues { String(describing: $0) }
+        result["themePreference"] = persisted ? defaults.string(forKey: Key.themePreference) ?? AppThemePreference.dark.rawValue : themePreference.rawValue
+        result["fontFamily"] = persisted ? defaults.string(forKey: Key.editorFontFamily) ?? EditorFontDefaults.monospacedFamily : editorFontFamily
+        result["fontSize"] = String(persisted ? defaults.object(forKey: Key.editorFontSize) as? Double ?? 13 : editorFontSize)
+        result["softWrap"] = String(persisted ? defaults.object(forKey: Key.editorSoftWrap) as? Bool ?? false : editorSoftWrapEnabled)
+        result["minimap"] = String(persisted ? defaults.object(forKey: Key.editorMinimap) as? Bool ?? true : editorMinimapEnabled)
+        let preset = persisted ? KeyboardShortcutPreset(rawValue: defaults.string(forKey: Key.keyboardShortcutPreset) ?? "") ?? .macOS : keyboardShortcutPreset
+        let commands = persisted ? Self.loadKeyboardShortcutPresets(from: defaults)[preset.rawValue] ?? [:] : keyboardShortcutOverrides
+        result["keymap"] = EditorImportKeymap(preset: preset.rawValue, commands: commands).encoded
+        return result.filter { EditorSettingsImportField(rawValue: $0.key) != nil }
+    }
+
+    private func writeEditorImportValues(_ values: [String: String]) throws {
+        guard values.allSatisfy({ EditorSettingsImportField(rawValue: $0.key)?.accepts($0.value) == true }) else {
+            throw EditorSettingsImportError.invalid
+        }
+        var appearance = EditorAppearanceSettings(values: defaults.object(forKey: Key.editorAppearance) as? [String: Any] ?? [:]).storedValues
+        for (key, value) in values {
+            switch key {
+            case "keymap":
+                let keymap = EditorImportKeymap.decode(value)!
+                guard let preset = KeyboardShortcutPreset(rawValue: keymap.preset) else { throw EditorSettingsImportError.invalid }
+                selectKeyboardShortcutPreset(preset)
+                setKeyboardShortcutOverrides(keymap.commands)
+            case "tabSize": appearance[key] = Int(value)!
+            case "themePreference": themePreference = AppThemePreference(rawValue: value)!
+            case "fontFamily": editorFontFamily = value
+            case "fontSize": editorFontSize = Double(value)!
+            case "softWrap": editorSoftWrapEnabled = value == "true"
+            case "minimap": editorMinimapEnabled = value == "true"
+            case "lineHeight": appearance[key] = Double(value)!
+            case "customTheme", "colorScheme", "lineNumbers", "whitespace", "cursorStyle", "cursorBlinking": appearance[key] = value
+            default: appearance[key] = value == "true"
+            }
+        }
+        editorAppearance = EditorAppearanceSettings(values: appearance)
+        let stored = editorImportValues(persisted: true)
+        guard values.allSatisfy({ stored[$0.key] == $0.value }) else { throw EditorSettingsImportError.storage }
+    }
+
+    private func saveEditorImportJournal(_ journal: EditorSettingsImportJournal) throws {
+        let data = try JSONEncoder().encode(journal)
+        defaults.set(data, forKey: Self.editorImportJournalKey)
+        guard defaults.data(forKey: Self.editorImportJournalKey) == data else { throw EditorSettingsImportError.storage }
+    }
+
+    private var editorImportJournal: EditorSettingsImportJournal? {
+        guard let data = defaults.data(forKey: Self.editorImportJournalKey), data.count <= 131_072,
+              let journal = try? JSONDecoder().decode(EditorSettingsImportJournal.self, from: data),
+              Set(journal.before.keys) == Set(journal.after.keys),
+              !journal.before.isEmpty,
+              [journal.before, journal.after].allSatisfy({ values in
+                  values.allSatisfy { EditorSettingsImportField(rawValue: $0.key)?.accepts($0.value) == true }
+              }) else { return nil }
+        return journal
+    }
+
+    func importEditorSettings(_ changes: [String: String], baseline: [String: String]) throws {
+        let current = editorImportValues()
+        let persisted = editorImportValues(persisted: true)
+        guard !editorImportRecoveryFailed, editorImportJournal?.pending != true, !changes.isEmpty,
+              changes.keys.allSatisfy({ current[$0] == baseline[$0] && persisted[$0] == baseline[$0] }) else { throw EditorSettingsImportError.changed }
+        guard changes.allSatisfy({ EditorSettingsImportField(rawValue: $0.key)?.accepts($0.value) == true }) else { throw EditorSettingsImportError.invalid }
+        // ponytail: keep one import attempt, not a multi-step undo history; recovery restores effective values.
+        var journal = EditorSettingsImportJournal(before: baseline.filter { changes[$0.key] != nil }, after: changes, pending: true)
+        guard journal.before.count == changes.count else { throw EditorSettingsImportError.invalid }
+        try saveEditorImportJournal(journal)
+        do {
+            try writeEditorImportValues(changes)
+            journal.pending = false
+            try saveEditorImportJournal(journal)
+        } catch {
+            recoverEditorSettingsImport()
+            throw error
+        }
+    }
+
+    var canUndoEditorSettingsImport: Bool { editorImportJournal != nil }
+
+    func undoEditorSettingsImport() throws {
+        guard var journal = editorImportJournal else { throw EditorSettingsImportError.invalid }
+        let current = editorImportValues()
+        let persisted = editorImportValues(persisted: true)
+        guard journal.after.allSatisfy({ current[$0.key] == $0.value || (journal.pending && current[$0.key] == journal.before[$0.key]) }) else {
+            throw EditorSettingsImportError.changed
+        }
+        guard journal.after.allSatisfy({ persisted[$0.key] == $0.value || (journal.pending && persisted[$0.key] == journal.before[$0.key]) }) else {
+            throw EditorSettingsImportError.changed
+        }
+        journal.pending = true
+        try saveEditorImportJournal(journal)
+        try writeEditorImportValues(journal.before)
+        defaults.set(nil, forKey: Self.editorImportJournalKey)
+        guard defaults.data(forKey: Self.editorImportJournalKey) == nil else { throw EditorSettingsImportError.storage }
+        editorImportRecoveryFailed = false
+    }
+
+    private func recoverEditorSettingsImport() {
+        guard let journal = editorImportJournal else {
+            editorImportRecoveryFailed = defaults.object(forKey: Self.editorImportJournalKey) != nil
+            return
+        }
+        guard journal.pending else { return }
+        do { try undoEditorSettingsImport() }
+        catch { editorImportRecoveryFailed = true }
     }
 
     var terminalShellPath: String? {
@@ -697,7 +819,6 @@ final class AppSettings: ObservableObject {
         editorMinimapEnabled = true
         javaKeywordNavigationFilterEnabled = true
         projectTreeRowHeight = 24
-        tabWidth = 4
         editorTabLayoutMode = .singleLine
         showCodeVision = true
         autoSave = true

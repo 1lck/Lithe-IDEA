@@ -221,6 +221,7 @@ const workbench = mountWorkbench({
   javaNavigationIcons: { "up-interface": implementingMethod, "down-interface": implementedMethod,
     "up-inheritance": overridingMethod, "down-inheritance": overriddenMethod },
   lineNumbersFirst: true,
+  reportIndentation: true,
   gitBlameMenu: true,
   foldingIcons: { expanded: { light: foldIcon, dark: foldIconDark },
     collapsed: { light: unfoldIcon, dark: unfoldIconDark } },

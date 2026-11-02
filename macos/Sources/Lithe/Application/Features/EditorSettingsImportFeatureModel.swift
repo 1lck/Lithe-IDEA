@@ -1,0 +1,188 @@
+import Combine
+import Foundation
+
+@MainActor
+final class EditorSettingsImportFeatureModel: ObservableObject {
+    @Published private(set) var sources: [EditorSettingsImportSource] = []
+    @Published private(set) var isBusy = false
+    @Published private(set) var isImporting = false
+    @Published private(set) var importResult: (applied: Int, unselected: Int)?
+    @Published private(set) var isChoosingSettings = false
+    @Published var sourceID = ""
+    @Published var selected: Set<String> = []
+    @Published private(set) var baseline: [String: String] = [:]
+    @Published private(set) var message: String?
+    @Published private(set) var startupFinished: Bool
+    @Published private(set) var startupChecked = false
+    let settings: AppSettings
+    private let chooseSourceDirectory: () -> URL?
+    private let scanSources: ((URL?) async throws -> [EditorSettingsImportSource])?
+    init(settings: AppSettings, chooseDirectory: @escaping () -> URL?,
+         scan: ((URL?) async throws -> [EditorSettingsImportSource])?) {
+        self.settings = settings
+        startupFinished = settings.didOfferEditorSettingsImport
+        chooseSourceDirectory = chooseDirectory
+        scanSources = scan
+    }
+    var source: EditorSettingsImportSource? { sources.first { $0.id == sourceID } }
+
+    var sourceStatusMessage: String? {
+        guard let source else { return nil }
+        if source.readFailed { return "The configuration could not be read. Check the selected directory and file permissions." }
+        if source.settingsFileMissing && source.values.isEmpty { return "This editor has no saved user settings yet. Save settings in the editor, then scan again." }
+        if source.values.isEmpty { return "This configuration has no supported explicit editor settings to import." }
+        return changedFields.isEmpty ? "The settings we can read already match Lithe." : nil
+    }
+
+    /// Import only the source's mapped commands, preserving unrelated local overrides and preset.
+    var importValues: [String: String] {
+        var values = source?.values ?? [:]
+        if let incoming = values["keymap"].flatMap(EditorImportKeymap.decode),
+           var current = baseline["keymap"].flatMap(EditorImportKeymap.decode) {
+            current.commands.merge(incoming.commands) { _, imported in imported }
+            values["keymap"] = current.encoded
+        }
+        return values
+    }
+
+    var keymapConflict: String? {
+        guard let map = importValues["keymap"].flatMap(EditorImportKeymap.decode) else { return nil }
+        do { try KeyboardShortcutFeatureModel(settings: settings).validateOverrides(map.commands) }
+        catch KeyboardShortcutUpdateError.conflict(let command) {
+            return LitheCommandCatalog.command(id: command)?.title ?? command
+        } catch { return "Keyboard shortcuts" }
+        return nil
+    }
+
+    var changedFields: [EditorSettingsImportField] {
+        guard source?.readFailed != true else { return [] }
+        return EditorSettingsImportField.allCases.filter { field in
+            guard let value = importValues[field.rawValue] else { return false }
+            return baseline[field.rawValue] != value
+        }
+    }
+
+    func prepareStartup() async {
+        guard !startupFinished, !startupChecked else { return }
+        startupChecked = true
+        if await scan(), sources.isEmpty { finishStartup() }
+    }
+
+    func finishStartup() {
+        guard !isBusy else { return }
+        settings.didOfferEditorSettingsImport = true
+        startupFinished = true
+    }
+
+    @discardableResult
+    func scan(directory: URL? = nil) async -> Bool {
+        guard !isBusy, let scan = scanSources else { return false }
+        isBusy = true; message = nil; importResult = nil
+        defer { isBusy = false }
+        do {
+            let scanned = try await scan(directory)
+            if isChoosingSettings, let directory {
+                // Refresh this preview without losing the other choices when navigating back.
+                sources = sources.flatMap { $0.directory == directory ? scanned : [$0] }
+            } else {
+                sources = scanned
+            }
+            select(scanned.first?.id ?? "")
+            if scanned.isEmpty { message = "No supported IDE configuration was found. You can choose a configuration directory." }
+            return true
+        } catch {
+            message = "The configuration could not be read. Check the selected directory and file permissions."
+            return false
+        }
+    }
+
+    func chooseDirectory() async {
+        guard !isBusy, let directory = chooseSourceDirectory() else { return }
+        await scan(directory: directory)
+    }
+
+    func chooseSource(_ id: String) {
+        guard !isBusy, sources.contains(where: { $0.id == id }) else { return }
+        select(id)
+        isChoosingSettings = true
+    }
+
+    func backToSources() {
+        guard !isBusy else { return }
+        isChoosingSettings = false
+    }
+
+    func select(_ id: String) {
+        importResult = nil
+        sourceID = id
+        baseline = settings.editorImportValues()
+        guard source?.readFailed != true else { selected.removeAll(); return }
+        var defaults = EditorAppearanceSettings().storedValues.mapValues { String(describing: $0) }
+            .merging(["themePreference": "dark", "fontFamily": EditorFontDefaults.monospacedFamily, "fontSize": "13.0", "softWrap": "false", "minimap": "true"]) { _, new in new }
+        if let incoming = source?.values["keymap"].flatMap(EditorImportKeymap.decode),
+           let current = baseline["keymap"].flatMap(EditorImportKeymap.decode),
+           Set(incoming.commands.keys).isDisjoint(with: current.commands.keys) {
+            defaults["keymap"] = baseline["keymap"]
+        }
+        // Existing custom preferences require explicit selection in the preview.
+        selected = Set(importValues.keys.filter { baseline[$0] == defaults[$0] || baseline[$0] == importValues[$0] })
+        if let size = source?.lineHeightFontSize, baseline["fontSize"] != size, !selected.contains("fontSize") { selected.remove("lineHeight") }
+        // Category-only selection must never hide a partially selected set of fields.
+        // A category containing custom target values requires explicit confirmation.
+        for category in ["appearance", "preferences", "keymap", "code"] {
+            let keys = Set(EditorSettingsImportField.allCases.filter { $0.category == category && source?.values[$0.rawValue] != nil }.map(\.rawValue))
+            if !keys.isSubset(of: selected) { selected.subtract(keys) }
+        }
+    }
+
+    @discardableResult
+    func apply() async -> Bool {
+        guard !isBusy, let source, !source.readFailed, let scan = scanSources else { return false }
+        let chosen = importValues.filter { selected.contains($0.key) }
+        let changes = chosen.filter { baseline[$0.key] != $0.value }
+        let importBaseline = baseline
+        guard !chosen.isEmpty else { return false }
+        let unselected = source.values.count - chosen.count
+        isBusy = true; isImporting = true; message = nil; importResult = nil
+        defer { isBusy = false; isImporting = false }
+        do {
+            let refreshed = try await scan(source.directory)
+            guard let current = refreshed.first(where: { $0.id == source.id }), current.revision == source.revision,
+                  current.values == source.values else { throw EditorSettingsImportError.changed }
+            let live = settings.editorImportValues()
+            let persisted = settings.editorImportValues(persisted: true)
+            guard !settings.editorImportRecoveryFailed,
+                  chosen.keys.allSatisfy({ live[$0] == importBaseline[$0] && persisted[$0] == importBaseline[$0] }) else {
+                throw EditorSettingsImportError.changed
+            }
+            guard chosen.allSatisfy({ EditorSettingsImportField(rawValue: $0.key)?.accepts($0.value) == true }) else {
+                throw EditorSettingsImportError.invalid
+            }
+            if changes["lineHeight"] != nil, let size = source.lineHeightFontSize,
+               ((changes["fontSize"] ?? settings.editorImportValues()["fontSize"]) != size ||
+                (changes["fontSize"] ?? settings.editorImportValues(persisted: true)["fontSize"]) != size) {
+                throw EditorSettingsImportError.fontSizeDependency
+            }
+            if chosen["keymap"] != nil, let conflict = keymapConflict { throw EditorSettingsImportError.shortcutConflict(conflict) }
+            if !changes.isEmpty { try settings.importEditorSettings(changes, baseline: importBaseline) }
+            baseline = settings.editorImportValues()
+            selected.removeAll()
+            importResult = (changes.count, unselected)
+            return true
+        } catch {
+            message = (error as? EditorSettingsImportError)?.errorDescription ?? "The configuration could not be read. Check the selected directory and file permissions."
+            return false
+        }
+    }
+
+    func undo() {
+        guard !isBusy else { return }
+        do {
+            try settings.undoEditorSettingsImport()
+            importResult = nil
+            baseline = settings.editorImportValues()
+            selected.removeAll()
+            message = "The previous editor settings have been restored."
+        } catch { message = (error as? EditorSettingsImportError)?.errorDescription }
+    }
+}
