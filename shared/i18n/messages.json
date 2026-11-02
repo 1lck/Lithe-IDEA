@@ -92480,8 +92480,13 @@
       "id": "build.window.addArgument",
       "description": "Windows Build task catalog and parameter dialog",
       "platforms": [
+        "macos",
         "windows"
-      ]
+      ],
+      "macos": {
+        "key": "Add argument",
+        "arguments": []
+      }
     },
     {
       "id": "build.group.lifecycle",
@@ -95676,6 +95681,42 @@
       "platforms": [
         "windows"
       ]
+    },
+    {
+      "id": "run.provider.runtimeArguments",
+      "description": "Provider Run configuration editor",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Runtime arguments",
+        "arguments": []
+      }
+    },
+    {
+      "id": "run.provider.runtimeArgumentsHint",
+      "description": "Provider Run configuration editor",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Each row is one argument. Spaces, quotes and empty values are preserved.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "run.provider.entrypoint",
+      "description": "Provider Run configuration editor",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Entry point",
+        "arguments": []
+      }
     }
   ]
 }

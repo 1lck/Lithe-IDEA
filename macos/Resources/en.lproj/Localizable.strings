@@ -243,6 +243,7 @@
 "Add a memory usage indicator to the status bar" = "Add a memory usage indicator to the status bar";
 "Add an AI provider in AI Providers first." = "Add an AI provider in AI Providers first.";
 "Add another account" = "Add another account";
+"Add argument" = "Add argument";
 "Add at least one absolute allowed folder path after the Filesystem package argument." = "Add at least one absolute allowed folder path after the Filesystem package argument.";
 "Add at least one absolute folder path after the package argument, one per line. Filesystem can read and write only in the folders you allow. Requires Node.js 24 or later." = "Add at least one absolute folder path after the package argument, one per line. Filesystem can read and write only in the folders you allow. Requires Node.js 24 or later.";
 "Add clickable actions beside document text" = "Add clickable actions beside document text";
@@ -1328,6 +1329,7 @@
 "Each built-in preset includes a preview of the generated message." = "Each built-in preset includes a preview of the generated message.";
 "Each repository has its own commit. Completed steps are kept if another repository fails." = "Each repository has its own commit. Completed steps are kept if another repository fails.";
 "Each row explains the setting, the value Git is actually using, and where that value comes from." = "Each row explains the setting, the value Git is actually using, and where that value comes from.";
+"Each row is one argument. Spaces, quotes and empty values are preserved." = "Each row is one argument. Spaces, quotes and empty values are preserved.";
 "Each submodule is pushed before its parent." = "Each submodule is pushed before its parent.";
 "Each tool uses the first source that has a value: a fixed version, then project version files, then global defaults, then automatic discovery. Installed versions are checked by running each tool's own version command. Enabled version managers report what version files ask for." = "Each tool uses the first source that has a value: a fixed version, then project version files, then global defaults, then automatic discovery. Installed versions are checked by running each tool's own version command. Enabled version managers report what version files ask for.";
 "Earlier" = "Earlier";
@@ -1452,6 +1454,7 @@
 "Enter the new symbol name." = "Enter the new symbol name.";
 "Enter the next function call" = "Enter the next function call";
 "Enter the one-time code" = "Enter the one-time code";
+"Entry point" = "Entry point";
 "Environment" = "Environment";
 "Environment variable and header names must be unique." = "Environment variable and header names must be unique.";
 "Environment variables" = "Environment variables";
@@ -3425,6 +3428,7 @@
 "Runtime" = "Runtime";
 "Runtime Environment" = "Runtime Environment";
 "Runtime Environment — Isolated Preview" = "Runtime Environment — Isolated Preview";
+"Runtime arguments" = "Runtime arguments";
 "Runtime discovery failed" = "Runtime discovery failed";
 "Runtime used by the language server (installed on this Mac)" = "Runtime used by the language server (installed on this Mac)";
 "Rust Core cache-retention planning is unavailable." = "Rust Core cache-retention planning is unavailable.";
@@ -4844,6 +4848,7 @@
 "ai.terminal" = "Terminal";
 "avg" = "avg";
 "basic Latin letters" = "basic Latin letters";
+"build.window.addArgument" = "Add argument";
 "characters used by the interface and your files" = "characters used by the interface and your files";
 "chars" = "chars";
 "checkout" = "checkout";
@@ -9768,6 +9773,9 @@
 "run configuration" = "run configuration";
 "run.incompleteProjectScanMessage" = "Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations.";
 "run.incompleteProjectScanTitle" = "Project scan is incomplete";
+"run.provider.entrypoint" = "Entry point";
+"run.provider.runtimeArguments" = "Runtime arguments";
+"run.provider.runtimeArgumentsHint" = "Each row is one argument. Spaces, quotes and empty values are preserved.";
 "running for %@" = "running for %@";
 "scope managed from %@" = "scope managed from %@";
 "scope not updated to %@" = "scope not updated to %@";

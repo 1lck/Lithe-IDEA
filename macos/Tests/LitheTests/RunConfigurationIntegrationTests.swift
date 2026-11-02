@@ -30,6 +30,36 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
+    func providerRuntimeArgumentRowsAndEntrypointSurviveEditingAndResetThroughNativeStorage() throws {
+        struct Fixture: Decodable { struct Entry: Decodable { let values: [String] }; let cases: [Entry] }
+        let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("shared/fixtures/run-configuration/argument-text.json")))
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("provider-editor-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = MacRunConfigurationStore(core: RustCoreBridge(), storage: MacFileStorage(), preferences: RunTestKeyValueStore())
+        let reference = BuildProviderRunReference(pluginID: "dev.example.engine", buildSystemID: "engine", root: ".", run: "task",
+            projectID: "project", targetID: "target", execution: .task)
+        let id = try store.saveBuildProviderConfiguration(reference, name: "Runtime choices", at: root)
+        let tools: [String: FixedToolchainSelection?] = ["dev.example.engine:compiler": .executable(path: "/fixture/compiler")]
+        var options = RunOptions(providerRunOptions: BuildProviderRunOptions(entrypoint: "opaque/entry 雪", options: ["offline": .bool(false)], tools: tools))
+        for entry in fixture.cases {
+            options.providerRunOptions?.runtimeArguments = entry.values
+            try store.saveOptions(options, configurationID: id, scope: .local, at: root)
+            let read = try store.providerLaunchInputs(at: root, configurationID: id, providerRoot: ".")
+            #expect(read.launchOptions.runtimeArguments == entry.values)
+            #expect(read.launchOptions.entrypoint == "opaque/entry 雪")
+            #expect(read.optionOverrides == ["offline": .bool(false)])
+            #expect(read.tools == ["dev.example.engine:compiler": .executable(path: "/fixture/compiler")])
+        }
+        try store.saveOptions(options.resettingProviderRunOptions(), configurationID: id, scope: .local, at: root)
+        let cleared = try store.providerLaunchInputs(at: root, configurationID: id, providerRoot: ".")
+        #expect(cleared.launchOptions.runtimeArguments.isEmpty)
+        #expect(cleared.launchOptions.entrypoint == nil)
+        #expect(cleared.tools.isEmpty)
+        #expect(cleared.optionOverrides.isEmpty)
+    }
+
+    @Test
     func nativeGenerationUsesProviderOwnershipThroughTheRealBridgeWithoutReadingPomsForJavaMembership() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("provider-generation-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }

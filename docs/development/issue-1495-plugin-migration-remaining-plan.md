@@ -455,6 +455,35 @@ broker 14 项通过。TypeScript 和生产 bundle 通过，真实 MCP stdio 的�
 此批没有改 Core Build 协议或下载/状态目录，
 没有代替完整 Windows 产品工作流或阶段 D 的其他退出条件。
 
+该批提交 `8a46260619aef72584e451cfe630a47b49c5e2e4` 的
+[Windows CI 41410144912](https://github.com/1lck/Lithe-IDEA/actions/runs/41410144912)
+已全部通过：Project 101 项通过/1 跳过、host 394 项通过/3 跳过、broker 14 项通过，
+共享 Core 与真实 JDT 各 1585 项通过；Build、Run、MCP 生命周期等前端车道通过。
+原始计时产物在 `.artifacts/test-stability/ci-41410144912/`，不包含下述后续 UI 修改。
+
+Maven `19b6b0103e9bc8c569a3987a09ccd57b69cef966` 的
+[CI 41411645747](https://github.com/Lithe-IDEA/lithe-plugin-maven/actions/runs/41411645747)
+固定上述宿主与 SDK `192efd469e9e5fb94ad328a1c7b76ba1cc3252aa`，两条 Java 8/Maven
+兼容车道通过。真实 Windows TypeScript→Core→Provider 集成现为 13 步，新增 Agent
+inspect/reload/execute 复用同一模型、任务记录及后端；还验证 Java 17 调试规划和插件
+包文件不变。这里的 Windows TypeScript 集成运行于 Linux CI，不等于 Windows 产品
+实机验收，也不产生正式 SDK 锁定值。
+
+### Provider Run 参数编辑与原生保存（2026-11-02）
+
+两端 Run 编辑器直接编辑通用运行时参数数组与入口，避免 Windows 仍显示实际准备
+不会消费的旧 JVM 文本字段。每行保留一个参数及其空白、引号、空值和换行；增加、
+删除或修改入口保留按次 Build 选项与工具选择。较长列表只挂载视口行；开页不新增
+覆盖，保存沿用原对话框及原生存储。macOS Reset 为有效的按 Run 工具发出显式清空，
+避免底层兼容合并重新保留它们。
+
+本机 macOS 122 项原生集成、Windows 受影响前端 464 项计时通过；新增对话框测试
+从实际保存按钮取得完整 Provider 选项，原生桥接用共享 argv fixture 验证保存、回读
+和重置。TypeScript、生产 bundle、35 项 i18n 测试和生成一致性通过；报告为
+`stage-d-provider-editor-macos-final`、`stage-d-provider-editor-frontend-final`。
+这批没有新增公共 API、资源下载或缓存，不改写工具原生配置；完整 GUI 验收、旧默认
+JDK 联动、Windows 原生 Debug/产品准入和旧消费者替换仍是待办。
+
 ### D-MIGRATION-REMOVAL：旧 Maven 数据迁移器清理
 
 这是 #1495 下独立跟踪的删除项，状态为未完成。`MacLegacyMavenConfigurationMigration`

@@ -9966,7 +9966,10 @@
     "native.toolchainSettings.providerDidNotRespond": "{provider} did not respond",
     "native.toolchainSettings.providerIsUnavailable": "{provider} is unavailable",
     "native.toolchainSettings.noAnswerWithinSeconds": "No answer within {seconds} s",
-    "lsp.projectJdkInvalid": "The project JDK is invalid or its version could not be read. Check JDK Home in Project settings."
+    "lsp.projectJdkInvalid": "The project JDK is invalid or its version could not be read. Check JDK Home in Project settings.",
+    "run.provider.runtimeArguments": "Runtime arguments",
+    "run.provider.runtimeArgumentsHint": "Each row is one argument. Spaces, quotes and empty values are preserved.",
+    "run.provider.entrypoint": "Entry point"
   },
   "overrides": {
     "windows": {

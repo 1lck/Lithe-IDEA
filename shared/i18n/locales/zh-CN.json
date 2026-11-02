@@ -9966,7 +9966,10 @@
     "native.toolchainSettings.providerDidNotRespond": "{provider} 未响应",
     "native.toolchainSettings.providerIsUnavailable": "{provider} 不可用",
     "native.toolchainSettings.noAnswerWithinSeconds": "{seconds} 秒内未响应",
-    "lsp.projectJdkInvalid": "项目 JDK 无效或无法读取其版本。请检查项目设置中的 JDK Home。"
+    "lsp.projectJdkInvalid": "项目 JDK 无效或无法读取其版本。请检查项目设置中的 JDK Home。",
+    "run.provider.runtimeArguments": "运行时参数",
+    "run.provider.runtimeArgumentsHint": "每行是一个独立参数，空格、引号和空值会原样保留。",
+    "run.provider.entrypoint": "入口"
   },
   "overrides": {
     "macos": {

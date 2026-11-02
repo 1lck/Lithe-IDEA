@@ -243,6 +243,7 @@
 "Add a memory usage indicator to the status bar" = "在状态栏添加内存占用指示器";
 "Add an AI provider in AI Providers first." = "请先在“AI 服务商”中添加服务商。";
 "Add another account" = "添加另一个账号";
+"Add argument" = "添加参数";
 "Add at least one absolute allowed folder path after the Filesystem package argument." = "请在 Filesystem 包参数后至少添加一个允许访问的文件夹绝对路径。";
 "Add at least one absolute folder path after the package argument, one per line. Filesystem can read and write only in the folders you allow. Requires Node.js 24 or later." = "在包参数后至少添加一个文件夹的绝对路径，每行一个。Filesystem 只可读写你允许的文件夹。需要 Node.js 24 或更高版本。";
 "Add clickable actions beside document text" = "在文档文本旁添加可点击的操作";
@@ -1328,6 +1329,7 @@
 "Each built-in preset includes a preview of the generated message." = "三个内置预设都会显示生成信息示例。";
 "Each repository has its own commit. Completed steps are kept if another repository fails." = "每个仓库会分别提交。某个仓库失败时，已完成的步骤仍会保留。";
 "Each row explains the setting, the value Git is actually using, and where that value comes from." = "每一行都会说明设置用途、Git 实际采用的值，以及这个值来自哪里。";
+"Each row is one argument. Spaces, quotes and empty values are preserved." = "每行是一个独立参数，空格、引号和空值会原样保留。";
 "Each submodule is pushed before its parent." = "先推送子模块，再推送父仓库。";
 "Each tool uses the first source that has a value: a fixed version, then project version files, then global defaults, then automatic discovery. Installed versions are checked by running each tool's own version command. Enabled version managers report what version files ask for." = "每个工具采用第一个有值的来源，依次为固定版本、项目版本文件、全局默认、自动检测。已安装的版本通过运行该工具自己的版本命令来检查。已启用的版本管理器会报告版本文件所要求的版本。";
 "Earlier" = "更早";
@@ -1452,6 +1454,7 @@
 "Enter the new symbol name." = "输入新的符号名称。";
 "Enter the next function call" = "进入下一个函数调用";
 "Enter the one-time code" = "输入一次性代码";
+"Entry point" = "入口";
 "Environment" = "环境变量";
 "Environment variable and header names must be unique." = "环境变量名和 Header 名不能重复。";
 "Environment variables" = "环境变量";
@@ -3425,6 +3428,7 @@
 "Runtime" = "运行时长";
 "Runtime Environment" = "运行环境";
 "Runtime Environment — Isolated Preview" = "运行环境 — 隔离预览";
+"Runtime arguments" = "运行时参数";
 "Runtime discovery failed" = "运行环境探测失败";
 "Runtime used by the language server (installed on this Mac)" = "语言服务器使用的运行时（本机已安装）";
 "Rust Core cache-retention planning is unavailable." = "Rust Core 的缓存保留规划不可用。";
@@ -4844,6 +4848,7 @@
 "ai.terminal" = "终端";
 "avg" = "平均";
 "basic Latin letters" = "基本拉丁字母";
+"build.window.addArgument" = "添加参数";
 "characters used by the interface and your files" = "界面和文件用到的字符";
 "chars" = "字符";
 "checkout" = "检出";
@@ -9768,6 +9773,9 @@
 "run configuration" = "运行配置";
 "run.incompleteProjectScanMessage" = "部分项目目录无法读取，已有运行配置已保留。请恢复访问权限后重新识别运行配置。";
 "run.incompleteProjectScanTitle" = "项目扫描不完整";
+"run.provider.entrypoint" = "入口";
+"run.provider.runtimeArguments" = "运行时参数";
+"run.provider.runtimeArgumentsHint" = "每行是一个独立参数，空格、引号和空值会原样保留。";
 "running for %@" = "已运行 %@";
 "scope managed from %@" = "依赖管理前 scope 为 %@";
 "scope not updated to %@" = "未提升为 %@ scope";

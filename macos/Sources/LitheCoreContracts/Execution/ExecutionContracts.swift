@@ -57,6 +57,13 @@ package struct RunOptions: Codable, Hashable, Sendable {
     package var java = JavaCapability()
     package var providerRunOptions: BuildProviderRunOptions?
 
+    /// Reset emits explicit clears for inherited per-Run tools. Omitting this
+    /// namespace would keep the previous provider choices on disk.
+    package func resettingProviderRunOptions() -> RunOptions {
+        let cleared = providerRunOptions?.tools.keys.map { ($0, Optional<FixedToolchainSelection>.none) } ?? []
+        return RunOptions(providerRunOptions: BuildProviderRunOptions(tools: Dictionary(uniqueKeysWithValues: cleared)))
+    }
+
     package init(
         javaHomePath: String = "",
         workingDirectoryPath: String = "",
