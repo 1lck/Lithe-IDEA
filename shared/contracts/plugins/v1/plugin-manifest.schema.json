@@ -14,8 +14,14 @@
       "if": { "required": ["pluginAPIVersion"], "properties": { "pluginAPIVersion": { "maximum": 3 } } },
       "then": { "properties": { "debugAdapters": { "maxItems": 0 } } }
     },
+    {
+      "if": { "required": ["pluginAPIVersion"], "properties": { "pluginAPIVersion": { "maximum": 1 } } },
+      "then": { "properties": { "settings": { "maxItems": 0 } } }
+    },
     {"if": {"required": ["toolDefinitions"]}, "then": {"properties": {"pluginAPIVersion": {"minimum": 3}, "requires": {"required": ["toolDefinitions", "executableResolution"], "properties": {"executableResolution": {"const": 2}}}}}},
-    {"if": {"required": ["toolchainProviders"]}, "then": {"required": ["backend"], "properties": {"pluginAPIVersion": {"minimum": 3}, "requires": {"required": ["toolchainProviders", "backend", "serverProcess"], "properties": {"backend": {"const": 2}}}, "permissions": {"allOf": [{"contains": {"const": "toolchains.provide"}}, {"contains": {"const": "backend.launch"}}]}}}}
+    {"if": {"required": ["toolchainProviders"]}, "then": {"required": ["backend"], "properties": {"pluginAPIVersion": {"minimum": 3}, "requires": {"required": ["toolchainProviders", "backend", "serverProcess"], "properties": {"backend": {"const": 2}}}, "permissions": {"allOf": [{"contains": {"const": "toolchains.provide"}}, {"contains": {"const": "backend.launch"}}]}}}},
+    {"if": {"required": ["requires"], "properties": {"requires": {"required": ["settings"], "properties": {"settings": {"const": 2}}}}}, "else": {"properties": {"settings": {"items": {"$ref": "#/$defs/settingVersion1"}}, "settingActions": {"maxItems": 0}}}},
+    {"if": {"required": ["requires"], "properties": {"requires": {"required": ["languageServers"], "properties": {"languageServers": {"const": 2}}}}}, "else": {"properties": {"languageServers": {"items": {"properties": {"workspaceConfiguration": false}}}}}}
   ],
   "properties": {
     "schemaVersion": { "const": 2 },
@@ -36,12 +42,12 @@
         "debugAdapters": { "description": "Required exactly when debugAdapters is non-empty. Version 2 adds bounded target argument and environment bindings. The DAP session itself is negotiated by the adapter in initialize.", "enum": [1, 2] },
         "executableResolution": { "enum": [1, 2], "description": "Shared executable candidate ordering and strict selection." },
     "executionProviders": { "enum": [1] },
-        "languageServers": { "enum": [1] },
+        "languageServers": { "description": "Required exactly when languageServers is non-empty. Version 2 adds languageServers[].workspaceConfiguration.", "enum": [1, 2] },
         "languages": { "description": "Version 2 adds languages[].grammar and languages[].configuration and is required exactly when one of them is used.", "enum": [1, 2] },
         "packageTrust": { "description": "Required exactly when vendor.bundledSignatureRequirement is present.", "enum": [1] },
         "projectGenerators": { "description": "Entries of the New Project window: fields, requirements, and steps.", "enum": [1] },
         "serverProcess": { "description": "The launch fields of language servers, of build providers that start their own process, of VCS providers, of debug adapters, and of the plugin backend. Version 2 adds runSelectedRuntime and is required exactly when a debug adapter uses it (pluginAPIVersion 4).", "enum": [1, 2] },
-        "settings": { "enum": [1] },
+        "settings": { "description": "Required exactly when settings or settingActions is non-empty. Version 1 is the API level 2 section: integer, enum, and boolean options. Version 2 adds scope, effect, page, section, the multiSelect, text, file, and directory types, and settingActions.", "enum": [1, 2] },
         "toolDefinitions": { "const": 1 },
         "toolchainProviders": { "const": 1 },
         "ui": { "description": "Version 2 adds web content; version 3 adds native controls; version 4 adds backend-only commands.", "enum": [1, 2, 3, 4] },
@@ -243,9 +249,16 @@
       }
     },
     "settings": {
+      "description": "pluginAPIVersion 2: user-adjustable options with unique IDs. Their shape follows requires.settings, which is 1 below level 3.",
       "type": "array",
       "maxItems": 32,
       "items": { "$ref": "#/$defs/setting" }
+    },
+    "settingActions": {
+      "description": "settings 2: buttons on settings pages that invoke the plugin's own functions, with unique IDs.",
+      "type": "array",
+      "maxItems": 16,
+      "items": { "$ref": "#/$defs/settingAction" }
     }
   },
   "$defs": {
@@ -1014,32 +1027,136 @@
       }
     },
     "setting": {
+      "description": "One user-adjustable option. A type refuses the fields it does not use. Comparisons between values (default within the range, among the options, or matching the pattern; distinct option values) are checked by Core.",
       "type": "object",
       "additionalProperties": false,
       "required": ["id", "type", "title", "default"],
       "properties": {
         "id": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]*$", "maxLength": 120 },
-        "type": { "enum": ["integer", "enum", "boolean"] },
+        "type": { "description": "settings 2 adds multiSelect, text, file, and directory.", "enum": ["integer", "enum", "boolean", "multiSelect", "text", "file", "directory"] },
         "title": { "type": "string", "minLength": 1, "maxLength": 120 },
         "description": { "type": "string", "maxLength": 480 },
-        "default": { "type": ["integer", "string", "boolean"] },
+        "default": { "type": ["integer", "string", "boolean", "array"] },
         "minimum": { "type": "integer" },
         "maximum": { "type": "integer" },
         "unit": { "type": "string", "minLength": 1, "maxLength": 120 },
         "options": {
+          "description": "Choices of an enum (at most 16) or multiSelect (at most 32) setting, in display order.",
           "type": "array",
           "minItems": 1,
-          "maxItems": 16,
+          "maxItems": 32,
           "items": {
             "type": "object",
             "additionalProperties": false,
             "required": ["value", "title"],
             "properties": {
-              "value": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$", "maxLength": 120 },
+              "value": { "$ref": "#/$defs/settingToken" },
               "title": { "type": "string", "minLength": 1, "maxLength": 120 }
             }
           }
+        },
+        "scope": { "description": "settings 2. global (default): one value for every project. project: the open project may override it.", "enum": ["global", "project"] },
+        "effect": { "description": "settings 2. When a change takes effect: restart (default), immediate (pushed through workspaceConfiguration, which must use the setting), reload, or nextRun.", "enum": ["restart", "immediate", "reload", "nextRun"] },
+        "page": { "$ref": "#/$defs/settingPage" },
+        "section": { "description": "settings 2: heading the setting is grouped under on its page.", "type": "string", "minLength": 1, "maxLength": 120 },
+        "pattern": { "description": "settings 2, text only: regular expression the whole value must match; at most 256 bytes.", "type": "string", "minLength": 1, "maxLength": 256 },
+        "maxLength": { "description": "settings 2, text only: longest value in Unicode scalars; 256 when absent.", "type": "integer", "minimum": 1, "maximum": 1024 },
+        "placeholder": { "description": "settings 2, text, file, and directory only: hint shown in an empty field.", "type": "string", "minLength": 1, "maxLength": 120 }
+      },
+      "allOf": [
+        {
+          "if": { "required": ["type"], "properties": { "type": { "const": "integer" } } },
+          "then": {
+            "required": ["minimum", "maximum"],
+            "properties": { "default": { "type": "integer" }, "options": false, "pattern": false, "maxLength": false, "placeholder": false }
+          }
+        },
+        {
+          "if": { "required": ["type"], "properties": { "type": { "const": "enum" } } },
+          "then": {
+            "required": ["options"],
+            "properties": { "default": { "$ref": "#/$defs/settingToken" }, "options": { "maxItems": 16 }, "minimum": false, "maximum": false, "unit": false, "pattern": false, "maxLength": false, "placeholder": false }
+          }
+        },
+        {
+          "if": { "required": ["type"], "properties": { "type": { "const": "multiSelect" } } },
+          "then": {
+            "required": ["options"],
+            "properties": {
+              "default": { "description": "Distinct option values.", "type": "array", "maxItems": 32, "uniqueItems": true, "items": { "$ref": "#/$defs/settingToken" } },
+              "minimum": false, "maximum": false, "unit": false, "pattern": false, "maxLength": false, "placeholder": false
+            }
+          }
+        },
+        {
+          "if": { "required": ["type"], "properties": { "type": { "const": "boolean" } } },
+          "then": {
+            "properties": { "default": { "type": "boolean" }, "minimum": false, "maximum": false, "unit": false, "options": false, "pattern": false, "maxLength": false, "placeholder": false }
+          }
+        },
+        {
+          "if": { "required": ["type"], "properties": { "type": { "const": "text" } } },
+          "then": {
+            "required": ["pattern"],
+            "properties": {
+              "default": { "$comment": "Use an absolute end assertion: Python's $ also matches before a final LF, unlike ECMAScript without multiline mode.", "description": "Never starts with '-' and contains no control characters.", "type": "string", "maxLength": 1024, "pattern": "^(?!-)[^\\u0000-\\u001f\\u007f-\\u009f]*(?![\\s\\S])" },
+              "minimum": false, "maximum": false, "unit": false, "options": false
+            },
+            "if": { "not": { "required": ["maxLength"] } },
+            "then": { "properties": { "default": { "maxLength": 256 } } }
+          }
+        },
+        {
+          "if": { "required": ["type"], "properties": { "type": { "enum": ["file", "directory"] } } },
+          "then": {
+            "properties": { "default": { "description": "A path setting starts empty.", "const": "" }, "minimum": false, "maximum": false, "unit": false, "options": false, "pattern": false, "maxLength": false }
+          }
         }
+      ]
+    },
+    "settingVersion1": {
+      "description": "A setting of settings 1, which every manifest below API level 3 uses: no settings 2 type or field.",
+      "properties": {
+        "type": { "enum": ["integer", "enum", "boolean"] },
+        "scope": false,
+        "effect": false,
+        "page": false,
+        "section": false,
+        "pattern": false,
+        "maxLength": false,
+        "placeholder": false
+      }
+    },
+    "settingToken": {
+      "description": "Letters, digits, '.', '_', and '-': an option value, or the language or build system ID a settings page names.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._-]+(?![\\s\\S])",
+      "maxLength": 120
+    },
+    "settingPage": {
+      "description": "settings 2: the settings page that shows the entry besides the plugin's own page, named by exactly one language or build system ID. The language or build system may come from another plugin.",
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "maxProperties": 1,
+      "properties": {
+        "languageID": { "$ref": "#/$defs/settingToken" },
+        "buildSystemID": { "$ref": "#/$defs/settingToken" }
+      }
+    },
+    "settingAction": {
+      "description": "settings 2: a button the host draws on the plugin's settings page and on page. It invokes function, one of the plugin's own plugin functions, with empty params.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "function"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]*(?![\\s\\S])", "maxLength": 120 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "description": { "type": "string", "maxLength": 480 },
+        "page": { "$ref": "#/$defs/settingPage" },
+        "section": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "function": { "description": "Plugin function ID: dot-separated lowerCamelCase segments.", "type": "string", "maxLength": 128, "pattern": "^[a-z][A-Za-z0-9]*(\\.[a-z][A-Za-z0-9]*)*(?![\\s\\S])" },
+        "confirm": { "description": "Ask before invoking, for actions that discard state.", "type": "boolean" }
       }
     },
     "fileNameList": {
@@ -1103,6 +1220,10 @@
       "properties": {
         "languageID": { "type": "string" },
         "languageIdentifier": { "type": "string", "minLength": 1 },
+        "workspaceConfiguration": {
+          "description": "languageServers 2: what the server reads through workspace/configuration and receives again in workspace/didChangeConfiguration. String leaves may be ${setting:<id>} templates, including settings whose effect is immediate, and no other variable.",
+          "type": "object"
+        },
         "hostIntegration": {
           "description": "pluginAPIVersion 2, official plugins only: a named host integration and the package resources it reads.",
           "type": "object",

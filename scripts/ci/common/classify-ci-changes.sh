@@ -325,6 +325,9 @@ classify_path() {
         scripts/plugins/verify-official-plugins.sh|scripts/plugins/build-official-plugins.sh)
             plugins=true
             ;;
+        scripts/plugins/plugin-settings-schema.test.mjs)
+            # Runs in the always-on Linux classification job, not a product lane.
+            ;;
         scripts/rust-core/verify-rust-core.sh|scripts/rust-core/verify-rust-core-crates.sh|scripts/rust-core/verify-rust-core-swift-bridge.sh|scripts/rust-core/verify-rust-core-comments.sh|scripts/rust-core/verify-rust-core-layout.sh|scripts/rust-core/build-rust-core.sh|scripts/rust-core/rustcorebridgeverification.swift)
             rust_core=true
             macos_release=true
