@@ -425,10 +425,12 @@ try {
     assert.ok(packages.locations.includes(".artifacts/windows-java-support/<candidate>/windows-java-inputs.json"));
     assert.match(packages.reason, /assemble-windows-java-support\.py/);
     assert.match(packages.reason, /receipt is evidence only/);
+    assert.match(packages.identity, /runtimeIdentity/);
     assert.match(packages.reason, /windows-java-release\.py/);
     assert.ok(packages.locations.includes(".artifacts/windows-java-support/.release-*/"));
     for (const fixture of [
       ".artifacts/windows-java-support/candidate/runtime/x86_64/bin/java.exe",
+      ".artifacts/windows-java-support/candidate/runtime/arm64/release",
       ".artifacts/windows-java-support/candidate/windows-java-inputs.json",
       ".artifacts/windows-java-support/.assemble-fixture/package/plugin.json",
       ".artifacts/windows-java-support/.signing-check-fixture/candidate/plugin.json",

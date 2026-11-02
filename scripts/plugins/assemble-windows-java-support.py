@@ -187,6 +187,30 @@ def file_inventory(root, deadline):
     return files
 
 
+def runtime_identity(runtime, platform, architecture, deadline):
+    """Check the pinned JDK's own release facts without executing target code."""
+    release = runtime / "release"
+    plain_file(release)
+    if release.stat().st_size > 64 * 1024:
+        raise ValueError("JDK release metadata exceeds the identity limit")
+    values = {}
+    for line in release.read_text(encoding="utf-8").splitlines():
+        check_deadline(deadline)
+        if not line.strip():
+            continue
+        match = re.fullmatch(r'([A-Z][A-Z0-9_]*)="([^"\r\n]*)"', line)
+        if not match or match[1] in values:
+            raise ValueError("Ambiguous JDK release metadata")
+        values[match[1]] = match[2]
+    version = platform["jdkRoot"].removeprefix("jdk-")
+    expected = {"JAVA_VERSION": version.split("+")[0], "JAVA_RUNTIME_VERSION": version + "-LTS",
+                "OS_NAME": "Windows", "OS_ARCH": {"x86_64": "x86_64", "arm64": "aarch64"}[architecture],
+                "IMPLEMENTOR": "Eclipse Adoptium", "IMAGE_TYPE": "JDK"}
+    if any(values.get(key) != value for key, value in expected.items()):
+        raise ValueError("JDK release identity differs from pinned version/platform/architecture/vendor")
+    return {"jdkRoot": platform["jdkRoot"], "release": expected, "releaseSHA256": digest(release, deadline)}
+
+
 def pinned_inputs(root, architecture, cache_root=None):
     """One inventory for offline assembly and the publisher's bounded fetch stage."""
     cache_root = cache_root or root
@@ -290,6 +314,7 @@ def assemble(root, architecture, output, deadline, *, cache_root=None, output_ro
         runtime = package / "runtime" / architecture
         for required in ("bin/java.exe", "lib/modules", "release", "legal/java.base/LICENSE"):
             plain_file(runtime / required)
+        identity = runtime_identity(runtime, platform, architecture, deadline)
         native = sorted(path for path in runtime.rglob("*") if path.suffix.lower() in {".exe", ".dll"})
         for image in native:
             check_deadline(deadline)
@@ -371,7 +396,8 @@ def assemble(root, architecture, output, deadline, *, cache_root=None, output_ro
         receipt = {"schemaVersion": 1, "status": "unsigned-candidate", "platform": "windows", "architecture": architecture,
                    "pluginId": manifest["id"], "version": manifest["version"], "requires": manifest["requires"],
                    "sourceManifests": source_manifests,
-                   "inputs": inputs, "runtimeImages": [path.relative_to(package).as_posix() for path in native], "files": files}
+                   "inputs": inputs, "runtimeIdentity": identity,
+                   "runtimeImages": [path.relative_to(package).as_posix() for path in native], "files": files}
         (package / "windows-java-inputs.json").write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
         check_deadline(deadline)
         os.replace(package, output)

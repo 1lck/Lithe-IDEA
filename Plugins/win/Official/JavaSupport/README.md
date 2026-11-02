@@ -11,9 +11,14 @@ python scripts/plugins/assemble-windows-java-support.py --architecture x86_64 --
 python scripts/plugins/test-assemble-windows-java-support.py
 ```
 
-`arm64` 选择 Windows AArch64 JDK、ARM64 PE 标识与 `config_win_arm`；合成归档测试只验证选择和文件边界，不能当作 ARM64 实机运行证据。所有下载来源与 SHA-256 由现有 `third_party/jdtls/manifest.json`、`third_party/jdk/manifest.json` 固定。脚本不联网、不执行 JVM、不签名，拒绝覆盖已有输出，失败清理本次 `.assemble-*` 暂存，成功原子发布新目录。
+`arm64` 选择 Windows AArch64 JDK、ARM64 PE 标识，并与 x64 一样使用上游 `config_win`；固定 JDT LS 归档没有 `config_win_arm`，其 `bin/jdtls.py` 也按 Windows 系统选择共享配置。包内仍保存到各自的 `configuration/<arch>/config.ini`，不改写上游配置。合成归档测试只验证选择和文件边界，不能当作 ARM64 实机运行证据。所有下载来源与 SHA-256 由现有 `third_party/jdtls/manifest.json`、`third_party/jdk/manifest.json` 固定。脚本不联网、不执行 JVM、不签名，拒绝覆盖已有输出，失败清理本次 `.assemble-*` 暂存，成功原子发布新目录。
 
 `windows-java-inputs.json` 记录输入来源、哈希、架构和输出文件清单，仅作为本次组装的证据。它不是签名或资源封装证明，包及回执均禁止跨工作树复用；只复用具有既有校验路由的下载缓存。运行时 JDT 状态应位于平台应用数据的 `plugin-state/<plugin-id>/jdtls`，包目录保持只读。
+
+组装器还会离线读取 JDK 的 `release` 文件，要求实际 Java 版本与该平台的固定 `jdkRoot` 一致，
+并核对 Windows、CPU 架构、Eclipse Adoptium 供应商和 JDK 类型。不能用清单顶层版本描述所有架构：
+当前 x64 为 `21.0.12.1+1`，ARM64 为 `21.0.12+8`。回执和签名前报告的 `runtimeIdentity`
+保存这些事实及 release 文件哈希；有效归档哈希和 PE 标识不能替代这项核对，也不会产生发布者信任。
 
 Java 的官方策略固定为 `publisherPackage`，另有 `bundledSignatureRequirement: sameTeamAsHost` 声明。Windows 的 EXE 或安装器 Authenticode 不会封住相邻资源，所以即使目录确实位于 bundled 根内，未签名 Java 包仍返回 `plugin.trust.hostSealRequired`。有签名的副本必须校验完整文件树，存在的坏签名不能忽略；安装记录或回滚记录不能伪造 bundled 来源。
 

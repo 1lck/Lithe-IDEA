@@ -65,8 +65,10 @@ def run_tests(report):
             receipt.write_text(json.dumps(value), encoding="utf-8")
 
     def prepared(fixture):
+        receipt = json.loads((fixture.output / CHECK.RECEIPT).read_text(encoding="utf-8"))
         before = CHECK.ASSEMBLY.file_inventory(fixture.output, time.monotonic() + 2)
         result = check(fixture)
+        assert result["runtimeIdentity"] == receipt["runtimeIdentity"]
         assert result["inputCheck"] == "passed"
         assert result["requires"] == FIXTURES.ASSEMBLY.REQUIRES
         assert result["originPolicy"] == "publisherPackage"

@@ -46,7 +46,7 @@ def pe(machine):
 
 
 class Fixture:
-    def __init__(self, root, architecture="x86_64", wrong_machine=False):
+    def __init__(self, root, architecture="x86_64", wrong_machine=False, release_override=None):
         self.root = root
         self.architecture = architecture
         self.output = root / ".artifacts/windows-java-support/candidate"
@@ -71,7 +71,9 @@ class Fixture:
         tar = io.BytesIO()
         with tarfile.open(fileobj=tar, mode="w:gz") as archive:
             launcher = json.loads((source / "plugin.json").read_text())["languageServers"][0]["launch"]["entry"]
-            for name in (launcher.removeprefix("language-server/"), "features/fixture.feature", "config_win/config.ini", "config_win_arm/config.ini"):
+            # The pinned upstream distribution and its bin/jdtls.py share
+            # config_win across Windows CPUs; do not invent an ARM-only input.
+            for name in (launcher.removeprefix("language-server/"), "features/fixture.feature", "config_win/config.ini"):
                 data = b"fixture"
                 entry = tarfile.TarInfo(name)
                 entry.size = len(data)
@@ -99,9 +101,15 @@ class Fixture:
                               "extension/server/com.microsoft.java.test.runner-jar-with-dependencies.jar": runner})
         write_pinned(test_zip, f"vscode-java-test-{safe(jdt['javaTestExtensionVersion'])}-{{hash}}.zip", "javaTestArchiveSHA256")
         machine = policy["architectures"][architecture]["peMachine"]
+        version = platform["jdkRoot"].removeprefix("jdk-")
+        release = {"JAVA_VERSION": version.split("+")[0], "JAVA_RUNTIME_VERSION": version + "-LTS",
+                   "OS_NAME": "Windows", "OS_ARCH": "aarch64" if architecture == "arm64" else "x86_64",
+                   "IMPLEMENTOR": "Eclipse Adoptium", "IMAGE_TYPE": "JDK"}
+        release.update(release_override or {})
+        release_bytes = "".join(f'{key}="{value}"\n' for key, value in release.items()).encode()
         runtime_zip = zip_bytes({f"{platform['jdkRoot']}/{name}": content for name, content in {
             "bin/java.exe": pe(0x14C if wrong_machine else machine), "bin/server/jvm.dll": pe(machine),
-            "lib/modules": b"fixture modules", "release": b'JAVA_VERSION="21.0.1"\n', "legal/java.base/LICENSE": b"fixture GPL"}.items()})
+            "lib/modules": b"fixture modules", "release": release_bytes, "legal/java.base/LICENSE": b"fixture GPL"}.items()})
         platform["sha256"] = sha(runtime_zip)
         self.runtime_archive = jdk_cache / f"jdk-{safe(jdk['version'])}-{platform_name}-{platform['sha256']}.zip"
         self.runtime_archive.write_bytes(runtime_zip)
@@ -224,6 +232,27 @@ def run_tests(report):
             raises(ValueError, "new child", lambda: ASSEMBLY.assemble(fixture.root, "x86_64", fixture.root / "installed", time.monotonic() + 2))
             raises(TimeoutError, "deadline", lambda: ASSEMBLY.assemble(fixture.root, "x86_64", fixture.output, time.monotonic() - 1))
 
+    def wrong_release():
+        # The archive hash is valid for the fixture: metadata must independently
+        # agree with the selected platform, even when all PE machines agree.
+        for fields in ({"JAVA_VERSION": "17.0.1"}, {"JAVA_RUNTIME_VERSION": "21+1-LTS"},
+                       {"OS_ARCH": "aarch64"}, {"OS_NAME": "Linux"},
+                       {"IMPLEMENTOR": "other"}, {"IMAGE_TYPE": "JRE"}):
+            with tempfile.TemporaryDirectory(prefix="lithe-java-identity-test-") as scratch:
+                fixture = Fixture(Path(scratch), release_override=fields)
+                raises(ValueError, "JDK release identity", fixture.assemble)
+                assert not fixture.output.exists()
+                assert not list(fixture.output.parent.glob(".assemble-*"))
+
+    def ambiguous_release():
+        with tempfile.TemporaryDirectory(prefix="lithe-java-identity-test-") as scratch:
+            root = Path(scratch)
+            release = root / "release"
+            platform = {"jdkRoot": "jdk-21+1"}
+            for content in ('JAVA_VERSION="21"\nJAVA_VERSION="21"\n', 'JAVA_VERSION=21\n', 'x' * 65537):
+                release.write_text(content, encoding="utf-8")
+                raises(ValueError, "metadata", lambda: ASSEMBLY.runtime_identity(root, platform, "x86_64", time.monotonic()+2))
+
     def input_changed_during_assembly(source_change=False):
         with tempfile.TemporaryDirectory(prefix="lithe-java-assembly-test-") as scratch:
             fixture = Fixture(Path(scratch))
@@ -241,10 +270,12 @@ def run_tests(report):
             assert not list(fixture.output.parent.glob(".assemble-*"))
 
     case("x64 candidate keeps complete requires, fixed inputs, licenses and file inventory", lambda: assembled("x86_64"))
-    case("ARM64 fixture selects Windows config and PE data without executing it", lambda: assembled("arm64"))
+    case("ARM64 assembles from upstream shared Windows config and native ARM64 PE data", lambda: assembled("arm64"))
     case("changed cached archive fails before package publication", tamper)
     case("ZIP and VSIX cache aliases preserve the complete package inventory both ways", cache_alias_identity)
     case("wrong runtime PE architecture fails and removes staging", wrong_machine)
+    case("valid archive hashes cannot conceal wrong JDK version platform architecture vendor or image", wrong_release)
+    case("duplicate malformed and oversized JDK release metadata fail closed", ambiguous_release)
     case("removing packageTrust cannot produce a candidate", full_requirements)
     case("package identity and fixed source manifest list cannot be replaced", fixed_identity)
     case("archive traversal, Windows aliases, duplicate files and symlinks fail closed", archive_escape)
