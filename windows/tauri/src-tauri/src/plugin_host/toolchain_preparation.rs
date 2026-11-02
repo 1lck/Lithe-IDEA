@@ -28,7 +28,7 @@ pub fn declarative_plugins_cancel_tool_preparation(
         .cancel(window.label(), &operation_id);
 }
 
-pub(super) fn claim(app: &AppHandle, window: &Window, operation: &str) -> Result<Lease, String> {
+pub(crate) fn claim(app: &AppHandle, window: &Window, operation: &str) -> Result<Lease, String> {
     app.state::<ToolPreparations>()
         .0
         .claim(window.label(), operation)

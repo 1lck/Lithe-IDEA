@@ -69,6 +69,8 @@ interface Session {
   /** Provider identity used to stop all sessions owned by a plugin. */
   providerId: string;
   pluginId?: string;
+  /** Native launch inputs of this process; absent on recovered legacy state. */
+  pluginLaunchIdentity?: string;
   files: Set<string>;
   lifecycle: LspSessionLifecycle;
   eventPump: EventPumpOwner | null;
@@ -894,10 +896,42 @@ function parseDebugServerPort(value: unknown): number {
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
     throw lspAdapterError(
       "invalid_response",
-      "The Java language service returned an invalid debug-server port.",
+      "The language service returned an invalid debug-server port.",
     );
   }
   return port;
+}
+
+/** A tcpLanguageServer endpoint belongs to the selected adapter's own plugin.
+ * Reuse its shared language session; never issue commands to a legacy session
+ * which happens to have the same language ID. Stopping Debug keeps it alive. */
+export async function requestPluginDebugEndpoint(target: {
+  pluginId: string; languageId: string; command: string; workspacePath: string;
+  launch: { serverPath: string; serverArgs: string[]; environment: Record<string, string>; initializationOptions?: unknown; workspaceConfiguration?: unknown };
+}, assertCurrent: () => void, signal?: AbortSignal): Promise<number> {
+  assertCurrent();
+  const existing = sessions.get(sessionKey(target.workspacePath, target.languageId));
+  const launchIdentity = pluginLaunchIdentity(target.launch);
+  if (existing && (existing.pluginId !== target.pluginId || existing.pluginLaunchIdentity !== launchIdentity)) {
+    throw lspAdapterError("invalid_request", "Debug language-server ownership changed.");
+  }
+  await start({ ...target.launch, workspacePath: target.workspacePath, languageId: target.languageId,
+    pluginId: target.pluginId, providerId: target.pluginId });
+  assertCurrent();
+  const session = sessionForWorkspace(target.workspacePath, target.languageId);
+  if (session.pluginId !== target.pluginId || session.pluginLaunchIdentity !== launchIdentity) {
+    throw lspAdapterError("invalid_request", "Debug language-server ownership changed.");
+  }
+  const result = normalizeCoreValue(await requestOperation(session, {
+    sessionId: session.id, operation: "executeCommand", command: { title: target.command, command: target.command, arguments: [] },
+  }, "lsp.request", LSP_REQUEST_TIMEOUT_MS, signal)) as JsonRecord;
+  assertCurrent();
+  if (sessionForWorkspace(target.workspacePath, target.languageId) !== session) throw lspAdapterError("cancelled", "Debug language-server session changed.");
+  return parseDebugServerPort(result?.value);
+}
+
+function pluginLaunchIdentity(args: JsonRecord): string {
+  return JSON.stringify([args.serverPath, args.serverArgs ?? [], args.environment ?? {}, args.initializationOptions ?? null, args.workspaceConfiguration ?? null]);
 }
 
 async function recoverSession(session: Session): Promise<Session | null> {
@@ -1021,6 +1055,7 @@ async function createSession(args: JsonRecord, key: string, generation: number, 
     languageId,
     providerId,
     pluginId: args.pluginId,
+    pluginLaunchIdentity: args.pluginId ? pluginLaunchIdentity(args) : undefined,
     files: new Set(),
     lifecycle: createSessionLifecycle(started.state ?? "initializing", operationId),
     eventPump: null,
@@ -1263,6 +1298,7 @@ async function requestOperation(
   payload: JsonRecord,
   command = "lsp.request",
   coreTimeoutMilliseconds = LSP_REQUEST_TIMEOUT_MS,
+  signal?: AbortSignal,
 ): Promise<unknown> {
   const started = await core<{ operationId: string }>(command, payload);
   const operation = new LspOperationLog("semanticRequest", started.operationId, {
@@ -1270,8 +1306,23 @@ async function requestOperation(
     method: command,
     documentUri: payload.uri,
   });
-  return new Promise((resolve, reject) => {
+  let cancellation: Promise<unknown> | undefined;
+  const result = new Promise<unknown>((resolve, reject) => {
+    const removeAbort = () => signal?.removeEventListener("abort", abort);
+    const abort = () => {
+      // Keep this request owned until Core acknowledges cancellation. Other
+      // users of the language server keep their session and operations.
+      cancellation = core("lsp.cancelOperation", { sessionId: session.id, operationId: started.operationId }, started.operationId)
+        .then(() => {
+          const pending = session.pending.get(started.operationId); session.pending.delete(started.operationId);
+          pending?.reject(lspAdapterError("cancelled", "Debug endpoint request was cancelled."));
+        }, error => {
+          const pending = session.pending.get(started.operationId); session.pending.delete(started.operationId);
+          pending?.reject(error instanceof Error ? error : new Error(String(error)));
+        });
+    };
     const timeout = setTimeout(() => {
+      removeAbort();
       session.pending.delete(started.operationId);
       operation.timedOut();
       void core(
@@ -1292,11 +1343,13 @@ async function requestOperation(
     }, coreTimeoutMilliseconds + CORE_DEADLINE_GRACE_MS);
     session.pending.set(started.operationId, {
       resolve: (value) => {
+        removeAbort();
         clearTimeout(timeout);
         operation.succeeded();
         resolve(value);
       },
       reject: (error) => {
+        removeAbort();
         clearTimeout(timeout);
         if ((error as Error & { code?: string }).code === "cancelled") {
           operation.cancelled(error.message);
@@ -1306,12 +1359,15 @@ async function requestOperation(
         reject(error);
       },
     });
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) abort();
     const completed = session.completed.get(started.operationId);
     if (completed) {
       session.completed.delete(started.operationId);
       void dispatchSessionEvent(session, completed);
     }
   });
+  try { return await result; } finally { await cancellation; }
 }
 
 /** A class JDT confirmed the JVM can launch, as normalized by Core. */

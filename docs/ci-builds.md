@@ -362,6 +362,14 @@ Swift 单元和插件 CI 通道复用已有 Cargo 下载缓存。先通过
 
 ### 独立工作树的本地编译
 
+Windows 注册表 stdio 调试器状态位于
+`<windows-local-app-data>/<app-id>/plugin-state/<plugin-id>/debug-adapters/<adapter-id>/<workspace-digest>/`。
+由当前插件/适配器/工作区拥有；停止会话关闭进程，卸载插件清理其状态。语言服务器托管适配器
+继续使用原语言服务器状态，关闭 Debug 不删除或停止共享服务器。两类可变状态均没有构建
+identity stamp，不在任何复制阶段跨 worktree 复用；清单 `official-plugin-packages` 和复用脚本
+保持拒绝路由。入口/资源只读，写入只经平台 app-data owner，不改变签名或 Sparkle delta。
+
+
 Windows Build 本机选项位于平台 app-data 的 `build-options/<canonical-workspace-digest>.json`，
 由应用用户配置拥有，保留到用户显式重置/移除配置；团队层仍是工作区的
 `.lithe/build/options.json`。该文档、显式空选择标记及文档 adapter 的相邻临时替换均是

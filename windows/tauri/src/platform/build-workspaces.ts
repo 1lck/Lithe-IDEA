@@ -12,12 +12,22 @@ export const windowsBuildWorkspaces = new BuildWorkspaceOwner((path, workspaceID
       resolve: (manifest,entry,modelValues) => resolveWindowsBuildOptions(path,manifest,entry,modelValues),
       save: (entry,id,value,revision,modelValues,signal) => saveWindowsBuildOption(path,entry,id,value,revision,modelValues,signal),
     },
-    runTarget: async (choice, assertCurrent, signal) => {
+    runTarget: async (choice, assertCurrent, signal, debug) => {
       const { useRunStore } = await import("@/features/run/stores/run.store");
       const { useUIState } = await import("@/features/window/stores/ui-state.store");
       assertCurrent();
       const state = useUIState.getState(); state.setBottomPaneActiveTab("run"); state.setIsBottomPaneVisible(true);
-      await useRunStore.getStore(workspaceID).getState().actions.runBuildTarget(path, choice.reference, choice.title, assertCurrent, signal);
+      const actions = useRunStore.getStore(workspaceID).getState().actions;
+      if (debug) {
+        if (!choice.debugConfigurationType) throw new DOMException("Aborted", "AbortError");
+        const { startWindowsBuildProviderDebug } = await import("./build-provider-debug");
+        assertCurrent();
+        await startWindowsBuildProviderDebug({ workspaceId:workspaceID, root:path, name:choice.title,
+          configurationType:choice.debugConfigurationType, assertCurrent, signal,
+          startRun:(options,current,preparationSignal) => actions.runBuildTarget(path,choice.reference,choice.title,assertCurrent,preparationSignal,{options,assertCurrent:current}),
+          stopRun:instance => actions.stop(instance.sessionId,instance.executionId),
+        });
+      } else await actions.runBuildTarget(path, choice.reference, choice.title, assertCurrent, signal);
     },
     scheduleRefresh: refresh => {
       scheduleFileWatcherRefresh(schedulerID, "catalog", refresh);

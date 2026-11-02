@@ -95888,6 +95888,20 @@
       "platforms": [
         "windows"
       ]
+    },
+    {
+      "id": "build.targets.saveAndDebug",
+      "description": "Save a Provider target selector and start Registry connection debugging",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.debug.unavailable",
+      "description": "An installed Registry connection adapter is absent, ambiguous or unsupported",
+      "platforms": [
+        "windows"
+      ]
     }
   ]
 }

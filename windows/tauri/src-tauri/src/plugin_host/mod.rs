@@ -11,6 +11,7 @@
 pub mod build;
 pub mod build_configuration;
 pub mod build_tools;
+pub mod debug;
 pub mod install;
 #[cfg(test)]
 mod install_tests;
@@ -20,11 +21,11 @@ pub mod run_plans;
 pub mod scan;
 pub mod settings;
 pub mod store;
-mod trust;
-mod toolchain_queries;
-pub mod toolchain_preparation;
 #[cfg(test)]
 mod tests;
+pub mod toolchain_preparation;
+mod toolchain_queries;
+mod trust;
 pub mod web;
 
 use serde::Serialize;
@@ -130,7 +131,7 @@ pub struct ScannedPackage {
 #[derive(Default)]
 pub struct PluginHostState {
     scan_lock: Mutex<()>,
-    packages: Mutex<Vec<ScannedPackage>>,
+    packages: Mutex<(u64, Vec<ScannedPackage>)>,
 }
 
 impl PluginHostState {
@@ -151,14 +152,32 @@ impl PluginHostState {
     }
 
     pub fn set_packages(&self, packages: Vec<ScannedPackage>) {
-        *self.packages.lock().expect("plugin host catalog mutex") = packages;
+        let mut snapshot = self.packages.lock().expect("plugin host catalog mutex");
+        snapshot.0 = snapshot
+            .0
+            .checked_add(1)
+            .expect("plugin catalog generation");
+        snapshot.1 = packages;
     }
 
     pub fn packages(&self) -> Vec<ScannedPackage> {
         self.packages
             .lock()
             .expect("plugin host catalog mutex")
+            .1
             .clone()
+    }
+
+    /// Generation and packages are captured under the same publication lock.
+    pub(super) fn snapshot(&self) -> (u64, Vec<ScannedPackage>) {
+        self.packages
+            .lock()
+            .expect("plugin host catalog mutex")
+            .clone()
+    }
+
+    pub(super) fn generation(&self) -> u64 {
+        self.packages.lock().expect("plugin host catalog mutex").0
     }
 }
 

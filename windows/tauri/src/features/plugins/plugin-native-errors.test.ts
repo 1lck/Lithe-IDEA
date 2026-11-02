@@ -14,3 +14,10 @@ test("plugin failures translate normalized host errors without hiding unknown fa
   const unknown = new Error("provider diagnostic");
   expect(translatePluginHostFailure(unknown, () => "unused")).toBe(unknown);
 });
+
+test("Registry Debug failures use localized stable codes",()=>{
+  for(const code of ["plugin.debug.unavailable","plugin.debug.ambiguous","plugin.debug.unsupportedTransport"]){
+    expect((translatePluginHostFailure(code,key=>key) as Error).message).toBe("build.debug.unavailable");
+  }
+  expect((translatePluginHostFailure("plugin.debug.stale",key=>key) as Error).message).toBe("build.errors.inputsChanged");
+});

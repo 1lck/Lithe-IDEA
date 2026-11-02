@@ -9,6 +9,7 @@ import { createStore } from "zustand/vanilla";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { createTranslator } from "@/i18n/locale";
 import { startWindowsBuildProviderRun } from "@/platform/build-provider-run";
+import type { ProviderDebugOptions } from "@/features/debugger/services/build-provider-debug";
 import type { BuildProviderRunHandle } from "../services/build-provider-run-launch";
 import { saveWorkspaceBeforeLaunch } from "@/features/editor/services/save-workspace-before-launch";
 import { createWorkspaceScopedStore } from "@/features/workspace/stores/create-workspace-scoped-store";
@@ -104,6 +105,8 @@ export interface JavaLaunchDecision {
  */
 export type JavaDiscoveryStatus = "idle" | "loading" | "ready" | "stale" | "failed";
 
+export interface ProviderDebugLaunch { options: ProviderDebugOptions; assertCurrent: () => void }
+
 interface RunState {
   root: string | null;
   javaDiscovery: JavaDiscoveryStatus;
@@ -148,7 +151,7 @@ interface RunState {
   globalToolchain: GlobalToolchain;
   effectiveRuntimeExecutablePaths: Record<string, string>;
   actions: {
-    runBuildTarget: (root: string, reference: BuildProviderRunReference, name: string, assertCurrent: () => void, signal?: AbortSignal) => Promise<RunProcessInstance | null>;
+    runBuildTarget: (root: string, reference: BuildProviderRunReference, name: string, assertCurrent: () => void, signal?: AbortSignal, debug?: ProviderDebugLaunch) => Promise<RunProcessInstance | null>;
     loadProject: (root: string) => Promise<void>;
     /**
      * Identifies the project's run entries. `automatic` marks identification
@@ -171,6 +174,7 @@ interface RunState {
       id: string,
       currentFile?: string,
       debugPort?: number,
+      providerDebug?: ProviderDebugLaunch,
     ) => Promise<RunProcessInstance | null>;
     continueJavaLaunch: (sessionId: string, decisionId: string, remember: boolean) => void;
     cancelJavaLaunch: (sessionId: string, decisionId?: string) => void;
@@ -558,12 +562,13 @@ export const createRunStore = (
     globalToolchain: EMPTY_GLOBAL_TOOLCHAIN,
     effectiveRuntimeExecutablePaths: {},
     actions: {
-      runBuildTarget: (root, reference, name, assertCurrent, signal) => {
+      runBuildTarget: (root, reference, name, assertCurrent, signal, debug) => {
         reference = structuredClone(reference);
         const task = (async () => {
           const revision = projectLoadRevision;
           const current = () => {
             signal?.throwIfAborted();
+            debug?.assertCurrent();
             assertCurrent();
             if (revision !== projectLoadRevision || (get().root !== null && get().root !== root)) throw new DOMException("Aborted", "AbortError");
           };
@@ -581,7 +586,7 @@ export const createRunStore = (
             throw new Error(createTranslator(useSettingsStore.getState().settings.displayLanguage)("build.errors.inputsChanged"));
           }
           set({ root, ...readyRunState(snapshot as Extract<RunProjectSnapshot, { status: "ready" }>, id), saveError: null });
-          const running = get().actions.runConfigurationInstance(id);
+          const running = get().actions.runConfigurationInstance(id, undefined, undefined, debug);
           const sessionID = (reference.execution ?? "application") === "service" ? id : PRIMARY_SESSION_ID;
           const executionID = executions.get(sessionID);
           let stopping: Promise<void> | undefined;
@@ -885,7 +890,8 @@ export const createRunStore = (
         return instance?.sessionId ?? null;
       },
 
-      runConfigurationInstance: async (id, currentFile, debugPort) => {
+      runConfigurationInstance: async (id, currentFile, debugPort, providerDebug) => {
+        if (providerDebug) providerDebug = { ...providerDebug, options: structuredClone(providerDebug.options) };
         const state = get();
         const root = state.root;
         const configuration = state.configurations.find((item) => item.id === id);
@@ -1011,7 +1017,11 @@ export const createRunStore = (
             const handle = startProvider({ workspaceId, root, configurationId: configuration.id, name: configuration.name,
               reference: configuration.buildProvider,
               sessionId, executionId,
-              isCurrent, onRevoked: stopPresentation,
+              debug: providerDebug?.options,
+              isCurrent: () => {
+                if (!isCurrent()) return false;
+                try { providerDebug?.assertCurrent(); return true; } catch { return false; }
+              }, onRevoked: stopPresentation,
               onOutput: text => { if (isCurrent()) get().actions.appendOutput(sessionId, text); },
               onReady: launch => {
                 if (!isCurrent()) return;
@@ -1025,6 +1035,7 @@ export const createRunStore = (
             try { await handle.completion; } finally { owned.preparing = false; }
             return isCurrent() ? { sessionId, executionId } : null;
           }
+          if (providerDebug) throw new Error(createTranslator(useSettingsStore.getState().settings.displayLanguage)("build.errors.unsupportedSource"));
           const mavenContext = configurationUsesMaven(configuration)
             ? await dependencies.mavenLaunchContextForWorkspace(root, [], workspaceId)
             : null;

@@ -22,7 +22,40 @@
 | 服务调试 v11 | 已删除本入口的 `runtime: jvm` 与内置 Java attach；协议传递适配器身份、公开配置类型和 `connection` 目标，宿主从当前 Registry 选择并验证配置，跨准备/监听/连接检查包与注册代次。Java Support 自己声明同包 JDT 托管适配器，Maven 仅声明配置类型；真实断点 UI 与发行组合仍待验收。 |
 | 工具选择 | #1581 已实际合并，本分支从已授权的 b87 预集成继续适配最终版本及最新 preview，仍保持 Draft、不合并发布。macOS Build/Provider Run 已接 `toolDefinitions` / `toolchainProviders` 与四层选择；删除新增的 Maven JDK 注册和 Java 准备按 Maven 名字选工具的分支。按 Run 的明确工具选择现已接入两端 adapter，并保留两层继承和显式清空；旧 Maven 明确路径可一次性转移。Windows 已补来源证明和操作内 Provider 查询；项目/全局默认与应用 JDK 联动、Windows 完整产品准入和现有 Java 消费者仍待完成。 |
 | Maven 运行配置与准备任务 | 新 Provider 路径已改为不透明通用选择器：Core 不解释 Maven profile/reactor/framework，提供者拥有语义。准备任务已改为 `buildSystems: 4` 清单的通用用途和适用源码角色，宿主不约定固定任务 ID。自动运行配置已由声明/目标生成 `build.provider` 选择器，独立于 Java 导入，删除 `mavenRunProvider` 字段与 Core 框架名单；快照指纹、目标撤回和用户通用覆盖已接线。旧 Run v2 中可确认的服务/显式任务已保留 ID 转为通用引用并通过两层预检及冲突保护；后续已补 v1、可确认偏好、隐式模块及明确的按 Run 工具转换，当前归属投影已移除 reactor/Wrapper/版本字段；项目/全局默认的动态继承、Windows 旧生产路径与旧 Java 扩展兼容消费者仍待处理。 |
-| SDK 与版本 | 当前分支已整合公开 main 的函数协议 3、源码版本 0.2.0 与 preview@04b1fb848 契约副本，Node 20/Java 8 固定组合 CI 已通过；Build 7～11 增量仍在 Draft、未正式发布。重写 v7 为提供者暂存编辑，保留 8～10 版本及处理器，v11 改为注册表连接目标，正式发行组合仍待验收。只在宿主合并后同步契约副本，正式 SDK 锁定值不变。 |
+| SDK 与版本 | 当前分支已整合公开 main 的函数协议 3、源码版本 0.2.0 与已合并 f64d262c 契约副本，Node 20/Java 8 固定组合 CI 已通过；Build 7～11 增量仍在 Draft、未正式发布。重写 v7 为提供者暂存编辑，保留 8～10 版本及处理器，v11 改为注册表连接目标，正式发行组合仍待验收。只在宿主合并后同步契约副本，正式 SDK 锁定值不变。 |
+
+### 最新固定组合与 Windows Registry Debug 增量（2026-11-02）
+
+宿主 `f51968cf4c3485607ddd278e86baed82a3a69ec4` 的
+[Windows CI 41435122086](https://github.com/1lck/Lithe-IDEA/actions/runs/41435122086)
+全通过，覆盖前端、原生 Rust 与真实 JDT。下载计时产物确认 Project 104 项通过/1 项跳过、
+宿主 394 项通过/3 项跳过、Core 1587 项通过，真实 JDT lane 另有 1587 项通过。
+这是 Windows Build 本机选项/Agent configure 的固定源码证据，不能替代插件完整准入和 GUI。
+
+SDK `3596a4d14bab2f4e19d187a136c8515bfd51eb88` 对该宿主的
+[显式 CI 41435126121](https://github.com/Lithe-IDEA/lithe-plugin-docs/actions/runs/41435126121)
+全通过；Maven `19b6b0103e9bc8c569a3987a09ccd57b69cef966` 使用同一 SDK/宿主的
+[CI 41435128254](https://github.com/Lithe-IDEA/lithe-plugin-maven/actions/runs/41435128254)
+通过两种 Maven/Java 8、真实原生配置、13 步 TypeScript 工作流和现代框架 JDI 场景。
+公开 SDK 契约镜像固定已合并的 `f64d262c48f1ff5ad1778b301138596493a09ad5`，77 文件校验通过；
+正式锁定和发行元数据未改。三个 PR 保持 Draft。
+
+后续 Windows 增量已经接入：按配置类型与可选完整身份选择唯一当前适配器、原生包/设置/
+代次重查、Core 连接绑定、类型化 Provider Run、Build 目标“保存并调试”、stdio 与同包
+语言服务器端口，以及精确 Run/适配器联合清理。缺失/重复、旧 Java 会话、启动输入改变、
+不支持传输均拒绝；取消只撤销本次请求并排空原生确认，不停止共享服务器。
+本机受影响的 Run/Build/LSP/界面 555 项、DAP/生命周期 14 项、稳定错误映射 2 项全通过，
+包含显式确认/取消、注册身份、请求取消确认、Run 退出观察和迟到回执清理。资源复用 33 项、
+i18n 35 项及 TypeScript/生产 bundle 和架构门禁通过。host 的生产/测试编译检查仍只有
+macOS 上既有的两项 Windows API 错误，没有新增错误；不算原生 Windows 通过。
+报告使用 `stage-d-registry-debug-*` 前缀；本批原生 Windows CI 尚未运行，不复用上一提交的通过结果。
+首次将相互隔离的 mock 套件放进一个 Bun 进程出现 Channel 导出失败，按现有 CI 隔离方式
+复验通过；首轮 DOM portal 夹具未挂载，改用已有共享 portal 的局部 spy 后确认/取消均通过。
+保留失败报告，不放宽断言、超时或生产行为。
+
+仍未完成的退出条件：通用项目/全局工具默认和旧默认的动态继承迁移；官方 Windows
+适配器/Build 完整准入与旧 Maven/Java/Agent 生产消费者切换；正式 SDK/插件发行；两端
+完整 GUI 与发行组合验收。连接调试接线缩小了 Windows 缺口，没有完成阶段 D。
 
 ### 通用运行配置生成（2026-11-01）
 

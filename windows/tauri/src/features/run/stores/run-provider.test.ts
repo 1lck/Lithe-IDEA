@@ -82,6 +82,29 @@ test("a numeric debug port cannot silently turn a saved Provider run into an ord
   } finally { await f.close(); }
 }, 5000);
 
+test("a complete Registry selection reaches the saved Provider preparation without the legacy debug port", async () => {
+  const f=fixture(),options={adapterID:"dev.example.debug/remote",configurationType:"engine.remote",
+    target:{kind:"connection" as const,host:"127.0.0.1" as const,port:51235}};
+  const running=f.store.getState().actions.runConfigurationInstance(f.configuration.id,undefined,undefined,{options,assertCurrent:()=>{}});
+  try {
+    await f.entered;options.target.port=59999;const entry=f.entries[0]!;
+    expect(entry.request.debug?.target.port).toBe(51235);expect(entry.request.debug?.adapterID).toBe("dev.example.debug/remote");
+    entry.gate.resolve();expect(await running).toEqual({sessionId:f.configuration.id,executionId:entry.request.executionId});
+    expect(f.legacy).not.toHaveBeenCalled();
+  } finally {await f.close();await running;}
+},5000);
+
+test("adapter revocation invalidates preparation without leaving the owned Run stuck as preparing",async()=>{
+  const f=fixture();let active=true;
+  const running=f.store.getState().actions.runConfigurationInstance(f.configuration.id,undefined,undefined,{options:{adapterID:"dev.example.debug/remote",configurationType:"engine.remote",
+    target:{kind:"connection",host:"127.0.0.1",port:51235}},assertCurrent:()=>{if(!active)throw new DOMException("Aborted","AbortError");}});
+  try {
+    await f.entered;const entry=f.entries[0]!;active=false;expect(entry.request.isCurrent()).toBe(false);
+    entry.gate.reject(new DOMException("Aborted","AbortError"));expect(await running).toBeNull();
+    expect(f.store.getState().sessions[0]).toMatchObject({isRunning:false,isPreparing:false});
+  } finally {await f.close();await running;}
+},5000);
+
 test("exit cleanup failures remain visible and retained for the next Run to retry", async () => {
   const f = fixture(), running = f.store.getState().actions.runConfigurationInstance(f.configuration.id), reported = deferred(), finish = deferred();
   let replacement: Promise<unknown> | undefined;

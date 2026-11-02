@@ -13,6 +13,7 @@ import {
   connectDebugAdapterSession,
   startDebugAdapterSession,
 } from "../api/debug-adapter-host-api";
+import type { RegisteredConnectionPlan } from "./build-provider-debug";
 
 interface DebuggerEventHandlers {
   onMessage?: (payload: DebugProtocolMessage) => void | Promise<void>;
@@ -76,6 +77,31 @@ export async function startConnectedDebugLaunchSession(
   const effectiveCwd = config.cwd ?? workspacePath;
   const session = await connectDebugAdapterSession({ port: adapterPort, workspacePath });
   return initializeDebugLaunchSession(session, config, breakpoints, effectiveCwd, onSessionStarted);
+}
+
+/** Registry defaults/bindings are already checked by Core. Preserve them as
+ * one DAP configuration instead of overlaying the legacy file-launch fields. */
+export async function startRegisteredConnectionDebugSession(
+  plan: RegisteredConnectionPlan, adapterPort: number | undefined, name: string,
+  breakpoints: DebugBreakpoint[], workspacePath: string,
+  onStarted: (session: DebugAdapterSessionInfo) => void, assertCurrent: () => void,
+): Promise<DebugAdapterSessionInfo> {
+  assertCurrent();
+  const identity = { adapterID: plan.adapter.adapterID, disabledCapabilities: plan.adapter.disabledCapabilities, workspacePath };
+  const session = adapterPort === undefined
+    ? await startDebugAdapterSession({ ...identity, command: plan.launch.serverPath, args: plan.launch.serverArgs,
+      env: plan.launch.environment, cwd: workspacePath })
+    : await connectDebugAdapterSession({ ...identity, port: adapterPort });
+  try {
+    onStarted(session); assertCurrent();
+    await syncDebugBreakpoints(session.id, breakpoints); assertCurrent();
+    await sendDebugAdapterRequest(session.id, "attach", { ...plan.arguments, name, type: plan.configurationType, request: "attach" });
+    assertCurrent(); await markDebugSessionReady(session.id); assertCurrent();
+    return session;
+  } catch (error) {
+    await stopDebugAdapterSession(session.id);
+    throw error;
+  }
 }
 
 async function initializeDebugLaunchSession(

@@ -46,6 +46,8 @@ export interface DebuggableFile {
 }
 
 export interface DebugAdapterLaunch {
+  adapterID?: string;
+  disabledCapabilities?: string[];
   command: string;
   args?: string[];
   cwd?: string;
@@ -55,6 +57,8 @@ export interface DebugAdapterLaunch {
 }
 
 export interface DebugAdapterConnectionLaunch {
+  adapterID?: string;
+  disabledCapabilities?: string[];
   port: number;
   workspacePath?: string;
 }

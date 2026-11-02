@@ -29,3 +29,12 @@ test("workspace, missing, ambiguous or truncated project facts expose no Run sel
   expect(buildTargetChoices(manifest, instance, { ...model, truncated: true }, "a")).toEqual([]);
   expect(buildTargetChoices(manifest, instance, { ...model, projects: [...model.projects, model.projects[0]!] }, "a")).toEqual([]);
 });
+
+test("only a service's declared Registry type exposes connection debugging", () => {
+  const declared=structuredClone(manifest) as {buildSystems:Array<{id:string;run:Array<Record<string,unknown>>}>};
+  declared.buildSystems[0]!.run[0]!.debug={configurationType:"engine.remote"};
+  declared.buildSystems[0]!.run[1]!.debug={adapter:"same-package-native"};
+  const choices=buildTargetChoices(declared,instance,model,"a");
+  expect(choices[0]?.debugConfigurationType).toBe("engine.remote");
+  expect(choices[1]?.debugConfigurationType).toBeUndefined();
+});

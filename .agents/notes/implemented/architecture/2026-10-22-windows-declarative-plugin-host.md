@@ -22,6 +22,37 @@ Windows 新增一套契约 v1 声明式插件宿主，与现有 Worker 扩展模
 - 正确做法：新增 Go 语言支持时写契约 `plugin.json` 声明 `languageServers` 和 `executionProviders`，由 Core 展开启动与运行计划。
 - 不要这样做：把主题扩展改写成契约包；为 Worker 扩展桥接一套函数通道冒充 litheFunctions；在宿主里按插件 ID 写 `if` 分支。
 
+### 注册表连接调试的原生交接（阶段 D，完整准入仍关闭）
+
+Build 服务只声明公开配置类型，适配器注册表（Registry，已接受插件声明的当前集合）按类型和
+可选完整身份选出唯一支持 attach 的适配器。Windows 原生端重新核对包来源与签名内容，
+用 Core 的 `debug.adapters.startArguments` 展开连接绑定；不按 Java/Maven 名称拼装参数。
+目录、设置、启动计划和注册代次属于准备快照，跨 Run 准备、目标监听、语言服务器端口及
+DAP（调试适配器协议）连接时重查；同字节重新安装也产生新代次，旧计划因此失效。
+
+Build 目标的“保存并调试”先显式保存选择器，再复用同一 Run store、私有模型和 Native Run
+执行。适配器插件与构建插件分别登记现有进程所有者，两者任一停用都会清理对应调试工作流。
+观察精确 Run 执行身份；退出或替换后停止其适配器，旧退出不会触及新的运行实例。
+Stop、工作区关闭、取消与原生迟到回执都先排空后释放；一个资源停止失败仍尝试另一个，
+保留失败所有者供重试。断点先于 attach 发送，Core 生成的完整参数不被旧文件启动字段覆盖。
+
+stdio 适配器使用平台 plugin-state 下独立的 adapter/workspace 状态，语言服务器托管适配器
+只向同插件、同工作区、同启动输入的共享服务器执行声明命令。旧 Java 会话即使同语言也
+不构成插件归属证明；恢复状态缺少启动证据、设置已经改变或会话替换时拒绝借用。取消只
+撤销这次端口请求并等待 Core 确认，不停止共享服务器。两种 DAP 传输都传入声明的初始化
+适配器身份和禁用能力，连接端点仍限定回环；不开放远程地址或声明式托管 TCP 进程模式。
+
+正确：服务声明配置类型，由已安装适配器提供连接字段路径与启动方式，宿主在每次交接
+重新验证。不要把监听端口直接交给内置 Java attach，或用同语言服务器的存在代替当前
+插件来源；这会绕过停用、安装与参数绑定边界。
+
+这部分代码提供连接调试的产品接线和原生注册表基础，宿主能力表仍不准入 Build/Debug
+插件，官方 Windows Java Support 发行包也尚未接入。因此矩阵保持 partial/pending，
+不将受控适配器、共享 fixture 或 CI 通过当成真实框架断点 UI 验收。
+验证覆盖 `build-provider-debug.test.ts`、`debug-adapter-service.test.ts`、Run 的类型化选择、
+`lsp-core-adapter.test.ts` 的归属/启动输入/取消确认，以及原生共享连接绑定与代次、监听
+取消和 DAP initialize 身份。资源复用与 bundle 只读检查同时执行。
+
 ### 能力声明渐进开放
 
 宿主在 `plugins.declarative.validate` 的 payload 里声明 `hostCapabilities = { languages:[1], languageServers:[1,2], serverProcess:[1], settings:[1,2], ui:[1,2] }`。Core 的 `capabilities.rs` 会拒绝声明了宿主未开放能力的插件，宿主不需要自己写拒绝逻辑。M3 已把 `languageServers` 与 `settings` 提到 2，注册设置页并下推 `workspaceConfiguration`；M4 已增 `ui:[1,2]`。`executionProviders`、`buildProviders` 与 `buildSystems` 仍未开放，运行/测试计划命令的存在不代表这些插件能力可安装。宿主不声明的能力，市场侧按不支持展示。

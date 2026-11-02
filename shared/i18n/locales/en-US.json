@@ -9987,7 +9987,9 @@
     "build.options.reset": "Use inherited value",
     "build.options.resetHint": "Remove this machine’s override and read the team or declared default again.",
     "build.options.conflict": "Build options changed. Reload before saving; your draft has been kept.",
-    "build.options.invalid": "Build options could not be read, saved or verified. Reload before retrying."
+    "build.options.invalid": "Build options could not be read, saved or verified. Reload before retrying.",
+    "build.targets.saveAndDebug": "Save and Debug",
+    "build.debug.unavailable": "A compatible installed debug adapter is unavailable or ambiguous. Enable one matching adapter and reload the project."
   },
   "overrides": {
     "windows": {

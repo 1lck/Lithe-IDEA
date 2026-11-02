@@ -9987,7 +9987,9 @@
     "build.options.reset": "使用继承值",
     "build.options.resetHint": "移除本机覆盖，重新读取团队配置或声明的默认值。",
     "build.options.conflict": "构建选项已更改。请重新加载后保存，草稿已保留。",
-    "build.options.invalid": "无法读取、保存或验证构建选项，请重新加载后重试。"
+    "build.options.invalid": "无法读取、保存或验证构建选项，请重新加载后重试。",
+    "build.targets.saveAndDebug": "保存并调试",
+    "build.debug.unavailable": "已安装的兼容调试适配器不可用，或存在多个匹配项。请启用一个匹配的适配器并重新加载项目。"
   },
   "overrides": {
     "macos": {

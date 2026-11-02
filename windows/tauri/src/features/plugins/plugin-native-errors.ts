@@ -5,6 +5,8 @@ export function translatePluginHostFailure(cause: unknown, translate: (key: stri
   const code = typeof fields?.code === "string" ? fields.code
     : typeof fields?.message === "string" ? fields.message : typeof cause === "string" ? cause : "";
   const key = code.startsWith("toolchain.native.") ? "native.selectedToolchainUnavailable"
+    : code === "plugin.debug.stale" ? "build.errors.inputsChanged"
+    : code.startsWith("plugin.debug.") ? "build.debug.unavailable"
     : code === "plugin.packageSignature.invalid" ? "native.thePluginPackageSignatureIsInvalid" : undefined;
   return key ? Object.assign(new Error(translate(key)), { code, cause }) : cause;
 }

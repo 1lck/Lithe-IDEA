@@ -21,7 +21,7 @@ export interface BuildWorkspaceControllerPorts {
   domain: WindowsBuildProviderWorkspace;
   guard: () => (plugin: string) => void;
   scheduleRefresh?: (refresh: () => Promise<void>) => () => void;
-  runTarget?: (choice: BuildTargetChoice, assertCurrent: () => void, signal: AbortSignal) => Promise<void>;
+  runTarget?: (choice: BuildTargetChoice, assertCurrent: () => void, signal: AbortSignal, debug?: boolean) => Promise<void>;
   options?: {
     resolve: (manifest: Record<string,unknown>,entry: BuildEntry,modelValues?: BuildModel["optionValues"]) => Promise<BuildOptionsResolution>;
     save: (entry: BuildEntry,id: string,value: unknown,revision: string,modelValues: BuildModel["optionValues"] | undefined,signal: AbortSignal) => Promise<BuildOptionsResolution>;
@@ -168,7 +168,7 @@ export class BuildWorkspaceController {
     return this.own(completion);
   }
 
-  runTarget(instance: BuildInstance, choice: BuildTargetChoice, userArguments: string[]) {
+  runTarget(instance: BuildInstance, choice: BuildTargetChoice, userArguments: string[], debug = false) {
     const cancellation = new AbortController();
     if (!this.ports.runTarget) return { completion: Promise.resolve(), cancel: () => {} };
     this.targetPreparations.add(cancellation);
@@ -187,7 +187,7 @@ export class BuildWorkspaceController {
         // Saving selectors triggers a Run-document watcher event. The launch
         // path re-detects and loads a fresh private model after that save; the
         // old UI model lease is needed only before starting persistence.
-        await this.ports.runTarget!({ ...choice, reference: { ...choice.reference, userArguments: [...userArguments] } }, assertCurrent, cancellation.signal);
+        await this.ports.runTarget!({ ...choice, reference: { ...choice.reference, userArguments: [...userArguments] } }, assertCurrent, cancellation.signal, debug);
       } catch (error) {
         if (!this.disposed && revision === this.targetRevision && !(error instanceof DOMException && error.name === "AbortError")) {
           this.publish({ error: error instanceof Error ? error.message : String(error) });

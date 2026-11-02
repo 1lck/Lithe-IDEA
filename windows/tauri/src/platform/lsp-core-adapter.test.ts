@@ -62,6 +62,8 @@ let providerAckGate: Promise<void> | undefined;
 let releaseProviderAck: (() => void) | undefined;
 let providerProgress: unknown[] = [];
 let onCoreCancel: (() => void) | undefined;
+let cancelAckGate: Promise<void> | undefined;
+let releaseCancelAck: (() => void) | undefined;
 let semanticRefreshOnReady = false;
 let eventsAroundReady: { before: unknown[]; after: unknown[] } = { before: [], after: [] };
 let releaseInitialization: (() => void) | undefined;
@@ -411,7 +413,7 @@ const executeCore = mock(
         data: { settingsChanged: true, projectsReloaded: false, profilesUpdating: false },
       };
     }
-    if (request.command === "lsp.cancelOperation") onCoreCancel?.();
+    if (request.command === "lsp.cancelOperation") { onCoreCancel?.(); await cancelAckGate; }
     if (request.command === "lsp.saveDocument") {
       requestPayload = request.payload;
       return { id: request.id, ok: true as const, data: { sent: true } };
@@ -432,6 +434,7 @@ const {
   startCoreBuildProvider,
   stopCoreBuildProvider,
   requestCoreBuildProvider,
+  requestPluginDebugEndpoint,
   LSP_EXPLICITLY_UNAVAILABLE_COMMANDS,
   LSP_OPERATION_BY_COMMAND,
 } = await import("./lsp-core-adapter");
@@ -484,6 +487,8 @@ describe("Rust Core LSP adapter failures", () => {
     releaseProviderAck = undefined;
     providerProgress = [];
     onCoreCancel = undefined;
+    cancelAckGate = undefined;
+    releaseCancelAck = undefined;
     semanticRefreshOnReady = false;
     eventsAroundReady = { before: [], after: [] };
     releaseInitialization = undefined;
@@ -494,6 +499,7 @@ describe("Rust Core LSP adapter failures", () => {
   });
 
   afterEach(async () => {
+    releaseCancelAck?.();
     releaseSemanticResult?.();
     releaseProviderAck?.();
     releaseInitialization?.();
@@ -1695,6 +1701,46 @@ describe("Rust Core LSP adapter failures", () => {
 
   const buildTarget = { workspacePath: "C:/work", pluginId: "dev.example.build", buildSystemId: "example" };
   const buildLaunch = { serverPath: "C:/tools/provider.exe", serverArgs: ["--stdio"], environment: {} };
+
+  test("Registry endpoints execute only the owning plugin's declared language-server command",async()=>{
+    scenario="semantic-request";semanticRequestResult={value:4711};
+    const target={pluginId:"dev.example.debug",languageId:"engine",command:"engine.startRemoteAdapter",workspacePath:"C:/work",launch:buildLaunch};
+    expect(await requestPluginDebugEndpoint(target,()=>{})).toBe(4711);
+    expect(startPayload?.pluginId).toBe(target.pluginId);
+    expect(requestPayload).toMatchObject({operation:"executeCommand",command:{title:target.command,command:target.command,arguments:[]}});
+    expect(commands).not.toContain("lsp.openDocument");expect(commands).not.toContain("lsp.stopServer");
+  },5000);
+
+  test("a language ID shared with a legacy server does not grant Registry ownership",async()=>{
+    scenario="semantic-request";
+    await invokeLsp("lsp_start",{workspacePath:"C:/work",languageId:"java",providerId:"java",serverPath:"fixture.exe"});
+    await expect(requestPluginDebugEndpoint({pluginId:"dev.example.debug",languageId:"java",command:"engine.startRemoteAdapter",workspacePath:"C:/work",launch:buildLaunch},()=>{}))
+      .rejects.toThrow("ownership changed");
+    expect(requestPayload).toBeUndefined();expect(commands).not.toContain("lsp.stopServer");
+  },5000);
+
+  test("changed launch inputs cannot reuse an earlier shared adapter server",async()=>{
+    scenario="semantic-request";semanticRequestResult={value:4711};
+    const target={pluginId:"dev.example.debug",languageId:"engine",command:"engine.startRemoteAdapter",workspacePath:"C:/work",launch:buildLaunch};
+    await requestPluginDebugEndpoint(target,()=>{});const requests=requestPayloads.length;
+    await expect(requestPluginDebugEndpoint({...target,launch:{...buildLaunch,serverArgs:["--different"]}},()=>{})).rejects.toThrow("ownership changed");
+    expect(requestPayloads).toHaveLength(requests);expect(commands).not.toContain("lsp.stopServer");
+  },5000);
+
+  test("Registry endpoint cancellation drains the exact Core acknowledgement and preserves the shared server",async()=>{
+    scenario="semantic-request";const cancellation=new AbortController();
+    semanticResultGate=new Promise<void>(resolve=>{releaseSemanticResult=resolve;});
+    cancelAckGate=new Promise<void>(resolve=>{releaseCancelAck=resolve;});
+    const entered=new Promise<void>(resolve=>{onCoreCancel=resolve;});
+    onSemanticRequest=()=>cancellation.abort();let settled=false;
+    const starting=requestPluginDebugEndpoint({pluginId:"dev.example.debug",languageId:"engine",command:"engine.startRemoteAdapter",workspacePath:"C:/work",launch:buildLaunch},()=>{},cancellation.signal);
+    const outcome=starting.then(()=>{settled=true;return "started";},error=>{settled=true;return error;});
+    try {
+      await entered;expect(settled).toBe(false);releaseCancelAck?.();
+      expect(await outcome).toMatchObject({code:"cancelled"});expect(commands).not.toContain("lsp.stopServer");
+      expect(requestPayload?.sessionId).toBe("java-session");
+    } finally {releaseCancelAck?.();releaseSemanticResult?.();await outcome;}
+  },5000);
 
   test("Build progress and raw results can precede submission acknowledgement without a source file", async () => {
     scenario = "semantic-request";

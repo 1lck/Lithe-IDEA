@@ -442,7 +442,9 @@ async function main() {
       // Agent edit-and-paste state is user-owned runtime data, without a copy stage.
       // editor-theme-assets rebuild palettes and license notices together; no build stamp permits reuse.
       // official-plugin-packages also excludes Windows Build Provider workspace
-      // state under platform app-data. Workspace hashes never admit a copy stage.
+      // and Registry stdio debug-adapter state under platform app-data.
+      // Workspace hashes never admit a copy stage; shared language-server state
+      // is owned by the server, never copied or deleted by a Debug session.
       // Operation-owned toolchain backends keep mutable workspace state beneath
       // the same plugin owner; neither their state nor query facts may be reused.
       if (excludedResources.some((resource) => resource.id === identifier)) {

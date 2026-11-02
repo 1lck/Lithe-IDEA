@@ -227,6 +227,8 @@ fn main() {
                             core::ide_host_paths,
                             diagnostics::preview_diagnostic_bundle,
                             diagnostics::export_diagnostic_bundle,
+                            plugin_host::debug::declarative_plugins_debug_connection_plan,
+                            plugin_host::debug::declarative_plugins_debug_validate_connection,
                             debug::debug_start_session,
                             debug::debug_connect_session,
                             debug::debug_allocate_loopback_port,
