@@ -388,6 +388,46 @@ README/Schema 而漂移失败。记录保留，更新 main 后重新核对，不
 Maven 的 [固定组合 Java 8 CI 41400819604](https://github.com/Lithe-IDEA/lithe-plugin-maven/actions/runs/41400819604)
 继续按其实际结果登记，不以本地 JDK 21 代替。
 
+### 当前取消、工具绑定与三仓库 CI 验收（2026-11-02）
+
+宿主 `e3fea58db` 的 [Windows CI 41401417746](https://github.com/1lck/Lithe-IDEA/actions/runs/41401417746)
+全部通过，实际覆盖窗口取消和本次工具绑定：Project 100 项通过/1 条件跳过，host 394 项
+通过/3 跳过；原生序列化回归也已运行。共享 Core、前端和真实 JDT 同时通过。这轮不
+覆盖下面安装依赖用途修正，后续修正必须有自己的 Windows 结果。
+
+SDK `192efd4` 已整合公开 main 的函数协议 3、0.2.0 源码版本及实际合并的
+`preview@04b1fb848` 契约镜像，保留未发布的 Build 7～11。其 [CI 41401704342](https://github.com/Lithe-IDEA/lithe-plugin-docs/actions/runs/41401704342)
+和固定宿主 `e3fea58db` 的 [CI 41402002857](https://github.com/Lithe-IDEA/lithe-plugin-docs/actions/runs/41402002857)
+全部通过，包含 Node 20、Java 8、Rust 1.87 及六项真实 E2E；本地为 Node 81、Java 61、
+Rust 37 加 1 文档用例。没有将本分支契约提前复制到公开镜像。
+
+Maven `9193bc8` 仅将开发 CI 的 SDK JAR 选择改为 clean 构建后唯一普通工件，拒绝
+缺失、歧义和符号链接，适配 SDK 已合并的 0.2.0 源码版本；不改正式锁定或后端业务。
+固定上述 SDK/宿主的 [Java 8 CI 41402006715](https://github.com/Lithe-IDEA/lithe-plugin-maven/actions/runs/41402006715)
+在 runner Maven 与 Maven 3.6.3 全部通过，runner 还包含真实 Core、Windows TypeScript
+及 Java 17 框架调试。此前 [41400819604](https://github.com/Lithe-IDEA/lithe-plugin-maven/actions/runs/41400819604)
+也已通过。新的实际 SDK 0.2.0 开发包在本机通过 Core→Maven 20 步和 Windows
+TypeScript→Core→Maven 11 步，包字节不变且后端已清理。三个 PR 继续 Draft。
+
+### 工具安装依赖与直接启动用途修正（2026-11-02）
+
+真实 macOS SDK 0.2.0 开发包流程发现直接模板检查误拒绝运行时依赖：JDK 定义可以
+声明启动 entry JAR，而 Maven 只消费其安装目录、版本和环境。两端现在显式区分用途，
+安装依赖不实例化 entry 模板，主程序直接执行继续拒绝当前无法完整传递的模板。
+Windows 不把非直接模板的依赖发布为 `resolvedExecutables`，避免间接丢弃声明参数。
+版本下限、输入身份、项目代码授权和取消仍按原规则校验，没有增加工具名分支或资源目录。
+
+Project crate 100 项逐项计时通过，新增通用工具验证安装依赖只执行版本探测并消费
+声明导出；原有直接模板拒绝仍通过。macOS 50 项行为断言通过，但双 reactor 用例两轮
+分别为 15.267/16.172 秒，超出原 15 秒门槛，失败报告保留。保存原生来源和切换来源改为
+独立工作流测试，各自保留两个 reactor、回读、隔离和进程清理断言。保存使用生产方法
+返回的 Provider 回读，不额外重复 RPC；未修改根按已知夹具内容和实际来源/生效值核对。
+最终两项分别为 9.968/5.379 秒，在原门槛内通过；之前拆分过程中的超时报告也保留，
+不把多轮计时拼成一轮全绿。报告为 `stage-d-installation-use-macos`、
+`stage-d-installation-use-macos-workflows`、`stage-d-installation-use-reactor-bounded` 和
+`stage-d-installation-use-native` 的 HTML/JSON/JUnit。安装包清单和后端清理均通过。
+Windows host 生产/测试编译在 macOS 仍仅两处已有 Windows API 错误，不算原生执行通过。
+
 ### D-MIGRATION-REMOVAL：旧 Maven 数据迁移器清理
 
 这是 #1495 下独立跟踪的删除项，状态为未完成。`MacLegacyMavenConfigurationMigration`

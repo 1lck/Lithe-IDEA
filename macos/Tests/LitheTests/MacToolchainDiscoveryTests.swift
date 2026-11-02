@@ -69,6 +69,27 @@ struct MacToolchainDiscoveryTests {
         #expect(probes.calls.isEmpty)
     }
 
+    @Test func installationDependenciesConsumeExportsWithoutInstantiatingAnEntryRecipe() async throws {
+        let root = try DiscoveryFixtureRoot()
+        defer { root.remove() }
+        let home = try root.installation("home/Kits/runtime.kit/Contents/Home")
+        let probes = DiscoveryProbes(outputs: [home + "/bin/compiler": "compiler 21"])
+        var manifest = try #require(JSONSerialization.jsonObject(with: Self.manifest()) as? [String: Any])
+        var definitions = try #require(manifest["toolDefinitions"] as? [[String: Any]])
+        definitions[0]["launch"] = ["${executable}", "${runtimeArguments}", "-jar", "${entry}", "${arguments}"]
+        definitions[0]["exports"] = [["name": "COMPILER_HOME", "value": "${home}"]]
+        manifest["toolDefinitions"] = definitions
+        let source = ToolchainSettingsPluginSource(pluginID: Self.pluginID, name: "Runtime",
+            manifest: try JSONSerialization.data(withJSONObject: manifest), isEnabled: true, verifiedOfficial: true)
+        let selected = try await discovery(root: root, probes: probes).resolve(
+            .init(workspace: root.url("workspace"), sources: [source], environment: [:]), tool: "compiler",
+            directory: ".", minimumVersion: "17", local: .object(["version": .number(1), "toolchains": .object([:])]),
+            projectCodeAllowed: false, requiresDirectLaunch: false)
+        #expect(selected?.version == "21")
+        #expect(selected?.environment["COMPILER_HOME"] == home)
+        #expect(probes.calls == [.init(executable: home + "/bin/compiler", arguments: ["--version"])])
+    }
+
     @Test func scannedHomesAreCheckedProbedAndTheHighestVersionIsSelected() async throws {
         let root = try DiscoveryFixtureRoot()
         defer { root.remove() }

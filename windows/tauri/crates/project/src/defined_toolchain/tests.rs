@@ -197,6 +197,30 @@ fn unsupported_launch_templates_are_refused_without_probing_or_dropping_argument
     }
 }
 
+#[test]
+fn an_installation_dependency_consumes_exports_without_instantiating_its_entry_recipe() {
+    let mut fixture = Fixture::new();
+    let home = fixture.install("runtime");
+    fixture.pin(".", &home);
+    fixture.registry["plugins"][0]["manifest"]["toolDefinitions"][0]["launch"] = json!([
+        "${executable}",
+        "${runtimeArguments}",
+        "-jar",
+        "${entry}",
+        "${arguments}"
+    ]);
+    let mut request = fixture.request();
+    request.requires_direct_launch = false;
+    let selected = resolve(request, |_, arguments, _, _| {
+        assert_eq!(arguments, ["--version"]);
+        Ok("compiler 21".into())
+    })
+    .unwrap()
+    .unwrap();
+    assert_eq!(selected.environment["FIXTURE_HOME"], native_path(&home));
+    assert_eq!(selected.version.as_deref(), Some("21"));
+}
+
 struct Fixture {
     root: PathBuf,
     workspace: PathBuf,
@@ -275,6 +299,7 @@ impl Fixture {
             environment: &self.environment,
             minimum_version: Some("17"),
             project_code_allowed: false,
+            requires_direct_launch: true,
             fixed: None,
         }
     }

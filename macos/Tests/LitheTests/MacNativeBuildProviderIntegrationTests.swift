@@ -251,7 +251,17 @@ struct MacNativeBuildProviderIntegrationTests {
 
     @Test(.enabled(if: ProcessInfo.processInfo.environment["LITHE_STAGE_D_MAVEN_PACKAGE"] != nil,
                    "Requires the stage D native-configuration development package"))
-    func nativeSettingsStayIndependentAcrossReactorRoots() async throws {
+    func savingNativeSettingsKeepsTheOtherReactorIndependent() async throws {
+        try await nativeSettingsStayIndependentAcrossReactorRoots(replaceSource: false)
+    }
+
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["LITHE_STAGE_D_MAVEN_PACKAGE"] != nil,
+                   "Requires the stage D native-configuration development package"))
+    func replacingNativeSettingsSourceKeepsTheOtherReactorIndependent() async throws {
+        try await nativeSettingsStayIndependentAcrossReactorRoots(replaceSource: true)
+    }
+
+    private func nativeSettingsStayIndependentAcrossReactorRoots(replaceSource: Bool) async throws {
         let environment = ProcessInfo.processInfo.environment
         let package = URL(fileURLWithPath: try #require(environment["LITHE_STAGE_D_MAVEN_PACKAGE"]))
         let java = URL(fileURLWithPath: try #require(environment["LITHE_STAGE_C_JAVA"]))
@@ -333,27 +343,35 @@ struct MacNativeBuildProviderIntegrationTests {
             build.reset(workspaceURL: workspace)
             _ = try await build.prepareLanguageImport(workspaceURL: workspace)
             #expect(build.entries.map(\.id) == ["maven:a", "maven:b"])
-            let firstA = try await build.readNativeConfiguration("maven:a")
-            let firstB = try await build.readNativeConfiguration("maven:b")
-            let userA = try #require(firstA.sources.first { $0.id == "user" })
-            let userB = try #require(firstB.sources.first { $0.id == "user" })
-            #expect(userA.uri == a.absoluteString)
+            // Saving a source and selecting another source are independent
+            // workflows. Each keeps both reactors live but owns one mutation,
+            // without reading an unchanged fixture through Maven twice.
+            if replaceSource {
+                let originalA = try Data(contentsOf: a)
+                _ = try build.configureOption("maven:a", optionID: "settingsFile", value: .string(replacement.path))
+                _ = try await build.prepareLanguageImport(workspaceURL: workspace)
+                let changedA = try await build.readNativeConfiguration("maven:a")
+                #expect(changedA.sources.first { $0.id == "user" }?.uri == replacement.absoluteString)
+                #expect(try Data(contentsOf: a) == originalA)
+            } else {
+                let firstA = try await build.readNativeConfiguration("maven:a")
+                let userA = try #require(firstA.sources.first { $0.id == "user" })
+                #expect(userA.uri == a.absoluteString)
+                let savedPath = scratch.appendingPathComponent("saved-a-repository").path
+                // The production save already reads back from the provider.
+                let changedA = try await build.saveNativeConfiguration("maven:a", snapshot: firstA,
+                    edits: BuildNativeConfigurationEdits(sourceID: userA.id, revision: userA.revision,
+                        values: ["localRepository": .string(savedPath)]))
+                #expect(changedA.sources.first { $0.id == "user" }?.fields.first { $0.id == "localRepository" }?.effectiveValue == .string(savedPath))
+            }
+            let unchangedB = try await build.readNativeConfiguration("maven:b")
+            let userB = try #require(unchangedB.sources.first { $0.id == "user" })
             #expect(userB.uri == b.absoluteString)
+            #expect(userB.fields.first { $0.id == "localRepository" }?.effectiveValue
+                == .string(scratch.appendingPathComponent("b-repository").path))
             #expect(userB.fields.first { $0.id == "activeProfiles" }?.effectiveValue
                 == .array([.string(try #require(MacToolchainDiscovery.realpath(javaHome.path)))]))
-            let savedPath = scratch.appendingPathComponent("saved-a-repository").path
-            _ = try await build.saveNativeConfiguration("maven:a", snapshot: firstA,
-                edits: BuildNativeConfigurationEdits(sourceID: userA.id, revision: userA.revision,
-                    values: ["localRepository": .string(savedPath)]))
-            let freshB = try await build.readNativeConfiguration("maven:b")
-            #expect(freshB.sources.first { $0.id == "user" } == userB)
             #expect(try String(contentsOf: b, encoding: .utf8) == bSettings)
-            _ = try build.configureOption("maven:a", optionID: "settingsFile", value: .string(replacement.path))
-            _ = try await build.prepareLanguageImport(workspaceURL: workspace)
-            let changedA = try await build.readNativeConfiguration("maven:a")
-            let unchangedB = try await build.readNativeConfiguration("maven:b")
-            #expect(changedA.sources.first { $0.id == "user" }?.uri == replacement.absoluteString)
-            #expect(unchangedB.sources.first { $0.id == "user" } == userB)
             #expect(try options.instanceOptions(workspaceURL: workspace, buildSystemID: "maven")["b"]?["settingsFile"] == .string(b.path))
             #expect(!files.fileExists(atPath: workspace.appendingPathComponent("a/target").path))
             #expect(!files.fileExists(atPath: workspace.appendingPathComponent("b/target").path))

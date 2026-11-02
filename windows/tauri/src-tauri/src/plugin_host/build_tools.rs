@@ -97,17 +97,17 @@ pub async fn declarative_plugins_build_tool(
                 fallback = json!([{"kind":"toolchain","toolchainID":if id == "java" { "project-jdk".to_string() } else { format!("project-{id}") }}]);
                 &fallback
             } else { &dependency["executables"] };
-            resolver.prepare_definitions(candidates, dependency, &defined_context, &mut queries)?;
+            resolver.prepare_definitions(candidates, dependency, &defined_context, &mut queries, false)?;
             let selected = resolver.select_checked(candidates, |selected| check_version(&package.manifest, &build_system_id, Some(id), dependency, selected, &workspace_state, check_versions))?;
             resolver.add_runtime(id, selected)?;
         }
-        resolver.prepare_definitions(&invocation["executables"], invocation, &defined_context, &mut queries)?;
+        resolver.prepare_definitions(&invocation["executables"], invocation, &defined_context, &mut queries, true)?;
         current()?;
         let selected = resolver.select_checked(&invocation["executables"], |selected| check_version(&package.manifest, &build_system_id, None, invocation, selected, &workspace_state, check_versions))?;
         let environment = selected.environment;
         let native_inputs: BTreeMap<_,_> = resolver.definitions.iter().filter_map(|(id, selected)|
             selected.definition_identity.as_ref().map(|identity| (id,identity))).collect();
-        let resolved_executables = resolver.resolved_executables()?;
+        let resolved_executables = resolver.resolved_executables(&normalized_tools["registry"])?;
         Ok(BuildToolContext { manifest:package.manifest, plugin_directory: package.root.to_string_lossy().into_owned(),
             identity: json!({"globalSettings":layers.global,"projectSettings":layers.project,"toolchain":choices["toolchain"],
                 "toolDefinitions":tool_registry,"definedToolInputs":native_inputs,"runTools":choices["definedTools"]}),
@@ -150,10 +150,16 @@ struct DefinitionContext<'a> {
 }
 
 impl Resolver<'_> {
-    fn resolved_executables(&self) -> Result<BTreeMap<String, String>, String> {
+    fn resolved_executables(&self, registry: &Value) -> Result<BTreeMap<String, String>, String> {
         let mut bindings = BTreeMap::new();
         for (key, selected) in &self.definitions {
             let (id, _) = key.split_once('\n').ok_or("toolchain.native.unavailable")?;
+            let definition = registry["definitions"].as_array().into_iter().flatten()
+                .find(|entry| entry["definition"]["id"] == id).map(|entry| &entry["definition"])
+                .ok_or("toolchain.native.unavailable")?;
+            // A dependency recipe is not a direct executable binding. Its
+            // installation exports can be consumed without dropping that recipe.
+            if definition["launch"] != json!(["${executable}", "${arguments}"]) { continue; }
             let path = selected.path.to_string_lossy().into_owned();
             if bindings
                 .insert(id.into(), path.clone())
@@ -172,6 +178,7 @@ impl Resolver<'_> {
         declaration: &Value,
         context: &DefinitionContext<'_>,
         queries: &mut super::toolchain_queries::Queries<'_>,
+        requires_direct_launch: bool,
     ) -> Result<(), String> {
         for candidate in candidates
             .as_array()
@@ -211,6 +218,7 @@ impl Resolver<'_> {
                     environment: &environment,
                     minimum_version: declaration["minimumVersion"].as_str(),
                     project_code_allowed: context.explicit,
+                    requires_direct_launch,
                     fixed: context.selections.get(id),
                 },
                 |path, arguments, environment, deadline| {
@@ -519,6 +527,10 @@ mod tests {
         let choices = json!({});
         let selected = fixture.file("kit/build.cmd");
         let other = fixture.file("other/build.cmd");
+        let registry = json!({"definitions":[
+            {"definition":{"id":"dev.example.tools:builder","launch":["${executable}","${arguments}"]}},
+            {"definition":{"id":"dev.example.tools:runtime","launch":["${executable}","-jar","${entry}","${arguments}"]}}
+        ]});
         let mut resolver = Resolver {
             workspace: &workspace,
             root: ".",
@@ -538,8 +550,9 @@ mod tests {
             "dev.example.tools:builder\n.".into(),
             selection(selected.clone()),
         );
+        resolver.definitions.insert("dev.example.tools:runtime\n.".into(), selection(selected.clone()));
         assert_eq!(
-            resolver.resolved_executables().unwrap(),
+            resolver.resolved_executables(&registry).unwrap(),
             BTreeMap::from([(
                 "dev.example.tools:builder".into(),
                 selected.to_string_lossy().into_owned()
@@ -548,7 +561,7 @@ mod tests {
         resolver
             .definitions
             .insert("dev.example.tools:builder\nother".into(), selection(other));
-        assert!(resolver.resolved_executables().is_err());
+        assert!(resolver.resolved_executables(&registry).is_err());
     }
     struct Fixture(PathBuf);
     impl Fixture {

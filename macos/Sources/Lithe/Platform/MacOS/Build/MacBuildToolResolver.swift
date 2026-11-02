@@ -140,7 +140,7 @@ final class MacBuildToolResolver: BuildToolResolving {
     private func preparedResolver(
         _ runtimes: [String: URL], candidates: [ExecutableCandidate], workspaceURL: URL,
         environment: [String: String], minimumVersion: String? = nil,
-        selections: [String: FixedToolchainSelection] = [:]
+        selections: [String: FixedToolchainSelection] = [:], use: DefinedToolchainUse = .executable
     ) async throws -> ExecutableCandidateResolver {
         var definitions: [String: ExecutableResolution] = [:]
         for candidate in candidates {
@@ -152,7 +152,7 @@ final class MacBuildToolResolver: BuildToolResolving {
             guard case .toolchain(let id, let root) = candidate, !toolchains.contains(identifier: id) else { continue }
             guard registry?.contains(workspaceURL) != true, let definedTools,
                   let selected = try await definedTools.resolve(tool: id, directory: root, workspace: workspaceURL,
-                      environment: environment, minimumVersion: minimumVersion, projectCodeAllowed: true, fixed: selections[id]) else {
+                      environment: environment, minimumVersion: minimumVersion, projectCodeAllowed: true, fixed: selections[id], use: use) else {
                 throw BuildToolResolutionError(L10n.string("The selected toolchain is unavailable."), terminal: true)
             }
             definitions[id + "\n" + root] = .resolved([.init(url: selected.executable,
@@ -287,7 +287,7 @@ final class MacBuildToolResolver: BuildToolResolving {
             : dependency.executables
         let resolver = try await preparedResolver(javaHome.map { ["java": $0.appendingPathComponent("bin/java")] } ?? [:],
             candidates: sources, workspaceURL: workspaceURL, environment: environment, minimumVersion: dependency.minimumVersion,
-            selections: invocation.toolSelections)
+            selections: invocation.toolSelections, use: .installation)
         var problems: [String] = []
         for source in sources {
             switch resolver.resolve(source, workspaceURL: workspaceURL, environment: environment, environmentInputs: invocation.environmentInputs) {

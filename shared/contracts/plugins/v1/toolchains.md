@@ -12,10 +12,12 @@ whole snapshot. Nothing is saved by these pages. The pinned Stage D integration
 adds a separate fresh-resolution adapter for macOS Build and Provider Run;
 settings detections are never used as launch permits. Existing Java and
 language-server consumers still use their previous adapters. Windows now has
-native Build plumbing for directory pins, declared scans and shell candidates;
-provider queries are not connected. Publisher signatures now provide independent
-origin evidence when present; legacy unsigned records never do. Product capability
-admission remains closed.
+native Build plumbing for directory pins, declared scans, shell candidates and
+operation-owned provider queries through Core's LSP transport. A window-bound
+cancellation owner covers preparation and backend cleanup; this does not provide
+a general background services host. Publisher signatures provide independent
+origin evidence when present; legacy unsigned records never do. Windows product
+capability admission remains closed.
 The [broader proposal](proposals/toolchains/README.md) still describes unsupported
 consumer migration, native lifecycle, persistence and manager-plugin work.
 The active shape is [plugin-manifest.schema.json](plugin-manifest.schema.json),
@@ -56,12 +58,15 @@ execution. Short definition IDs require independently verified official origin;
 community definitions use `<own-plugin-id>:<local-id>`. Community providers may
 answer short IDs. No host-owned tool table, name alias or manager parser is added.
 
-The native Build consumers currently accept only the direct launch template
-`["${executable}", "${arguments}"]`: their tool context carries a program and
-separate Build arguments. A definition with extra flags or `${home}` launch tokens
-is refused before probing, rather than silently dropping its template. The full
-manifest grammar remains valid for other/future consumers; settings discovery
-alone does not promise that a consumer can launch every template.
+A native Build consumer that directly executes a tool currently accepts only
+`["${executable}", "${arguments}"]`: its tool context carries a program and
+separate Build arguments. Extra launch flags or `${home}` tokens are refused
+before probing, rather than dropped. An installation dependency instead consumes
+checked version evidence and declared exports; it does not instantiate the tool's
+entry-launch recipe. For example a runtime can declare a JAR recipe while a build
+engine consumes only that runtime's installation and environment. Such a dependency
+is not published as a direct executable binding. Entry processes continue to use
+their own declared process recipe; supporting more direct templates remains pending.
 
 ## Two installation routes
 

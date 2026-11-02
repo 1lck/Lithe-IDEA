@@ -10,7 +10,7 @@ extension MacToolchainDiscovery {
     /// four layers. Extra homes contribute probe evidence, never automatic candidates.
     func resolve(_ request: Request, tool: String, directory: String, minimumVersion: String?,
                  local: ToolingJSONValue, projectCodeAllowed: Bool,
-                 fixed: FixedToolchainSelection? = nil) async throws -> Selection? {
+                 fixed: FixedToolchainSelection? = nil, requiresDirectLaunch: Bool = true) async throws -> Selection? {
         let plugins: [[String: Any]] = request.sources.filter(\.isEnabled).compactMap { source in
             guard let manifest = try? JSONSerialization.jsonObject(with: source.manifest) as? [String: Any],
                   manifest["toolDefinitions"] != nil || manifest["toolchainProviders"] != nil else { return nil }
@@ -67,7 +67,7 @@ extension MacToolchainDiscovery {
         guard let declaration = entry?["definition"] as? [String: Any] else { throw Self.unavailable() }
         // Build's current tool context transports a program, not a template argv.
         // Dropping declared wrapper flags would change the plugin's semantics.
-        guard declaration["launch"] as? [String] == ["${executable}", "${arguments}"] else { throw Self.unavailable() }
+        guard !requiresDirectLaunch || declaration["launch"] as? [String] == ["${executable}", "${arguments}"] else { throw Self.unavailable() }
         let layouts = (definition["executableLayouts"] as? [[String: Any]] ?? []).filter(Self.applies)
             .compactMap { $0["path"] as? String }
         var commandHomes: [String: String] = [:]

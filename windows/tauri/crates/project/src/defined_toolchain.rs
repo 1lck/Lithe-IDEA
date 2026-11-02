@@ -26,6 +26,9 @@ pub struct Request<'a> {
     pub environment: &'a BTreeMap<String, String>,
     pub minimum_version: Option<&'a str>,
     pub project_code_allowed: bool,
+    /// Installation dependencies consume native exports and version evidence,
+    /// without instantiating the tool's entry-launch recipe.
+    pub requires_direct_launch: bool,
     /// Inert choice from the current Run, scoped to this operation only.
     pub fixed: Option<&'a Value>,
 }
@@ -218,7 +221,9 @@ pub fn resolve_current(
         .ok_or(INVALID)?;
     // Build's current tool context carries a program, not a template argv.
     // Refuse unsupported templates instead of silently dropping declared flags.
-    if definition["launch"] != json!(["${executable}", "${arguments}"]) {
+    if request.requires_direct_launch
+        && definition["launch"] != json!(["${executable}", "${arguments}"])
+    {
         return Err("toolchain.native.unsupportedLaunch".into());
     }
     let local_path = workspace.join(".lithe/toolchains/local.json");
