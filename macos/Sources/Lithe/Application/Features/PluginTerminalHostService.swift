@@ -64,6 +64,7 @@ final class PluginTerminalHostService: PluginHostServiceHandling {
         var generation = 1
         var runToken = UUID()
         var starting = false
+        var retirement: Task<Void, Never>?
         var subscriptions: [String: PluginHostSubscriptions] = [:]
         init(_ call: PluginHostCall, context: PluginWorkspaceContextReference) {
             pluginID = call.pluginID; sessionID = call.sessionID; self.context = context
@@ -98,7 +99,7 @@ final class PluginTerminalHostService: PluginHostServiceHandling {
             }
             switch method {
             case "show":
-                guard let access = entry.access else {
+                guard entry.exit == nil, let access = entry.access else {
                     throw PluginHostServiceError(.preconditionFailed, L10n.string("The plugin terminal is closed. Reopen it first."))
                 }
                 try access.show()
@@ -111,10 +112,12 @@ final class PluginTerminalHostService: PluginHostServiceHandling {
                 defer { entry.busy = false }
                 if let access = entry.access { entry.history = access.displayText(maximumBytes: bytes) }
                 else { entry.history = Self.suffix(entry.history, bytes: bytes) }
+                let needsExitNotification = entry.exit == nil
                 finish(entry, id: id, exit: .init(code: nil, reason: "closed"))
                 await entry.access?.close()
                 if let access = entry.access { entry.history = access.displayText(maximumBytes: bytes) }
                 entry.access = nil
+                if needsExitNotification, entry.live, let exit = entry.exit { publish(entry, id: id, exit: exit) }
                 return .success(.object(["retainedContextBytes": .integer(entry.history.utf8.count)]))
             case "reopen":
                 guard !entry.busy else { throw busy }
@@ -124,7 +127,10 @@ final class PluginTerminalHostService: PluginHostServiceHandling {
                 guard let window = scope.window as? any PluginTerminalWindowPort else { throw PluginHostArguments.invalid }
                 launch.show = try args.bool("show", default: true)
                 entry.busy = true
-                defer { entry.busy = false }
+                defer {
+                    entry.busy = false
+                    retireExitedTerminal(entry, id: id)
+                }
                 if let access = entry.access {
                     entry.history = access.displayText(maximumBytes: launch.retainedContextBytes)
                     await access.close()
@@ -153,7 +159,6 @@ final class PluginTerminalHostService: PluginHostServiceHandling {
                     } catch { await access.close(); entry.access = nil; throw error }
                     if let exit = access.exit { finish(entry, id: id, exit: exit) }
                     entry.starting = false
-                    if let exit = entry.exit { publish(entry, id: id, exit: exit) }
                     return .success(.object(["terminalID": .string(id), "generation": .integer(generation),
                                              "restoredContextBytes": .integer(entry.history.utf8.count)]))
                 } catch {
@@ -201,7 +206,10 @@ final class PluginTerminalHostService: PluginHostServiceHandling {
         entry.busy = true
         entry.starting = true
         entries[id] = entry
-        defer { entry.busy = false }
+        defer {
+            entry.busy = false
+            retireExitedTerminal(entry, id: id)
+        }
         do {
             let token = entry.runToken
             let access = try await window.hostCreatePluginTerminal(launch) { [weak self, weak entry] exit in
@@ -300,7 +308,24 @@ final class PluginTerminalHostService: PluginHostServiceHandling {
     private func finish(_ entry: Entry, id: String, exit: PluginTerminalExit) {
         guard entry.exit == nil else { return }
         entry.exit = exit
-        if !entry.starting { publish(entry, id: id, exit: exit) }
+        retireExitedTerminal(entry, id: id)
+    }
+
+    /// Native tab closure and natural exit must release the renderer just like
+    /// an API close. Keep the handle busy until process cleanup and its bounded
+    /// snapshot finish, so reopen cannot race the previous native session.
+    private func retireExitedTerminal(_ entry: Entry, id: String) {
+        guard entry.live, !entry.starting, !entry.busy, entry.retirement == nil,
+              let exit = entry.exit, let access = entry.access else { return }
+        entry.busy = true
+        entry.retirement = Task { @MainActor [weak self] in
+            await access.close()
+            entry.history = access.displayText(maximumBytes: entry.live ? entry.launch?.retainedContextBytes ?? 0 : 0)
+            entry.access = nil
+            entry.retirement = nil
+            entry.busy = false
+            if entry.live { self?.publish(entry, id: id, exit: exit) }
+        }
     }
 
     private func publish(_ entry: Entry, id: String, exit: PluginTerminalExit) {
@@ -322,7 +347,10 @@ final class PluginTerminalHostService: PluginHostServiceHandling {
     private func remove(where matches: (Entry) -> Bool) {
         for (id, entry) in entries where matches(entry) {
             entries[id] = nil; entry.live = false
+            entry.history = ""; entry.launch = nil
+            if entry.retirement != nil { continue }
             guard let access = entry.access else { continue }
+            entry.access = nil
             let key = UUID()
             cleanup[key] = Task { @MainActor [weak self] in
                 await access.close()

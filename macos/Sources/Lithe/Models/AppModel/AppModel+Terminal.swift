@@ -39,9 +39,9 @@ extension AppModel {
         sessions(orderedBy: terminalPlacementFeature.editorSessionIDs)
     }
     var activeToolTerminalSession: TerminalSession? {
+        guard let activeTerminalSessionID else { return nil }
         let toolSessions = toolTerminalSessions
-        if let activeTerminalSessionID,
-           let activeSession = toolSessions.first(where: { $0.id == activeTerminalSessionID }) {
+        if let activeSession = toolSessions.first(where: { $0.id == activeTerminalSessionID }) {
             return activeSession
         }
         return toolSessions.first

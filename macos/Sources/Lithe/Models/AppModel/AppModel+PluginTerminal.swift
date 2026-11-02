@@ -13,12 +13,18 @@ extension AppModel: PluginTerminalWindowPort {
               services.remoteConnections?.workspaces.contains(identity.url) != true else {
             throw PluginHostError.remoteWorkspaceUnsupported
         }
-        let invocation = String(data: try JSONEncoder().encode([request.executable] + request.arguments), encoding: .utf8) ?? ""
+        // JSON preserves argument boundaries and escapes control characters;
+        // the native text viewport lets the user inspect the entire launch.
+        let program = String(data: try JSONEncoder().encode(request.executable), encoding: .utf8) ?? ""
+        let directoryPath = String(data: try JSONEncoder().encode(request.workingDirectory.path), encoding: .utf8) ?? ""
+        let arguments = String(data: try JSONEncoder().encode(request.arguments), encoding: .utf8) ?? ""
         let outcome = await hostMessages.present(PluginHostMessageEntry(
             id: UUID(), pluginID: request.pluginID, pluginName: request.pluginID, severity: .warning,
-            text: String(format: L10n.string("Allow “%@” to open a terminal?"), request.pluginID)
-                + "\n\n" + invocation + "\n" + request.workingDirectory.path,
-            actions: [L10n.string("Allow"), L10n.string("Don’t Allow")], workspaceGeneration: identity.generation
+            text: String(format: L10n.string("Allow “%@” to open a terminal?"), request.pluginID),
+            actions: [L10n.string("Allow"), L10n.string("Don’t Allow")], workspaceGeneration: identity.generation,
+            details: L10n.string("Program") + "\n" + program + "\n\n"
+                + L10n.string("Working directory") + "\n" + directoryPath + "\n\n"
+                + L10n.string("Arguments") + "\n" + arguments
         ))
         try Task.checkCancellation()
         guard currentWorkspaceIdentity == identity else { throw PluginHostError.workspaceChanged }
@@ -42,7 +48,7 @@ extension AppModel: PluginTerminalWindowPort {
             initialDisplayText: request.displayHistory
         )
         let created = try await feature.createProcessSessionAsync(launch, workspaceURL: identity.url,
-            showsWorkbenchBackground: workbenchBackgroundFeature.hasImage)
+            showsWorkbenchBackground: workbenchBackgroundFeature.hasImage, selectsSession: request.show)
         let session = created.session
         do {
             try Task.checkCancellation()
@@ -53,7 +59,6 @@ extension AppModel: PluginTerminalWindowPort {
             throw error
         }
         configureInteractiveTerminalSession(session)
-        terminalPlacementFeature.registerSession(session.id)
         let access = AppPluginTerminalSession(model: self, session: session, onExit: onExit)
         if request.show { try access.show() }
         return access
@@ -91,6 +96,9 @@ private final class AppPluginTerminalSession: PluginTerminalSessionAccess {
             throw PluginHostServiceError(.notFound, L10n.string("The plugin terminal does not exist."))
         }
         // Selecting a tab in its own window never raises a background window.
+        // Background launches remain unmounted until explicitly shown, including
+        // when the only existing selection belongs to the editor area.
+        model.terminalPlacementFeature.registerSession(session.id)
         model.revealTerminalSession(session.id)
     }
 

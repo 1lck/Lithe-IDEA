@@ -3002,10 +3002,14 @@ it, the workspace root is used. The native adapter rejects a canonical cwd
 outside that workspace. `environment` maps variable names to string overrides
 or `null` removals. Process-ownership scope variables cannot be overridden.
 `show` defaults to true; it selects the terminal in its own window without
-raising a background window. Unknown options fail before any side effect.
+raising a background window. With `show:false`, creation and reopening preserve
+the current terminal selection and do not reveal the terminal panel or request
+input focus; the native tab is mounted when the plugin explicitly calls `show`.
+Unknown options fail before any side effect.
 
 Creation and reopening ask for execution consent with the program, argv and
-working directory, then revalidate context and cancellation before launching
+working directory, all available in a scrollable, selectable native text view,
+then revalidate context and cancellation before launching
 through the existing PTY terminal module. The response waits for user choice
 without a machine-operation deadline, but cancellation/session/context closure
 still ends it. Native launch and process cleanup retain their own bounds.
@@ -3044,6 +3048,12 @@ the snapshot is bounded by the same budget. It keeps `terminalID` and increments
 `generation`; late exit callbacks of previous generations are ignored. These
 handles/history exist only in memory, not across app/backend restart or
 workspace close. No state is written to the app bundle or plugin package.
+
+Natural exit and user tab close run the same bounded native cleanup before
+retaining the budgeted snapshot and releasing the complete native session and
+render buffer. The handle is `busy` during cleanup; its exit notification is
+sent after cleanup, so a subscriber can reopen immediately. A zero-byte budget
+retains no display text on any close or exit path.
 
 `dispose` closes any live process and permanently forgets the launch settings
 and history. Ending the backend session, disabling/updating the plugin or

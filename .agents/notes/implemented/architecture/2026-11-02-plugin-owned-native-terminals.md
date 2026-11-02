@@ -20,6 +20,8 @@ Docker 插件需要一键进入容器，但公共 API 计划中的 API-24 只有
 - 新权限 `terminal.create` 展开成具体方法授权，要求 `backend:2`。Web 页面调用插件自己的函数，后端拿本次调用的工作区上下文请求宿主；不从全局焦点猜窗口。
 - `PluginTerminalHostService` 负责句柄、权限之后的归属检查、参数预算和生命周期。`AppModel+PluginTerminal` 把请求适配到既有 `TerminalFeatureModel`；`MacTerminalTransport` 继续拥有实际 PTY 和渲染。
 - 启动参数保持 executable/argv 分离，cwd 是工作区目录资源；原生层校验 canonical cwd 不越界。执行前显示可取消确认，等待期间切工作区、停用插件或取消都不能继续启动。
+- 执行确认把完整程序、参数数组和工作目录放入只读的原生文本视口，支持滚动、选择与复制；用 JSON 转义区分参数边界和控制字符。不能把执行详情塞进限制八行的普通通知正文，否则长参数会遮住后续参数和目录。文本布局与可见字形绘制由 TextKit 负责，不随滚动重建全量控件。
+- `show:false` 在创建与重开时都保留原有活动终端，不挂载标签、不显示面板或请求输入焦点；后续显式 show 才注册标签并选择新终端。否则仅有编辑器区域终端时，工具区域会把新标签当成默认显示项。终端模块创建入口显式接收选择选项，不依赖创建后再切回旧标签。
 - 首版仅本机 macOS。远程 authority 显式拒绝，Windows 未注册 handler，也不宣传已经支持。SDK 的 Node、Java、Rust 封装保留能力发现与旧宿主不可用语义。
 
 ### 终端身份与资源寿命
@@ -27,6 +29,10 @@ Docker 插件需要一键进入容器，但公共 API 计划中的 API-24 只有
 每个句柄归属 pluginID、backend sessionID 和 context generation；操作其他插件、旧会话或其他工作区的句柄返回不存在。八个句柄的配额包括已经关闭但仍可重开的句柄，插件用 `dispose` 明确释放；不能无限累积历史和启动配置。
 
 `close` 结束该进程会话并移除原生标签，保留启动配置及有限历史；`reopen` 先确认，再启动新的 PTY，沿用 terminalID 并增加进程 generation。退出订阅每个 generation 只发布一次，旧原生回调不能结束新进程；正在 close/reopen 时再次变更返回 busy。用户关闭标签或程序自然退出同样可以重开。
+
+用户关闭标签与自然退出也要经过有界原生清理、按预算截取历史并释放整个终端会话和渲染缓冲区，不能只从界面移除标签。清理期间句柄保持 busy；清理结束后才发布该 generation 的退出通知，收到通知后可立即重开。`retainedContextBytes:0` 在这两条路径同样不保留显示历史；无需等待插件再调用 close 或 reopen 才释放。
+
+用户关标签已发起 stop 后，退出收尾仍会调用 stopAndWait 等待其清理，所以子进程回收器必须按 PID 复用同一观察源。重复登记只追加完成回调；不要先创建一个 DispatchSource 再判断是否重复，未激活的重复源被释放时会让 libdispatch 直接终止应用。原生 PTY 的用户关标签回归覆盖这条真实重复调用链。
 
 后端结束、插件禁用/更新和工作区关闭，释放所属句柄并通过既有有界原生清理结束其进程。独立用户终端不参与这张表。网页关闭只取消在途调用，不结束已经交付给用户的终端。
 
@@ -55,7 +61,7 @@ Docker 插件需要一键进入容器，但公共 API 计划中的 API-24 只有
 
 ## 验证
 
-- `scripts/macos/test/test-macos.sh --filter 'PluginTerminalHostServiceTests|PluginTerminalNativeTests|TerminalModuleTests'`：隔离、未知字段、remote 拒绝、关闭工作区期间的在途创建、退出去重、generation、历史后缀及真实 PTY 输入不重放。
+- `scripts/macos/test/test-macos.sh --filter 'PluginTerminalHostServiceTests|PluginTerminalNativeTests|TerminalModuleTests'`：隔离、未知字段、remote 拒绝、关闭工作区期间的在途创建、退出去重、generation、历史后缀及真实 PTY 输入不重放；后台创建/重开保留已有选择，用户关标签和自然退出按 0/8 字节预算释放原生缓冲区，长参数完整进入原生可选择视口且取消不启动进程。
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib plugin_function` 和 `--lib terminal_permission`：逐方法授权与旧协议拒绝。
 - `scripts/architecture/verify-service-boundaries.sh`、`scripts/architecture/verify-shared-contracts.sh`、`scripts/macos/verify/verify-runtime-bundle-immutability.sh`。
 - `scripts/agent-notes/verify-agent-notes.sh`、`scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`。

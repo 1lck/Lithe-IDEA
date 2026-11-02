@@ -26,6 +26,7 @@ struct PluginTerminalHostServiceTests {
         _ = try await fixture.call("onExit", ["terminalID": .string(id)]).get()
         fixture.window.exit?(.init(code: 7, reason: "exited"))
         fixture.window.exit?(.init(code: 8, reason: "exited"))
+        try #require(await fixture.exitDelivered.waitUntilOpen())
         #expect(fixture.events.count == 1)
         guard case .object(let event) = fixture.events.first,
               case .object(let data)? = event["event"] else { Issue.record("exit missing"); return }
@@ -104,7 +105,9 @@ struct PluginTerminalHostServiceTests {
         #expect(result["generation"] == .integer(2))
         oldExit?(.init(code: 9, reason: "exited"))
         #expect(fixture.events.count == 1)
+        fixture.exitDelivered = TestGate()
         fixture.window.exit?(.init(code: 0, reason: "exited"))
+        try #require(await fixture.exitDelivered.waitUntilOpen())
         #expect(fixture.events.count == 2)
         _ = try await fixture.call("dispose", ["terminalID": .string(id)]).get()
         #expect(code(await fixture.call("reopen", ["terminalID": .string(id)])) == "plugin.host.notFound")
@@ -186,6 +189,7 @@ struct PluginTerminalHostServiceTests {
         let dispatcher: PluginHostServiceDispatcher
         let service: PluginTerminalHostService
         var events: [ToolingJSONValue] = []
+        var exitDelivered = TestGate()
         init() {
             dispatcher = PluginHostServiceDispatcher(contexts: contexts)
             let metadata = PluginWorkspaceHostService(contexts: contexts,
@@ -194,7 +198,10 @@ struct PluginTerminalHostServiceTests {
             context = contexts.open(owner: window, rootURL: PluginHostFixture.workspaceURL, remote: nil)
             dispatcher.register(service)
             dispatcher.beginSession(pluginID: "plugin", hostServices: Array(service.methods))
-            dispatcher.subscriptions.deliver = { [weak self] _, value in self?.events.append(value) }
+            dispatcher.subscriptions.deliver = { [weak self] _, value in
+                self?.events.append(value)
+                self?.exitDelivered.open()
+            }
         }
         func end() {
             window.duringLaunch = nil; window.exit = nil
