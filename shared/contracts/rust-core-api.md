@@ -232,7 +232,8 @@ can correlate concurrent requests. `stopReason` uses ACP wire names such as
 `end_turn` and `cancelled`.
 
 Codex `sessions` and `archivedSessions` use the installed official App Server's
-`thread/list` with matching provider, source-kind and workspace scope. The Host
+`thread/list` across all providers, within the selected account's Codex home,
+source-kind and workspace scope. The Host
 normalizes its `recencyAt` (conversation activity) into the existing optional
 ISO 8601 `updatedAt` history field, and sorts upstream pages by `recency_at`.
 `useStateDbOnly: true` avoids rollout-file scans/read-repair for this read-only
@@ -245,6 +246,17 @@ Listing failure retains consumers' existing rows through `requestFailed`; it
 does not fabricate a local timestamp. Other Agents retain standard ACP listing.
 `shared/fixtures/agent/history-activity-v1.json` covers initial state, metadata-only
 viewing, and a new conversation turn. The history UI geometry is unchanged.
+
+History summaries may additionally include `modelProvider`, the opaque provider
+identity reported by upstream history. Missing, null or blank metadata is unknown;
+it is never inferred from the current billing route, model name or local annotation.
+Codex forwards `thread/list.modelProvider`; standard ACP Agents without equivalent
+metadata omit it. Older consumers can ignore this additive field. Presentation
+defaults to all providers and may explicitly filter an exact identity or unknown
+metadata, composing with search, favorites, local removal and archived rows.
+Provider choices come from active and archived snapshots, not the configured
+provider catalog. Filtering is local and read-only: it never changes the current
+route, resumes a thread, rewrites history or starts another list request.
 
 Both native Codex App Server listing and standard ACP listing may emit additive `sessionsPage` events for nonterminal pages with matching rows. Each carries the original `listSessions` token and only that page’s summaries. Consumers merge these rows without pruning cached entries or completing the loading state. The existing terminal `sessions` event still carries the full snapshot; consumers that ignore `sessionsPage` remain compatible. A later `requestFailed` retains cached and already received rows. Ignore pages from superseded, completed, or disconnected requests. Empty filtered pages do not end a scan: follow the Agent’s cursor. Platform history surfaces may reuse successful connection-local snapshots (including empty results) for 30 seconds, with independent active/archive freshness; explicit refresh and post-unarchive reconciliation bypass freshness. Failed scans remain retryable and reconnection invalidates freshness. On macOS, a confirmed `turnFinished` invalidates active-list freshness, including for background sessions, without expiring the archive snapshot. A scan still in flight at that boundary may update displayed rows but cannot renew freshness when it completes; the next history open queries again after that scan finishes. Loading or viewing history alone does not invalidate freshness or synthesize activity timestamps. This adds no persisted history or runtime resource directory.
 
@@ -980,6 +992,9 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `community.discourse.search` | Search normalized topics and sanitized posts |
 | `editor.lineEdit` | Apply a deterministic line-level text transform and return the replacement plus selection to restore |
 | `editor.lineCommentToken` | Resolve the line comment token for a file extension or language id |
+| `workspace.releaseIndexing` | Retire a policy and clear index/cache data at project close; accepts `root`, optional `ownerId`, and that owner's last observed `revision`, returns `released`; an old close must not retire a new generation |
+| `workspace.refreshIndexing` | Refresh external Git decisions for a live `root`, `ownerId`, `revision` lease without changing preferences or release tokens; returns lazy `IndexingStatus` |
+| `workspace.configureIndexing` | Install a process-local, canonical-root indexing policy before workspace consumers run; returns a monotonic revision, effective directory reasons and Git failure state; see `shared/fixtures/workspace/indexing-policy-v1.json` |
 | `network.proxyPolicy` | Normalize the stored proxy settings into the policy a network stack must apply (mode, server, credentials, exclusions) |
 | `workspace.snapshot` | Enumerate visible workspace nodes and relative file paths; `nestedWorktrees` lists linked worktrees checked out inside their own repository, which are left out of the tree, files, and search index; the built-in hidden names are skipped without being read, and include `node_modules`, Python virtual environments (`.venv`, `venv`), `__pycache__` and `*.pyc` files; `includeTree: false` returns only `files` and a childless `root`; `files` (and the tree, when included) keep the lowercase traversal order that bounded consumers such as Windows Quick Open rely on, not the natural display order of `workspace.listDirectories` |
 | `workspace.filterChanges` | Filter an array of workspace-relative paths, or `{ paths, hiddenFilePatterns }` whose `!` entries turn default exclusions off, against Core's default build/cache exclusions; preserve order, spelling, and the empty root path. Native event loss bypasses filtering. Hosts relativize to the most specific explicit watch root and retain explicitly watched files. |
@@ -994,7 +1009,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `history.record` | Store a versioned text snapshot and metadata |
 | `history.entries` | List valid history entries for one file or a workspace |
 | `history.content` | Read a stored history snapshot by relative storage path |
-| `history.relocate` | Move a file's history records after a rename |
+| `history.relocate` | Move retained history for a file or directory subtree after a rename or move |
 | `history.rename` | Set or clear a user-visible label on a history entry |
 | `history.delete` | Delete one history entry and its snapshot |
 | `history.ignorePreview` | Validate local history ignore rules and report which rule skips a sample path |
@@ -1150,8 +1165,9 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `plugins.declarative.checkRuntimeVersion` | Decide whether a launch runtime's version output meets the declared minimum version |
 | `toolchains.registry` | Revalidate complete enabled plugin manifests and host-verified official origin into a deterministic tool-definition/provider registry; no native host capability claim |
 | `toolchains.decodeReply` | Validate an inert toolchain query/reply pair against bound provider identity, generation, declared tools and host-native filesystem evidence; no transport or native I/O |
+| `toolchains.failureReply` | Build the JSON-RPC error reply for a query that missed its deadline or found no backend, so the host passes it to `toolchains.decodeReply` like a provider's own error; cancellation has none |
 | `toolchains.resolvePins` | Validate a captured local document and find the nearest ancestor directory pin, retaining dormant and legacy entries without probing or writing |
-| `toolchains.resolve` | Resolve the fixed/project/global/automatic layers from one generation-bound snapshot, retaining unmet requirements, conflicts and terminal fixed-value failures |
+| `toolchains.resolve` | Resolve the fixed/project/global/automatic layers from one generation-bound snapshot, retaining unmet requirements, unavailable providers with their cause, conflicts and terminal fixed-value failures |
 | `toolchains.checkVersion` | Match captured output with an enabled plugin definition's version expression and compare generic numeric components with an optional minimum; never starts a probe |
 | `toolchains.discoveryPlan` | Return platform-filtered definition-owned scan declarations, layouts, probes, PATH entries, login-shell home variables and budgets; never scans native directories |
 | `toolchains.candidates` | List one tool's login-shell homes and host-scanned installations with checked executables, versions or skip reasons, and the automatic-layer choice; never starts a probe |
@@ -2064,9 +2080,11 @@ and additionally accepts `maxSymbolResults` and optional
 case-insensitive contiguous fragments and camel/word humps, rather than arbitrary
 subsequences. Each file/type/symbol bucket is ranked before its requested cap;
 the total cap still applies to the file, type, symbol, then content buckets.
-A zero `maxFileResults` skips the names-only index entirely; zero
-`maxContentResults` together with zero `maxSymbolResults` skips the content/symbol
-index. All three zero caps produce no index builds. Omitted caps retain their
+A zero `maxFileResults` skips file-name result collection. Text-only queries use
+a ready content index, or a names-only inventory with the content visibility rules
+and the existing exact matcher while the content index is cold or warming.
+Symbol queries still require the content/symbol index. All three zero caps produce
+no index builds. Omitted caps retain their
 existing defaults. macOS forwards the selected workspace sources through these
 existing caps: Actions-only stays local, Text-only requests contents, Files and
 Agent completion request names, and Classes/Symbols share the symbol index.
@@ -3183,9 +3201,14 @@ tree, so a hidden path (including folder patterns such as `**/generated/` or
 `.lithe/*`) is neither recorded nor listed. Invalid metadata and missing snapshot files
 are ignored. `history.entries` returns Unix-second timestamps and relative
 `contentPath` values. `history.content` rejects traversal,
-`history.relocate` updates metadata and storage paths, and `history.rename` and
+`history.relocate` updates metadata and storage paths for the exact `sourcePath`
+and its `/`-delimited descendants, preserving each suffix under `destinationPath`.
+It enumerates retained history metadata independently of workspace indexing and
+current visibility rules; similarly prefixed siblings are unchanged. Equal paths
+are a no-op; overlapping ancestor/descendant paths are rejected. `history.rename` and
 `history.delete` validate both the relative file path and entry ID before
 changing stored metadata.
+File and subtree relocation cases are defined in `shared/fixtures/history/relocation-v1.json`.
 
 A `hiddenFilePatterns` entry starting with `!` turns a rule off instead of
 adding one: `!**/name/` or `!name` removes that hidden folder (built-in or not),
@@ -4800,3 +4823,102 @@ for `test.results.decoder=provider` (buildProviders 8). Provider replies carry
 `testResults` with the same execution. Core validates bounded case fields and
 workspace-relative paths and aggregates by optional project/suite/case identity;
 the host does not read tool-specific report directories for this decoder.
+
+### Project JDK supplied to JDT LS
+
+`lsp.startServer.javaRuntimes` entries contain `homePath`, `version`, and optional
+`isDefault` (default `false`). Platforms use their existing project toolchain selection,
+including explicit JDK homes outside discovery roots. The server process JVM remains
+independent. Core registers one JDK per Java major; the first valid selected candidate
+wins its major and alone receives `default: true` in `java.configuration.runtimes`,
+both at initialization and in configuration responses. Empty homes and unparseable versions
+are ignored during projection; platform adapters validate explicit choices before launch.
+Legacy callers that omit `isDefault` retain their previous behavior.
+Fixture: `shared/fixtures/lsp/java-project-runtimes-v1.json`.
+
+
+### Workspace indexing policy
+
+`workspace.configureIndexing` accepts `root`, `manualExcludedDirectories`,
+`includedDirectories`, `gitIgnoreEnabled`, optional `refresh` and `paths`.
+Directory identifiers are workspace-relative `/` paths; `.` names the root.
+Manual ancestor exclusions take precedence over every include exception. An include
+exception disables automatic Git exclusion for its subtree, while allowing a
+more-specific manual exclusion. Ancestors needed to reach an exception remain
+traversable. Standalone ignored files are not converted to directory exclusions.
+Git checks use native `check-ignore` and protect tracked descendants with `ls-files`.
+No `.gitignore`, index, or project configuration files are written by this command.
+
+`ownerId` optionally identifies one workspace runtime lifetime. Independent runtimes
+using the same canonical root hold independent leases. Hosts acquire/release leases
+with workspace membership, never with tool-window or tree mounting. Omitting
+`ownerId` retains the legacy revision-guarded lease. A native window host must reclaim
+its leases on destruction, including installations that finish after destruction.
+
+`workspace.refreshIndexing` requires `root`, `ownerId` and its published `revision`.
+It validates the live lease, retires the scan generation and clears Git decisions and
+search caches without installing settings, acquiring a lease or replacing any owner's
+release token. Closed or superseded leases return `cancelled`. Its `IndexingStatus`
+retains the supplied release token; directory reasons remain lazy, just as for configure.
+Without a running language service it does not scan directories or prewarm content.
+Live providers reuse the existing directory-only preparation and withdraw excluded
+working copies and diagnostics. Hosts resynchronize still-open buffers after success.
+
+Windows maintains one invalidation queue per native canonical root. Events advance an
+epoch before fan-out to WebViews; waiting queries consume the same queue and reject
+results if its epoch changes. Concurrent refresh requests share the completed root status
+but retain their own envelope and lease token. Lock waits have a 30-second deadline;
+refreshes consume at most three epochs, leaving newer events dirty on failure. Root
+membership and watcher registrations belong to runtime lifetimes, including background
+workspaces. Preferences and refresh completion use distinct events to avoid write loops.
+The native host injects the window identity for Git/file watcher ownership, shares paths
+and releases only the last holder; window destruction also revokes late registrations.
+
+The directory-action sequence contract is `shared/fixtures/workspace/directory-actions-v1.json`.
+Role changes retain include exceptions, explicit exclusion deletes only its own exception,
+and canceling Git exclusion preserves the current role. Only canceling a manual exclusion
+restores the remembered role. Manual ancestor exclusion cannot be overridden.
+
+`revision` is the requesting owner's release token. Explicit policy replacement or legacy `configureIndexing` refresh
+replaces only that owner's token; other owners retain their valid release tokens; internal Git watcher refreshes retain it while advancing a
+separate Core-only scan generation used by index and language-service caches.
+Changing settings or `refresh: true` retires the old generation and discards its
+cache. Hosts persist settings in application storage and reinstall them on project
+open. Consumers must not create a new policy root for a scoped search; search scopes
+are subsets of the registered project root. `paths` asks for additional effective
+directory reasons without changing the generation. `excludedDirectories` is a
+resolved, lazily populated set, not a complete enumeration of the filesystem.
+`gitIgnoreFailed` means automatic decisions are incomplete; manual exclusions remain
+in force. Hosts must display this state instead of treating it as empty rules.
+
+Tree listings deliberately remain available. Snapshot inventories, filename and
+content indexes, symbols and replacement preview candidates obey the policy.
+Generated filename search cannot bypass it. Language-server working-copy sync is
+blocked for excluded paths. Java additionally receives import exclusions; this does
+not promise resource-scan exclusion for imported or build-declared modules. Rust and Go receive native configuration overlays that preserve user settings;
+other providers may continue background scanning and hosts must display that limitation.
+
+`workspace.snapshot.incompleteDirectories` is present when optional child directories
+could not be scanned. Hosts retain browsing but must not treat that inventory as an
+authoritative deletion list or refresh automatic analysis from it. Root failures and
+cancellation remain errors. `workspace.releaseIndexing` removes only the matching owner/token lease. The last
+release retires the policy and clears cached Git decisions and indexes; a small retired policy record rejects late work
+until the next explicit configuration for that root.
+
+`workspace.search.scopePaths` optionally limits candidates to workspace-relative
+files or directory subtrees before applying result caps. It never establishes a new
+policy root. Empty scopes search the full registered project.
+
+Inventory snapshots, search (including Search Everywhere and its pages), index
+warm/update requests and replacement previews accept optional `workspaceRoots`:
+the absolute native roots explicitly opened in the calling workspace. Omission or
+an empty array preserves single-root behavior. Core canonicalizes the roots and
+prunes strict descendant roots from the current root's inventory and indexes;
+the host queries each descendant using its own policy. Directory listing remains
+available. Explicit replacement paths and text overrides cannot bypass ownership.
+The effective descendant set is part of each index cache key and is retained for
+save/watcher updates. It is request-local, never inferred from process-global
+indexing policies or retired roots. Hosts discard in-flight results when their
+workspace root set changes. Removing a nested root restores parent scanning.
+An unavailable non-current root does not fail a scoped request for an accessible
+root; a missing descendant retains its ownership boundary until removed by the host.

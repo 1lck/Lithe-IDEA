@@ -98,7 +98,7 @@ export interface JavaServiceUpdateContext {
 export interface RunSession {
   /** Identity of this execution, preserved after exit and replaced on restart. */
   executionId?: string;
-  /** True while Java preparation is waiting before the native launch. */
+  /** True while saving or preparing the configuration before the native launch. */
   isPreparing?: boolean;
   id: string;
   configurationId: string;

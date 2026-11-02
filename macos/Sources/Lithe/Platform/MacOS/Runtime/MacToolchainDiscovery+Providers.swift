@@ -16,34 +16,93 @@ extension MacToolchainDiscovery {
         var qualified: String { "\(pluginID):\(id)" }
     }
 
-    /// Returns accepted installations, each `{tool, home, provider}`.
+    /// The host context a workspace query carries; equal for every plugin of one window.
+    struct RoundContext: Equatable {
+        let id: String
+        let generation: Int
+        var json: [String: Any] { ["contextID": id, "generation": generation] }
+    }
+
+    /// One directory's query round. Every provider is asked with the round's generation, as
+    /// the protocol requires, so `toolchains.resolve` can check their replies together.
+    struct Round {
+        let generation: UInt64
+        /// The context of the first provider that had one; a reply under another is left out.
+        var context: RoundContext?
+        /// Complete `decodeReply` inputs without `filesystem`: resolve gives them one shared snapshot.
+        var queries: [[String: Any]] = []
+        /// Native paths the queries named, read again into that snapshot.
+        var paths: [String] = []
+    }
+
+    struct Answers {
+        /// Accepted installations, each `{tool, home, provider}`.
+        var installations: [[String: Any]] = []
+        /// Rounds by workspace-relative directory; global-only queries are not a round.
+        var rounds: [String: Round] = [:]
+
+        /// Adds one query to its directory round unless the round already holds another context.
+        @discardableResult
+        mutating func join(_ directory: String, context: WorkspaceContext, input: [String: Any], paths: [String]) -> Bool {
+            guard var round = rounds[directory] else { return false }
+            let joined = RoundContext(id: context.contextID, generation: context.generation)
+            if round.context == nil { round.context = joined }
+            guard round.context == joined else { return false }
+            round.queries.append(input)
+            round.paths += paths
+            rounds[directory] = round
+            return true
+        }
+    }
+
+    /// The directories asked and resolved: the request's within the budget, always with the root.
+    static func queriedDirectories(_ request: Request) -> [String] {
+        var directories = Array(request.directories.prefix(queryDirectoryBudget))
+        if !directories.contains(".") { directories.insert(".", at: 0) }
+        return directories
+    }
+
     func queryProviders(
         _ request: Request, registry: [String: Any], tools: [[String: Any]], root: String, caseSensitive: Bool,
         into result: inout Result
-    ) async -> [[String: Any]] {
-        guard queryProvider != nil else { return [] }
+    ) async -> Answers {
+        var answers = Answers()
+        guard queryProvider != nil else { return answers }
         let providers = Self.providers(of: tools)
-        var directories = Array(request.directories.prefix(Self.queryDirectoryBudget))
-        if request.directories.count > directories.count, !providers.isEmpty {
+        let directories = Self.queriedDirectories(request)
+        if request.directories.count > Self.queryDirectoryBudget, !providers.isEmpty {
             result.diagnostics.append(L10n.string("Only the first \(Self.queryDirectoryBudget) directories were queried."))
         }
-        if !directories.contains(".") { directories.insert(".", at: 0) }
+        let global = Self.nextGeneration()
+        for directory in directories { answers.rounds[directory] = Round(generation: Self.nextGeneration()) }
         var installations: [String: [String: Any]] = [:]
         var watch: Set<String> = []
-        for provider in providers {
+        for (index, provider) in providers.enumerated() {
             let context = await workspaceContext(request.workspace, provider.pluginID)
             var failure: String?
             let started = ContinuousClock.now
             for directory in [nil] + directories.map(Optional.some) where directory == nil || context != nil {
-                if Task.isCancelled { return [] }
+                if Task.isCancelled { return Answers() }
                 let scope = directory.flatMap { directory in context.map { (directory, $0) } }
-                switch await query(provider, scope: scope, registry: registry, tools: tools, root: root,
+                let generation = directory.flatMap { answers.rounds[$0]?.generation } ?? global
+                switch await query(provider, operation: "toolchain-\(generation)-\(index)", generation: generation,
+                                   scope: scope, registry: registry, tools: tools, root: root,
                                    caseSensitive: caseSensitive) {
                 case .failure(let message):
                     failure = failure ?? message
-                case .unavailable(let message, _):
+                case .unavailable(let input, let paths, let message):
+                    // Core keeps the provider as `providerUnavailable` while lower sources resolve.
                     failure = failure ?? message
-                case .success(let snapshot, _):
+                    if let directory, let context {
+                        answers.join(directory, context: context, input: input, paths: paths)
+                    }
+                case .success(let snapshot, let input, let paths):
+                    // A reply under another context stays out of its round, so Core never
+                    // resolves it; its project requirements are not shown either.
+                    var inRound = false
+                    if let directory, let context {
+                        inRound = answers.join(directory, context: context, input: input, paths: paths)
+                    }
                     for row in snapshot["installations"] as? [[String: Any]] ?? [] {
                         guard let tool = row["tool"] as? String, let home = row["home"] as? String else { continue }
                         installations["\(tool)\n\(home)"] = ["tool": tool, "home": home, "provider": provider.qualified]
@@ -56,7 +115,7 @@ extension MacToolchainDiscovery {
                             if !(result.globalRequirements[tool] ?? []).contains(requirement) {
                                 result.globalRequirements[tool, default: []].append(requirement)
                             }
-                        } else if let directory {
+                        } else if let directory, inRound {
                             result.requirements[directory, default: [:]][tool, default: []].append(requirement)
                         }
                     }
@@ -72,28 +131,36 @@ extension MacToolchainDiscovery {
             if let failure { result.diagnostics.append(L10n.string("\(provider.id) did not answer: \(failure)")) }
         }
         result.watch = watch.sorted()
-        return installations.keys.sorted().compactMap { installations[$0] }
+        answers.installations = installations.keys.sorted().compactMap { installations[$0] }
+        return answers
+    }
+
+    /// A monotonic round generation, unique in this process.
+    static func nextGeneration() -> UInt64 {
+        generations.withLock { value -> UInt64 in
+            value += 1
+            return value
+        }
     }
 
     enum Outcome {
-        case success([String: Any], validation: [String: Any])
-        /// A checked protocol failure may leave lower layers usable.
-        case unavailable(String, validation: [String: Any])
+        /// The decoded snapshot, its `decodeReply` input without `filesystem`, and the paths read for it.
+        case success([String: Any], input: [String: Any], paths: [String])
+        /// No answer in time, or no backend to answer: the error reply's `decodeReply` input,
+        /// which `toolchains.resolve` reads as this provider being unavailable.
+        case unavailable(input: [String: Any], paths: [String], message: String)
         case failure(String)
     }
 
     /// One query and its validation. `scope` is `nil` for a global-only query.
     func query(
-        _ provider: Provider, scope: (directory: String, context: WorkspaceContext)?, registry: [String: Any],
-        tools: [[String: Any]], root: String, caseSensitive: Bool, generation suppliedGeneration: UInt64? = nil
+        _ provider: Provider, operation: String, generation: UInt64,
+        scope: (directory: String, context: WorkspaceContext)?, registry: [String: Any],
+        tools: [[String: Any]], root: String, caseSensitive: Bool
     ) async -> Outcome {
         guard let queryProvider else { return .failure("") }
-        let generation = suppliedGeneration ?? Self.generations.withLock { value -> UInt64 in
-            value += 1
-            return value
-        }
         let params: [String: Any] = [
-            "operationID": "toolchain-\(generation)", "generation": generation, "providerID": provider.id,
+            "operationID": operation, "generation": generation, "providerID": provider.id,
             "authority": ["kind": "local"],
             "context": scope.map { ["contextID": $0.context.contextID, "generation": $0.context.generation] as [String: Any] }
                 ?? NSNull(),
@@ -105,40 +172,54 @@ extension MacToolchainDiscovery {
             return .failure(L10n.string("The toolchain query could not be built."))
         }
         let reply: [String: Any]
+        // Why the host answered for the provider; a provider's own error keeps its message.
+        var hostFailure: String?
         do {
             let value = try await queryProvider(provider.pluginID, provider.id, wire, Self.queryTimeout)
-            guard let object = value.foundationObject as? [String: Any], object["id"] is NSNumber || object["id"] is String,
+            guard let object = value.foundationObject as? [String: Any], (object["id"] is NSNumber || object["id"] is String),
                   let response = object["response"] as? [String: Any]
             else { return .failure(L10n.string("The reply could not be read.")) }
             reply = ["id": object["id"]!, "response": response]
         } catch {
-            return .failure(error.localizedDescription)
+            // A cancelled discovery discards its results; it is not a provider that could not answer.
+            if error is CancellationError || Task.isCancelled { return .failure(error.localizedDescription) }
+            let timedOut = error is QueryTimeout
+            guard let failure = core("toolchains.failureReply", [
+                "params": params,
+                "code": timedOut ? "plugin.toolchain.timeout" : "plugin.toolchain.providerUnavailable",
+            ])?["reply"] as? [String: Any], failure["id"] is NSNumber, failure["response"] is [String: Any]
+            else { return .failure(error.localizedDescription) }
+            reply = failure
+            hostFailure = timedOut ? L10n.string("No answer within \(Int(Self.queryTimeout)) s")
+                : error.localizedDescription
         }
         var facts = Self.FactList(caseSensitive: caseSensitive)
         facts.add(root)
         if let directory = scope?.directory, directory != "." { facts.add(root + "/" + directory) }
         Self.addFacts(of: reply["response"] as? [String: Any] ?? [:], tools: tools, to: &facts)
-        let validation: [String: Any] = [
+        let input: [String: Any] = [
             "registry": registry, "pluginID": provider.pluginID,
             "request": ["jsonrpc": "2.0", "id": reply["id"]!, "method": "toolchains/query", "params": params],
-            "response": reply["response"]!, "currentGeneration": generation, "filesystem": facts.values,
+            "response": reply["response"]!, "currentGeneration": generation,
             "platform": "macos", "filesystemCaseSensitive": caseSensitive, "workspaceRoots": [root],
         ]
-        let outcome = decodeReply(validation)
+        let outcome = decodeReply(input.merging(["filesystem": facts.values]) { $1 })
         if outcome?["status"] as? String == "ok", let snapshot = outcome?["snapshot"] as? [String: Any] {
-            return .success(snapshot, validation: validation)
+            return .success(snapshot, input: input, paths: facts.paths)
         }
         let error = outcome?["error"] as? [String: Any]
-        if let code = error?["code"] as? String,
-           ["plugin.toolchain.timeout", "plugin.toolchain.providerUnavailable"].contains(code) {
-            return .unavailable(error?["message"] as? String ?? L10n.string("The reply could not be read."), validation: validation)
+        let message = error?["message"] as? String ?? L10n.string("The reply could not be read.")
+        // Only these two codes leave lower sources usable; every other refusal stays a failure.
+        if ["plugin.toolchain.timeout", "plugin.toolchain.providerUnavailable"].contains(error?["code"] as? String) {
+            return .unavailable(input: input, paths: facts.paths, message: hostFailure ?? message)
         }
-        return .failure(error?["message"] as? String ?? L10n.string("The reply could not be read."))
+        return .failure(message)
     }
 
     private struct FactList {
         let caseSensitive: Bool
         var values: [[String: Any]] = []
+        var paths: [String] = []
         private var keys: Set<String> = []
 
         init(caseSensitive: Bool) { self.caseSensitive = caseSensitive }
@@ -147,6 +228,7 @@ extension MacToolchainDiscovery {
             guard path.hasPrefix("/"), path.utf8.count <= 4_096, values.count < MacToolchainDiscovery.factBudget,
                   keys.insert(caseSensitive ? path : path.lowercased()).inserted
             else { return }
+            paths.append(path)
             values.append(MacToolchainDiscovery.fact(of: path))
         }
     }
@@ -173,7 +255,6 @@ extension MacToolchainDiscovery {
         for row in result["statements"] as? [[String: Any]] ?? [] {
             if let source = row["source"] as? String { facts.add(source) }
         }
-        for path in result["watch"] as? [String] ?? [] { facts.add(path) }
     }
 
     /// Providers of enabled definitions, each with the sorted tools it may be asked about.

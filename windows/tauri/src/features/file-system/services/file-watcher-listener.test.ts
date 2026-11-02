@@ -1,10 +1,72 @@
-import { expect, test } from "bun:test";
+import { expect, mock, spyOn, test } from "bun:test";
+import * as nativeEvents from "@tauri-apps/api/event";
+import * as nativePaths from "@tauri-apps/api/path";
+import * as documentWatches from "@/features/editor/services/document-watch-controller";
+import * as gitEvents from "@/features/git/events/git-events";
+import * as indexing from "@/features/file-explorer/stores/workspace-indexing";
+import * as scheduler from "./file-watcher-refresh-scheduler";
+import * as javaChanges from "@/features/editor/lsp/java-workspace-change-scheduler";
+import { workspaceRuntimeRegistry as registry } from "@/features/workspace/runtime/workspace-runtime-registry";
+import { useFileSystemStore } from "../stores/file-system.store";
+import { useMavenStore } from "@/features/maven/stores/maven.store";
+import { installHappyDom } from "@/test-utils/happy-dom";
 import {
   getFileTreeRefreshRequest,
   getMavenPomChangePath,
   getWorkspaceRootForChange,
   updatePendingWorkspaceRefresh,
+  initializeFileWatcherListener,
+  cleanupFileWatcherListener,
 } from "./file-watcher-listener";
+
+test.each(["Keep.java", "pom.xml"])("indexing failure preserves watcher tree and Maven updates: %s", async (name) => {
+  const restoreDOM = installHappyDom();
+  const previousCustomEvent = globalThis.CustomEvent;
+  globalThis.CustomEvent = window.CustomEvent;
+  const previous = registry.getActiveWorkspace()!;
+  const id = `indexing-failure-${name}`;
+  registry.activateWorkspace({ id, name: id }, "ready");
+  const refresh = mock(async () => undefined);
+  useFileSystemStore.getStore(id).setState({ rootFolderPath: "C:/watch", workspaceFolders: [], refreshDirectory: refresh });
+  const pending: Array<() => void | Promise<void>> = [];
+  type Payload = { path: string; event_type: "opened" };
+  let receive: nativeEvents.EventCallback<Payload> | undefined;
+  const spies = [
+    spyOn(documentWatches, "initializeDocumentWatches").mockResolvedValue(undefined),
+    spyOn(documentWatches, "cleanupDocumentWatches").mockResolvedValue(undefined),
+    spyOn(gitEvents, "subscribeToGitChanges").mockReturnValue(() => {}),
+    spyOn(nativeEvents, "listen").mockImplementation(async (event, handler) => {
+      if (event === "file-changed") receive = handler as nativeEvents.EventCallback<Payload>;
+      return () => {};
+    }),
+    spyOn(nativePaths, "dirname").mockResolvedValue("C:/watch/src"),
+    spyOn(indexing, "configureWorkspaceIndexing").mockRejectedValue(new indexing.IndexingSettingsError("readFailed")),
+    spyOn(scheduler, "scheduleFileWatcherRefresh").mockImplementation((_id, _path, callback) => { pending.push(callback); }),
+  ];
+  const java = spyOn(javaChanges, "scheduleJavaWorkspaceChange").mockImplementation(() => {});
+  const pom = spyOn(useMavenStore.getStore(id).getState().actions, "markPomReloadRequired").mockImplementation(() => {});
+  const diagnostic = spyOn(console, "error").mockImplementation(() => {});
+  try {
+    await initializeFileWatcherListener();
+    expect(receive).toBeDefined();
+    await receive!({ event: "file-changed", id: 0, payload: { path: `C:/watch/src/${name}`, event_type: "opened" } });
+    expect(pending).toHaveLength(1);
+    await pending[0]!();
+    expect(refresh).toHaveBeenCalledWith("C:/watch/src", { force: true });
+    expect(java).not.toHaveBeenCalled();
+    if (name === "pom.xml") expect(pom).toHaveBeenCalledWith("src/pom.xml");
+    else expect(pom).not.toHaveBeenCalled();
+    expect(diagnostic).toHaveBeenCalledTimes(1);
+  } finally {
+    await cleanupFileWatcherListener();
+    registry.activateWorkspace(previous.descriptor, previous.status);
+    registry.removeWorkspace(id);
+    diagnostic.mockRestore(); pom.mockRestore(); java.mockRestore();
+    for (const spy of spies.reverse()) spy.mockRestore();
+    globalThis.CustomEvent = previousCustomEvent;
+    restoreDOM();
+  }
+});
 
 test("returns workspace-relative Maven descriptors from the active Windows workspace", () => {
   expect(getMavenPomChangePath("D:\\work\\pom.xml", "D:\\work")).toBe("pom.xml");

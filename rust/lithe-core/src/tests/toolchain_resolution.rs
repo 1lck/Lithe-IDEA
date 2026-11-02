@@ -1,7 +1,8 @@
 //! Exercises shared tool selection through production commands and inert native facts.
 
 use crate::toolchain::{
-    candidates_command, check_version_command, discovery_plan_command, resolve_command,
+    candidates_command, check_version_command, discovery_plan_command, failure_reply_command,
+    resolve_command,
 };
 use serde_json::{json, Value};
 
@@ -267,6 +268,50 @@ fn toolchain_resolution_optional_provider_timeout_keeps_shell_fallback_visible()
     let result = resolve(&value);
     assert_eq!(result["outcome"]["selection"]["provider"], "host:shell");
     assert_eq!(result["unmet"][0]["code"], "providerUnavailable");
+}
+
+#[test]
+fn toolchain_resolution_host_failure_reply_names_the_provider_and_its_cause() {
+    let mut value = input();
+    installation(&mut value, HOME, "21.0.4");
+    value["commandHomes"]["java"] = json!(HOME);
+    for code in [
+        "plugin.toolchain.timeout",
+        "plugin.toolchain.providerUnavailable",
+    ] {
+        let mut backend = query(&value);
+        let reply =
+            failure_reply_command(json!({"params":backend["request"]["params"],"code":code}))
+                .unwrap();
+        assert_eq!(reply["status"], "ok", "{reply}");
+        backend["request"]["id"] = reply["reply"]["id"].clone();
+        backend["response"] = reply["reply"]["response"].clone();
+        value["queries"] = json!([backend]);
+        let result = resolve(&value);
+        assert_eq!(result["outcome"]["selection"]["provider"], "host:shell");
+        assert_eq!(
+            result["unmet"],
+            json!([{"code":"providerUnavailable","tool":"java",
+                "provider":"dev.lithe.fixture.mise:mise","cause":code}])
+        );
+        // A provider that was not asked about this tool leaves it nothing to report.
+        backend["request"]["params"]["tools"] = json!(["node"]);
+        value["queries"] = json!([backend]);
+        assert_eq!(resolve(&value)["unmet"], json!([]));
+    }
+    let params = query(&value)["request"]["params"].clone();
+    let mut nameless = params.clone();
+    nameless["providerID"] = json!("");
+    // Cancellation is not a provider that could not answer, and an identity is required.
+    for input in [
+        json!({"params":params,"code":"plugin.toolchain.cancelled"}),
+        json!({"params":nameless,"code":"plugin.toolchain.timeout"}),
+        json!({"params":params,"code":"plugin.toolchain.timeout","message":"extra"}),
+    ] {
+        let rejected = failure_reply_command(input).unwrap();
+        assert_eq!(rejected["status"], "rejected");
+        assert_eq!(rejected["error"]["code"], "plugin.toolchain.invalidParams");
+    }
 }
 
 #[test]

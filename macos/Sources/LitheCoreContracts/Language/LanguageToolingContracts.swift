@@ -1024,6 +1024,21 @@ package protocol LanguageServerSession: AnyObject {
     func updateWorkspaceConfigurationAsync(_ configuration: ToolingJSONValue) async
         -> WorkspaceConfigurationUpdateResult
     func stop()
+    /// Stops the session and confirms process/resource release within a local
+    /// deadline. A false result must not be followed by a replacement launch.
+    func stopAndWait() async -> Bool
+}
+
+package extension LanguageServerSession {
+    func stopAndWait() async -> Bool {
+        stop()
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while isRunning, ContinuousClock.now < deadline {
+            do { try await Task.sleep(for: .milliseconds(10)) }
+            catch { return false }
+        }
+        return !isRunning
+    }
 }
 
 /// Completion metadata is list-scoped, including when the list is empty.

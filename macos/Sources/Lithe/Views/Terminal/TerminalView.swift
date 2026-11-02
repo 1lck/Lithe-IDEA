@@ -11,6 +11,7 @@ struct TerminalView: View {
         VStack(spacing: 0) {
             terminalToolbar
             terminalCanvas
+                .overlay { TerminalToolDropOverlay(model: model) }
         }
         .contentShape(Rectangle())
         .onDrop(
@@ -122,18 +123,11 @@ struct TerminalView: View {
             .padding(.trailing, 3)
             .frame(height: 28)
             .contentShape(Rectangle())
-            .contentShape(
-                .dragPreview,
-                RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius)
-            )
-            .onTapGesture {
-                model.selectTerminalSession(session)
-                session.focus()
-            }
-            .onDrag {
-                TerminalTabDragPayload.provider(for: session.id)
-            } preview: {
-                terminalTabDragPreview(session)
+            .overlay {
+                TerminalTabInteraction(sessionID: session.id, title: title) {
+                    model.selectTerminalSession(session)
+                    session.focus()
+                }
             }
             .accessibilityElement(children: .combine)
             .accessibilityLabel(title)
@@ -205,23 +199,6 @@ struct TerminalView: View {
                     }
                 )
         }
-    }
-
-    private func terminalTabDragPreview(_ session: TerminalSession) -> some View {
-        HStack(spacing: 7) {
-            Image(systemName: "terminal")
-                .font(LitheTheme.uiFont(size: 11, weight: .medium))
-                .foregroundStyle(LitheTheme.accent)
-            Text(terminalTabTitle(for: session))
-                .font(LitheTheme.uiFont(size: 12, weight: .medium))
-                .foregroundStyle(LitheTheme.primaryText)
-                .lineLimit(1)
-        }
-        .padding(.horizontal, 10)
-        .frame(height: LitheTheme.Metrics.tabHeight)
-        .background(LitheTheme.activeTabBackground)
-        .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius))
-        .shadow(color: .black.opacity(0.42), radius: 10, y: 6)
     }
 
     private func shellLabel(for path: String) -> String {

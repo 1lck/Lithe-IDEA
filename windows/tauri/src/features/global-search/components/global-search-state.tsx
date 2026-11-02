@@ -10,6 +10,7 @@ import {
 } from "@/ui/empty";
 import { useTranslation } from "@/i18n/locale-provider";
 import type { ContentSearchAvailability } from "../hooks/use-content-search";
+import type { ContentSearchFailure } from "../types/global-search.types";
 
 interface GlobalSearchStateProps {
   availability: ContentSearchAvailability;
@@ -17,9 +18,48 @@ interface GlobalSearchStateProps {
   debouncedQuery: string;
   busyLabel: string | null;
   showBusy: boolean;
-  error: string | null;
+  error: ContentSearchFailure | null;
   hasFileFilters: boolean;
   onRetry: () => void;
+}
+
+export function GlobalSearchError({
+  error,
+  onRetry,
+  compact = false,
+}: {
+  error: ContentSearchFailure;
+  onRetry: () => void;
+  compact?: boolean;
+}) {
+  const { t } = useTranslation();
+  const message =
+    typeof error === "string"
+      ? error
+      : t(error.kind === "indexing" ? `indexing.${error.code}` : "search.failed");
+  if (compact) {
+    return (
+      <div role="alert" className="flex items-center gap-2 border-b border-border px-3 py-2">
+        <p className="min-w-0 flex-1 ui-text-sm text-destructive">{message}</p>
+        <Button type="button" variant="ghost" size="sm" onClick={onRetry}>
+          {t("search.retry")}
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <Empty className="min-h-60 px-6" role="alert">
+      <EmptyHeader>
+        <EmptyTitle>{t("search.failed")}</EmptyTitle>
+        <EmptyDescription className="ui-text-base text-destructive">{message}</EmptyDescription>
+      </EmptyHeader>
+      <EmptyContent>
+        <Button type="button" variant="default" onClick={onRetry}>
+          {t("search.retry")}
+        </Button>
+      </EmptyContent>
+    </Empty>
+  );
 }
 
 function SearchIntroduction({ title, description }: { title: string; description: string }) {
@@ -83,19 +123,7 @@ export function GlobalSearchState({
   }
 
   if (error) {
-    return (
-      <Empty className="min-h-60 px-6" role="alert">
-        <EmptyHeader>
-          <EmptyTitle>{t("search.failed")}</EmptyTitle>
-          <EmptyDescription className="ui-text-base text-destructive">{error}</EmptyDescription>
-        </EmptyHeader>
-        <EmptyContent>
-          <Button type="button" variant="default" onClick={onRetry}>
-            {t("search.retry")}
-          </Button>
-        </EmptyContent>
-      </Empty>
-    );
+    return <GlobalSearchError error={error} onRetry={onRetry} />;
   }
 
   if (debouncedQuery.trim()) {

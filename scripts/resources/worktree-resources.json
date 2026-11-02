@@ -34,6 +34,28 @@
   ],
   "excludedResources": [
     {
+      "id": "markdown-preview-assets",
+      "reusable": false,
+      "locations": [
+        "macos/Sources/Lithe/Resources/MarkdownPreview/",
+        "<app-bundle>/Contents/Resources/Lithe_Lithe.bundle/MarkdownPreview/"
+      ],
+      "identity": "Git-tracked preview template and offline vendor scripts, styles, fonts and notices. KaTeX/mhchem versions, source archive integrity and extracted mhchem SHA-256 are fixed in THIRD_PARTY_NOTICES.md. Independent of platform architecture/toolchain; generated bundle copies have no reusable identity stamp.",
+      "reason": "Check out source via Git and copy this checkout's resources at build time before signing. Never copy another worktree's generated bundle or download/patch preview libraries at runtime. All rendering is in memory and the packaged files stay read-only, preserving code signatures and Sparkle delta baselines. Every reuse copy stage rejects this resource."
+    },
+    {
+      "id": "markdown-plantuml-assets",
+      "reusable": false,
+      "locations": [
+        "macos/Sources/Lithe/Resources/MarkdownPreview/vendor/plantuml/",
+        "macos/Sources/Lithe/Resources/MarkdownPreview/plantuml.html",
+        "macos/Sources/Lithe/Resources/MarkdownPreview/plantuml-renderer.js",
+        "<app-bundle>/Contents/Resources/Lithe_Lithe.bundle/MarkdownPreview/"
+      ],
+      "identity": "Git-tracked @plantuml/core 1.2026.9 MIT JavaScript engine with built-in Smetana layout, fixed archive SHA-512, extracted SHA-256 and source revision in THIRD_PARTY_NOTICES.md. No Graphviz/Viz, external include loader or architecture/toolchain-specific runtime. Generated bundle copies and live render requests have no reusable identity stamp.",
+      "reason": "Check out immutable inputs via Git and package this checkout's renderer before signing. Never copy another worktree's generated bundle or render state. Each request owns a nonpersistent WebView with an eight-second deadline; source, callbacks and passive SVG image live only in memory and are released on completion, cancellation or preview teardown. No runtime download, persistent cache or installation-directory write is allowed; signatures and Sparkle delta baselines stay unchanged. Every reuse stage rejects this resource."
+    },
+    {
       "id": "swiftpm-build-state",
       "reusable": false,
       "locations": [
@@ -281,7 +303,7 @@
       "locations": [
         "<system-temp>/lithe-codex-retry-<UUID>/"
       ],
-      "identity": "First-party embedded source from the current host revision and one Agent launch's native executable/retry budget. Platform chooses the system temporary directory; no reusable version, architecture, toolchain or publication identity stamp. The same first-party launcher restores native context reports through a per-launch loopback capability and per-load tickets; those are memory-only process ownership, not reusable resources.",
+      "identity": "First-party embedded source from the current host revision and one Agent launch's native executable/retry budget and explicit provider admission route. Platform chooses the system temporary directory; no reusable version, architecture, toolchain or publication identity stamp. The same first-party launcher restores native context reports through a per-launch loopback capability and per-load tickets; those are memory-only process ownership, not reusable resources.",
       "reason": "The Agent process owner creates the helper before spawn and removes it on preparation failure, cancellation, launch failure or after stopping the process tree. It contains no credentials. Never copy or share it at any worktree stage; installed adapters, user CLI/configuration and signed bundles stay read-only. Subscription connections use the same temporary launcher for history context while retaining native retry settings. The loopback listener, capability and captured reports expire with the owning process and must never be copied."
     },
     {

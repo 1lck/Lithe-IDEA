@@ -35,6 +35,9 @@ final class AppServices {
     var toolchainSettingsDirectories: (@MainActor () -> [String])?
     /// The startup login-shell read, for settings; absent on platforms that do not read one.
     var loginShellEnvironmentInspector: (any LoginShellEnvironmentInspecting)?
+    /// Only enabled, registered plugins inject rows. Existing launch metadata
+    /// can supply names, but never creates rows or triggers executable discovery.
+    var languageServerRegistrations: (@MainActor (LanguageProviderCatalog) -> [LanguageServerRegistration])?
     /// Gives build providers that share a language server the language
     /// sessions; `nil` when the platform starts no build providers.
     var connectBuildProviderLanguageSessions: ((@escaping @MainActor () -> LanguageToolingSessionManager?) -> Void)?

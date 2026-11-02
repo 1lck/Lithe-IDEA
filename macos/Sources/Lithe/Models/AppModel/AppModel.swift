@@ -160,6 +160,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     private var documentLanguageCoordinator: DocumentLanguageCoordinator?
     private var sidebarRefreshTask: Task<Void, Never>?
     private var moduleSessionCoordinator: ModuleSessionCoordinator?
+    var isModuleRuntimeShuttingDown: Bool { moduleSessionCoordinator?.isShuttingDown == true }
     private(set) var isProjectSessionClosed = false
     private var featureObservationBinder: AppModelObservationBinder?
     private var fileVisibilityRulesObserverID: UUID?
@@ -546,11 +547,22 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
                 },
                 visibilityRules: { [weak self] in
                     self?.settings.fileVisibilityRules ?? .default
+                },
+                waitForWorkspaceOpenPreparation: { [weak self] in
+                    guard let self else { return }
+                    await self.awaitModuleRuntimeShutdown()
+                    guard let capability = try? await self.services.moduleRuntime.activateCapability(.workspaceFoundation),
+                          let capability = capability as? LitheWorkspaceModule.WorkspaceFoundationCapability else { return }
+                    capability.attach(workspaceProjection: self.workspaceFeature)
                 }
             )
         )
         languageToolingFeature.configureSessions { [weak self] in
             self?.languageToolingSessionsIfActive
+        }
+        languageToolingFeature.registerPreparationCancellation(providerID: "java") { [weak self] in
+            self?.javaLanguageServerPreparationCoordinator.cancelMavenConfigurationSynchronization()
+            self?.cancelJavaLanguageServerPreparation()
         }
         services.connectBuildProviderLanguageSessions? { [weak self] in
             self?.languageToolingSessionsIfActive
@@ -593,12 +605,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             guard let self else { return }
             self.workspaceFeature.updateVisibilityRules(self.settings.fileVisibilityRules)
         }
-        localHistoryIgnoreRulesObservation = settings.localHistoryIgnoreRulesChanges.sink { [weak self] in
-            // An inactive module reads the rules when it opens the workspace.
-            guard let self, let feature = self.projectHistoryFeatureIfActive else { return }
-            let rules = self.settings.localHistoryRules
-            Task { await feature.updateVisibilityRules(rules) }
-        }
+        localHistoryIgnoreRulesObservation = observeLocalHistoryIgnoreRules()
         searchExclusionsObservation = settings.searchExclusionsChanges.sink { [weak self] in
             guard let self, let root = self.workspaceURL else { return }
             self.searchFeatureIfActive?.invalidateIndex(at: root, visibilityRules: self.settings.searchEverywhereVisibilityRules.searchRules)
@@ -1145,8 +1152,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         await workspaceFeature.refreshCurrent()
     }
 
-    func markProjectDirectory(_ url: URL, as mark: WorkspaceDirectoryMark) async {
-        await workspaceFeature.markDirectory(url, as: mark)
+    func markProjectDirectory(_ url: URL, action: WorkspaceDirectoryAction) async {
+        await workspaceFeature.markDirectory(url, action: action)
     }
 
     func requestCreateFile(in directory: URL) {
@@ -1377,158 +1384,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
 
     func documentDidChange(_ document: EditorDocument) {
         documentFeature.documentDidChange(document)
-    }
-
-    @discardableResult
-    func activateCurrentDocumentLanguageServerIfAvailable() -> Bool {
-        guard let activeDocument else { return false }
-        return activateLanguageServerIfAvailable(for: activeDocument)
-    }
-
-    @discardableResult
-    func activateLanguageServerIfAvailable(for document: EditorDocument) -> Bool {
-        guard let identity = currentWorkspaceIdentity,
-              let descriptor = languageProviderCatalog.provider(for: document.url) else { return false }
-        let workspaceURL = identity.url
-        guard !languageToolingFeature.isDisabled(descriptor.id) else {
-            languageToolingSessionsIfActive?.recordLanguageServerLog(
-                providerID: descriptor.id,
-                level: .info,
-                message: L10n.string("Language server activation skipped"),
-                detail: L10n.string("Disabled in this workspace")
-            )
-            return false
-        }
-        if moduleSessionCoordinator?.isShuttingDown == true {
-            Task { @MainActor [weak self, weak document] in
-                guard let self else { return }
-                await self.awaitModuleRuntimeShutdown()
-                guard let document, !Task.isCancelled, self.isCurrentWorkspace(identity),
-                      self.openDocuments.contains(where: { $0 === document }) else { return }
-                _ = self.activateLanguageServerIfAvailable(for: document)
-            }
-            return false
-        }
-        if descriptor.id == "java" {
-            switch prepareJavaLanguageServerRuntimeIfNeeded(for: document) {
-            case .ready: break
-            case .preparing: return false
-            }
-        }
-        if let ownership = services.pluginCatalog.languageSupport(for: document.url),
-           let moduleID = ownership.declaration.languageServerModuleID {
-            let support = ownership.declaration
-            // Static plugin metadata may exist before a native plugin is loaded.
-            // Only a registered and enabled module may enter LSP activation.
-            guard let snapshot = try? services.moduleRuntime.snapshot(for: moduleID),
-                  snapshot.state != .disabled else {
-                return false
-            }
-            let capabilityID = ModuleCapabilityID.languageServerExtension(support.id)
-            if services.moduleRuntime.capability(capabilityID) == nil {
-                Task { [weak self, weak document] in
-                    guard let self, let document else { return }
-                    do {
-                        await self.awaitModuleRuntimeShutdown()
-                        guard !Task.isCancelled, self.isCurrentWorkspace(identity),
-                              self.openDocuments.contains(where: { $0 === document }) else { return }
-                        _ = try await self.services.moduleRuntime.activateCapability(capabilityID)
-                        guard self.isCurrentWorkspace(identity), !Task.isCancelled,
-                              self.openDocuments.contains(where: { $0 === document }) else { return }
-                        _ = self.activateLanguageServerIfAvailable(for: document)
-                    } catch {
-                        // Only an activation that is still wanted may report a failure.
-                        guard self.isCurrentWorkspace(identity),
-                              self.openDocuments.contains(where: { $0 === document }) else { return }
-                        self.languageToolingFeature.markActivationFailed(
-                            providerID: descriptor.id,
-                            descriptor: descriptor,
-                            error: error
-                        )
-                    }
-                }
-                return false
-            }
-            if let provider = services.moduleRuntime.capability(capabilityID)
-                    as? any LanguageServerExtensionProviding,
-               provider.lifecycle.isRetired {
-                // The module is being stopped; its capability is still
-                // published until the stop completes.
-                return false
-            }
-            if let provider = services.moduleRuntime.capability(capabilityID)
-                    as? any LanguageServerExtensionProviding,
-               let sessions = languageToolingSessionsIfActive,
-               !sessions.registerLanguageServerExtension(provider, support: support) {
-                languageToolingFeature.markActivationFailed(
-                    providerID: descriptor.id,
-                    descriptor: descriptor,
-                    error: LanguageExtensionRegistrationError.invalidLanguageServerProvider(
-                        support.displayName
-                    )
-                )
-                return false
-            }
-            // A plugin enabled after launch registers its server after the
-            // startup probe ran, so probe it now instead of reporting the
-            // executable as missing before any check happened.
-            if let sessions = languageToolingSessionsIfActive,
-               let tools = languageServerToolsIfActive,
-               let registered = sessions.languageServerExtensionDescriptor(languageID: support.id),
-               tools.needsCandidateValidation(for: registered) {
-                Task { [weak self, weak document] in
-                    await tools.refreshCandidates(for: registered)
-                    guard let self, let document, self.isCurrentWorkspace(identity), !Task.isCancelled,
-                          self.openDocuments.contains(where: { $0 === document }) else { return }
-                    _ = self.activateLanguageServerIfAvailable(for: document)
-                }
-                return false
-            }
-            registerLanguageDependencySourceIfAvailable(support: support)
-        }
-        if let snapshot = try? services.moduleRuntime.snapshot(for: .languageIntelligence),
-           snapshot.state != .active,
-           snapshot.state != .idle {
-            Task { [weak self] in
-                guard let self else { return }
-                do {
-                    _ = try await self.languageIntelligenceModuleCoordinator.activate()
-                    guard self.isCurrentWorkspace(identity), !Task.isCancelled,
-                          self.openDocuments.contains(where: { $0 === document }) else { return }
-                    _ = self.activateLanguageServerIfAvailable(for: document)
-                } catch {
-                    guard self.isCurrentWorkspace(identity),
-                          self.openDocuments.contains(where: { $0 === document }) else { return }
-                    self.languageToolingFeature.markActivationFailed(
-                        providerID: descriptor.id,
-                        descriptor: descriptor,
-                        error: error
-                    )
-                }
-            }
-            return false
-        }
-        do {
-            guard let languageToolingSessions = languageToolingSessionsIfActive else { return false }
-            try languageToolingSessions.synchronizeLanguageServer(
-                for: document.url,
-                text: document.text,
-                rootURL: workspaceURL,
-                changes: document.takePendingLanguageServerChanges()
-            )
-            languageToolingFeature.markActivationSucceeded(providerID: descriptor.id)
-            if let moduleID = services.pluginCatalog.languageSupport(for: document.url)?
-                    .declaration.languageServerModuleID {
-                // A successful sync is the plugin LSP's latest activity. The
-                // idle policy can stop it after the user leaves the document
-                // untouched, while subsequent edits refresh this timestamp.
-                try? services.moduleRuntime.markIdle(moduleID)
-            }
-            return languageToolingSessions.activeLanguageServerIDs.contains(descriptor.id)
-        } catch {
-            languageToolingFeature.markActivationFailed(providerID: descriptor.id, descriptor: descriptor, error: error)
-            return false
-        }
     }
 
     func commitStagedChanges() async {

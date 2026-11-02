@@ -103,6 +103,7 @@ are not a substitute for that adapter. These commands perform no native I/O.
 | --- | --- | --- |
 | `toolchains.registry` | `{plugins:[{manifest,verifiedOfficial}]}` | `registry` |
 | `toolchains.decodeReply` | Query/response and native evidence described below | `snapshot` |
+| `toolchains.failureReply` | `{params,code}` described below | `reply` |
 | `toolchains.resolvePins` | `{document,directory,tool}` | `resolution` |
 | `toolchains.resolve` | Captured resolver input described below | `resolution` |
 | `toolchains.checkVersion` | `{registry,tool,output,minimumVersion?}` | `version` |
@@ -165,6 +166,15 @@ in the [protocol proposal](proposals/toolchains/protocol.md#stable-failure-mappi
 Cancellation, deadlines, cache invalidation and whole-generation requery remain
 native-client implementation work, not behavior performed by this decoder.
 
+When a query gets no reply at all, the host asks `failureReply` for one. `params`
+is the query's own `params` and `code` is `plugin.toolchain.timeout` (the local
+deadline passed) or `plugin.toolchain.providerUnavailable` (the backend failed to
+start, disconnected or did not offer the provider). The result is
+`{id,response}`, the same shape `lsp.toolchainRequest` completes with, holding the
+mapped JSON-RPC error for that operation and provider. The host decodes it with
+the same request like any provider error. Cancellation and every other code are
+rejected, so a cancelled or refused query never becomes a missing provider.
+
 ## Pins and snapshot resolution
 
 `resolvePins` validates an inert local document `{version:1,toolchains,pins?}`.
@@ -195,7 +205,10 @@ Its shape is `{project?:"pluginID:providerID",global?:"pluginID:providerID",
 automatic?:"absolute-installation-home"}`; choices not present in the current
 validated candidate set confer no authority.
 Unavailable/timed-out optional providers remain visible as `providerUnavailable`
-diagnostics while lower sources may resolve. Safety, identity and cancellation
+diagnostics while lower sources may resolve. Each is `{code,tool,provider,cause}`,
+recorded only for a query that asked about this tool; `provider` is qualified and
+`cause` is the decoded error code, keeping a missed deadline apart from a backend
+that could not answer. Safety, identity and cancellation
 failures are not converted to missing tools. A valid explicit pin does not need
 lower-layer provider answers at all.
 

@@ -604,6 +604,22 @@ Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono
 
 以下目录不应直接复制或跨工作树共享：
 
+- Markdown 离线预览的模板、脚本、样式、字体和许可来自 Git 跟踪的
+  `macos/Sources/Lithe/Resources/MarkdownPreview/`。KaTeX 0.16.0 的 mhchem 扩展与现有
+  KaTeX 版本匹配，npm 归档完整性及文件 SHA-256 固定在 `THIRD_PARTY_NOTICES.md`。
+  输入与平台架构、工具链无关；构建时从当前 checkout 复制进 bundle 后签名，运行时仅只读加载，
+  不下载、不写回、不产生持久化渲染缓存，不影响签名和 Sparkle delta。生成 bundle 没有可靠的
+  跨 worktree identity stamp，`excludedResources.markdown-preview-assets` 走资源脚本的
+  通用拒绝路由，任何复制阶段都不得从其他工作树或安装 app 复用这些资源。
+- macOS Markdown PlantUML：Git 中的 `MarkdownPreview/vendor/plantuml/`、
+  `plantuml.html` 与 `plantuml-renderer.js` 随当前 checkout 打包，来源为固定的
+  MIT `@plantuml/core` 1.2026.9，归档 SHA-512、引擎 SHA-256 和上游 revision 见
+  `THIRD_PARTY_NOTICES.md`。使用内置 Smetana，不另下载 Java、Graphviz 或 WASM。
+  输入与平台架构、工具链无关；生成 bundle 没有跨 worktree identity stamp。
+  运行时一项请求拥有一个非持久 WebView，源码、回调和 SVG 图片只在内存存活，
+  完成、取消、八秒超时或关闭预览后释放；不下载、不写发行目录、不改签名及 Sparkle 基线。
+  `excludedResources.markdown-plantuml-assets` 走资源脚本通用拒绝路由，所有复制阶段都禁止
+  复用其他工作树的 bundle 或运行态。
 - AutoBuild 应用发布校验 staging：
   `<RUNNER_TEMP>/lithe-autobuild-<invocation>/{baselines,verification}/`。
   源码 SHA、应用 release/tag/asset、当前 build/ISO 时间与本次发布共同决定输入；
@@ -693,7 +709,9 @@ Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono
 
 - Codex 短重连配置及历史上下文 helper：`<system-temp>/lithe-codex-retry-<UUID>/` 由单次
   Agent 连接独占，内容来自当前 Rust Host 内嵌的一方源码，原生 CLI 路径和预算
-  经非敏感环境字段传递，密钥仍只走标准输入。系统临时目录由平台解析；准备、
+  经非敏感环境字段传递，密钥仍只走标准输入。原生 App Server 的供应商准入路由也属于
+  此连接：通过非敏感进程参数与显式认证方式保持一致，不携带真实地址或凭据，不能复制
+  到另一工作树或连接；用户配置和账号目录保持不变。系统临时目录由平台解析；准备、
   启动失败、取消或进程树结束后删除。它没有可复用的版本、平台、架构、工具链
   stamp，任何复制阶段都不得共享；`excludedResources.codex-retry-relay` 走脚本
   的排除路由。订阅连接也复用同一 helper 获取原生历史用量，但不改重试策略；单次连接的回环监听器、随机访问令牌及每次加载票据只存在内存中，随连接关闭，不进入复制阶段。helper 不修改已安装适配器、用户配置、app bundle 或 Windows 安装

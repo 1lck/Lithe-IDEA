@@ -46,7 +46,10 @@ extension AppModel {
             return
         }
         guard let continuation = pendingJavaLaunchDecisionContinuation else {
-            pendingJavaLaunchDecision = nil
+            // Repeated cancellation must not publish a nil-to-nil change.
+            if pendingJavaLaunchDecision != nil {
+                pendingJavaLaunchDecision = nil
+            }
             return
         }
         pendingJavaLaunchDecisionContinuation = nil

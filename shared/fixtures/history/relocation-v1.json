@@ -1,0 +1,9 @@
+{
+  "cases": [
+    { "source": "archive", "destination": "archive-old", "files": ["archive/notes.txt", "archive/deep/draft.txt"] },
+    { "source": "archive", "destination": "bucket/archive", "files": ["archive/notes.txt", "archive/deep/draft.txt"] },
+    { "source": "archive/notes.txt", "destination": "archive/renamed.txt", "files": ["archive/notes.txt"] },
+    { "source": "archive/notes.txt", "destination": "bucket/notes.txt", "files": ["archive/notes.txt"] }
+  ],
+  "unaffected": "archive-other/notes.txt"
+}

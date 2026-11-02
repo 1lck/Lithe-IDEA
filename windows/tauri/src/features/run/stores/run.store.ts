@@ -59,6 +59,7 @@ import {
   recoveryPathFromMessage,
   configurationUsesMaven,
   runOptionsFromConfiguration,
+  runSessionId,
 } from "../utils/run-configuration";
 import { editorSaveFailureMessage, runEditorSaveWorkflow } from "../services/run-editor-save";
 import { prepareJavaRunLaunch, usesJavaProjectPreparation } from "../services/java-run-launch";
@@ -889,17 +890,37 @@ export const createRunStore = (
         const root = state.root;
         const configuration = state.configurations.find((item) => item.id === id);
         if (!root || !configuration) return null;
+        const sessionId = runSessionId(configuration);
         const blocking = blockingToolchainDiagnosticForConfiguration(
           state.diagnostics,
           configuration.id,
         );
         if (blocking) {
-          set({
-            primaryOutput: trimOutput(`${state.primaryOutput}${blocking.message}\n`),
-            primaryRunning: false,
-            primaryPreparing: false,
-            primaryExitCode: 1,
-          });
+          if (sessionId === PRIMARY_SESSION_ID) {
+            set({
+              primaryOutput: trimOutput(`${state.primaryOutput}${blocking.message}\n`),
+              primaryRunning: false,
+              primaryPreparing: false,
+              primaryExitCode: 1,
+            });
+          } else {
+            set((current) => {
+              const existing = current.sessions.find((session) => session.id === sessionId);
+              // Rejecting a new launch must not change an already active execution.
+              const failed: RunSession = {
+                id: sessionId, configurationId: configuration.id, title: configuration.name,
+                isRunning: false, ...existing,
+                exitCode: existing?.isRunning || existing?.isPreparing ? existing.exitCode : 1,
+                output: trimOutput(`${existing?.output ?? ""}${blocking.message}\n`),
+              };
+              return {
+                selectedSessionId: sessionId,
+                sessions: existing
+                  ? current.sessions.map((session) => session.id === sessionId ? failed : session)
+                  : [...current.sessions, failed],
+              };
+            });
+          }
           return null;
         }
         if (configuration.id === CURRENT_FILE_ID && !currentFile) {
@@ -913,8 +934,6 @@ export const createRunStore = (
           });
           return null;
         }
-        const sessionId =
-          configuration.execution === "service" ? configuration.id : PRIMARY_SESSION_ID;
         const previousDecision = pendingJavaLaunchDecisions.get(sessionId);
         if (previousDecision) {
           pendingJavaLaunchDecisions.delete(sessionId);
@@ -938,6 +957,18 @@ export const createRunStore = (
             primaryExitCode: null,
             primaryTitle: configuration.name,
           });
+        } else {
+          set((current) => ({
+            selectedSessionId: sessionId,
+            sessions: [
+              ...current.sessions.filter((session) => session.id !== sessionId),
+              {
+                id: sessionId, configurationId: configuration.id, executionId,
+                title: configuration.name, output: "", isRunning: false,
+                isPreparing: true, exitCode: null,
+              },
+            ],
+          }));
         }
         const isCurrent = () => executions.get(sessionId) === executionId && get().root === root;
         bindRunSessionWorkspace(sessionId, workspaceId);

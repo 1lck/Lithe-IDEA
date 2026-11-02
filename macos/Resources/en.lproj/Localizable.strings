@@ -19,6 +19,7 @@
 "%@ did not answer: %@" = "%@ did not answer: %@";
 "%@ did not finish within %lld seconds." = "%@ did not finish within %lld seconds.";
 "%@ did not report a version; %@ or newer is required." = "%@ did not report a version; %@ or newer is required.";
+"%@ did not respond" = "%@ did not respond";
 "%@ disabled" = "%@ disabled";
 "%@ does not include %@; Lithe renders those characters with %@ and the system font." = "%@ does not include %@; Lithe renders those characters with %@ and the system font.";
 "%@ does not provide archived conversations." = "%@ does not provide archived conversations.";
@@ -36,6 +37,7 @@
 "%@ is no longer an official plugin. It moved to the community plugin %@ in Lithe Store and gets no further updates here. Uninstall it, restart Lithe, then install the community version from the Marketplace." = "%@ is no longer an official plugin. It moved to the community plugin %@ in Lithe Store and gets no further updates here. Uninstall it, restart Lithe, then install the community version from the Marketplace.";
 "%@ is not available." = "%@ is not available.";
 "%@ is not installed. Lithe installs it with your npm into its application data." = "%@ is not installed. Lithe installs it with your npm into its application data.";
+"%@ is unavailable" = "%@ is unavailable";
 "%@ is version %@; %@ or newer is required." = "%@ is version %@; %@ or newer is required.";
 "%@ keeps no workspace state that Lithe can reset." = "%@ keeps no workspace state that Lithe can reset.";
 "%@ language server (inside the plugin)" = "%@ language server (inside the plugin)";
@@ -319,6 +321,7 @@
 "All modules" = "All modules";
 "All projects" = "All projects";
 "All projects · project can override" = "All projects · project can override";
+"All providers" = "All providers";
 "All servers" = "All servers";
 "All sessions" = "All sessions";
 "All severities" = "All severities";
@@ -367,6 +370,7 @@
 "Applies immediately" = "Applies immediately";
 "Applies immediately to source editors in all projects." = "Applies immediately to source editors in all projects.";
 "Applies the next time the language server starts." = "Applies the next time the language server starts.";
+"Applies to the current project. Excluded directories remain browsable. Cancel Exclusion creates a project exception without changing Git rules." = "Applies only to the current project, regardless of the Git configuration scope. Excluded directories remain browsable. Cancel Exclusion creates a project exception without changing Git rules.\n\nNative exclusion settings are merged for Java imports, Rust and Go. Java resources already imported may still be scanned. Python project configuration can override server exclusions; other providers remain active without a verified scan-exclusion guarantee.";
 "Apply" = "Apply";
 "Apply %@ to the current branch." = "Apply %@ to the current branch.";
 "Apply AI-generated content?" = "Apply AI-generated content?";
@@ -437,6 +441,7 @@
 "Automatic tries your SSH agent and keys first, then asks for a password. Lithe asks in a dialog whenever the server needs an answer, such as a password, a passphrase, or a verification code." = "Automatic tries your SSH agent and keys first, then asks for a password. Lithe asks in a dialog whenever the server needs an answer, such as a password, a passphrase, or a verification code.";
 "Automatic uses a project mvnw first, then detected Maven, then mvnd." = "Automatic uses a project mvnw first, then detected Maven, then mvnd.";
 "Automatically accept all file edits" = "Automatically approve file edits; other actions follow permission rules.";
+"Automatically exclude Git-ignored directories" = "Automatically exclude Git-ignored directories";
 "Automatically generated" = "Automatically generated";
 "Automatically identified" = "Automatically identified";
 "Available" = "Available";
@@ -539,6 +544,7 @@
 "Camera and microphone in use" = "Camera and microphone in use";
 "Camera in use" = "Camera in use";
 "Cancel" = "Cancel";
+"Cancel Exclusion" = "Cancel Exclusion";
 "Cancel Quit" = "Cancel Quit";
 "Cancel running Git operations" = "Cancel running Git operations";
 "Cancelled" = "Cancelled";
@@ -708,6 +714,7 @@
 "Clear Logs" = "Clear Logs";
 "Clear Override" = "Clear Override";
 "Clear Project History…" = "Clear Project History…";
+"Clear View" = "Clear View";
 "Clear branch filter" = "Clear branch filter";
 "Clear build output" = "Clear build output";
 "Clear collected logs?" = "Clear collected logs?";
@@ -715,6 +722,7 @@
 "Clear date filter" = "Clear date filter";
 "Clear debug output" = "Clear debug output";
 "Clear log search" = "Clear log search";
+"Clear only the selected server's visible logs. Collected diagnostic logs are kept." = "Clear only the selected server's visible logs. Collected diagnostic logs are kept.";
 "Clear path filter" = "Clear path filter";
 "Clear run output" = "Clear run output";
 "Clear search" = "Clear search";
@@ -951,6 +959,7 @@
 "Conversation continued from a summary" = "Conversation continued from a summary";
 "Conversation history" = "Conversation history";
 "Conversation history is unavailable" = "Conversation history is unavailable";
+"Conversation provider" = "Conversation provider";
 "Conversation tabs" = "Conversation tabs";
 "Conversation title" = "Conversation title";
 "Conversations for this project and Agent appear here." = "Conversations for this project and Agent appear here.";
@@ -992,6 +1001,8 @@
 "Copy session ID" = "Copy session ID";
 "Copy table" = "Copy table";
 "Copy worktree path" = "Copy worktree path";
+"Could not apply project indexing exclusions. Try reopening the project." = "Could not apply project indexing exclusions. Try reopening the project.";
+"Could not be determined" = "Could not be determined";
 "Could not check for updates" = "Could not check for updates";
 "Could not check for updates." = "Could not check for updates.";
 "Could not clear this project's local history. Check storage permissions and try again." = "Could not clear this project's local history. Check storage permissions and try again.";
@@ -1024,6 +1035,7 @@
 "Could not prepare the run configuration: %@" = "Could not prepare the run configuration: %@";
 "Could not read %@." = "Could not read %@.";
 "Could not read %@: %@" = "Could not read %@: %@";
+"Could not read project indexing settings. Try reopening the project." = "Could not read project indexing settings. Try reopening the project.";
 "Could not read the command line." = "Could not read the command line.";
 "Could not read the project folder. Check that it still exists and that Lithe has permission to access it." = "Could not read the project folder. Check that it still exists and that Lithe has permission to access it.";
 "Could not read the selected built-in background." = "Could not read the selected built-in background.";
@@ -1037,6 +1049,7 @@
 "Could not restore this project history entry" = "Could not restore this project history entry";
 "Could not save %@: permission denied. Check the file and parent folder permissions. Your edits are still unsaved." = "Could not save %@: permission denied. Check the file and parent folder permissions. Your edits are still unsaved.";
 "Could not save access to the selected background image." = "Could not save access to the selected background image.";
+"Could not save project indexing settings. Your previous settings remain unchanged." = "Could not save project indexing settings. Your previous settings remain unchanged.";
 "Could not save service selection" = "Could not save service selection";
 "Could not save the connections: %@" = "Could not save the connections: %@";
 "Could not start the Java test result listener: %@" = "Could not start the Java test result listener: %@";
@@ -1228,6 +1241,7 @@
 "Directories in the order tools are looked up. The login shell's directories come first, then any that only the environment Lithe was launched with had." = "Directories in the order tools are looked up. The login shell's directories come first, then any that only the environment Lithe was launched with had.";
 "Directory" = "Directory";
 "Directory imports preserve scripts, templates and other supporting files. Existing skills are never overwritten." = "Directory imports preserve scripts, templates and other supporting files. Existing skills are never overwritten.";
+"Directory indexing exclusions are not supported for remote projects." = "Directory indexing exclusions are not supported for remote projects.";
 "Directory or file name" = "Directory or file name";
 "Directory: %@" = "Directory: %@";
 "Disable" = "Disable";
@@ -1458,6 +1472,8 @@
 "Exclude from dependency tree" = "Exclude from dependency tree";
 "Excluded" = "Excluded";
 "Excluded Paths" = "Excluded Paths";
+"Excluded from indexing by Git ignore rules" = "Excluded from indexing by Git ignore rules";
+"Excluded from indexing by a parent directory" = "Excluded from indexing by a parent directory";
 "Exclusion list" = "Exclusion list";
 "Executable" = "Executable";
 "Execute Maven Goal" = "Execute Maven Goal";
@@ -1663,6 +1679,7 @@
 "Git executable: %@" = "Git executable: %@";
 "Git execution" = "Git execution";
 "Git exited with code %d" = "Git exited with code %d";
+"Git ignore exclusions could not be fully resolved. Manual exclusions remain active." = "Git ignore exclusions could not be fully resolved. Manual exclusions remain active.";
 "Git is preparing the sequencer." = "Git is preparing the sequencer.";
 "Git is ready" = "Git is ready";
 "Git not found" = "Git not found";
@@ -1833,6 +1850,7 @@
 "Increase Font Size" = "Increase Font Size";
 "Indentation" = "Indentation";
 "Index and working tree" = "Index and working tree";
+"Info" = "Info";
 "Information" = "Information";
 "Inherit" = "Inherit";
 "Inherit project JDK" = "Inherit project JDK";
@@ -1985,10 +2003,13 @@
 "Keymap…" = "Keymap…";
 "Korean characters" = "Korean characters";
 "Kotlin Support" = "Kotlin Support";
+"LSP" = "LSP";
+"LSP Logs" = "LSP Logs";
 "Labels" = "Labels";
 "Labels and assignees" = "Labels and assignees";
 "Language" = "Language";
 "Language Server" = "Language Server";
+"Language Server Settings..." = "Language Server Settings...";
 "Language Service" = "Language Service";
 "Language Services" = "Language Services";
 "Language edit targets a file outside the workspace." = "Language edit targets a file outside the workspace.";
@@ -2061,6 +2082,7 @@
 "Lithe Shelves" = "Lithe Shelves";
 "Lithe application default" = "Lithe application default";
 "Lithe asks again after the plugin is disabled, updated, or Lithe restarts." = "Lithe asks again after the plugin is disabled, updated, or Lithe restarts.";
+"Lithe cannot access the project folder. Check its permissions, then retry." = "Lithe cannot access the project folder. Check its permissions, then retry.";
 "Lithe cannot replace this app in its current folder. Move it to a writable Applications folder or install the stable release manually." = "Lithe cannot replace this app in its current folder. Move it to a writable Applications folder or install the stable release manually.";
 "Lithe can’t give pages access to the camera or microphone in this version." = "Lithe can’t give pages access to the camera or microphone in this version.";
 "Lithe checks GitHub Releases for published updates." = "Lithe checks GitHub Releases for published updates.";
@@ -2071,6 +2093,7 @@
 "Lithe could not find a runnable Git." = "Lithe could not find a runnable Git.";
 "Lithe default" = "Lithe default";
 "Lithe does not save passwords. Credentials are stored by the Git credential helper you choose." = "Lithe does not save passwords. Credentials are stored by the Git credential helper you choose.";
+"Lithe excludes these directories from its own indexes. Third-party language servers may still scan them when their provider does not support exclusions." = "Native exclusion settings are merged for Java imports, Rust and Go. Java resources already imported may still be scanned. Python project configuration can override server exclusions; other providers remain active without a verified scan-exclusion guarantee.";
 "Lithe first asks each program to stop, giving it this long to save its work and exit. Programs still running afterwards are force-stopped." = "Lithe first asks each program to stop, giving it this long to save its work and exit. Programs still running afterwards are force-stopped.";
 "Lithe has not yet completed a real conversation with this adapter version." = "Lithe has not yet completed a real conversation with this adapter version.";
 "Lithe installs the ACP adapter package, not the vendor CLI. The two are independent and share the CLI's configuration." = "Lithe installs the ACP adapter package, not the vendor CLI. The two are independent and share the CLI's configuration.";
@@ -2213,6 +2236,7 @@
 "Manage…" = "Manage…";
 "Manual" = "Manual";
 "Manual stop" = "Manual stop";
+"Manually excluded from indexing" = "Manually excluded from indexing";
 "Mark Target As" = "Mark Target As";
 "Mark as Resolved" = "Mark as Resolved";
 "Markdown Support" = "Markdown Support";
@@ -2443,6 +2467,7 @@
 "No Spring Boot or Maven Module configurations" = "No Spring Boot or Maven Module configurations";
 "No Spring MVC endpoints found" = "No Spring MVC endpoints found";
 "No additional paths" = "No additional paths";
+"No answer within %lld s" = "No answer within %lld s";
 "No available local branch. Branches already checked out in another worktree cannot be reused." = "No available local branch. Branches already checked out in another worktree cannot be reused.";
 "No background image selected" = "No background image selected";
 "No branches found" = "No branches found";
@@ -2504,6 +2529,7 @@
 "No matching commits in the loaded history." = "No matching commits in the loaded history.";
 "No matching conversations" = "No matching conversations";
 "No matching items" = "No matching items";
+"No matching language server logs" = "No matching language server logs";
 "No matching logs" = "No matching logs";
 "No matching messages" = "No matching messages";
 "No matching plugins" = "No matching plugins";
@@ -2536,6 +2562,7 @@
 "No pull requests match the selected state." = "No pull requests match the selected state.";
 "No recent progress has been received. The task is still active." = "No recent progress has been received. The task is still active.";
 "No recent projects" = "No recent projects";
+"No registered language servers" = "No registered language servers";
 "No release is available yet" = "No release is available yet";
 "No remembered choices. Check “Remember my choice” in the quit dialog to skip the question for a kind of service next time." = "No remembered choices. Check “Remember my choice” in the quit dialog to skip the question for a kind of service next time.";
 "No remote" = "No remote";
@@ -2602,6 +2629,7 @@
 "Not running" = "Not running";
 "Not selected" = "Not selected";
 "Not set" = "Not set";
+"Not started" = "Not started";
 "Not supported on %@ yet." = "Not supported on %@ yet.";
 "Not tested" = "Not tested";
 "Not usable" = "Not usable";
@@ -2651,6 +2679,7 @@
 "Only the first %lld directories were queried." = "Only the first %lld directories were queried.";
 "Only the first %lld discovered entries were checked." = "Only the first %lld discovered entries were checked.";
 "Only the first %lld discovery locations were scanned." = "Only the first %lld discovery locations were scanned.";
+"Only the first %lld fixed versions were checked." = "Only the first %lld fixed versions were checked.";
 "Only the first %lld installation versions were checked." = "Only the first %lld installation versions were checked.";
 "Only the first %lld installations of a tool were checked." = "Only the first %lld installations of a tool were checked.";
 "Only the most recent archived conversations are shown." = "Only the most recent archived conversations are shown.";
@@ -2821,6 +2850,7 @@
 "Plan before making changes" = "Plan before making changes";
 "Planned Git command — waiting to start" = "Planned Git command — waiting to start";
 "Planned command" = "Planned command";
+"PlantUML could not render this diagram. Showing its source instead." = "PlantUML could not render this diagram. Showing its source instead.";
 "Platforms" = "Platforms";
 "Plugin" = "Plugin";
 "Plugin %@ %@ is a retired native package and is no longer loaded. Reinstall it from Plugin Management to update." = "Plugin %@ %@ is a retired native package and is no longer loaded. Reinstall it from Plugin Management to update.";
@@ -2916,6 +2946,7 @@
 "Programs started in Lithe that left their terminal or tool to keep running on their own, like daemons or background dev servers. They are listed together when you quit, and you choose which ones to end. Only programs started in this Lithe are listed; containers and services started outside Lithe are never touched." = "Programs started in Lithe that left their terminal or tool to keep running on their own, like daemons or background dev servers. They are listed together when you quit, and you choose which ones to end. Only programs started in this Lithe are listed; containers and services started outside Lithe are never touched.";
 "Project" = "Project";
 "Project Errors" = "Project Errors";
+"Project Indexing" = "Project Indexing";
 "Project JDK" = "Project JDK";
 "Project Local History" = "Project Local History";
 "Project Template" = "Project Template";
@@ -2931,6 +2962,7 @@
 "Project identification complete" = "Project identification complete";
 "Project identification did not produce a run configuration." = "Project identification did not produce a run configuration.";
 "Project identification failed" = "Project identification failed";
+"Project indexing settings are invalid. The saved data has been preserved." = "Project indexing settings are invalid. The saved data has been preserved.";
 "Project is still loading" = "Project is still loading";
 "Project opened" = "Project opened";
 "Project options" = "Project options";
@@ -2959,6 +2991,7 @@
 "Provider details" = "Provider details";
 "Provider name" = "Provider name";
 "Provider requires an API key" = "Provider requires an API key";
+"Provider-dependent" = "Provider-dependent";
 "Providers" = "Providers";
 "Provides" = "Provides";
 "Proxy credentials cannot be saved in this build." = "Proxy credentials cannot be saved in this build.";
@@ -3223,6 +3256,7 @@
 "Repository needs attention" = "Repository needs attention";
 "Request" = "Request";
 "Request changes" = "Request changes";
+"Requested %@ is not installed" = "Requested %@ is not installed";
 "Requested by the plugin “%@”." = "Requested by the plugin “%@”.";
 "Required fields are marked with *" = "Required fields are marked with *";
 "Required plugin %@ cannot be disabled." = "Required plugin %@ cannot be disabled.";
@@ -3264,12 +3298,14 @@
 "Response" = "Response";
 "Responses API" = "Responses API";
 "Restart" = "Restart";
+"Restart All Servers" = "Restart All Servers";
 "Restart Language Servers" = "Restart Language Servers";
 "Restart Lithe" = "Restart Lithe";
 "Restart Lithe to finish uninstalling %@, then install the community plugin %@ from the Marketplace." = "Restart Lithe to finish uninstalling %@, then install the community plugin %@ from the Marketplace.";
 "Restart Lithe to finish uninstalling %@, then install this plugin." = "Restart Lithe to finish uninstalling %@, then install this plugin.";
 "Restart Lithe to load the updated page." = "Restart Lithe to load the updated page.";
 "Restart Lithe to use %@." = "Restart Lithe to use %@.";
+"Restart Server" = "Restart Server";
 "Restart required" = "Restart required";
 "Restart run" = "Restart run";
 "Restart service" = "Restart service";
@@ -3546,6 +3582,7 @@
 "Sensitive files are not sent to an AI provider." = "Sensitive files are not sent to an AI provider.";
 "Separate arguments with spaces; quote an argument that contains spaces." = "Separate arguments with spaces; quote an argument that contains spaces.";
 "Server" = "Server";
+"Server Logs" = "Server Logs";
 "Server URL" = "Server URL";
 "Server address" = "Server address";
 "Server default" = "Server default";
@@ -3660,6 +3697,7 @@
 "Showing available matches." = "Showing available matches.";
 "Showing the previous Java entries while the Java language service prepares the project." = "Showing the previous Java entries while the Java language service prepares the project.";
 "Shown across the entire workbench, including toolbars, project tree, editor, tabs, terminals, and status bar." = "Shown across the entire workbench, including toolbars, project tree, editor, tabs, terminals, and status bar.";
+"Shows session events and server output. Server Trace and RPC message capture are not available." = "Shows session events and server output. Server Trace and RPC message capture are not available.";
 "Side-by-side" = "Side-by-side";
 "Side-by-side view" = "Side-by-side view";
 "Sign in again" = "Sign in again";
@@ -3722,6 +3760,7 @@
 "Solidity Support" = "Solidity Support";
 "Some MCP configuration files could not be restored: %@. Refresh and check these files before retrying." = "Some MCP configuration files could not be restored: %@. Refresh and check these files before retrying.";
 "Some dependencies are not shown." = "Some dependencies are not shown.";
+"Some directories could not be scanned. Automatic project analysis was not refreshed." = "Some directories could not be scanned. Automatic project analysis was not refreshed.";
 "Some installation versions were not checked in time." = "Some installation versions were not checked in time.";
 "Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations." = "Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations.";
 "Some saved run configurations cannot be migrated yet. Keep the existing files and retry after updating Lithe and its build plugin." = "Some saved run configurations cannot be migrated yet. Keep the existing files and retry after updating Lithe and its build plugin.";
@@ -3792,6 +3831,7 @@
 "Starting commit (optional)" = "Starting commit (optional)";
 "Starting module..." = "Starting module...";
 "Starting the Agent…" = "Starting the Agent…";
+"Starts again when a matching document is opened or edited." = "Starts again when a matching document is opened or edited.";
 "Starts no programs." = "Starts no programs.";
 "Starts on demand when a matching file is opened" = "Starts on demand when a matching file is opened";
 "Stash" = "Stash";
@@ -3816,6 +3856,7 @@
 "Sticky scroll" = "Sticky scroll";
 "Stop" = "Stop";
 "Stop %@" = "Stop %@";
+"Stop All Servers" = "Stop All Servers";
 "Stop Camera" = "Stop Camera";
 "Stop Debug" = "Stop Debug";
 "Stop Loading" = "Stop Loading";
@@ -3823,6 +3864,7 @@
 "Stop Microphone" = "Stop Microphone";
 "Stop Recording" = "Stop Recording";
 "Stop Run" = "Stop Run";
+"Stop Server" = "Stop Server";
 "Stop Tracking Branch" = "Stop Tracking Branch";
 "Stop active execution" = "Stop active execution";
 "Stop all services" = "Stop all services";
@@ -4110,6 +4152,7 @@
 "The interface language changes immediately. English is the default." = "The interface language changes immediately. English is the default.";
 "The item can be recovered from the macOS Trash." = "The item can be recovered from the macOS Trash.";
 "The language server could not apply this setting. Restart it to use the new value." = "The language server could not apply this setting. Restart it to use the new value.";
+"The language server is still stopping. Try again after it has stopped." = "The language server is still stopping. Try again after it has stopped.";
 "The language server this build system uses is not available. Open a file of the language and try again." = "The language server this build system uses is not available. Open a file of the language and try again.";
 "The language service that hosts the debug adapter is unavailable." = "The language service that hosts the debug adapter is unavailable.";
 "The latest stable release will be downloaded in full and replace this AutoBuild after you confirm installation. Projects and settings are kept, but AutoBuild-only settings may not work in the stable release." = "The latest stable release will be downloaded in full and replace this AutoBuild after you confirm installation. Projects and settings are kept, but AutoBuild-only settings may not work in the stable release.";
@@ -4176,6 +4219,7 @@
 "The program chosen in the “%@” setting of %@ is missing or not executable: %@" = "The program chosen in the “%@” setting of %@ is missing or not executable: %@";
 "The project archive from %@ is too large." = "The project archive from %@ is too large.";
 "The project directory is unavailable." = "The project directory is unavailable.";
+"The project folder is unavailable. Restore it, then retry." = "The project folder is unavailable. Restore it, then retry.";
 "The project folder on the host. Browse connects, installs the Lithe server on the host if needed, and lets you pick a folder." = "The project folder on the host. Browse connects, installs the Lithe server on the host if needed, and lets you pick a folder.";
 "The project folder on the host; empty uses the home directory. Browse connects, installs the Lithe server on the host if needed, and lets you pick a folder." = "The project folder on the host; empty uses the home directory. Browse connects, installs the Lithe server on the host if needed, and lets you pick a folder.";
 "The project model is not loaded." = "The project model is not loaded.";
@@ -4435,7 +4479,6 @@
 "Tools" = "Tools";
 "Tools sent" = "Tools sent";
 "Total" = "Total";
-"Total %@" = "Total %@";
 "Total tokens: %@" = "Total tokens: %@";
 "Tracking %@" = "Tracking %@";
 "Tracking Branch" = "Tracking Branch";
@@ -4445,6 +4488,7 @@
 "Try Again" = "Try Again";
 "Try a branch name or checkout path." = "Try a branch name or checkout path.";
 "Try a different search term." = "Try a different search term.";
+"Try another search or provider filter." = "Try another search or provider filter.";
 "Try another title or session ID." = "Try another title or session ID.";
 "Try another title, author, number, or label." = "Try another title, author, number, or label.";
 "Turn on MCP to generate a configuration for agents." = "Turn on MCP to generate a configuration for agents.";
@@ -4497,6 +4541,7 @@
 "Unknown Keychain error" = "Unknown Keychain error";
 "Unknown date" = "Unknown date";
 "Unknown error" = "Unknown error";
+"Unknown provider" = "Unknown provider";
 "Unknown source" = "Unknown source";
 "Unlink" = "Unlink";
 "Unlinked the pull request" = "Unlinked the pull request";
@@ -4662,6 +4707,7 @@
 "Version files were checked in the first %lld directories only." = "Version files were checked in the first %lld directories only.";
 "Version managers" = "Version managers";
 "Version managers come from enabled plugins. Lithe asks them what is installed and what this project requires; they never install or trust anything for you." = "Version managers come from enabled plugins. Lithe asks them what is installed and what this project requires; they never install or trust anything for you.";
+"Version managers report different versions" = "Version managers report different versions";
 "Version not queried" = "Version not queried";
 "Version not verified" = "Version not verified";
 "Version status" = "Version status";
@@ -4725,6 +4771,7 @@
 "Where should this apply?" = "Where should this apply?";
 "Where the rows below that are backed by Git configuration are written." = "Where the rows below that are backed by Git configuration are written.";
 "Where would you like to open the project ‘%@’?" = "Where would you like to open the project ‘%@’?";
+"Which %@ to use could not be determined." = "Which %@ to use could not be determined.";
 "Whitespace comparison" = "Whitespace comparison";
 "Whole Words" = "Whole Words";
 "Wildcard" = "Wildcard";
@@ -4783,6 +4830,10 @@
 "Zoom in" = "Zoom in";
 "Zoom out" = "Zoom out";
 "[Line] [:column]:" = "[Line] [:column]:";
+"agent.history.allProviders" = "All providers";
+"agent.history.provider" = "Conversation provider";
+"agent.history.providerHint" = "Try another search or provider filter.";
+"agent.history.unknownProvider" = "Unknown provider";
 "agent.settings.enableSubscription" = "Enable";
 "agent.stop" = "Stop";
 "ai.add" = "Add";
@@ -4930,6 +4981,24 @@
 "ide.build.restart" = "Use Build execute to start another build";
 "ide.build.selectionExpired" = "The build selection is no longer available";
 "ide.build.unavailable" = "Build plugins are unavailable";
+"indexing.autoGit" = "Automatically exclude Git-ignored directories";
+"indexing.cancelExclusion" = "Cancel Exclusion";
+"indexing.configureFailed" = "Could not apply project indexing exclusions. Try reopening the project.";
+"indexing.description" = "Applies only to the current project, regardless of the Git configuration scope. Excluded directories remain browsable. Cancel Exclusion creates a project exception without changing Git rules.\n\nNative exclusion settings are merged for Java imports, Rust and Go. Java resources already imported may still be scanned. Python project configuration can override server exclusions; other providers remain active without a verified scan-exclusion guarantee.";
+"indexing.gitFailed" = "Git ignore exclusions could not be fully resolved. Manual exclusions remain active.";
+"indexing.gitReason" = "Excluded from indexing by Git ignore rules";
+"indexing.incomplete" = "Some directories could not be scanned. Automatic project analysis was not refreshed.";
+"indexing.inheritedReason" = "Excluded from indexing by a parent directory";
+"indexing.invalidSettings" = "Project indexing settings are invalid. The saved data has been preserved.";
+"indexing.languageDescription" = "Native exclusion settings are merged for Java imports, Rust and Go. Java resources already imported may still be scanned. Python project configuration can override server exclusions; other providers remain active without a verified scan-exclusion guarantee.";
+"indexing.manualReason" = "Manually excluded from indexing";
+"indexing.permissionDenied" = "Lithe cannot access the project folder. Check its permissions, then retry.";
+"indexing.providerDependent" = "Provider-dependent";
+"indexing.readFailed" = "Could not read project indexing settings. Try reopening the project.";
+"indexing.remoteUnsupported" = "Directory indexing exclusions are not supported for remote projects.";
+"indexing.title" = "Project Indexing";
+"indexing.workspaceUnavailable" = "The project folder is unavailable. Restore it, then retry.";
+"indexing.writeFailed" = "Could not save project indexing settings. Your previous settings remain unchanged.";
 "java.launch.error.buildCancelled" = "The Java project build was cancelled before it finished.";
 "java.launch.error.buildFailed" = "The Java language service could not complete the project build. Check the Java language server log for the build error.";
 "java.launch.error.buildStatus" = "The Java language service returned an unexpected project build status.";
@@ -4953,6 +5022,7 @@
 "macos.native.savedRunMigrationNeedsUpdate" = "Some saved run configurations cannot be migrated yet. Keep the existing files and retry after updating Lithe and its build plugin.";
 "main Java" = "main Java";
 "main resources" = "main resources";
+"markdown.plantumlRenderFailed" = "PlantUML could not render this diagram. Showing its source instead.";
 "matches" = "matches";
 "maven.title" = "Maven";
 "menu.copy" = "Copy";
@@ -5515,6 +5585,7 @@
 "native.clearDebugOutput" = "Clear debug output";
 "native.clearGitConsole" = "Clear Git console";
 "native.clearLogSearch" = "Clear log search";
+"native.clearLogView" = "Clear View";
 "native.clearLogs" = "Clear Logs";
 "native.clearOverride" = "Clear Override";
 "native.clearPathFilter" = "Clear path filter";
@@ -6876,6 +6947,8 @@
 "native.languageServerReturnedAnInvalidTextRange" = "Language server returned an invalid text range.";
 "native.languageServerReturnedOverlappingTextEdits" = "Language server returned overlapping text edits.";
 "native.languageServerSessionStoppedBeforeTheRequestCompleted" = "Language server session stopped before the request completed.";
+"native.languageServerSettingsAction" = "Language Server Settings...";
+"native.languageServerStillStopping" = "The language server is still stopping. Try again after it has stopped.";
 "native.languageServerToolConfigurationChanged" = "Language server tool configuration changed";
 "native.languageServers" = "Language servers";
 "native.languageService" = "Language Service";
@@ -7089,6 +7162,7 @@
 "native.log.variant2" = "Log";
 "native.logDirectory" = "Log directory";
 "native.logFilter" = "Log filter";
+"native.logInfoLevel" = "Info";
 "native.logLevel" = "Log level";
 "native.logLocations" = "Log locations";
 "native.logMessage" = "Log message";
@@ -7104,6 +7178,13 @@
 "native.low" = "Low";
 "native.lowEffortAndASmallOutputLimitAreRecommendedForFastCommitMessageGeneration" = "Low effort and a small output limit are recommended for fast commit-message generation.";
 "native.lowRecommended" = "Low (recommended)";
+"native.lspAvailableLogChannels" = "Shows session events and server output. Server Trace and RPC message capture are not available.";
+"native.lspClearViewHint" = "Clear only the selected server's visible logs. Collected diagnostic logs are kept.";
+"native.lspLogsTitle" = "LSP Logs";
+"native.lspNotStarted" = "Not started";
+"native.lspServerLogs" = "Server Logs";
+"native.lspStatusLabel" = "LSP";
+"native.lspStopOnDemandHint" = "Starts again when a matching document is opened or edited.";
 "native.luaSupport" = "Lua Support";
 "native.macosCouldNotPrepareTheUpdateDiskImageDownloadTheReleaseManuallyAndTryAgain" = "macOS could not prepare the update disk image. Download the release manually and try again.";
 "native.macosCouldNotPrepareTheUpdateDiskImageOpenTheReleasePageAndInstallItManually" = "macOS could not prepare the update disk image. Open the Release page and install it manually.";
@@ -7426,6 +7507,7 @@
 "native.noMatchingConversations" = "No matching conversations";
 "native.noMatchingHooks" = "No matching Hooks.";
 "native.noMatchingItems" = "No matching items";
+"native.noMatchingLanguageServerLogs" = "No matching language server logs";
 "native.noMatchingLogs" = "No matching logs";
 "native.noMatchingMcpServers" = "No matching MCP servers";
 "native.noMatchingMessages" = "No matching messages";
@@ -7464,6 +7546,7 @@
 "native.noPullRequestsMatchTheSelectedState" = "No pull requests match the selected state.";
 "native.noRecentProgressHasBeenReceivedTheTaskIsStillActive" = "No recent progress has been received. The task is still active.";
 "native.noRecentProjects" = "No recent projects";
+"native.noRegisteredLanguageServers" = "No registered language servers";
 "native.noReleaseIsAvailableYet" = "No release is available yet";
 "native.noRememberedChoicesCheckRememberMyChoiceInTheQuitDialogToSkipTheQuestionForAKi279db9aaf7" = "No remembered choices. Check “Remember my choice” in the quit dialog to skip the question for a kind of service next time.";
 "native.noRemote" = "No remote";
@@ -8151,6 +8234,7 @@
 "native.response" = "Response";
 "native.responsesAPI" = "Responses API";
 "native.restart" = "Restart";
+"native.restartAllServers" = "Restart All Servers";
 "native.restartLanguageServers" = "Restart Language Servers";
 "native.restartLithe" = "Restart Lithe";
 "native.restartLitheToFinishUninstallingThenInstallTheCommunityPluginFromTheMarketplace" = "Restart Lithe to finish uninstalling %1$@, then install the community plugin %2$@ from the Marketplace.";
@@ -8159,6 +8243,7 @@
 "native.restartLitheToUseArg1" = "Restart Lithe to use %1$@.";
 "native.restartRequired" = "Restart required";
 "native.restartRun" = "Restart run";
+"native.restartServer" = "Restart Server";
 "native.restartService" = "Restart service";
 "native.restore" = "Restore";
 "native.restoreAllDefaults" = "Restore All Defaults";
@@ -8672,6 +8757,7 @@
 "native.stepOut" = "Step out";
 "native.stepOver" = "Step over";
 "native.stopActiveExecution" = "Stop active execution";
+"native.stopAllServers" = "Stop All Servers";
 "native.stopAllServices" = "Stop all services";
 "native.stopAndClose" = "Stop and Close";
 "native.stopAndQuit" = "Stop and Quit";
@@ -8688,6 +8774,7 @@
 "native.stopRun" = "Stop Run";
 "native.stopRun.variant2" = "Stop run";
 "native.stopSelected" = "Stop selected";
+"native.stopServer" = "Stop Server";
 "native.stopService" = "Stop service";
 "native.stopSessionNamed" = "Stop %1$@";
 "native.stopTestRun" = "Stop test run";
@@ -9238,6 +9325,7 @@
 "native.toolchainSettings.loginShell" = "Login shell";
 "native.toolchainSettings.loginShellInfo" = "At launch Lithe reads your login shell's environment, as a terminal does, and gives it to the terminals, tools and language servers it starts. Only PATH is listed; other variables can hold secrets and are only counted.";
 "native.toolchainSettings.moreInstallations" = "%1$lld more";
+"native.toolchainSettings.noAnswerWithinSeconds" = "No answer within %1$lld s";
 "native.toolchainSettings.noEnabledPluginDefinesTools" = "No enabled plugin defines tools.";
 "native.toolchainSettings.noEnabledPluginProvidesVersionManager" = "No enabled plugin provides a version manager.";
 "native.toolchainSettings.noProjectEnvironmentIsAvailable" = "No project environment is available.";
@@ -9254,6 +9342,7 @@
 "native.toolchainSettings.onlyFirstEntriesChecked" = "Only the first %1$lld discovered entries were checked.";
 "native.toolchainSettings.onlyFirstInstallationsChecked" = "Only the first %1$lld installations of a tool were checked.";
 "native.toolchainSettings.onlyFirstLocationsScanned" = "Only the first %1$lld discovery locations were scanned.";
+"native.toolchainSettings.onlyFirstPinsChecked" = "Only the first %1$lld fixed versions were checked.";
 "native.toolchainSettings.onlyFirstVersionsChecked" = "Only the first %1$lld installation versions were checked.";
 "native.toolchainSettings.openAProjectAndEnableAPluginThatDefinesToolsToInspectItsEnvironment" = "Open a project and enable a plugin that defines tools to inspect its environment.";
 "native.toolchainSettings.openPlugins" = "Open Plugins";
@@ -9263,7 +9352,10 @@
 "native.toolchainSettings.projectRequirements" = "Project requirements";
 "native.toolchainSettings.projectRootDirectory" = "Project root directory";
 "native.toolchainSettings.projectStepInfo" = "Version files in this directory or its parents, watched by the version managers of this tool, and the versions those managers report for them.";
+"native.toolchainSettings.providerConflict" = "Version managers report different versions";
 "native.toolchainSettings.providerDidNotAnswer" = "%1$@ did not answer: %2$@";
+"native.toolchainSettings.providerDidNotRespond" = "%1$@ did not respond";
+"native.toolchainSettings.providerIsUnavailable" = "%1$@ is unavailable";
 "native.toolchainSettings.query" = "Query";
 "native.toolchainSettings.queryMilliseconds" = "%1$lld ms";
 "native.toolchainSettings.queryNotBuilt" = "The toolchain query could not be built.";
@@ -9273,6 +9365,9 @@
 "native.toolchainSettings.remoteUnavailable" = "Toolchain settings are not available for remote workspaces yet.";
 "native.toolchainSettings.replyUnreadable" = "The reply could not be read.";
 "native.toolchainSettings.reportsInstalledVersionsOnly" = "Reports installed versions only";
+"native.toolchainSettings.requestedNotInstalled" = "Requested %1$@ is not installed";
+"native.toolchainSettings.resolutionUnavailable" = "Which %1$@ to use could not be determined.";
+"native.toolchainSettings.resolutionUndetermined" = "Could not be determined";
 "native.toolchainSettings.runtimeEnvironment" = "Runtime Environment";
 "native.toolchainSettings.runtimeEnvironmentIsolatedPreview" = "Runtime Environment — Isolated Preview";
 "native.toolchainSettings.sameVersionConflict" = "Several installations have the same version";
@@ -9307,7 +9402,6 @@
 "native.tools" = "Tools";
 "native.toolsSent" = "Tools sent";
 "native.total" = "Total";
-"native.total.variant2" = "Total %1$@";
 "native.totalTokens" = "Total tokens: %1$@";
 "native.tracking" = "Tracking %1$@";
 "native.trackingBranch" = "Tracking Branch";

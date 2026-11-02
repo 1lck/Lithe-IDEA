@@ -69,7 +69,7 @@ struct ProjectTreeBatchFileWorkflowTests {
         model.openFile(fixture.url("dest/a.txt"))
         #expect(await awaitChange(on: model) { model.openDocuments.contains { $0.url == fixture.url("dest/a.txt") } })
         let document = try #require(model.openDocuments.first { $0.url == fixture.url("dest/a.txt") })
-        await model.markProjectDirectory(fixture.url("dest"), as: .resources)
+        await model.markProjectDirectory(fixture.url("dest"), action: .setRole(.resources))
 
         // A selected folder and its selected child must produce one directory move.
         await model.moveProjectItems([fixture.url("b.txt"), fixture.url("dest/a.txt"), fixture.url("dest")], to: fixture.url("bucket"))

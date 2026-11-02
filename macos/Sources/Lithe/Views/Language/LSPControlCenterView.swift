@@ -107,7 +107,7 @@ struct LSPControlCenterContent: View {
         return VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
                 Circle()
-                    .fill(statusColor(status))
+                    .fill(status.indicatorColor)
                     .frame(width: 8, height: 8)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(descriptor.displayName)
@@ -307,8 +307,11 @@ struct LSPControlCenterContent: View {
         }
     }
 
-    private func statusColor(_ status: LSPServerStatus) -> Color {
-        switch status {
+}
+
+extension LSPServerStatus {
+    var indicatorColor: Color {
+        switch self {
         case .starting, .initializing: LitheTheme.accent
         case .active: LitheTheme.success
         case .stopping: LitheTheme.warning

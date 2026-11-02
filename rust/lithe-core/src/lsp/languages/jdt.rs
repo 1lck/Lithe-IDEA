@@ -152,6 +152,8 @@ pub(crate) struct JdtGradleConfiguration {
 /// A JDK JDT LS may bind a project to, keyed by its execution environment.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) struct JdtJavaRuntime {
+    /// Selected project VM; at most one runtime is the default.
+    pub is_default: bool,
     /// Execution-environment name such as `JavaSE-25` or `JavaSE-1.8`; JDT LS
     /// matches it against the release a project compiles for.
     pub name: String,
@@ -162,9 +164,13 @@ pub(crate) struct JdtJavaRuntime {
 /// Values Lithe owns in JDT LS's `settings.java`, borrowed from one session.
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct JdtSettings<'a> {
+    /// Workspace indexing policy, when the host has installed one.
+    pub indexing_root_uri: Option<&'a str>,
     /// Plugin-declared completion options from this session's initialization;
     /// all leaves survive except the provider-owned guessMethodArguments.
     pub completion: Option<&'a Value>,
+    /// Original plugin import exclusions, before Lithe overlays the workspace policy.
+    pub import_exclusions: Option<&'a Value>,
     pub maven: Option<&'a JdtMavenConfiguration>,
     /// Gradle import settings, present only for Gradle workspaces.
     pub gradle: Option<&'a JdtGradleConfiguration>,
@@ -176,31 +182,36 @@ pub(crate) struct JdtSettings<'a> {
 ///
 /// Without these, JDT LS knows only the JDK it runs on, so a project that
 /// compiles for a newer release fails with "release N is not found in the
-/// system" even though that JDK is installed. The first JDK the platform lists
-/// for a major version wins, so platforms order their candidates by
-/// preference. Versions that do not parse are skipped, not guessed.
+/// system" even though that JDK is installed. The first valid default wins its
+/// major; otherwise, the first JDK listed for that major wins. Platforms order
+/// candidates by preference. Versions that do not parse are skipped, not guessed.
 pub(crate) fn jdt_java_runtimes(candidates: &[JavaRuntimeCandidate]) -> Vec<JdtJavaRuntime> {
+    let selected = candidates.iter().find(|candidate| {
+        candidate.is_default
+            && !candidate.home_path.trim().is_empty()
+            && java_major_version(&candidate.version).is_some()
+    });
     let mut by_major = BTreeMap::new();
-    for candidate in candidates {
+    // The explicit selection wins even over another installation of the same major.
+    for candidate in selected.into_iter().chain(candidates) {
         let Some(major) = java_major_version(&candidate.version) else {
             continue;
         };
         if candidate.home_path.trim().is_empty() {
             continue;
         }
-        by_major
-            .entry(major)
-            .or_insert_with(|| candidate.home_path.trim().to_string());
+        by_major.entry(major).or_insert(candidate);
     }
     by_major
         .into_iter()
-        .map(|(major, path)| JdtJavaRuntime {
+        .map(|(major, candidate)| JdtJavaRuntime {
             name: if major == 8 {
                 "JavaSE-1.8".to_string()
             } else {
                 format!("JavaSE-{major}")
             },
-            path,
+            path: candidate.home_path.trim().to_string(),
+            is_default: selected.is_some_and(|chosen| std::ptr::eq(chosen, candidate)),
         })
         .collect()
 }
@@ -488,6 +499,25 @@ fn merge_java_settings(options: &mut Map<String, Value>, provider_settings: Valu
         // `offline.enabled`, ...) have to survive, so the owned leaves merge
         // into the declared `import` object instead of replacing it.
         if key == "import" {
+            if let Some(exclusions) = value.get("exclusions").and_then(Value::as_array) {
+                let import = java
+                    .entry("import".to_string())
+                    .or_insert_with(|| json!({}));
+                if !import.is_object() {
+                    *import = json!({});
+                }
+                let mut combined = import
+                    .get("exclusions")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
+                for exclusion in exclusions {
+                    if !combined.contains(exclusion) {
+                        combined.push(exclusion.clone());
+                    }
+                }
+                import["exclusions"] = json!(combined);
+            }
             if let Some(gradle) = value.get("gradle").and_then(Value::as_object) {
                 let import = java
                     .entry("import".to_string())
@@ -512,6 +542,9 @@ fn merge_java_settings(options: &mut Map<String, Value>, provider_settings: Valu
                 }
                 continue;
             }
+        }
+        if key == "import" && value.get("exclusions").is_some() {
+            continue;
         }
         java.insert(key, value);
     }
@@ -1195,6 +1228,22 @@ fn java_settings(settings: JdtSettings<'_>) -> Value {
     if let Some(section) = gradle_settings_section(gradle_configuration) {
         java["java"]["import"]["gradle"] = section;
     }
+    if settings.indexing_root_uri.is_some() || settings.import_exclusions.is_some() {
+        let mut exclusions = settings
+            .import_exclusions
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        if let Some(root_uri) = settings.indexing_root_uri {
+            for path in crate::project::indexing::java_import_exclusions(root_uri) {
+                let value = Value::String(path);
+                if !exclusions.contains(&value) {
+                    exclusions.push(value);
+                }
+            }
+        }
+        java["java"]["import"]["exclusions"] = json!(exclusions);
+    }
     if let Some(configuration) = maven_configuration {
         java["java"]["project"]["sourcePaths"] = json!(configuration.source_paths);
     }
@@ -1219,7 +1268,13 @@ fn java_runtimes_value(runtimes: &[JdtJavaRuntime]) -> Value {
     Value::Array(
         runtimes
             .iter()
-            .map(|runtime| json!({ "name": runtime.name, "path": runtime.path }))
+            .map(|runtime| {
+                let mut value = json!({ "name": runtime.name, "path": runtime.path });
+                if runtime.is_default {
+                    value["default"] = json!(true);
+                }
+                value
+            })
             .collect(),
     )
 }
@@ -1306,9 +1361,10 @@ fn java_configuration_for_section(section: Option<&str>, settings: JdtSettings<'
         Some("java.configuration.maven.globalSettings") => maven_configuration
             .and_then(|value| value.global_settings_path.as_ref())
             .map_or(Value::Null, |path| json!(path)),
-        Some("java.import") => gradle_settings_section(gradle_configuration)
-            .map(|section| json!({ "gradle": section }))
-            .unwrap_or(Value::Null),
+        Some("java.import") => java_settings(settings)["java"]["import"].clone(),
+        Some("java.import.exclusions") => {
+            java_settings(settings)["java"]["import"]["exclusions"].clone()
+        }
         Some("java.import.gradle") => {
             gradle_settings_section(gradle_configuration).unwrap_or(Value::Null)
         }
@@ -1498,6 +1554,7 @@ mod tests {
 
     fn runtime(home_path: &str, version: &str) -> JavaRuntimeCandidate {
         JavaRuntimeCandidate {
+            is_default: false,
             home_path: home_path.to_string(),
             version: version.to_string(),
         }
@@ -1519,14 +1576,17 @@ mod tests {
             runtimes,
             vec![
                 JdtJavaRuntime {
+                    is_default: false,
                     name: "JavaSE-1.8".to_string(),
                     path: "/jdks/jdk8".to_string()
                 },
                 JdtJavaRuntime {
+                    is_default: false,
                     name: "JavaSE-21".to_string(),
                     path: "/jdks/temurin-21".to_string()
                 },
                 JdtJavaRuntime {
+                    is_default: false,
                     name: "JavaSE-25".to_string(),
                     path: "/jdks/temurin-25".to_string()
                 },
@@ -1535,8 +1595,28 @@ mod tests {
     }
 
     #[test]
+    fn selected_project_vm_wins_over_discovery_order_and_duplicate_majors() {
+        let fixture: Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../shared/fixtures/lsp/java-project-runtimes-v1.json"
+        )))
+        .unwrap();
+        for case in fixture["cases"].as_array().unwrap() {
+            let candidates: Vec<JavaRuntimeCandidate> =
+                serde_json::from_value(case["candidates"].clone()).unwrap();
+            assert_eq!(
+                java_runtimes_value(&jdt_java_runtimes(&candidates)),
+                case["expected"],
+                "{}",
+                case["name"]
+            );
+        }
+    }
+
+    #[test]
     fn java_runtimes_reach_jdt_at_initialize_and_on_configuration_requests() {
         let runtimes = [JdtJavaRuntime {
+            is_default: true,
             name: "JavaSE-25".to_string(),
             path: "C:/Program Files/Java/jdk-25".to_string(),
         }];
@@ -1546,7 +1626,7 @@ mod tests {
             java_runtimes: &runtimes,
             ..Default::default()
         };
-        let expected = json!([{ "name": "JavaSE-25", "path": "C:/Program Files/Java/jdk-25" }]);
+        let expected = json!([{ "name": "JavaSE-25", "path": "C:/Program Files/Java/jdk-25", "default": true }]);
         let options = adapt_initialization_options("java", None, &[], settings).unwrap();
         assert_eq!(
             options["settings"]["java"]["configuration"]["runtimes"],

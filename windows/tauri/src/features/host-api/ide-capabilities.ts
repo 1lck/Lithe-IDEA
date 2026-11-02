@@ -14,6 +14,7 @@ import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import type { MavenModule } from "@/features/maven/types/maven.types";
 import { PRIMARY_SESSION_ID } from "@/features/run/types/run.types";
+import { runSessionId } from "@/features/run/utils/run-configuration";
 
 export interface IdePermissions {
   configure: boolean;
@@ -392,7 +393,7 @@ export class IdeCapabilities {
         (operation) =>
           operation.configurationID === id && ["running", "preparing"].includes(operation.state),
       ) ||
-      (configuration.execution !== "service" &&
+      (runSessionId(configuration) === PRIMARY_SESSION_ID &&
         (this.run.primaryRunning || this.run.primaryPreparing))
     )
       return fail(

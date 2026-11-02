@@ -20,7 +20,7 @@
 | 通用测试报告 | macOS 改为直接消费 `BuildTestResults`；移除三种 Maven 报告类型和转换。上游摘要、调用次数、耗时、来源位置与不透明重跑引用保持原义；JDT 发现适配器明确关联报告名称，通用 UI 不解析用例名称。Windows 的现有行标记字段保留兼容别名。验证记录见本次计时报告，不替代整机验收。 |
 | 原生配置 v7 | 已移除 XML 绑定和 Core XML 编辑器，新增提供者编辑计划及不含文档的回执。两端暂存/校验/原子发布接线已更新；Node/Java JSON E2E、真实 Maven 编辑/回读、127 项 macOS、71 项 Windows 前端和类型检查通过。Windows 原生 4 个既有 watcher 失败、整机未验收；完整正式组合仍待验证。 |
 | 服务调试 v11 | 已删除本入口的 `runtime: jvm` 与内置 Java attach；协议传递适配器身份、公开配置类型和 `connection` 目标，宿主从当前 Registry 选择并验证配置，跨准备/监听/连接检查包与注册代次。Java Support 自己声明同包 JDT 托管适配器，Maven 仅声明配置类型；真实断点 UI 与发行组合仍待验收。 |
-| 工具选择 | 用户已授权先固定 [#1581](https://github.com/1lck/Lithe-IDEA/pull/1581) 的 `b87c7f6` 预集成，仍保持 Draft、不合并发布。macOS Build/Provider Run 已接 `toolDefinitions` / `toolchainProviders` 与四层选择；删除新增的 Maven JDK 注册和 Java 准备按 Maven 名字选工具的分支。按 Run 的明确工具选择现已接入两端 adapter，并保留两层继承和显式清空；旧 Maven 明确路径可一次性转移。Windows 已补来源证明和操作内 Provider 查询；项目/全局默认与应用 JDK 联动、Windows 完整产品准入和现有 Java 消费者仍待完成。 |
+| 工具选择 | #1581 已实际合并，本分支从已授权的 b87 预集成继续适配最终版本及最新 preview，仍保持 Draft、不合并发布。macOS Build/Provider Run 已接 `toolDefinitions` / `toolchainProviders` 与四层选择；删除新增的 Maven JDK 注册和 Java 准备按 Maven 名字选工具的分支。按 Run 的明确工具选择现已接入两端 adapter，并保留两层继承和显式清空；旧 Maven 明确路径可一次性转移。Windows 已补来源证明和操作内 Provider 查询；项目/全局默认与应用 JDK 联动、Windows 完整产品准入和现有 Java 消费者仍待完成。 |
 | Maven 运行配置与准备任务 | 待修改：Core 不增加 Maven profile/reactor/framework 的稳定解析面；提供者拥有语义。准备任务已改为 `buildSystems: 4` 清单的通用用途和适用源码角色，宿主不约定固定任务 ID。自动运行配置已由声明/目标生成 `build.provider` 选择器，独立于 Java 导入，删除 `mavenRunProvider` 字段与 Core 框架名单；快照指纹、目标撤回和用户通用覆盖已接线。旧 Run v2 中可确认的服务/显式任务已保留 ID 转为通用引用并通过两层预检及冲突保护；v1、旧偏好、自定义工具与隐式模块语义，以及归属中的 reactor/Wrapper/版本字段、工具链和 Windows 旧路径仍待处理。 |
 | SDK 与版本 | 2026-10-31 核实 SDK main 两种实现最高为 6，GitHub 仅有 sdk-node-v0.1.0 发布；7～11 仍在 Draft。重写 v7 为提供者暂存编辑，保留 8～10 版本及处理器，v11 改为注册表连接目标，正式发行组合仍待验收。只在宿主合并后同步契约副本，正式 SDK 锁定值不变。 |
 
@@ -300,6 +300,36 @@ Windows 计时入口收集同包全部失败而不改变期限，仍拒绝失败
 当前不开放工具、Build 或 Debug 的产品能力准入；非空未实现 hostServices 明确拒绝。
 共享后台服务、工作区关闭主动取消、完整默认值迁移、旧 Java/Windows 消费者、调试
 Registry、正式包与完整 UI 验收仍在待办。三个 PR 保持 Draft，不合并、不发布。
+
+### 整合工具链最终合入版本与最新 preview（2026-11-02）
+
+#1581 已于 2026-11-01 合并，最终 PR head 为 `4d30a64`，合并提交 `ef6e70c3c`；
+本分支已整合最新 `preview@50b4ebe0f`，不再停在先前授权的固定 b87 基础。
+保留最终工具链设置页的同目录查询轮次、原生事实共享、Core 生效层/冲突判断和
+提供方超时/不可用原因，并适配阶段 D 的运行前解析、明确工具选择和字符串 RPC ID。
+上游新增 JDK 测试改用本分支已有的隔离 settingsStore，未恢复已淘汰的偏好存储。
+
+此组合的本地 macOS 回归 228 项、原生 Project crate 94 项、Windows 前端 469 项
+通过，类型检查和生产构建通过。上游 watcher 修复使本分支以前在 macOS 的四项超时
+全部通过；它们不再是当前组合的本地失败。契约、边界、bundle 只读、Notes、矩阵、
+资源复用、i18n 与计时工具检查通过。Swift 第一次重编译在测试开始前达到十分钟期限，
+随后编译暴露新增测试的旧 helper 引用；失败记录保留，修正后在原期限内通过。
+
+Core 两轮均执行 1,621 项且所有断言通过，但逐进程计时门禁分别有一项及两项超限，
+不能把整组报告称为全绿。三项超限测试以同一二进制、相同十五秒期限定向复验全部
+通过；原报告和预算保留，不增加例外。报告前缀 `stage-d-latest-preview-*`，最终原生
+报告为 `native`、`macos-final` 与 `windows-frontend`，Core 保留 `core`、`core-serial`
+和 `core-focused`，不混算成一轮通过。
+
+SDK PR #5 整合已合并 main 后为 `5703d37`，公开契约保持 main 已同步的实际宿主
+`589116e30`，不提前写入 #1558 的契约。其 [CI 41383313427](https://github.com/Lithe-IDEA/lithe-plugin-docs/actions/runs/41383313427)
+已全部通过：镜像、Node 20、Java 8、Rust 1.87 与固定公开 Core E2E，之前的镜像漂移
+已解决。本地阶段 D 工作区源码的六项 SDK E2E、仓库工具 15 项、Node 69 项及类型检查
+通过。SDK/Maven 正式版本和锁定值不变；#1558 实际合入后再同步其增量并正式验证发行。
+
+新宿主组合须单独通过现有 Windows CI，前一提交 `2a8bcddf8` 的通过记录仅作其自身证据。
+工具默认值无损迁移、Windows 产品准入/主动取消/Registry/旧消费者和正式包验收仍待完成。
+所有相关 PR 保持 Draft；本地整合提交不等于合并外部 PR 或发布。
 
 ### D-MIGRATION-REMOVAL：旧 Maven 数据迁移器清理
 

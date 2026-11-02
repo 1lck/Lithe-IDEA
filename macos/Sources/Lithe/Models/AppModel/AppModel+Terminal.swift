@@ -279,10 +279,26 @@ extension AppModel {
         editorTabOrderFeature.repositoryDiffSelected = false
         terminalPlacementFeature.moveToEditor(sessionID)
         editorTabOrderFeature.moveToEnd(.terminal(sessionID))
+        editorTabOrderFeature.focus(.terminal(sessionID))
         terminalPlacementFeature.reorderEditorSessions(
             orderedIDs: editorTabOrderFeature.terminalIDs
         )
         _ = terminalFeature?.selectSession(session)
+    }
+
+    /// Moves a terminal into an editor group. It joins the tab order first so an edge drop commits the split.
+    /// A nil group targets the focused editor group.
+    @discardableResult
+    func moveTerminalToEditor(_ sessionID: UUID, into group: UUID?, side: EditorGroupDropSide) -> Bool {
+        guard terminalSessions.contains(where: { $0.id == sessionID }) else { return false }
+        let item = EditorTabItem.terminal(sessionID)
+        if editorTabOrderFeature.contains(item) {
+            guard let group, editorTabOrderFeature.drop(item, into: group, side: side) else { return false }
+        } else {
+            guard editorTabOrderFeature.insert(item, into: group, side: side) else { return false }
+        }
+        selectEditorTab(item)
+        return true
     }
 
     func moveTerminalToEditor(_ sessionID: UUID, before targetSessionID: UUID) {

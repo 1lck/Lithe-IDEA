@@ -168,11 +168,19 @@ done
   abort "native UI schema ID mismatch" unless native_schema.fetch("$id") == "#{published_base}/native-ui.schema.json"
   abort "declarative manifests must use schemaVersion 2" unless schema.fetch("properties").fetch("schemaVersion").fetch("const") == 2
   readme = File.read(File.join(root, "README.md"), encoding: "UTF-8")
-  # The mirror only holds this directory, so a relative link must resolve here.
-  readme.scan(/\]\(([^)\s]+)\)/).flatten.each do |target|
-    next if target.start_with?("#") || target.match?(%r{\A[a-z][a-z0-9+.-]*:}i)
-    path = File.expand_path(target.split("#").first, root)
-    abort "contract README link #{target} must be absolute or stay inside #{root}" unless path.start_with?("#{File.expand_path(root)}/") && File.exist?(path)
+  # The mirror only holds this directory and its sync rejects the same things: a relative
+  # link in any Markdown file must name a file here, and every schema names its mirror URL.
+  base = "#{File.expand_path(root)}/"
+  Dir[File.join(root, "**", "*.md")].sort.each do |document|
+    File.read(document, encoding: "UTF-8").scan(/\]\(([^)\s]+)\)/).flatten.each do |target|
+      next if target.start_with?("#") || target.match?(%r{\A[a-z][a-z0-9+.-]*:}i)
+      path = File.expand_path(target.split("#").first, File.dirname(document))
+      abort "#{document}: link #{target} must be absolute or name a file inside #{root}" unless path.start_with?(base) && File.file?(path)
+    end
+  end
+  Dir[File.join(root, "**", "*.schema.json")].sort.each do |path|
+    expected = "#{published_base}/#{File.expand_path(path).delete_prefix(base)}"
+    abort "#{path}: $id must be #{expected}" unless JSON.parse(File.read(path))["$id"] == expected
   end
   documented = readme.scan(/`(plugin\.[a-zA-Z.]+)`/).flatten
   manifests = Dir[File.join(root, "fixtures", "*.plugin.json")]

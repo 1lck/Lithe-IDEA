@@ -258,6 +258,59 @@ try {
   rmSync(swiftTimeoutRoot, { recursive: true, force: true });
 }
 
+// A write without a newline is still activity. Advance an injected clock so
+// the watchdog is verified independently of machine load or real sleeps.
+const swiftPartialOutputRoot = mkdtempSync(path.join(os.tmpdir(), "lithe-test-stability-swift-partial-"));
+try {
+  let now = 0;
+  let nextTimer = 1;
+  let terminated = false;
+  const timers = new Map();
+  const advance = (milliseconds) => {
+    now += milliseconds;
+    for (const [id, timer] of [...timers]) {
+      if (timer.deadline <= now) { timers.delete(id); timer.callback(); }
+    }
+  };
+  const report = path.join(swiftPartialOutputRoot, "partial.json");
+  await runSwiftTestsWithTiming({
+    warnMs: 50, maxMs: 200, stallTimeoutMs: 100, suiteTimeoutMs: 5000,
+    report, command: "swift", commandArguments: ["test"],
+  }, {
+    setTimeoutImpl: (callback, delay) => {
+      const id = nextTimer++;
+      timers.set(id, { callback, deadline: now + delay });
+      return id;
+    },
+    clearTimeoutImpl: (id) => timers.delete(id),
+    runProcessImpl: async ({ onSpawn, onStdoutLine, onOutputChunk }) => {
+      onSpawn({ terminate: async () => { terminated = true; return true; } });
+      onStdoutLine("◇ Test partialLine() started.");
+      for (const stream of ["stdout", "stderr", "stdout"]) {
+        advance(90);
+        onOutputChunk(Buffer.from("partial"), stream);
+        assert.equal(terminated, false);
+      }
+      onStdoutLine("✔ Test partialLine() passed after 0.001 seconds.");
+      return { code: 0, timedOut: false, terminationConfirmed: true, durationMs: now, stdout: "", stderr: "" };
+    },
+  });
+  assert.equal(timers.size, 0, "the injected watchdog must be released after completion");
+  assert.deepEqual(JSON.parse(readFileSync(report, "utf8")).tests.map(({status}) => status), ["passed"]);
+} finally {
+  rmSync(swiftPartialOutputRoot, { recursive: true, force: true });
+}
+
+const partialEvents = [];
+const partialProcess = await runProcess({
+  command: process.execPath, args: ["-e", 'process.stdout.write("partial")'], timeoutMs: 2000,
+  onOutputChunk: (chunk, stream) => partialEvents.push(["chunk", stream, chunk.toString()]),
+  onStdoutLine: (line) => partialEvents.push(["line", "stdout", line]),
+});
+assert.equal(partialProcess.code, 0);
+assert.equal(partialProcess.stdout, "partial");
+assert.deepEqual(partialEvents, [["chunk", "stdout", "partial"], ["line", "stdout", "partial"]]);
+
 // Regression coverage for the CI misattribution incident: block-buffered pipes
 // can swallow a finish line, so a stall must be reported as runner silence with
 // the unfinished tests listed, never as "test X exceeded the budget".

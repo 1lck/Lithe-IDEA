@@ -60,12 +60,12 @@ Store 的 `validate-index.mjs` 仍然实现索引规则。它的 CI 原来比较
 
 ### Schema 地址固定为 docs 仓库的 raw 地址
 
-两份 schema 的 `$id` 是它在 docs 仓库里的地址：
-`https://raw.githubusercontent.com/Lithe-IDEA/lithe-plugin-docs/main/contract/v1/<文件名>`。
+契约目录里每份 schema（包括子目录里的）的 `$id` 是它在 docs 仓库里的地址：
+`https://raw.githubusercontent.com/Lithe-IDEA/lithe-plugin-docs/main/contract/v1/<目录内路径>`。
 
 两边都对这个地址做严格检查：
 
-- 主仓库的 `scripts/architecture/verify-shared-contracts.sh` 用常量 `published_plugin_schema_base` 要求 `$id` 完全相等。
+- 主仓库的 `scripts/architecture/verify-shared-contracts.sh` 用常量 `published_plugin_schema_base` 要求目录下每个 `*.schema.json` 的 `$id` 完全相等。
 - docs 仓库的 `contract.mjs` 要求每份 schema 的 `$id` 等于它自己的发布地址。
 
 因此，如果主仓库改了地址而 docs 仓库没跟上，或者 docs 仓库里的文件不是从主仓库同步来的，CI 都会失败。
@@ -74,10 +74,14 @@ Store 的 `validate-index.mjs` 仍然实现索引规则。它的 CI 原来比较
 
 副本只包含契约目录，`../` 开头的相对链接在 docs 仓库里会失效。所以契约 README 指向 `rust-core-api.md`、Agent Notes 的链接都写成 `https://github.com/1lck/Lithe-IDEA/blob/preview/...`，指向 SDK 的链接写成 lithe-plugin-docs 的地址。
 
+这条规则适用于契约目录里的每个 Markdown 文件，不只是顶层 README。相对链接只能指向目录里的文件；指向目录（例如 `fixtures/`）也不行，因为 raw 地址取不到目录。要提到目录，写成代码文本即可。
+
 两边都检查这条规则：
 
-- 主仓库的 `verify-shared-contracts.sh` 拒绝离开目录或指向不存在文件的相对链接。
+- 主仓库的 `verify-shared-contracts.sh` 检查目录下每个 `.md`，拒绝离开目录、指向目录或指向不存在文件的相对链接。
 - docs 仓库的 `contract.mjs` 在同步和校验时也拒绝这类链接。
+
+主仓库的检查必须和 docs 的同步规则一样严格。2026-11-01 同步 #1581 时，`proposals/toolchains/README.md` 里指向 `fixtures/` 的链接被 docs 拒绝：主仓库当时只检查顶层 README，而且允许链接指向目录，所以这个问题在合并前没被发现，只能再提一个 PR 修复后重新同步。
 
 ### `plugin.json` 里不能写 `$schema`
 

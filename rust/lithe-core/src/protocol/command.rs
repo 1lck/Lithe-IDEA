@@ -112,6 +112,8 @@ pub enum CoreCommand {
     ToolchainsRegistry,
     /// Validates provider answers using native evidence supplied by the host.
     ToolchainsDecodeReply,
+    /// Builds the error reply for a provider query that timed out or found no backend.
+    ToolchainsFailureReply,
     /// Resolves the nearest machine-local directory pin.
     ToolchainsResolvePins,
     /// Resolves the four toolchain layers from a captured value snapshot.
@@ -212,6 +214,12 @@ pub enum CoreCommand {
     CommunityDiscourseAuthRevoke,
     /// Builds the visible project tree (`workspace.snapshot`).
     WorkspaceSnapshot,
+    /// Configure workspace indexing independently of tree visibility.
+    WorkspaceConfigureIndexing,
+    /// Refreshes external indexing facts while retaining the owner's lease.
+    WorkspaceRefreshIndexing,
+    /// Releases an indexing generation when its project closes.
+    WorkspaceReleaseIndexing,
     /// Lists the visible children of project directories (`workspace.listDirectories`).
     WorkspaceListDirectories,
     /// Filter ordinary workspace-relative event paths using shared defaults.
@@ -620,6 +628,7 @@ impl CoreCommand {
             "plugins.editorActions.decode" => Some(Self::PluginsEditorActionsDecode),
             "toolchains.registry" => Some(Self::ToolchainsRegistry),
             "toolchains.decodeReply" => Some(Self::ToolchainsDecodeReply),
+            "toolchains.failureReply" => Some(Self::ToolchainsFailureReply),
             "toolchains.resolvePins" => Some(Self::ToolchainsResolvePins),
             "toolchains.resolve" => Some(Self::ToolchainsResolve),
             "toolchains.checkVersion" => Some(Self::ToolchainsCheckVersion),
@@ -670,6 +679,9 @@ impl CoreCommand {
             "community.discourse.search" => Some(Self::CommunityDiscourseSearch),
             "community.discourse.auth.revoke" => Some(Self::CommunityDiscourseAuthRevoke),
             "workspace.snapshot" => Some(Self::WorkspaceSnapshot),
+            "workspace.releaseIndexing" => Some(Self::WorkspaceReleaseIndexing),
+            "workspace.configureIndexing" => Some(Self::WorkspaceConfigureIndexing),
+            "workspace.refreshIndexing" => Some(Self::WorkspaceRefreshIndexing),
             "workspace.filterChanges" => Some(Self::WorkspaceFilterChanges),
             "workspace.listDirectories" => Some(Self::WorkspaceListDirectories),
             "workspace.repositories" => Some(Self::WorkspaceRepositories),

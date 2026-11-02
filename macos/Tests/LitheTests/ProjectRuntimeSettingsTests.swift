@@ -209,6 +209,23 @@ struct ProjectRuntimeSettingsTests {
 
     @Test
     @MainActor
+    func languageServiceUsesTheSelectedProjectJDKIncludingCustomHomes() {
+        let locator = ProjectRuntimeSettingsTestLocator(discoveredJavaRuntimes: [
+            JavaRuntimeCandidate(homePath: "/jdk-21", version: "21", vendor: "Test"),
+            JavaRuntimeCandidate(homePath: "/jdk-25", version: "25", vendor: "Test")
+        ])
+        let service = ProjectRuntimeService(runtimeLocator: locator, settingsStore: InMemoryProjectRuntimeSettingsStore())
+        service.openProject(at: URL(fileURLWithPath: "/workspace/shop"))
+        service.updateSettings(ProjectRuntimeSettings(javaHomePath: "/jdk-25"))
+        let runtimes = service.javaLanguageServiceRuntimes()
+        #expect(runtimes.filter(\.isDefault).map(\.homePath) == ["/jdk-25"])
+        #expect(runtimes.first(where: \.isDefault)?.version == "25")
+        service.updateSettings(ProjectRuntimeSettings(javaHomePath: "/custom/jdk"))
+        #expect(service.javaLanguageServiceRuntimes().filter(\.isDefault).map(\.homePath) == ["/custom/jdk"])
+    }
+
+    @Test
+    @MainActor
     func invalidConfiguredProjectJDKIsNotMaskedByDiscovery() async throws {
         let store = InMemoryProjectRuntimeSettingsStore()
         let root = URL(fileURLWithPath: "/workspace/shop", isDirectory: true)
@@ -230,6 +247,7 @@ struct ProjectRuntimeSettingsTests {
         #expect(report.status == .configuredJDKInvalid(path: "/missing-jdk"))
         #expect(report.status.blocksJavaRun)
         #expect(service.javaHomeURL() == nil)
+        #expect(service.javaLanguageServiceRuntimes().allSatisfy { !$0.isDefault })
         #expect(report.javaHomePath == "/missing-jdk")
     }
 }

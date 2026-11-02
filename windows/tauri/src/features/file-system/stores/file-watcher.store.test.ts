@@ -17,7 +17,7 @@ function deferred<T>(): Deferred<T> {
 describe("file watcher lifecycle", () => {
   test("stops every explicit watch when the project root is cleared", async () => {
     const invokeCommand = mock(
-      async (_command: string, _arguments: { path: string }): Promise<unknown> => undefined,
+      async (_command: string, _arguments: Parameters<FileWatcherInvoke>[1]): Promise<unknown> => undefined,
     );
     const store = createFileWatcherStore("workspace", invokeCommand as FileWatcherInvoke);
     await store.getState().actions.setProjectRoot("D:/work");
@@ -28,15 +28,15 @@ describe("file watcher lifecycle", () => {
     await store.getState().actions.setProjectRoot("");
 
     expect(invokeCommand.mock.calls).toEqual([
-      ["stop_watching", { path: "D:/work/pom.xml" }],
-      ["stop_watching", { path: "D:/work/module/pom.xml" }],
-      ["stop_watching", { path: "D:/work" }],
+      ["stop_watching", { path: "D:/work/pom.xml", runtimeId: expect.any(String), watchId: expect.any(String) }],
+      ["stop_watching", { path: "D:/work/module/pom.xml", runtimeId: expect.any(String), watchId: expect.any(String) }],
+      ["stop_watching", { path: "D:/work", runtimeId: expect.any(String), watchId: expect.any(String) }],
     ]);
     expect(store.getState().watchedPaths.size).toBe(0);
   });
 
   test("retains an explicit watch when native cleanup fails", async () => {
-    const invokeCommand = mock(async (command: string, arguments_: { path: string }) => {
+    const invokeCommand = mock(async (command: string, arguments_: Parameters<FileWatcherInvoke>[1]) => {
       if (command === "stop_watching" && arguments_.path.endsWith("module/pom.xml")) {
         throw new Error("native watcher remained active");
       }
@@ -65,7 +65,7 @@ describe("file watcher lifecycle", () => {
   test("orders root cleanup after an in-flight explicit watch registration", async () => {
     const registrationStarted = deferred<void>();
     const releaseRegistration = deferred<void>();
-    const invokeCommand = mock(async (command: string, _arguments: { path: string }) => {
+    const invokeCommand = mock(async (command: string, _arguments: Parameters<FileWatcherInvoke>[1]) => {
       if (command === "start_watching") {
         registrationStarted.resolve(undefined);
         await releaseRegistration.promise;
@@ -85,9 +85,9 @@ describe("file watcher lifecycle", () => {
       await cleanup;
 
       expect(invokeCommand.mock.calls).toEqual([
-        ["start_watching", { path: "D:/work/module/pom.xml" }],
-        ["stop_watching", { path: "D:/work/module/pom.xml" }],
-        ["stop_watching", { path: "D:/work" }],
+        ["start_watching", { path: "D:/work/module/pom.xml", runtimeId: expect.any(String), watchId: expect.any(String) }],
+        ["stop_watching", { path: "D:/work/module/pom.xml", runtimeId: expect.any(String), watchId: expect.any(String) }],
+        ["stop_watching", { path: "D:/work", runtimeId: expect.any(String), watchId: expect.any(String) }],
       ]);
       expect(store.getState().watchedPaths.size).toBe(0);
       expect(await store.getState().actions.startWatching("D:/work/pom.xml")).toBe(false);
@@ -100,7 +100,7 @@ describe("file watcher lifecycle", () => {
 
   test("unwatches the previous project root before registering its replacement", async () => {
     const invokeCommand = mock(
-      async (_command: string, _arguments: { path: string }): Promise<unknown> => undefined,
+      async (_command: string, _arguments: Parameters<FileWatcherInvoke>[1]): Promise<unknown> => undefined,
     );
     const store = createFileWatcherStore("workspace", invokeCommand as FileWatcherInvoke);
     await store.getState().actions.setProjectRoot("D:/first");
@@ -110,9 +110,9 @@ describe("file watcher lifecycle", () => {
     expect(await store.getState().actions.setProjectRoot("D:/second")).toBe(true);
 
     expect(invokeCommand.mock.calls).toEqual([
-      ["stop_watching", { path: "D:/first/pom.xml" }],
-      ["stop_watching", { path: "D:/first" }],
-      ["set_project_root", { path: "D:/second" }],
+      ["stop_watching", { path: "D:/first/pom.xml", runtimeId: expect.any(String), watchId: expect.any(String) }],
+      ["stop_watching", { path: "D:/first", runtimeId: expect.any(String), watchId: expect.any(String) }],
+      ["set_project_root", { path: "D:/second", runtimeId: expect.any(String), watchId: expect.any(String) }],
     ]);
     expect(store.getState().projectRoot).toBe("D:/second");
   });
@@ -120,7 +120,7 @@ describe("file watcher lifecycle", () => {
   test("retains the project root when native root cleanup fails", async () => {
     let rejectRootCleanup = true;
     const invokeCommand = mock(
-      async (command: string, arguments_: { path: string }): Promise<unknown> => {
+      async (command: string, arguments_: Parameters<FileWatcherInvoke>[1]): Promise<unknown> => {
         if (command === "stop_watching" && arguments_.path === "D:/work" && rejectRootCleanup) {
           rejectRootCleanup = false;
           throw new Error("root cleanup failed");
@@ -143,4 +143,27 @@ describe("file watcher lifecycle", () => {
       consoleError.mockRestore();
     }
   });
+});
+
+
+test("shared paths keep separate runtime registrations and release their own identifiers", async () => {
+  const native = mock(async (_command: string, _args: Parameters<FileWatcherInvoke>[1]) => undefined);
+  const first = createFileWatcherStore("first", native);
+  const second = createFileWatcherStore("second", native);
+  try {
+    await first.getState().actions.setProjectRoot("C:/shared");
+    await second.getState().actions.setProjectRoot("C:/shared");
+    const a = native.mock.calls[0]![1];
+    const b = native.mock.calls[1]![1];
+    expect(a.runtimeId).not.toBe(b.runtimeId);
+    expect(a.watchId).not.toBe(b.watchId);
+    await first.getState().actions.setProjectRoot("");
+    expect(native.mock.calls[2]).toEqual(["stop_watching", a]);
+    expect(second.getState().projectRoot).toBe("C:/shared");
+    await second.getState().actions.setProjectRoot("");
+    expect(native.mock.calls[3]).toEqual(["stop_watching", b]);
+  } finally {
+    await first.getState().actions.setProjectRoot("");
+    await second.getState().actions.setProjectRoot("");
+  }
 });

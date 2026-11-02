@@ -45,12 +45,14 @@ extension MacToolchainDiscovery {
                 let identity: [String: Any] = ["contextID": current.contextID, "generation": current.generation]
                 if let context, !NSDictionary(dictionary: context).isEqual(to: identity) { throw CancellationError() }
                 context = identity
-                switch await query(provider, scope: (directory, current), registry: registry, tools: tools,
-                                   root: root, caseSensitive: caseSensitive, generation: generation) {
+                switch await query(provider, operation: "toolchain-\(generation)", generation: generation,
+                                   scope: (directory, current), registry: registry, tools: tools,
+                                   root: root, caseSensitive: caseSensitive) {
                 case .failure: throw Self.unavailable()
-                case .unavailable(_, let validation): queries.append(validation)
-                case .success(let snapshot, let validation):
-                    queries.append(validation)
+                case .unavailable(let input, let paths, _):
+                    queries.append(input.merging(["filesystem": paths.map(Self.fact(of:))]) { $1 })
+                case .success(let snapshot, let input, let paths):
+                    queries.append(input.merging(["filesystem": paths.map(Self.fact(of:))]) { $1 })
                     reported += snapshot["installations"] as? [[String: Any]] ?? []
                 }
             }

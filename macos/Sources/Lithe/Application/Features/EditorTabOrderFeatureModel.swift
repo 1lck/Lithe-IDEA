@@ -64,6 +64,9 @@ final class EditorTabOrderFeatureModel: ObservableObject {
         items.filter { placements[$0] == group }
     }
 
+    /// Group presenting `item`, or nil while it is outside the editor (for example in the tool window).
+    func group(containing item: EditorTabItem) -> UUID? { placements[item] }
+
     /// Close menus operate on visible group order and leave mixed non-document tabs open.
     func documentCloseTargets(for id: UUID, in group: UUID?) -> (other: [UUID], left: [UUID], right: [UUID]) {
         let tabs = group.map { items(in: $0) } ?? items
@@ -141,13 +144,43 @@ final class EditorTabOrderFeatureModel: ObservableObject {
             if ordered != items { items = ordered }
         } else {
             let created = UUID()
-            let new = EditorGroupLayout.group(created), old = EditorGroupLayout.group(group)
-            let leading = side == .left || side == .top
-            groupLayout = groupLayout.replacing(group, with: .split(id: UUID(),
-                vertical: side == .top || side == .bottom, first: leading ? new : old, second: leading ? old : new))
+            groupLayout = groupLayout.splitting(group, by: side, newGroup: created)
             placements[item] = created
         }
         reconcileGroups()
+        focus(item)
+        return true
+    }
+
+    /// Adds a tab from outside the editor; an edge always splits because the target group does not own it yet.
+    @discardableResult
+    func insert(_ item: EditorTabItem, into group: UUID?, side: EditorGroupDropSide) -> Bool {
+        guard !items.contains(item) else { return false }
+        let groups = groupLayout.groups
+        guard let group else {
+            let destination = focusedGroup.flatMap { groups.contains($0) ? $0 : nil } ?? groups[0]
+            placements[item] = destination
+            var next = items
+            next.append(item)
+            items = next
+            focus(item)
+            return true
+        }
+        guard groups.contains(group) else { return false }
+        if side == .center {
+            placements[item] = group
+            var next = items
+            let last = next.lastIndex { placements[$0] == group }
+            next.insert(item, at: last.map { $0 + 1 } ?? next.count)
+            items = next
+        } else {
+            let created = UUID()
+            groupLayout = groupLayout.splitting(group, by: side, newGroup: created)
+            placements[item] = created
+            var next = items
+            next.append(item)
+            items = next
+        }
         focus(item)
         return true
     }
@@ -256,7 +289,7 @@ final class EditorTabOrderFeatureModel: ObservableObject {
                       reorderedExistingIDs.indices.contains(existingIndex) else { continue }
                 next.append(.document(reorderedExistingIDs[existingIndex]))
                 existingIndex += 1
-            case .terminal, .media, .repositoryDiff, .agentConversation:
+            case .terminal, .media, .repositoryDiff, .agentConversation, .languageLogs:
                 next.append(item)
             }
         }
