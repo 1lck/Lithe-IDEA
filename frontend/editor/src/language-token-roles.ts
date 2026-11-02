@@ -1,3 +1,4 @@
+/// <reference path="./monaco-tokenization-internals.d.ts" />
 import type { languages } from "monaco-editor";
 import { deepClone } from "monaco-editor/esm/vs/base/common/objects.js";
 
@@ -54,10 +55,10 @@ export function refineLanguageTokenRoles(source: languages.IMonarchLanguage, lan
     // This keyword is also listed as a builtin function by Monaco 0.55.1.
     // Append a subtype to retain predefined.sql in every other theme.
     const wordRule = language.tokenizer.root.find(rule => Array.isArray(rule)
-      && typeof rule[1] === "object" && !Array.isArray(rule[1]) && rule[1].cases?.["@builtinFunctions"]);
+      && typeof rule[1] === "object" && !Array.isArray(rule[1]) && rule[1].cases && Object.prototype.hasOwnProperty.call(rule[1].cases, "@builtinFunctions"));
     if (Array.isArray(wordRule)) {
       const action = wordRule[1] as languages.IExpandedMonarchLanguageAction;
-      action.cases = { "~COLLATE": "predefined.sql.keyword", ...action.cases };
+      action.cases = Object.assign({ "~COLLATE": "predefined.sql.keyword" }, action.cases);
     }
   }
   return language;
