@@ -112,6 +112,14 @@ reload receipt 与 operation ID 的加载结果，不能等待提示条自动消
 再要求旧语言进程满足新计划，会被精确身份校验拒绝；不能因此放宽匹配。验收应先证明模型重载
 保留共享语言进程，再单独保存 restart 设置，并经明确停用、启用与正常模型审批证明新进程读取保存值。
 
+## 保存 restart 后再重载模型（R39）
+
+共享语言进程的启动参数已经由编辑器 owner 持有。先保存 restart 设置、再仅重载模型时，新审查会解析出不同启动参数；模型 reload 仍保留原语言进程，不能用新设置冒充原进程启动证据。原生匹配仍要求完整启动身份相等，只有同窗口、同项目代次、同包和同语言的唯一 owner 存在且不可变启动输入不同，才返回 `provider.restartRequired`，构建和函数界面统一翻译为可行动的重启提示。仅配置不匹配继续拒绝绑定，不误报重启；只有成功的即时配置可以更新已接收配置身份。
+
+用户先通过“稍后”关闭这次失败的模型重载收据，再在插件管理页停用、启用并重新审查加载模型。该操作不丢弃已保存的 restart 值，也不自动停止共享语言。`cleanupFailed` 不允许关闭，仍必须由同一个 owner 显式重试清理。不要通过模型 reload 自动重启语言、更新原始 launch 证据或忽略启动参数差异来让组合通过。
+
+连续驱动先证明普通 reload 保持原 PID，再保存 restart 并尝试模型 reload，核对精确错误、本地化提示、旧 PID 和已保存值，然后显式关闭收据、停用/启用、审查新模型，核对新 PID 及新启动参数。fixture 输入清单同时冻结驱动源码，修改驱动后必须重新生成完整包输入。R37 r11 失败、后续反向顺序通过和 r13 选择器超时分别保留；源码与离线回归不替代 R39 新镜像产品验收。
+
 ## 验证
 
 - `node .agents/skills/write-stable-tests/scripts/run-rust-tests-with-timing.mjs --manifest windows/tauri/src-tauri/Cargo.toml --report .artifacts/test-stability/native-provider.json`：检查会话注册/进度隔离、动作后刷新、函数取消与其他构建等待器共存。

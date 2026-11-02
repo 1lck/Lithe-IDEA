@@ -96011,6 +96011,13 @@
       ]
     },
     {
+      "id": "plugin.build.restartRequired",
+      "description": "Saved startup settings differ from the running plugin; explicit lifecycle recovery required",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
       "id": "plugin.build.providerFailed",
       "description": "Windows build Provider approval and failures",
       "platforms": [

@@ -66,7 +66,9 @@ export class PluginSettingsReloads {
       (state.error === null ||
         state.error === "plugin.settings.conflict" ||
         state.error === "Error: plugin.settings.conflict" ||
-        state.error === "Error: plugin.settings.reloadCancelled")
+        state.error === "Error: plugin.settings.reloadCancelled" ||
+        state.error === "plugin.build.restartRequired" ||
+        state.error === "Error: plugin.build.restartRequired")
     );
   }
   require(receipt: PluginReloadReceipt) {

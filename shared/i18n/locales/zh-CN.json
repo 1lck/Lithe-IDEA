@@ -10029,6 +10029,7 @@
     "generator.timeout": "项目生成超时。",
     "generator.title": "插件项目生成器",
     "generator.toolMissing": "缺少所需命令，请安装并确保 PATH 中可找到它。",
+    "plugin.build.restartRequired": "已保存的设置需要重启插件。请停用后重新启用插件，再审查并加载模型。",
     "plugin.build.providerFailed": "构建 Provider 未能完成本次请求，请重新加载后重试。",
     "plugin.build.providerNotNegotiated": "服务器未协商构建 Provider 支持。",
     "pluginNative.cancelled": "原生插件面板请求已取消。",

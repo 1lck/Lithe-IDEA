@@ -259,3 +259,39 @@ test("project reload offers Cancel only after bounded native preflight has retur
     else environment.IS_REACT_ACT_ENVIRONMENT = previousAct;
   }
 }, 3000);
+
+test.each([
+  ["en-US", "Saved settings require a plugin restart."],
+  ["zh-CN", "已保存的设置需要重启插件。"],
+] as const)("restart-required reload recovery is localized in %s and retains the saved receipt", async (language, message) => {
+  const environment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
+  const previousAct = environment.IS_REACT_ACT_ENVIRONMENT;
+  environment.IS_REACT_ACT_ENVIRONMENT = true;
+  const host = document.createElement("div");
+  document.body.append(host);
+  let root: Root | null = null;
+  const reloads = new PluginSettingsReloads({
+    reload: async () => { throw new Error("plugin.build.restartRequired"); },
+    refresh: async () => { throw new Error("failed reload must not publish success"); },
+  });
+  reloads.require(receipt);
+  try {
+    await act(async () => {
+      root = createRoot(host);
+      root.render(<LocaleProvider language={language}><DeclarativePluginReloadNotices reloads={reloads} /></LocaleProvider>);
+    });
+    await act(async () => { host.querySelector<HTMLButtonElement>("[data-plugin-reload-confirm]")!.click(); });
+    expect(host.querySelector("[role=alert]")?.textContent).toContain(message);
+    expect(host.querySelector("[role=alert]")?.textContent).not.toContain("plugin.build.restartRequired");
+    expect(reloads.state(receipt.pluginId)?.receipt).toBe(receipt);
+    expect(host.querySelector<HTMLButtonElement>("[data-plugin-reload-confirm]")?.disabled).toBe(false);
+    expect(reloads.canPostpone(receipt.pluginId)).toBe(true);
+    await act(async () => { host.querySelector<HTMLButtonElement>("[data-plugin-reload-postpone]")!.click(); });
+    expect(reloads.state(receipt.pluginId)).toBeUndefined();
+  } finally {
+    await act(async () => { root?.unmount(); });
+    host.remove();
+    if (previousAct === undefined) delete environment.IS_REACT_ACT_ENVIRONMENT;
+    else environment.IS_REACT_ACT_ENVIRONMENT = previousAct;
+  }
+}, 1000);

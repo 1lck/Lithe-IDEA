@@ -10029,6 +10029,7 @@
     "generator.timeout": "Project generation exceeded its time limit.",
     "generator.title": "Plugin project generators",
     "generator.toolMissing": "A required command is missing. Install it and ensure it is available on PATH.",
+    "plugin.build.restartRequired": "Saved settings require a plugin restart. Disable and enable the plugin, then review and load the model again.",
     "plugin.build.providerFailed": "The build Provider could not complete this request. Reload to retry.",
     "plugin.build.providerNotNegotiated": "The server did not negotiate build Provider support.",
     "pluginNative.cancelled": "The native plugin panel request was cancelled.",

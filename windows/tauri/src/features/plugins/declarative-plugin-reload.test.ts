@@ -322,3 +322,19 @@ test("cancel during model reload keeps the owner until cleanup finishes", async 
     await pending;
   }
 }, 1000);
+
+test("restart-required failures may be explicitly postponed but cleanup failures retain their owner", async () => {
+  for (const code of ["plugin.build.restartRequired", "plugin.build.cleanupFailed"]) {
+    const reloads = new PluginSettingsReloads({
+      reload: async () => { throw new Error(code); },
+      refresh: async () => { throw new Error("failed model must not refresh"); },
+    });
+    const saved = { pluginId: "fixture.restart", workspacePath: "/fixture/workspace",
+      expectedIdentity: "saved", expectedPackageIdentity: "package" };
+    reloads.require(saved);
+    await reloads.confirm(saved.pluginId);
+    expect(reloads.canPostpone(saved.pluginId)).toBe(code === "plugin.build.restartRequired");
+    reloads.postpone(saved.pluginId);
+    expect(reloads.state(saved.pluginId)?.receipt).toBe(code === "plugin.build.restartRequired" ? undefined : saved);
+  }
+}, 1000);

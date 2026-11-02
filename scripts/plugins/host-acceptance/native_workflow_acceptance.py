@@ -36,7 +36,7 @@ CASES = ("source-and-install-review", "provider-model", "task-test-dependencies"
          "replace-disable-uninstall", "quit-and-resource-invariance")
 PENDING = {
     "real-ime-and-native-focus": "Real Chinese IME composition, candidate windows, native hierarchy and window activation need human observation; DOM events are insufficient.",
-    "theme-narrow-docking": "Dark/light visual geometry, narrow docking and cross-slot drag/restore need native manual acceptance.",
+    "theme-narrow-docking": "Automated real-menu cross-slot movement, narrow grid and close-focus checks run in the full package lane; dark/light visual quality and native drag still need manual acceptance.",
     "full-version-contract": "Model task selectors, missing-report presentation, overlapping requests and injected native cleanup-failure recovery require their full product lanes before capability admission.",
     "external-formal-M10": "This newly generated unsigned community archive is not an external signed official artifact.",
     "windows-arm64": "No native ARM64 product run in this lane.",
@@ -94,12 +94,16 @@ def settings_conflict_receipt(calls):
     return row
 
 
-def project_reload_receipt(calls):
+def project_reload_receipt(calls, *, restart_required=False):
     """The reload notice owns one normal approved model load, not a second load."""
     def one(command):
         rows = [row for row in calls if row["command"] == command]
-        if len(rows) != 1 or not rows[0].get("settled") or rows[0].get("error") or not rows[0].get("value"):
-            raise AssertionError(f"project reload requires one successful {command}: {rows}")
+        failure_expected = restart_required and command == "declarative_plugins_build_load_model"
+        valid = (len(rows) == 1 and rows[0].get("settled") and
+                 ((rows[0].get("error") == "plugin.build.restartRequired" and not rows[0].get("value"))
+                  if failure_expected else (not rows[0].get("error") and rows[0].get("value"))))
+        if not valid:
+            raise AssertionError(f"project reload requires one successful or expected restart-required {command}: {rows}")
         return rows[0]
     reloaded = one("declarative_plugins_reload_settings")
     prepared = one("declarative_plugins_prepare_settings_reload_model")
@@ -288,7 +292,10 @@ class Workflow:
 
     def choose(self, region, name, option):
         region.get_by_role("combobox", name=name, exact=True).click(timeout=5000)
-        self.page.get_by_role("option", name=option, exact=True).click(timeout=5000)
+        selected = self.page.get_by_role("option", name=option, exact=True)
+        selected.wait_for(state="visible", timeout=5000)
+        selected.press("Enter", timeout=5000)
+        self.wait(lambda: not selected.count() or not selected.is_visible(), "selector keyboard choice closed")
 
     def tasks(self):
         receipts = []
@@ -552,7 +559,13 @@ class Workflow:
         expected["notify"] = not expected["notify"]
         committed("checkbox pointer preserves boolean type", lambda: field(by_id["notify"]).click(timeout=5000))
         expected["search"] = "workflow 查询"
-        field(by_id["search"]).fill(expected["search"], timeout=5000)
+        search = field(by_id["search"])
+        search.click(timeout=5000)
+        search.press("Control+A", timeout=5000)
+        search.press_sequentially("workflow keyboard", timeout=5000)
+        expected["search"] = "workflow keyboard"
+        if not search.evaluate("element => element === document.activeElement"):
+            raise AssertionError("search keyboard input lost focus before Enter")
         committed("search Enter commits full values", lambda: field(by_id["search"]).press("Enter", timeout=5000))
         mode = by_id["mode"]["options"][0]
         expected["mode"] = mode["id"]
@@ -567,6 +580,32 @@ class Workflow:
         panel = self.panel("form")
         if field(name).input_value(timeout=5000) != expected["name"]:
             raise AssertionError("same-slot replacement lost persisted form values")
+        geometry = []
+        for placement in ("left", "right", "bottom"):
+            # Use the real contribution context menu; no store mutation or
+            # synthetic resize. Side slots exercise the actual narrow layout.
+            self.page.get_by_role("button", name="Workflow form", exact=True).click(button="right", timeout=5000)
+            self.page.get_by_role("menuitem", name=placement, exact=True).click(timeout=5000)
+            panel = self.panel("form")
+            slot = self.page.locator(f"[data-native-tool-window-slot='{placement}']")
+            slot.get_by_test_id("native-plugin-panel").wait_for(state="visible", timeout=5000)
+            if field(name).input_value(timeout=5000) != expected["name"]:
+                raise AssertionError("cross-slot movement lost persisted form values")
+            layout = panel.locator(".plugin-native-grid").evaluate("element => ({width: element.getBoundingClientRect().width, columns: getComputedStyle(element).gridTemplateColumns, theme: document.documentElement.dataset.theme})")
+            if layout["width"] < 640 and len(layout["columns"].split()) != 1:
+                raise AssertionError("narrow native form did not use a single column")
+            geometry.append({"placement": placement, **layout})
+            self.page.screenshot(path=str(self.args.artifact_root / ("form-" + placement + ".png")), timeout=10000)
+        panel.hover(timeout=5000)
+        panel.get_by_role("button", name="Close native plugin panel", exact=True).click(timeout=5000)
+        trigger = self.page.get_by_role("button", name="Workflow form", exact=True)
+        if not trigger.evaluate("element => element === document.activeElement"):
+            raise AssertionError("closing the native panel did not restore contribution focus")
+        trigger.press("Enter", timeout=5000)
+        panel = self.panel("form")
+        if field(name).input_value(timeout=5000) != expected["name"]:
+            raise AssertionError("keyboard reopen lost persisted form values")
+        self.driver.write_json(self.args.artifact_root / "form-docking-focus.json", geometry)
         for suffix in ("static-tree", "static-list", "buttons"):
             self.panel(suffix)
 
@@ -729,36 +768,50 @@ class Workflow:
                      and row.get("params", {}).get("functionID") in ("tree.nodes", "tree.rename", "buttons.inspect")]
         if not {"tree.nodes", "tree.rename", "buttons.inspect"} <= {row["params"]["functionID"] for row in following} or any(row["pid"] != pid for row in following):
             raise AssertionError("functions after immediate configuration did not retain the same language owner")
-        self.save_setting("reloadMessage", "project-reloaded", "project")
+        # First prove the ordinary reload keeps its existing same-language semantics.
+        self.reload_project("before-restart", restart_required=False)
+        retained = [row for row in self.backend_events() if row["event"] == "started" and "1.1.0" in row.get("argv", [])]
+        if retained[-1]["pid"] != pid:
+            raise AssertionError("ordinary model reload replaced the language owner")
+        # Deliberately compose restart-save BEFORE model-only reload. The R37
+        # reverse order passed but did not exercise changed startup identity.
+        offset = len(self.backend_events())
+        saved_restart = self.save_setting("restartMessage", "restart-on-next-start")
+        if any(row["event"] == "started" for row in self.backend_events()[offset:]):
+            raise AssertionError("restart setting silently restarted a process")
+        reload_model = self.reload_project("after-restart", restart_required=True)
+        starts = [row for row in self.backend_events() if row["event"] == "started" and "1.1.0" in row.get("argv", [])]
+        if starts[-1]["pid"] != pid or "restart-on-next-start" in starts[-1]["argv"]:
+            raise AssertionError("model-only project reload changed the language startup identity")
+        stored = self.driver.invoke(self.page, "declarative_plugins_setting_snapshot", {"pluginId": PLUGIN_ID, "workspacePath": str(self.workspace)})
+        if stored["globalValues"].get("restartMessage") != "restart-on-next-start":
+            raise AssertionError("failed model reload lost the saved restart value")
+        self.driver.write_json(self.args.artifact_root / "settings-effects.json", {"immediate": updated, "followingFunctions": following,
+            "reload": reload_model, "retainedStart": starts[-1], "savedRestartIdentity": saved_restart["identity"],
+            "restartStillSaved": stored["globalValues"]["restartMessage"]})
+        self.restart_pid = pid
+        self.check_package("after-settings-effects")
+
+    def reload_project(self, value, *, restart_required):
+        self.save_setting("reloadMessage", value, "project")
         notice = self.page.locator(f"[data-plugin-reload='{PLUGIN_ID}'][data-plugin-reload-scope='project']")
         notice.wait_for(state="visible", timeout=5000)
         offset = len(self.calls())
-        self.preserve_backend("before-project-reload")
+        self.preserve_backend("before-project-reload-" + value)
         notice.locator("[data-plugin-reload-confirm]").click(timeout=5000)
-        call = self.wait(lambda: self.settled("declarative_plugins_reload_settings", offset), "project settings reload")
-        if call.get("error") or not call.get("value") or not call.get("args", {}).get("project"):
-            raise AssertionError(f"project reload did not consume the native receipt: {call}")
-        # Native drain/detection precedes an ordinary model review. Keep
-        # processing the real approval before waiting for the notice to leave.
         self.approved(lambda: self.settled("declarative_plugins_build_load_model", offset),
-                      "project reload model approved and completed")
-        reload_model = project_reload_receipt(self.calls()[offset:])
-        notice.wait_for(state="detached", timeout=5000)
-        self.setting_action("inspect", "Workflow inspect succeeded")
-        starts = [row for row in self.backend_events() if row["event"] == "started" and "1.1.0" in row.get("argv", [])]
-        if starts[-1]["pid"] != pid:
-            raise AssertionError("model-only project reload replaced the shared language owner")
-        self.driver.write_json(self.args.artifact_root / "settings-effects.json", {"immediate": updated, "followingFunctions": following,
-            "reload": reload_model, "retainedStart": starts[-1]})
-        # A restart setting takes effect on the next explicit language start,
-        # not during the model-only project reload above. Lifecycle below
-        # performs that start through Disable/Enable and normal model consent.
-        offset = len(self.backend_events())
-        self.save_setting("restartMessage", "restart-on-next-start")
-        if any(row["event"] == "started" for row in self.backend_events()[offset:]):
-            raise AssertionError("restart setting silently restarted a process")
-        self.restart_pid = pid
-        self.check_package("after-settings-effects")
+                      "project reload model approved and settled")
+        receipt = project_reload_receipt(self.calls()[offset:], restart_required=restart_required)
+        if restart_required:
+            notice.get_by_role("alert").filter(has_text="Saved settings require a plugin restart.").wait_for(timeout=5000)
+            # This failed model attempt did not revoke the live editor. Explicit
+            # Later retires only its receipt before Disable/Enable recovery.
+            notice.locator("[data-plugin-reload-postpone]").click(timeout=5000)
+            notice.wait_for(state="detached", timeout=5000)
+        else:
+            notice.wait_for(state="detached", timeout=5000)
+        self.driver.write_json(self.args.artifact_root / ("project-reload-" + value + ".json"), receipt)
+        return receipt
 
     def lifecycle(self):
         for action in ("Disable", "Enable"):

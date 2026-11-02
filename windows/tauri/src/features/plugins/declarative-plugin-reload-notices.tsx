@@ -109,7 +109,7 @@ function ReloadNotice({
       </SettingRow>
       {error && (
         <p role="alert" className="text-destructive ui-text-sm">
-          {t("plugins.settings.failed", { code: error })}
+          {t("plugins.settings.failed", { code: t(error.replace(/^Error: /, "")) })}
         </p>
       )}
       {review && (

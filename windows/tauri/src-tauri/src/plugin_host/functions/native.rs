@@ -464,6 +464,7 @@ pub(super) fn provider_error(error: super::super::provider::ProviderError) -> Er
         }
     }
     Error::new(match error.code {
+        "provider.restartRequired" => "plugin.build.restartRequired",
         "provider.functionUnavailable" => "plugin.function.unknown",
         "provider.identityChanged" => "plugin.function.staleContext",
         "provider.requestTimeout" | "provider.initializeTimeout" | "provider.transportTimeout" => {

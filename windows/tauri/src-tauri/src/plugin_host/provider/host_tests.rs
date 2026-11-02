@@ -220,3 +220,83 @@ async fn owner_published_before_revocation_is_drained_by_mutation_snapshot() {
         vec!["lsp.stopServer", "lsp.destroyServer"]
     );
 }
+
+#[test]
+fn shared_startup_change_requires_explicit_restart_without_rewriting_launch_evidence() {
+    let lifecycle = LifecycleState::default();
+    let mut registry = Registry::default();
+    let mut owner = native_transport(lifecycle.acquire(PLUGIN).unwrap(), true, Arc::default());
+    let original = json!({"serverPath":"/fixture/provider", "serverArgs":["original"],
+        "workspaceConfiguration":{"message":"old"}});
+    Arc::get_mut(&mut owner).unwrap().launch_plan = Some(original.clone());
+    registry.transports.insert(owner.id, owner.clone());
+    assert!(Arc::ptr_eq(
+        &select_shared(&registry, &context(), "fixture-language", &original).unwrap(),
+        &owner
+    ));
+    let mut configuration_only = original.clone();
+    configuration_only["workspaceConfiguration"] = json!({"message":"not-accepted"});
+    assert_ne!(
+        select_shared(
+            &registry,
+            &context(),
+            "fixture-language",
+            &configuration_only
+        )
+        .err()
+        .unwrap()
+        .code,
+        "provider.restartRequired"
+    );
+    owner
+        .update_configuration(
+            &json!({"sessionId":"fixture-session", "configuration":{"message":"not-accepted"}}),
+        )
+        .unwrap();
+    assert!(Arc::ptr_eq(
+        &select_shared(
+            &registry,
+            &context(),
+            "fixture-language",
+            &configuration_only
+        )
+        .unwrap(),
+        &owner
+    ));
+    let mut changed = original.clone();
+    changed["serverArgs"] = json!(["saved"]);
+    assert_eq!(
+        select_shared(&registry, &context(), "fixture-language", &changed)
+            .err()
+            .unwrap()
+            .code,
+        "provider.restartRequired"
+    );
+    assert_eq!(owner.launch_plan.as_ref(), Some(&original));
+    assert!(!owner.status.lock().unwrap().revoked);
+    for field in ["window", "workspace", "package", "generation"] {
+        let mut foreign = context();
+        match field {
+            "window" => foreign.window = "other".into(),
+            "workspace" => foreign.workspace_root = "/fixture/other".into(),
+            "package" => foreign.package_identity = "other".into(),
+            _ => foreign.generation += 1,
+        }
+        assert_ne!(
+            select_shared(&registry, &foreign, "fixture-language", &changed)
+                .err()
+                .unwrap()
+                .code,
+            "provider.restartRequired",
+            "{field}"
+        );
+    }
+    owner.status.lock().unwrap().revoked = true;
+    assert_ne!(
+        select_shared(&registry, &context(), "fixture-language", &changed)
+            .err()
+            .unwrap()
+            .code,
+        "provider.restartRequired"
+    );
+}

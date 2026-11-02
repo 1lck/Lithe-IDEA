@@ -616,20 +616,13 @@ pub(crate) async fn confirm(
             if !current(&registry, &context) {
                 return Err(error("Workspace changed"));
             }
-            let candidates: Vec<_> = registry
-                .transports
-                .values()
-                .filter(|entry| {
-                    entry.matches_shared(&context, language)
-                        && serde_json::to_value(&prepared.resolved)
-                            .is_ok_and(|resolved| entry.matches_launch(&resolved))
-                })
-                .cloned()
-                .collect();
-            if candidates.len() != 1 {
-                return Err(error("No unique native same-plugin language session"));
-            }
-            candidates[0].clone()
+            select_shared(
+                &registry,
+                &context,
+                language,
+                &serde_json::to_value(&prepared.resolved)
+                    .map_err(|failure| error(failure.to_string()))?,
+            )?
         };
         // The language owner keeps its lease. No probe or second process is
         // started for the shared source, and cancellation preserves the editor.
@@ -1137,6 +1130,49 @@ pub(crate) fn language_start(app: &AppHandle, window: &str, payload: &Value) -> 
         }
         result
     })())
+}
+
+/// Preserve exact launch matching. A live same-owner language with changed
+/// startup inputs needs an explicit lifecycle stop, never an implicit restart.
+fn select_shared(
+    registry: &Registry,
+    context: &ProviderContext,
+    language: &str,
+    resolved: &Value,
+) -> Result<Arc<Transport>, ProviderError> {
+    let owners: Vec<_> = registry
+        .transports
+        .values()
+        .filter(|entry| entry.matches_shared(context, language))
+        .collect();
+    let candidates: Vec<_> = owners
+        .iter()
+        .filter(|entry| entry.matches_launch(resolved))
+        .collect();
+    if candidates.len() == 1 {
+        return Ok(Arc::clone(candidates[0]));
+    }
+    // A rejected immediate configuration update is still retryable as an
+    // effect; only changed immutable startup inputs require a process restart.
+    let startup_changed = owners.len() == 1
+        && owners[0].launch_plan.as_ref().is_some_and(|launch| {
+            let mut original = launch.clone();
+            let mut requested = resolved.clone();
+            if let Some(object) = original.as_object_mut() {
+                object.remove("workspaceConfiguration");
+            }
+            if let Some(object) = requested.as_object_mut() {
+                object.remove("workspaceConfiguration");
+            }
+            original != requested
+        });
+    if candidates.is_empty() && startup_changed {
+        return Err(ProviderError::new(
+            "provider.restartRequired",
+            "The current language owner has different startup inputs",
+        ));
+    }
+    Err(error("No unique native same-plugin language session"))
 }
 
 pub(crate) fn remember_language_launch(

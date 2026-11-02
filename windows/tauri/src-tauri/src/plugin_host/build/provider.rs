@@ -130,6 +130,7 @@ fn failure(error: sessions::ProviderError) -> String {
     match error.code {
         "provider.cancelled" => "plugin.build.cancelled",
         "provider.notNegotiated" | "provider.notReady" => "plugin.build.providerNotNegotiated",
+        "provider.restartRequired" => "plugin.build.restartRequired",
         "provider.stopFailed" => "plugin.build.cleanupFailed",
         "provider.requestTimeout" | "provider.initializeTimeout" | "provider.transportTimeout" => {
             "plugin.build.timeout"

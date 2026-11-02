@@ -21,6 +21,7 @@ DISPLAY_NAME = "Lithe Native Workflow Acceptance"
 REFERENCE = ROOT / "macos/Tests/Fixtures/native-ui-lab/plugin.json"
 BACKEND = Path(__file__).with_name("native-workflow-backend.mjs")
 TOOL = Path(__file__).with_name("fake-build-tool.mjs")
+DRIVER = Path(__file__).with_name("native_workflow_acceptance.py")
 REQUIRES = {"buildProviders": 1, "buildSystems": 1, "serverProcess": 1, "settings": 2, "ui": 3, "languages": 1, "languageServers": 2}
 
 
@@ -116,7 +117,7 @@ def generate(root: Path) -> dict:
         (workspace / ".lithe-acceptance/fake-build-tool.mjs").write_bytes(TOOL.read_bytes())
     plan = {"schemaVersion": 1, "kind": "controlled-native-workflow", "pluginId": PLUGIN_ID,
             "requires": REQUIRES, "sourceCommit": source_revision(), "archives": assets,
-            "inputs": {p.relative_to(ROOT).as_posix(): sha256(p) for p in (REFERENCE, BACKEND, TOOL, Path(__file__))},
+            "inputs": {p.relative_to(ROOT).as_posix(): sha256(p) for p in (REFERENCE, BACKEND, TOOL, DRIVER, Path(__file__))},
             "externalOfficialPackage": False, "sdkExecuted": False}
     (root / "native-workflow-plan.json").write_bytes(json_bytes(plan))
     return plan
@@ -129,7 +130,7 @@ def load_plan(root: Path) -> dict:
             or plan.get("kind") != "controlled-native-workflow" or plan.get("pluginId") != PLUGIN_ID
             or plan.get("externalOfficialPackage") is not False or plan.get("sdkExecuted") is not False):
         raise ValueError("fixture source/requirements changed")
-    expected_inputs = {p.relative_to(ROOT).as_posix(): sha256(p) for p in (REFERENCE, BACKEND, TOOL, Path(__file__))}
+    expected_inputs = {p.relative_to(ROOT).as_posix(): sha256(p) for p in (REFERENCE, BACKEND, TOOL, DRIVER, Path(__file__))}
     if plan.get("inputs") != expected_inputs or set(plan.get("archives", {})) != {"1.0.0", "1.1.0"}:
         raise ValueError("fixture input identity changed")
     for version, asset in plan["archives"].items():

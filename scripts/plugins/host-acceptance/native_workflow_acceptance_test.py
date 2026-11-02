@@ -43,6 +43,21 @@ class NativeWorkflowTests(unittest.TestCase):
             with self.assertRaises(AssertionError):
                 project_reload_receipt(invalid)
 
+    def test_restart_save_before_model_reload_requires_exact_recoverable_failure(self):
+        receipt = {"pluginId": fixture.PLUGIN_ID, "scope": "project", "project": {"registration": 1}}
+        calls = [{"command": "declarative_plugins_reload_settings", "args": receipt,
+                  "settled": True, "value": {"view": {"generation": 2}}},
+                 {"command": "declarative_plugins_prepare_settings_reload_model", "args": {"receipt": receipt},
+                  "settled": True, "value": {"operationId": "reload-model"}},
+                 {"command": "declarative_plugins_build_load_model", "args": {"operationId": "reload-model"},
+                  "settled": True, "error": "plugin.build.restartRequired"}]
+        self.assertEqual(project_reload_receipt(calls, restart_required=True)["loaded"], calls[-1])
+        for error in ("plugin.build.providerFailed", None, {"code": "plugin.build.restartRequired"}):
+            with self.assertRaises(AssertionError):
+                project_reload_receipt([*calls[:-1], {**calls[-1], "error": error}], restart_required=True)
+        with self.assertRaises(AssertionError):
+            project_reload_receipt(calls)
+
     def test_saved_settings_require_exact_conflict_and_no_confirmation_before_explicit_retry(self):
         stale = {"command": "declarative_plugins_native_function_prepare", "settled": True,
                  "args": {"request": {"bindingId": "old", "operationId": "old-operation"}},
@@ -127,7 +142,7 @@ class NativeWorkflowTests(unittest.TestCase):
         self.reference = patch.object(fixture, "ROOT", self.parent)
         self.reference.start()
         self.addCleanup(self.reference.stop)
-        for name in ("REFERENCE", "BACKEND", "TOOL"):
+        for name in ("REFERENCE", "BACKEND", "TOOL", "DRIVER"):
             original = getattr(fixture, name)
             local = self.parent / original.name
             local.write_bytes(original.read_bytes())
@@ -189,6 +204,16 @@ class NativeWorkflowTests(unittest.TestCase):
         report = ET.parse(workspace / "build/test-results/test/TEST-fixture.xml").getroot()
         self.assertEqual(report.attrib["failures"], "1")
         self.assertEqual(report.find("testcase/failure").attrib["message"], "controlled failure")
+
+    def test_frozen_inputs_include_the_executable_continuous_driver(self):
+        plan = fixture.load_plan(self.root)
+        relative = fixture.DRIVER.relative_to(fixture.ROOT).as_posix()
+        self.assertEqual(plan["inputs"][relative], fixture.sha256(fixture.DRIVER))
+        path = self.root / "native-workflow-plan.json"
+        plan["inputs"][relative] = "0" * 64
+        path.write_text(json.dumps(plan), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "input identity"):
+            fixture.load_plan(self.root)
 
     def test_changed_zip_is_rejected_before_any_product_can_start(self):
         archive = self.root / "workflow-1.0.0.zip"
