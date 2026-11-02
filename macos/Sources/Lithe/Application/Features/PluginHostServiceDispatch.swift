@@ -312,7 +312,9 @@ final class PluginHostServiceDispatcher {
         } else { contextID = nil }
         // User-choice messages have no clock deadline; their session, context
         // and cancellation own dismissal. Machine operations are locally bounded.
-        let deadline: Task<Void, Never>? = request.method.hasPrefix("lithe/host/window/show") ? nil : Task { @MainActor [weak self] in
+        let waitsForUser = request.method.hasPrefix("lithe/host/window/show")
+            || ["lithe/host/terminal/create", "lithe/host/terminal/reopen"].contains(request.method)
+        let deadline: Task<Void, Never>? = waitsForUser ? nil : Task { @MainActor [weak self] in
             do { try await Task.sleep(for: .seconds(30)) } catch { return }
             guard let self, self.sessionIDs[pluginID] == currentSession,
                   let pending = self.inFlight[pluginID]?.removeValue(forKey: request.id) else { return }

@@ -382,7 +382,7 @@ extension AppModel {
         }
     }
 
-    private func closeTerminalSession(_ session: TerminalSession) {
+    func closeTerminalSession(_ session: TerminalSession) {
         guard terminalSessions.contains(where: { $0.id == session.id }) else { return }
         debugTerminalSessionIDs.remove(session.id)
         for debugSessionID in debugTerminalSessionIDsByDebugSession.keys {

@@ -9869,7 +9869,16 @@
     "native.toolchainSettings.providerDidNotRespond": "{provider} 未响应",
     "native.toolchainSettings.providerIsUnavailable": "{provider} 不可用",
     "native.toolchainSettings.noAnswerWithinSeconds": "{seconds} 秒内未响应",
-    "lsp.projectJdkInvalid": "项目 JDK 无效或无法读取其版本。请检查项目设置中的 JDK Home。"
+    "lsp.projectJdkInvalid": "项目 JDK 无效或无法读取其版本。请检查项目设置中的 JDK Home。",
+    "plugin.terminal.open": "打开插件终端",
+    "plugin.terminal.cancelled": "未打开插件终端。",
+    "plugin.terminal.unavailable": "终端不可用。",
+    "plugin.terminal.notFound": "插件终端不存在。",
+    "plugin.terminal.consent": "允许“{arg1}”打开终端？",
+    "plugin.terminal.closed": "插件终端已关闭，请先重新打开。",
+    "plugin.terminal.running": "插件终端仍在运行。",
+    "plugin.terminal.busy": "插件终端正在切换状态，请完成后重试。",
+    "plugin.terminal.permission": "打开并管理自己的原生终端，保留有限的显示历史用于重新打开"
   },
   "overrides": {
     "macos": {

@@ -81,7 +81,8 @@
           "preview.open",
           "toolchains.provide",
           "browser.open",
-          "window.messages"] }
+          "window.messages",
+          "terminal.create"] }
     },
     "activationEvents": {
       "type": "array",
