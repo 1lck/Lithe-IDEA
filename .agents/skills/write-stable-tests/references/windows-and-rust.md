@@ -162,6 +162,14 @@ The prefix matches the raw Rust test name, without the Cargo target printed
 before it in the console. Check each report's `maxMs` to confirm the allowance
 actually applies; a successful fast run alone does not prove prefix matching.
 
+The path roundtrip fixture gives only `git.references` requests 15 seconds on
+Windows. R39 reproduced a 5-second request cancellation with an unchanged
+binary; Git trace showed serial identity, local/remote reference and remote-list
+reads starting about one second apart. Native Git work itself stayed bounded.
+Other Core requests retain 5 seconds, fixture Git children retain 10 seconds,
+and the complete case retains its existing 60-second watchdog. This is a
+fixture integration allowance, not a change to production request deadlines.
+
 `push_target_choice_is_ignored_for_a_branch_that_tracks_its_own_name` gets
 30 seconds in SharedRust and real-JDT. Its two Core previews and real push
 passed assertions but took 18.731 seconds as a complete Windows test process;
@@ -208,3 +216,10 @@ Run the PowerShell harness in a real Windows environment. A macOS boundary
 check does not verify Bun timers, Windows process termination, or native Rust
 test execution. When using the Parallels guest, establish the user toolchain
 paths before invoking the script as required by `debug-windows-on-parallels`.
+
+The Windows host lane prepares `fake-acp-adapter` through the Rust runner's
+`--prepare-bin` option before enumerating cases. It is a normal executable,
+whereas `cargo test --no-run` emits only its libtest variant. A cold per-case
+fallback build previously consumed the Agent cleanup cases' 15-second watchdog.
+Preparation is recorded in `prepareBins` and `buildDurationMs`, shares the suite
+deadline, and must finish before lifecycle timing; no case budget is increased.

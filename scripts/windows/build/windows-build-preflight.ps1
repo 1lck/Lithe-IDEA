@@ -1,3 +1,14 @@
+# Normalize once before invoking Tauri so Cargo and resource staging use one path.
+function Resolve-WindowsCargoTargetRoot {
+    param([Parameter(Mandatory)][string]$RepositoryRoot)
+    $cargoDirectory = Join-Path $RepositoryRoot "windows/tauri/src-tauri"
+    if ([string]::IsNullOrWhiteSpace($env:CARGO_TARGET_DIR)) {
+        return [IO.Path]::GetFullPath((Join-Path $cargoDirectory "target"))
+    }
+    $env:CARGO_TARGET_DIR = [IO.Path]::GetFullPath($env:CARGO_TARGET_DIR, $cargoDirectory)
+    return $env:CARGO_TARGET_DIR
+}
+
 # Build-only preparation; no download, installation or published resource writes.
 function Initialize-WindowsNativeBun {
     param([Parameter(Mandatory)][string]$RepositoryRoot, [string]$NativeBunPath = "")

@@ -10301,8 +10301,14 @@ mod tests {
 
     #[test]
     fn indexing_watcher_rebuild_publishes_recomputed_git_exclusions_to_java() {
-        let workspace = TemporaryMavenWorkspace::recursive("indexing-watcher-provider");
-        let root = workspace.root.canonicalize().unwrap();
+        // This regression owns indexing notifications, not Maven reactor discovery.
+        // Keep unrelated recursive projects out of the real Git ignore inventory.
+        let workspace = ScratchDirectory(std::env::temp_dir().join(format!(
+            "lithe-indexing-watcher-provider-{}",
+            std::process::id()
+        )));
+        std::fs::create_dir_all(&workspace.0).unwrap();
+        let root = workspace.0.canonicalize().unwrap();
         std::fs::create_dir_all(root.join("ignored")).unwrap();
         std::fs::write(root.join("ignored/hidden.txt"), "hidden").unwrap();
         std::fs::write(root.join(".gitignore"), "ignored/\n").unwrap();
@@ -10313,7 +10319,12 @@ mod tests {
         )
         .unwrap();
         assert_eq!(git.exit_code, 0, "{}", git.stderr);
-        let mut harness = Harness::start(|request| workspace.configure(request));
+        let mut harness = Harness::start(|request| {
+            request.provider_id = "java".into();
+            request.root_uri = url::Url::from_directory_path(&root).unwrap().to_string();
+            request.working_directory = root.to_string_lossy().into_owned();
+            request.cache_directory = Some(root.join("cache").to_string_lossy().into_owned());
+        });
         harness
             .server
             .complete_java_initialize(ready_capabilities());

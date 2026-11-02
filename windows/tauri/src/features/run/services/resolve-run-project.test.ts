@@ -81,7 +81,7 @@ describe("Run diagnostics use the effective Maven selection", () => {
         discoveries.push(selected);
         return { java: selected ? [jdk] : [], maven: [], runtimes: selected ? [node] : [] };
       },
-      resolveRunConfiguration: mock(async (_root: string, _candidates: Array<{ id: string }>): Promise<CoreResolveResult> => ({
+      resolveRunConfiguration: mock(async (_root: string, _candidates: Array<{ id: string; type: string; version: string; vendor: string }>): Promise<CoreResolveResult> => ({
         configurations: [], toolchain: { java: { homePath: selection.javaHomePath } },
         localToolchains: { version: 1, toolchains: { "project-node": { executable: "tools/node.exe" } } },
       })),

@@ -128,6 +128,8 @@ function Invoke-TimedRustTests {
             }
         }
         if (-not $Package -and $Manifest -eq "windows/tauri/src-tauri/Cargo.toml") {
+            # Agent cleanup cases measure lifecycle, not cold fixture compilation.
+            $arguments += @("--prepare-bin", "fake-acp-adapter")
             # This real-Git integration case took 14.4s locally, while its
             # repository initialization exceeded the former 5s Core deadline.
             $arguments += @("--test-budget", "platform::tests::lightweight_tag_overrides_default_signing_without_running_signer_or_editor=30000")
@@ -145,7 +147,7 @@ function Invoke-TimedRustTests {
         try {
             $timingReport = Get-Content -LiteralPath $Report -Raw | ConvertFrom-Json
             $suiteTimedOut = $null -ne $timingReport.suite -and $timingReport.suite.timedOut -eq $true
-            $testsRan = @($timingReport.tests | Where-Object { $_.name -ne "Cargo test compilation" }).Count -gt 0
+            $testsRan = @($timingReport.tests | Where-Object { $_.name -notin @("Cargo test compilation", "Cargo fixture preparation") }).Count -gt 0
         } catch {
             Write-Warning "Could not inspect the Rust timing report after failure: $($_.Exception.Message)"
         }

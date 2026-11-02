@@ -11,6 +11,7 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
 $windowsApp = Join-Path $root "windows/tauri"
 . (Join-Path $PSScriptRoot "windows-build-preflight.ps1")
+$cargoTargetRoot = Resolve-WindowsCargoTargetRoot -RepositoryRoot $root
 Initialize-WindowsNativeBun -RepositoryRoot $root -NativeBunPath $NativeBunPath
 $bundledExtensionsSource = [System.IO.Path]::GetFullPath((Join-Path $windowsApp "src/extensions/bundled"))
 if (-not (Test-Path -LiteralPath $bundledExtensionsSource -PathType Container)) {
@@ -73,7 +74,6 @@ if ($Configuration -eq "Debug") {
     -FailureMessage "Windows Tauri build failed"
 
 $profileName = if ($Configuration -eq "Debug") { "debug" } else { "release" }
-$cargoTargetRoot = [System.IO.Path]::GetFullPath((Join-Path $windowsApp "src-tauri/target"))
 $profileRoot = [System.IO.Path]::GetFullPath(
     (Join-Path (Join-Path $cargoTargetRoot $RustTarget) $profileName)
 )

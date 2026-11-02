@@ -948,3 +948,45 @@ try {
 }
 
 console.log("Test stability verifier tests passed.");
+
+// Cold fixture builds spend suite time before any per-case watchdog starts.
+const preparationRoot = mkdtempSync(path.join(os.tmpdir(), "lithe-timing-preparation-"));
+try {
+  const options = parseRustTimingArguments(["--manifest", path.join(preparationRoot, "Cargo.toml"),
+    "--prepare-bin", "fake-acp-adapter", "--suite-timeout-ms", "1000",
+    "--warn-ms", "10", "--max-ms", "100", "--report", path.join(preparationRoot, "timing.json")]);
+  let clock = 0;
+  let calls = 0;
+  await assert.rejects(runRustTestsWithTiming(options, {
+    now: () => clock,
+    runProcessImpl: async ({ args, timeoutMs }) => {
+      calls += 1;
+      assert.equal(args[0], "build");
+      assert.deepEqual(args.slice(-2), ["--bin", "fake-acp-adapter"]);
+      assert.equal(timeoutMs, 1000);
+      clock = 1000;
+      return { code: null, timedOut: true, durationMs: 1000, stderr: "fixture deadline", stdout: "" };
+    },
+  }), /suite exceeded 1000ms during fixture preparation/);
+  assert.equal(calls, 1, "a failed preparation never starts test compilation or cases");
+  const report = JSON.parse(readFileSync(options.report, "utf8"));
+  assert.equal(report.suite.timedOut, true);
+  assert.deepEqual(report.prepareBins, ["fake-acp-adapter"]);
+  assert.equal(report.buildDurationMs, 1000);
+  assert.ok(existsSync(options.report.replace(/\.json$/, ".junit.xml")));
+  clock = 0;
+  await assert.rejects(runRustTestsWithTiming(options, {
+    now: () => clock,
+    runProcessImpl: async () => {
+      clock = 20;
+      return { code: 1, timedOut: false, durationMs: 20, stderr: "invalid cached fixture", stdout: "" };
+    },
+  }), /Cargo fixture preparation failed/);
+  const failedPreparation = JSON.parse(readFileSync(options.report, "utf8"));
+  assert.equal(failedPreparation.suite.timedOut, false);
+  assert.equal(failedPreparation.tests[0].name, "Cargo fixture preparation");
+  assert.equal(failedPreparation.tests[0].status, "failed");
+  assert.match(failedPreparation.tests[0].details, /invalid cached fixture/);
+} finally {
+  rmSync(preparationRoot, { recursive: true, force: true });
+}

@@ -74,9 +74,9 @@ $artifactParent = [IO.Path]::GetFullPath((Join-Path $root ".artifacts"))
 $artifactRoot = [IO.Path]::GetFullPath((Join-Path $artifactParent "plugin-host-acceptance"))
 $stabilityRoot = [IO.Path]::GetFullPath((Join-Path $artifactParent "test-stability"))
 $fixtureRoot = Join-Path $root "scripts/plugins/host-acceptance"
-$profileRoot = [IO.Path]::GetFullPath(
-    (Join-Path $root "windows/tauri/src-tauri/target/$RustTarget/release")
-)
+. (Join-Path $root "scripts/windows/build/windows-build-preflight.ps1")
+$cargoTargetRoot = Resolve-WindowsCargoTargetRoot -RepositoryRoot $root
+$profileRoot = [IO.Path]::GetFullPath((Join-Path $cargoTargetRoot "$RustTarget/release"))
 $sourceExecutable = Join-Path $profileRoot "lithe-windows.exe"
 $identityMarker = Join-Path $artifactRoot "build-identity.json"
 $customConfig = Join-Path $artifactRoot "tauri.host-acceptance.conf.json"

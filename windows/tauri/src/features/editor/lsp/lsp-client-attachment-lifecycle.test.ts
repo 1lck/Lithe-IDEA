@@ -192,18 +192,21 @@ test("a late document close cannot erase the reopened document", async () => {
     }
   });
   let close: Promise<void> | undefined;
+  let opening: Promise<void> | undefined;
   try {
     await client.startForFile(path, scope, "attach", "old");
     await client.notifyDocumentOpen(path, "old", "old");
     close = client.notifyDocumentClose(path, "old");
     await entered.promise;
     await client.startForFile(path, scope, "attach", "new");
-    await client.notifyDocumentOpen(path, "new", "new");
-    closing.resolve(); await close;
+    // The production document queue waits for the old close before reopening.
+    // Admit the new open without awaiting it, then release the owned close.
+    opening = client.notifyDocumentOpen(path, "new", "new");
+    closing.resolve(); await Promise.all([close, opening]);
     expect(documents.get(path.toLowerCase())?.attachmentId).toBe("new");
     expect(documents.get(path.toLowerCase())?.content).toBe("new");
   } finally {
-    closing.resolve(); await close;
+    closing.resolve(); await Promise.allSettled([close, opening]);
     native.mockRestore(); resolver.mockRestore();
   }
 }, 2000);
@@ -222,6 +225,7 @@ test("a manual restart completing an old close cannot detach or synchronize the 
     if (command === "lsp_stop_for_file") stopped.push(args.attachmentId);
   });
   let restart: Promise<void> | undefined;
+  let opening: Promise<void> | undefined;
   try {
     await client.startForFile(path, scope, "attach", "old");
     await client.notifyDocumentOpen(path, "old", "old");
@@ -230,13 +234,13 @@ test("a manual restart completing an old close cannot detach or synchronize the 
       throw new Error("restart completed without reaching its owned document close");
     })]);
     await client.startForFile(path, scope, "attach", "new");
-    await client.notifyDocumentOpen(path, "current editor text", "new");
-    closing.resolve(); await restart;
+    opening = client.notifyDocumentOpen(path, "current editor text", "new");
+    closing.resolve(); await Promise.all([restart, opening]);
     expect(stopped).toEqual(["old"]);
     expect(fileAttachmentIds.get(path.toLowerCase())).toBe("new");
     expect(documents.get(path.toLowerCase())?.content).toBe("current editor text");
   } finally {
-    closing.resolve(); await restart;
+    closing.resolve(); await Promise.allSettled([restart, opening]);
     native.mockRestore(); resolver.mockRestore(); feedback.mockRestore();
   }
 }, 2000);

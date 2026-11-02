@@ -8,7 +8,8 @@ param(
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
 $windowsApp = Join-Path $root "windows/tauri"
-$targetRoot = [System.IO.Path]::GetFullPath((Join-Path $windowsApp "src-tauri/target"))
+. (Join-Path $PSScriptRoot "windows-build-preflight.ps1")
+$targetRoot = Resolve-WindowsCargoTargetRoot -RepositoryRoot $root
 
 function Write-CacheWarning {
     param([string]$Message)
@@ -31,6 +32,12 @@ try {
             throw $FailureMessage
         }
 
+        # Restored CI caches belong to this checkout. An external target is owned
+        # by its caller; never delete an arbitrary environment-selected directory.
+        $repositoryPrefix = [IO.Path]::GetFullPath($root).TrimEnd('\') + '\'
+        if (-not $targetRoot.StartsWith($repositoryPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "$FailureMessage; refusing automatic cache cleanup outside the repository: $targetRoot"
+        }
         Write-CacheWarning "The Tauri build failed after restoring Cargo outputs. Clearing the repository target directory and retrying once without cached outputs."
         if (Test-Path -LiteralPath $targetRoot) {
             Remove-Item -Recurse -Force -LiteralPath $targetRoot

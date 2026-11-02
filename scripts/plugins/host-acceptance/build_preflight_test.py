@@ -301,6 +301,13 @@ if(Test-Path -LiteralPath $manifest){throw 'deleted manifest was recreated'}
                 manifest.write_bytes(original)
                 output = ps("""
 $env:LITHE_CARGO_BUILD_CACHE_RESTORED='true'
+$env:CARGO_TARGET_DIR='relative-cache'
+$target=Join-Path (Get-Location) 'windows/tauri/src-tauri/relative-cache'
+New-Item -ItemType Directory -Force $target | Out-Null
+'stale' | Set-Content (Join-Path $target 'cache-marker')
+$defaultTarget=Join-Path (Get-Location) 'windows/tauri/src-tauri/target'
+New-Item -ItemType Directory -Force $defaultTarget | Out-Null
+'untouched' | Set-Content (Join-Path $defaultTarget 'default-marker')
 $global:attempt=0
 function global:bunx {
     $global:attempt++
@@ -310,6 +317,9 @@ function global:bunx {
 }
 & ./scripts/windows/build/invoke-windows-tauri-build.ps1 -TauriArguments @('fake-only')
 if($global:attempt -ne 2){throw 'retry not reached'}
+if(Test-Path -LiteralPath $target){throw 'custom target was not cleared'}
+if(-not(Test-Path (Join-Path $defaultTarget 'default-marker'))){throw 'wrong default target cleared'}
+if(-not [IO.Path]::IsPathFullyQualified($env:CARGO_TARGET_DIR)){throw 'Cargo override not normalized'}
 'two-attempts'
 """
                 )
