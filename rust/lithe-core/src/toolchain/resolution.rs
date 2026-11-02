@@ -1,6 +1,6 @@
 //! Resolves captured toolchain candidates without native I/O or manager semantics.
 
-use super::{definitions, paths, pins, query};
+use super::{definitions, fixed::FixedToolchainSelection, paths, pins, query};
 use crate::plugins::declarative::{PluginRejection, Validation};
 use regex::RegexBuilder;
 use serde::Deserialize;
@@ -210,6 +210,47 @@ struct Snapshot<'a> {
 }
 
 impl Snapshot<'_> {
+    /// An explicit consumer choice precedes directory pins, but has exactly the
+    /// same native version and project-code boundary as other checked candidates.
+    fn fixed_selection(&self, fixed: &FixedToolchainSelection) -> Result<Value, &'static str> {
+        match fixed {
+            FixedToolchainSelection::Installation { home } => {
+                self.selection(home, "host:manual", "pinned")
+            }
+            FixedToolchainSelection::Executable { executable } => {
+                let fact = self.fact(executable, "file").map_err(|_| "notFound")?;
+                if fact["executable"] != true {
+                    return Err("notExecutable");
+                }
+                let canonical = fact["canonicalPath"].as_str().ok_or("unsafePath")?;
+                let project = self.roots.iter().any(|root| {
+                    paths::within(executable, root, self.platform, self.case_sensitive)
+                        || paths::within(canonical, root, self.platform, self.case_sensitive)
+                });
+                if project && self.input["projectCodeAllowed"] != true {
+                    return Err("projectCodeRequiresAction");
+                }
+                if self.definition["launch"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .any(|token| token == "${home}")
+                {
+                    return Err("homeUnavailable");
+                }
+                let version = self.version(executable)?;
+                self.environment_selection(
+                    None,
+                    executable,
+                    Some(&version),
+                    "host:manual",
+                    "pinned",
+                    project,
+                )
+            }
+        }
+    }
+
     fn key(&self, path: &str) -> Validation<String> {
         paths::normalize(path, self.platform, self.case_sensitive).ok_or_else(|| reject("path"))
     }
@@ -756,6 +797,8 @@ pub(crate) fn candidates(input: &Value) -> Validation<Value> {
             "probes",
             "systemInstallations",
             "providerInstallations",
+            "fixed",
+            "projectCodeAllowed",
             "environment",
         ],
     )?;
@@ -766,6 +809,12 @@ pub(crate) fn candidates(input: &Value) -> Validation<Value> {
         .ok_or_else(|| reject("tool"))?;
     let definition = enabled(&registry, tool).ok_or_else(|| reject("tool"))?;
     let (snapshot, _) = prepare(input, definition)?;
+    if input
+        .get("projectCodeAllowed")
+        .is_some_and(|value| !value.is_boolean())
+    {
+        return Err(reject("projectCodeAllowed"));
+    }
     string_maps(input, &["environment"])?;
     let mut shell = Vec::new();
     for candidate in definition["executables"]
@@ -812,7 +861,31 @@ pub(crate) fn candidates(input: &Value) -> Validation<Value> {
             .cmp(&version(left))
             .then_with(|| left["home"].as_str().cmp(&right["home"].as_str()))
     });
-    let skipped: Vec<_> = set.skipped.into_values().collect();
+    let mut skipped: Vec<_> = set.skipped.into_values().collect();
+    if let Some(value) = input.get("fixed") {
+        let fixed = FixedToolchainSelection::parse(value)?;
+        let executable = match &fixed {
+            FixedToolchainSelection::Installation { home } => snapshot
+                .checked(home, None)
+                .ok()
+                .and_then(|value| value["executable"].as_str().map(str::to_owned)),
+            FixedToolchainSelection::Executable { executable } => snapshot
+                .fact(executable, "file")
+                .ok()
+                .filter(|fact| fact["executable"] == true)
+                .map(|_| executable.clone()),
+        };
+        if let Err(code) = snapshot.fixed_selection(&fixed) {
+            let mut row = json!({"reason":code});
+            // A project program is not a probe target without the current action.
+            if code == "probeFailed" {
+                if let Some(executable) = executable {
+                    row["executable"] = json!(executable);
+                }
+            }
+            skipped.push(row);
+        }
+    }
     let (selected, conflict) = automatic_choice(&snapshot, set.eligible, None)?;
     Ok(
         json!({"tool":tool,"shell":shell,"installations":installations,"skipped":skipped,
@@ -847,6 +920,7 @@ pub(crate) fn resolve(input: &Value) -> Validation<Value> {
             "providerChoices",
             "generation",
             "context",
+            "fixed",
         ],
     )?;
     let registry = definitions::registry(&input["registry"])?;
@@ -866,6 +940,10 @@ pub(crate) fn resolve(input: &Value) -> Validation<Value> {
         .cloned()
         .unwrap_or(json!({"version":1,"toolchains":{}}));
     let pin = pins::resolve(&json!({"document":document,"directory":directory,"tool":tool}))?;
+    let fixed = input
+        .get("fixed")
+        .map(FixedToolchainSelection::parse)
+        .transpose()?;
     let Some(definition) = enabled(&registry, tool) else {
         return Ok(output(
             input,
@@ -891,6 +969,26 @@ pub(crate) fn resolve(input: &Value) -> Validation<Value> {
     string_maps(input, &["environment", "commandHomes", "providerChoices"])?;
     if let Some(choices) = input.get("providerChoices") {
         fields(choices, &["project", "global", "automatic"])?;
+    }
+    if let Some(fixed) = fixed {
+        return Ok(match snapshot.fixed_selection(&fixed) {
+            Ok(selection) => output(
+                input,
+                json!({"kind":"resolved","selection":selection}),
+                vec![json!({"candidateID":"consumerFixed","layer":"pinned","state":"resolved"})],
+                vec![],
+                vec![],
+            ),
+            Err(code) => output(
+                input,
+                json!({"kind":"terminalFailure","reason":reason(code,tool)}),
+                vec![
+                    json!({"candidateID":"consumerFixed","layer":"pinned","state":"terminalFailure","reason":reason(code,tool)}),
+                ],
+                vec![],
+                vec![],
+            ),
+        });
     }
     // A failed optional provider must never revoke a usable explicit fixed value.
     if let Some(home) = pin["pin"]["home"].as_str() {

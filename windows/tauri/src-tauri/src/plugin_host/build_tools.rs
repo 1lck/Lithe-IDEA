@@ -59,7 +59,15 @@ pub async fn declarative_plugins_build_tool(
         let inherited: HashMap<String, String> = std::env::vars().collect();
         let user_home = app.path().home_dir().map_err(|_| "toolchain.native.unavailable")?;
         let defined_context = DefinitionContext { registry:&tool_registry, normalized:&normalized_tools,
-            inherited:&inherited, user_home:&user_home, state:&workspace_state, explicit:check_versions };
+            inherited:&inherited, user_home:&user_home, state:&workspace_state, explicit:check_versions,
+            selections:&choices["definedTools"] };
+        let referenced: std::collections::HashSet<_> = invocation["executables"].as_array().into_iter().flatten()
+            .chain(invocation["runtimeDependencies"].as_array().into_iter().flatten()
+                .flat_map(|dependency| dependency["executables"].as_array().into_iter().flatten()))
+            .filter_map(|candidate| candidate["toolchainID"].as_str()).collect();
+        if choices["definedTools"].as_object().is_some_and(|tools| tools.keys().any(|id| !referenced.contains(id.as_str()))) {
+            return Err("toolchain.native.unavailable".into());
+        }
         let mut forwarded = BTreeMap::from([("PATH".into(), std::env::var("PATH").unwrap_or_default())]);
         for name in invocation["environmentInputs"].as_array().into_iter().flatten().filter_map(Value::as_str) {
             if let Some((_, value)) = inherited.iter().find(|(key, _)| key.eq_ignore_ascii_case(name)) { forwarded.insert(name.into(),value.clone()); }
@@ -79,8 +87,11 @@ pub async fn declarative_plugins_build_tool(
         resolver.prepare_definitions(&invocation["executables"], invocation, &defined_context)?;
         let selected = resolver.select_checked(&invocation["executables"], |selected| check_version(&package.manifest, &build_system_id, None, invocation, selected, &workspace_state, check_versions))?;
         let environment = selected.environment;
+        let native_inputs: BTreeMap<_,_> = resolver.definitions.iter().filter_map(|(id, selected)|
+            selected.definition_identity.as_ref().map(|identity| (id,identity))).collect();
         Ok(BuildToolContext { manifest:package.manifest, plugin_directory: package.root.to_string_lossy().into_owned(),
-            identity: json!({"globalSettings":layers.global,"projectSettings":layers.project,"toolchain":choices["toolchain"],"toolDefinitions":tool_registry}),
+            identity: json!({"globalSettings":layers.global,"projectSettings":layers.project,"toolchain":choices["toolchain"],
+                "toolDefinitions":tool_registry,"definedToolInputs":native_inputs,"runTools":choices["definedTools"]}),
             workspace_state_directory: workspace_state.to_string_lossy().into_owned(), environment,
             tool: json!({"executable":selected.path}), executes_project_code:selected.project_code })
     }).await
@@ -91,7 +102,7 @@ struct Selected {
     path: PathBuf,
     environment: BTreeMap<String, String>,
     project_code: bool,
-    defined: bool,
+    definition_identity: Option<String>,
 }
 
 struct Resolver<'a> {
@@ -111,6 +122,7 @@ struct DefinitionContext<'a> {
     user_home: &'a Path,
     state: &'a Path,
     explicit: bool,
+    selections: &'a Value,
 }
 
 impl Resolver<'_> {
@@ -135,6 +147,7 @@ impl Resolver<'_> {
                 .flatten()
                 .any(|value| value["definition"]["id"] == id)
             {
+                if context.selections.get(id).is_some() { return Err("toolchain.native.unavailable".into()); }
                 continue;
             }
             let directory = candidate["root"].as_str().unwrap_or(self.root);
@@ -157,6 +170,7 @@ impl Resolver<'_> {
                     environment: &environment,
                     minimum_version: declaration["minimumVersion"].as_str(),
                     project_code_allowed: context.explicit,
+                    fixed: context.selections.get(id),
                 },
                 |path, arguments, environment, deadline| {
                     let mut command =
@@ -184,7 +198,7 @@ impl Resolver<'_> {
                     path: selected.executable,
                     environment: selected.environment,
                     project_code: selected.project_code,
-                    defined: true,
+                    definition_identity: Some(selected.identity),
                 },
             );
         }
@@ -198,13 +212,13 @@ impl Resolver<'_> {
         self.runtimes.insert(id.into(), executable.clone());
         self.runtimes
             .insert(format!("project-{id}"), executable.clone());
-        if !selected.defined {
+        if selected.definition_identity.is_none() {
             self.environment.insert(
                 format!("LITHE_{}_PATH", id.to_uppercase().replace('-', "_")),
                 executable,
             );
         }
-        if !selected.defined && id == "java" {
+        if selected.definition_identity.is_none() && id == "java" {
             if let Some(home) = selected.path.parent().and_then(Path::parent) {
                 self.environment
                     .insert("JAVA_HOME".into(), home.to_string_lossy().into_owned());
@@ -388,7 +402,7 @@ impl Resolver<'_> {
             path,
             environment,
             project_code,
-            defined: false,
+            definition_identity: None,
         }))
     }
 }
@@ -516,7 +530,7 @@ mod tests {
         let selected = Selected {
             path: executable.clone(),
             project_code: false,
-            defined: true,
+            definition_identity: Some("fixture-evidence".into()),
             environment: BTreeMap::from([(
                 "DECLARED_HOME".into(),
                 fixture.0.join("kit").to_string_lossy().into_owned(),
@@ -646,7 +660,7 @@ mod tests {
                     path: executable.clone(),
                     environment: BTreeMap::new(),
                     project_code: false,
-                    defined: false,
+                    definition_identity: None,
                 },
             )
             .unwrap();

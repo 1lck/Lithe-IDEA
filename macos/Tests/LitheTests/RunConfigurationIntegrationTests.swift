@@ -154,6 +154,7 @@ struct RunConfigurationIntegrationTests {
         #expect(inputs.launchOptions.runtimeArguments == choices.runtimeArguments)
         #expect(inputs.launchOptions.entrypoint == choices.entrypoint)
         #expect(inputs.optionOverrides == choices.options)
+        #expect(inputs.tools == choices.tools.compactMapValues { $0 })
         #expect(inputs.launchOptions.arguments == ["--application=one two", "雪"])
         #expect(inputs.launchOptions.environment == options.environment)
         #expect(inputs.launchOptions.workingDirectory == "app/work")
@@ -163,12 +164,14 @@ struct RunConfigurationIntegrationTests {
         #expect(try JSONDecoder().decode(RunOptions.self, from: encoded) == options)
         #expect(try store.saveBuildProviderConfiguration(reference, name: "Renamed", at: root) == id)
         #expect(try store.providerLaunchInputs(at: root, configurationID: id, providerRoot: "app") == inputs)
-        options.providerRunOptions = BuildProviderRunOptions()
+        options.providerRunOptions = BuildProviderRunOptions(tools: Dictionary(uniqueKeysWithValues:
+            choices.tools.keys.map { ($0, Optional<FixedToolchainSelection>.none) }))
         try store.saveOptions(options, configurationID: id, scope: .local, at: root)
         let reset = try store.providerLaunchInputs(at: root, configurationID: id, providerRoot: "app")
         #expect(reset.launchOptions.runtimeArguments.isEmpty)
         #expect(reset.launchOptions.entrypoint == nil)
         #expect(reset.optionOverrides.isEmpty)
+        #expect(reset.tools.isEmpty)
         #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(".lithe/run/generated.json").path))
     }
 
@@ -4173,7 +4176,7 @@ struct RunConfigurationIntegrationTests {
             status: .ready,
             effective: [EffectiveRunConfiguration(
                 configuration: configuration,
-                options: RunOptions(programArguments: "--dev"),
+                options: RunOptions(programArguments: "--dev", providerRunOptions: provider ? BuildProviderRunOptions(tools: ["dev.example:compiler": .executable(path: "/fixture/compiler")]) : nil),
                 source: .local
             )]
         )
@@ -4185,7 +4188,7 @@ struct RunConfigurationIntegrationTests {
         fixture.service.resetOptions(for: configuration)
 
         #expect(fixture.operations.editorSaveCalls == 1)
-        #expect(fixture.operations.savedOptions == [RunOptions(providerRunOptions: provider ? BuildProviderRunOptions() : nil)])
+        #expect(fixture.operations.savedOptions == [RunOptions(providerRunOptions: provider ? BuildProviderRunOptions(tools: ["dev.example:compiler": nil]) : nil)])
         #expect(fixture.operations.savedScopes == [.local])
     }
 

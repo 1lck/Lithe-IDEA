@@ -31,7 +31,7 @@ export function mapCoreConfiguration(value: CoreResolvedConfiguration): RunConfi
     buildProvider: value.extensions?.build ? structuredClone(value.extensions.build) : undefined,
     buildProject: java?.build ? structuredClone(java.build) : undefined,
     ...(choices ? { providerRunOptions: structuredClone({ runtimeArguments: choices.runtimeArguments ?? [],
-      entrypoint: choices.entrypoint ?? "", options: choices.options ?? {} }) } : {}),
+      entrypoint: choices.entrypoint ?? "", options: choices.options ?? {}, ...(choices.tools ? { tools: choices.tools } : {}) }) } : {}),
     kindTitle: presentation.title,
     iconKey: presentation.iconKey,
     execution,

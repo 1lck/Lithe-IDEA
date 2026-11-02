@@ -251,7 +251,8 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         guard selected.configurationType == configurationType, valid() else { throw CancellationError() }
         choices.debug = selected
         let inputs = ProviderLaunchInputs(buildSystemID: original.buildSystemID, provider: original.provider,
-            projectPath: original.projectPath, launchOptions: choices, optionOverrides: original.optionOverrides, reference: original.reference)
+            projectPath: original.projectPath, launchOptions: choices, optionOverrides: original.optionOverrides, reference: original.reference,
+            tools: original.tools)
         let prepared = try await prepare(inputs, root, workspace, BuildProviderHints(), valid, { [weak self] value in
             if valid() { self?.append(value.output ?? value.message.map { $0 + "\n" } ?? "") }
         }) { value in
@@ -1186,8 +1187,10 @@ package final class RunService: ObservableObject, BuildRunLaunching {
     }
 
     package func resetOptions(for configuration: RunConfiguration) {
+        let resetTools: [String: FixedToolchainSelection?] = Dictionary(uniqueKeysWithValues:
+            (options(for: configuration).providerRunOptions?.tools.keys.map { ($0, Optional<FixedToolchainSelection>.none) }) ?? [])
         saveEditorChanges(
-            RunOptions(providerRunOptions: configuration.buildProvider == nil ? nil : BuildProviderRunOptions()),
+            RunOptions(providerRunOptions: configuration.buildProvider == nil ? nil : BuildProviderRunOptions(tools: resetTools)),
             for: configuration,
             scope: .local
         )

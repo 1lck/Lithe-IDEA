@@ -83,6 +83,17 @@ struct MacBuildToolResolverTests {
             #expect(tool.providerEnvironment["FIXTURE_SECRET"] == nil)
             #expect(!tool.executesProjectCode)
         }
+        let beforeRunChoice = try Data(contentsOf: local)
+        var sameDirectory = try core.invocationPlan(target, root: "a", settings: [:])
+        let alternateExecutable = scratch.appendingPathComponent("b tool/bin/worker")
+        sameDirectory.toolSelections = ["compiler": .executable(path: alternateExecutable.path),
+                                       "vm": .installation(home: scratch.appendingPathComponent("b vm").path)]
+        let alternate = try await resolver.resolve(sameDirectory, displayName: "Fixture", workspaceURL: workspace) { runtime, output in
+            try core.checkToolVersion(target, runtime: runtime, output: output)
+        }
+        #expect(alternate.executableURL == alternateExecutable)
+        #expect(alternate.environment["JAVA_HOME"] == MacToolchainDiscovery.realpath(scratch.appendingPathComponent("b vm").path))
+        #expect(try Data(contentsOf: local) == beforeRunChoice)
         pins["a"]?["compiler"] = ["home": "/fixture/missing-tool", "version": "1", "provider": "host:manual"]
         try JSONSerialization.data(withJSONObject: ["version": 1, "toolchains": [:], "pins": pins]).write(to: local)
         let invocation = try core.invocationPlan(target, root: "a", settings: [:])

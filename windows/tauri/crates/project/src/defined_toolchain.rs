@@ -1,6 +1,7 @@
 //! Native evidence for plugin-defined tools. Core owns ordering, versions and
 //! path policy; this adapter reads declarations and never interprets tool names.
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
@@ -24,6 +25,8 @@ pub struct Request<'a> {
     pub environment: &'a BTreeMap<String, String>,
     pub minimum_version: Option<&'a str>,
     pub project_code_allowed: bool,
+    /// Inert choice from the current Run, scoped to this operation only.
+    pub fixed: Option<&'a Value>,
 }
 
 /// One operation's result, never a persisted or settings-page launch permit.
@@ -32,6 +35,8 @@ pub struct Selection {
     pub environment: BTreeMap<String, String>,
     pub project_code: bool,
     pub version: Option<String>,
+    /// Stable host-only evidence identity for model invalidation, not authority.
+    pub identity: String,
 }
 
 #[derive(PartialEq)]
@@ -195,12 +200,23 @@ pub fn resolve(
         json!({"document":document,"directory":request.directory,"tool":request.tool}),
     )?;
     let pinned = pins["resolution"]["pin"]["home"].as_str();
-    if pinned.is_none() && !rows(plan, "providers").collect::<Vec<_>>().is_empty() {
+    let fixed_home = request
+        .fixed
+        .and_then(|value| value["home"].as_str())
+        .or_else(|| {
+            if request.fixed.is_none() {
+                pinned
+            } else {
+                None
+            }
+        });
+    let has_fixed = request.fixed.is_some() || pinned.is_some();
+    if !has_fixed && rows(plan, "providers").next().is_some() {
         return Err("toolchain.native.providerUnavailable".into());
     }
     capture.add(&workspace)?;
     let mut installations = Vec::new();
-    for (index, scan) in rows(plan, "scans").filter(|_| pinned.is_none()).enumerate() {
+    for (index, scan) in rows(plan, "scans").filter(|_| !has_fixed).enumerate() {
         if index >= 256 {
             return Err(LIMIT.into());
         }
@@ -258,7 +274,7 @@ pub fn resolve(
     }
     let mut variables = BTreeMap::new();
     for candidate in rows(definition, "executables")
-        .filter(|value| pinned.is_none() && applicable(value) && value["kind"] == "environment")
+        .filter(|value| !has_fixed && applicable(value) && value["kind"] == "environment")
     {
         if let Some(name) = candidate["variable"].as_str() {
             if let Some(home) =
@@ -270,13 +286,16 @@ pub fn resolve(
         }
     }
     let mut extra = Vec::new();
-    if let Some(home) = pinned {
+    if let Some(home) = fixed_home {
         capture.home(Path::new(home), definition)?;
         extra.push(home.to_owned());
     }
+    if let Some(executable) = request.fixed.and_then(|value| value["executable"].as_str()) {
+        capture.add(Path::new(executable))?;
+    }
     let mut commands = BTreeMap::new();
     for command in rows(definition, "commands")
-        .filter(|_| pinned.is_none())
+        .filter(|_| !has_fixed)
         .filter_map(Value::as_str)
     {
         let Some(path) = find_command(request.environment, command) else {
@@ -305,7 +324,7 @@ pub fn resolve(
             workspace.join(ancestor)
         };
         for candidate in rows(definition, "executables")
-            .filter(|value| pinned.is_none() && applicable(value) && value["kind"] == "projectFile")
+            .filter(|value| !has_fixed && applicable(value) && value["kind"] == "projectFile")
         {
             capture.add(&anchor.join(candidate["path"].as_str().ok_or(INVALID)?))?;
             for marker in rows(candidate, "requires").filter_map(Value::as_str) {
@@ -326,12 +345,14 @@ pub fn resolve(
             .into_iter()
             .map(|home| json!({"tool":request.tool,"home":home})),
     );
-    let candidates = core(
-        "toolchains.candidates",
-        json!({"registry":request.registry,"tool":request.tool,
+    let mut candidate_input = json!({"registry":request.registry,"tool":request.tool,
         "platform":platform(),"filesystemCaseSensitive":cfg!(not(windows)),"workspaceRoot":root,
-        "filesystem":capture.values(),"environment":variables,"systemInstallations":all_installations,"probes":[]}),
-    )?;
+        "filesystem":capture.values(),"environment":variables,"systemInstallations":all_installations,"probes":[]});
+    if let Some(fixed) = request.fixed {
+        candidate_input["fixed"] = fixed.clone();
+        candidate_input["projectCodeAllowed"] = json!(request.project_code_allowed);
+    }
+    let candidates = core("toolchains.candidates", candidate_input)?;
     let mut targets: BTreeSet<String> = ["skipped", "shell"]
         .into_iter()
         .flat_map(|key| rows(&candidates["candidates"], key))
@@ -343,12 +364,18 @@ pub fn resolve(
         "filesystemCaseSensitive":cfg!(not(windows)),"workspaceRoot":root,"workspaceRoots":[root],
         "filesystem":capture.values(),"local":document,"environment":variables,"commandHomes":commands,
         "systemInstallations":installations,"projectCodeAllowed":request.project_code_allowed,"probes":[]});
-    if request.project_code_allowed && request.minimum_version.is_some() {
+    if let Some(fixed) = request.fixed {
+        input["fixed"] = fixed.clone();
+    }
+    if request.project_code_allowed {
         let preliminary = core("toolchains.resolve", input.clone())?;
         let selected = &preliminary["resolution"]["outcome"]["selection"];
         if selected["projectCode"] == true {
             if let Some(path) = selected["executable"].as_str() {
-                targets.insert(path.into());
+                targets.clear();
+                if request.minimum_version.is_some() {
+                    targets.insert(path.into());
+                }
             }
         }
     }
@@ -392,6 +419,16 @@ pub fn resolve(
         return Err(INVALID.into());
     }
     let selection = &outcome["selection"];
+    let mut digest = Sha256::new();
+    digest.update(local.as_deref().unwrap_or_default().as_bytes());
+    digest.update(selection.to_string().as_bytes());
+    for observed in capture.facts.values() {
+        digest.update(observed.fact.to_string().as_bytes());
+        digest.update(observed.length.to_le_bytes());
+        digest.update(format!("{:?}:{:?}", observed.modified, observed.created).as_bytes());
+        #[cfg(unix)]
+        digest.update(format!("{:?}", observed.inode).as_bytes());
+    }
     // Only declared exports and PATH leave this adapter. The probe's inherited
     // environment may contain credentials that must never enter Provider RPC.
     let mut environment = BTreeMap::new();
@@ -421,6 +458,7 @@ pub fn resolve(
         environment,
         project_code: selection["projectCode"] == true,
         version: selection["version"].as_str().map(str::to_owned),
+        identity: format!("{:x}", digest.finalize()),
     }))
 }
 

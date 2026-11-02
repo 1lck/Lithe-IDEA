@@ -82,6 +82,7 @@ impl Fixture {
             environment: &self.environment,
             minimum_version: Some("17"),
             project_code_allowed: false,
+            fixed: None,
         }
     }
 }
@@ -330,4 +331,90 @@ fn links_into_the_workspace_are_never_probed_as_installations() {
         .is_err()
     );
     assert_eq!(calls, 0);
+}
+
+#[test]
+fn per_run_choices_override_pins_independently_and_do_not_write_them() {
+    let fixture = Fixture::new();
+    let inherited = fixture.install("inherited");
+    let first = fixture.install("first run");
+    let second = fixture.install("second run");
+    fixture.pin(".", &inherited);
+    let pin_path = fixture.workspace.join(".lithe/toolchains/local.json");
+    let original = fs::read(&pin_path).unwrap();
+    let mut identities = Vec::new();
+    for home in [&first, &second, &first] {
+        let fixed = json!({"home":native_path(home)});
+        let mut request = fixture.request();
+        request.fixed = Some(&fixed);
+        let mut probes = Vec::new();
+        let selected = resolve(request, |path, _, _, _| {
+            probes.push(path.to_path_buf());
+            Ok("compiler 21".into())
+        })
+        .unwrap()
+        .unwrap();
+        assert_eq!(selected.executable, home.join(launcher()));
+        assert_eq!(probes, [home.join(launcher())]);
+        identities.push(selected.identity);
+        assert_eq!(fs::read(&pin_path).unwrap(), original);
+    }
+    assert_eq!(identities[0], identities[2]);
+    assert_ne!(identities[0], identities[1]);
+    let fixed = json!({"home":native_path(&first)});
+    let mut request = fixture.request();
+    request.fixed = Some(&fixed);
+    let changed_version = resolve(request, |_, _, _, _| Ok("compiler 23".into()))
+        .unwrap()
+        .unwrap();
+    assert_ne!(identities[0], changed_version.identity);
+    let fixed = json!({"home":native_path(&fixture.root.join("missing"))});
+    let mut request = fixture.request();
+    request.fixed = Some(&fixed);
+    assert!(
+        resolve(request, |_, _, _, _| panic!(
+            "Invalid fixed choice cannot probe a fallback"
+        ))
+        .is_err()
+    );
+}
+
+#[test]
+fn per_run_launcher_requires_an_action_inside_the_workspace_and_never_invents_a_home() {
+    let mut fixture = Fixture::new();
+    fixture
+        .environment
+        .insert("FIXTURE_SECRET".into(), "private".into());
+    let launcher = fixture.workspace.join(if cfg!(windows) {
+        "custom runner.cmd"
+    } else {
+        "custom runner"
+    });
+    fs::write(&launcher, "fixture").unwrap();
+    fixture.executable(&launcher);
+    let fixed = json!({"executable":native_path(&launcher)});
+    let mut request = fixture.request();
+    request.fixed = Some(&fixed);
+    assert!(
+        resolve(request, |_, _, _, _| panic!(
+            "Passive selection must not run workspace code"
+        ))
+        .is_err()
+    );
+    let mut request = fixture.request();
+    request.fixed = Some(&fixed);
+    request.project_code_allowed = true;
+    let selected = resolve(request, |path, _, environment, _| {
+        assert_eq!(path, launcher);
+        assert_eq!(environment["FIXTURE_SECRET"], "private");
+        Ok("compiler 21".into())
+    })
+    .unwrap()
+    .unwrap();
+    assert_eq!(selected.executable, launcher);
+    assert!(selected.project_code);
+    assert!(
+        selected.environment.is_empty(),
+        "No home or unrelated process environment may be invented"
+    );
 }

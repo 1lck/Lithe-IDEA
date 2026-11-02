@@ -245,6 +245,53 @@ struct MacToolchainDiscoveryTests {
         #expect(selected?.environment["PATH"] == manual + "/bin:/fixture/path")
     }
 
+    @Test func consumerChoicesKeepTwoRunsIndependentFromTheDirectoryPin() async throws {
+        let root = try DiscoveryFixtureRoot()
+        defer { root.remove() }
+        let pinned = try root.installation("pinned")
+        let selected = try root.installation("per run")
+        let probes = DiscoveryProbes(outputs: [pinned + "/bin/compiler": "compiler 21", selected + "/bin/compiler": "compiler 17"])
+        let local = try #require(ToolingJSONValue.fromFoundation([
+            "version": 1, "toolchains": [:], "pins": [".": ["compiler": ["home": pinned, "version": "21", "provider": "host:manual"]]]
+        ]))
+        let request = MacToolchainDiscovery.Request(workspace: root.url("workspace"), sources: [Self.source()], environment: [:])
+        let resolver = discovery(root: root, probes: probes)
+        let first = try await resolver.resolve(request, tool: "compiler", directory: ".", minimumVersion: "11", local: local,
+            projectCodeAllowed: true, fixed: .installation(home: selected))
+        let second = try await resolver.resolve(request, tool: "compiler", directory: ".", minimumVersion: "11", local: local,
+            projectCodeAllowed: true)
+        #expect(first?.executable.path == selected + "/bin/compiler")
+        #expect(second?.executable.path == pinned + "/bin/compiler")
+        #expect(probes.calls.map(\.executable) == [selected + "/bin/compiler", pinned + "/bin/compiler"])
+        await #expect(throws: BuildToolResolutionError.self) {
+            try await resolver.resolve(request, tool: "compiler", directory: ".", minimumVersion: nil, local: local,
+                projectCodeAllowed: true, fixed: .installation(home: root.path + "/missing"))
+        }
+        #expect(probes.calls.count == 2)
+    }
+
+    @Test func consumerWorkspaceLauncherIsOnlyProbedForTheCurrentExplicitAction() async throws {
+        let root = try DiscoveryFixtureRoot()
+        defer { root.remove() }
+        let executable = root.url("workspace/custom runner")
+        try Data("#!/bin/sh\n".utf8).write(to: executable)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        let probes = DiscoveryProbes(outputs: [executable.path: "compiler 21"])
+        let resolver = discovery(root: root, probes: probes)
+        let request = MacToolchainDiscovery.Request(workspace: root.url("workspace"), sources: [Self.source()], environment: [:])
+        let local: ToolingJSONValue = .object(["version": .number(1), "toolchains": .object([:])])
+        await #expect(throws: BuildToolResolutionError.self) {
+            try await resolver.resolve(request, tool: "compiler", directory: ".", minimumVersion: "17", local: local,
+                projectCodeAllowed: false, fixed: .executable(path: executable.path))
+        }
+        #expect(probes.calls.isEmpty)
+        let selected = try await resolver.resolve(request, tool: "compiler", directory: ".", minimumVersion: "17", local: local,
+            projectCodeAllowed: true, fixed: .executable(path: executable.path))
+        #expect(selected?.executable == executable && selected?.projectCode == true)
+        #expect(selected?.environment.isEmpty == true)
+        #expect(probes.calls == [.init(executable: executable.path, arguments: ["--version"])])
+    }
+
     @Test func consumerNeverFallsBackFromAnInvalidFixedHome() async throws {
         let root = try DiscoveryFixtureRoot()
         defer { root.remove() }

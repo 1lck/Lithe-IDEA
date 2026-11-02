@@ -3,6 +3,7 @@
 //! No manager configuration, native scanning or process lifecycle belongs here.
 
 pub(crate) mod definitions;
+pub(crate) mod fixed;
 pub(crate) mod paths;
 pub(crate) mod pins;
 pub(crate) mod query;

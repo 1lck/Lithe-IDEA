@@ -9,7 +9,8 @@ extension MacToolchainDiscovery {
     /// Captures native evidence, queries installed providers and lets Core apply the
     /// four layers. Extra homes contribute probe evidence, never automatic candidates.
     func resolve(_ request: Request, tool: String, directory: String, minimumVersion: String?,
-                 local: ToolingJSONValue, projectCodeAllowed: Bool) async throws -> Selection? {
+                 local: ToolingJSONValue, projectCodeAllowed: Bool,
+                 fixed: FixedToolchainSelection? = nil) async throws -> Selection? {
         let plugins: [[String: Any]] = request.sources.filter(\.isEnabled).compactMap { source in
             guard let manifest = try? JSONSerialization.jsonObject(with: source.manifest) as? [String: Any],
                   manifest["toolDefinitions"] != nil || manifest["toolchainProviders"] != nil else { return nil }
@@ -25,12 +26,18 @@ extension MacToolchainDiscovery {
         let generation = Self.generations.withLock { value -> UInt64 in value += 1; return value }
         let pin = core("toolchains.resolvePins", ["document": local.foundationObject, "directory": directory, "tool": tool])
         guard let pinResolution = pin?["resolution"] as? [String: Any] else { throw Self.unavailable() }
-        let fixedHome = (pinResolution["pin"] as? [String: Any])?["home"] as? String
+        let fixedHome: String?
+        let fixedExecutable: String?
+        switch fixed {
+        case .installation(let home): fixedHome = home; fixedExecutable = nil
+        case .executable(let path): fixedHome = nil; fixedExecutable = path
+        case nil: fixedHome = (pinResolution["pin"] as? [String: Any])?["home"] as? String; fixedExecutable = nil
+        }
         var queries: [[String: Any]] = []
         var reported: [[String: Any]] = []
         var context: [String: Any]?
         // Explicit pins do not depend on optional lower-layer providers.
-        if fixedHome == nil {
+        if fixedHome == nil && fixed == nil {
             let providers = Self.providers(of: [definition])
             guard providers.count <= 8 else { throw Self.unavailable() }
             for provider in providers {
@@ -59,7 +66,7 @@ extension MacToolchainDiscovery {
         let layouts = (definition["executableLayouts"] as? [[String: Any]] ?? []).filter(Self.applies)
             .compactMap { $0["path"] as? String }
         var commandHomes: [String: String] = [:]
-        for command in declaration["commands"] as? [String] ?? [] {
+        for command in (fixedHome != nil || fixed != nil ? [] : declaration["commands"] as? [String] ?? []) {
             for directory in (request.environment["PATH"] ?? "").split(separator: ":", omittingEmptySubsequences: false) {
                 guard directory.hasPrefix("/") else { continue }
                 let path = URL(fileURLWithPath: String(directory)).appendingPathComponent(command).path
@@ -71,7 +78,12 @@ extension MacToolchainDiscovery {
             }
         }
         var scanner = Scanner(home: homeDirectory(), environment: request.environment, workspace: root, caseSensitive: caseSensitive)
-        let input = scanner.input(tool: tool, plan: definition, reported: reported,
+        var consumerPlan = definition
+        if fixedHome != nil || fixed != nil {
+            consumerPlan["scans"] = []
+            consumerPlan["environment"] = []
+        }
+        let input = scanner.input(tool: tool, plan: consumerPlan, reported: reported,
                                   additionalHomes: Array(commandHomes.values) + (fixedHome.map { [$0] } ?? []))
         var facts: [String: [String: Any]] = [:]
         func add(_ fact: [String: Any]) {
@@ -79,12 +91,13 @@ extension MacToolchainDiscovery {
             facts[caseSensitive ? path : path.lowercased()] = fact
         }
         input.facts.forEach(add)
+        if let fixedExecutable { add(Self.fact(of: fixedExecutable)) }
         for query in queries { (query["filesystem"] as? [[String: Any]] ?? []).forEach(add) }
         // Read project candidates and their markers at every exact ancestor.
         var ancestor = directory
         for _ in 0..<64 {
             let anchor = ancestor == "." ? root : root + "/" + ancestor
-            for candidate in declaration["executables"] as? [[String: Any]] ?? [] where Self.applies(candidate) {
+            for candidate in declaration["executables"] as? [[String: Any]] ?? [] where Self.applies(candidate) && fixedHome == nil && fixed == nil {
                 guard candidate["kind"] as? String == "projectFile", let path = candidate["path"] as? String else { continue }
                 add(Self.fact(of: anchor + "/" + path))
                 for marker in candidate["requires"] as? [String] ?? [] { add(Self.fact(of: anchor + "/" + marker)) }
@@ -108,15 +121,21 @@ extension MacToolchainDiscovery {
             "projectCodeAllowed": projectCodeAllowed, "probes": []
         ]
         if let minimumVersion { payload["minimumVersion"] = minimumVersion }
-        let probeInput: [String: Any] = [
+        var probeInput: [String: Any] = [
             "registry": registry, "tool": tool, "platform": "macos", "filesystemCaseSensitive": caseSensitive,
             "workspaceRoot": root, "filesystem": captured, "environment": input.environment,
             "systemInstallations": input.installations + (Array(commandHomes.values) + (fixedHome.map { [$0] } ?? [])).map { ["tool": tool, "home": $0] },
             "providerInstallations": input.reported, "probes": []
         ]
+        if let fixed {
+            let value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(fixed))
+            payload["fixed"] = value
+            probeInput["fixed"] = value
+            probeInput["projectCodeAllowed"] = projectCodeAllowed
+        }
         guard let candidates = core("toolchains.candidates", probeInput)?["candidates"] as? [String: Any] else { throw Self.unavailable() }
         var targets = Self.probeTargets(candidates)
-        if projectCodeAllowed, minimumVersion != nil {
+        if projectCodeAllowed {
             // Core first proves a project launcher without asking it for a version.
             // Only this explicit consumer action may probe that checked launcher;
             // the final resolution still enforces the original minimum version.
@@ -126,8 +145,8 @@ extension MacToolchainDiscovery {
             let outcome = provisional?["outcome"] as? [String: Any]
             let selected = outcome?["selection"] as? [String: Any]
             if outcome?["kind"] as? String == "resolved", selected?["projectCode"] as? Bool == true,
-               let executable = selected?["executable"] as? String, !targets.contains(executable) {
-                targets.append(executable)
+               let executable = selected?["executable"] as? String {
+                targets = minimumVersion == nil ? [] : [executable]
             }
         }
         guard targets.count <= Self.probeBudget else { throw Self.unavailable() }

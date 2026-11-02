@@ -131,6 +131,40 @@
       },
       "additionalProperties": false
     },
+    "fixedToolSelection": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "home"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "home": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "description": "Absolute native path; Core rejects traversal and control characters before use."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "executable"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "executable": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "description": "Absolute native path; Core rejects traversal and control characters before use."
+            }
+          }
+        }
+      ]
+    },
     "buildProviderRunOptions": {
       "type": "object",
       "additionalProperties": false,
@@ -156,6 +190,13 @@
           "propertyNames": {
             "pattern": "^[A-Za-z0-9._-]{1,200}$"
           }
+        },
+        "tools": {
+          "type": "object",
+          "maxProperties": 64,
+          "description": "Per-Run fixed tools, bounded to 64 KiB UTF-8 JSON by Core. Entries merge by tool ID; null clears an inherited Run choice and resumes directory policy.",
+          "propertyNames": { "pattern": "^(?:[a-z0-9]+(?:[.-][a-z0-9]+)*:)?[a-z][a-z0-9-]{0,63}$", "maxLength": 192 },
+          "additionalProperties": { "oneOf": [{ "$ref": "#/$defs/fixedToolSelection" }, { "type": "null" }] }
         }
       }
     },

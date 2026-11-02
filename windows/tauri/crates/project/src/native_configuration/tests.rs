@@ -15,7 +15,12 @@ impl Fixture {
             SEQUENCE.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir_all(&root).unwrap();
-        let root = root.canonicalize().unwrap();
+        // URI roundtrip uses the same native path spelling as the public source check,
+        // including Windows drive paths without a verbatim prefix.
+        let root = url::Url::from_directory_path(root.canonicalize().unwrap())
+            .unwrap()
+            .to_file_path()
+            .unwrap();
         Self { path: root.join("user settings.xml"), root,
             manifest: serde_json::from_str(include_str!("../../../../../../shared/contracts/plugins/v1/fixtures/build-provider-configuration.plugin.json")).unwrap() }
     }

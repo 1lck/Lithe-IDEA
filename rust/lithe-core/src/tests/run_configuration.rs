@@ -5208,6 +5208,8 @@ fn provider_run_options_preserve_exact_arguments_and_layered_build_choices() {
         )
     };
     let initial = read();
+    assert_eq!(initial["tools"], fixture["choices"]["tools"]);
+    assert!(initial["launchOptions"].get("tools").is_none());
     assert_eq!(
         initial["buildSystemID"],
         fixture["expected"]["buildSystemID"]
@@ -5237,9 +5239,32 @@ fn provider_run_options_preserve_exact_arguments_and_layered_build_choices() {
         }
         call("runConfig.updateOptions", payload)
     };
+    let one_tool = update(Some(
+        serde_json::json!({"tools":{"dev.example.engine:compiler":fixture["changed"]["tools"]["dev.example.engine:compiler"]}}),
+    ));
+    fs::write(&local_path, one_tool["document"].as_str().unwrap()).unwrap();
+    let inherited = read();
+    assert_eq!(
+        inherited["tools"]["dev.example.engine:compiler"],
+        fixture["changed"]["tools"]["dev.example.engine:compiler"]
+    );
+    assert_eq!(
+        inherited["tools"]["dev.example.engine:vm"],
+        fixture["choices"]["tools"]["dev.example.engine:vm"]
+    );
     let document = update(Some(fixture["changed"].clone()));
     fs::write(&local_path, document["document"].as_str().unwrap()).unwrap();
     let changed = read();
+    assert_eq!(changed["tools"], fixture["expected"]["tools"]);
+    let toolchain = call(
+        "runConfig.projectToolchain",
+        serde_json::json!({"root":root,"path":"app","configurationId":id}),
+    );
+    assert_eq!(toolchain["definedTools"], changed["tools"]);
+    assert!(
+        !root.join(".lithe/local.json").exists(),
+        "Run choices must not create directory pins"
+    );
     assert_eq!(
         changed["launchOptions"]["runtimeArguments"],
         fixture["changed"]["runtimeArguments"]
@@ -5313,6 +5338,13 @@ fn provider_run_options_reject_malformed_or_oversized_values() {
         serde_json::json!({"options":{"bad key":true}}),
         serde_json::json!({"options":{"opaque":"a".repeat(65536)}}),
         serde_json::json!({"options":(0..65).map(|n|(format!("key-{n}"),serde_json::json!(false))).collect::<std::collections::BTreeMap<_,_>>()}),
+        serde_json::json!({"tools":null}),
+        serde_json::json!({"tools":{"bad key":{"home":"/kit"}}}),
+        serde_json::json!({"tools":{"dev.example:compiler":{"home":"relative/kit"}}}),
+        serde_json::json!({"tools":{"dev.example:compiler":{"executable":"/a/../b"}}}),
+        serde_json::json!({"tools":{"dev.example:compiler":{"home":"/kit","executable":"/bin/compiler"}}}),
+        serde_json::json!({"tools":{"dev.example:compiler":{"home":"/kit","version":"21"}}}),
+        serde_json::json!({"tools":(0..65).map(|n|(format!("dev.example:tool-{n}"),serde_json::json!(null))).collect::<std::collections::BTreeMap<_,_>>()}),
         serde_json::json!({"command":"cached"}),
         serde_json::json!({"debug":{"adapter":"cached"}}),
     ] {

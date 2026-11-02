@@ -504,6 +504,9 @@ package struct BuildInvocation: Equatable, Sendable {
     package let versionArguments: [String]?
     package let minimumVersion: String?
 
+    /// Operation-owned choices supplied by a saved Run, never by the manifest.
+    package var toolSelections: [String: FixedToolchainSelection] = [:]
+
     /// After resolution fails, a provider must not discard a configured tool
     /// or runtime by doing its own lookup. Check this only on failure: an
     /// earlier successful candidate still wins over a later setting.

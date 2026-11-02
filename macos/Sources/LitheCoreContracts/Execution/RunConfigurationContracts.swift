@@ -43,21 +43,47 @@ package final class RunConfigurationGenerationLease: @unchecked Sendable {
     package func check() throws { if !isCurrent { throw CancellationError() } }
 }
 
+/// An inert per-operation tool choice. Core verifies files and versions before use.
+package enum FixedToolchainSelection: Codable, Hashable, Sendable {
+    case installation(home: String)
+    case executable(path: String)
+    private enum CodingKeys: String, CodingKey { case home, executable }
+    package init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        guard values.allKeys.count == 1 else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Expected one explicit tool choice"))
+        }
+        if values.contains(.home) { self = .installation(home: try values.decode(String.self, forKey: .home)) }
+        else { self = .executable(path: try values.decode(String.self, forKey: .executable)) }
+    }
+    package func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .installation(let home): try values.encode(home, forKey: .home)
+        case .executable(let path): try values.encode(path, forKey: .executable)
+        }
+    }
+}
+
 /// Portable user choices stored apart from the current target selector.
 package struct BuildProviderRunOptions: Codable, Hashable, Sendable {
     package var runtimeArguments: [String]
     /// Empty clears an inherited entrypoint without naming a runtime.
     package var entrypoint: String
     package var options: [String: ToolingJSONValue]
-    package init(runtimeArguments: [String] = [], entrypoint: String = "", options: [String: ToolingJSONValue] = [:]) {
+    package var tools: [String: FixedToolchainSelection?]
+    package init(runtimeArguments: [String] = [], entrypoint: String = "", options: [String: ToolingJSONValue] = [:],
+                 tools: [String: FixedToolchainSelection?] = [:]) {
         self.runtimeArguments = runtimeArguments; self.entrypoint = entrypoint; self.options = options
+        self.tools = tools
     }
-    private enum CodingKeys: CodingKey { case runtimeArguments, entrypoint, options }
+    private enum CodingKeys: CodingKey { case runtimeArguments, entrypoint, options, tools }
     package init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         runtimeArguments = try values.decodeIfPresent([String].self, forKey: .runtimeArguments) ?? []
         entrypoint = try values.decodeIfPresent(String.self, forKey: .entrypoint) ?? ""
         options = try values.decodeIfPresent([String: ToolingJSONValue].self, forKey: .options) ?? [:]
+        tools = try values.decodeIfPresent([String: FixedToolchainSelection?].self, forKey: .tools) ?? [:]
     }
 }
 
@@ -410,6 +436,7 @@ package struct ProviderLaunchInputs: Decodable, Equatable, Sendable {
     package let projectPath: String
     package let launchOptions: BuildLaunchOptions
     package let optionOverrides: [String: ToolingJSONValue]
+    package let tools: [String: FixedToolchainSelection]
 
     /// Saved applications carry opaque Provider arguments from protocol 4.
     /// Reclassifying them as opt-in version-10 launch options breaks old SDKs.
@@ -423,10 +450,24 @@ package struct ProviderLaunchInputs: Decodable, Equatable, Sendable {
     }
 
     package init(buildSystemID: String, provider: String, projectPath: String, launchOptions: BuildLaunchOptions,
-                 optionOverrides: [String: ToolingJSONValue] = [:], reference: BuildProviderRunReference? = nil) {
+                 optionOverrides: [String: ToolingJSONValue] = [:], reference: BuildProviderRunReference? = nil,
+                 tools: [String: FixedToolchainSelection] = [:]) {
         self.reference = reference
         self.buildSystemID = buildSystemID; self.provider = provider; self.projectPath = projectPath
         self.launchOptions = launchOptions; self.optionOverrides = optionOverrides
+        self.tools = tools
+    }
+
+    private enum CodingKeys: CodingKey { case reference, buildSystemID, provider, projectPath, launchOptions, optionOverrides, tools }
+    package init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        reference = try values.decodeIfPresent(BuildProviderRunReference.self, forKey: .reference)
+        buildSystemID = try values.decode(String.self, forKey: .buildSystemID)
+        provider = try values.decode(String.self, forKey: .provider)
+        projectPath = try values.decode(String.self, forKey: .projectPath)
+        launchOptions = try values.decode(BuildLaunchOptions.self, forKey: .launchOptions)
+        optionOverrides = try values.decodeIfPresent([String: ToolingJSONValue].self, forKey: .optionOverrides) ?? [:]
+        tools = try values.decodeIfPresent([String: FixedToolchainSelection].self, forKey: .tools) ?? [:]
     }
 }
 

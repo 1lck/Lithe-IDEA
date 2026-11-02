@@ -46,6 +46,12 @@ final class MacBuildToolResolver: BuildToolResolving {
         workspaceURL: URL,
         checkVersion: @escaping @Sendable (String?, String) throws -> BuildVersionCheck
     ) async throws -> ResolvedBuildTool {
+        let referenced = Set((invocation.executables + invocation.runtimeDependencies.flatMap(\.executables)).compactMap { candidate -> String? in
+            if case .toolchain(let id, _) = candidate { return id }; return nil
+        })
+        guard Set(invocation.toolSelections.keys).isSubset(of: referenced) else {
+            throw BuildToolResolutionError(L10n.string("The selected toolchain is unavailable."), terminal: true)
+        }
         if registry?.contains(workspaceURL) == true {
             await runtime.ensureRuntimesDiscovered()
             try Task.checkCancellation()
@@ -65,7 +71,8 @@ final class MacBuildToolResolver: BuildToolResolving {
 
         var problems: [String] = []
         let resolver = try await preparedResolver(runtimeExecutables, candidates: invocation.executables,
-                                                  workspaceURL: workspaceURL, environment: environment, minimumVersion: invocation.minimumVersion)
+                                                  workspaceURL: workspaceURL, environment: environment, minimumVersion: invocation.minimumVersion,
+                                                  selections: invocation.toolSelections)
         for candidate in invocation.executables {
             switch resolver.resolve(candidate, workspaceURL: workspaceURL, environment: environment, environmentInputs: invocation.environmentInputs) {
             case .skip: continue
@@ -132,14 +139,20 @@ final class MacBuildToolResolver: BuildToolResolving {
 
     private func preparedResolver(
         _ runtimes: [String: URL], candidates: [ExecutableCandidate], workspaceURL: URL,
-        environment: [String: String], minimumVersion: String? = nil
+        environment: [String: String], minimumVersion: String? = nil,
+        selections: [String: FixedToolchainSelection] = [:]
     ) async throws -> ExecutableCandidateResolver {
         var definitions: [String: ExecutableResolution] = [:]
+        for candidate in candidates {
+            if case .toolchain(let id, _) = candidate, selections[id] != nil, toolchains.contains(identifier: id) {
+                throw BuildToolResolutionError(L10n.string("The selected toolchain is unavailable."), terminal: true)
+            }
+        }
         for candidate in candidates {
             guard case .toolchain(let id, let root) = candidate, !toolchains.contains(identifier: id) else { continue }
             guard registry?.contains(workspaceURL) != true, let definedTools,
                   let selected = try await definedTools.resolve(tool: id, directory: root, workspace: workspaceURL,
-                      environment: environment, minimumVersion: minimumVersion, projectCodeAllowed: true) else {
+                      environment: environment, minimumVersion: minimumVersion, projectCodeAllowed: true, fixed: selections[id]) else {
                 throw BuildToolResolutionError(L10n.string("The selected toolchain is unavailable."), terminal: true)
             }
             definitions[id + "\n" + root] = .resolved([.init(url: selected.executable,
@@ -273,7 +286,8 @@ final class MacBuildToolResolver: BuildToolResolving {
             ? (dependency.id == "java" ? [.runtime("java")] : [.command(dependency.id)])
             : dependency.executables
         let resolver = try await preparedResolver(javaHome.map { ["java": $0.appendingPathComponent("bin/java")] } ?? [:],
-            candidates: sources, workspaceURL: workspaceURL, environment: environment, minimumVersion: dependency.minimumVersion)
+            candidates: sources, workspaceURL: workspaceURL, environment: environment, minimumVersion: dependency.minimumVersion,
+            selections: invocation.toolSelections)
         var problems: [String] = []
         for source in sources {
             switch resolver.resolve(source, workspaceURL: workspaceURL, environment: environment, environmentInputs: invocation.environmentInputs) {

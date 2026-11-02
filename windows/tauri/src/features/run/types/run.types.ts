@@ -20,16 +20,20 @@ export interface RunBuildProjectReference {
   pluginID: string; buildSystemID: string; root: string; projectID: string;
 }
 
+export type FixedToolchainSelection = { home: string } | { executable: string };
+
 export interface BuildProviderRunOptions {
   runtimeArguments: string[];
   entrypoint: string;
   options: Record<string, unknown>;
+  tools?: Record<string, FixedToolchainSelection | null>;
 }
 
 export interface BuildProviderLaunchInputs {
   buildSystemID: string; provider: string; projectPath: string;
   launchOptions: import("@/features/build/services/build-provider-types").BuildLaunchOptions;
   optionOverrides: Record<string, unknown>; reference?: BuildProviderRunReference;
+  tools?: Record<string, FixedToolchainSelection>;
 }
 
 export interface RunDiagnostic {

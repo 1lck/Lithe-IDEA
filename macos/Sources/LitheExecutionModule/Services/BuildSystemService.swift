@@ -1190,10 +1190,11 @@ package final class BuildSystemService: ObservableObject {
             let context = BuildPlanContext(root: base.root, options: base.options.merging(overrides) { _, value in value }, pluginDirectory: base.pluginDirectory,
                 workspaceStateDirectory: base.workspaceStateDirectory, modelInputs: base.modelInputs)
             let launchTool: BuildProviderHints
-            if tool.toolExecutable != nil { launchTool = tool }
+            if tool.toolExecutable != nil && inputs.tools.isEmpty { launchTool = tool }
             else {
                 let planner = planner, target = entry.target
-                let invocation = try planner.invocationPlan(target, root: entry.instance.root, settings: launchSettings)
+                var invocation = try planner.invocationPlan(target, root: entry.instance.root, settings: launchSettings)
+                invocation.toolSelections = inputs.tools
                 let selected = try await tools.resolve(invocation, displayName: entry.instance.displayName, workspaceURL: workspace) { runtime, output in
                     try planner.checkToolVersion(target, runtime: runtime, output: output)
                 }

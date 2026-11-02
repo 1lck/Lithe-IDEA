@@ -2381,7 +2381,7 @@ pub fn provider_launch_inputs(request: ProviderLaunchInputsRequest) -> Result<Va
         }
         return Ok(
             json!({"buildSystemID":reference.build_system_id,"provider":reference.run,"projectPath":reference.root,
-            "launchOptions":options,"optionOverrides":choices.options,"reference":reference}),
+            "launchOptions":options,"optionOverrides":choices.options,"tools":choices.active_tools(),"reference":reference}),
         );
     }
     Err(CoreError::new(
@@ -3276,6 +3276,23 @@ fn merge_extensions(
         match (slot.as_object_mut(), value.as_object()) {
             (Some(existing), Some(incoming)) => {
                 for (key, item) in incoming {
+                    if namespace == "build-run" && key == "tools" {
+                        let tools = item.as_object().ok_or_else(|| {
+                            CoreError::new(
+                                ErrorCode::ParseFailed,
+                                "Run tool selections must be an object",
+                            )
+                        })?;
+                        let slot = existing.entry(key.clone()).or_insert_with(|| json!({}));
+                        let destination = slot.as_object_mut().ok_or_else(|| {
+                            CoreError::new(
+                                ErrorCode::ParseFailed,
+                                "Run tool selections must be an object",
+                            )
+                        })?;
+                        destination.extend(tools.clone());
+                        continue;
+                    }
                     existing.insert(key.clone(), item.clone());
                 }
             }

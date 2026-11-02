@@ -129,6 +129,7 @@ pub(crate) fn project_toolchain(request: ProjectToolchainRequest) -> Result<Valu
             })?;
         for owner in [
             &config["extensions"]["build"]["root"],
+            &config["extensions"]["java"]["build"]["root"],
             &config["extensions"]["maven"]["reactorPath"],
         ] {
             if owner.as_str().is_some_and(|owner| owner != request.path) {
@@ -136,6 +137,18 @@ pub(crate) fn project_toolchain(request: ProjectToolchainRequest) -> Result<Valu
                     ErrorCode::InvalidRequest,
                     "Run configuration belongs to a different provider instance",
                 ));
+            }
+        }
+        if config["provider"] == "build.provider" {
+            let extensions = serde_json::from_value(config["extensions"].clone())
+                .map_err(|_| invalid_paths())?;
+            let choices =
+                crate::execution::provider_run_options::BuildProviderRunOptions::from_extensions(
+                    &extensions,
+                )?;
+            let tools = choices.active_tools();
+            if !tools.is_empty() {
+                result["definedTools"] = json!(tools);
             }
         }
         for (key, field) in [

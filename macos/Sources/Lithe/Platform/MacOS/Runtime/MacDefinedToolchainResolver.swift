@@ -11,6 +11,13 @@ final class MacDefinedToolchainResolver: DefinedToolchainResolving {
 
     func resolve(tool: String, directory: String, workspace: URL, environment: [String: String],
                  minimumVersion: String?, projectCodeAllowed: Bool) async throws -> MacToolchainDiscovery.Selection? {
+        try await resolve(tool: tool, directory: directory, workspace: workspace, environment: environment,
+                          minimumVersion: minimumVersion, projectCodeAllowed: projectCodeAllowed, fixed: nil)
+    }
+
+    func resolve(tool: String, directory: String, workspace: URL, environment: [String: String],
+                 minimumVersion: String?, projectCodeAllowed: Bool,
+                 fixed: FixedToolchainSelection?) async throws -> MacToolchainDiscovery.Selection? {
         let installed = sources()
         let discovery = self.discovery
         let localURL = workspace.appendingPathComponent(".lithe/toolchains/local.json")
@@ -23,7 +30,7 @@ final class MacDefinedToolchainResolver: DefinedToolchainResolving {
                 local = .object(["version": .number(1), "toolchains": .object([:])])
             }
             let result = try await discovery.resolve(.init(workspace: workspace, sources: installed, environment: environment),
-                tool: tool, directory: directory, minimumVersion: minimumVersion, local: local, projectCodeAllowed: projectCodeAllowed)
+                tool: tool, directory: directory, minimumVersion: minimumVersion, local: local, projectCodeAllowed: projectCodeAllowed, fixed: fixed)
             guard try MacToolchainSettingsLoader.safeNativeRead(localURL) == bytes else { throw CancellationError() }
             return result
         }

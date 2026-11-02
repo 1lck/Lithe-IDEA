@@ -166,7 +166,7 @@ Saving, conflict protection and `.lithe/.gitignore` updates are not implemented.
 platform,workspaceRoot,filesystem}` and accepts `workspaceRoots`,
 `filesystemCaseSensitive`, `local`, `minimumVersion`, `probes`, `queries`,
 `systemInstallations`, `globalDefault`, `environment`, `commandHomes`,
-`projectCodeAllowed` and `providerChoices`. `local` defaults to an empty v1
+`projectCodeAllowed`, `providerChoices` and `fixed`. `local` defaults to an empty v1
 document. Probes are host observations `{executable,output,exitCode}` keyed by the
 canonical executable a selection reports; system installations are `{tool,home}`.
 Shell environment home variables and `commandHomes` come from the native login-shell
@@ -186,6 +186,18 @@ Unavailable/timed-out optional providers remain visible as `providerUnavailable`
 diagnostics while lower sources may resolve. Safety, identity and cancellation
 failures are not converted to missing tools. A valid explicit pin does not need
 lower-layer provider answers at all.
+
+A consumer may supply `fixed:{home}` or `fixed:{executable}` for one operation.
+Each object has exactly one field, an absolute native path bounded to 4,096 UTF-8
+bytes, without traversal or control characters. It contains no version, environment,
+provider or execution grant. This explicit choice precedes directory pins and fails
+terminally if invalid; lower scans and providers cannot replace it. Installation
+choices use the definition's layouts and exports. An executable choice preserves
+its lexical launcher path, has no inferred home, and omits home exports and PATH
+entries. It requires a fresh successful version probe even without a minimum.
+A definition whose launch requires `${home}` cannot use that choice. A lexical or
+canonical executable inside the workspace requires the current explicit action
+before it becomes a probe target. Directory pins and packages stay unchanged.
 
 Four layers apply: fixed nearest pin; nearest project source (wrapper > environment
 > declaration, native reader before compatible reader of the same source);
@@ -224,12 +236,16 @@ are 256 roots, 4096 entries and 64 ancestors for the host adapter.
 automatic layers without resolving a directory. It requires `{registry,tool,
 platform,workspaceRoot,filesystem}` and accepts `workspaceRoots`,
 `filesystemCaseSensitive`, `minimumVersion`, `probes`, `systemInstallations`,
-`providerInstallations` and `environment`, with the same meaning and checks as in
+`providerInstallations`, `environment`, `fixed` and `projectCodeAllowed`, with the same meaning and checks as in
 `resolve`. `providerInstallations` (at most 512) are `{tool,home,provider}` rows a
 host copies from `decodeReply` snapshots; `provider` must name a registry provider
 `pluginID:providerID` declaring the tool, and the row keeps that attribution when
 a scan reports the same canonical home. The output is
 `{tool,shell,installations,skipped,selected,conflicts}`:
+A checked `fixed` choice without a version contributes a `probeFailed` skipped row
+with its executable for the native probe. An unauthorized workspace program never
+contributes such a target. This candidate report itself grants no authority.
+
 
 - `shell` lists each declared home variable present in `environment` as
   `{candidateID,variable,home,executable?,version?|reason?}`, checked through

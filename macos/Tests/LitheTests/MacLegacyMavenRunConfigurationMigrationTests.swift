@@ -29,6 +29,89 @@ struct MacLegacyMavenRunConfigurationMigrationTests {
     }
 
     @Test(arguments: [false, true])
+    func explicitToolsKeepEachRunAndLocalClearWithoutChangingDirectoryPins(clearLocal: Bool) throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        var team = try fixture.read(fixture.team)
+        var entries = try #require(team["configurations"] as? [[String: Any]])
+        var first = entries[0], firstExtensions = try #require(first["extensions"] as? [String: Any])
+        firstExtensions["java"] = ["mavenExecutablePath": "/fixture/team launcher", "mavenJavaHomePath": "/fixture/team vm"]
+        first["extensions"] = firstExtensions
+        var second = first, secondExtensions = firstExtensions
+        second["id"] = "user:second-service"
+        secondExtensions["java"] = ["mavenExecutablePath": "/fixture/second launcher", "mavenJavaHomePath": "/fixture/second vm"]
+        second["extensions"] = secondExtensions
+        entries = [first, second]; team["configurations"] = entries
+        try fixture.write(team, to: fixture.team)
+        var local = try fixture.read(fixture.local)
+        var overrides = try #require(local["configurations"] as? [[String: Any]])
+        var localExtensions = try #require(overrides[0]["extensions"] as? [String: Any])
+        localExtensions["java"] = ["mavenExecutablePath": clearLocal ? "" : "/fixture/local launcher"]
+        overrides[0]["extensions"] = localExtensions; local["configurations"] = overrides
+        try fixture.write(local, to: fixture.local)
+        let store = MacRunConfigurationStore(core: RustCoreBridge(), storage: MacFileStorage(), preferences: MigrationPreferences())
+        _ = try store.generate(at: fixture.root, files: [], modulePaths: [], javaEntrypoints: nil,
+            projectOwnership: fixture.projects, providerRuns: fixture.runs, models: fixture.models, lease: RunConfigurationGenerationLease())
+        let firstInput = try store.providerLaunchInputs(at: fixture.root, configurationID: fixture.id, providerRoot: "nested")
+        #expect(firstInput.tools["io.github.lithe-idea.maven-build:maven"] == (clearLocal ? nil : .executable(path: "/fixture/local launcher")))
+        #expect(firstInput.tools["java"] == .installation(home: "/fixture/team vm"))
+        let secondInput = try store.providerLaunchInputs(at: fixture.root, configurationID: "user:second-service", providerRoot: "nested")
+        #expect(secondInput.tools["io.github.lithe-idea.maven-build:maven"] == .executable(path: "/fixture/second launcher"))
+        #expect(secondInput.tools["java"] == .installation(home: "/fixture/second vm"))
+        #expect(!FileManager.default.fileExists(atPath: fixture.root.appendingPathComponent(".lithe/toolchains/local.json").path))
+        let before = try fixture.bytes()
+        _ = try store.generate(at: fixture.root, files: [], modulePaths: [], javaEntrypoints: nil,
+            projectOwnership: fixture.projects, providerRuns: fixture.runs, models: fixture.models, lease: RunConfigurationGenerationLease())
+        #expect(try fixture.bytes() == before)
+    }
+
+    @Test
+    func preferenceOnlyExplicitToolsTransferToTheGenericRunAndRetainTheSource() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try FileManager.default.removeItem(at: fixture.local)
+        let preferences = MigrationPreferences()
+        let key = "lithe.java-run-options.\(fixture.root.path.replacingOccurrences(of: "/", with: "_")).\(fixture.id)"
+        let source = try JSONEncoder().encode(RunOptions(mavenExecutablePath: "/fixture/preference launcher", mavenJavaHomePath: "/fixture/preference vm"))
+        preferences.set(source, forKey: key)
+        let store = MacRunConfigurationStore(core: RustCoreBridge(), storage: MacFileStorage(), preferences: preferences)
+        _ = try store.generate(at: fixture.root, files: [], modulePaths: [], javaEntrypoints: nil,
+            projectOwnership: fixture.projects, providerRuns: fixture.runs, models: fixture.models, lease: RunConfigurationGenerationLease())
+        let inputs = try store.providerLaunchInputs(at: fixture.root, configurationID: fixture.id, providerRoot: "nested")
+        #expect(inputs.tools == ["io.github.lithe-idea.maven-build:maven": .executable(path: "/fixture/preference launcher"),
+                                 "java": .installation(home: "/fixture/preference vm")])
+        #expect(preferences.data(forKey: key) == source)
+    }
+
+    @Test(arguments: ["project", "directory", "preferences", "relative", "control"])
+    func unrepresentableDefaultsAndInvalidExplicitToolsKeepAllSources(kind: String) throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let preferences = MigrationPreferences()
+        var local = try fixture.read(fixture.local)
+        if kind == "project" { local["toolchain"] = ["maven": ["javaHomePath": "/fixture/project vm"]] }
+        if kind == "directory" { local["toolchain"] = ["pathOverrides": ["nested": ["mavenExecutablePath": "/fixture/project launcher"]]] }
+        if kind == "preferences" {
+            preferences.set(try JSONSerialization.data(withJSONObject: ["mavenJavaHomePath": "/fixture/inherited vm"]),
+                forKey: MacProjectRuntimeSettingsStore.preferencesKey(fixture.root))
+        }
+        if kind == "relative" || kind == "control" {
+            var entries = try #require(local["configurations"] as? [[String: Any]])
+            var ext = try #require(entries[0]["extensions"] as? [String: Any])
+            ext["java"] = ["mavenExecutablePath": kind == "relative" ? "relative/launcher" : "/fixture/bad\nlauncher"]
+            entries[0]["extensions"] = ext; local["configurations"] = entries
+        }
+        try fixture.write(local, to: fixture.local)
+        let before = try fixture.bytes()
+        let store = MacRunConfigurationStore(core: RustCoreBridge(), storage: MacFileStorage(), preferences: preferences)
+        #expect(throws: (any Error).self) {
+            _ = try store.generate(at: fixture.root, files: [], modulePaths: [], javaEntrypoints: nil,
+                projectOwnership: fixture.projects, providerRuns: fixture.runs, models: fixture.models, lease: RunConfigurationGenerationLease())
+        }
+        #expect(try fixture.bytes() == before)
+    }
+
+    @Test(arguments: [false, true])
     func activePreferencesTransferOnceWithoutDroppingJavaOrReplacingLocalChoices(localMissing: Bool) throws {
         let fixture = try Fixture()
         defer { fixture.remove() }

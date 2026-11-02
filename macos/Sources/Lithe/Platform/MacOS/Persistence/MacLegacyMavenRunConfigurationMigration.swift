@@ -107,7 +107,19 @@ struct MacLegacyMavenRunConfigurationMigration {
                 for field in ["module", "reactorPath", "mainClass"] {
                     if let value = maven[field], !(value is NSNull), !(value is String) { throw unsupported() }
                 }
-                try rejectToolOverrides(effective, extensions: ext)
+                try validateLegacyTools(effective, extensions: ext)
+                // Linked project defaults need their own consumer model. Do not
+                // silently discard them merely because this Run can be renamed.
+                try rejectUnmigratedDefaults(sources[1].2)
+                for runtimeKey in ["lithe.project-runtime.", "lithe.project-runtime-settings."].map({ $0 + projectKey }) {
+                    if let raw = preferences.object(forKey: runtimeKey) {
+                        guard let bytes = raw as? Data, bytes.count <= Self.limit else { throw unsupported() }
+                        let settings = try JSONDecoder().decode(ProjectRuntimeSettings.self, from: bytes)
+                        guard settings.javaHomePath.isEmpty, settings.mavenJavaHomePath.isEmpty,
+                              settings.mavenHomeSelection == .automatic, settings.moduleOverrides.isEmpty else { throw unsupported() }
+                        preferenceSources[runtimeKey] = bytes
+                    } else { absentKeys.append(runtimeKey) }
+                }
                 let execution: BuildExecution = provider == "maven.module" ? .task : .service
                 var matches = aliases[id] ?? candidates.filter { $0.reference.execution == execution }
                 matches = matches.filter { candidate in
@@ -153,6 +165,16 @@ struct MacLegacyMavenRunConfigurationMigration {
                 if let skip = maven["skipTests"], !(skip is NSNull) {
                     guard let bool = skip as? NSNumber, CFGetTypeID(bool) == CFBooleanGetTypeID() else { throw unsupported() }
                     options["skipTests"] = bool
+                }
+                if let ownJava = (item["extensions"] as? [String: Any])?["java"] as? [String: String] {
+                    var tools: [String: Any] = [:]
+                    for (field, id, key) in [("mavenExecutablePath", "io.github.lithe-idea.maven-build:maven", "executable"),
+                                              ("mavenJavaHomePath", "java", "home")] {
+                        if let value = ownJava[field] {
+                            tools[id] = value.isEmpty ? NSNull() : [key: value]
+                        }
+                    }
+                    if !tools.isEmpty { choices["tools"] = tools }
                 }
                 choices["options"] = options
                 resultExtensions["build-run"] = choices
@@ -309,9 +331,7 @@ struct MacLegacyMavenRunConfigurationMigration {
             guard let provider = record["provider"] as? String else { throw unsupported() }
             let isMaven = provider == "maven.module" || Self.frameworks.contains(provider)
             let options = try legacyPreference(values[key]!)
-            if isMaven {
-                guard options.javaHomePath.isEmpty, options.mavenExecutablePath.isEmpty, options.mavenJavaHomePath.isEmpty else { throw unsupported() }
-            }
+            if isMaven, !options.javaHomePath.isEmpty { throw unsupported() }
             var patch: [String: Any] = ["id": id, "env": options.environment]
             if !options.workingDirectoryPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 let raw = options.workingDirectoryPath.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -390,7 +410,7 @@ struct MacLegacyMavenRunConfigurationMigration {
         return result
     }
 
-    private func rejectToolOverrides(_ item: [String: Any], extensions: [String: Any]) throws {
+    private func validateLegacyTools(_ item: [String: Any], extensions: [String: Any]) throws {
         if let debug = item["debug"], !(debug is NSNull) {
             guard let values = debug as? [String: String], values == ["adapter": "jdwp"] else { throw unsupported() }
         }
@@ -401,7 +421,30 @@ struct MacLegacyMavenRunConfigurationMigration {
         }
         if let java = extensions["java"] {
             guard let values = java as? [String: String], Set(values.keys).isSubset(of: ["homePath", "mavenExecutablePath", "mavenJavaHomePath"]),
-                  values.values.allSatisfy(\.isEmpty) else { throw unsupported() }
+                  values["homePath", default: ""].isEmpty else { throw unsupported() }
+            // Validate the inert choice through its typed decoder. Core's full
+            // preflight validates the lexical absolute path before publication.
+            for (field, key) in [("mavenExecutablePath", "executable"), ("mavenJavaHomePath", "home")] {
+                if let value = values[field], !value.isEmpty {
+                    guard value.utf8.count <= 4096, !value.contains(where: \.isNewline) else { throw unsupported() }
+                    _ = try JSONDecoder().decode(FixedToolchainSelection.self,
+                        from: JSONSerialization.data(withJSONObject: [key: value]))
+                }
+            }
+        }
+    }
+
+    private func rejectUnmigratedDefaults(_ document: [String: Any]) throws {
+        guard let raw = document["toolchain"] else { return }
+        guard let tools = raw as? [String: Any] else { throw unsupported() }
+        for (namespace, fields) in [("java", ["homePath"]), ("maven", ["executablePath", "javaHomePath"])] {
+            if let raw = tools[namespace] {
+                guard let values = raw as? [String: String], fields.allSatisfy({ values[$0, default: ""].isEmpty }) else { throw unsupported() }
+            }
+        }
+        if let raw = tools["pathOverrides"] {
+            guard let overrides = raw as? [String: [String: String]],
+                  overrides.values.allSatisfy({ $0.values.allSatisfy(\.isEmpty) }) else { throw unsupported() }
         }
     }
 

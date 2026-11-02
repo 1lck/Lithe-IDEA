@@ -180,7 +180,7 @@ fn valid_local_id(value: &str) -> bool {
 }
 
 /// Recognizes POSIX, drive-rooted Windows, and UNC paths on either build platform.
-fn valid_native_path(value: &str) -> bool {
+pub(crate) fn valid_native_path(value: &str) -> bool {
     if value.chars().any(char::is_control) {
         return false;
     }
