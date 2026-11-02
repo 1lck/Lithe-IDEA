@@ -310,6 +310,32 @@ fn is_relevant_metadata_change(context: &GitWatchContext, path: &Path) -> bool {
 mod tests {
     use super::*;
 
+    fn receive_repository_change(
+        receiver: &std::sync::mpsc::Receiver<Vec<PathBuf>>,
+        repository_root: &Path,
+    ) {
+        // Native backends may deliver delayed or duplicate batches for another
+        // repository. Match the expected root without restarting the deadline.
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let mut observed = Vec::new();
+        loop {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            assert!(
+                !remaining.is_zero(),
+                "timed out waiting for Git metadata change at {}; observed {observed:?}",
+                repository_root.display()
+            );
+            match receiver.recv_timeout(remaining) {
+                Ok(roots) if roots.iter().any(|root| root == repository_root) => return,
+                Ok(roots) => observed.push(roots),
+                Err(error) => panic!(
+                    "Git metadata change at {} did not arrive: {error}; observed {observed:?}",
+                    repository_root.display()
+                ),
+            }
+        }
+    }
+
     fn assert_native_linked_worktree_notification(relative_metadata_path: &str) {
         use std::sync::atomic::{AtomicU64, Ordering};
         use std::sync::mpsc;
@@ -368,10 +394,7 @@ mod tests {
         // Registration is synchronous; wait for the observable native event,
         // never for an assumed amount of time needed by the debounce timer.
         std::fs::write(metadata_path, "after\n").unwrap();
-        let roots = receiver
-            .recv_timeout(Duration::from_secs(5))
-            .expect("native Git metadata notification should arrive within five seconds");
-        assert!(roots.contains(&repository_root), "{roots:?}");
+        receive_repository_change(&receiver, &repository_root);
         watcher
             .remove("fixture-window", Some("fixture-lease"))
             .unwrap();
@@ -386,10 +409,14 @@ mod tests {
                 let _ = std::fs::remove_dir_all(&self.0);
             }
         }
-        struct Emitter(mpsc::Sender<Vec<PathBuf>>);
+        struct Emitter {
+            changes: mpsc::Sender<Vec<PathBuf>>,
+            observations: mpsc::Sender<Vec<PathBuf>>,
+        }
         impl GitMetadataEmitter for Emitter {
             fn emit_git_metadata_change(&self, event: &GitMetadataChange) {
-                let _ = self.0.send(event.repository_roots.clone());
+                let _ = self.changes.send(event.repository_roots.clone());
+                let _ = self.observations.send(event.repository_roots.clone());
             }
         }
         let fixture = Fixture(
@@ -410,7 +437,11 @@ mod tests {
         let first = context("one");
         let second = context("two");
         let (sender, receiver) = mpsc::channel();
-        let watcher = GitMetadataWatcher::new(Arc::new(Emitter(sender)));
+        let (observations, observed) = mpsc::channel();
+        let watcher = GitMetadataWatcher::new(Arc::new(Emitter {
+            changes: sender,
+            observations,
+        }));
         for (owner, context) in [
             ("window\0a\01", &first),
             ("window\0a\02", &second),
@@ -420,25 +451,16 @@ mod tests {
             watcher.install(owner, "lease", context.clone()).unwrap();
         }
         assert_eq!(watcher.registrations.lock().unwrap().len(), 3);
+        // Leave a real notification for the first repository queued before the
+        // second write. The observer acknowledges delivery without draining it.
+        std::fs::write(first.git_directory.join("info/exclude"), "queued").unwrap();
+        receive_repository_change(&observed, &first.repository_root);
         std::fs::write(second.git_directory.join("info/exclude"), "after").unwrap();
-        assert!(
-            receiver
-                .recv_timeout(Duration::from_secs(5))
-                .unwrap()
-                .contains(&second.repository_root)
-        );
+        receive_repository_change(&receiver, &second.repository_root);
         watcher.remove_window("window").unwrap();
         assert_eq!(watcher.registrations.lock().unwrap().len(), 1);
         std::fs::write(first.git_directory.join("info/exclude"), "after").unwrap();
-        let deadline = std::time::Instant::now() + Duration::from_secs(5);
-        loop {
-            let roots = receiver
-                .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
-                .unwrap();
-            if roots.contains(&first.repository_root) {
-                break;
-            }
-        }
+        receive_repository_change(&receiver, &first.repository_root);
         assert!(watcher.begin("window\0late\04", "late").is_err());
         watcher.install("window\0a\02", "lease", second).unwrap();
         watcher.remove_window("other").unwrap();
