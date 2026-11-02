@@ -56,6 +56,10 @@ struct PluginHostMessageBanner: View {
                     .foregroundStyle(LitheTheme.Notification.foreground)
                     .lineLimit(8)
                     .fixedSize(horizontal: false, vertical: true)
+                if let details = entry.details {
+                    PluginHostMessageDetailsView(text: details)
+                        .frame(height: 180)
+                }
                 if !entry.actions.isEmpty {
                     HStack(spacing: 12) {
                         ForEach(Array(entry.actions.enumerated()), id: \.offset) { index, title in

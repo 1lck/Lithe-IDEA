@@ -336,6 +336,7 @@
 "Allow project environment and Maven configuration changes" = "Allow project environment and Maven configuration changes";
 "Allow run, build, reload and stop (executes project code)" = "Allow run, build, reload and stop (executes project code)";
 "Allow the Agent to continue?" = "Allow the Agent to continue?";
+"Allow “%@” to open a terminal?" = "Allow “%@” to open a terminal?";
 "Allow “%@” to run build tools?" = "Allow “%@” to run build tools?";
 "Always ask before making changes" = "Ask before making changes or running actions that require approval.";
 "Always ask to edit external files and use the internet" = "Always ask to edit external files and use the internet";
@@ -2703,6 +2704,7 @@
 "Open a Java project before connecting the debugger" = "Open a Java project before connecting the debugger";
 "Open a local folder to start working." = "Open a local folder to start working.";
 "Open a local project folder" = "Open a local project folder";
+"Open a plugin terminal" = "Open a plugin terminal";
 "Open a project" = "Open a project";
 "Open a project and enable a plugin that defines tools to inspect its environment." = "Open a project and enable a plugin that defines tools to inspect its environment.";
 "Open a project before choosing project paths." = "Open a project before choosing project paths.";
@@ -2721,6 +2723,7 @@
 "Open a source file or choose a project Run configuration" = "Open a source file or choose a project Run configuration";
 "Open a text file instead of a folder." = "Open a text file instead of a folder.";
 "Open again" = "Open again";
+"Open and manage its own native terminals, retaining bounded display history for reopening" = "Open and manage its own native terminals, retaining bounded display history for reopening";
 "Open file" = "Open file";
 "Open file in editor to see problems" = "Open file in editor to see problems";
 "Open folder" = "Open folder";
@@ -4175,6 +4178,11 @@
 "The plugin package's %@ is not an executable file. Reinstall the plugin." = "The plugin package's %@ is not an executable file. Reinstall the plugin.";
 "The plugin repository %@ has already been added." = "The plugin repository %@ has already been added.";
 "The plugin server returned HTTP %@." = "The plugin server returned HTTP %@.";
+"The plugin terminal does not exist." = "The plugin terminal does not exist.";
+"The plugin terminal is changing state. Try again when it finishes." = "The plugin terminal is changing state. Try again when it finishes.";
+"The plugin terminal is closed. Reopen it first." = "The plugin terminal is closed. Reopen it first.";
+"The plugin terminal is still running." = "The plugin terminal is still running.";
+"The plugin terminal was not opened." = "The plugin terminal was not opened.";
 "The plugin will be removed after restarting Lithe." = "The plugin will be removed after restarting Lithe.";
 "The plugin “%@” wants to use your camera and microphone." = "The plugin “%@” wants to use your camera and microphone.";
 "The plugin “%@” wants to use your camera." = "The plugin “%@” wants to use your camera.";
@@ -4260,6 +4268,7 @@
 "The stopped source file is no longer available: %@" = "The stopped source file is no longer available: %@";
 "The switch controls the Lithe shared block, not the Agent or its own instructions. Save shared changes before switching. Open a row to edit the complete native file." = "The switch controls the Lithe shared block, not the Agent or its own instructions. Save shared changes before switching. Open a row to edit the complete native file.";
 "The terminal directory is outside the remote workspace." = "The terminal directory is outside the remote workspace.";
+"The terminal is unavailable." = "The terminal is unavailable.";
 "The test file is outside the current workspace: %@" = "The test file is outside the current workspace: %@";
 "The toolchain query could not be built." = "The toolchain query could not be built.";
 "The update could not be installed. Download the release manually and try again." = "The update could not be installed. Download the release manually and try again.";
@@ -9676,6 +9685,15 @@
 "outline.expandAll" = "Expand All";
 "plugin.host.invalidParameters" = "The plugin host request parameters are invalid.";
 "plugin.host.requestFailed" = "The plugin host request could not be completed.";
+"plugin.terminal.busy" = "The plugin terminal is changing state. Try again when it finishes.";
+"plugin.terminal.cancelled" = "The plugin terminal was not opened.";
+"plugin.terminal.closed" = "The plugin terminal is closed. Reopen it first.";
+"plugin.terminal.consent" = "Allow “%1$@” to open a terminal?";
+"plugin.terminal.notFound" = "The plugin terminal does not exist.";
+"plugin.terminal.open" = "Open a plugin terminal";
+"plugin.terminal.permission" = "Open and manage its own native terminals, retaining bounded display history for reopening";
+"plugin.terminal.running" = "The plugin terminal is still running.";
+"plugin.terminal.unavailable" = "The terminal is unavailable.";
 "plugins.java.installNotice" = "Java Support is installed separately. Install it from the Marketplace, or use Install from Disk for an offline package. Your Java settings are kept.";
 "plugins.java.installTemplates" = "Install Java Support for Java, Maven and Spring templates…";
 "plugins.title" = "Plugins";

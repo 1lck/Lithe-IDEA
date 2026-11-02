@@ -22,6 +22,9 @@ public final class TerminalSession: ObservableObject, Identifiable {
     public var onOutput: ((String) -> Void)?
     /// Host callback invoked once this session's process exited on its own, as opposed to being stopped by the host; never fired for launch failures.
     public var onEnded: ((TerminalSession) -> Void)?
+    /// Host lifecycle observer for an explicit stop (the natural-exit path
+    /// continues to use onEnded). No output or input access is implied.
+    public var onStopped: (() -> Void)?
 
     private let transport: any TerminalTransport
     private var workspaceURL: URL?
@@ -185,6 +188,7 @@ public final class TerminalSession: ObservableObject, Identifiable {
     }
     public func interrupt() { if isRunning { try? transport.interrupt() } }
     public func clear() { transport.clear() }
+    public func displayText(maximumBytes: Int) -> String { transport.displayText(maximumBytes: maximumBytes) }
     public func focus() { transport.focus() }
     public func stop() {
         launchGeneration = UUID()
@@ -212,9 +216,11 @@ public final class TerminalSession: ObservableObject, Identifiable {
     }
 
     private func finishStop() {
+        let wasRunning = isRunning || isReady
         finishDecodedOutput()
         isRunning = false; isReady = false
         if startedAt != nil { endedAt = Date() }
+        if wasRunning { onStopped?() }
     }
 
     private func finishDecodedOutput() {

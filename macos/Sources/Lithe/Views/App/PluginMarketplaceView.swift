@@ -767,6 +767,8 @@ enum PluginMarketplacePresentation {
             PluginMarketplacePresentation.localized("Start a language server when you open files of its language", locale: locale)
         case "editor.actions":
             L10n.string("Add clickable actions beside document text")
+        case "terminal.create":
+            L10n.string("Open and manage its own native terminals, retaining bounded display history for reopening")
         case "process.run":
             PluginMarketplacePresentation.localized("Run your files", locale: locale)
         case "ui.contribute":

@@ -73,7 +73,7 @@ public final class TerminalFeatureModel: ObservableObject {
     }
 
     public var activeTerminalSession: TerminalSession? {
-        guard let activeTerminalSessionID else { return terminalSessions.first }
+        guard let activeTerminalSessionID else { return nil }
         return terminalSessions.first { $0.id == activeTerminalSessionID }
     }
 
@@ -135,6 +135,7 @@ public final class TerminalFeatureModel: ObservableObject {
         _ launch: TerminalProcessLaunch,
         workspaceURL: URL,
         showsWorkbenchBackground: Bool = false,
+        selectsSession: Bool = true,
         onOutput: ((String) -> Void)? = nil
     ) async throws -> (session: TerminalSession, processID: Int32) {
         let transport = workspaceTerminalFactory?(workspaceURL) ?? terminalFactory()
@@ -145,7 +146,7 @@ public final class TerminalFeatureModel: ObservableObject {
         defer { pendingProcessSessions[session.id] = nil }
         let processID = try await session.startProcessAsync(launch)
         terminalSessions.append(session)
-        activeTerminalSessionID = session.id
+        if selectsSession { activeTerminalSessionID = session.id }
         return (session, processID)
     }
 
