@@ -49,6 +49,26 @@ struct MacToolchainDiscoveryTests {
         _ = try operations.validate(manifest: Self.providerSource().manifest)
     }
 
+    @Test func consumerRefusesUnsupportedLaunchTemplatesInsteadOfDroppingTheirFlags() async throws {
+        let root = try DiscoveryFixtureRoot()
+        defer { root.remove() }
+        let home = try root.installation("home/Kits/tool.kit/Contents/Home")
+        let probes = DiscoveryProbes(outputs: [home + "/bin/compiler": "compiler 21"])
+        var manifest = try #require(JSONSerialization.jsonObject(with: Self.manifest()) as? [String: Any])
+        var definitions = try #require(manifest["toolDefinitions"] as? [[String: Any]])
+        definitions[0]["launch"] = ["${executable}", "--fixture", "${arguments}"]
+        manifest["toolDefinitions"] = definitions
+        let source = ToolchainSettingsPluginSource(pluginID: Self.pluginID, name: "Fixture",
+            manifest: try JSONSerialization.data(withJSONObject: manifest), isEnabled: true, verifiedOfficial: true)
+        let local: ToolingJSONValue = .object(["version": .number(1), "toolchains": .object([:])])
+        await #expect(throws: BuildToolResolutionError.self) {
+            try await discovery(root: root, probes: probes).resolve(
+                .init(workspace: root.url("workspace"), sources: [source], environment: [:]),
+                tool: "compiler", directory: ".", minimumVersion: nil, local: local, projectCodeAllowed: true)
+        }
+        #expect(probes.calls.isEmpty)
+    }
+
     @Test func scannedHomesAreCheckedProbedAndTheHighestVersionIsSelected() async throws {
         let root = try DiscoveryFixtureRoot()
         defer { root.remove() }
@@ -349,7 +369,7 @@ struct MacToolchainDiscoveryTests {
         }
     }
 
-    @Test func consumerQueriesCurrentWorkspaceProviderWithMatchingResolutionIdentity() async throws {
+    @Test(arguments: [false, true]) func consumerQueriesCurrentWorkspaceProviderWithMatchingResolutionIdentity(stringIDs: Bool) async throws {
         let root = try DiscoveryFixtureRoot()
         defer { root.remove() }
         let home = try root.installation("manager/current")
@@ -362,7 +382,14 @@ struct MacToolchainDiscoveryTests {
             "watch": [source.path]
         ] }
         var discovery = discovery(root: root, probes: DiscoveryProbes(outputs: [home + "/bin/compiler": "compiler 21"]))
-        discovery.queryProvider = { plugin, provider, params, _ in try queries.answer(pluginID: plugin, providerID: provider, params: params) }
+        discovery.queryProvider = { plugin, provider, params, _ in
+            let answer = try queries.answer(pluginID: plugin, providerID: provider, params: params)
+            if !stringIDs { return answer }
+            var wire = try #require(answer.foundationObject as? [String: Any])
+            var response = try #require(wire["response"] as? [String: Any])
+            wire["id"] = "rpc:雪-2"; response["id"] = "rpc:雪-2"; wire["response"] = response
+            return try #require(ToolingJSONValue.fromFoundation(wire))
+        }
         discovery.workspaceContext = { _, _ in .init(contextID: "context-1", generation: 3, rootID: "root-1") }
         let result = try await discovery.resolve(
             .init(workspace: root.url("workspace"), sources: [try Self.providerSource()], environment: [:]),

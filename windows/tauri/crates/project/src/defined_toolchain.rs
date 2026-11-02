@@ -14,6 +14,7 @@ const CHANGED: &str = "toolchain.native.changed";
 const LIMIT: &str = "toolchain.native.limitExceeded";
 const MAX_FACTS: usize = 8192;
 const MAX_ENTRIES: usize = 4096;
+mod providers;
 
 /// Inputs captured by the native host, including independently checked origins.
 pub struct Request<'a> {
@@ -157,8 +158,20 @@ impl Capture {
 
 /// Resolves the current directory's pin, declared scans and shell candidates.
 /// The caller owns bounded process execution and package lifecycle leases. A
-/// provider-backed selection fails closed until that host implements queries.
+/// provider-backed selection fails closed when no query transport is supplied.
 pub fn resolve(
+    request: Request<'_>,
+    probe: impl FnMut(&Path, &[String], &BTreeMap<String, String>, Duration) -> Result<String, String>,
+) -> Result<Option<Selection>, String> {
+    resolve_with_queries(request, probe, |_, _, _, _| {
+        Err("toolchain.native.providerUnavailable".into())
+    })
+}
+
+/// Uses the host's negotiated backend transport without caching launch permits.
+/// A failed or unsafe transport is terminal; only Core-validated unavailable
+/// replies may permit lower layers according to the definition's policy.
+pub fn resolve_with_queries(
     request: Request<'_>,
     mut probe: impl FnMut(
         &Path,
@@ -166,6 +179,7 @@ pub fn resolve(
         &BTreeMap<String, String>,
         Duration,
     ) -> Result<String, String>,
+    mut query: impl FnMut(&str, &str, &Value, Duration) -> Result<Value, String>,
 ) -> Result<Option<Selection>, String> {
     let mut capture = Capture {
         facts: BTreeMap::new(),
@@ -187,6 +201,11 @@ pub fn resolve(
         .find(|entry| entry["definition"]["id"] == request.tool)
         .map(|entry| &entry["definition"])
         .ok_or(INVALID)?;
+    // Build's current tool context carries a program, not a template argv.
+    // Refuse unsupported templates instead of silently dropping declared flags.
+    if definition["launch"] != json!(["${executable}", "${arguments}"]) {
+        return Err("toolchain.native.unsupportedLaunch".into());
+    }
     let local_path = workspace.join(".lithe/toolchains/local.json");
     let local = read_local(&local_path, &workspace)?;
     let document = local
@@ -211,10 +230,16 @@ pub fn resolve(
             }
         });
     let has_fixed = request.fixed.is_some() || pinned.is_some();
-    if !has_fixed && rows(plan, "providers").next().is_some() {
-        return Err("toolchain.native.providerUnavailable".into());
-    }
     capture.add(&workspace)?;
+    let mut queries = providers::collect(
+        &request,
+        plan,
+        definition,
+        &root,
+        has_fixed,
+        &mut capture,
+        &mut query,
+    )?;
     let mut installations = Vec::new();
     for (index, scan) in rows(plan, "scans").filter(|_| !has_fixed).enumerate() {
         if index >= 256 {
@@ -347,7 +372,8 @@ pub fn resolve(
     );
     let mut candidate_input = json!({"registry":request.registry,"tool":request.tool,
         "platform":platform(),"filesystemCaseSensitive":cfg!(not(windows)),"workspaceRoot":root,
-        "filesystem":capture.values(),"environment":variables,"systemInstallations":all_installations,"probes":[]});
+        "filesystem":capture.values(),"environment":variables,"systemInstallations":all_installations,
+        "providerInstallations":queries.installations,"probes":[]});
     if let Some(fixed) = request.fixed {
         candidate_input["fixed"] = fixed.clone();
         candidate_input["projectCodeAllowed"] = json!(request.project_code_allowed);
@@ -359,11 +385,14 @@ pub fn resolve(
         .filter(|value| value["reason"] == "probeFailed")
         .filter_map(|value| value["executable"].as_str().map(str::to_owned))
         .collect();
+    for query in &mut queries.validations {
+        query["filesystem"] = capture.values();
+    }
     let mut input = json!({"registry":request.registry,"tool":request.tool,"directory":request.directory,
-        "operationID":"native-consumer","generation":1,"context":null,"platform":platform(),
+        "operationID":format!("native-{}", queries.generation),"generation":queries.generation,"context":queries.context,"platform":platform(),
         "filesystemCaseSensitive":cfg!(not(windows)),"workspaceRoot":root,"workspaceRoots":[root],
         "filesystem":capture.values(),"local":document,"environment":variables,"commandHomes":commands,
-        "systemInstallations":installations,"projectCodeAllowed":request.project_code_allowed,"probes":[]});
+        "systemInstallations":installations,"projectCodeAllowed":request.project_code_allowed,"probes":[],"queries":queries.validations});
     if let Some(fixed) = request.fixed {
         input["fixed"] = fixed.clone();
     }
@@ -422,6 +451,7 @@ pub fn resolve(
     let mut digest = Sha256::new();
     digest.update(local.as_deref().unwrap_or_default().as_bytes());
     digest.update(selection.to_string().as_bytes());
+    digest.update(json!(queries.identity).to_string().as_bytes());
     for observed in capture.facts.values() {
         digest.update(observed.fact.to_string().as_bytes());
         digest.update(observed.length.to_le_bytes());

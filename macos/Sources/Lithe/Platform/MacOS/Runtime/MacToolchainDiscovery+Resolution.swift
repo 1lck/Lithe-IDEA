@@ -63,6 +63,9 @@ extension MacToolchainDiscovery {
             ($0["definition"] as? [String: Any])?["id"] as? String == tool
         }
         guard let declaration = entry?["definition"] as? [String: Any] else { throw Self.unavailable() }
+        // Build's current tool context transports a program, not a template argv.
+        // Dropping declared wrapper flags would change the plugin's semantics.
+        guard declaration["launch"] as? [String] == ["${executable}", "${arguments}"] else { throw Self.unavailable() }
         let layouts = (definition["executableLayouts"] as? [[String: Any]] ?? []).filter(Self.applies)
             .compactMap { $0["path"] as? String }
         var commandHomes: [String: String] = [:]

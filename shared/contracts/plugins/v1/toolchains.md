@@ -13,8 +13,9 @@ adds a separate fresh-resolution adapter for macOS Build and Provider Run;
 settings detections are never used as launch permits. Existing Java and
 language-server consumers still use their previous adapters. Windows now has
 native Build plumbing for directory pins, declared scans and shell candidates;
-provider queries and verified official origin are not connected, and product
-capability admission remains closed.
+provider queries are not connected. Publisher signatures now provide independent
+origin evidence when present; legacy unsigned records never do. Product capability
+admission remains closed.
 The [broader proposal](proposals/toolchains/README.md) still describes unsupported
 consumer migration, native lifecycle, persistence and manager-plugin work.
 The active shape is [plugin-manifest.schema.json](plugin-manifest.schema.json),
@@ -54,6 +55,13 @@ not grant arbitrary command replacement, installation, network or workspace-code
 execution. Short definition IDs require independently verified official origin;
 community definitions use `<own-plugin-id>:<local-id>`. Community providers may
 answer short IDs. No host-owned tool table, name alias or manager parser is added.
+
+The native Build consumers currently accept only the direct launch template
+`["${executable}", "${arguments}"]`: their tool context carries a program and
+separate Build arguments. A definition with extra flags or `${home}` launch tokens
+is refused before probing, rather than silently dropping its template. The full
+manifest grammar remains valid for other/future consumers; settings discovery
+alone does not promise that a consumer can launch every template.
 
 ## Two installation routes
 
@@ -120,6 +128,10 @@ the host-owned session, not a provider claim. `platform` is `macos`, `windows` o
 generation,providerID,authority:{kind:"local"},context,workspace,tools}}`.
 `context` is `{contextID,generation}` or `null`; workspace queries require it.
 `workspace` is `{rootID,root,directory}` or `null` for global-only queries.
+The JSON-RPC `id` is a positive integer or a nonempty string of at most 128
+UTF-8 bytes without control characters; the reply preserves its exact type and
+value. Core's LSP transport uses string IDs. Numeric `1` and string `"1"` are
+distinct identities and cannot acknowledge each other's request.
 `directory` is normalized workspace-relative, with `.` for the opened root.
 Tools are unique and sorted. This envelope is validated as inert data; no query
 is dispatched and no protocol capability is negotiated by this command.

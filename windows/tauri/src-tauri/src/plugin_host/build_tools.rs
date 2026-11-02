@@ -73,6 +73,8 @@ pub async fn declarative_plugins_build_tool(
             if let Some((_, value)) = inherited.iter().find(|(key, _)| key.eq_ignore_ascii_case(name)) { forwarded.insert(name.into(),value.clone()); }
         }
         let mut resolver = Resolver { workspace: &workspace, root: &root, choices: &choices["toolchain"], runtimes: serde_json::from_value(choices["toolchain"]["runtimeExecutablePaths"].clone()).map_err(|error| format!("Invalid saved runtime paths: {error}"))?, environment: forwarded, project_code:false, definitions: BTreeMap::new() };
+        let mut queries = super::toolchain_queries::Queries::new(&app, &workspace);
+        let result = (|| {
         for dependency in invocation["runtimeDependencies"].as_array().into_iter().flatten() {
             let id = dependency["id"].as_str().ok_or("Build runtime has no ID")?;
             let fallback;
@@ -80,11 +82,11 @@ pub async fn declarative_plugins_build_tool(
                 fallback = json!([{"kind":"toolchain","toolchainID":if id == "java" { "project-jdk".to_string() } else { format!("project-{id}") }}]);
                 &fallback
             } else { &dependency["executables"] };
-            resolver.prepare_definitions(candidates, dependency, &defined_context)?;
+            resolver.prepare_definitions(candidates, dependency, &defined_context, &mut queries)?;
             let selected = resolver.select_checked(candidates, |selected| check_version(&package.manifest, &build_system_id, Some(id), dependency, selected, &workspace_state, check_versions))?;
             resolver.add_runtime(id, selected)?;
         }
-        resolver.prepare_definitions(&invocation["executables"], invocation, &defined_context)?;
+        resolver.prepare_definitions(&invocation["executables"], invocation, &defined_context, &mut queries)?;
         let selected = resolver.select_checked(&invocation["executables"], |selected| check_version(&package.manifest, &build_system_id, None, invocation, selected, &workspace_state, check_versions))?;
         let environment = selected.environment;
         let native_inputs: BTreeMap<_,_> = resolver.definitions.iter().filter_map(|(id, selected)|
@@ -94,6 +96,9 @@ pub async fn declarative_plugins_build_tool(
                 "toolDefinitions":tool_registry,"definedToolInputs":native_inputs,"runTools":choices["definedTools"]}),
             workspace_state_directory: workspace_state.to_string_lossy().into_owned(), environment,
             tool: json!({"executable":selected.path}), executes_project_code:selected.project_code })
+        })();
+        queries.close()?;
+        result
     }).await
 }
 
@@ -131,6 +136,7 @@ impl Resolver<'_> {
         candidates: &Value,
         declaration: &Value,
         context: &DefinitionContext<'_>,
+        queries: &mut super::toolchain_queries::Queries<'_>,
     ) -> Result<(), String> {
         for candidate in candidates
             .as_array()
@@ -160,7 +166,7 @@ impl Resolver<'_> {
                 environment.retain(|old, _| !old.eq_ignore_ascii_case(key));
                 environment.insert(key.clone(), value.clone());
             }
-            let selected = lithe_project::defined_toolchain::resolve(
+            let selected = lithe_project::defined_toolchain::resolve_with_queries(
                 lithe_project::defined_toolchain::Request {
                     registry: context.registry,
                     workspace: self.workspace,
@@ -190,6 +196,7 @@ impl Resolver<'_> {
                         String::from_utf8_lossy(&stderr)
                     ))
                 },
+                |plugin, provider, params, remaining| queries.query(plugin, provider, params, remaining),
             )?
             .ok_or("toolchain.native.unavailable")?;
             self.definitions.insert(

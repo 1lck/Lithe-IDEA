@@ -4,6 +4,167 @@ use std::sync::atomic::{AtomicU64, Ordering};
 static SEQUENCE: AtomicU64 = AtomicU64::new(0);
 const TOOL: &str = "dev.example.tools:compiler";
 
+fn provider_fixture() -> Fixture {
+    let mut fixture = Fixture::new();
+    let mut provider: Value = serde_json::from_str(include_str!(
+        "../../../../../../shared/contracts/plugins/v1/fixtures/toolchain-provider.plugin.json"
+    ))
+    .unwrap();
+    provider["toolchainProviders"][0]["tools"] = json!([TOOL]);
+    provider["toolchainProviders"][0]["watchFiles"] =
+        json!([{"pattern":".fixture-version","reader":"native"}]);
+    fixture.registry["plugins"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"manifest":provider,"verifiedOfficial":false}));
+    fixture.registry["plugins"][0]["manifest"]["toolDefinitions"][0]["executables"]
+        .as_array_mut()
+        .unwrap()
+        .insert(
+            2,
+            json!({"id":"project-request","kind":"toolchain","scope":"project"}),
+        );
+    fs::write(fixture.workspace.join(".fixture-version"), "21").unwrap();
+    fixture
+}
+fn provider_wire(params: &Value, home: &Path, source: &Path) -> Value {
+    json!({"id":17,"response":{"jsonrpc":"2.0","id":17,"result":{
+        "operationID":params["operationID"],"generation":params["generation"],"providerID":params["providerID"],
+        "installations":[{"tool":TOOL,"version":"21","home":native_path(home)}],
+        "statements":[{"tool":TOOL,"scope":"project","source":native_path(source),"request":"21",
+            "installation":native_path(home),"kind":"declaration","reader":"native"}],"watch":[native_path(source)]}}})
+}
+
+#[test]
+fn provider_replies_share_native_facts_and_leave_a_stable_identity_across_operations() {
+    let fixture = provider_fixture();
+    let home = fixture.install("provider-selected");
+    let source = fixture.workspace.join(".fixture-version");
+    let mut generations = Vec::new();
+    let mut identities = Vec::new();
+    for _ in 0..2 {
+        let mut queries = 0;
+        let selected = resolve_with_queries(
+            fixture.request(),
+            |path, _, _, _| {
+                assert_eq!(path, home.join(launcher()));
+                Ok("compiler 21".into())
+            },
+            |plugin, provider, params, remaining| {
+                queries += 1;
+                assert_eq!(plugin, "dev.lithe.fixture.mise");
+                assert_eq!(provider, "mise");
+                assert_eq!(params["tools"], json!([TOOL]));
+                assert_eq!(params["workspace"]["root"], native_path(&fixture.workspace));
+                assert!(remaining <= Duration::from_secs(10) && !remaining.is_zero());
+                generations.push(params["generation"].as_u64().unwrap());
+                let mut wire = provider_wire(params, &home, &source);
+                if generations.len() == 2 {
+                    wire["id"] = json!("rpc:雪-2");
+                    wire["response"]["id"] = wire["id"].clone();
+                }
+                Ok(wire)
+            },
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(selected.executable, home.join(launcher()));
+        identities.push(selected.identity);
+        assert_eq!(queries, 1);
+    }
+    assert_ne!(generations[0], generations[1]);
+    assert_eq!(
+        identities[0], identities[1],
+        "Operation IDs must not invalidate an unchanged model"
+    );
+}
+
+#[test]
+fn checked_unavailable_provider_may_use_lower_layers_but_unsafe_replies_never_do() {
+    let fixture = provider_fixture();
+    let home = fixture.install("Kits/automatic");
+    let selected = resolve_with_queries(
+        fixture.request(),
+        |_, _, _, _| Ok("compiler 21".into()),
+        |_, _, params, _| {
+            Ok(
+                json!({"id":17,"response":{"jsonrpc":"2.0","id":17,"error":{"code":-32073,
+            "message":"fixture unavailable","data":{"code":"plugin.toolchain.providerUnavailable",
+                "operationID":params["operationID"],"providerID":params["providerID"]}}}}),
+            )
+        },
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(selected.executable, home.join(launcher()));
+    for change in ["id", "generation", "workspace"] {
+        let invalid_home = fixture.install("workspace/untrusted");
+        assert!(
+            resolve_with_queries(
+                fixture.request(),
+                |_, _, _, _| panic!("Unsafe answers cannot reach a lower probe"),
+                |_, _, params, _| {
+                    let mut wire =
+                        provider_wire(params, &home, &fixture.workspace.join(".fixture-version"));
+                    match change {
+                        "id" => wire["response"]["id"] = json!(18),
+                        "generation" => wire["response"]["result"]["generation"] = json!(0),
+                        _ => {
+                            wire = provider_wire(
+                                params,
+                                &invalid_home,
+                                &fixture.workspace.join(".fixture-version"),
+                            )
+                        }
+                    }
+                    Ok(wire)
+                }
+            )
+            .is_err(),
+            "{change}"
+        );
+    }
+}
+
+#[test]
+fn provider_source_changes_during_a_probe_revoke_the_resolution() {
+    let fixture = provider_fixture();
+    let home = fixture.install("provided");
+    let source = fixture.workspace.join(".fixture-version");
+    assert_eq!(
+        resolve_with_queries(
+            fixture.request(),
+            |_, _, _, _| {
+                fs::write(&source, "changed native input").unwrap();
+                Ok("compiler 21".into())
+            },
+            |_, _, params, _| Ok(provider_wire(params, &home, &source))
+        )
+        .err()
+        .as_deref(),
+        Some(CHANGED)
+    );
+}
+
+#[test]
+fn unsupported_launch_templates_are_refused_without_probing_or_dropping_arguments() {
+    let mut fixture = Fixture::new();
+    for launch in [
+        json!(["${executable}", "--fixture", "${arguments}"]),
+        json!(["${executable}", "${home}", "${arguments}"]),
+    ] {
+        fixture.registry["plugins"][0]["manifest"]["toolDefinitions"][0]["launch"] = launch;
+        assert_eq!(
+            resolve(fixture.request(), |_, _, _, _| panic!(
+                "Unsupported templates cannot start a probe"
+            ))
+            .err()
+            .as_deref(),
+            Some("toolchain.native.unsupportedLaunch")
+        );
+    }
+}
+
 struct Fixture {
     root: PathBuf,
     workspace: PathBuf,

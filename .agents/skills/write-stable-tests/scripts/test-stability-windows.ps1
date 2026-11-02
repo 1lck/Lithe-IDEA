@@ -63,6 +63,9 @@ function Invoke-TimedRustTests {
             "--max-ms", $maxMilliseconds,
             "--build-timeout-ms", $remainingMilliseconds,
             "--suite-timeout-ms", $remainingMilliseconds,
+            # Collect every case failure in this bounded suite. Failures still
+            # reject the lane; one path fixture must not hide all later cases.
+            "--keep-going",
             "--report", $Report
         )
         if (-not [string]::IsNullOrWhiteSpace($Package)) {
@@ -114,10 +117,25 @@ function Invoke-TimedRustTests {
         return $arguments
     }
 
+    function Invoke-RustTimingRunner {
+        param([object[]]$RunnerArguments)
+        $previousTestNode = $env:LITHE_TEST_NODE
+        try {
+            if ($Package -eq "lithe-project") {
+                # This explicit integration uses the harness's known Node executable.
+                $env:LITHE_TEST_NODE = (Get-Command node).Source
+            }
+            & node @RunnerArguments | Out-Host
+            return $LASTEXITCODE
+        } finally {
+            $env:LITHE_TEST_NODE = $previousTestNode
+        }
+    }
+
     if (Test-Path -LiteralPath $Report) { Remove-Item -Force -LiteralPath $Report }
     $arguments = New-RustTimingArguments
-    & node @arguments
-    if ($LASTEXITCODE -eq 0) { return }
+    $testExitCode = Invoke-RustTimingRunner -RunnerArguments $arguments
+    if ($testExitCode -eq 0) { return }
     if (Test-Path -LiteralPath $Report) {
         $suiteTimedOut = $false
         $testsRan = $false
@@ -155,8 +173,8 @@ function Invoke-TimedRustTests {
     if (Test-Path -LiteralPath $target) { Remove-Item -Recurse -Force -LiteralPath $target }
     if (Test-Path -LiteralPath $Report) { Remove-Item -Force -LiteralPath $Report }
     $arguments = New-RustTimingArguments
-    & node @arguments
-    if ($LASTEXITCODE -ne 0) { throw "Rust timing tests failed after a clean retry." }
+    $testExitCode = Invoke-RustTimingRunner -RunnerArguments $arguments
+    if ($testExitCode -ne 0) { throw "Rust timing tests failed after a clean retry." }
 }
 
 if ($Scope -in @("All", "Frontend")) {

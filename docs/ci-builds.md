@@ -769,6 +769,11 @@ Windows Build Provider 的对应位置为
 模型失效可重建，插件卸载随所属状态清理；工作区摘要只是归属键，不是构建身份。
 它属于具体插件、构建系统和工作区的可变上游状态，没有版本/平台/架构/工具链 identity stamp，
 复用清单 `official-plugin-packages` 和脚本的排除路由拒绝任何复制阶段共享。
+Windows 工具查询后端使用同一平台 adapter 下独立的
+`<windows-local-app-data>/<app-id>/plugin-state/<plugin-id>/toolchain-queries/<operation-id>/<workspace-digest>/`。
+一个 Build 准备操作可以复用同插件的后端；并发操作使用独占创建的不同目录，结束前停止
+全部进程并删除自身状态。失败保留仍受进程使用的目录，插件卸载清理遗留状态。它没有版本/平台/架构/工具链构建印记，任何阶段均不得跨工作树
+复制。查询参数、文件证据和执行许可只存在于当前操作的内存中；安装包和插件资源只读。
 #1495 阶段 D 已删除 macOS 旧 Maven 依赖树临时文件 adapter；不再创建该专属目录，
 也不能把旧树文本当作新的 Provider 缓存或从其坐标推导 JAR 路径。
 Provider 状态经平台 adapter 写 Application Support；插件安装目录和发行 bundle 只读，

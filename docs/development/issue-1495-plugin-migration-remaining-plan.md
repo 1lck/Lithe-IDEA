@@ -20,7 +20,7 @@
 | 通用测试报告 | macOS 改为直接消费 `BuildTestResults`；移除三种 Maven 报告类型和转换。上游摘要、调用次数、耗时、来源位置与不透明重跑引用保持原义；JDT 发现适配器明确关联报告名称，通用 UI 不解析用例名称。Windows 的现有行标记字段保留兼容别名。验证记录见本次计时报告，不替代整机验收。 |
 | 原生配置 v7 | 已移除 XML 绑定和 Core XML 编辑器，新增提供者编辑计划及不含文档的回执。两端暂存/校验/原子发布接线已更新；Node/Java JSON E2E、真实 Maven 编辑/回读、127 项 macOS、71 项 Windows 前端和类型检查通过。Windows 原生 4 个既有 watcher 失败、整机未验收；完整正式组合仍待验证。 |
 | 服务调试 v11 | 已删除本入口的 `runtime: jvm` 与内置 Java attach；协议传递适配器身份、公开配置类型和 `connection` 目标，宿主从当前 Registry 选择并验证配置，跨准备/监听/连接检查包与注册代次。Java Support 自己声明同包 JDT 托管适配器，Maven 仅声明配置类型；真实断点 UI 与发行组合仍待验收。 |
-| 工具选择 | 用户已授权先固定 [#1581](https://github.com/1lck/Lithe-IDEA/pull/1581) 的 `b87c7f6` 预集成，仍保持 Draft、不合并发布。macOS Build/Provider Run 已接 `toolDefinitions` / `toolchainProviders` 与四层选择；删除新增的 Maven JDK 注册和 Java 准备按 Maven 名字选工具的分支。按 Run 的明确工具选择现已接入两端 adapter，并保留两层继承和显式清空；旧 Maven 明确路径可一次性转移。项目/全局默认与应用 JDK 联动、Windows Provider/来源证明和现有 Java 消费者仍待完成。 |
+| 工具选择 | 用户已授权先固定 [#1581](https://github.com/1lck/Lithe-IDEA/pull/1581) 的 `b87c7f6` 预集成，仍保持 Draft、不合并发布。macOS Build/Provider Run 已接 `toolDefinitions` / `toolchainProviders` 与四层选择；删除新增的 Maven JDK 注册和 Java 准备按 Maven 名字选工具的分支。按 Run 的明确工具选择现已接入两端 adapter，并保留两层继承和显式清空；旧 Maven 明确路径可一次性转移。Windows 已补来源证明和操作内 Provider 查询；项目/全局默认与应用 JDK 联动、Windows 完整产品准入和现有 Java 消费者仍待完成。 |
 | Maven 运行配置与准备任务 | 待修改：Core 不增加 Maven profile/reactor/framework 的稳定解析面；提供者拥有语义。准备任务已改为 `buildSystems: 4` 清单的通用用途和适用源码角色，宿主不约定固定任务 ID。自动运行配置已由声明/目标生成 `build.provider` 选择器，独立于 Java 导入，删除 `mavenRunProvider` 字段与 Core 框架名单；快照指纹、目标撤回和用户通用覆盖已接线。旧 Run v2 中可确认的服务/显式任务已保留 ID 转为通用引用并通过两层预检及冲突保护；v1、旧偏好、自定义工具与隐式模块语义，以及归属中的 reactor/Wrapper/版本字段、工具链和 Windows 旧路径仍待处理。 |
 | SDK 与版本 | 2026-10-31 核实 SDK main 两种实现最高为 6，GitHub 仅有 sdk-node-v0.1.0 发布；7～11 仍在 Draft。重写 v7 为提供者暂存编辑，保留 8～10 版本及处理器，v11 改为注册表连接目标，正式发行组合仍待验收。只在宿主合并后同步契约副本，正式 SDK 锁定值不变。 |
 
@@ -271,6 +271,35 @@ Bash 5.2.37 按 Linux CI 语义复验，113 项门禁、分类器及 19 项复�
 本增量不开放 packageTrust/Build/Debug 产品能力，也不包含 Windows 调试 Registry、
 Provider 查询和旧 Maven 生产消费者替换；完整准入和阶段 D 仍未完成。没有新运行时
 下载、缓存或可复用工件目录，验签全程只读，不影响安装包哈希、代码签名或更新源基线。
+
+### Windows 工具 Provider 查询与真实 ID 兼容（2026-11-02）
+
+宿主 `2a8bcddf8` 的 [Windows CI 41377299138](https://github.com/1lck/Lithe-IDEA/actions/runs/41377299138)
+已全部通过：共享 Core、原生项目/host、前端和真实 JDT。它验证前一批签名与路径修复，
+不作为本批新增查询的通过证据。
+
+本批把 Windows 工具查询接到单次 Build 准备：复用 Core 的后端协商、协议、期限与进程树，
+同一操作内复用插件进程，返回前全部停止。可写状态经平台 app-data adapter 放到独占的
+plugin/operation/workspace 目录，先停止进程再删除状态，不写安装资源、不跨工作树复制。
+原生端收集回复引用的文件事实，交 Core 校验后再探测版本；探测期间来源改变即撤销。
+固定选择不查询低层，只有已校验的不可用回复可继续检查低层，安全及身份错误直接失败。
+
+真实 Core 后端使用字符串 JSON-RPC ID，原有查询校验只接受整数，导致正确回复也被拒绝。
+Core、macOS 与 Windows 现在接受有界字符串和正整数，并严格匹配回复的类型和值；
+共享 fixture 覆盖混合类型、空值、控制字符和大小上限。Build 工具上下文尚不能传递
+完整启动模板时，两端在探测前拒绝带额外参数的模板，避免丢掉插件声明的 flag。
+
+本地 Core 1,578 项、macOS 工具解析/Build resolver 27 条计时记录及 SDK 6 项真实 E2E
+通过；Project crate 88 条记录中 84 项通过，四个既有 macOS watcher 超时不变，真实
+Core/Node 会话测试已显式启用并覆盖协商、复用、错误、无协商拒绝、静默超时、初始化超时、意外退出
+与撤销清理。资源复用 31 项通过。报告为 `stage-d-provider-wire-core.html`、
+`stage-d-provider-wire-macos.html` 和 `stage-d-provider-final-native.html`。Windows host
+在 macOS 的编译检查仍仅有两处既有 Windows API 错误；本批原生结果须等待新 CI。
+Windows 计时入口收集同包全部失败而不改变期限，仍拒绝失败且不重试已执行的测试。
+
+当前不开放工具、Build 或 Debug 的产品能力准入；非空未实现 hostServices 明确拒绝。
+共享后台服务、工作区关闭主动取消、完整默认值迁移、旧 Java/Windows 消费者、调试
+Registry、正式包与完整 UI 验收仍在待办。三个 PR 保持 Draft，不合并、不发布。
 
 ### D-MIGRATION-REMOVAL：旧 Maven 数据迁移器清理
 

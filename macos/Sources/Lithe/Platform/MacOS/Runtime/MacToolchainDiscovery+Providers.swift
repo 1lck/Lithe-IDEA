@@ -107,7 +107,7 @@ extension MacToolchainDiscovery {
         let reply: [String: Any]
         do {
             let value = try await queryProvider(provider.pluginID, provider.id, wire, Self.queryTimeout)
-            guard let object = value.foundationObject as? [String: Any], object["id"] is NSNumber,
+            guard let object = value.foundationObject as? [String: Any], object["id"] is NSNumber || object["id"] is String,
                   let response = object["response"] as? [String: Any]
             else { return .failure(L10n.string("The reply could not be read.")) }
             reply = ["id": object["id"]!, "response": response]

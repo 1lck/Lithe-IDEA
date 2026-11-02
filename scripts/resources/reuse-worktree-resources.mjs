@@ -439,6 +439,8 @@ async function main() {
       // editor-theme-assets rebuild palettes and license notices together; no build stamp permits reuse.
       // official-plugin-packages also excludes Windows Build Provider workspace
       // state under platform app-data. Workspace hashes never admit a copy stage.
+      // Operation-owned toolchain backends keep mutable workspace state beneath
+      // the same plugin owner; neither their state nor query facts may be reused.
       if (excludedResources.some((resource) => resource.id === identifier)) {
         const excluded = excludedResources.find((resource) => resource.id === identifier);
         throw new Error(`Resource ${identifier} is isolated (${excluded.locations.join(", ")}): ${excluded.identity}; ${excluded.reason}; it cannot be reused across worktrees`);
