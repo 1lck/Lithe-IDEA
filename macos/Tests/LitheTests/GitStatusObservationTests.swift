@@ -550,6 +550,7 @@ struct GitStatusObservationTests {
             snapshotProvider: { _ in snapshot },
             stashesProvider: { _ in [] },
             operationStateProvider: { _ in nil },
+            repositoryRootsProvider: { [$0] },
             diffDocumentProvider: { _, _ in DiffDocument(rows: [], hunks: []) }
         )
         var downstreamRefreshCount = 0
@@ -577,6 +578,7 @@ struct GitStatusObservationTests {
             snapshotProvider: { _ in await snapshotProvider.nextSnapshot() },
             stashesProvider: { _ in [] },
             operationStateProvider: { _ in nil },
+            repositoryRootsProvider: { [$0] },
             diffDocumentProvider: { _, _ in DiffDocument(rows: [], hunks: []) }
         )
         model.configure(
@@ -621,6 +623,7 @@ struct GitStatusObservationTests {
             snapshotProvider: { _ in await snapshotProvider.nextSnapshot() },
             stashesProvider: { _ in [] },
             operationStateProvider: { _ in nil },
+            repositoryRootsProvider: { [$0] },
             diffDocumentProvider: { _, _ in DiffDocument(rows: [], hunks: []) }
         )
         model.configure(

@@ -77,6 +77,9 @@ beforeEach(() => {
   spies.push(
     spyOn(statusApi, "getRepositoryGitStatuses").mockImplementation(readStatuses),
     spyOn(useRepositoryStore.getState().actions, "syncWorkspaceRepositories").mockResolvedValue(),
+    spyOn(useRepositoryStore.getState().actions, "refreshWorkspaceRepositories").mockImplementation(async () => {
+      useRepositoryStore.setState({isDiscovering: false});
+    }),
     spyOn(fileSystem, "useFileSystemStore").mockImplementation(((
       selector: (state: { rootFolderPath: string; workspaceFolders: typeof folders }) => unknown,
     ) =>
@@ -151,6 +154,115 @@ test("unrelated repository changes do not query status and unmount cancels pendi
   emitGitChanged({ repoPath: repo, source: "external-git-change" });
   timer.fire();
   expect(readStatuses).toHaveBeenCalledTimes(1);
+}, 1000);
+
+test("manual marks, ignore files and focus rediscover roots before refreshing status", async () => {
+  const refreshRoots = mock(async () => { useRepositoryStore.setState({isDiscovering: false}); });
+  spies.push(spyOn(useRepositoryStore.getState().actions, "refreshWorkspaceRepositories").mockImplementation(refreshRoots));
+  await mount();
+  for (const event of [
+    new window.CustomEvent("lithe:directory-marks-changed", {detail: repo}),
+    new window.CustomEvent("file-external-change", {detail: {path: `${repo}/.gitignore`, event_type: "reloaded"}}),
+    new window.Event("focus"),
+  ]) {
+    const statusCalls = readStatuses.mock.calls.length;
+    await act(async () => { window.dispatchEvent(event); });
+    await act(async () => { timer.fire(); });
+    expect(readStatuses.mock.calls.length).toBe(statusCalls + 1);
+  }
+  expect(refreshRoots).toHaveBeenCalledTimes(3);
+}, 1000);
+
+test("a failed root refresh preserves the published status snapshot", async () => {
+  spies.push(spyOn(useRepositoryStore.getState().actions, "refreshWorkspaceRepositories").mockImplementation(async () => {
+    useRepositoryStore.setState({error: "Git ignore query failed", isDiscovering: false});
+  }));
+  await mount();
+  const previous = useGitStore.getState().repositoryStatuses;
+  emitGitChanged({repoPath: repo, scopes: ["repository"]});
+  await act(async () => { timer.fire(); });
+  expect(readStatuses).toHaveBeenCalledTimes(1);
+  expect(useGitStore.getState().repositoryStatuses).toBe(previous);
+}, 1000);
+
+test("a status read started before rule changes cannot publish after discovery fails", async () => {
+  spies.push(spyOn(useRepositoryStore.getState().actions, "refreshWorkspaceRepositories").mockImplementation(async () => {
+    useRepositoryStore.setState({error: "Git ignore query failed", isDiscovering: false});
+  }));
+  await mount();
+  const previous = useGitStore.getState().repositoryStatuses;
+  let release!: (value: { [repo]: GitStatus }) => void;
+  const delayed = new Promise<{ [repo]: GitStatus }>((resolve) => { release = resolve; });
+  readStatuses.mockImplementationOnce(() => delayed);
+  const older = useGitStore.getState().actions.refreshRepositoryStatuses([repo], [repo]);
+  try {
+    emitGitChanged({repoPath: repo, scopes: ["repository"]});
+    await act(async () => { timer.fire(); });
+  } finally {
+    await act(async () => { release({[repo]: snapshot("stale", 20)}); await older; });
+  }
+  expect(useGitStore.getState().repositoryStatuses).toBe(previous);
+  expect(useGitStore.getState().repositoryStatuses[repo]?.branch).toBe("old");
+}, 1000);
+
+test("rule changes during discovery drain the newer request after the older read ends", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const rootQueries = mock(async () => { useRepositoryStore.setState({isDiscovering: false}); });
+  rootQueries.mockImplementationOnce(() => gate);
+  spies.push(spyOn(useRepositoryStore.getState().actions, "refreshWorkspaceRepositories").mockImplementation(rootQueries));
+  await mount();
+  try {
+    emitGitChanged({repoPath: repo, scopes: ["repository"]});
+    await act(async () => { timer.fire(); });
+    expect(rootQueries).toHaveBeenCalledTimes(1);
+    emitGitChanged({repoPath: repo, scopes: ["repository"]});
+    await act(async () => { timer.fire(); });
+    expect(rootQueries).toHaveBeenCalledTimes(1);
+  } finally { await act(async () => { release(); await gate; }); }
+  expect(rootQueries).toHaveBeenCalledTimes(2);
+  expect(useRepositoryStore.getState().isDiscovering).toBe(false);
+  expect(readStatuses).toHaveBeenCalledTimes(2);
+}, 1000);
+
+test("selection changes preserve discovery queued before the debounce fires", async () => {
+  const child = `${repo}/child`;
+  useRepositoryStore.setState({availableRepoPaths: [repo, child]});
+  const refreshRoots = mock(async () => { useRepositoryStore.setState({isDiscovering: false}); });
+  spies.push(spyOn(useRepositoryStore.getState().actions, "refreshWorkspaceRepositories").mockImplementation(refreshRoots));
+  await mount();
+  await act(async () => { emitGitChanged({repoPath: repo, scopes: ["repository"]}); });
+  expect(useRepositoryStore.getState().isDiscovering).toBe(true);
+  expect(timer.callbacks.size).toBe(1);
+  await act(async () => { useRepositoryStore.getState().actions.selectRepository(child); });
+  expect(timer.callbacks.size).toBe(0);
+  expect(refreshRoots).toHaveBeenCalledTimes(1);
+  expect(useRepositoryStore.getState().isDiscovering).toBe(false);
+}, 1000);
+
+test("selection changes during discovery still refresh unchanged repository paths", async () => {
+  const child = `${repo}/child`;
+  const paths = [repo, child];
+  useRepositoryStore.setState({availableRepoPaths: paths});
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  spies.push(spyOn(useRepositoryStore.getState().actions, "refreshWorkspaceRepositories").mockImplementation(async () => {
+    await gate;
+    useRepositoryStore.setState({isDiscovering: false});
+  }));
+  await mount();
+  let selectedPaths: string[] | undefined;
+  try {
+    emitGitChanged({repoPath: repo, scopes: ["repository"]});
+    await act(async () => { timer.fire(); });
+    await act(async () => { useRepositoryStore.getState().actions.selectRepository(child); });
+    selectedPaths = useRepositoryStore.getState().availableRepoPaths;
+    nextStatus = snapshot("after-discovery", 0);
+    expect(readStatuses).toHaveBeenCalledTimes(1);
+  } finally { await act(async () => { release(); await gate; }); }
+  expect(useRepositoryStore.getState().availableRepoPaths).toBe(selectedPaths);
+  expect(useGitStore.getState().repositoryStatuses[repo]?.branch).toBe("after-discovery");
+  expect(readStatuses).toHaveBeenCalledTimes(2);
 }, 1000);
 
 test("metadata watches cover every repository, replace links and release all identifiers", async () => {

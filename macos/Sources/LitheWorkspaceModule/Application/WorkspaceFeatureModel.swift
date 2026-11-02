@@ -183,6 +183,15 @@ package final class WorkspaceFeatureModel: ObservableObject {
 
     package var canEditIndexingSettings: Bool { !indexingPreferencesFailed }
 
+    /// A failed preference read is unknown, never a valid empty exclusion list.
+    package func manualDirectoryExclusions() throws -> [String] {
+        guard !indexingPreferencesFailed else {
+            if case .failure(let failure) = indexingIssue { throw failure }
+            throw WorkspaceIndexingFailure.readFailed
+        }
+        return directoryMarks.compactMap { $0.value == .excluded ? $0.key : nil }.sorted()
+    }
+
     package var hasActiveModuleResources: Bool {
         directoryWatcher != nil
             || indexingConfigurationTask != nil
@@ -708,7 +717,14 @@ package final class WorkspaceFeatureModel: ObservableObject {
             recordIndexingFailure(WorkspaceIndexingFailure.writeFailed)
             notify?(indexingError ?? "")
             await refreshCurrent()
-        } else if directoryMarkRevision == revision { await refreshCurrent() }
+        } else if directoryMarkRevision == revision {
+            // Root discovery reads manual marks independently of analysis policy.
+            let previousExclusions = Set(previousMarks.compactMap { $0.value == .excluded ? $0.key : nil })
+            let currentExclusions = Set(updatedMarks.compactMap { $0.value == .excluded ? $0.key : nil })
+            if previousExclusions != currentExclusions { await refreshGit?() }
+            guard self.workspaceURL == workspaceURL, self.workspaceGeneration == workspaceGeneration else { return }
+            await refreshCurrent()
+        }
     }
 
     package func setGitIgnoreIndexing(_ enabled: Bool) async {
@@ -1471,7 +1487,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         }
         // These are independent owned debounce lanes: tree/index/project work
         // must not delay Git or cancel the last chance to publish a file batch.
-        if batch.gitStateMayHaveChanged || batch.gitMetadataMayHaveChanged {
+        if batch.gitStateMayHaveChanged || batch.gitMetadataMayHaveChanged || rulesChanged {
             scheduleGitRefresh()
         }
     }

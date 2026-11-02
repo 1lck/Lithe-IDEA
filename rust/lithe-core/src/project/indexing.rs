@@ -1829,7 +1829,7 @@ mod tests {
     }
 
     #[test]
-    fn parent_ignore_excludes_nested_checkout_only_from_analysis_inventory() {
+    fn analysis_includes_do_not_register_ignored_nested_repositories() {
         let workspace = Workspace::new();
         workspace.git(&["init", "--quiet"]);
         workspace.git(&["-C", "ignored", "init", "--quiet"]);
@@ -1844,7 +1844,7 @@ mod tests {
             serde_json::from_value(json!({"root": workspace.0})).unwrap(),
         )
         .unwrap();
-        assert_eq!(repositories.repositories.len(), 2);
+        assert_eq!(repositories.repositories.len(), 1);
         assert!(
             ignored_directory_suggestions(IgnoredDirectorySuggestionsRequest {
                 root: workspace.0.to_string_lossy().into_owned(),
@@ -1866,7 +1866,7 @@ mod tests {
             .unwrap()
             .repositories
             .len(),
-            2
+            1
         );
         let suggestions = ignored_directory_suggestions(IgnoredDirectorySuggestionsRequest {
             root: workspace.0.to_string_lossy().into_owned(),
@@ -1884,7 +1884,7 @@ mod tests {
             .unwrap()
             .repositories
             .len(),
-            2
+            1
         );
     }
 

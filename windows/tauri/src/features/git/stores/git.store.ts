@@ -37,6 +37,7 @@ interface GitState {
 
   actions: {
     beginWorkingTreeRefresh: () => number;
+    invalidateRepositoryReads: () => void;
     prepareRepositoryLoad: (repoPath: string) => void;
     loadFreshGitData: (data: {
       repositoryStatuses: GitRepositoryStatuses;
@@ -168,6 +169,7 @@ export const createGitStore = () => {
 
     actions: {
       beginWorkingTreeRefresh: () => ++nextWorkingTreeVersion,
+      invalidateRepositoryReads: invalidatePendingReads,
 
       prepareRepositoryLoad: (repoPath) => {
         const state = get();

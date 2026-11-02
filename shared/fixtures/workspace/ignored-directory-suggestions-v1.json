@@ -1,13 +1,50 @@
 {
   "schemaVersion": 1,
   "command": "workspace.ignoredDirectorySuggestions",
-  "request": { "root": "/workspace", "workspaceRoots": ["/workspace"] },
+  "request": {
+    "root": "/workspace",
+    "workspaceRoots": [
+      "/workspace"
+    ]
+  },
   "gitignore": "ignored\n",
   "nestedRepository": "ignored",
   "cases": [
-    { "gitIgnoreEnabled": true, "manualExcludedDirectories": [], "includedDirectories": [], "expectedRepositoryCount": 2, "expectedSuggestions": [] },
-    { "gitIgnoreEnabled": false, "manualExcludedDirectories": [], "includedDirectories": [], "expectedRepositoryCount": 2, "expectedSuggestions": ["ignored"] },
-    { "gitIgnoreEnabled": true, "manualExcludedDirectories": [], "includedDirectories": ["ignored"], "expectedRepositoryCount": 2, "expectedSuggestions": ["ignored"] },
-    { "gitIgnoreEnabled": false, "manualExcludedDirectories": ["ignored"], "includedDirectories": [], "expectedRepositoryCount": 2, "expectedSuggestions": [] }
+    {
+      "gitIgnoreEnabled": true,
+      "manualExcludedDirectories": [],
+      "includedDirectories": [],
+      "expectedRepositoryCount": 1,
+      "expectedSuggestions": []
+    },
+    {
+      "gitIgnoreEnabled": false,
+      "manualExcludedDirectories": [],
+      "includedDirectories": [],
+      "expectedRepositoryCount": 1,
+      "expectedSuggestions": [
+        "ignored"
+      ]
+    },
+    {
+      "gitIgnoreEnabled": true,
+      "manualExcludedDirectories": [],
+      "includedDirectories": [
+        "ignored"
+      ],
+      "expectedRepositoryCount": 1,
+      "expectedSuggestions": [
+        "ignored"
+      ]
+    },
+    {
+      "gitIgnoreEnabled": false,
+      "manualExcludedDirectories": [
+        "ignored"
+      ],
+      "includedDirectories": [],
+      "expectedRepositoryCount": 1,
+      "expectedSuggestions": []
+    }
   ]
 }

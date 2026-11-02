@@ -29,6 +29,7 @@ export function gitChangeForMetadata(
       ? ["working-tree"]
       : ["working-tree", "history", "refs", "stashes", "repository"],
     source: "external-git-change",
+    repositoryRootsMayHaveChanged: true,
   };
 }
 

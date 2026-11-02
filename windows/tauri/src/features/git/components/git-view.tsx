@@ -687,6 +687,24 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
     return branchDiffBranches.filter((branch) => matchesSearchQuery(query, [branch]));
   }, [branchDiffBranches, branchDiffSearchQuery]);
 
+  const showLoadError = hasLoadError;
+  const loadError = (
+    <div
+      role="alert"
+      className="flex items-center justify-between gap-2 p-3 ui-text-sm text-destructive"
+    >
+      <span>{t("git.statusLoadFailed")}</span>
+      <Button
+        size="xs"
+        variant="ghost"
+        disabled={isRefreshing}
+        onClick={() => void handleManualRefresh()}
+      >
+        {t("git.log.retry")}
+      </Button>
+    </div>
+  );
+
   if (!activeRepoPath) {
     return (
       <>
@@ -727,7 +745,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
           >
             {renderActionsButton()}
           </SidebarTitleBar>
-          {repoPath ? (
+          {hasLoadError ? loadError : repoPath ? (
             <GitRepositoryEmptyState
               root={repoPath}
               context="changes"
@@ -764,23 +782,6 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
     );
   }
 
-  const showLoadError = hasLoadError;
-  const loadError = (
-    <div
-      role="alert"
-      className="flex items-center justify-between gap-2 p-3 ui-text-sm text-destructive"
-    >
-      <span>{t("git.statusLoadFailed")}</span>
-      <Button
-        size="xs"
-        variant="ghost"
-        disabled={isRefreshing}
-        onClick={() => void handleManualRefresh()}
-      >
-        {t("git.log.retry")}
-      </Button>
-    </div>
-  );
 
   if (!gitStatus) {
     return (

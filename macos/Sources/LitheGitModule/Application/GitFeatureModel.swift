@@ -412,7 +412,11 @@ package final class GitFeatureModel: ObservableObject {
     private let stashesProvider: @Sendable (URL) async -> [GitStash]
     private let operationStateProvider: @Sendable (URL) async -> GitOperationState?
     private let worktreesProvider: @Sendable (URL) async -> [GitWorktree]?
-    private let repositoryRootsProvider: @Sendable (URL) async -> [URL]
+    private let repositoryRootsProvider: @Sendable (GitRepositoryDiscoveryRequest) async throws -> [URL]
+    package var repositoryDiscoveryRequestProvider: @MainActor (URL) throws -> GitRepositoryDiscoveryRequest = {
+        GitRepositoryDiscoveryRequest(root: $0)
+    }
+    @Published package private(set) var repositoryDiscoveryError: (any Error)?
     private var requestedRepositoryReference: GitReference?
     private var requestedRepositoryRoot: URL?
     private let diffDocumentProvider: @Sendable (GitChange, GitDiffWhitespaceMode) async -> DiffDocument
@@ -505,7 +509,8 @@ package final class GitFeatureModel: ObservableObject {
         stashesProvider: (@Sendable (URL) async -> [GitStash])? = nil,
         operationStateProvider: (@Sendable (URL) async -> GitOperationState?)? = nil,
         worktreesProvider: (@Sendable (URL) async -> [GitWorktree]?)? = nil,
-        repositoryRootsProvider: (@Sendable (URL) async -> [URL])? = nil,
+        repositoryRootsProvider: (@Sendable (URL) async throws -> [URL])? = nil,
+        repositoryDiscoveryProvider: (@Sendable (GitRepositoryDiscoveryRequest) async throws -> [URL])? = nil,
         diffDocumentProvider: (@Sendable (GitChange, GitDiffWhitespaceMode) async -> DiffDocument)? = nil,
         untrackedDirectoryChildrenProvider: (@Sendable (GitChange) async -> [GitChange]?)? = nil
     ) {
@@ -529,7 +534,13 @@ package final class GitFeatureModel: ObservableObject {
         self.stashesProvider = stashesProvider ?? { await service.stashes(at: $0) }
         self.operationStateProvider = operationStateProvider ?? { await service.operationState(at: $0) }
         self.worktreesProvider = worktreesProvider ?? { await service.worktrees(at: $0) }
-        self.repositoryRootsProvider = repositoryRootsProvider ?? { await service.repositories(in: $0) }
+        if let repositoryDiscoveryProvider {
+            self.repositoryRootsProvider = repositoryDiscoveryProvider
+        } else if let repositoryRootsProvider {
+            self.repositoryRootsProvider = { try await repositoryRootsProvider($0.root) }
+        } else {
+            self.repositoryRootsProvider = { try await service.repositories($0) }
+        }
         self.diffDocumentProvider = diffDocumentProvider ?? {
             await service.diffDocument(for: $0, whitespace: $1)
         }
@@ -579,7 +590,7 @@ package final class GitFeatureModel: ObservableObject {
                 guard requested.standardizedFileURL == root else { return nil }
                 // Discovered roots exclude nested repositories from status; they
                 // must not become bindings in this checkout's commit plan.
-                let statusRoots = await repositoryRootsProvider(root)
+                guard let statusRoots = try? await repositoryRootsProvider(GitRepositoryDiscoveryRequest(root: root)) else { return nil }
                 guard !Task.isCancelled,
                       let snapshot = await snapshotProvider(requested, statusRoots),
                       snapshot.repositoryRoot.standardizedFileURL == root else { return nil }
@@ -588,7 +599,7 @@ package final class GitFeatureModel: ObservableObject {
             worktreesProvider: { _ in [] }, repositoryRootsProvider: { _ in [root] },
             untrackedDirectoryChildrenProvider: { [untrackedDirectoryChildrenProvider, repositoryRootsProvider] directory in
                 guard directory.repositoryRoot.standardizedFileURL == root else { return nil }
-                let statusRoots = await repositoryRootsProvider(root)
+                guard let statusRoots = try? await repositoryRootsProvider(GitRepositoryDiscoveryRequest(root: root)) else { return nil }
                 guard !Task.isCancelled else { return nil }
                 return await untrackedDirectoryChildrenProvider(directory, statusRoots)
             })
@@ -700,6 +711,7 @@ package final class GitFeatureModel: ObservableObject {
         worktreeChangesError = nil
         worktreeChangesRequestGeneration &+= 1
         gitRepositoryRoot = nil
+        repositoryDiscoveryError = nil
         availableRepositoryRoots = []
         requestedRepositoryRoot = nil
         requestedRepositoryReference = nil
@@ -848,7 +860,28 @@ package final class GitFeatureModel: ObservableObject {
         let revision = changeRefreshRevision
         var didChange = false
         var historyContextChanged = false
-        let repositoryRoots = await repositoryRootsProvider(workspaceURL)
+        let request: GitRepositoryDiscoveryRequest
+        do { request = try repositoryDiscoveryRequestProvider(workspaceURL) }
+        catch {
+            guard !Task.isCancelled, revision == changeRefreshRevision,
+                  workspaceURLProvider?()?.standardizedFileURL == workspaceURL.standardizedFileURL else { return }
+            repositoryDiscoveryError = error
+            notify?(L10n.string("Could not refresh Git status. Refresh to verify the changes."))
+            return
+        }
+        let repositoryRoots: [URL]
+        do {
+            repositoryRoots = try await repositoryRootsProvider(request)
+        } catch {
+            guard !Task.isCancelled, revision == changeRefreshRevision,
+                  workspaceURLProvider?()?.standardizedFileURL == workspaceURL.standardizedFileURL,
+                  (try? repositoryDiscoveryRequestProvider(workspaceURL)) == request else { return }
+            repositoryDiscoveryError = error
+            notify?(L10n.string("Could not refresh Git status. Refresh to verify the changes."))
+            return
+        }
+        guard (try? repositoryDiscoveryRequestProvider(workspaceURL)) == request else { return }
+        repositoryDiscoveryError = nil
         guard !Task.isCancelled, revision == changeRefreshRevision,
               workspaceURLProvider?()?.standardizedFileURL == workspaceURL.standardizedFileURL else { return }
         if availableRepositoryRoots != repositoryRoots {
@@ -861,14 +894,14 @@ package final class GitFeatureModel: ObservableObject {
             requestedRepositoryReference = nil
         }
         let observation = await workspaceSnapshot(workspaceURL: workspaceURL, repositoryRoots: repositoryRoots)
-        guard !Task.isCancelled, revision == changeRefreshRevision,
+        guard !Task.isCancelled, revision == changeRefreshRevision, (try? repositoryDiscoveryRequestProvider(workspaceURL)) == request,
               workspaceURLProvider?()?.standardizedFileURL == workspaceURL.standardizedFileURL else { return }
         if let observation {
             let snapshot = observation.snapshot
             guard !Task.isCancelled, workspaceURLProvider?()?.standardizedFileURL == workspaceURL.standardizedFileURL else { return }
             let changes = await listingExpandedUntrackedDirectories(in: snapshot.changes,
                 isCurrent: { revision == self.changeRefreshRevision })
-            guard !Task.isCancelled, revision == changeRefreshRevision else { return }
+            guard !Task.isCancelled, revision == changeRefreshRevision, (try? repositoryDiscoveryRequestProvider(workspaceURL)) == request else { return }
             loadChangelistsIfNeeded()
             let changesChanged = gitChanges != changes
             if gitRepositoryRoot != snapshot.repositoryRoot {
@@ -928,25 +961,25 @@ package final class GitFeatureModel: ObservableObject {
                 didChange = didChange || previousFilter != gitConflictFilterPaths
             }
             let stashes = await stashesProvider(snapshot.repositoryRoot)
-            guard !Task.isCancelled, revision == changeRefreshRevision else { return }
+            guard !Task.isCancelled, revision == changeRefreshRevision, (try? repositoryDiscoveryRequestProvider(workspaceURL)) == request else { return }
             if gitStashes != stashes {
                 gitStashes = stashes
                 didChange = true
             }
             let shelves = await shelveService?.entries(for: snapshot.repositoryRoot) ?? []
-            guard !Task.isCancelled, revision == changeRefreshRevision else { return }
+            guard !Task.isCancelled, revision == changeRefreshRevision, (try? repositoryDiscoveryRequestProvider(workspaceURL)) == request else { return }
             if gitShelves != shelves {
                 gitShelves = shelves
                 didChange = true
             }
             let operationState = await operationStateProvider(snapshot.repositoryRoot)
-            guard !Task.isCancelled, revision == changeRefreshRevision else { return }
+            guard !Task.isCancelled, revision == changeRefreshRevision, (try? repositoryDiscoveryRequestProvider(workspaceURL)) == request else { return }
             if gitOperationState != operationState {
                 gitOperationState = operationState
                 didChange = true
             }
             await interactiveRebase.refreshSession(at: snapshot.repositoryRoot)
-            guard !Task.isCancelled, revision == changeRefreshRevision else { return }
+            guard !Task.isCancelled, revision == changeRefreshRevision, (try? repositoryDiscoveryRequestProvider(workspaceURL)) == request else { return }
             if let gitOperationState, deferredSavedChanges == nil,
                let stash = gitStashes.first(where: { $0.message.contains("Lithe auto-stash before") }) {
                 deferredSavedChanges = GitDeferredSavedChanges(
@@ -956,11 +989,11 @@ package final class GitFeatureModel: ObservableObject {
             }
 
             for session in allDiffSessions where session.selectedChange != nil {
-                guard !Task.isCancelled, revision == changeRefreshRevision else { return }
+                guard !Task.isCancelled, revision == changeRefreshRevision, (try? repositoryDiscoveryRequestProvider(workspaceURL)) == request else { return }
                 await refreshWorkingDiff(
                     session, changes: changes, confirmedRoots: observation.successfullyReadRepositoryRoots
                 )
-                guard !Task.isCancelled, revision == changeRefreshRevision else { return }
+                guard !Task.isCancelled, revision == changeRefreshRevision, (try? repositoryDiscoveryRequestProvider(workspaceURL)) == request else { return }
             }
         } else {
             if gitRepositoryRoot != nil {
@@ -3277,7 +3310,7 @@ package final class GitFeatureModel: ObservableObject {
     private func worktreeSnapshot(for root: URL) async -> GitSnapshot? {
         // A linked checkout outside the open workspace may have its own nested
         // repositories. Discover exclusions there without changing commit scope.
-        let statusRoots = await repositoryRootsProvider(root)
+        guard let statusRoots = try? await repositoryRootsProvider(GitRepositoryDiscoveryRequest(root: root)) else { return nil }
         guard !Task.isCancelled else { return nil }
         return await service.snapshot(for: root, repositoryRoots: statusRoots)
     }

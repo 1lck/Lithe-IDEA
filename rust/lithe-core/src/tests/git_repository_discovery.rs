@@ -51,7 +51,16 @@ fn git(root: &Path, arguments: &[&str]) {
 }
 
 fn discover(root: &Path) -> Vec<String> {
-    data("workspace.repositories", json!({"root": root}))["repositories"]
+    discover_with(root, &[], &[])
+}
+
+fn discover_with(root: &Path, excluded: &[&str], roots: &[&Path]) -> Vec<String> {
+    data(
+        "workspace.repositories",
+        json!({
+            "root": root, "manualExcludedDirectories": excluded, "workspaceRoots": roots,
+        }),
+    )["repositories"]
         .as_array()
         .unwrap()
         .iter()
@@ -80,13 +89,26 @@ fn discovery_excludes_hidden_and_generated_repositories_before_status_aggregatio
     for path in fixture["repositoryPaths"].as_array().unwrap() {
         workspace.initialize(path.as_str().unwrap());
     }
-    fs::write(workspace.0.join(".gitignore"), ".build/\nmacos/.build/\n").unwrap();
+    let patterns = fixture["gitIgnorePatterns"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|value| value.as_str().unwrap())
+        .collect::<Vec<_>>()
+        .join("\n");
+    fs::write(workspace.0.join(".gitignore"), patterns).unwrap();
     fs::write(
         workspace.0.join(".build/checkouts/SwiftTerm/local.txt"),
         "generated change",
     )
     .unwrap();
-    let actual = discover(&workspace.0);
+    let excluded = fixture["manualExcludedDirectories"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|value| value.as_str().unwrap())
+        .collect::<Vec<_>>();
+    let actual = discover_with(&workspace.0, &excluded, &[]);
     let expected: Vec<_> = fixture["expectedRepositoryPaths"]
         .as_array()
         .unwrap()
@@ -160,6 +182,149 @@ fn discovery_preserves_linked_worktrees_but_excludes_their_build_checkouts() {
         workspace.initialize(&format!("{container}/topic/.build/checkouts/dependency"));
     }
     assert_eq!(discover(&root), expected);
+    fs::write(root.join(".gitignore"), ".worktrees/\n").unwrap();
+    assert_eq!(discover(&root), expected[..2]);
+    assert_eq!(
+        discover_with(&root, &[".worktree"], &[]),
+        vec![canonical(&root)]
+    );
+    let explicit = root.join(".worktrees/topic");
+    assert_eq!(discover(&explicit), vec![canonical(&explicit)]);
+}
+
+#[test]
+fn discovery_filters_ignored_and_manual_roots_without_filtering_parent_changes() {
+    let workspace = Workspace::new();
+    let root = workspace.initialize(".");
+    workspace.initialize("test/test2");
+    workspace.initialize("manual/project");
+    let visible = workspace.initialize("visible");
+    workspace.initialize("visible/ignored-child");
+    fs::write(root.join(".gitignore"), "test\n").unwrap();
+    fs::write(visible.join(".gitignore"), "ignored-child/\n").unwrap();
+    fs::write(root.join("manual/tracked.txt"), "tracked").unwrap();
+    git(&root, &["add", "--", "manual/tracked.txt"]);
+    fs::write(root.join("manual/tracked.txt"), "modified").unwrap();
+    fs::write(root.join("manual/untracked.txt"), "untracked").unwrap();
+    let roots = discover_with(&root, &["manual"], &[]);
+    assert_eq!(roots, vec![canonical(&root), canonical(&visible)]);
+    let status = data(
+        "git.status",
+        json!({"root": root, "repositoryRoots": roots}),
+    );
+    let paths = status["changes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|change| change["path"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert!(paths.contains(&"manual/tracked.txt"), "{status}");
+    assert!(paths.contains(&"manual/untracked.txt"), "{status}");
+    assert_eq!(discover(&root).len(), 3);
+    fs::write(root.join(".gitignore"), "").unwrap();
+    assert_eq!(discover(&root).len(), 4);
+}
+
+#[test]
+fn discovery_uses_native_negations_local_excludes_and_independent_explicit_roots() {
+    let workspace = Workspace::new();
+    let root = workspace.initialize(".");
+    let included = workspace.initialize("projects/keep");
+    let ignored = workspace.initialize("projects/skip");
+    let local = workspace.initialize("local");
+    fs::write(root.join(".gitignore"), "projects/*\n!projects/keep/\n").unwrap();
+    fs::create_dir_all(root.join(".git/info")).unwrap();
+    fs::write(root.join(".git/info/exclude"), "local/\n").unwrap();
+    assert_eq!(
+        discover(&root),
+        vec![canonical(&root), canonical(&included)]
+    );
+    assert_eq!(discover(&ignored), vec![canonical(&ignored)]);
+    assert_eq!(discover(&local), vec![canonical(&local)]);
+}
+
+#[test]
+fn discovery_delegates_nested_workspace_roots_to_their_own_policy() {
+    let workspace = Workspace::new();
+    let root = workspace.initialize(".");
+    let nested = workspace.initialize("nested");
+    let child = workspace.initialize("nested/child");
+    let roots = [&root as &Path, &nested as &Path];
+    assert_eq!(discover_with(&root, &[], &roots), vec![canonical(&root)]);
+    assert_eq!(
+        discover_with(&nested, &["child"], &roots),
+        vec![canonical(&nested)]
+    );
+    assert_eq!(
+        discover_with(&nested, &[], &roots),
+        vec![canonical(&nested), canonical(&child)]
+    );
+    assert_eq!(
+        discover_with(&root, &["nested"], &roots),
+        vec![canonical(&root)]
+    );
+    assert_eq!(discover(&root).len(), 3);
+}
+
+#[test]
+fn discovery_keeps_index_registered_submodules_inside_excluded_containers() {
+    let workspace = Workspace::new();
+    let root = workspace.initialize(".");
+    let module = workspace.initialize("excluded/module");
+    workspace.initialize("excluded/ordinary");
+    git(
+        &module,
+        &[
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "--allow-empty",
+            "-qm",
+            "initial",
+        ],
+    );
+    let revision = data(
+        "git.command",
+        json!({"root": module, "arguments": ["rev-parse", "HEAD"]}),
+    );
+    let entry = format!(
+        "160000,{},excluded/module",
+        revision["stdout"].as_str().unwrap().trim()
+    );
+    git(&root, &["update-index", "--add", "--cacheinfo", &entry]);
+    fs::write(root.join(".gitignore"), "excluded/\n").unwrap();
+    assert_eq!(
+        discover_with(&root, &["excluded"], &[]),
+        vec![canonical(&root), canonical(&module)]
+    );
+}
+
+#[test]
+fn discovery_reports_invalid_rules_and_git_failures_instead_of_empty_success() {
+    let workspace = Workspace::new();
+    let root = workspace.initialize(".");
+    for path in ["../outside", "/outside", "bad\0path"] {
+        let response: Value = serde_json::from_str(&execute_json(
+            &json!({
+                "command": "workspace.repositories", "timeoutMilliseconds": 5000,
+                "payload": {"root": root, "manualExcludedDirectories": [path]},
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(response["ok"], false, "{response}");
+        assert_eq!(response["error"]["code"], "invalid_request", "{response}");
+    }
+    fs::write(root.join(".git/config"), "[invalid\n").unwrap();
+    let response: Value = serde_json::from_str(&execute_json(&json!({
+        "command": "workspace.repositories", "timeoutMilliseconds": 5000, "payload": {"root": root},
+    }).to_string())).unwrap();
+    assert_eq!(response["ok"], false, "{response}");
+    assert_eq!(response["error"]["code"], "process_failed", "{response}");
 }
 
 #[test]

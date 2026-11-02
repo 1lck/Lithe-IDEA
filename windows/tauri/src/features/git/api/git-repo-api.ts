@@ -1,5 +1,6 @@
 import { invoke as tauriInvoke } from "@/platform/tauri-core";
 import { normalizeGitOperationPath as normalizePath, UnsupportedGitPathError } from "./git-repository-path";
+import { readDirectoryMarks } from "@/features/file-explorer/stores/directory-marks-storage";
 export { normalizeRepositoryPath } from "./git-repository-path";
 
 interface RepositoryDiscoveryCacheEntry {
@@ -28,6 +29,30 @@ const NOT_REPO_PATTERNS = [
 const WORKSPACE_REPO_CACHE_TTL_MS = 5 * 60_000;
 const REPO_CACHE_TTL_MS = 5 * 60_000;
 const NEGATIVE_REPO_CACHE_TTL_MS = 5_000;
+
+function discoverySnapshot(roots: readonly string[]) {
+  return roots.map((root) => ({
+    workspacePath: normalizePath(root),
+    manualExcludedDirectories: typeof window === "undefined" ? [] : Object.entries(readDirectoryMarks(root))
+      .filter(([, role]) => role === "excluded").map(([path]) => path).sort(),
+  }));
+}
+
+/** Request identity includes only manual exclusions, never analysis settings or automatic reasons. */
+export function workspaceRepositoryDiscoveryPolicyKey(roots: readonly string[]): string {
+  return JSON.stringify(discoverySnapshot(roots));
+}
+
+/** Retire cached and in-flight automatic discovery for these workspace roots. */
+export function invalidateWorkspaceRepositoryDiscovery(roots: readonly string[]): void {
+  const targets = new Set(roots.map(normalizePath));
+  for (const key of new Set([...workspaceRepoDiscoveryCache.keys(), ...inFlightWorkspaceDiscoveries.keys()])) {
+    const snapshot = JSON.parse(key) as ReturnType<typeof discoverySnapshot>;
+    if (!snapshot.some(({workspacePath}) => targets.has(workspacePath))) continue;
+    workspaceRepoDiscoveryCache.delete(key);
+    inFlightWorkspaceDiscoveries.delete(key);
+  }
+}
 
 function isAbsolutePath(path: string): boolean {
   return (
@@ -205,9 +230,11 @@ export async function discoverWorkspaceRepositories(
     .map((path) => normalizePath(path))
     .filter(Boolean))];
   if (normalizedWorkspacePaths.length === 0) return [];
-  const normalizedWorkspacePath = [...new Set(normalizedWorkspacePaths)].join("\0");
+  const snapshot = discoverySnapshot(normalizedWorkspacePaths);
+  const normalizedWorkspacePath = JSON.stringify(snapshot);
 
   const force = options?.force ?? false;
+  if (force) workspaceRepoDiscoveryCache.delete(normalizedWorkspacePath);
   if (!force) {
     const cached = workspaceRepoDiscoveryCache.get(normalizedWorkspacePath);
     if (cached && Date.now() - cached.discoveredAt < WORKSPACE_REPO_CACHE_TTL_MS) {
@@ -221,9 +248,10 @@ export async function discoverWorkspaceRepositories(
   }
 
   const generation = discoveryGeneration;
-  const request = discoverWorkspaceRepositoriesFromCore(normalizedWorkspacePaths).then((repos) => {
+  const request = discoverWorkspaceRepositoriesFromCore(normalizedWorkspacePaths, snapshot).then((repos) => {
     // An older forced scan must not overwrite the newest result in the cache.
-    if (generation === discoveryGeneration && inFlightWorkspaceDiscoveries.get(normalizedWorkspacePath) === request) {
+    if (generation === discoveryGeneration && inFlightWorkspaceDiscoveries.get(normalizedWorkspacePath) === request &&
+        workspaceRepositoryDiscoveryPolicyKey(normalizedWorkspacePaths) === normalizedWorkspacePath) {
       workspaceRepoDiscoveryCache.set(normalizedWorkspacePath, { discoveredAt: Date.now(), repos });
     }
     return repos;
@@ -238,14 +266,17 @@ export async function discoverWorkspaceRepositories(
 
 async function discoverWorkspaceRepositoriesFromCore(
   normalizedWorkspacePaths: readonly string[],
+  snapshot: ReturnType<typeof discoverySnapshot>,
 ): Promise<string[]> {
   const repositoryPaths = new Set<string>();
   const repositoriesByWorkspace = await Promise.all(
-    normalizedWorkspacePaths.map(async (workspacePath) => {
+    snapshot.map(async ({ workspacePath, manualExcludedDirectories }) => {
       const response = await tauriInvoke<WorkspaceRepositoriesResponse>(
         "git_discover_workspace_repos",
         {
           workspacePath,
+          manualExcludedDirectories,
+          workspaceRoots: normalizedWorkspacePaths,
         },
       );
       const paths = Array.isArray(response.repositories)

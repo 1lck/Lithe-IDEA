@@ -54,6 +54,19 @@ pub enum Failure {
 pub fn run(
     command: &mut Command,
     input: Option<&[u8]>,
+    cancelled: impl FnMut() -> bool,
+    started: impl FnMut(),
+    output: impl FnMut(Stream, &[u8]),
+) -> Outcome {
+    run_with_stdout_capture(command, input, true, cancelled, started, output)
+}
+
+/// Uses the same process ownership while optionally leaving stdout exclusively
+/// to the streaming callback. Stderr retains the ordinary bounded capture.
+pub fn run_with_stdout_capture(
+    command: &mut Command,
+    input: Option<&[u8]>,
+    capture_stdout: bool,
     mut cancelled: impl FnMut() -> bool,
     mut started: impl FnMut(),
     mut output: impl FnMut(Stream, &[u8]),
@@ -105,6 +118,7 @@ pub fn run(
             &mut stdout_eof,
             &mut result.stdout,
             Stream::Stdout,
+            capture_stdout,
             &mut output,
         )
         .and_then(|_| {
@@ -113,6 +127,7 @@ pub fn run(
                 &mut stderr_eof,
                 &mut result.stderr,
                 Stream::Stderr,
+                true,
                 &mut output,
             )
         });
@@ -157,6 +172,7 @@ fn drain<R: Read + platform::Pipe>(
     eof: &mut bool,
     captured: &mut Vec<u8>,
     stream: Stream,
+    capture: bool,
     output: &mut impl FnMut(Stream, &[u8]),
 ) -> Result<(), Failure> {
     if *eof {
@@ -176,10 +192,12 @@ fn drain<R: Read + platform::Pipe>(
             Err(error) => return Err(Failure::Io(error)),
         };
         output(stream, &buffer[..count]);
-        if captured.len() + count > MAX_CAPTURE_BYTES {
-            return Err(Failure::OutputLimit);
+        if capture {
+            if captured.len() + count > MAX_CAPTURE_BYTES {
+                return Err(Failure::OutputLimit);
+            }
+            captured.extend_from_slice(&buffer[..count]);
         }
-        captured.extend_from_slice(&buffer[..count]);
     }
     Ok(())
 }

@@ -1313,11 +1313,21 @@ directory names (including `.build`, `node_modules`, `.venv`, `venv`, `__pycache
 `target`, `build`, `DerivedData`, `dist` and `coverage`). `.worktree` and `.worktrees` remain
 traversable checkout containers; the same exclusions apply inside them.
 Traversal continues below eligible discovered repositories, including ordinary
-`vendor` source checkouts. An explicitly opened root and its containing repository
-are never excluded by their names. These are automatic discovery rules, not Git
-tracking rules: `.gitignore` and file-tree visibility overrides do not configure
-repository ownership. The rules apply before repository status/reference
-aggregation on both hosts. Examples live in
+`vendor` source checkouts. Before entering descendants, native Git ignore rules
+(including local/global excludes and negations) and optional `manualExcludedDirectories`
+prune automatic discovery. Manual paths are workspace-relative directories; ancestor
+exclusions cover their descendants. Tracked descendants keep ignored ancestors traversable.
+An openable index-declared gitlink remains a submodule dependency even below an excluded
+container; an independent nested `.git` marker grants no exception. `.worktree` and
+`.worktrees` bypass only the hidden-name rule, not Git/manual exclusions.
+An explicitly opened root and its containing repository remain managed. Optional
+`workspaceRoots` delegates strict descendant roots to separate host queries with their
+own manual snapshots. Hosts merge those results; no process-global analysis policy is read.
+Analysis include exceptions and the Git analysis-exclusion switch do not register roots.
+Git query failures return structured errors; hosts retain their last successful roots
+and status, invalidate discovery on rule/root changes, and reject superseded results.
+File-tree visibility overrides do not configure repository ownership. These rules apply
+before repository status/reference aggregation on both hosts. Examples live in
 `shared/fixtures/workspace/repository-visibility-v1.json`.
 Git metadata itself is not traversed.
 Symbolic directory links are not followed, preventing cycles and traversal
@@ -4623,7 +4633,9 @@ Git checks use native `check-ignore` and protect tracked descendants with `ls-fi
 No `.gitignore`, index, or project configuration files are written by this command.
 A nested `.git` directory or gitfile does not bypass its containing repository's ignore
 rules; tracked descendants and submodule gitlinks remain protected by the parent index.
-Directory indexing exclusions affect analysis and search, not Git repository ownership or status.
+Manual directory exclusions also constrain automatic Git root discovery when supplied to
+`workspace.repositories`; they never filter an included repository's status or commit candidates.
+Automatic analysis exclusions and include exceptions do not configure Git root membership.
 
 `workspace.ignoredDirectorySuggestions` accepts `{ root, workspaceRoots? }` and requires
 an installed indexing policy. It returns `{ directories, incomplete, gitIgnoreFailed }`:

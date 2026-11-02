@@ -2366,6 +2366,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
 
     private struct WorkspaceRepositoriesRequest: Encodable {
         let root: String
+        let manualExcludedDirectories: [String]
+        let workspaceRoots: [String]
     }
 
     private struct GitWatchContextRequest: Encodable {
@@ -3288,11 +3290,13 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         )
     }
 
-    func workspaceRepositories(at rootURL: URL) -> WorkspaceRepositoriesPayload? {
-        execute(
+    func workspaceRepositories(at rootURL: URL, manualExcludedDirectories: [String] = [], workspaceRoots: [URL] = []) throws -> WorkspaceRepositoriesPayload {
+        try executeResult(
             command: "workspace.repositories",
-            payload: WorkspaceRepositoriesRequest(root: rootURL.standardizedFileURL.path)
-        )
+            payload: WorkspaceRepositoriesRequest(root: rootURL.standardizedFileURL.path,
+                manualExcludedDirectories: manualExcludedDirectories,
+                workspaceRoots: workspaceRoots.map { $0.standardizedFileURL.path })
+        ).get()
     }
 
     func gitWatchContext(at rootURL: URL) -> GitWatchContextPayload? {

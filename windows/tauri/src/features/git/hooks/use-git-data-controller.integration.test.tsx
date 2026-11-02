@@ -13,6 +13,7 @@ import * as events from "../events/git-events";
 import * as fileSystem from "@/features/file-system/stores/file-system.store";
 import * as settings from "@/features/settings/stores/settings.store";
 import { useRepositoryStore } from "../stores/git-repository.store";
+import { GitStatusRefreshHost, type GitStatusRefreshScheduler } from "../runtime/git-status-refresh-host";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import { WorkspaceStoreScopeContext } from "@/features/workspace/stores/create-workspace-scoped-store";
 
@@ -48,9 +49,10 @@ const getWorkspaceGitStatus = mock(async (): Promise<GitStatus | null> => status
 const getGitHistory = mock(async (): Promise<GitHistorySnapshot | null> => history);
 const getBranches = mock(async (): Promise<string[]> => ["main"]);
 const clearRepositoryDiscoveryCache = mock(() => {});
+const refreshWorkspaceRepositories = mock(async () => {});
 const repositoryActions = {
   syncWorkspaceRepositories: async () => {},
-  refreshWorkspaceRepositories: async () => {},
+  refreshWorkspaceRepositories,
 };
 const folders: never[] = [];
 const spies: Array<{ mockRestore: () => void }> = [];
@@ -89,6 +91,7 @@ beforeEach(() => {
   workspaceRuntimeRegistry.resetForTests();
   workspaceRuntimeRegistry.updateWorkspaceStatus("workspace:welcome", "ready");
   clearRepositoryDiscoveryCache.mockClear();
+  refreshWorkspaceRepositories.mockReset().mockResolvedValue();
   useRepositoryStore.getState().actions.reset();
   useRepositoryStore.getState().actions.setManualRepository("C:/repo");
   spies.push(
@@ -132,6 +135,78 @@ afterEach(async () => {
     actGlobal.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
     restoreDom();
   }
+});
+
+test("discovery failures keep status visible and retry roots before reading status", async () => {
+  await mount();
+  const previous = useGitStore.getState().repositoryStatuses;
+  const reads = getWorkspaceGitStatus.mock.calls.length;
+  refreshWorkspaceRepositories.mockImplementation(async () => {
+    useRepositoryStore.setState({error: "ignore query failed"});
+  });
+  await act(async () => { await controller.refresh(); });
+  expect(controller.hasLoadError).toBe(true);
+  expect(getWorkspaceGitStatus.mock.calls.length).toBe(reads);
+  expect(useGitStore.getState().repositoryStatuses).toBe(previous);
+  const order: string[] = [];
+  refreshWorkspaceRepositories.mockImplementation(async () => {
+    order.push("roots"); useRepositoryStore.setState({error: null});
+  });
+  getWorkspaceGitStatus.mockImplementation(async () => { order.push("status"); return status; });
+  await act(async () => { await controller.refresh(); });
+  expect(order[0]).toBe("roots");
+  expect(order).toContain("status");
+  expect(controller.hasLoadError).toBe(false);
+});
+
+test("the debounce window blocks new status reads against invalidated repository roots", async () => {
+  let scheduled: (() => void) | undefined;
+  const scheduler: GitStatusRefreshScheduler = {
+    setTimer: (callback) => { scheduled = callback; return 1 as unknown as ReturnType<typeof setTimeout>; },
+    clearTimer: () => { scheduled = undefined; },
+  };
+  spies.push(
+    spyOn(fileSystem, "useFileSystemStore").mockImplementation(((selector: (state: unknown) => unknown) =>
+      selector({rootFolderPath: "C:/repo", workspaceFolders: folders})) as typeof fileSystem.useFileSystemStore),
+    spyOn(useRepositoryStore.getState().actions, "syncWorkspaceRepositories").mockResolvedValue(),
+    spyOn(useRepositoryStore.getState().actions, "refreshWorkspaceRepositories").mockImplementation(async () => {
+      useRepositoryStore.setState({error: "ignore query failed", isDiscovering: false});
+    }),
+  );
+  await mount(<><GitStatusRefreshHost scheduler={scheduler} /><Probe /></>);
+  const reads = getWorkspaceGitStatus.mock.calls.length;
+  await act(async () => {
+    window.dispatchEvent(new window.CustomEvent("file-external-change", {
+      detail: {path: "C:/repo/.gitignore", event_type: "reloaded"},
+    }));
+    await controller.refreshWorkingTree();
+  });
+  expect(useRepositoryStore.getState().isDiscovering).toBe(true);
+  expect(getWorkspaceGitStatus.mock.calls.length).toBe(reads);
+  await act(async () => { const callback = scheduled; scheduled = undefined; callback?.(); });
+  expect(controller.hasLoadError).toBe(true);
+  expect(getWorkspaceGitStatus.mock.calls.length).toBe(reads);
+});
+
+test("discovery invalidation ends initial loading and exposes failure before a late status returns", async () => {
+  const pendingStatus = deferred<GitStatus | null>();
+  getWorkspaceGitStatus.mockImplementationOnce(() => pendingStatus.promise);
+  await mount();
+  try {
+    expect(useGitStore.getState().isLoadingGitData).toBe(true);
+    await act(async () => { useRepositoryStore.setState({isDiscovering: true}); });
+    expect(useGitStore.getState().isLoadingGitData).toBe(false);
+    await act(async () => {
+      useRepositoryStore.setState({isDiscovering: false, error: "ignore query failed"});
+    });
+    expect(controller.hasLoadError).toBe(true);
+    expect(useGitStore.getState().gitStatus).toBeNull();
+    expect(useGitStore.getState().isLoadingGitData).toBe(false);
+  } finally {
+    await act(async () => { pendingStatus.resolve(status); await pendingStatus.promise; });
+  }
+  expect(useGitStore.getState().gitStatus).toBeNull();
+  expect(useGitStore.getState().isLoadingGitData).toBe(false);
 });
 
 test("starts Git loading when the workspace becomes ready", async () => {

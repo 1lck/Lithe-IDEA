@@ -20,6 +20,8 @@ mod patch_exchange;
 mod progress;
 mod rebase_session;
 mod remote_history;
+mod repository_discovery;
+pub use repository_discovery::workspace_repositories;
 mod remote_process;
 mod rewrite;
 mod setup;
@@ -65,12 +67,11 @@ use crate::protocol::{
     GitPullPreflightResponse, GitPushPreviewResponse, GitPushTagResponse, GitPushTargetKind,
     GitReferenceResponse, GitStashResponse, GitStashesResponse, GitStatusResponse,
     GitWatchContextResponse, GitWorktreeResponse, GitWorktreesResponse,
-    WorkspaceRepositoriesResponse, WorkspaceRepositoryResponse,
 };
 use crate::remote::workspace_io as fs;
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
-use std::collections::{HashSet, VecDeque};
+use std::collections::HashSet;
 use std::io::Read;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -106,6 +107,12 @@ fn append_full_file_context_arguments(arguments: &mut Vec<String>, context_lines
 /// Request to discover Git repositories belonging to one opened workspace.
 pub struct WorkspaceRepositoriesRequest {
     pub root: String,
+    /// Workspace-relative manual exclusions. Explicitly opened roots retain their own ownership.
+    #[serde(default)]
+    pub manual_excluded_directories: Vec<String>,
+    /// Explicit workspace membership; nested roots are scanned with their own exclusion snapshots.
+    #[serde(default)]
+    pub workspace_roots: Vec<String>,
     /// Optional traversal budget; defaults to all eligible directories below the workspace.
     #[serde(default = "default_repository_scan_max_directories")]
     pub max_directories: usize,
@@ -875,112 +882,6 @@ fn default_repository_scan_max_directories() -> usize {
 
 fn default_repository_scan_max_depth() -> usize {
     DEFAULT_REPOSITORY_SCAN_MAX_DEPTH
-}
-
-/// Discovers Git repositories for an opened workspace using shared traversal rules.
-pub fn workspace_repositories(
-    request: WorkspaceRepositoriesRequest,
-) -> Result<WorkspaceRepositoriesResponse, CoreError> {
-    let workspace_root = PathBuf::from(validate_root(&request.root)?);
-    let max_directories = request
-        .max_directories
-        .min(DEFAULT_REPOSITORY_SCAN_MAX_DIRECTORIES);
-    let max_depth = request.max_depth.min(DEFAULT_REPOSITORY_SCAN_MAX_DEPTH);
-    let mut discovered_repositories = HashSet::new();
-    let containing_repository = discover_containing_repository(&workspace_root)?;
-
-    if let Some(repository) = &containing_repository {
-        discovered_repositories.insert(repository.clone());
-    }
-
-    let mut queue = VecDeque::from([(workspace_root.clone(), 0usize)]);
-    let mut visited_directories = HashSet::new();
-
-    while let Some((directory, depth)) = queue.pop_front() {
-        crate::protocol::cancellation::check()?;
-        if visited_directories.len() >= max_directories {
-            break;
-        }
-
-        let canonical_directory = match canonicalize_simplified(&directory) {
-            Ok(path) => path,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(error) => return Err(repository_scan_error(error)),
-        };
-        if !canonical_directory.starts_with(&workspace_root) {
-            continue;
-        }
-        if !visited_directories.insert(canonical_directory.clone()) {
-            continue;
-        }
-
-        let entries = fs::read_dir(&canonical_directory).map_err(repository_scan_error)?;
-        let mut child_directories = Vec::new();
-        for entry in entries {
-            crate::protocol::cancellation::check()?;
-            let entry = entry.map_err(repository_scan_error)?;
-            let name = entry.file_name().to_string_lossy().to_string();
-            if name == ".git" {
-                // Only openable repositories join the workspace list; a dangling gitfile
-                // entry must not poison status and reference loads for sibling roots.
-                if git_entry_opens_as_repository(&entry.path()) {
-                    discovered_repositories.insert(canonical_directory.clone());
-                }
-                continue;
-            }
-            if !repository_scan_directory_is_visible(&name) {
-                continue;
-            }
-            let file_type = entry.file_type().map_err(repository_scan_error)?;
-            if file_type.is_dir() {
-                child_directories.push(entry.path());
-            }
-        }
-        child_directories.sort_by(|left, right| {
-            path_sort_key(left)
-                .cmp(&path_sort_key(right))
-                .then_with(|| left.cmp(right))
-        });
-
-        if depth >= max_depth {
-            continue;
-        }
-        for child_directory in child_directories {
-            queue.push_back((child_directory, depth + 1));
-        }
-    }
-
-    let mut repositories = discovered_repositories
-        .into_iter()
-        .collect::<Vec<PathBuf>>();
-    sort_workspace_repository_paths(&mut repositories, &workspace_root);
-    if let Some(repository) = containing_repository {
-        repositories.retain(|path| path != &repository);
-        repositories.insert(0, repository);
-    }
-
-    Ok(WorkspaceRepositoriesResponse {
-        repositories: repositories
-            .into_iter()
-            .map(|path| WorkspaceRepositoryResponse {
-                path: path.to_string_lossy().replace('\\', "/"),
-            })
-            .collect(),
-    })
-}
-
-fn repository_scan_directory_is_visible(name: &str) -> bool {
-    // These intentional checkout containers are hidden in the file tree but
-    // remain discoverable in Git. Apply exclusions to their children as usual.
-    if name.eq_ignore_ascii_case(".worktree") || name.eq_ignore_ascii_case(".worktrees") {
-        return true;
-    }
-    // Filter descendants, never the explicitly opened root or its containing
-    // repository. Git ignore rules govern tracked files, not repository ownership.
-    !name.starts_with('.')
-        && !crate::project::BUILT_IN_HIDDEN_DIRECTORIES
-            .iter()
-            .any(|hidden| name.eq_ignore_ascii_case(hidden))
 }
 
 /// Executes an argument-based Git command after validating the workspace root.
@@ -1765,6 +1666,26 @@ fn capture_git_process(
     environment: &[(String, String)],
     visible: bool,
 ) -> Result<GitProcessOutput, CoreError> {
+    capture_git_process_streaming(
+        root,
+        arguments,
+        input,
+        disable_optional_locks,
+        environment,
+        visible,
+        None,
+    )
+}
+
+fn capture_git_process_streaming(
+    root: &str,
+    arguments: &[String],
+    input: Option<String>,
+    disable_optional_locks: bool,
+    environment: &[(String, String)],
+    visible: bool,
+    mut stdout_consumer: Option<&mut dyn FnMut(&[u8]) -> Result<(), CoreError>>,
+) -> Result<GitProcessOutput, CoreError> {
     validate_windows_git_path(Path::new(root)).map_err(git_path_error)?;
     crate::protocol::cancellation::check()?;
     if let Some(result) = remote_process::capture(
@@ -1774,6 +1695,9 @@ fn capture_git_process(
         disable_optional_locks,
         environment,
         visible,
+        stdout_consumer
+            .as_mut()
+            .map(|consumer| &mut **consumer as &mut dyn FnMut(&[u8]) -> Result<(), CoreError>),
     ) {
         return result;
     }
@@ -1841,10 +1765,16 @@ fn capture_git_process(
         None
     };
     let mut cancellation_error = None;
-    let output = lithe_git_host::run(
+    let stdout_error = RefCell::new(None);
+    let capture_stdout = stdout_consumer.is_none();
+    let output = lithe_git_host::run_with_stdout_capture(
         &mut process,
         input.as_deref().map(str::as_bytes),
+        capture_stdout,
         || {
+            if stdout_error.borrow().is_some() {
+                return true;
+            }
             cancellation_error = crate::protocol::cancellation::check().err();
             if cancellation_error.is_none() {
                 if let Some(session) = &mut authentication {
@@ -1878,11 +1808,21 @@ fn capture_git_process(
             }
         },
         |stream, bytes| {
+            if matches!(stream, lithe_git_host::Stream::Stdout) {
+                if let Some(consumer) = stdout_consumer.as_deref_mut() {
+                    if let Err(error) = consumer(bytes) {
+                        *stdout_error.borrow_mut() = Some(error);
+                    }
+                }
+            }
             if let Some(invocation) = invocation.borrow_mut().as_mut() {
                 invocation.output(stream, bytes);
             }
         },
     );
+    if let Some(error) = stdout_error.into_inner() {
+        return Err(error);
+    }
     let error = output.failure.map(|failure| match failure {
         lithe_git_host::Failure::Start(error) => {
             CoreError::new(ErrorCode::ProcessStartFailed, "Could not start Git")
@@ -4314,15 +4254,15 @@ fn resolve_gitfile_gitdir(gitfile: &Path, contents: &str) -> Option<PathBuf> {
 /// be listed as a workspace repository and fail every status or reference load
 /// for the healthy sibling repositories.
 fn git_entry_opens_as_repository(git_path: &Path) -> bool {
-    if git_path.is_dir() {
-        return git_path.join("HEAD").is_file();
+    if fs::metadata(git_path).is_ok_and(|metadata| metadata.is_dir()) {
+        return fs::metadata(git_path.join("HEAD")).is_ok_and(|metadata| metadata.is_file());
     }
-    let contents = match std::fs::read_to_string(git_path) {
+    let contents = match fs::read_to_string(git_path) {
         Ok(contents) => contents,
         Err(_) => return false,
     };
     resolve_gitfile_gitdir(git_path, &contents)
-        .map(|gitdir| gitdir.join("HEAD").is_file())
+        .map(|gitdir| fs::metadata(gitdir.join("HEAD")).is_ok_and(|metadata| metadata.is_file()))
         .unwrap_or(false)
 }
 
@@ -4333,6 +4273,18 @@ fn discover_containing_repository(root: &Path) -> Result<Option<PathBuf>, CoreEr
         None,
     )?;
     if output.exit_code != 0 {
+        // Absence is expected outside Git; an existing ancestor checkout that
+        // Git cannot inspect is a failure, not an empty ownership snapshot.
+        if root
+            .ancestors()
+            .any(|path| git_entry_opens_as_repository(&path.join(".git")))
+        {
+            return Err(CoreError::new(
+                ErrorCode::ProcessFailed,
+                "Could not inspect containing repository",
+            )
+            .with_details(output.output));
+        }
         return Ok(None);
     }
     let repository_root = output.stdout.trim_end_matches(['\r', '\n']);
@@ -8059,29 +8011,38 @@ pub(crate) fn ignored_paths(
     directory: &Path,
     paths: &[String],
 ) -> Result<Option<HashSet<String>>, CoreError> {
+    let result = ignored_paths_checked(directory, paths);
+    crate::protocol::cancellation::check()?;
+    Ok(result.ok())
+}
+
+/// Strict ignore query for callers that cannot publish incomplete repository ownership.
+pub(crate) fn ignored_paths_checked(
+    directory: &Path,
+    paths: &[String],
+) -> Result<HashSet<String>, CoreError> {
     if paths.is_empty() {
-        return Ok(Some(HashSet::new()));
+        return Ok(HashSet::new());
     }
     let response = execute_git_readonly(
         &directory.to_string_lossy(),
         &["check-ignore".into(), "--stdin".into(), "-z".into()],
         Some(nul_pathspec_input(paths)),
-    );
+    )?;
     crate::protocol::cancellation::check()?;
-    let Ok(response) = response else {
-        return Ok(None);
-    };
     if ![0, 1].contains(&response.exit_code) {
-        return Ok(None);
+        return Err(CoreError::new(
+            ErrorCode::ProcessFailed,
+            "Could not inspect repository ignore rules",
+        )
+        .with_details(response.output));
     }
-    Ok(Some(
-        response
-            .stdout
-            .split('\0')
-            .filter(|path| !path.is_empty())
-            .map(str::to_string)
-            .collect(),
-    ))
+    Ok(response
+        .stdout
+        .split('\0')
+        .filter(|path| !path.is_empty())
+        .map(str::to_owned)
+        .collect())
 }
 
 /// Upper bound on the pathspec bytes passed to one `git ls-files` call.
@@ -8129,24 +8090,42 @@ pub(crate) fn untracked_directory_candidates(
     directory: &Path,
     candidates: &[String],
 ) -> Option<HashSet<String>> {
+    untracked_directory_candidates_checked(directory, candidates).ok()
+}
+
+/// Strict tracked-directory query preserving native failure and cancellation categories.
+pub(crate) fn untracked_directory_candidates_checked(
+    directory: &Path,
+    candidates: &[String],
+) -> Result<HashSet<String>, CoreError> {
     let mut untracked = candidates.iter().cloned().collect::<HashSet<_>>();
     for batch in pathspec_batches(candidates, LS_FILES_PATHSPEC_BUDGET) {
         let mut arguments = vec!["--literal-pathspecs", "ls-files", "-z", "--"];
         arguments.extend(batch.iter().map(String::as_str));
-        let output = run_git(directory, &arguments).ok()?;
-        if !output.status.success() {
-            return None;
+        let output = execute_git_readonly(
+            &directory.to_string_lossy(),
+            &arguments
+                .iter()
+                .map(|value| (*value).to_owned())
+                .collect::<Vec<_>>(),
+            None,
+        )?;
+        if output.exit_code != 0 {
+            return Err(CoreError::new(
+                ErrorCode::ProcessFailed,
+                "Could not inspect tracked repository directories",
+            )
+            .with_details(output.stderr));
         }
         for record in output
             .stdout
-            .split(|byte| *byte == 0)
+            .split('\0')
             .filter(|record| !record.is_empty())
         {
-            let path = String::from_utf8_lossy(record);
-            untracked.remove(path.split('/').next().unwrap_or(&path));
+            untracked.remove(record.split('/').next().unwrap_or(record));
         }
     }
-    Some(untracked)
+    Ok(untracked)
 }
 
 /// Splits `paths` into consecutive non-empty batches whose summed byte length
