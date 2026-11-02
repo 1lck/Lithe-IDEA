@@ -39,6 +39,21 @@ struct EditorSettingsImportTests {
         #expect(AppSettings(store: store).editorAppearance.tabSize == 3)
     }
 
+    @Test(arguments: [false, true])
+    func laterUnsupportedKeybindingShadowsEarlierUserMapping(includeDefaults: Bool) throws {
+        let supported = #"{"key":"ctrl+alt+cmd+b","command":"workbench.action.navigateBack"}"#
+        for later in [
+            #"{"key":"ctrl+alt+cmd+b","command":"extension.other"}"#,
+            #"{"key":"ctrl+alt+cmd+b","command":"workbench.action.navigateForward","when":"editorTextFocus"}"#,
+            #"{"key":"ctrl+alt+cmd+b","command":"extension.other","when":"editorTextFocus"}"#,
+        ] {
+            let parsed = try MacImportedKeybindings.parseVSCode(Data("[\(supported),\(later)]".utf8), includeDefaults: includeDefaults)
+            #expect(parsed["navigate-back"] == nil)
+        }
+        let reversed = try MacImportedKeybindings.parseVSCode(Data("[{\"key\":\"ctrl+alt+cmd+b\",\"command\":\"extension.other\"},\(supported)]".utf8), includeDefaults: includeDefaults)
+        #expect(reversed["navigate-back"] == [.keyPress(key: "b", modifiers: [.control, .option, .command])])
+    }
+
     @Test @MainActor func vscodeDefaultsOverridesAndShadowedKeys() throws {
         let defaults = try MacEditorSettingsImportReader.parseVSCode(Data("{}".utf8), fonts: [], includeAppearanceDefaults: true).0
         #expect(defaults["tabSize"] == "4" && defaults["insertSpaces"] == "true")

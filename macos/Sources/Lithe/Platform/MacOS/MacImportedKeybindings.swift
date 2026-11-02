@@ -109,16 +109,13 @@ enum MacImportedKeybindings {
             "replace-in-project": "cmd+shift+h", "go-to-line": "ctrl+g", "toggle-terminal": "ctrl+`"]
         var result: [String: [KeyboardShortcutBinding]] = includeDefaults
             ? reference.mapValues { [binding($0, idea: false)!] } : [:]
-        // A user rule can shadow a default even when its command/context cannot be migrated.
-        if includeDefaults {
-            for row in rows {
-                if let key = row["key"] as? String, let value = binding(key, idea: false) {
-                    result = result.filter { !$0.value.contains(value) }
-                }
-            }
-        }
         var seen: Set<String> = [], rejected: Set<String> = []
         for row in rows {
+            // Later rules own their key even when their command/context cannot be migrated.
+            // Apply this to both reference defaults and earlier user mappings.
+            if let key = row["key"] as? String, let value = binding(key, idea: false) {
+                result = result.filter { !$0.value.contains(value) }
+            }
             guard let name = row["command"] as? String else { continue }
             let removal = name.hasPrefix("-")
             guard let command = vscode[removal ? String(name.dropFirst()) : name] else { continue }
