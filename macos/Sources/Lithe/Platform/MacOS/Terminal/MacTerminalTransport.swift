@@ -568,6 +568,7 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
         options.scrollback = scrollbackLines
         view.terminal.options = options
         view.terminal.setup(isReset: false)
+
     }
 
     private static func preferredTerminalFont() -> NSFont {
@@ -650,6 +651,12 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
             "\(key)=\(environment[key] ?? "")"
         }
 
+        // History is display-only and comes from the plain-text native snapshot.
+        // Feed it before spawning, so it can never become input to the new PTY.
+        if !launch.initialDisplayText.isEmpty {
+            view.feed(text: launch.initialDisplayText.replacingOccurrences(of: "\n", with: "\r\n"))
+        }
+
         view.startProcess(
             executable: executablePath,
             args: launch.arguments,
@@ -681,6 +688,40 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
 
     func clear() {
         view.terminal.resetToInitialState()
+    }
+
+    func displayText(maximumBytes: Int) -> String {
+        guard maximumBytes > 0 else { return "" }
+        let terminal = view.terminal!
+        let first = terminal.buffer.totalLinesTrimmed
+        // Find the buffer end without materializing or measuring the entire
+        // scrollback. Then translate only the suffix the caller can retain.
+        var low = first, high = first + scrollbackLines + terminal.rows + 1
+        while low < high {
+            let middle = low + (high - low) / 2
+            if terminal.getScrollInvariantLine(row: middle) != nil { low = middle + 1 }
+            else { high = middle }
+        }
+        var parts: [String] = [], used = 0
+        var row = low
+        while row > first, used < maximumBytes {
+            row -= 1
+            guard let line = terminal.getScrollInvariantLine(row: row) else { break }
+            let text = line.translateToString(trimRight: true, skipNullCellsFollowingWide: true,
+                characterProvider: { terminal.getCharacter(for: $0) }).unicodeScalars.filter {
+                $0.value >= 32 && !((127...159).contains($0.value))
+            }.map(String.init).joined()
+            if parts.isEmpty && text.isEmpty { continue }
+            let value = text + "\n"
+            let remaining = maximumBytes - used
+            let bytes = Array(value.utf8.suffix(remaining))
+            var start = 0
+            while start < bytes.count && bytes[start] & 0xc0 == 0x80 { start += 1 }
+            let kept = String(decoding: bytes[start...], as: UTF8.self)
+            parts.append(kept); used += kept.utf8.count
+            if value.utf8.count >= remaining { break }
+        }
+        return parts.reversed().joined()
     }
 
     func stop() {

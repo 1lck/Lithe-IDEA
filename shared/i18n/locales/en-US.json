@@ -9969,7 +9969,17 @@
     "lsp.projectJdkInvalid": "The project JDK is invalid or its version could not be read. Check JDK Home in Project settings.",
     "run.provider.runtimeArguments": "Runtime arguments",
     "run.provider.runtimeArgumentsHint": "Each row is one argument. Spaces, quotes and empty values are preserved.",
-    "run.provider.entrypoint": "Entry point"
+    "run.provider.entrypoint": "Entry point",
+    "plugin.terminal.open": "Open a plugin terminal",
+    "plugin.terminal.cancelled": "The plugin terminal was not opened.",
+    "plugin.terminal.unavailable": "The terminal is unavailable.",
+    "plugin.terminal.notFound": "The plugin terminal does not exist.",
+    "plugin.terminal.consent": "Allow “{arg1}” to open a terminal?",
+    "plugin.terminal.closed": "The plugin terminal is closed. Reopen it first.",
+    "plugin.terminal.running": "The plugin terminal is still running.",
+    "plugin.terminal.busy": "The plugin terminal is changing state. Try again when it finishes.",
+    "plugin.terminal.permission": "Open and manage its own native terminals, retaining bounded display history for reopening",
+    "native.downloadingAndVerifyingPlugin": "Downloading and verifying plugin…"
   },
   "overrides": {
     "windows": {

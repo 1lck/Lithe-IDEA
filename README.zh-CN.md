@@ -10,6 +10,8 @@
     <a href="#核心功能">核心功能</a> ·
     <a href="#产品截图">产品截图</a> ·
     <a href="#下载与安装">下载</a> ·
+    <a href="https://github.com/Lithe-IDEA/Lithe-store">插件市场</a> ·
+    <a href="https://github.com/Lithe-IDEA/lithe-plugin-docs">插件开发</a> ·
     <a href="https://1lck.github.io/Lithe-IDEA/">工程决策看板</a> ·
     <a href="#如何开发">如何开发</a>
   </p>

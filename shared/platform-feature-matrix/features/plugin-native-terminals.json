@@ -1,0 +1,30 @@
+{
+  "id": "plugin-native-terminals",
+  "area": "扩展",
+  "group": "插件与主题",
+  "capability": "插件自有原生终端：直接 argv 创建、显示、关闭、带有界显示上下文的 reopen、dispose 与按 generation 的退出订阅",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "macos/Sources/Lithe/Application/Features/PluginTerminalHostService.swift",
+      "macos/Sources/Lithe/Models/AppModel/AppModel+PluginTerminal.swift",
+      "macos/Sources/LitheTerminalModule/Ports/TerminalTransport.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Terminal/MacTerminalTransport.swift",
+      "macos/Tests/LitheTests/PluginTerminalHostServiceTests.swift",
+      "macos/Tests/LitheTests/PluginTerminalNativeTests.swift",
+      "macos/Sources/Lithe/Views/Workbench/PluginHostMessageDetailsView.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Process/MacStoppedChildProcessReaper.swift"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
+    "evidence": [
+      "shared/contracts/plugins/v1/README.md"
+    ]
+  },
+  "owner": "Extensions / Terminal",
+  "verification": "运行 PluginTerminalHostServiceTests、PluginTerminalNativeTests 与 TerminalModuleTests：权限和归属、argv 原样、远程拒绝、取消和工作区关闭、真实 PTY create/close/reopen、UTF-8 历史字节预算、只恢复显示而不重放输入、dispose 释放及迟到 generation 隔离。在真实安装插件中核对本窗口终端标签、焦点、输入、Ctrl-C、缩放、用户关标签重开、插件停用与退出无残留进程；完成整机验收后再更新 verified。三个官方 SDK 在 lithe-plugin-docs 独立分支验证。 回归验证 show:false 创建/重开保留已有活动终端；用户关标签与自然退出后，在退出通知前释放原生会话和完整渲染缓冲区，按 0/8 字节保留历史；长参数和工作目录可完整滚动、选择、复制，取消确认不启动终端。 本次在 Swift 6.3.3 + macOS 26.5 SDK 下运行 75 项相关 Swift 测试全部通过（含四种真实 PTY 退出释放场景）；HTML/JUnit 逐项计时在 .artifacts/test-stability/plugin-terminal-review-fixes.*。完整安装插件的 GUI 验收仍 pending。",
+  "notes": "首版本机 macOS，复用现有终端 owner；终端权限要求 backend:2，方法由函数协议 3 能力发现。未开放 sendText/输出读取。close 保留内存句柄和默认 16 KiB（最多 256 KiB）显示上下文，reopen 启动新进程，dispose 或会话/工作区结束彻底释放；不跨重启持久化。 后台创建不改变当前选择；关闭与自然退出都先清理并释放原生缓冲区，再发送退出事件。执行确认的完整详情使用原生文本视口。 show:false 不挂载原生标签，显式 show 后才注册标签并选择，避免仅有编辑器终端时工具面板默认展示后台会话。"
+}

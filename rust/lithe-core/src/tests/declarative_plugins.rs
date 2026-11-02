@@ -2111,3 +2111,23 @@ fn pure_backend_commands_require_ui_4_and_grant_methods_individually() {
     assert!(!grants.contains(&json!("editor")));
     assert!(!grants.contains(&json!("lithe/host/workspace/readFile")));
 }
+
+#[test]
+fn terminal_permission_grants_only_owned_terminal_methods_and_requires_backend_two() {
+    let manifest: Value =
+        serde_json::from_str(contract_file!("fixtures/terminal-backend.plugin.json")).unwrap();
+    assert_eq!(validate(manifest.clone())["status"], "ok");
+    let plan = language_server_launch_plan_command(json!({
+        "manifest": manifest, "backend": true,
+        "request": {"pluginDirectory":"/plugins/terminal","stateDirectory":"/state/terminal","architecture":"arm64"}
+    })).unwrap();
+    let grants = plan["plan"]["backend"]["hostServices"].as_array().unwrap();
+    for method in ["create", "show", "close", "reopen", "dispose", "onExit"] {
+        assert!(grants.contains(&json!(format!("lithe/host/terminal/{method}"))));
+    }
+    assert!(!grants.contains(&json!("terminal")));
+    assert!(!grants.contains(&json!("lithe/host/terminal/sendText")));
+    let mut old = manifest;
+    old["requires"]["backend"] = json!(1);
+    assert_ne!(validate(old)["status"], "ok");
+}

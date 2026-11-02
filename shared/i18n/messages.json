@@ -95717,6 +95717,121 @@
         "key": "Entry point",
         "arguments": []
       }
+    },
+    {
+      "id": "plugin.terminal.open",
+      "description": "Plugin-owned integrated terminal host API",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Open a plugin terminal",
+        "arguments": []
+      }
+    },
+    {
+      "id": "plugin.terminal.cancelled",
+      "description": "Plugin-owned integrated terminal host API",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The plugin terminal was not opened.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "plugin.terminal.unavailable",
+      "description": "Plugin-owned integrated terminal host API",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The terminal is unavailable.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "plugin.terminal.notFound",
+      "description": "Plugin-owned integrated terminal host API",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The plugin terminal does not exist.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "plugin.terminal.consent",
+      "description": "Plugin-owned terminal process launch confirmation",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "arg1": "string"
+      },
+      "macos": {
+        "key": "Allow “%@” to open a terminal?",
+        "arguments": [
+          "arg1"
+        ]
+      }
+    },
+    {
+      "id": "plugin.terminal.closed",
+      "description": "Plugin native terminal lifecycle failure",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The plugin terminal is closed. Reopen it first.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "plugin.terminal.running",
+      "description": "Plugin native terminal lifecycle failure",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The plugin terminal is still running.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "plugin.terminal.busy",
+      "description": "Plugin native terminal lifecycle failure",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The plugin terminal is changing state. Try again when it finishes.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "plugin.terminal.permission",
+      "description": "Install review for plugin-owned terminal permission",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Open and manage its own native terminals, retaining bounded display history for reopening",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.downloadingAndVerifyingPlugin",
+      "description": "Plugin marketplace installation preparation progress",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Downloading and verifying plugin…",
+        "arguments": []
+      }
     }
   ]
 }
