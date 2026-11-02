@@ -35,6 +35,41 @@ struct LazyProjectTreeInventoryTests {
     }
 
     @Test
+    func metadataRefreshRequeriesMountedIgnoredNoticeWithoutRescanning() async throws {
+        let root = URL(fileURLWithPath: "/in-memory/ignored-notice-metadata")
+        let fixture = InventoryFixture(root: root, files: [], rows: [root.path: []])
+        defer { fixture.close() }
+        fixture.disk.setConfigurationRevision(1)
+        await fixture.load()
+        await fixture.model.setGitIgnoreIndexing(false)
+        fixture.disk.setSuggestions(["archive"])
+        let host = NSHostingView(rootView: IgnoredDirectoryNotice(
+            feature: fixture.model, fileURL: root.appendingPathComponent(".gitignore")))
+        host.sizingOptions = []
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 700, height: 80),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer { window.contentView = nil; window.close() }
+        window.orderFront(nil)
+        host.layoutSubtreeIfNeeded()
+        #expect(await fixture.disk.suggestionsRequested.waitUntilOpen())
+        let scans = fixture.disk.snapshotCount, publications = fixture.publishedFiles.count
+        let snapshotID = fixture.model.appliedSnapshot?.id
+        fixture.disk.setConfigurationRevision(2)
+        fixture.disk.setSuggestions([])
+        let queried = fixture.disk.expectSuggestions()
+        let source = try #require(fixture.watcher.source)
+        source.emit(DirectoryChangeBatch(gitStateMayHaveChanged: true, gitMetadataMayHaveChanged: true))
+        #expect(await queried.waitUntilOpen())
+        #expect(fixture.model.indexingStatus.revision == 2)
+        #expect(fixture.disk.configurationRefreshes.last == true)
+        #expect(fixture.disk.snapshotCount == scans)
+        #expect(fixture.publishedFiles.count == publications)
+        #expect(fixture.model.appliedSnapshot?.id == snapshotID)
+    }
+
+    @Test
     func unchangedInventoryStillRefreshesGitIgnoredDecorations() async throws {
         let root = URL(fileURLWithPath: "/in-memory/ignored-color-rules")
         let file = root.appendingPathComponent("output.log")
@@ -1021,14 +1056,24 @@ private final class InventoryDisk: WorkspaceOperations, WorkspaceFileOperations,
     private var policy: WorkspaceIndexingPolicy?
     private var suggestedPaths: [String] = []
     let suggestionsRequested = TestGate()
+    private var nextSuggestionsRequested: TestGate?
+    func expectSuggestions() -> TestGate {
+        let gate = TestGate()
+        lock.withLock { nextSuggestionsRequested = gate }
+        return gate
+    }
     func setSuggestions(_ paths: [String]) { lock.withLock { suggestedPaths = paths } }
     func ignoredDirectorySuggestions(at rootURL: URL) throws -> WorkspaceIgnoredDirectorySuggestions {
         suggestionsRequested.open()
-        return lock.withLock {
+        let (result, gate) = lock.withLock {
             var result = WorkspaceIgnoredDirectorySuggestions()
             result.directories = suggestedPaths.filter { !(policy?.manualExcludedDirectories.contains($0) ?? false) }
-            return result
+            let gate = nextSuggestionsRequested
+            nextSuggestionsRequested = nil
+            return (result, gate)
         }
+        gate?.open()
+        return result
     }
     var supportsExclusions = true
     private var blockConfiguration = false

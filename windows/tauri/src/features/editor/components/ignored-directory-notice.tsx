@@ -5,7 +5,7 @@ import { getNativeWorkspaceRootPaths } from "@/features/file-search/utils/file-s
 import { closestWorkspaceRoot } from "@/features/workspace/types/workspace-root";
 import { useWorkspaceId } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
-import { markWorkspaceDirectory } from "@/features/file-explorer/stores/directory-marks";
+import { markWorkspaceDirectories } from "@/features/file-explorer/stores/directory-marks";
 import {
   queryIgnoredDirectorySuggestions,
   readIndexingSettings,
@@ -128,10 +128,8 @@ export function IgnoredDirectoryNotice({ filePath }: { filePath?: string | null 
         !workspaceRuntimeRegistry.isWorkspaceReady(workspaceId)
       )
         return;
-      for (const path of fresh.directories) {
-        if (selected.has(path))
-          markWorkspaceDirectory([root], `${root}/${path}`, { kind: "exclude" });
-      }
+      markWorkspaceDirectories([root], fresh.directories
+        .filter((path) => selected.has(path)).map((path) => `${root}/${path}`), { kind: "exclude" });
       setOpen(false);
       setRetry((value) => value + 1);
     } catch {

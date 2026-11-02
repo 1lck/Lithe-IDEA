@@ -123,6 +123,42 @@ test("dismissal survives remount and normal files never query directories", asyn
   expect(indexing.readIndexingSettings("C:/other").ignoredDirectoryNoticeDismissed).not.toBe(true);
 });
 
+test("failed multi-selection saves nothing, publishes no change and preserves the picker", async () => {
+  await render();
+  await act(async () => button("查看目录").click());
+  let publications = 0;
+  const observe = () => { publications += 1; };
+  window.addEventListener(indexing.indexingEvent, observe);
+  const storage = window.localStorage;
+  const write = storage.setItem.bind(storage);
+  const descriptor = Object.getOwnPropertyDescriptor(window, "localStorage");
+  let rejected = false;
+  Object.defineProperty(window, "localStorage", { configurable: true, value: {
+    getItem: storage.getItem.bind(storage), removeItem: storage.removeItem.bind(storage),
+    setItem: (key: string, value: string) => {
+      if (key.includes("directory-marks") && value.includes('"cache":"excluded"')) {
+        rejected = true;
+        throw new Error("fixture storage quota exceeded");
+      }
+      write(key, value);
+    },
+  } });
+  try {
+    await act(async () => button("排除所选目录").click());
+    expect(rejected).toBe(true);
+    expect(readDirectoryMarks(project)).toEqual({});
+    expect(storage.getItem(indexing.indexingSettingsStorageKey(project))).toBeNull();
+    expect(publications).toBe(0);
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(document.querySelectorAll('[role="checkbox"]')).toHaveLength(2);
+    expect(button("排除所选目录").disabled).toBe(false);
+  } finally {
+    if (descriptor) Object.defineProperty(window, "localStorage", descriptor);
+    else Reflect.deleteProperty(window, "localStorage");
+    window.removeEventListener(indexing.indexingEvent, observe);
+  }
+});
+
 test("late inspection cannot show another file's banner", async () => {
   let finish!: (value: indexing.IgnoredDirectorySuggestions) => void;
   const pending = new Promise<indexing.IgnoredDirectorySuggestions>((resolve) => {

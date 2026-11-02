@@ -135,15 +135,14 @@ export function migrateWorkspaceDirectoryMarks(roots: readonly string[], source:
   }
 }
 
-export function markWorkspaceDirectory(roots: readonly string[], path: string, action: DirectoryAction) {
-  const root = directoryMarkRoot(path, roots);
-  if (!root) throw new Error("Directory is outside the workspace");
-  const marks = readDirectoryMarks(root);
+function applyDirectoryMark(
+  root: string, path: string, action: DirectoryAction, marks: Marks,
+  settings: ReturnType<typeof readIndexingSettings>,
+) {
   const relative = getRelativePath(path, root).replace(/\\/g, "/") || ".";
   const relativeIdentity = markPathIdentity(root, relative);
   const samePath = (path: string) => markPathIdentity(root, path) === relativeIdentity;
   const markKeys = Object.keys(marks).filter(samePath);
-  const settings = readIndexingSettings(root);
   const currentKey = markKeys.find((path) => path === relative) ?? markKeys[0];
   const current = currentKey === undefined ? undefined : marks[currentKey];
   if (action.kind === "cancelExclusion") {
@@ -155,7 +154,7 @@ export function markWorkspaceDirectory(roots: readonly string[], path: string, a
           (path === "." || relativeIdentity.startsWith(markPathIdentity(root, path) + "/")),
       )
     )
-      return;
+      return false;
     const previousKeys = Object.keys(settings.previousRoles).filter(samePath);
     const previousKey = previousKeys.find((path) => path === relative) ?? previousKeys[0];
     const previous = previousKey === undefined ? undefined : settings.previousRoles[previousKey];
@@ -177,19 +176,56 @@ export function markWorkspaceDirectory(roots: readonly string[], path: string, a
       (path) => !samePath(path),
     );
   }
-  let oldSettings: string | null;
-  try { oldSettings = window.localStorage.getItem(indexingSettingsStorageKey(root)); }
+  return true;
+}
+
+/** Save the complete selection before publishing any preference change. */
+export function markWorkspaceDirectories(roots: readonly string[], paths: readonly string[], action: DirectoryAction) {
+  const drafts = new Map<string, { marks: Marks; settings: ReturnType<typeof readIndexingSettings>; changed: boolean }>();
+  for (const path of paths) {
+    const root = directoryMarkRoot(path, roots);
+    if (!root) throw new Error("Directory is outside the workspace");
+    let draft = drafts.get(root);
+    if (!draft) {
+      draft = { marks: readDirectoryMarks(root), settings: readIndexingSettings(root), changed: false };
+      drafts.set(root, draft);
+    }
+    draft.changed = applyDirectoryMark(root, path, action, draft.marks, draft.settings) || draft.changed;
+  }
+  const writes: [string, string][] = [];
+  const changedRoots: string[] = [];
+  for (const [root, draft] of drafts) {
+    if (!draft.changed) continue;
+    changedRoots.push(root);
+    writes.push([indexingSettingsStorageKey(root), JSON.stringify(draft.settings)],
+      [key(root), JSON.stringify({ version: 1, marks: draft.marks })]);
+  }
+  let previous: [string, string | null][];
+  try { previous = writes.map(([key]) => [key, window.localStorage.getItem(key)]); }
   catch (cause) { throw new IndexingSettingsError("readFailed", cause); }
+  let completed = 0;
   try {
-    // Publish only after both preference writes succeed.
-    window.localStorage.setItem(indexingSettingsStorageKey(root), JSON.stringify(settings));
-    writeMarks(root, marks);
-    window.dispatchEvent(new window.CustomEvent(indexingEvent, { detail: root }));
+    for (const [key, value] of writes) {
+      window.localStorage.setItem(key, value);
+      completed += 1;
+    }
   } catch (error) {
-    if (oldSettings === null) window.localStorage.removeItem(indexingSettingsStorageKey(root));
-    else window.localStorage.setItem(indexingSettingsStorageKey(root), oldSettings);
+    // Free all new growth before restoring the previous, quota-safe snapshot.
+    const saved = previous.slice(0, completed);
+    for (const [key] of saved) window.localStorage.removeItem(key);
+    for (const [key, value] of saved) {
+      if (value !== null) window.localStorage.setItem(key, value);
+    }
     throw new IndexingSettingsError("writeFailed", error);
   }
+  for (const root of changedRoots) {
+    window.dispatchEvent(new window.CustomEvent(eventName, { detail: root }));
+    window.dispatchEvent(new window.CustomEvent(indexingEvent, { detail: root }));
+  }
+}
+
+export function markWorkspaceDirectory(roots: readonly string[], path: string, action: DirectoryAction) {
+  markWorkspaceDirectories(roots, [path], action);
 }
 
 export function useDirectoryMarks(roots: readonly string[]) {

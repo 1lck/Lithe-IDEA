@@ -1611,9 +1611,33 @@ package final class WorkspaceFeatureModel: ObservableObject {
             if indexingSettings.gitIgnoreEnabled {
                 await refreshCurrentSnapshot(refreshGitAfterwards: false, indexingOnly: true)
             } else if let workspaceURL {
-                await refreshExcludedTree(at: workspaceURL)
+                await refreshIgnoredDirectoryMetadata(at: workspaceURL)
             }
         }
+    }
+
+    private func refreshIgnoredDirectoryMetadata(at root: URL) async {
+        let generation = workspaceGeneration, ownerID = indexingOwnerID
+        let policy = WorkspaceIndexingPolicy(marks: directoryMarks, settings: indexingSettings)
+        let isCurrent: @MainActor () -> Bool = { [weak self] in
+            guard let self else { return false }
+            return !self.workspaceResourcesReleased && self.workspaceURL == root
+                && self.workspaceGeneration == generation && self.indexingOwnerID == ownerID
+                && policy == WorkspaceIndexingPolicy(marks: self.directoryMarks, settings: self.indexingSettings)
+        }
+        do {
+            // Inspection uses Git decisions even when automatic exclusion is off.
+            // Refresh its generation without rebuilding the unchanged inventory.
+            let status = try await configureCurrentIndexing(at: root, policy: policy, refresh: true, isCurrent: isCurrent)
+            guard isCurrent(), !Task.isCancelled else { return }
+            indexingStatus = status
+            indexingIssue = nil
+        } catch {
+            guard isCurrent(), !Task.isCancelled else { return }
+            if !(error is CancellationError) { recordIndexingFailure(error) }
+        }
+        guard isCurrent(), !Task.isCancelled else { return }
+        await refreshExcludedTree(at: root)
     }
 
     private func applyExternalRefresh(_ paths: [String], at workspaceURL: URL) async {
