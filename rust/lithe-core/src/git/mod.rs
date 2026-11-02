@@ -8123,6 +8123,32 @@ pub(crate) fn untracked_candidates(directory: &Path, candidates: &[String]) -> O
     )
 }
 
+/// Returns immediate child directories without any tracked descendant or gitlink.
+/// Native literal pathspec batches keep process count proportional to argument bytes.
+pub(crate) fn untracked_directory_candidates(
+    directory: &Path,
+    candidates: &[String],
+) -> Option<HashSet<String>> {
+    let mut untracked = candidates.iter().cloned().collect::<HashSet<_>>();
+    for batch in pathspec_batches(candidates, LS_FILES_PATHSPEC_BUDGET) {
+        let mut arguments = vec!["--literal-pathspecs", "ls-files", "-z", "--"];
+        arguments.extend(batch.iter().map(String::as_str));
+        let output = run_git(directory, &arguments).ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        for record in output
+            .stdout
+            .split(|byte| *byte == 0)
+            .filter(|record| !record.is_empty())
+        {
+            let path = String::from_utf8_lossy(record);
+            untracked.remove(path.split('/').next().unwrap_or(&path));
+        }
+    }
+    Some(untracked)
+}
+
 /// Splits `paths` into consecutive non-empty batches whose summed byte length
 /// stays within `budget`; a single longer path forms its own batch.
 fn pathspec_batches(paths: &[String], budget: usize) -> Vec<&[String]> {

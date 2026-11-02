@@ -94931,6 +94931,102 @@
         "key": "Downloading and verifying plugin…",
         "arguments": []
       }
+    },
+    {
+      "id": "indexing.notice",
+      "description": "Ignored directory editor notice and explicit exclusion actions",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Some ignored directories are still included in analysis and search.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "indexing.noticeFailed",
+      "description": "Ignored directory editor notice and explicit exclusion actions",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Could not check ignored directories.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "indexing.noticeIncomplete",
+      "description": "Ignored directory editor notice and explicit exclusion actions",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Some directories could not be checked. The list may be incomplete.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "indexing.viewDirectories",
+      "description": "Ignored directory editor notice and explicit exclusion actions",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "View Directories",
+        "arguments": []
+      }
+    },
+    {
+      "id": "indexing.dismissNotice",
+      "description": "Ignored directory editor notice and explicit exclusion actions",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Don't Show Again",
+        "arguments": []
+      }
+    },
+    {
+      "id": "indexing.ignoredDirectories",
+      "description": "Ignored directory editor notice and explicit exclusion actions",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Ignored Directories",
+        "arguments": []
+      }
+    },
+    {
+      "id": "indexing.excludeSelected",
+      "description": "Ignored directory editor notice and explicit exclusion actions",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Exclude Selected",
+        "arguments": []
+      }
+    },
+    {
+      "id": "indexing.noticeHelp",
+      "description": "Ignored directory editor notice and explicit exclusion actions",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Excluding directories removes them from Lithe analysis and search without changing Git commit candidates. Files remain available in the project tree. Language servers may still scan build-declared modules.",
+        "arguments": []
+      }
     }
   ]
 }

@@ -604,6 +604,23 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::WorkspaceIgnoredDirectorySuggestions => {
+            match serde_json::from_value::<project::indexing::IgnoredDirectorySuggestionsRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(ErrorCode::InvalidRequest, "Invalid ignored directory query")
+                    .with_details(error.to_string())
+            })
+            .and_then(project::indexing::ignored_directory_suggestions)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("directory suggestions should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::WorkspaceRefreshIndexing => {
             match serde_json::from_value::<project::indexing::RefreshIndexingRequest>(
                 parsed.payload,

@@ -66,6 +66,16 @@
   background-color: transparent !important;
 }
 
+/* Community 536da82a: NonProjectFilesScope uses FileColor.Yellow (Brown in Darcula). */
+.file-tree-container .file-tree-item > button[data-excluded="true"]:not(.bg-selected),
+.file-tree-container .file-tree-item > button[data-excluded="true"]:not(.bg-selected):hover {
+  background-color: light-dark(#ffffe4, #4f4b41) !important;
+}
+
+.file-tree-ignored-label {
+  color: light-dark(#727238, #908b25);
+}
+
 .file-tree-container .file-tree-item > button.bg-selected,
 .file-tree-container .file-tree-item > button.bg-selected:hover {
   border-color: transparent !important;

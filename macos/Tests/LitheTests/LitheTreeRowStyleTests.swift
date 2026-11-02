@@ -10,6 +10,7 @@ struct LitheTreeRowStyleTests {
     @Test(arguments: [ColorScheme.dark, .light], [ControlActiveState.key, .inactive])
     func selectedRowsHonorRegionAndWindowFocus(scheme: ColorScheme, windowState: ControlActiveState) throws {
         for focused in [false, true] {
+            for selected in [false, true] {
             for tree in [false, true] {
                 let row = HStack(spacing: 2) {
                     Color.clear.frame(width: 16, height: 16)
@@ -19,9 +20,9 @@ struct LitheTreeRowStyleTests {
                 let content = tree
                     ? AnyView(
                         row.frame(height: LitheTheme.Tree.rowHeight).modifier(
-                            LitheTreeListRowSurface(isSelected: true, isFocused: focused)))
+                            LitheTreeListRowSurface(isSelected: selected, isFocused: focused, background: LitheTheme.Tree.excludedBackground)))
                     : AnyView(
-                        row.frame(height: 40).modifier(LitheTreeListRowSurface(isSelected: true, isFocused: focused)))
+                        row.frame(height: 40).modifier(LitheTreeListRowSurface(isSelected: selected, isFocused: focused, background: LitheTheme.Tree.excludedBackground)))
                 let renderer = ImageRenderer(content: content.frame(width: 220)
                     .environment(\.colorScheme, scheme)
                     .environment(\.controlActiveState, windowState))
@@ -39,7 +40,7 @@ struct LitheTreeRowStyleTests {
                     context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
                 }
                 let active = focused && windowState == .key
-                let expected: UInt32 = scheme == .dark
+                let expected: UInt32 = !selected ? (scheme == .dark ? 0x4F4B41 : 0xFFFFE4) : scheme == .dark
                     ? (active ? 0x2A4371 : 0x33353B)
                     : (active ? 0xD0DFFE : 0xE9EAEE)
                 // Sample the row interior beyond text, so actual shared chrome rather
@@ -50,6 +51,7 @@ struct LitheTreeRowStyleTests {
                 #expect(abs(Int(pixels[offset + 2]) - Int(expected & 255)) <= 2)
                 #expect(pixels[offset + 3] == 255)
                 #expect(pixels[3] == 0) // Rounded corners retain their inset.
+            }
             }
         }
     }

@@ -17,6 +17,14 @@ package struct WorkspaceIndexingSettings: Codable, Equatable, Sendable {
     package var gitIgnoreEnabled = true
     package var includedDirectories: [String] = []
     package var previousRoles: [String: WorkspaceDirectoryMark] = [:]
+    package var ignoredDirectoryNoticeDismissed: Bool?
+    package init() {}
+}
+
+package struct WorkspaceIgnoredDirectorySuggestions: Decodable, Sendable {
+    package var directories: [String] = []
+    package var incomplete = false
+    package var gitIgnoreFailed = false
     package init() {}
 }
 

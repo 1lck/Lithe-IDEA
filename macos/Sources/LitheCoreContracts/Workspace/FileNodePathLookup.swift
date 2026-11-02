@@ -83,6 +83,18 @@ extension FileNode {
         }
     }
 
+    /// Updates a visible row's Git decoration without replacing its loaded children.
+    package func settingGitIgnored(_ ignored: Bool, at url: URL) -> FileNode? {
+        guard let components = relativeComponents(of: url),
+              let location = rowLocation(of: components[...]),
+              location.isExact, !location.isBelowUnloadedRow else { return nil }
+        return updatingNode(atIndices: location.indices[...]) { node in
+            FileNode(url: node.url, isDirectory: node.isDirectory, children: node.children,
+                     collapsedAncestorPaths: node.collapsedAncestorPaths,
+                     isInsideSourceRoot: node.isInsideSourceRoot, isGitIgnored: ignored)
+        }
+    }
+
     /// Adds a file below the directory row that owns its parent path. Nothing
     /// changes when that directory has not been loaded.
     package func inserting(file url: URL) -> TreeEdit {
@@ -192,7 +204,8 @@ extension FileNode {
             isDirectory: isDirectory,
             children: children,
             collapsedAncestorPaths: collapsedAncestorPaths,
-            isInsideSourceRoot: isInsideSourceRoot
+            isInsideSourceRoot: isInsideSourceRoot,
+            isGitIgnored: isGitIgnored
         )
     }
 

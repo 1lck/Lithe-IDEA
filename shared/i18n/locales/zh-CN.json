@@ -9879,7 +9879,15 @@
     "plugin.terminal.running": "插件终端仍在运行。",
     "plugin.terminal.busy": "插件终端正在切换状态，请完成后重试。",
     "plugin.terminal.permission": "打开并管理自己的原生终端，保留有限的显示历史用于重新打开",
-    "native.downloadingAndVerifyingPlugin": "正在下载并校验插件…"
+    "native.downloadingAndVerifyingPlugin": "正在下载并校验插件…",
+    "indexing.notice": "部分被忽略的目录未从分析和搜索中排除。",
+    "indexing.noticeFailed": "无法检查被忽略的目录。",
+    "indexing.noticeIncomplete": "部分目录无法检查，列表可能不完整。",
+    "indexing.viewDirectories": "查看目录",
+    "indexing.dismissNotice": "不再显示",
+    "indexing.ignoredDirectories": "被忽略的目录",
+    "indexing.excludeSelected": "排除所选目录",
+    "indexing.noticeHelp": "排除目录后，Lithe 不再分析和搜索其中的文件，但不会改变 Git 提交候选，项目树仍可浏览文件。语言服务器仍可能扫描构建系统声明的模块。"
   },
   "overrides": {
     "macos": {

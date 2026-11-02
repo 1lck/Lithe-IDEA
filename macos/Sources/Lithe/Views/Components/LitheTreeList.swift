@@ -10,6 +10,7 @@ struct LitheTreeListHierarchy {
     var activatesOnDoubleClick = false
     var disclosureLabel: String? = nil
     var accessibilityTitle: String? = nil
+    var background: Color? = nil
 
     var isKeyboardNavigable: Bool { isSelectable || isBranch }
 
@@ -234,7 +235,8 @@ struct LitheTreeList<Data: RandomAccessCollection, ID: Hashable, RowContent: Vie
                 isSelected: native?.isSelected(itemID)
                     ?? (selection.wrappedValue.contains(itemID)
                         || (!state.isSelectable && state.isBranch && cursor == itemID)),
-                isFocused: retainsSearchFocus || isFocused || isActive)
+                isFocused: retainsSearchFocus || isFocused || isActive,
+                background: state.background)
         )
         .onTapGesture {
             guard native == nil else { return }
@@ -588,6 +590,7 @@ struct LitheTreeListRowSurface: ViewModifier {
     @Environment(\.controlActiveState) private var controlActiveState
     let isSelected: Bool
     let isFocused: Bool
+    var background: Color? = nil
 
     func body(content: Content) -> some View {
         content.litheRowHover(
@@ -596,6 +599,7 @@ struct LitheTreeListRowSurface: ViewModifier {
             activeBackground: isFocused && controlActiveState == .key
                 ? LitheTheme.Tree.focusedSelection : LitheTheme.Tree.inactiveSelection,
             hoverBackground: LitheTheme.Tree.hover)
+            .background(background ?? .clear, in: RoundedRectangle(cornerRadius: LitheTheme.Metrics.projectTreeSelectionCornerRadius))
     }
 }
 

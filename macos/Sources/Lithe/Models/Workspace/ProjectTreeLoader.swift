@@ -5,6 +5,7 @@ struct ProjectDirectoryEntry: Sendable {
     let url: URL
     let isDirectory: Bool
     var isEmptyDirectory = false
+    var isGitIgnored = false
 }
 
 /// Bounded, consumable lookahead from package compaction, never a second tree.
@@ -113,7 +114,8 @@ struct ProjectTreeLoader {
                 children = [FileNode(
                     url: directory.url, isDirectory: true, children: children,
                     collapsedAncestorPaths: directory.collapsedAncestorPaths,
-                    isInsideSourceRoot: directory.isInsideSourceRoot
+                    isInsideSourceRoot: directory.isInsideSourceRoot,
+                    isGitIgnored: directory.isGitIgnored
                 )]
             }
             result[key] = children
@@ -133,13 +135,14 @@ struct ProjectTreeLoader {
             let insideSourceRoot = row.isInsideSourceRoot || LitheIcons.isSourceRootDirectory(row.url)
             result[key] = entries.enumerated().map { index, entry in
                 if entry.isDirectory, insideSourceRoot {
-                    chains.append(CompactionChain(owner: key, index: index, tip: entry.url))
+                    chains.append(CompactionChain(owner: key, index: index, tip: entry.url, isGitIgnored: entry.isGitIgnored))
                 }
                 return FileNode(
                     url: entry.url,
                     isDirectory: entry.isDirectory,
                     children: entry.isEmptyDirectory ? [] : nil,
-                    isInsideSourceRoot: entry.isDirectory && insideSourceRoot
+                    isInsideSourceRoot: entry.isDirectory && insideSourceRoot,
+                    isGitIgnored: entry.isGitIgnored
                 )
             }
         }
@@ -157,6 +160,7 @@ struct ProjectTreeLoader {
                    LitheIcons.isValidPackageName(only.url.lastPathComponent) {
                     chain.collapsed.append(chain.tip.path)
                     chain.tip = only.url
+                    chain.isGitIgnored = only.isGitIgnored
                     continuing.append(chain)
                 } else {
                     if let entries = listed[chain.tip.standardizedFileURL.path], let generation {
@@ -194,6 +198,7 @@ struct ProjectTreeLoader {
         let owner: String
         let index: Int
         var tip: URL
+        var isGitIgnored: Bool
         var collapsed: [String] = []
 
         func apply(to result: inout [String: [FileNode]], isEmpty: Bool = false) {
@@ -203,7 +208,8 @@ struct ProjectTreeLoader {
                 isDirectory: true,
                 children: isEmpty ? [] : nil,
                 collapsedAncestorPaths: collapsed,
-                isInsideSourceRoot: true
+                isInsideSourceRoot: true,
+                isGitIgnored: isGitIgnored
             )
         }
     }

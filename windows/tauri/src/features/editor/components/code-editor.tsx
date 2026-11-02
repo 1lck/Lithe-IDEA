@@ -70,6 +70,7 @@ import {
 import { SvgEditor } from "./svg-editor";
 import "../styles/editor-shell.css";
 import { ExternalConflictBanner } from "./external-conflict-banner";
+import { IgnoredDirectoryNotice } from "./ignored-directory-notice";
 import Breadcrumb, { type BreadcrumbProps } from "./toolbar/breadcrumb";
 
 interface CodeEditorProps {
@@ -683,6 +684,7 @@ const CodeEditor = ({
         )}
 
         {activeBufferId && <ExternalConflictBanner bufferId={activeBufferId} />}
+        <IgnoredDirectoryNotice filePath={filePath} />
 
         {tooLargeForEditorServices && enableInteractiveServices && !forceExpensiveServices && (
           <div className="flex items-center justify-between gap-3 border-b border-border bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground">

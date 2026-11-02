@@ -127,6 +127,8 @@ fn execute_for_window(owner: &str, request: &str, execute: impl Fn(&str) -> Stri
             value["command"].as_str(),
             Some(
                 "workspace.snapshot"
+                    | "workspace.ignoredDirectorySuggestions"
+                    | "workspace.repositories"
                     | "workspace.search"
                     | "workspace.searchEverywhere"
                     | "workspace.searchIndex.warm"

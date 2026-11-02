@@ -13,6 +13,7 @@ export interface IndexingSettings {
   gitIgnoreEnabled: boolean;
   includedDirectories: string[];
   previousRoles: Record<string, string>;
+  ignoredDirectoryNoticeDismissed?: boolean;
 }
 export interface IndexingStatus {
   revision: number;
@@ -48,6 +49,7 @@ export function readIndexingSettings(root: string): IndexingSettings {
     typeof settings.gitIgnoreEnabled !== "boolean" ||
     !Array.isArray(settings.includedDirectories) ||
     !settings.includedDirectories.every((path: unknown) => typeof path === "string") ||
+    (settings.ignoredDirectoryNoticeDismissed !== undefined && typeof settings.ignoredDirectoryNoticeDismissed !== "boolean") ||
     (settings.previousRoles !== undefined &&
       (!settings.previousRoles ||
         typeof settings.previousRoles !== "object" ||
@@ -59,6 +61,8 @@ export function readIndexingSettings(root: string): IndexingSettings {
     gitIgnoreEnabled: settings.gitIgnoreEnabled,
     includedDirectories: settings.includedDirectories,
     previousRoles: (settings.previousRoles ?? {}) as Record<string, string>,
+    ...(settings.ignoredDirectoryNoticeDismissed !== undefined
+      ? { ignoredDirectoryNoticeDismissed: settings.ignoredDirectoryNoticeDismissed as boolean } : {}),
   };
 }
 export function writeIndexingSettings(root: string, settings: IndexingSettings) {
@@ -269,4 +273,20 @@ export function useIndexingVersion(roots?: readonly string[]): number {
   const rootsKey = roots === undefined ? undefined : JSON.stringify(roots);
   useEffect(() => subscribeToIndexingChanges(rootsKey === undefined ? undefined : JSON.parse(rootsKey), () => setVersion((value) => value + 1)), [rootsKey]);
   return version;
+}
+
+export interface IgnoredDirectorySuggestions {
+  directories: string[];
+  incomplete: boolean;
+  gitIgnoreFailed: boolean;
+}
+
+export async function queryIgnoredDirectorySuggestions(root: string, workspaceId: string, workspaceRoots: readonly string[] = [root]): Promise<IgnoredDirectorySuggestions> {
+  await configureWorkspaceIndexing(root, [], false, workspaceId);
+  const response = await executeCore<IgnoredDirectorySuggestions>({
+    id: crypto.randomUUID(), command: "workspace.ignoredDirectorySuggestions", timeoutMilliseconds: 10000,
+    payload: { root, workspaceRoots },
+  });
+  if (!response.ok) throw new IndexingSettingsError("configureFailed", response.error);
+  return response.data;
 }

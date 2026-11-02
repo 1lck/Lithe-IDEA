@@ -4,6 +4,20 @@ import LitheCoreContracts
 @testable import Lithe
 
 struct WorkspaceDirectoryMarkStoreTests {
+    @Test
+    func noticeDismissalReadsLegacyPreferencesAndPersistsPerProject() throws {
+        let preferences = DirectoryMarkKeyValueStore()
+        let store = WorkspaceDirectoryMarkStore(store: preferences)
+        let root = URL(fileURLWithPath: "/projects/legacy")
+        preferences.set(Data(#"{"gitIgnoreEnabled":false,"includedDirectories":["cache"],"previousRoles":{}}"#.utf8),
+                        forKey: "lithe.workspace-indexing." + root.path)
+        var settings = try store.loadIndexingSettings(for: root)
+        #expect(settings.ignoredDirectoryNoticeDismissed == nil)
+        settings.ignoredDirectoryNoticeDismissed = true
+        try store.saveIndexingSettings(settings, for: root)
+        #expect(try store.loadIndexingSettings(for: root) == settings)
+        #expect(try store.loadIndexingSettings(for: URL(fileURLWithPath: "/projects/other")).ignoredDirectoryNoticeDismissed != true)
+    }
     @Test(arguments: ["broken", "null", "{}", "{\"gitIgnoreEnabled\":null,\"includedDirectories\":[]}", "{\"gitIgnoreEnabled\":true,\"includedDirectories\":[1]}"])
     func invalidIndexingSettingsAreClassifiedAndPreserved(_ raw: String) throws {
         let preferences = DirectoryMarkKeyValueStore()

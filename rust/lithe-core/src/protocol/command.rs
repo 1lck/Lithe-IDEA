@@ -208,6 +208,8 @@ pub enum CoreCommand {
     WorkspaceConfigureIndexing,
     /// Refreshes external indexing facts while retaining the owner's lease.
     WorkspaceRefreshIndexing,
+    /// Lists ignored directories that still participate in analysis.
+    WorkspaceIgnoredDirectorySuggestions,
     /// Releases an indexing generation when its project closes.
     WorkspaceReleaseIndexing,
     /// Lists the visible children of project directories (`workspace.listDirectories`).
@@ -663,6 +665,9 @@ impl CoreCommand {
             "workspace.releaseIndexing" => Some(Self::WorkspaceReleaseIndexing),
             "workspace.configureIndexing" => Some(Self::WorkspaceConfigureIndexing),
             "workspace.refreshIndexing" => Some(Self::WorkspaceRefreshIndexing),
+            "workspace.ignoredDirectorySuggestions" => {
+                Some(Self::WorkspaceIgnoredDirectorySuggestions)
+            }
             "workspace.filterChanges" => Some(Self::WorkspaceFilterChanges),
             "workspace.listDirectories" => Some(Self::WorkspaceListDirectories),
             "workspace.repositories" => Some(Self::WorkspaceRepositories),

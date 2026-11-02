@@ -98,6 +98,10 @@ pub struct DirectoryListing {
     pub path: String,
     /// Directories first, then case-insensitive names, as in snapshots.
     pub children: Vec<WorkspaceNode>,
+    /// Git-ignored child paths, relative to the workspace; absent when Git cannot answer.
+    /// Decoration is independent of analysis exclusions and never filters children.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ignored_paths: Option<Vec<String>>,
     /// Nested linked worktrees directly inside this directory, which
     /// `children` leaves out.
     pub nested_worktrees: Vec<String>,

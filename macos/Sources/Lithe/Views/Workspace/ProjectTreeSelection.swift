@@ -91,7 +91,8 @@ struct ProjectTreeSelection: Equatable {
                 isDirectory: node.isDirectory,
                 children: node.children?.isEmpty == true ? [] : nil,
                 collapsedAncestorPaths: node.collapsedAncestorPaths,
-                isInsideSourceRoot: node.isInsideSourceRoot
+                isInsideSourceRoot: node.isInsideSourceRoot,
+                isGitIgnored: node.isGitIgnored
             )
             self.depth = depth
         }
