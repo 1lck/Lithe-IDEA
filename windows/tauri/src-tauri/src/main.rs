@@ -36,9 +36,9 @@ mod window_background;
 mod window_title;
 
 use file_events::TauriFileChangeEmitter;
+use lithe_project::FileWatcher;
 use lithe_project::document_watcher::DocumentWatcher;
 use lithe_project::git_watcher::GitMetadataWatcher;
-use lithe_project::FileWatcher;
 use lithe_terminal::TerminalManager;
 use std::sync::Arc;
 use tauri::Manager;
@@ -168,6 +168,7 @@ fn main() {
                 plugin_host::lifecycle::window_destroyed(window.app_handle(), window.label());
                 run::release_window_processes(window.label());
                 core::close_ide_hosts(window.label());
+                core::close_window_indexing(window.label());
                 agent::close_window_connections(window.label());
                 terminal::close_window_terminals(window.app_handle(), window.label());
                 project_windows::release_window(window.app_handle(), window.label().to_owned());
@@ -178,9 +179,22 @@ fn main() {
                     }
                 }
                 if let Some(watcher) = window.try_state::<Arc<GitMetadataWatcher>>() {
-                    if let Err(error) = watcher.remove(window.label(), None) {
-                        eprintln!("Could not release Git metadata watches: {error}");
-                    }
+                    let watcher = Arc::clone(&watcher);
+                    let owner = window.label().to_owned();
+                    tauri::async_runtime::spawn_blocking(move || {
+                        if let Err(error) = watcher.remove_window(&owner) {
+                            eprintln!("Could not release Git metadata watches: {error}");
+                        }
+                    });
+                }
+                if let Some(watcher) = window.try_state::<Arc<lithe_project::FileWatcher>>() {
+                    let watcher = Arc::clone(&watcher);
+                    let owner = window.label().to_owned();
+                    tauri::async_runtime::spawn_blocking(move || {
+                        if let Err(error) = watcher.remove_window(&owner) {
+                            eprintln!("Could not release file watches: {error}");
+                        }
+                    });
                 }
             }
         })

@@ -340,8 +340,9 @@ jobs:
         if: needs.changes.outputs.git_validation == 'true'
         timeout-minutes: 3
         run: |
-          ./scripts/macos/test/test-macos.sh \
-            --skip-build \
+          ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh \
+            --report .artifacts/test-stability/macos-git-observation.json \
+            --suite-timeout-seconds 120 -- --skip-build \
             --filter GitStatusObservationTests
 
       - name: Run stable rollback disk image integration tests

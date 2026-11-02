@@ -88100,22 +88100,6 @@
       }
     },
     {
-      "id": "native.total.variant2",
-      "description": "Native UI: Total %@",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Total %@",
-        "arguments": [
-          "arg1"
-        ]
-      },
-      "parameters": {
-        "arg1": "string"
-      }
-    },
-    {
       "id": "native.framesRenderedPerSecond",
       "description": "Native UI: Frames rendered per second",
       "platforms": [
@@ -92841,6 +92825,222 @@
       }
     },
     {
+      "id": "indexing.title",
+      "description": "Workspace indexing exclusions",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Project Indexing",
+        "arguments": []
+      }
+    },
+    {
+      "id": "indexing.autoGit",
+      "description": "Workspace indexing exclusions",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Automatically exclude Git-ignored directories",
+        "arguments": []
+      }
+    },
+    {
+      "id": "indexing.description",
+      "description": "Project-scoped Git ignore indexing control and language-service limitations",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Applies to the current project. Excluded directories remain browsable. Cancel Exclusion creates a project exception without changing Git rules.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "indexing.cancelExclusion",
+      "description": "Workspace indexing exclusions",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Cancel Exclusion",
+        "arguments": []
+      }
+    },
+    {
+      "id": "indexing.languageDescription",
+      "description": "Workspace indexing exclusions",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Lithe excludes these directories from its own indexes. Third-party language servers may still scan them when their provider does not support exclusions.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "indexing.providerDependent",
+      "description": "Workspace indexing exclusions",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Provider-dependent",
+        "arguments": []
+      }
+    },
+    {
+      "id": "indexing.gitFailed",
+      "description": "Workspace indexing exclusions",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Git ignore exclusions could not be fully resolved. Manual exclusions remain active.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "indexing.manualReason",
+      "description": "Workspace indexing exclusion reason",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Manually excluded from indexing",
+        "arguments": []
+      }
+    },
+    {
+      "id": "indexing.gitReason",
+      "description": "Workspace indexing exclusion reason",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Excluded from indexing by Git ignore rules",
+        "arguments": []
+      }
+    },
+    {
+      "id": "indexing.inheritedReason",
+      "description": "Workspace indexing exclusion reason",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Excluded from indexing by a parent directory",
+        "arguments": []
+      }
+    },
+    {
+      "id": "indexing.incomplete",
+      "description": "Workspace indexing exclusion reason",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Some directories could not be scanned. Automatic project analysis was not refreshed.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "indexing.remoteUnsupported",
+      "description": "Remote workspace indexing exclusion capability",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Directory indexing exclusions are not supported for remote projects.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "indexing.invalidSettings",
+      "description": "Project indexing settings failure",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Project indexing settings are invalid. The saved data has been preserved.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "indexing.readFailed",
+      "description": "Project indexing settings failure",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Could not read project indexing settings. Try reopening the project.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "indexing.writeFailed",
+      "description": "Project indexing settings failure",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Could not save project indexing settings. Your previous settings remain unchanged.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "indexing.configureFailed",
+      "description": "Project indexing settings failure",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Could not apply project indexing exclusions. Try reopening the project.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "indexing.workspaceUnavailable",
+      "description": "Project indexing failure",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "The project folder is unavailable. Restore it, then retry.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "indexing.permissionDenied",
+      "description": "Project indexing failure",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Lithe cannot access the project folder. Check its permissions, then retry.",
+        "arguments": []
+      }
+    },
+    {
       "id": "native.onePatternPerLineCaseInsensitivePatternsUseWildcardsASimplifiedFormOfRegularEx35941b6a99",
       "description": "Native UI: One pattern per line, case-insensitive. Patterns use wildcards, a simplified form of regular expressions: `*` matches any characters and `?` matches one.\nEnd a pattern with `/`, `/*` or `/**` to hide a folder and everything in it; start with `**/` to match at any depth. A pattern without a trailing slash only hides files: `.lithe` hides a file named .lithe, not the folder.\nExamples:\n`**/dist/` — every dist folder\n`.lithe/**` — the .lithe folder in the project root\n`*.log` — all log files\n`docs/*.md` — Markdown files in docs\nThe list starts with the built-in patterns. Delete one to show those files again; type it back to hide them.",
       "platforms": [
@@ -93167,6 +93367,1460 @@
         "key": "Add clickable actions beside document text",
         "arguments": []
       }
+    },
+    {
+      "id": "native.lspStatusLabel",
+      "description": "Native LSP status and log viewer",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "LSP",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.restartServer",
+      "description": "Native LSP status and log viewer",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Restart Server",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.stopServer",
+      "description": "Native LSP status and log viewer",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Stop Server",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.restartAllServers",
+      "description": "Native LSP status and log viewer",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Restart All Servers",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.stopAllServers",
+      "description": "Native LSP status and log viewer",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Stop All Servers",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.languageServerSettingsAction",
+      "description": "Native LSP status and log viewer",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Language Server Settings...",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.lspStopOnDemandHint",
+      "description": "Native LSP status and log viewer",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Starts again when a matching document is opened or edited.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.lspLogsTitle",
+      "description": "Native LSP status and log viewer",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "LSP Logs",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.lspServerLogs",
+      "description": "Native LSP status and log viewer",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Server Logs",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.lspAvailableLogChannels",
+      "description": "Native LSP status and log viewer",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Shows session events and server output. Server Trace and RPC message capture are not available.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.clearLogView",
+      "description": "Native LSP status and log viewer",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Clear View",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.lspClearViewHint",
+      "description": "Native LSP status and log viewer",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Clear only the selected server's visible logs. Collected diagnostic logs are kept.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.noMatchingLanguageServerLogs",
+      "description": "Native LSP status and log viewer",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No matching language server logs",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.logInfoLevel",
+      "description": "Native LSP status and log viewer",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Info",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.lspNotStarted",
+      "description": "LSP entry remains available before any server has started",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Not started",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.noRegisteredLanguageServers",
+      "description": "LSP entry remains available before any server has started",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No registered language servers",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.languageServerStillStopping",
+      "description": "Restart refuses to overlap an old language-server process that has not released its resources",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The language server is still stopping. Try again after it has stopped.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "agent.history.provider",
+      "description": "Agent conversation history provider filtering",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Conversation provider",
+        "arguments": []
+      }
+    },
+    {
+      "id": "agent.history.allProviders",
+      "description": "Agent conversation history provider filtering",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "All providers",
+        "arguments": []
+      }
+    },
+    {
+      "id": "agent.history.unknownProvider",
+      "description": "Agent conversation history provider filtering",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Unknown provider",
+        "arguments": []
+      }
+    },
+    {
+      "id": "agent.history.providerHint",
+      "description": "Agent conversation history provider filtering",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Try another search or provider filter.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "markdown.plantumlRenderFailed",
+      "description": "macOS offline Markdown PlantUML fallback",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "PlantUML could not render this diagram. Showing its source instead.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.runtimeEnvironment",
+      "description": "Native toolchain settings: Runtime Environment",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Runtime Environment",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.toolchainSources",
+      "description": "Native toolchain settings: Toolchain Sources",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Toolchain Sources",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.couldNotReadToolchainSettings",
+      "description": "Native toolchain settings: Could not read toolchain settings.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not read toolchain settings.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.theSavedToolchainSettingsAreInvalid",
+      "description": "Native toolchain settings: The saved toolchain settings are invalid.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The saved toolchain settings are invalid.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.theInstalledToolchainDeclarationsAreInvalid",
+      "description": "Native toolchain settings: The installed toolchain declarations are invalid.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The installed toolchain declarations are invalid.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.runtimeEnvironmentIsolatedPreview",
+      "description": "Native toolchain settings: Runtime Environment — Isolated Preview",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Runtime Environment — Isolated Preview",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.automaticDiscovery",
+      "description": "Native toolchain settings: Automatic discovery",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Automatic discovery",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.consumers",
+      "description": "Native toolchain settings: Consumers",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Consumers",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.exportedEnvironment",
+      "description": "Native toolchain settings: Exported environment",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Exported environment",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.fixed",
+      "description": "Native toolchain settings: Fixed",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Fixed",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.globalDefaults",
+      "description": "Native toolchain settings: Global defaults",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Global defaults",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.loginShell",
+      "description": "Native toolchain settings: Login shell",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Login shell",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.noProjectEnvironmentIsAvailable",
+      "description": "Native toolchain settings: No project environment is available.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No project environment is available.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.notQueried",
+      "description": "Native toolchain settings: Not queried",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Not queried",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.openPlugins",
+      "description": "Native toolchain settings: Open Plugins",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Open Plugins",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.openAProjectAndEnableAPluginThatDefinesToolsToInspectItsEnvironment",
+      "description": "Native toolchain settings: Open a project and enable a plugin that defines tools to inspect its environment.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Open a project and enable a plugin that defines tools to inspect its environment.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.projectRequirements",
+      "description": "Native toolchain settings: Project requirements",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Project requirements",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.savedNotVerified",
+      "description": "Native toolchain settings: Saved, not verified",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Saved, not verified",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.theEnvironmentSnapshotCouldNotBeReadRefreshToTryAgain",
+      "description": "Native toolchain settings: The environment snapshot could not be read. Refresh to try again.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The environment snapshot could not be read. Refresh to try again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.remoteUnavailable",
+      "description": "Native toolchain settings remote boundary",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Toolchain settings are not available for remote workspaces yet.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.projectRootDirectory",
+      "description": "Native toolchain environment layout: Project root directory",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Project root directory",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.versionFiles",
+      "description": "Native toolchain environment layout: Version files",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Version files",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.notPinned",
+      "description": "Native toolchain environment layout: Not pinned",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Not pinned",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.definition",
+      "description": "Native toolchain environment layout: Definition",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Definition",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.readResult",
+      "description": "Native toolchain environment layout: Read result",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Read result",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.readAgain",
+      "description": "Native toolchain environment layout: Read again",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Read again",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.versionManagers",
+      "description": "Native toolchain environment layout: Version managers",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Version managers",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.queryMilliseconds",
+      "description": "How long the last login shell read took",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "arg1": "integer"
+      },
+      "macos": {
+        "key": "%lld ms",
+        "arguments": [
+          "arg1"
+        ]
+      }
+    },
+    {
+      "id": "native.toolchainSettings.directoryTreeInfo",
+      "description": "Directory tree help on the runtime environment page",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Lists the project root and each directory with its own version file or fixed version. A fixed version also applies to the directories below it.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.versionFilesInfo",
+      "description": "Help for the version files line of a directory",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Files declared by enabled version managers that exist in this directory. A directory without its own uses the nearest parent's.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.noneUsesParent",
+      "description": "A directory has no version file of its own and inherits its parent directory",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "None; uses the parent directory's",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.fixedInfo",
+      "description": "Help for the fixed versions line of a directory",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Fixed versions are saved on this computer in .lithe/toolchains/local.json and also apply to the directories below. This page reads them without changing the file.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.fromDirectory",
+      "description": "Names the directory a fixed version is inherited from",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "arg1": "string"
+      },
+      "macos": {
+        "key": "From %@",
+        "arguments": [
+          "arg1"
+        ]
+      }
+    },
+    {
+      "id": "native.toolchainSettings.theProjectRoot",
+      "description": "Names the workspace root inside a sentence, such as \"From the project root\"",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "the project root",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.toolsInfo",
+      "description": "Help for the tools list: the order sources are applied",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Each tool uses the first source that has a value: a fixed version, then project version files, then global defaults, then automatic discovery. Installed versions are checked by running each tool's own version command. Enabled version managers report what version files ask for.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.noEnabledPluginDefinesTools",
+      "description": "Empty tools list",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No enabled plugin defines tools.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.toolDefinitionInfo",
+      "description": "Help for where a tool row is defined",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This row comes from the tool definition of an enabled plugin. Lithe has no built-in tools.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.versionNotQueried",
+      "description": "A version file exists but the version it asks for has not been queried",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Version not queried",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.fixedInParent",
+      "description": "Tool badge: the fixed version was saved for a parent directory",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Fixed in parent",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.versionFile",
+      "description": "Tool badge: a version file applies to this tool",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Version file",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.pinnedStepInfo",
+      "description": "Help for the fixed-version step of tool resolution",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "A version saved for this directory on this computer. It applies first, also in the directories below.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.projectStepInfo",
+      "description": "Help for the project-requirements step of tool resolution",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Version files in this directory or its parents, watched by the version managers of this tool, and the versions those managers report for them.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.noVersionFile",
+      "description": "No version file applies to a tool",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No version file",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.globalStepInfo",
+      "description": "Help for the global-defaults step of tool resolution",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "What version managers report as global, then the home variables and commands this tool's plugin declares, read from the login shell. A home's version comes from the tool's own version command; a command found on PATH is not run.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.automaticStepInfo",
+      "description": "Help for the automatic-discovery step of tool resolution",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Installations found in the locations this tool's plugin declares. Each version comes from the tool's own version command, and the highest one is used. Installations inside the project are never run.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.versionNotVerified",
+      "description": "An executable was found but its version was not checked",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Version not verified",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.firstMatch",
+      "description": "Marks the first resolution step that has a value",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "First match",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.pathChangedRestart",
+      "description": "Notice after a login shell read changed PATH",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The login shell's PATH has changed. Restart Lithe so that terminals and tools use it.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.loginShellInfo",
+      "description": "Help for the login shell section",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "At launch Lithe reads your login shell's environment, as a terminal does, and gives it to the terminals, tools and language servers it starts. Only PATH is listed; other variables can hold secrets and are only counted.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.pathInfo",
+      "description": "Help for the PATH line of the login shell section",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Directories in the order tools are looked up. The login shell's directories come first, then any that only the environment Lithe was launched with had.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.directoryCount",
+      "description": "Number of directories in PATH",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "arg1": "integer"
+      },
+      "macos": {
+        "key": "%lld directories",
+        "arguments": [
+          "arg1"
+        ]
+      }
+    },
+    {
+      "id": "native.toolchainSettings.turnedOffBySkipVariable",
+      "description": "The login shell read is disabled by an environment variable",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Turned off by LITHE_SKIP_SHELL_ENV",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.reading",
+      "description": "The login shell is being read",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Reading…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.notReadStartedFromCache",
+      "description": "No login shell read finished; startup used the cached PATH",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Not read yet; started with the PATH saved last time",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.notReadYet",
+      "description": "No login shell read has finished",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Not read yet",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.usingCachedPath",
+      "description": "After a failed read, the cached PATH remains in use",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Using the PATH saved last time",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.usingLaunchEnvironment",
+      "description": "After a failed read, the environment Lithe was launched with remains in use",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Using the environment Lithe was launched with",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.variableCount",
+      "description": "Number of variables the login shell read returned",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "arg1": "integer"
+      },
+      "macos": {
+        "key": "%lld variables",
+        "arguments": [
+          "arg1"
+        ]
+      }
+    },
+    {
+      "id": "native.toolchainSettings.launchEnvironment",
+      "description": "PATH entry that came only from the environment Lithe was launched with",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Launch environment",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.versionManagersInfo",
+      "description": "Help for the version managers section",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Version managers come from enabled plugins. Lithe asks them what is installed and what this project requires; they never install or trust anything for you.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.noEnabledPluginProvidesVersionManager",
+      "description": "Empty version managers list",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No enabled plugin provides a version manager.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.notUsedInThisProject",
+      "description": "No watched file of a version manager exists in this project",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Not used in this project",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.reportsInstalledVersionsOnly",
+      "description": "A version manager that declares no watched files and only reports installed versions",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Reports installed versions only",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.versionFileCount",
+      "description": "Number of version files of a version manager found in this project",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "arg1": "integer"
+      },
+      "macos": {
+        "key": "%lld version files",
+        "arguments": [
+          "arg1"
+        ]
+      }
+    },
+    {
+      "id": "native.toolchainSettings.watchedFiles",
+      "description": "Files a version manager watches",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Watched files",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.versionManagerDefinitionInfo",
+      "description": "Help for where a version manager is defined",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This version manager comes from an enabled plugin. Lithe has no built-in version managers.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.onlyFirstDirectoriesShown",
+      "description": "Diagnostic when the directory list is truncated",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "arg1": "integer"
+      },
+      "macos": {
+        "key": "Only the first %lld directories are shown.",
+        "arguments": [
+          "arg1"
+        ]
+      }
+    },
+    {
+      "id": "native.toolchainSettings.versionFilesCheckedInFirstDirectories",
+      "description": "Diagnostic when version files were checked in a bounded set of directories",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "arg1": "integer"
+      },
+      "macos": {
+        "key": "Version files were checked in the first %lld directories only.",
+        "arguments": [
+          "arg1"
+        ]
+      }
+    },
+    {
+      "id": "native.toolchainSettings.discovered",
+      "description": "A tool resolved from an installation found by automatic discovery",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Discovered",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.moreInstallations",
+      "description": "Number of further discovered installations not listed",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "arg1": "integer"
+      },
+      "macos": {
+        "key": "%lld more",
+        "arguments": [
+          "arg1"
+        ]
+      }
+    },
+    {
+      "id": "native.toolchainSettings.sameVersionConflict",
+      "description": "Automatic discovery found different installations with the same highest version",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Several installations have the same version",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.versionCheckFailed",
+      "description": "An installation was skipped because its version command failed",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Version check failed",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.versionTooOld",
+      "description": "An installation was skipped because its version is below the required minimum",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Version too old",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.notAValidInstallation",
+      "description": "An installation was skipped because its files do not match the tool definition or it is inside the project",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Not a valid installation",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.notUsable",
+      "description": "An installation was skipped for another reason",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Not usable",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.installationsCouldNotBeChecked",
+      "description": "Installations of a tool could not be checked",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "arg1": "string"
+      },
+      "macos": {
+        "key": "Installations of %@ could not be checked.",
+        "arguments": [
+          "arg1"
+        ]
+      }
+    },
+    {
+      "id": "native.toolchainSettings.discoveryDeclarationsUnchecked",
+      "description": "Installed tool declarations could not be checked, so automatic discovery did not run",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Installed toolchain declarations could not be checked for discovery.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.onlyFirstVersionsChecked",
+      "description": "Version checks stopped at a limit",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "arg1": "integer"
+      },
+      "macos": {
+        "key": "Only the first %lld installation versions were checked.",
+        "arguments": [
+          "arg1"
+        ]
+      }
+    },
+    {
+      "id": "native.toolchainSettings.versionsNotCheckedInTime",
+      "description": "Version checks stopped at the time limit",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Some installation versions were not checked in time.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.onlyFirstInstallationsChecked",
+      "description": "Installation checks for one tool stopped at a limit",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "arg1": "integer"
+      },
+      "macos": {
+        "key": "Only the first %lld installations of a tool were checked.",
+        "arguments": [
+          "arg1"
+        ]
+      }
+    },
+    {
+      "id": "native.toolchainSettings.tooManyFilesForOneTool",
+      "description": "File checks for one tool stopped at a limit",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Too many files to check for one tool; some installations were skipped.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.onlyFirstLocationsScanned",
+      "description": "Discovery locations stopped at a limit",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "arg1": "integer"
+      },
+      "macos": {
+        "key": "Only the first %lld discovery locations were scanned.",
+        "arguments": [
+          "arg1"
+        ]
+      }
+    },
+    {
+      "id": "native.toolchainSettings.onlyFirstEntriesChecked",
+      "description": "Discovered entries stopped at a limit",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "arg1": "integer"
+      },
+      "macos": {
+        "key": "Only the first %lld discovered entries were checked.",
+        "arguments": [
+          "arg1"
+        ]
+      }
+    },
+    {
+      "id": "native.toolchainSettings.query",
+      "description": "Toolchain provider query: Query",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Query",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.answeredIn",
+      "description": "Toolchain provider query: Answered in %lld ms",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Answered in %lld ms",
+        "arguments": [
+          "milliseconds"
+        ]
+      },
+      "parameters": {
+        "milliseconds": "integer"
+      }
+    },
+    {
+      "id": "native.toolchainSettings.backendDidNotOfferProvider",
+      "description": "Toolchain provider query: The plugin backend did not offer this version manager.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The plugin backend did not offer this version manager.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.workspaceNotOpenGlobalOnly",
+      "description": "Toolchain provider query: This workspace is not open in a window, so only global versions were read.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This workspace is not open in a window, so only global versions were read.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.providerDidNotAnswer",
+      "description": "Toolchain provider query: %@ did not answer: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ did not answer: %@",
+        "arguments": [
+          "provider",
+          "message"
+        ]
+      },
+      "parameters": {
+        "provider": "string",
+        "message": "string"
+      }
+    },
+    {
+      "id": "native.toolchainSettings.firstDirectoriesQueried",
+      "description": "Toolchain provider query: Only the first %lld directories were queried.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Only the first %lld directories were queried.",
+        "arguments": [
+          "count"
+        ]
+      },
+      "parameters": {
+        "count": "integer"
+      }
+    },
+    {
+      "id": "native.toolchainSettings.queryNotBuilt",
+      "description": "Toolchain provider query: The toolchain query could not be built.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The toolchain query could not be built.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.replyUnreadable",
+      "description": "Toolchain provider query: The reply could not be read.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The reply could not be read.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.resolutionUnavailable",
+      "description": "Core could not resolve which installation of a tool a directory uses",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "arg1": "string"
+      },
+      "macos": {
+        "key": "Which %@ to use could not be determined.",
+        "arguments": [
+          "arg1"
+        ]
+      }
+    },
+    {
+      "id": "native.toolchainSettings.onlyFirstPinsChecked",
+      "description": "Fixed-version checks stopped at a limit",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "count": "integer"
+      },
+      "macos": {
+        "key": "Only the first %lld fixed versions were checked.",
+        "arguments": [
+          "count"
+        ]
+      }
+    },
+    {
+      "id": "native.toolchainSettings.providerConflict",
+      "description": "Version managers in one source report different versions, so a choice is needed",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Version managers report different versions",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.resolutionUndetermined",
+      "description": "Tool row summary when Core could not resolve the directory",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not be determined",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.requestedNotInstalled",
+      "description": "Tool row summary: the version a project or global setting requests is not installed",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "arg1": "string"
+      },
+      "macos": {
+        "key": "Requested %@ is not installed",
+        "arguments": [
+          "arg1"
+        ]
+      }
+    },
+    {
+      "id": "native.toolchainSettings.providerDidNotRespond",
+      "description": "Tool row summary: a version manager asked about this tool did not answer before the query deadline",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "provider": "string"
+      },
+      "macos": {
+        "key": "%@ did not respond",
+        "arguments": [
+          "provider"
+        ]
+      }
+    },
+    {
+      "id": "native.toolchainSettings.providerIsUnavailable",
+      "description": "Tool row summary: a version manager asked about this tool could not answer because its plugin backend failed to start, disconnected or did not offer it",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "provider": "string"
+      },
+      "macos": {
+        "key": "%@ is unavailable",
+        "arguments": [
+          "provider"
+        ]
+      }
+    },
+    {
+      "id": "native.toolchainSettings.noAnswerWithinSeconds",
+      "description": "Toolchain provider query: the query reached its deadline without an answer",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "seconds": "integer"
+      },
+      "macos": {
+        "key": "No answer within %lld s",
+        "arguments": [
+          "seconds"
+        ]
+      }
+    },
+    {
+      "id": "lsp.projectJdkInvalid",
+      "description": "The configured project JDK cannot be used by the Java language service.",
+      "platforms": [
+        "windows"
+      ]
     },
     {
       "id": "settings.editorImport.choose.ide.configuration.directory",

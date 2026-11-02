@@ -81,9 +81,10 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let root: WorkspaceNodePayload
         let files: [String]
         let nestedWorktrees: [String]
+        let incompleteDirectories: [String]
 
         private enum CodingKeys: String, CodingKey {
-            case root, files, nestedWorktrees
+            case root, files, nestedWorktrees, incompleteDirectories
         }
 
         init(from decoder: any Decoder) throws {
@@ -91,6 +92,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             root = try container.decode(WorkspaceNodePayload.self, forKey: .root)
             files = try container.decode([String].self, forKey: .files)
             nestedWorktrees = try container.decodeIfPresent([String].self, forKey: .nestedWorktrees) ?? []
+            incompleteDirectories = try container.decodeIfPresent([String].self, forKey: .incompleteDirectories) ?? []
         }
 
         func makeSnapshot(at rootURL: URL) -> WorkspaceSnapshot {
@@ -99,7 +101,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 return WorkspaceSnapshot(
                     root: FileNode(url: rootURL, isDirectory: true, children: nil),
                     files: files.map { rootURL.appendingPathComponent($0) },
-                    nestedWorktrees: nested
+                    nestedWorktrees: nested, incompleteDirectories: incompleteDirectories
                 )
             }
             // Preserve Core's file order while sharing URLs with the full tree.
@@ -109,7 +111,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             return WorkspaceSnapshot(
                 root: rootNode,
                 files: files.map { fileURLs[$0] ?? rootURL.appendingPathComponent($0) },
-                nestedWorktrees: nested
+                nestedWorktrees: nested, incompleteDirectories: incompleteDirectories
             )
         }
     }
@@ -1965,6 +1967,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let workspaceConfiguration: ToolingJSONValue?
         /// Host services a plugin backend may request; omitted when none.
         let hostServices: [String]?
+        /// Manifest providers offered to a plugin backend; omitted when none.
+        let toolchainProviders: [String]?
         let runtimeExecutablePath: String?
         let jdtlsLaunchResources: LspJdtlsLaunchResourcesRequest?
         let cacheDirectory: String?
@@ -1978,6 +1982,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     }
 
     private struct LspJavaRuntimeRequest: Encodable {
+        let isDefault: Bool
         let homePath: String
         let version: String
     }
@@ -2107,6 +2112,12 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     private struct LspBuildRequest: Encodable {
         let sessionId: String
         let method: String
+        let params: ToolingJSONValue
+        let timeoutMilliseconds: Int
+    }
+
+    private struct LspToolchainRequest: Encodable {
+        let sessionId: String
         let params: ToolingJSONValue
         let timeoutMilliseconds: Int
     }
@@ -2511,12 +2522,36 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         return String(cString: lithe_bridge_version())
     }
 
+    func releaseIndexing(at rootURL: URL, revision: UInt64, ownerID: String? = nil) {
+        struct Payload: Encodable { let root: String; let revision: UInt64; let ownerId: String? }
+        struct Response: Decodable { let released: Bool }
+        let _: Response? = execute(command: "workspace.releaseIndexing", payload: Payload(root: rootURL.path, revision: revision, ownerId: ownerID))
+    }
+
+    func configureIndexing(at rootURL: URL, policy: WorkspaceIndexingPolicy, refresh: Bool, ownerID: String? = nil) throws -> WorkspaceIndexingStatus {
+        struct Request: Encodable {
+            let root: String
+            let ownerId: String?
+            let manualExcludedDirectories: [String]
+            let includedDirectories: [String]
+            let gitIgnoreEnabled: Bool
+            let refresh: Bool
+        }
+        return try executeResult(command: "workspace.configureIndexing", payload: Request(
+            root: rootURL.standardizedFileURL.path,
+            ownerId: ownerID,
+            manualExcludedDirectories: policy.manualExcludedDirectories,
+            includedDirectories: policy.includedDirectories,
+            gitIgnoreEnabled: policy.gitIgnoreEnabled, refresh: refresh
+        )).get()
+    }
+
     func snapshot(
         at rootURL: URL,
         hiddenDirectoryNames: [String] = [],
         hiddenFilePatterns: [String] = []
-    ) -> WorkspaceSnapshotPayload? {
-        execute(
+    ) throws -> WorkspaceSnapshotPayload {
+        try executeResult(
             command: "workspace.snapshot",
             payload: SnapshotRequest(
                 root: rootURL.standardizedFileURL.path,
@@ -2524,7 +2559,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 hiddenFilePatterns: hiddenFilePatterns,
                 includeTree: false
             )
-        )
+        ).get()
     }
 
     /// Lists one visible level below each workspace-relative directory.
@@ -3849,6 +3884,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         initializationOptions: ToolingJSONValue? = nil,
         workspaceConfiguration: ToolingJSONValue? = nil,
         hostServices: [String] = [],
+        toolchainProviders: [String] = [],
         runtimeExecutableURL: URL? = nil,
         jdtlsLaunchResources: JDTLSLaunchResources? = nil,
         cacheDirectoryURL: URL? = nil,
@@ -3872,6 +3908,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 initializationOptions: initializationOptions,
                 workspaceConfiguration: workspaceConfiguration,
                 hostServices: hostServices.isEmpty ? nil : hostServices,
+                toolchainProviders: toolchainProviders.isEmpty ? nil : toolchainProviders,
                 runtimeExecutablePath: runtimeExecutableURL?.standardizedFileURL.path,
                 jdtlsLaunchResources: jdtlsLaunchResources.map {
                     LspJdtlsLaunchResourcesRequest(
@@ -3887,7 +3924,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 mavenContext: mavenContext,
                 javaGradle: javaGradle,
                 javaRuntimes: (jdtlsLaunchResources?.javaRuntimes ?? []).map {
-                    LspJavaRuntimeRequest(homePath: $0.homePath, version: $0.version)
+                    LspJavaRuntimeRequest(isDefault: $0.isDefault, homePath: $0.homePath, version: $0.version)
                 },
                 initializeTimeoutMilliseconds: Self.milliseconds(initializeTimeout),
                 requestTimeoutMilliseconds: Self.milliseconds(requestTimeout),
@@ -4177,6 +4214,20 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 tool: tool,
                 arguments: arguments,
                 timeoutMilliseconds: max(1, Self.milliseconds(timeout))
+            )
+        )
+    }
+
+    /// Sends one `toolchains/query` to a session that negotiated its provider.
+    func lspToolchainRequest(
+        sessionID: String,
+        params: ToolingJSONValue,
+        timeout: TimeInterval
+    ) -> Result<LspOperationPayload, CoreCallError> {
+        executeResult(
+            command: "lsp.toolchainRequest",
+            payload: LspToolchainRequest(
+                sessionId: sessionID, params: params, timeoutMilliseconds: max(1, Self.milliseconds(timeout))
             )
         )
     }

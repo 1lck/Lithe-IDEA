@@ -210,6 +210,25 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
         )
     }
 
+    /// Provider IDs a normalized manifest declares, offered during `initialize`.
+    static func toolchainProviderIDs(ofManifest manifest: Data) -> [String] {
+        guard let object = try? JSONSerialization.jsonObject(with: manifest) as? [String: Any],
+              let providers = object["toolchainProviders"] as? [[String: Any]] else { return [] }
+        return providers.compactMap { $0["id"] as? String }
+    }
+
+    /// Asks a plugin's provider, starting or reusing its one backend process.
+    /// Returns `{ id, response }` unvalidated; see `toolchains.decodeReply`.
+    func queryToolchainProvider(
+        _ providerID: String, params: ToolingJSONValue, ofPlugin pluginID: String, timeout: TimeInterval
+    ) async throws -> ToolingJSONValue {
+        let session = try await session(for: pluginID)
+        guard session.toolchainProviders.contains(providerID) else {
+            throw UnavailableError(message: L10n.string("The plugin backend did not offer this version manager."))
+        }
+        return try await session.toolchainRequest(params: params, timeout: timeout)
+    }
+
     /// Plugins whose backend starts on `event`, such as `onWorkspaceOpen`
     /// or `onCommand:<id>`. `owner` limits a command to the plugin whose UI
     /// module declares it.
@@ -482,7 +501,8 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
             // are the backend's only callers.
             moduleID: ModuleID("\(pluginID).ui"),
             pluginID: pluginID,
-            hostServices: hostServices
+            hostServices: hostServices,
+            toolchainProviders: packages[pluginID].map { Self.toolchainProviderIDs(ofManifest: $0.manifest) } ?? []
         )
         let endBackendProcesses = endBackendProcesses
         let hostDispatcher = hostDispatcher

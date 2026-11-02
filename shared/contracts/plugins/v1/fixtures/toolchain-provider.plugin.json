@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 2,
+  "id": "dev.lithe.fixture.mise",
+  "displayName": "Toolchain provider fixture",
+  "version": "1.0.0",
+  "pluginAPIVersion": 3,
+  "requires": {
+    "toolchainProviders": 1,
+    "backend": 2,
+    "serverProcess": 1
+  },
+  "vendor": {
+    "id": "org.example",
+    "displayName": "Fixture publisher",
+    "signatureRequirement": "publisherPackage"
+  },
+  "permissions": [
+    "backend.launch",
+    "toolchains.provide"
+  ],
+  "toolchainProviders": [
+    {
+      "id": "mise",
+      "displayName": "mise",
+      "tools": [
+        "java",
+        "node",
+        "maven",
+        "pnpm",
+        "go"
+      ],
+      "watchFiles": [
+        {
+          "pattern": "mise.toml",
+          "reader": "native"
+        },
+        {
+          "pattern": "mise.local.toml",
+          "reader": "native"
+        },
+        {
+          "pattern": ".mise.toml",
+          "reader": "native"
+        },
+        {
+          "pattern": ".tool-versions",
+          "reader": "compatible"
+        },
+        {
+          "pattern": ".mise/config.toml",
+          "reader": "native"
+        },
+        {
+          "pattern": ".mise/config.local.toml",
+          "reader": "native"
+        }
+      ]
+    }
+  ],
+  "backend": {
+    "launch": {
+      "kind": "packaged",
+      "path": "bin/mise-provider"
+    },
+    "arguments": [
+      "--stdio"
+    ]
+  }
+}

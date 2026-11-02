@@ -23,6 +23,10 @@ enum SettingsSearchVocabulary {
             ["Keymap", "Keyboard shortcuts", "Shortcuts", "Actions"]
         case .project:
             ["Project", "Java SDK", "JDK", "Project JDK", "Maven", "Maven Home", "Maven Wrapper", "Maven JDK"]
+        case .toolchainEnvironment:
+            ["Runtime Environment", "Tools", "Directories", "Version files", "Fixed", "Project requirements", "Global defaults", "Automatic discovery"]
+        case .toolchainSources:
+            ["Toolchain Sources", "Login shell", "Shell", "PATH", "Version managers", "Watched files"]
         case .run:
             ["Run configurations", "Program arguments", "VM options", "Environment variables", "Working directory", "Services"]
         case .terminal:
@@ -42,7 +46,7 @@ enum SettingsSearchVocabulary {
         case .providers:
             ["AI Providers", "AI provider", "Model", "API key", "Endpoint", "Responses", "Anthropic"]
         case .git:
-            ["Git", "Fetch", "Tags", "Submodules", "Prune", "Commit identity", "Committer name", "Committer email", "Configuration scope", "user.name", "user.email"]
+            ["Git", "Fetch", "Tags", "Submodules", "Prune", "Commit identity", "Committer name", "Committer email", "Configuration scope", "user.name", "user.email", "Project Indexing", "Automatically exclude Git-ignored directories", "Excluded", "Cancel Exclusion"]
         case .updates:
             ["Updates", "Application version", "Update status", "Check for Updates", "Update channel", "Stable (Recommended)", "AutoBuild Rolling"]
         case .network:

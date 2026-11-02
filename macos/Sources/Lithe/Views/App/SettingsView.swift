@@ -392,6 +392,18 @@ struct SettingsView: View {
         } else if viewState.selection == .project {
             ProjectRuntimeSettingsView(feature: model.runtimeFeature)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if viewState.selection == .toolchainEnvironment {
+            ToolchainEnvironmentSettingsView(feature: model.toolchainSettingsFeature, onOpenPlugins: {
+                viewState.selection = .plugins
+            })
+            .task(id: model.workspaceURL) { await model.toolchainSettingsFeature.load(workspace: model.workspaceURL) }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if viewState.selection == .toolchainSources {
+            ToolchainSourcesSettingsView(feature: model.toolchainSettingsFeature, onOpenPlugins: {
+                viewState.selection = .plugins
+            })
+            .task(id: model.workspaceURL) { await model.toolchainSettingsFeature.load(workspace: model.workspaceURL) }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if viewState.selection == .keymap {
             KeyboardShortcutSettingsView(
                 feature: model.keyboardShortcutFeature,
@@ -417,6 +429,7 @@ struct SettingsView: View {
                     case .terminal: terminalSettings
                     case .lsp: EmptyView()
                     case .project: EmptyView()
+                    case .toolchainEnvironment, .toolchainSources: EmptyView()
                     case .run: EmptyView()
                     case .ai: aiSettings
                     case .instructions:

@@ -54,6 +54,7 @@ extension AppModel {
             activateWhenReady: activateWhenReady
         )
         editorTabOrderFeature.moveToEnd(.media(media.id))
+        if activateWhenReady { editorTabOrderFeature.focus(.media(media.id)) }
     }
 
     func selectMediaDocument(_ media: MediaDocument) {
@@ -87,6 +88,7 @@ extension AppModel {
         guard wasActive else { return }
 
         switch fallbackItem {
+        case .languageLogs: selectLanguageServerLogsTab()
         case .agentConversation(let tab): showAgentChatsInEditor(tab: tab)
         case .repositoryDiff(let id):
             selectRepositoryDiffTab(id)

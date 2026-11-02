@@ -271,7 +271,9 @@ final class BranchPopupRowControl: NSControl {
         if isGesture, let panel = detachExpansion() {
             // The panel outlives this row, which a lazy list may drop mid-gesture.
             overlay.handOffScrollGesture(to: enclosingScrollView ?? nextResponder,
-                                         schedule: scheduleExpansionRetirement) { Self.dismiss(panel) }
+                                         schedule: scheduleExpansionRetirement) { [weak panel] in
+                if let panel { Self.dismiss(panel) }
+            }
         }
         isHovered = false
         refresh()
@@ -338,8 +340,8 @@ final class BranchPopupRowControl: NSControl {
 private final class BranchPopupExpansionView: NSView {
     /// Momentum follows lifted fingers almost immediately, but fingers may rest
     /// mid-gesture for as long as they like and retiring then loses the gesture.
-    /// The long delay only bounds a gesture whose end never arrives; a click on
-    /// the invisible panel retires it sooner.
+    /// The long delay only bounds a gesture whose end never arrives. A click
+    /// transfers its full mouse sequence to the current parent content.
     private enum RetirementDelay {
         static let afterFingersLift: TimeInterval = 0.15
         static let whileGestureActive: TimeInterval = 10
@@ -357,6 +359,13 @@ private final class BranchPopupExpansionView: NSView {
     var onScroll: ((NSEvent) -> Void)?
     private var handoff: ScrollGestureHandoff?
     private var pendingRetirement: DispatchWorkItem?
+    private var parentCloseObserver: NSObjectProtocol?
+    private weak var mouseWindow: NSWindow?
+
+    deinit {
+        pendingRetirement?.cancel()
+        if let parentCloseObserver { NotificationCenter.default.removeObserver(parentCloseObserver) }
+    }
 
     /// Hides the panel but keeps it receiving the gesture. An alpha 0 window is
     /// click-through by default, which loses the gesture just like closing it,
@@ -366,27 +375,64 @@ private final class BranchPopupExpansionView: NSView {
         onPress = nil
         onSecondaryPress = nil
         onExit = nil
+        onScroll = nil
         window?.ignoresMouseEvents = false
         window?.alphaValue = 0
         handoff = ScrollGestureHandoff(target: target, schedule: schedule, retire: retire)
+        if let parent = window?.parent {
+            parentCloseObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.willCloseNotification, object: parent, queue: .main
+            ) { [weak self] _ in MainActor.assumeIsolated { self?.retireHandoff() } }
+        }
     }
 
     private func forward(_ event: NSEvent, using handoff: ScrollGestureHandoff) {
         handoff.target?.scrollWheel(with: event)
+        guard self.handoff != nil, mouseWindow == nil else { return }
+        let finished: [NSEvent.Phase] = [.ended, .cancelled]
+        let isActive = finished.contains(event.momentumPhase) ? false
+            : !event.momentumPhase.isEmpty || !finished.contains(event.phase)
+        scheduleRetirement(after: isActive ? RetirementDelay.whileGestureActive : RetirementDelay.afterFingersLift)
+    }
+
+    private func scheduleRetirement(after delay: TimeInterval) {
         pendingRetirement?.cancel()
         let work = DispatchWorkItem { [weak self] in
             MainActor.assumeIsolated { self?.retireHandoff() }
         }
         pendingRetirement = work
-        let finished: [NSEvent.Phase] = [.ended, .cancelled]
-        let isActive = finished.contains(event.momentumPhase) ? false
-            : !event.momentumPhase.isEmpty || !finished.contains(event.phase)
-        handoff.schedule(isActive ? RetirementDelay.whileGestureActive : RetirementDelay.afterFingersLift, work)
+        handoff?.schedule(delay, work)
+    }
+
+    /// Re-enter window dispatch so the current hit view, focus and native mouse
+    /// tracking own the click, not the row that scrolled away. Keep the hidden
+    /// panel until mouse-up because AppKit may bind this sequence to it too.
+    private func forwardMouse(_ event: NSEvent, startsSequence: Bool = false, endsSequence: Bool = false) {
+        guard handoff != nil, let source = window else { return }
+        if startsSequence {
+            mouseWindow = source.parent
+            scheduleRetirement(after: RetirementDelay.whileGestureActive)
+        }
+        defer { if endsSequence { retireHandoff() } }
+        guard let destination = mouseWindow, destination.isVisible else { retireHandoff(); return }
+        let point = destination.convertPoint(fromScreen: source.convertPoint(toScreen: event.locationInWindow))
+        if startsSequence {
+            guard let content = destination.contentView,
+                  content.bounds.contains(content.convert(point, from: nil)) else { retireHandoff(); return }
+        }
+        guard let forwarded = NSEvent.mouseEvent(with: event.type, location: point,
+            modifierFlags: event.modifierFlags, timestamp: event.timestamp,
+            windowNumber: destination.windowNumber, context: nil, eventNumber: event.eventNumber,
+            clickCount: event.clickCount, pressure: event.pressure) else { retireHandoff(); return }
+        NSApp.sendEvent(forwarded)
     }
 
     private func retireHandoff() {
         pendingRetirement?.cancel()
         pendingRetirement = nil
+        if let parentCloseObserver { NotificationCenter.default.removeObserver(parentCloseObserver) }
+        parentCloseObserver = nil
+        mouseWindow = nil
         let retiring = handoff
         handoff = nil
         retiring?.retire()
@@ -400,13 +446,16 @@ private final class BranchPopupExpansionView: NSView {
                                        owner: self, userInfo: nil))
     }
     override func mouseDown(with event: NSEvent) {
-        retireHandoff()
-        onPress?()
+        if handoff != nil { forwardMouse(event, startsSequence: true) } else { onPress?() }
     }
     override func rightMouseDown(with event: NSEvent) {
-        retireHandoff()
-        onSecondaryPress?(event.window?.convertPoint(toScreen: event.locationInWindow) ?? NSEvent.mouseLocation)
+        if handoff != nil { forwardMouse(event, startsSequence: true) }
+        else { onSecondaryPress?(event.window?.convertPoint(toScreen: event.locationInWindow) ?? NSEvent.mouseLocation) }
     }
+    override func mouseDragged(with event: NSEvent) { forwardMouse(event) }
+    override func mouseUp(with event: NSEvent) { forwardMouse(event, endsSequence: true) }
+    override func rightMouseDragged(with event: NSEvent) { forwardMouse(event) }
+    override func rightMouseUp(with event: NSEvent) { forwardMouse(event, endsSequence: true) }
     override func mouseExited(with event: NSEvent) { onExit?() }
     override func scrollWheel(with event: NSEvent) {
         if let handoff { forward(event, using: handoff) } else { onScroll?(event) }

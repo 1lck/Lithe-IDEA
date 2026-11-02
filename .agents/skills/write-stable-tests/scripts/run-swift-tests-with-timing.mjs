@@ -87,7 +87,11 @@ function parseArguments(arguments_) {
   return options;
 }
 
-export async function run(options, { runProcessImpl = runProcess } = {}) {
+export async function run(options, {
+  runProcessImpl = runProcess,
+  setTimeoutImpl = setTimeout,
+  clearTimeoutImpl = clearTimeout,
+} = {}) {
   mkdirSync(path.dirname(options.report), { recursive: true });
   const logPath = options.report.replace(/\.json$/i, ".log");
   const log = createWriteStream(logPath, { flags: "w" });
@@ -170,8 +174,8 @@ export async function run(options, { runProcessImpl = runProcess } = {}) {
     }
   };
   const armStallTimer = () => {
-    if (stallTimer) clearTimeout(stallTimer);
-    stallTimer = setTimeout(() => {
+    if (stallTimer) clearTimeoutImpl(stallTimer);
+    stallTimer = setTimeoutImpl(() => {
       stalled = true;
       captureStallSample();
       terminateChild();
@@ -217,6 +221,12 @@ export async function run(options, { runProcessImpl = runProcess } = {}) {
       childPid = pid ?? null;
       terminateChild = terminate;
     },
+    // Swift may split a timing line across writes. Silence is measured from
+    // actual bytes, while complete lines remain the source of test results.
+    onOutputChunk: () => {
+      lastOutputAt = new Date().toISOString();
+      armStallTimer();
+    },
     onStdoutLine: (line) => recordLine(line, "stdout"),
     onStderrLine: (line) => recordLine(line, "stderr"),
     streamStdout: true,
@@ -231,7 +241,7 @@ export async function run(options, { runProcessImpl = runProcess } = {}) {
   try {
     result = await childPromise;
   } finally {
-    if (stallTimer) clearTimeout(stallTimer);
+    if (stallTimer) clearTimeoutImpl(stallTimer);
     stallTimer = null;
     await new Promise((resolve) => {
       log.once("error", (error) => {

@@ -63,6 +63,7 @@ pub struct JavaLspLaunch {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JavaLspRuntime {
+    pub is_default: bool,
     pub home_path: String,
     pub version: String,
 }
@@ -146,15 +147,25 @@ struct ResolvedJdtlsLaunchResources {
 pub async fn lsp_resolve_java_launch(
     app: AppHandle,
     workspace_path: String,
+    project_java_home: Option<String>,
     log_manager: State<'_, Arc<LogManager>>,
 ) -> Result<JavaLspLaunch, String> {
     let log_manager = Arc::clone(&log_manager);
-    run_blocking(move || resolve_java_launch(&app, &workspace_path, &log_manager)).await
+    run_blocking(move || {
+        resolve_java_launch(
+            &app,
+            &workspace_path,
+            project_java_home.as_deref().unwrap_or(""),
+            &log_manager,
+        )
+    })
+    .await
 }
 
 fn resolve_java_launch(
     app: &AppHandle,
     workspace_path: &str,
+    project_java_home: &str,
     log_manager: &LogManager,
 ) -> Result<JavaLspLaunch, String> {
     let workspace = PathBuf::from(workspace_path);
@@ -247,13 +258,7 @@ fn resolve_java_launch(
             java_home: Some(normalize_path(&resolution.java_home)),
         },
         workspace_fingerprint,
-        java_runtimes: run::discover_java_runtimes(project_root)
-            .into_iter()
-            .map(|runtime| JavaLspRuntime {
-                home_path: runtime.home_path,
-                version: runtime.version,
-            })
-            .collect(),
+        java_runtimes: run::language_service_java_runtimes(&workspace, project_java_home)?,
         java_gradle: project_root.and_then(detect_gradle_context),
     })
 }

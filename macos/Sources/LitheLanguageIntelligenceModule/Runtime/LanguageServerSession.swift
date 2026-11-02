@@ -53,6 +53,8 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     private let pluginID: String?
     /// Host services Core lets this plugin backend request.
     private let hostServices: [String]
+    /// Manifest providers this backend is offered during `initialize`.
+    private let offeredToolchainProviders: [String]
 
     private var sessionID: String?
     private var startupGeneration: UUID?
@@ -74,6 +76,8 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     private var functionProgress: [String: @MainActor @Sendable (PluginFunctionProgress) -> Void] = [:]
     private var documentVersions: [URL: Int] = [:]
     private var pollTask: Task<Void, Never>?
+    private var releaseTask: Task<Void, Never>?
+    private var startsInFlight = 0
     private var state: LanguageServerSessionState = .stopped
     private var processID: Int32?
     /// Requests being written off the main actor. Core writes a request to
@@ -130,6 +134,8 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     /// The VCS provider the process negotiated in `initialize`, as Core's
     /// `vcsProvider` event reported it; nil for every other session.
     package private(set) var vcsNegotiation: VcsProviderNegotiation?
+    /// Providers the backend selected, from the `toolchainProviders` event.
+    package private(set) var toolchainProviders: [String] = []
     package var onServerInfoChange: ((LanguageServerInfo?) -> Void)?
     package var javaTestRunnerURL: URL? {
         hostIntegrationLaunch?.coreLaunch?.jdtlsLaunchResources?.javaTestRunnerURL
@@ -152,7 +158,8 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         processRegistry: (any LanguageServerProcessRegistry)? = nil,
         moduleID: ModuleID = .languageIntelligence,
         pluginID: String? = nil,
-        hostServices: [String] = []
+        hostServices: [String] = [],
+        toolchainProviders: [String] = []
     ) {
         self.providerID = providerID
         self.executableURL = executableURL
@@ -171,6 +178,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         self.moduleID = moduleID
         self.pluginID = pluginID
         self.hostServices = hostServices
+        self.offeredToolchainProviders = toolchainProviders
     }
 
     /// Derived from the last lifecycle state Rust published: there is no local
@@ -210,7 +218,9 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         if let prepareProcess, !startingPreparedProcess {
             let generation = UUID()
             startupGeneration = generation
+            startsInFlight += 1
             preparationTask = Task { @MainActor [weak self] in
+                defer { self?.startsInFlight -= 1 }
                 do {
                     let prepared = try await prepareProcess(normalizedRoot)
                     guard let self, self.startupGeneration == generation, !Task.isCancelled else {
@@ -279,6 +289,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         let core = core
         let pluginID = pluginID
         let hostServices = hostServices
+        let offeredToolchainProviders = offeredToolchainProviders
         let providerID = providerID
         let executableURL = executableURL
         let environment = environment
@@ -291,7 +302,22 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         let resolvedOptions = initializationOptions
         let resolvedConfiguration = workspaceConfiguration
         let launch: @Sendable () -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> = {
-            if let pluginID {
+            if let pluginID, !offeredToolchainProviders.isEmpty {
+                core.startPluginToolchainBackend(
+                    pluginID: pluginID,
+                    providerID: providerID,
+                    executableURL: executableURL,
+                    arguments: resolvedArguments,
+                    environment: environment,
+                    rootURL: normalizedRoot,
+                    initializationOptions: resolvedOptions,
+                    hostServices: hostServices,
+                    toolchainProviders: offeredToolchainProviders,
+                    initializeTimeout: initializeTimeout,
+                    requestTimeout: requestTimeout,
+                    shutdownTimeout: shutdownTimeout
+                )
+            } else if let pluginID {
                 core.startPluginLanguageServer(
                     pluginID: pluginID,
                     providerID: providerID,
@@ -338,14 +364,32 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
             startupGeneration = generation
             let resources = releaseResources
             releaseResources = nil
+            startsInFlight += 1
             Task.detached(priority: .userInitiated) { [weak self] in
                 let started = launch()
                 // The completion claims the result only while its generation
                 // is active; a closed/replaced owner destroys the late session.
                 if await self?.completeBackgroundStart(started, generation: generation, resources: resources) != true {
-                    if case .success(let payload) = started { core.destroyLanguageServer(sessionID: payload.sessionID) }
+                    if case .success(let payload) = started {
+                        // A cancelled remote launch can finish after stop().
+                        // Keep its ownership until Core confirms termination.
+                        core.stopLanguageServer(sessionID: payload.sessionID)
+                        let deadline = ContinuousClock.now.advanced(by: .seconds(max(5, shutdownTimeout * 2 + 2)))
+                        var ended = false
+                        while !ended, ContinuousClock.now < deadline {
+                            ended = core.pollLanguageServerEvents(sessionID: payload.sessionID).contains {
+                                $0.type == "stateChanged" && ($0.state == "stopped" || $0.state == "failed")
+                            }
+                            if !ended { try? await Task.sleep(for: .milliseconds(10)) }
+                        }
+                        // Fail closed: retaining the in-flight marker prevents
+                        // reuse of a workspace whose old process is still alive.
+                        guard ended else { return }
+                        core.destroyLanguageServer(sessionID: payload.sessionID)
+                    }
                     await resources?()
                 }
+                await self?.finishBackgroundStart()
             }
             return
         }
@@ -356,6 +400,8 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
             throw error
         }
     }
+
+    private func finishBackgroundStart() { startsInFlight -= 1 }
 
     private func completeBackgroundStart(
         _ result: Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure>,
@@ -880,6 +926,40 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         }
     }
 
+    /// Sends one `toolchains/query` and returns `{ id, response }`, the raw
+    /// reply `toolchains.decodeReply` validates. Cancelling the task sends
+    /// `$/cancelRequest`; a late reply then finds no pending request.
+    package func toolchainRequest(params: ToolingJSONValue, timeout: TimeInterval) async throws -> ToolingJSONValue {
+        guard let sessionID, state == .ready else {
+            throw LanguageServerRuntimeSessionError.notReady
+        }
+        let started: LanguageServerRuntimeOperation
+        switch await send(timeout: timeout, { core in
+            core.requestToolchainProvider(sessionID: sessionID, params: params, timeout: timeout)
+        }) {
+        case .success(let operation): started = operation
+        case .failure(let error):
+            sendsInFlight -= 1
+            try Task.checkCancellation()
+            throw LanguageServerRuntimeSessionError.requestRejected(error.userMessage)
+        }
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                registerPendingOperation(started, name: "toolchains/query") { result in
+                    continuation.resume(with: result.flatMap { event in
+                        guard case .object(let object)? = event.result, let value = object["value"] else {
+                            return .failure(LanguageServerRuntimeSessionError.missingResult)
+                        }
+                        return .success(value)
+                    })
+                }
+                sendsInFlight -= 1
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.cancelOffMain(started.operationID) }
+        }
+    }
+
     /// Invokes a plugin function of the plugin that owns this session. Core
     /// checks ownership and registration; a refusal or a failed call throws
     /// `PluginFunctionFailure`, and cancelling the task cancels the call.
@@ -1176,6 +1256,10 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     }
 
     package func stop() {
+        beginStop(inBackground: false)
+    }
+
+    private func beginStop(inBackground: Bool) {
         let wasStarting = startupGeneration != nil
         preparationTask?.cancel()
         preparationTask = nil
@@ -1205,13 +1289,26 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
                 watchdog.arm(after: stuckSendGrace) { [weak self] in self?.endStuckSend() }
                 stopWatchdog = watchdog
             }
-        } else if usesBackgroundStart {
+        } else if usesBackgroundStart || inBackground {
             let core = core
             Task.detached(priority: .userInitiated) { core.stopLanguageServer(sessionID: sessionID) }
         } else {
             core.stopLanguageServer(sessionID: sessionID)
         }
         if isRunning { transition(to: .stopping) }
+    }
+
+    package func stopAndWait() async -> Bool {
+        // Core may wait for an outbound lock/write; the caller's deadline must
+        // remain responsive on the main actor even when that stop send blocks.
+        beginStop(inBackground: true)
+        let deadline = ContinuousClock.now.advanced(by: .seconds(max(5, shutdownTimeout * 2 + 2)))
+        while sessionID != nil || startsInFlight > 0 || releaseTask != nil {
+            guard ContinuousClock.now < deadline else { return false }
+            do { try await Task.sleep(for: .milliseconds(10)) }
+            catch { return false }
+        }
+        return true
     }
 
     package func retryMavenProfiles() {
@@ -1442,6 +1539,13 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
             case .failure(let error): onLog?(.error, "Invalid VCS provider event", error.localizedDescription, nil)
             }
             return false
+        case "toolchainProviders":
+            if case .object(let object)? = event.result, case .array(let providers)? = object["providers"] {
+                toolchainProviders = providers.compactMap {
+                    if case .string(let provider) = $0 { provider } else { nil }
+                }
+            }
+            return false
         case "featuresChanged":
             updateFeatures(capabilityNames: event.capabilities ?? [])
             return false
@@ -1504,15 +1608,21 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         if let sessionID {
             if usesBackgroundStart || releaseResources != nil {
                 let core = core
-                Task.detached(priority: .userInitiated) {
-                    core.destroyLanguageServer(sessionID: sessionID)
-                    await releaseResources?()
+                releaseTask = Task { @MainActor [self] in
+                    await Task.detached(priority: .userInitiated) {
+                        core.destroyLanguageServer(sessionID: sessionID)
+                        await releaseResources?()
+                    }.value
+                    releaseTask = nil
                 }
             } else {
                 core.destroyLanguageServer(sessionID: sessionID)
             }
         } else if let releaseResources {
-            Task.detached { await releaseResources() }
+            releaseTask = Task { @MainActor [self] in
+                await releaseResources()
+                releaseTask = nil
+            }
         }
         sessionID = nil
         documentVersions = [:]
@@ -1533,6 +1643,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
             onFunctionsChange?([])
         }
         vcsNegotiation = nil
+        toolchainProviders = []
         let released = onReleased
         onReleased = nil
         released?()

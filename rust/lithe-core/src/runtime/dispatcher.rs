@@ -95,7 +95,7 @@ fn execute(request: &str) -> CoreResponse {
                 None,
                 CoreError::new(ErrorCode::InvalidRequest, "Invalid JSON request")
                     .with_details(error.to_string()),
-            )
+            );
         }
     };
     let id = parsed.id.clone();
@@ -276,6 +276,30 @@ fn execute(request: &str) -> CoreResponse {
             parsed.payload,
             crate::plugins::editor_actions::decode_command,
         ),
+        CoreCommand::ToolchainsRegistry => {
+            plugin_response(id, parsed.payload, crate::toolchain::registry_command)
+        }
+        CoreCommand::ToolchainsDecodeReply => {
+            plugin_response(id, parsed.payload, crate::toolchain::decode_reply_command)
+        }
+        CoreCommand::ToolchainsFailureReply => {
+            plugin_response(id, parsed.payload, crate::toolchain::failure_reply_command)
+        }
+        CoreCommand::ToolchainsResolvePins => {
+            plugin_response(id, parsed.payload, crate::toolchain::resolve_pins_command)
+        }
+        CoreCommand::ToolchainsResolve => {
+            plugin_response(id, parsed.payload, crate::toolchain::resolve_command)
+        }
+        CoreCommand::ToolchainsCheckVersion => {
+            plugin_response(id, parsed.payload, crate::toolchain::check_version_command)
+        }
+        CoreCommand::ToolchainsDiscoveryPlan => {
+            plugin_response(id, parsed.payload, crate::toolchain::discovery_plan_command)
+        }
+        CoreCommand::ToolchainsCandidates => {
+            plugin_response(id, parsed.payload, crate::toolchain::candidates_command)
+        }
         CoreCommand::BuildDetect => {
             plugin_response(id, parsed.payload, crate::build::build_detect_command)
         }
@@ -544,6 +568,56 @@ fn execute(request: &str) -> CoreResponse {
                 .and_then(community::revoke)
             {
                 Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::WorkspaceReleaseIndexing => {
+            match serde_json::from_value::<project::indexing::ReleaseIndexingRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(ErrorCode::InvalidRequest, "Invalid indexing release")
+                    .with_details(error.to_string())
+            })
+            .and_then(project::indexing::release)
+            {
+                Ok(released) => {
+                    CoreResponse::success(id, serde_json::json!({"released": released}))
+                }
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::WorkspaceConfigureIndexing => {
+            match serde_json::from_value::<project::indexing::ConfigureIndexingRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(ErrorCode::InvalidRequest, "Invalid indexing policy")
+                    .with_details(error.to_string())
+            })
+            .and_then(project::indexing::configure)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("indexing status should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::WorkspaceRefreshIndexing => {
+            match serde_json::from_value::<project::indexing::RefreshIndexingRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(ErrorCode::InvalidRequest, "Invalid indexing refresh")
+                    .with_details(error.to_string())
+            })
+            .and_then(project::indexing::refresh_indexing)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("indexing status should encode"),
+                ),
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
@@ -1889,6 +1963,24 @@ fn execute(request: &str) -> CoreResponse {
                 Ok(data) => CoreResponse::success(
                     id,
                     serde_json::to_value(data).expect("Build-provider response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::LspToolchainRequest => {
+            match serde_json::from_value::<crate::lsp::ToolchainProviderRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid toolchain-provider request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::toolchain_provider_request)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Toolchain response should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }

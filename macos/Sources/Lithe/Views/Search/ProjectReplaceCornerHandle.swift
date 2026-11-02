@@ -6,6 +6,7 @@ struct ProjectReplaceCornerHandle: NSViewRepresentable {
     let onStart: () -> Void
     let onChange: (CGSize) -> Void
     let onEnd: (CGSize) -> Void
+    var preservesWindowPosition = false
 
     func makeNSView(context: Context) -> ProjectReplaceCornerHandleView {
         ProjectReplaceCornerHandleView()
@@ -13,6 +14,7 @@ struct ProjectReplaceCornerHandle: NSViewRepresentable {
 
     func updateNSView(_ view: ProjectReplaceCornerHandleView, context: Context) {
         view.corner = corner
+        view.preservesWindowPosition = preservesWindowPosition
         view.onStart = onStart
         view.onChange = onChange
         view.onEnd = onEnd
@@ -30,6 +32,7 @@ class ProjectReplaceCornerHandleView: NSView {
     }
     var cursorOverride: NSCursor?
     var tracksInactiveWindows = false
+    var preservesWindowPosition = false
     var onStart: (() -> Void)?
     var onChange: ((CGSize) -> Void)?
     var onEnd: ((CGSize) -> Void)?
@@ -75,6 +78,7 @@ class ProjectReplaceCornerHandleView: NSView {
     override func mouseDown(with event: NSEvent) {
         guard let window else { return }
         endTracking()
+        if preservesWindowPosition { (window.delegate as? LitheCenteredPopupPresenter)?.preservePosition() }
         trackingWindow = window
         start = window.convertPoint(toScreen: event.locationInWindow)
         lastTranslation = .zero

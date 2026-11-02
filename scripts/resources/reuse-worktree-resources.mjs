@@ -89,6 +89,9 @@ async function readRegistry() {
   // not reusable build inputs, even without plugin mirror staging.
   // Plugin host secrets and workspace state also take this rejection route,
   // never a download/cache validator: their identity belongs to the installation.
+  // Offline Markdown libraries, including PlantUML, are pinned Git inputs.
+  // Rebuild the target checkout's template/vendor resources before signing.
+  // Generated bundles and live render state are never reusable resources.
   const excludedResources = registry.excludedResources ?? [];
   if (!Array.isArray(excludedResources)) throw new Error("Invalid excluded worktree resources");
   for (const resource of excludedResources) {
@@ -428,6 +431,8 @@ async function main() {
       // Agent edit-and-paste state is user-owned runtime data, without a copy stage.
       // editor-theme-assets rebuild palettes and license notices together; no build stamp permits reuse.
       if (excludedResources.some((resource) => resource.id === identifier)) {
+        // Per-launch relays also own their provider admission route; they stay
+        // excluded even when their embedded source matches another worktree.
         const excluded = excludedResources.find((resource) => resource.id === identifier);
         throw new Error(`Resource ${identifier} is isolated (${excluded.locations.join(", ")}): ${excluded.identity}; ${excluded.reason}; it cannot be reused across worktrees`);
       }

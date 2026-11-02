@@ -108,6 +108,22 @@ pub enum CoreCommand {
     PluginsDeclarativeDecodeGrammar,
     /// Validates independent editor action registration or results.
     PluginsEditorActionsDecode,
+    /// Registers plugin-owned tools with verified package provenance.
+    ToolchainsRegistry,
+    /// Validates provider answers using native evidence supplied by the host.
+    ToolchainsDecodeReply,
+    /// Builds the error reply for a provider query that timed out or found no backend.
+    ToolchainsFailureReply,
+    /// Resolves the nearest machine-local directory pin.
+    ToolchainsResolvePins,
+    /// Resolves the four toolchain layers from a captured value snapshot.
+    ToolchainsResolve,
+    /// Checks a plugin-defined version probe without per-tool parsing.
+    ToolchainsCheckVersion,
+    /// Plans system scans solely from enabled tool definitions.
+    ToolchainsDiscoveryPlan,
+    /// Lists checked installations and the automatic choice for one tool.
+    ToolchainsCandidates,
     /// Finds the build-system instances of a workspace (`build.detect`).
     BuildDetect,
     /// Lists a build system's executable candidates and version probes (`build.invocationPlan`).
@@ -188,6 +204,12 @@ pub enum CoreCommand {
     CommunityDiscourseAuthRevoke,
     /// Builds the visible project tree (`workspace.snapshot`).
     WorkspaceSnapshot,
+    /// Configure workspace indexing independently of tree visibility.
+    WorkspaceConfigureIndexing,
+    /// Refreshes external indexing facts while retaining the owner's lease.
+    WorkspaceRefreshIndexing,
+    /// Releases an indexing generation when its project closes.
+    WorkspaceReleaseIndexing,
     /// Lists the visible children of project directories (`workspace.listDirectories`).
     WorkspaceListDirectories,
     /// Filter ordinary workspace-relative event paths using shared defaults.
@@ -351,6 +373,8 @@ pub enum CoreCommand {
     LspBuildRequest,
     /// Queues one VCS-provider request (`lsp.vcsRequest`).
     LspVcsRequest,
+    /// Queues one toolchain-provider query (`lsp.toolchainRequest`).
+    LspToolchainRequest,
     /// Invokes one plugin function (`lsp.functionRequest`).
     LspFunctionRequest,
     /// Answers a plugin backend's host-service request (`lsp.hostResponse`).
@@ -588,6 +612,14 @@ impl CoreCommand {
             }
             "plugins.declarative.decodeGrammar" => Some(Self::PluginsDeclarativeDecodeGrammar),
             "plugins.editorActions.decode" => Some(Self::PluginsEditorActionsDecode),
+            "toolchains.registry" => Some(Self::ToolchainsRegistry),
+            "toolchains.decodeReply" => Some(Self::ToolchainsDecodeReply),
+            "toolchains.failureReply" => Some(Self::ToolchainsFailureReply),
+            "toolchains.resolvePins" => Some(Self::ToolchainsResolvePins),
+            "toolchains.resolve" => Some(Self::ToolchainsResolve),
+            "toolchains.checkVersion" => Some(Self::ToolchainsCheckVersion),
+            "toolchains.discoveryPlan" => Some(Self::ToolchainsDiscoveryPlan),
+            "toolchains.candidates" => Some(Self::ToolchainsCandidates),
             "build.detect" => Some(Self::BuildDetect),
             "build.invocationPlan" => Some(Self::BuildInvocationPlan),
             "build.checkToolVersion" => Some(Self::BuildCheckToolVersion),
@@ -628,6 +660,9 @@ impl CoreCommand {
             "community.discourse.search" => Some(Self::CommunityDiscourseSearch),
             "community.discourse.auth.revoke" => Some(Self::CommunityDiscourseAuthRevoke),
             "workspace.snapshot" => Some(Self::WorkspaceSnapshot),
+            "workspace.releaseIndexing" => Some(Self::WorkspaceReleaseIndexing),
+            "workspace.configureIndexing" => Some(Self::WorkspaceConfigureIndexing),
+            "workspace.refreshIndexing" => Some(Self::WorkspaceRefreshIndexing),
             "workspace.filterChanges" => Some(Self::WorkspaceFilterChanges),
             "workspace.listDirectories" => Some(Self::WorkspaceListDirectories),
             "workspace.repositories" => Some(Self::WorkspaceRepositories),
@@ -707,6 +742,7 @@ impl CoreCommand {
             "lsp.request" => Some(Self::LspRequest),
             "lsp.buildRequest" => Some(Self::LspBuildRequest),
             "lsp.vcsRequest" => Some(Self::LspVcsRequest),
+            "lsp.toolchainRequest" => Some(Self::LspToolchainRequest),
             "lsp.functionRequest" => Some(Self::LspFunctionRequest),
             "lsp.hostResponse" => Some(Self::LspHostResponse),
             "lsp.hostNotify" => Some(Self::LspHostNotify),
@@ -823,6 +859,7 @@ mod tests {
             "lsp.request",
             "lsp.buildRequest",
             "lsp.vcsRequest",
+            "lsp.toolchainRequest",
             "lsp.functionRequest",
             "lsp.hostResponse",
             "lsp.hostNotify",

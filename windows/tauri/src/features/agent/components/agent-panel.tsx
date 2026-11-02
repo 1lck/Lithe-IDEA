@@ -399,6 +399,7 @@ export function AgentPanel({
   const historyList = (onSelect: (sessionID: string) => void) => (
     <>
     <AgentHistoryList
+      key={`${rootFolderPath ?? ""}\u0000${activeAgentId}`}
       sessions={snapshot.sessions}
       metadata={history.metadata}
       conversations={snapshot.conversations}

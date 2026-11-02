@@ -40,6 +40,16 @@ describe("Agent parity lifecycle", () => {
   });
   afterEach(async () => { await model.stop(); });
 
+  test("history pages and archives retain provider identity while absent metadata stays unknown", () => {
+    const row = { sessionId: "source-a", title: "Known", modelProvider: "native-provider" };
+    deliver({ kind: "sessionsPage", token: command("listSessions").token, sessions: [row] });
+    expect(model.getSnapshot().sessions.find((session) => session.id === "source-a")?.modelProvider).toBe("native-provider");
+    deliver({ kind: "sessions", token: command("listSessions").token, sessions: [row] });
+    deliver({ kind: "archivedSessions", token: command("listArchivedSessions").token, complete: true,
+      sessions: [{ sessionId: "old", modelProvider: "previous-provider" }, { sessionId: "unknown" }] });
+    expect(model.getSnapshot().archivedSessions.map((session) => session.modelProvider)).toEqual(["previous-provider", null]);
+  });
+
   test("successful empty history is reused for 30 seconds and manual refresh bypasses it", () => {
     deliver({ kind: "sessions", token: command("listSessions").token, sessions: [] });
     deliver({ kind: "archivedSessions", token: command("listArchivedSessions").token, sessions: [] });

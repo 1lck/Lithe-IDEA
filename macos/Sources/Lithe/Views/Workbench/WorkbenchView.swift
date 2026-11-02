@@ -1829,12 +1829,13 @@ struct WorkbenchView: View {
             } label: {
                 Image(systemName: model.activeDocument?.isReadOnly == true ? "lock.fill" : "lock.open")
             }
-            .litheIconButton()
+            .litheStatusBarIconButton()
             .disabled(model.activeDocument?.isReadOnly == true)
             .help(LocalizedStringKey(
                 model.activeDocument?.isReadOnly == true ? "Read-only document" : "Save"
             ))
             ProjectPreparationStatusView(compact: true)
+            LanguageServerStatusView()
             MemoryUsageStatusView()
             FrameRateStatusView()
             gitStatus
@@ -1845,6 +1846,7 @@ struct WorkbenchView: View {
         HStack(spacing: 10) {
             EditorCaretPositionLabel(chrome: model.editorChrome) { model.showGoToLine() }
             ProjectPreparationStatusView(compact: true)
+            LanguageServerStatusView()
             MemoryUsageStatusView()
             FrameRateStatusView()
             gitStatus

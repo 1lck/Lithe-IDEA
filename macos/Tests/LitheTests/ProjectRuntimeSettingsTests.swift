@@ -139,17 +139,19 @@ struct ProjectRuntimeSettingsTests {
     }
 
     @Test
-    func settingsCategoryPlacesProjectAndRunBetweenKeymapAndTerminal() {
-        // Run configurations sit next to the project environment they inherit.
-        let titles = SettingsCategory.allCases.map(\.rawValue)
-        let keymap = titles.firstIndex(of: "Keymap")
-        let project = titles.firstIndex(of: "Project")
-        let run = titles.firstIndex(of: "Run configurations")
-        let terminal = titles.firstIndex(of: "Terminal")
-        #expect(keymap != nil && project != nil && run != nil && terminal != nil)
-        #expect(project == keymap.map { $0 + 1 })
-        #expect(run == project.map { $0 + 1 })
-        #expect(terminal == run.map { $0 + 1 })
+    func settingsCategoryPlacesBuildPagesBetweenKeymapAndTerminal() {
+        // The build group (toolchain pages, project environment, run configurations)
+        // stays contiguous in declaration order, so search results list the pages in
+        // the same order as the sidebar and run configurations still follow the
+        // project environment they inherit.
+        let cases = SettingsCategory.allCases
+        guard let keymap = cases.firstIndex(of: .keymap),
+              let terminal = cases.firstIndex(of: .terminal) else {
+            Issue.record("Keymap and Terminal must both be settings pages")
+            return
+        }
+        #expect(Array(cases[(keymap + 1)..<terminal]) == SettingsGroup.build.categories)
+        #expect(SettingsGroup.build.categories.suffix(2) == [.project, .run])
     }
 
     @Test
@@ -179,6 +181,23 @@ struct ProjectRuntimeSettingsTests {
 
     @Test
     @MainActor
+    func languageServiceUsesTheSelectedProjectJDKIncludingCustomHomes() {
+        let locator = ProjectRuntimeSettingsTestLocator(discoveredJavaRuntimes: [
+            JavaRuntimeCandidate(homePath: "/jdk-21", version: "21", vendor: "Test"),
+            JavaRuntimeCandidate(homePath: "/jdk-25", version: "25", vendor: "Test")
+        ])
+        let service = ProjectRuntimeService(runtimeLocator: locator, store: ProjectRuntimeSettingsTestStore())
+        service.openProject(at: URL(fileURLWithPath: "/workspace/shop"))
+        service.updateSettings(ProjectRuntimeSettings(javaHomePath: "/jdk-25"))
+        let runtimes = service.javaLanguageServiceRuntimes()
+        #expect(runtimes.filter(\.isDefault).map(\.homePath) == ["/jdk-25"])
+        #expect(runtimes.first(where: \.isDefault)?.version == "25")
+        service.updateSettings(ProjectRuntimeSettings(javaHomePath: "/custom/jdk"))
+        #expect(service.javaLanguageServiceRuntimes().filter(\.isDefault).map(\.homePath) == ["/custom/jdk"])
+    }
+
+    @Test
+    @MainActor
     func invalidConfiguredProjectJDKIsNotMaskedByDiscovery() async throws {
         let store = ProjectRuntimeSettingsTestStore()
         let root = URL(fileURLWithPath: "/workspace/shop", isDirectory: true)
@@ -200,6 +219,7 @@ struct ProjectRuntimeSettingsTests {
         #expect(report.status == .configuredJDKInvalid(path: "/missing-jdk"))
         #expect(report.status.blocksJavaRun)
         #expect(service.javaHomeURL() == nil)
+        #expect(service.javaLanguageServiceRuntimes().allSatisfy { !$0.isDefault })
         #expect(report.javaHomePath == "/missing-jdk")
     }
 }

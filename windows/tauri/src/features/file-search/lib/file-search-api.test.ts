@@ -1,31 +1,97 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
+import * as core from "@/core/lithe-core-client";
+import * as indexing from "@/features/file-explorer/stores/workspace-indexing";
+import { fffListFiles, searchFilesContent } from "./file-search-api";
 
-const invoke = mock(async (_command: string, _args?: unknown) =>
-  JSON.stringify({ ok: true, data: { root: { path: "" }, files: ["src/a.ts", "src/b.ts"] } }),
-);
-// Mock the Tauri boundary, not the Core client: a module mock is process-wide in Bun,
-// and replacing the client would hide the real request builder from later test files.
-// Spread the native module so re-exported names (isTauri, transformCallback) keep
-// resolving for anything else that loads through @/platform/tauri-core.
-const nativeCore = await import("@tauri-apps/api/core");
-mock.module("@tauri-apps/api/core", () => ({
-  ...nativeCore,
-  invoke: (command: string, args?: unknown) => invoke(command, args),
-}));
-const { fffListFiles } = await import("./file-search-api");
-
-beforeEach(() => invoke.mockClear());
-
-describe("workspace file listing", () => {
-  test("asks Core for the flat file list only, never the full node tree", async () => {
-    const files = await fffListFiles(["C:/work/project"]);
-
-    expect(files.map((file) => file.relative_path)).toEqual(["src/a.ts", "src/b.ts"]);
-    expect(invoke).toHaveBeenCalledTimes(1);
-    const [command, args] = invoke.mock.calls[0] as [string, { request: string }];
-    expect(command).toBe("core_execute");
-    const request = JSON.parse(args.request);
-    expect(request.command).toBe("workspace.snapshot");
-    expect(request.payload).toEqual({ root: "C:/work/project", includeTree: false });
+test("multi-root inventory and scoped search carry the complete ownership context", async () => {
+  const roots = ["C:/main", "C:/main/nested"];
+  const requests: Array<{ command: string; payload: Record<string, unknown> }> = [];
+  const configure = spyOn(indexing, "configureWorkspaceIndexing").mockResolvedValue({
+    revision: 1,
+    excludedDirectories: {},
+    gitIgnoreFailed: false,
   });
+  const execute = spyOn(core, "executeCore").mockImplementation(
+    async <T, P = unknown>(request: core.CoreRequest<P>) => {
+      requests.push({
+        command: request.command,
+        payload: request.payload as Record<string, unknown>,
+      });
+      const parent = (request.payload as Record<string, unknown>).root === roots[0];
+      const data =
+        request.command === "workspace.snapshot"
+          ? { files: parent ? ["Main.java"] : ["Visible.java"] }
+          : {
+              matches: [
+                {
+                  kind: "content",
+                  path: parent ? "Main.java" : "Visible.java",
+                  line: 1,
+                  preview: "needle",
+                },
+              ],
+            };
+      return { id: request.id, ok: true as const, data: data as T };
+    },
+  );
+  try {
+    const inventory = await fffListFiles(roots);
+    expect(inventory.map((file) => file.path.replace(/\\/g, "/"))).toEqual([
+      "C:/main/Main.java",
+      "C:/main/nested/Visible.java",
+    ]);
+    expect(
+      requests.every(
+        (request) => JSON.stringify(request.payload.workspaceRoots) === JSON.stringify(roots),
+      ),
+    ).toBe(true);
+    requests.length = 0;
+    const result = await searchFilesContent({
+      root_paths: roots,
+      scope_paths: ["C:/main"],
+      query: "needle",
+    });
+    expect(result.results).toHaveLength(2);
+    expect(requests.map((request) => request.payload.scopePaths)).toEqual([["."], ["."]]);
+    expect(
+      requests.every(
+        (request) => JSON.stringify(request.payload.workspaceRoots) === JSON.stringify(roots),
+      ),
+    ).toBe(true);
+    requests.length = 0;
+    await searchFilesContent({
+      root_paths: roots,
+      scope_paths: ["C:/main/nested/src"],
+      query: "needle",
+    });
+    expect(requests.map((request) => request.payload.scopePaths)).toEqual([
+      ["nested/src"],
+      ["src"],
+    ]);
+  } finally {
+    execute.mockRestore();
+    configure.mockRestore();
+  }
+});
+
+
+test("workspace file listing asks Core for flat files without allocating a tree", async () => {
+  const root = "C:/work/project";
+  const configure = spyOn(indexing, "configureWorkspaceIndexing").mockResolvedValue({
+    revision: 1, excludedDirectories: {}, gitIgnoreFailed: false,
+  });
+  const requests: Array<core.CoreRequest> = [];
+  const execute = spyOn(core, "executeCore").mockImplementation(async <T, P = unknown>(request: core.CoreRequest<P>) => {
+    requests.push(request);
+    return {id: request.id, ok: true as const, data: {files: ["src/a.ts", "src/b.ts"]} as T};
+  });
+  try {
+    const files = await fffListFiles([root]);
+    expect(files.map((file) => file.relative_path)).toEqual(["src/a.ts", "src/b.ts"]);
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.command).toBe("workspace.snapshot");
+    expect(requests[0]?.payload).toEqual({root, workspaceRoots: [root], includeTree: false});
+  } finally {
+    execute.mockRestore(); configure.mockRestore();
+  }
 });

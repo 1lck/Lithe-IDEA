@@ -54,6 +54,7 @@ interface FileExplorerTreeItemProps {
   isRoot: boolean;
   semanticKind?: FileIconSemanticKind;
   directoryMark?: DirectoryMark;
+  exclusionReason?: string;
   isCut: boolean;
   isDragOver: boolean;
   isDragging: boolean;
@@ -102,6 +103,7 @@ function FileExplorerTreeItemComponent({
   isRoot,
   semanticKind,
   directoryMark,
+  exclusionReason,
   isCut,
   isDragOver,
   isDragging,
@@ -223,9 +225,11 @@ function FileExplorerTreeItemComponent({
       title={
         file.isSymlink && file.symlinkTarget
           ? t("files.symlinkTo", { target: file.symlinkTarget })
-          : directoryMark
-            ? t(`project.mark.${directoryMark}`)
-            : undefined
+          : exclusionReason
+            ? exclusionReason
+            : directoryMark
+              ? t(`project.mark.${directoryMark}`)
+              : undefined
       }
       className={cn(
         "min-w-max",
@@ -278,6 +282,7 @@ export const FileExplorerTreeItem = memo(
     prev.isRoot === next.isRoot &&
     prev.semanticKind === next.semanticKind &&
     prev.directoryMark === next.directoryMark &&
+    prev.exclusionReason === next.exclusionReason &&
     prev.isCut === next.isCut &&
     prev.isDragOver === next.isDragOver &&
     prev.isDragging === next.isDragging &&

@@ -9,6 +9,8 @@ import { Button } from "@/ui/button";
 import Input from "@/ui/input";
 import { Checkbox } from "@/ui/checkbox";
 import Section from "./settings-section";
+import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
+import { WorkspaceIndexingSettings } from "./workspace-indexing-settings";
 
 type Field = { key: string; choices: string[]; configuredValues: string[] };
 type Snapshot = {
@@ -27,6 +29,7 @@ export function GitExecutionSettings() {
   const activeRoot = useRepositoryStore.use.activeRepoPath();
   const workspace = useProjectStore((state) => state.rootFolderPath);
   const root = activeRoot ?? workspace;
+  const indexingRoot = useFileSystemStore((state) => state.rootFolderPath);
   const executable = useSettingsStore((state) => state.settings.gitExecutable);
   const fetchPrune = useSettingsStore((state) => state.settings.gitFetchPrune);
   const fetchSubmodules = useSettingsStore((state) => state.settings.gitFetchSubmodules);
@@ -133,6 +136,7 @@ export function GitExecutionSettings() {
         {t("git.execution.helper")}
       </label>
       <p className="text-xs text-subtle-foreground">{t("git.execution.credentials")}</p>
+      <WorkspaceIndexingSettings key={indexingRoot ?? "no-workspace"} root={indexingRoot} />
       <details
         className="space-y-3"
         open={advancedOpen}

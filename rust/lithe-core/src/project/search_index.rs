@@ -65,13 +65,19 @@ struct IndexKey {
     hidden_directories: Vec<String>,
     hidden_file_patterns: Vec<String>,
     names_only: bool,
+    delegated_roots: Vec<PathBuf>,
+    policy_revision: u64,
 }
 
 type SharedIndex = Arc<RwLock<WorkspaceSearchIndex>>;
 
-static INDEX_CACHE: OnceLock<std::sync::Mutex<HashMap<IndexKey, SharedIndex>>> = OnceLock::new();
+// A slot serializes builders of the same index without blocking other sources.
+// Removing a slot invalidates an in-flight build: it cannot publish into the cache again.
+type IndexSlot = Arc<std::sync::Mutex<Option<SharedIndex>>>;
 
-fn cache() -> &'static std::sync::Mutex<HashMap<IndexKey, SharedIndex>> {
+static INDEX_CACHE: OnceLock<std::sync::Mutex<HashMap<IndexKey, IndexSlot>>> = OnceLock::new();
+
+fn cache() -> &'static std::sync::Mutex<HashMap<IndexKey, IndexSlot>> {
     INDEX_CACHE.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
 }
 
@@ -82,49 +88,72 @@ fn key(root: &Path, rules: &VisibilityRules) -> IndexKey {
         hidden_directories: rules.hidden_directories.clone(),
         hidden_file_patterns: rules.hidden_file_patterns.clone(),
         names_only: false,
+        delegated_roots: rules.delegated_roots.clone(),
+        policy_revision: super::indexing::context(root).map_or(0, |policy| policy.revision),
     }
 }
 
 pub(crate) fn get_or_build(root: &Path, rules: &VisibilityRules) -> Result<SharedIndex, CoreError> {
-    // Hold the cache lock during the first build. This prevents a rapid sequence
-    // of keystrokes from constructing several copies of a large index at once.
-    let mut indexes = cache()
-        .lock()
-        .map_err(|_| CoreError::new(ErrorCode::Unknown, "Search index lock was poisoned"))?;
-    let cache_key = key(root, rules);
-    if let Some(index) = indexes.get(&cache_key) {
-        return Ok(Arc::clone(index));
-    }
-    let index = Arc::new(RwLock::new(WorkspaceSearchIndex::build(
-        root, rules, false,
-    )?));
-    // ponytail: one rule variant per root/kind bounds memory; alternating clients rebuild.
-    // Upgrade to a measured, bounded multi-client cache only if that rebuild cost matters.
-    indexes.retain(|existing, _| {
-        existing.host != cache_key.host || existing.names_only != cache_key.names_only
-    });
-    indexes.insert(cache_key, Arc::clone(&index));
-    Ok(index)
+    get_index(root, rules, false)
 }
 
 /// Caches names without reading generated files, binaries, or dependency source contents.
 pub(crate) fn get_names(root: &Path, rules: &VisibilityRules) -> Result<SharedIndex, CoreError> {
-    let mut indexes = cache()
+    get_index(root, rules, true)
+}
+
+/// Text queries use a ready content index, or scan names directly while it warms.
+/// The final matcher still reads current text and enforces the page's result budget.
+pub(crate) fn get_for_text(root: &Path, rules: &VisibilityRules) -> Result<SharedIndex, CoreError> {
+    let slot = cache()
         .lock()
-        .map_err(|_| CoreError::new(ErrorCode::Unknown, "Search index lock was poisoned"))?;
-    let mut cache_key = key(root, rules);
-    cache_key.names_only = true;
-    if let Some(index) = indexes.get(&cache_key) {
+        .map_err(|_| index_lock_error())?
+        .get(&key(root, rules))
+        .cloned();
+    if let Some(slot) = slot {
+        if let Ok(index) = slot.try_lock() {
+            if let Some(index) = index.as_ref() {
+                return Ok(Arc::clone(index));
+            }
+        }
+    }
+    get_names(root, rules)
+}
+
+fn get_index(
+    root: &Path,
+    rules: &VisibilityRules,
+    names_only: bool,
+) -> Result<SharedIndex, CoreError> {
+    let slot = {
+        let mut indexes = cache().lock().map_err(|_| index_lock_error())?;
+        let mut cache_key = key(root, rules);
+        cache_key.names_only = names_only;
+        // Keep one visibility variant per workspace/source, including in-flight builds.
+        indexes.retain(|existing, _| {
+            existing.host != cache_key.host
+                || existing.names_only != names_only
+                || *existing == cache_key
+        });
+        Arc::clone(
+            indexes
+                .entry(cache_key)
+                .or_insert_with(|| Arc::new(std::sync::Mutex::new(None))),
+        )
+    };
+    let mut index = slot.lock().map_err(|_| index_lock_error())?;
+    if let Some(index) = index.as_ref() {
         return Ok(Arc::clone(index));
     }
-    let index = Arc::new(RwLock::new(WorkspaceSearchIndex::build(root, rules, true)?));
-    // ponytail: one rule variant per root/kind bounds memory; alternating clients rebuild.
-    // Upgrade to a measured, bounded multi-client cache only if that rebuild cost matters.
-    indexes.retain(|existing, _| {
-        existing.host != cache_key.host || existing.names_only != cache_key.names_only
-    });
-    indexes.insert(cache_key, Arc::clone(&index));
-    Ok(index)
+    let built = Arc::new(RwLock::new(WorkspaceSearchIndex::build(
+        root, rules, names_only,
+    )?));
+    *index = Some(Arc::clone(&built));
+    Ok(built)
+}
+
+fn index_lock_error() -> CoreError {
+    CoreError::new(ErrorCode::Unknown, "Search index lock was poisoned")
 }
 
 pub(crate) fn invalidate_root(root: &Path) {
@@ -156,14 +185,33 @@ pub(crate) fn update_cached_file(root: &Path, path: &Path) {
         return;
     }
     let metadata = fs::symlink_metadata(&absolute).ok();
-    for (cache_key, index) in entries {
+    if super::indexing::is_excluded(
+        root,
+        &absolute,
+        metadata.as_ref().is_some_and(|m| m.is_dir()),
+    )
+    .unwrap_or(true)
+    {
+        return;
+    }
+    let revision = super::indexing::context(root).map_or(0, |policy| policy.revision);
+    for (cache_key, slot) in entries {
+        if cache_key.policy_revision != revision {
+            continue;
+        }
+        let Ok(slot) = slot.lock() else { continue };
+        let Some(index) = slot.as_ref() else { continue };
         let rules = VisibilityRules {
             hidden_directories: cache_key.hidden_directories,
             hidden_file_patterns: cache_key.hidden_file_patterns,
+            delegated_roots: cache_key.delegated_roots,
         };
+        if rules.is_delegated(&absolute) {
+            continue;
+        }
         if let Ok(mut index) = index.write() {
             index.update_file(&absolute, &relative, metadata.as_ref(), &rules);
-        }
+        };
     }
 }
 
@@ -189,24 +237,47 @@ pub(crate) fn update_paths(
     if entries.is_empty() {
         return UpdateOutcome::NotIndexed;
     }
-    for (cache_key, shared) in entries {
+    let revision = super::indexing::context(root).map_or(0, |policy| policy.revision);
+    for (cache_key, slot) in entries {
+        if cache_key.policy_revision != revision {
+            return UpdateOutcome::RequiresRebuild;
+        }
+        let Ok(slot) = slot.lock() else {
+            return UpdateOutcome::RequiresRebuild;
+        };
+        let Some(shared) = slot.as_ref() else {
+            return UpdateOutcome::RequiresRebuild;
+        };
         let Ok(mut index) = shared.write() else {
             return UpdateOutcome::RequiresRebuild;
         };
         let effective_rules = VisibilityRules {
             hidden_directories: cache_key.hidden_directories,
             hidden_file_patterns: cache_key.hidden_file_patterns,
+            delegated_roots: cache_key.delegated_roots,
         };
         for value in paths {
             let Some(absolute) = normalized_update_path(root, value) else {
                 continue;
             };
+            if effective_rules.is_delegated(&absolute) {
+                continue;
+            }
             let relative = relative_path(&absolute, root);
             // Both name and content indexes exclude nested linked worktrees.
             if is_inside_nested_linked_worktree(root, &relative) {
                 continue;
             }
             let metadata = fs::symlink_metadata(&absolute).ok();
+            if super::indexing::is_excluded(
+                root,
+                &absolute,
+                metadata.as_ref().is_some_and(|m| m.is_dir()),
+            )
+            .unwrap_or(true)
+            {
+                continue;
+            }
             if metadata.as_ref().is_some_and(|value| value.is_dir())
                 || (metadata.is_none() && index.has_descendant(&relative))
             {
@@ -221,7 +292,8 @@ pub(crate) fn update_paths(
 impl WorkspaceSearchIndex {
     fn build(root: &Path, rules: &VisibilityRules, names_only: bool) -> Result<Self, CoreError> {
         let mut paths = Vec::new();
-        collect_files(root, root, rules, &mut paths)?;
+        let policy = super::indexing::context(root);
+        collect_files(root, root, rules, &mut paths, policy.as_deref())?;
         let mut index = Self {
             files: Vec::new(),
             free_ids: Vec::new(),
@@ -231,8 +303,14 @@ impl WorkspaceSearchIndex {
         };
         for path in paths {
             crate::protocol::cancellation::check()?;
+            if let Some(policy) = &policy {
+                policy.check()?;
+            }
             let relative = relative_path(&path, root);
             index.add_file(&path, relative);
+        }
+        if let Some(policy) = &policy {
+            policy.check()?;
         }
         Ok(index)
     }
@@ -334,6 +412,9 @@ impl WorkspaceSearchIndex {
     }
 
     pub(crate) fn candidate_ids(&self, query: &str, regular_expression: bool) -> Vec<u32> {
+        if self.names_only {
+            return self.all_file_ids();
+        }
         let Some(anchor) = search_anchor(query, regular_expression) else {
             return self.all_file_ids();
         };
@@ -418,8 +499,17 @@ fn collect_files(
     path: &Path,
     rules: &VisibilityRules,
     files: &mut Vec<PathBuf>,
+    policy: Option<&super::indexing::IndexingContext>,
 ) -> Result<(), CoreError> {
     crate::protocol::cancellation::check()?;
+    if rules.is_delegated(path) {
+        return Ok(());
+    }
+    if let Some(policy) = policy {
+        if policy.reason(&relative_path(path, root), true)?.is_some() {
+            return Ok(());
+        }
+    }
     let children = match visible_children(path, root, rules, ChildOrder::Traversal) {
         Ok(listing) => listing.children,
         Err(error)
@@ -442,8 +532,16 @@ fn collect_files(
     };
     for (child, is_directory) in children {
         if is_directory {
-            collect_files(root, &child, rules, files)?;
+            collect_files(root, &child, rules, files, policy)?;
         } else {
+            if let Some(policy) = policy {
+                if policy
+                    .reason(&relative_path(&child, root), false)?
+                    .is_some()
+                {
+                    continue;
+                }
+            }
             files.push(child);
         }
     }
@@ -514,6 +612,61 @@ mod tests {
     use std::fs;
 
     #[test]
+    fn names_and_cold_text_do_not_wait_for_content_build_and_invalidation_discards_its_slot() {
+        let root = crate::tests::support::temporary_root("independent-search-sources");
+        fs::create_dir_all(&root).unwrap();
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                invalidate_root(&self.0);
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(root.clone());
+        fs::write(root.join("Needle.txt"), "needle in current contents").unwrap();
+        let rules = VisibilityRules {
+            hidden_directories: vec![],
+            hidden_file_patterns: vec![],
+            delegated_roots: Vec::new(),
+        };
+        let slot = Arc::new(std::sync::Mutex::new(None));
+        cache()
+            .lock()
+            .unwrap()
+            .insert(key(&root, &rules), Arc::clone(&slot));
+        let building = slot.lock().unwrap();
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        let worker_root = root.clone();
+        let worker_rules = VisibilityRules {
+            hidden_directories: vec![],
+            hidden_file_patterns: vec![],
+            delegated_roots: Vec::new(),
+        };
+        let worker = std::thread::spawn(move || {
+            let names = get_names(&worker_root, &worker_rules).unwrap();
+            let text = get_for_text(&worker_root, &worker_rules).unwrap();
+            sender
+                .send((
+                    names.read().unwrap().stats().file_count,
+                    text.read().unwrap().candidate_ids("needle", false).len(),
+                ))
+                .unwrap();
+        });
+        let result = receiver.recv_timeout(std::time::Duration::from_secs(2));
+        drop(building);
+        worker.join().unwrap();
+        assert_eq!(result.unwrap(), (1, 1));
+        invalidate_root(&root);
+        // An obsolete builder only owns its detached slot, never the cache entry.
+        *slot.lock().unwrap() = Some(Arc::new(RwLock::new(
+            WorkspaceSearchIndex::build(&root, &rules, false).unwrap(),
+        )));
+        assert!(!cache().lock().unwrap().contains_key(&key(&root, &rules)));
+        let fresh = get_or_build(&root, &rules).unwrap();
+        assert!(!Arc::ptr_eq(&fresh, slot.lock().unwrap().as_ref().unwrap()));
+    }
+
+    #[test]
     fn source_caps_build_only_required_cold_indexes_and_skip_generated_text_enumeration() {
         let root = crate::tests::support::temporary_root("search-source-caps");
         fs::create_dir_all(root.join("src")).unwrap();
@@ -539,7 +692,7 @@ mod tests {
         }
         for (files, content, symbols, expected_indexes) in [
             (0, 0, 0, vec![]),
-            (0, 1, 0, vec![false]),
+            (0, 1, 0, vec![true]),
             (1, 0, 0, vec![true]),
             (0, 0, 1, vec![false]),
             (1, 0, 1, vec![false, true]),
@@ -568,7 +721,17 @@ mod tests {
             let resident_files: usize = indexes
                 .iter()
                 .filter(|(key, _)| key.root == root)
-                .map(|(_, index)| index.read().unwrap().stats().file_count)
+                .map(|(_, index)| {
+                    index
+                        .lock()
+                        .unwrap()
+                        .as_ref()
+                        .unwrap()
+                        .read()
+                        .unwrap()
+                        .stats()
+                        .file_count
+                })
                 .sum();
             assert_eq!(
                 resident_files,
@@ -597,13 +760,14 @@ mod tests {
         let root = crate::tests::support::temporary_root("search-missing-descendant");
         let rules = VisibilityRules {
             hidden_directories: vec![],
+            delegated_roots: Vec::new(),
             hidden_file_patterns: vec![],
         };
         let mut paths = Vec::new();
-        assert!(collect_files(&root, &root.join("vanished"), &rules, &mut paths).is_ok());
+        assert!(collect_files(&root, &root.join("vanished"), &rules, &mut paths, None).is_ok());
         assert!(paths.is_empty());
         assert!(matches!(
-            collect_files(&root, &root, &rules, &mut paths)
+            collect_files(&root, &root, &rules, &mut paths, None)
                 .unwrap_err()
                 .code,
             ErrorCode::WorkspaceNotFound
@@ -612,7 +776,7 @@ mod tests {
         let _scope = crate::protocol::cancellation::Scope::begin(Some(operation_id.clone()), None);
         assert!(crate::protocol::cancellation::cancel(&operation_id));
         assert!(matches!(
-            collect_files(&root, &root.join("vanished"), &rules, &mut paths)
+            collect_files(&root, &root.join("vanished"), &rules, &mut paths, None)
                 .unwrap_err()
                 .code,
             ErrorCode::Cancelled
@@ -675,11 +839,12 @@ mod tests {
         }
         let rules = VisibilityRules {
             hidden_directories: vec![],
+            delegated_roots: Vec::new(),
             hidden_file_patterns: vec![],
         };
         let mut paths = Vec::new();
         assert!(matches!(
-            collect_files(&blocked, &blocked, &rules, &mut paths)
+            collect_files(&blocked, &blocked, &rules, &mut paths, None)
                 .unwrap_err()
                 .code,
             ErrorCode::PermissionDenied
@@ -719,6 +884,7 @@ mod tests {
         // judge the same list.
         let rules = VisibilityRules {
             hidden_directories: vec![],
+            delegated_roots: Vec::new(),
             hidden_file_patterns: fixture["hiddenFilePatterns"]
                 .as_array()
                 .unwrap()
@@ -788,6 +954,7 @@ mod tests {
         for index in 0..32 {
             let rules = VisibilityRules {
                 hidden_directories: vec![],
+                delegated_roots: Vec::new(),
                 hidden_file_patterns: vec![format!("exclude-{index}/")],
             };
             let content = get_or_build(&root, &rules).unwrap();

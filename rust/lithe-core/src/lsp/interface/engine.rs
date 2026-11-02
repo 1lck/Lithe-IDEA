@@ -68,6 +68,8 @@ const MAX_BUILD_PROVIDER_TIMEOUT_MS: u64 = 60 * 60_000;
 /// working copy over a slow link can take long, but never stays pending
 /// without a deadline.
 const MAX_VCS_PROVIDER_TIMEOUT_MS: u64 = 60 * 60_000;
+/// Longest toolchain query a host may ask for; queries only read manager state.
+const MAX_TOOLCHAIN_QUERY_TIMEOUT_MS: u64 = 60_000;
 const MONITOR_INTERVAL_MS: u64 = 10;
 /// JSON-RPC method carrying Java Debug Server build commands.
 const JAVA_BUILD_METHOD: &str = "workspace/executeCommand";
@@ -110,6 +112,10 @@ pub struct StartServerRequest {
     /// requests to the host.
     #[serde(default)]
     pub host_services: Vec<String>,
+    /// Provider IDs of the plugin's verified manifest. Only a plugin-owned
+    /// session with some is offered `litheToolchains`.
+    #[serde(default)]
+    pub toolchain_providers: Vec<String>,
     pub executable_path: String,
     #[serde(default)]
     pub arguments: Vec<String>,
@@ -196,6 +202,9 @@ pub struct JdtlsLaunchResources {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 /// A JDK installation the platform discovered for the Java language service.
 pub struct JavaRuntimeCandidate {
+    /// The platform-selected project JDK, independent of the server JVM.
+    #[serde(default)]
+    pub is_default: bool,
     /// JDK home directory.
     pub home_path: String,
     /// Version reported by `java -version`, such as `25.0.4` or `1.8.0_402`.
@@ -428,6 +437,23 @@ pub struct BuildProviderRequest {
     pub params: Value,
     /// Deadline of this request, in milliseconds, capped at
     /// `MAX_BUILD_PROVIDER_TIMEOUT_MS`; the session's request timeout when absent.
+    #[serde(default)]
+    pub timeout_milliseconds: Option<u64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// One `toolchains/query`, addressed to a session that negotiated the provider
+/// named in `params`. The result arrives as a `requestCompleted` event whose
+/// `result.value` is `{ id, response }`, the complete untrusted JSON-RPC response,
+/// which the host passes to `toolchains.decodeReply`.
+pub struct ToolchainProviderRequest {
+    pub session_id: String,
+    #[serde(default)]
+    pub operation_id: Option<String>,
+    /// Query parameters; `toolchains.decodeReply` validates them with the reply.
+    pub params: Value,
+    /// Deadline of this request, capped at `MAX_TOOLCHAIN_QUERY_TIMEOUT_MS`.
     #[serde(default)]
     pub timeout_milliseconds: Option<u64>,
 }
@@ -828,12 +854,19 @@ struct RuntimeSession {
     /// Plugin completion options fixed at initialize, retained for later Java
     /// configuration notifications and section pulls through the same adapter.
     jdt_completion: Option<Value>,
+    /// Immutable plugin input retained when workspace exclusions change or are removed.
+    jdt_import_exclusions: Option<Value>,
     /// Gradle import settings JDT LS holds. Fixed for the session's lifetime
     /// because the wrapper is a property of the workspace root at startup.
     jdt_gradle_configuration: Option<JdtGradleConfiguration>,
     /// Workspace URI the server was initialized with; scopes workspace-wide
     /// queries such as Java entry-point discovery.
     root_uri: String,
+    /// Serializes policy eligibility with document/file-event publication and
+    /// policy withdrawal. Acquire before outbound_order; Git scans stay outside
+    /// the outbound and registry locks.
+    indexing_roots: Mutex<Vec<String>>,
+    indexing_revision: std::sync::atomic::AtomicU64,
     /// Serializes protocol-state commits with complete outbound message batches.
     /// Callers acquire this before `state` whenever an action can write to the
     /// server, preserving the same order in memory and on the wire.
@@ -952,6 +985,124 @@ pub fn update_workspace_configuration(
         .update_plugin_configuration(configuration)
 }
 
+/// Withdraw excluded working copies and update supported provider import configuration.
+pub(crate) fn indexing_changed(root: &Path) -> Result<(), CoreError> {
+    let sessions = engine()
+        .sessions
+        .lock()
+        .map_err(|_| CoreError::new(ErrorCode::Unknown, "LSP registry lock was poisoned"))?
+        .values()
+        .cloned()
+        .collect::<Vec<_>>();
+    apply_indexing_to_sessions(root, sessions)
+}
+
+fn apply_indexing_to_sessions(
+    root: &Path,
+    sessions: Vec<Arc<RuntimeSession>>,
+) -> Result<(), CoreError> {
+    let root_uri = url::Url::from_directory_path(root).ok();
+    let canonical_root = root_uri
+        .as_ref()
+        .and_then(|uri| canonical_workspace_root(uri.as_str()));
+    let sessions = sessions
+        .into_iter()
+        .filter(|session| {
+            canonical_workspace_root(&session.root_uri) == canonical_root
+                && session.active.load(Ordering::Acquire)
+        })
+        .collect::<Vec<_>>();
+    if sessions.is_empty() {
+        return Ok(());
+    }
+    let prepared = crate::project::indexing::prepare_provider_exclusions(root)?;
+    let roots = crate::project::indexing::excluded_roots(root);
+    let revision = prepared.as_ref().map_or(0, |policy| policy.revision);
+    if let Some(policy) = &prepared {
+        policy.check()?;
+    }
+    for session in sessions {
+        if let Some(policy) = &prepared {
+            policy.check()?;
+        }
+        if ensure_not_terminal(session.lock_state()?.lifecycle).is_err() {
+            continue;
+        }
+        if canonical_workspace_root(&session.root_uri) != canonical_root {
+            continue;
+        }
+        let mut previous = session.lock_indexing_roots()?;
+        if *previous == roots && session.indexing_revision.load(Ordering::Acquire) == revision {
+            continue;
+        }
+        let documents = session
+            .lock_state()?
+            .client
+            .open_documents
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        for uri in documents {
+            if crate::project::indexing::uri_is_excluded(&session.root_uri, &uri)? {
+                session.close_document(&uri)?;
+            }
+        }
+        let diagnostic_uris = session
+            .lock_state()?
+            .client
+            .diagnostics
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        for uri in diagnostic_uris {
+            if crate::project::indexing::uri_is_excluded(&session.root_uri, &uri)? {
+                let mut state = session.lock_state()?;
+                state.client.diagnostics.remove(&uri);
+                state.client.diagnostic_versions.remove(&uri);
+                push_diagnostics_event(&session, &mut state, &uri, None, Vec::new());
+            }
+        }
+        let pending_uris = session
+            .lock_state()?
+            .pending_workspace_file_changes
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        for uri in pending_uris {
+            if crate::project::indexing::uri_is_excluded(&session.root_uri, &uri)? {
+                session
+                    .lock_state()?
+                    .pending_workspace_file_changes
+                    .remove(&uri);
+            }
+        }
+        if session.provider_id == "java" {
+            let order = session.lock_outbound_order()?;
+            if session.lock_state()?.client.initialized {
+                let maven = session.maven_configuration();
+                let notification = settings_notification(session.jdt_settings(maven.as_deref()));
+                let message = serde_json::to_string(&json!({"jsonrpc":"2.0", "method":notification.method, "params":notification.params})).map_err(|error| CoreError::new(ErrorCode::Unknown, error.to_string()))?;
+                session.send_messages_or_fail(&order, vec![message], "indexingChanged")?;
+            }
+        }
+        if session.provider_id != "java" {
+            let order = session.lock_outbound_order()?;
+            if session.lock_state()?.client.initialized {
+                if let Some(configuration) = session.plugin_configuration() {
+                    session.send_messages_or_fail(
+                        &order,
+                        vec![plugin_configuration_notification(&configuration)],
+                        "indexingChanged",
+                    )?;
+                }
+            }
+        }
+        *previous = roots.clone();
+        session.indexing_revision.store(revision, Ordering::Release);
+    }
+    Ok(())
+}
+
 /// Starts a managed language-server process and begins LSP initialization.
 pub fn start_server(request: StartServerRequest) -> Result<StartServerResponse, CoreError> {
     engine().start_server(request)
@@ -1014,10 +1165,17 @@ pub fn update_maven_configuration(
 impl RuntimeSession {
     /// Plugin configuration the server currently sees, if any.
     fn plugin_configuration(&self) -> Option<Arc<Value>> {
-        self.plugin_configuration
+        let base = self
+            .plugin_configuration
             .lock()
             .map(|configuration| configuration.clone())
-            .unwrap_or_else(|poisoned| poisoned.into_inner().clone())
+            .unwrap_or_else(|poisoned| poisoned.into_inner().clone());
+        crate::lsp::languages::indexing::configuration(
+            &self.provider_id,
+            &self.root_uri,
+            base.as_deref(),
+        )
+        .map(Arc::new)
     }
 
     fn update_plugin_configuration(
@@ -1054,7 +1212,11 @@ impl RuntimeSession {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(configuration.clone());
         let messages = if initialized {
-            vec![plugin_configuration_notification(&configuration)]
+            vec![plugin_configuration_notification(
+                self.plugin_configuration()
+                    .as_deref()
+                    .unwrap_or(&configuration),
+            )]
         } else {
             Vec::new()
         };
@@ -1073,7 +1235,9 @@ impl RuntimeSession {
     /// Java settings Lithe owns for this session, as sent to JDT LS.
     fn jdt_settings<'a>(&'a self, maven: Option<&'a JdtMavenConfiguration>) -> JdtSettings<'a> {
         JdtSettings {
+            indexing_root_uri: Some(&self.root_uri),
             completion: self.jdt_completion.as_ref(),
+            import_exclusions: self.jdt_import_exclusions.as_ref(),
             maven,
             gradle: self.jdt_gradle_configuration.as_ref(),
             java_runtimes: &self.jdt_java_runtimes,
@@ -1395,6 +1559,20 @@ pub fn build_provider_request(
     Ok(OperationResponse { operation_id })
 }
 
+/// Sends one `toolchains/query` to a session that negotiated its provider.
+pub fn toolchain_provider_request(
+    request: ToolchainProviderRequest,
+) -> Result<OperationResponse, CoreError> {
+    let operation_id = request
+        .operation_id
+        .clone()
+        .unwrap_or_else(|| engine().next_operation_id());
+    engine()
+        .session(&request.session_id)?
+        .toolchain_request(request, operation_id.clone())?;
+    Ok(OperationResponse { operation_id })
+}
+
 /// Sends one VCS-provider request to a session that negotiated the protocol.
 pub fn vcs_provider_request(request: VcsProviderRequest) -> Result<OperationResponse, CoreError> {
     let operation_id = request
@@ -1579,6 +1757,28 @@ impl LspEngine {
                 "Remote Java language servers require a host-compatible plugin launch plan",
             ));
         }
+        // Initial provider settings must include native Git decisions even when
+        // no session or inventory warm-up has run. Never scan under registry locks.
+        let indexing_root = canonical_workspace_path(&request.root_uri);
+        let indexing_context = if let Some(root) = &indexing_root {
+            crate::project::indexing::prepare_provider_exclusions(root)?
+        } else {
+            None
+        };
+        let check_indexing = || {
+            if let Some(context) = &indexing_context {
+                return context.check();
+            }
+            if indexing_root.as_ref().is_some_and(|root| {
+                crate::project::indexing::active_provider_context(root).is_some()
+            }) {
+                return Err(CoreError::new(
+                    ErrorCode::Cancelled,
+                    "Indexing policy changed",
+                ));
+            }
+            Ok(())
+        };
         let startup_started_at = Instant::now();
         let session_id = format!(
             "lsp-session-{}",
@@ -1721,11 +1921,24 @@ impl LspEngine {
             .and_then(|options| options.pointer("/settings/java/completion"))
             .filter(|completion| completion.is_object())
             .cloned();
+        let jdt_import_exclusions = request
+            .initialization_options
+            .as_ref()
+            .and_then(|options| options.pointer("/settings/java/import/exclusions"))
+            .filter(|exclusions| exclusions.is_array())
+            .cloned();
         let workspace_configuration =
             checked_workspace_configuration(request.workspace_configuration)?;
         let initialize = client_initialize_for_plugin(
             ClientInitializeRequest {
-                state: LspClientState::default(),
+                state: LspClientState {
+                    offered_toolchain_providers: if request.plugin_id.is_some() {
+                        request.toolchain_providers.iter().cloned().collect()
+                    } else {
+                        Default::default()
+                    },
+                    ..LspClientState::default()
+                },
                 root_uri: request.root_uri.clone(),
                 process_id: (!crate::remote::workspace::is_remote())
                     .then_some(std::process::id() as i64),
@@ -1734,7 +1947,9 @@ impl LspEngine {
                     request.initialization_options,
                     &java_extension_bundle_paths,
                     JdtSettings {
+                        indexing_root_uri: Some(&request.root_uri),
                         completion: jdt_completion.as_ref(),
+                        import_exclusions: jdt_import_exclusions.as_ref(),
                         maven: jdt_maven_configuration.as_deref(),
                         gradle: request.java_gradle.as_ref(),
                         java_runtimes: &jdt_java_runtimes,
@@ -1768,8 +1983,11 @@ impl LspEngine {
             plugin_configuration: Mutex::new(workspace_configuration.map(Arc::new)),
             jdt_java_runtimes,
             jdt_completion,
+            jdt_import_exclusions,
             jdt_gradle_configuration: request.java_gradle,
             root_uri: request.root_uri,
+            indexing_roots: Mutex::default(),
+            indexing_revision: std::sync::atomic::AtomicU64::new(0),
             outbound_order: Mutex::new(()),
             state: Mutex::new(SessionState {
                 lifecycle: LspLifecycleState::Created,
@@ -1878,8 +2096,16 @@ impl LspEngine {
             }
         }
 
+        // Register before checking the prepared generation. A policy change
+        // either retires that generation or sees this session for its update.
         self.lock_sessions()?
             .insert(session_id.clone(), session.clone());
+        if let Err(error) = check_indexing() {
+            self.lock_sessions()?.remove(&session_id);
+            session.active.store(false, Ordering::Release);
+            session.kill_process();
+            return Err(error);
+        }
         session.spawn_readers(process.output, process.errors);
         session.spawn_monitor();
         session.spawn_outbound_maintenance();
@@ -1892,6 +2118,13 @@ impl LspEngine {
                 Some(core_error_detail(&error)),
                 None,
             );
+            session.kill_process();
+            return Err(error);
+        }
+
+        if let Err(error) = check_indexing() {
+            self.lock_sessions()?.remove(&session_id);
+            session.active.store(false, Ordering::Release);
             session.kill_process();
             return Err(error);
         }
@@ -1973,8 +2206,12 @@ impl RuntimeSession {
         if changes.is_empty() {
             return Ok(());
         }
+        let _indexing_order = self.lock_indexing_roots()?;
         let mut normalized = BTreeMap::new();
         for change in changes {
+            if crate::project::indexing::uri_is_excluded(&self.root_uri, &change.uri)? {
+                continue;
+            }
             if !change.uri.contains("://") || change.uri.contains('\0') {
                 return Err(CoreError::new(
                     ErrorCode::InvalidRequest,
@@ -1985,6 +2222,9 @@ impl RuntimeSession {
             // The last event for a URI represents its final filesystem state
             // and prevents a watcher burst from causing redundant imports.
             normalized.insert(change.uri, change.kind);
+        }
+        if normalized.is_empty() {
+            return Ok(());
         }
         let outbound_order = self.lock_outbound_order()?;
         let message = {
@@ -2006,6 +2246,22 @@ impl RuntimeSession {
         &self,
         request: SyncDocumentRequest,
     ) -> Result<SyncDocumentResponse, CoreError> {
+        self.sync_document_after_policy_check(request, || {})
+    }
+
+    fn sync_document_after_policy_check(
+        &self,
+        request: SyncDocumentRequest,
+        after_policy_check: impl FnOnce(),
+    ) -> Result<SyncDocumentResponse, CoreError> {
+        let _indexing_order = self.lock_indexing_roots()?;
+        if crate::project::indexing::uri_is_excluded(&self.root_uri, &request.uri)? {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Document is excluded from indexing",
+            ));
+        }
+        after_policy_check();
         let uri = request.uri;
         let mut messages = Vec::new();
         let mut stale_cancellations = Vec::new();
@@ -2437,6 +2693,75 @@ impl RuntimeSession {
 
     /// Writes a VCS-provider request planned by `crate::vcs::plan`, which
     /// checks the operation's arguments and negotiated capability.
+    fn toolchain_request(
+        &self,
+        request: ToolchainProviderRequest,
+        operation_id: String,
+    ) -> Result<(), CoreError> {
+        let outbound_order = self.lock_outbound_order()?;
+        let (messages, request_id) = {
+            let mut state = self.lock_state()?;
+            if state.lifecycle != LspLifecycleState::Ready || !state.client.initialized {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Language server is not ready.",
+                ));
+            }
+            if state.request_by_operation.contains_key(&operation_id)
+                || state.java_builds.contains(&operation_id)
+            {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "The language-server operation ID is already pending.",
+                ));
+            }
+            let provider = request.params["providerID"].as_str().unwrap_or_default();
+            if !state
+                .client
+                .toolchain_providers
+                .iter()
+                .any(|negotiated| negotiated == provider)
+            {
+                return Err(CoreError::new(
+                    ErrorCode::NotSupported,
+                    "The process did not negotiate this toolchain provider.",
+                )
+                .with_details("plugin.toolchain.providerUnavailable"));
+            }
+            let timeout = request
+                .timeout_milliseconds
+                .map(|milliseconds| {
+                    Duration::from_millis(milliseconds.clamp(1, MAX_TOOLCHAIN_QUERY_TIMEOUT_MS))
+                })
+                .unwrap_or(state.request_timeout);
+            let response = allocate_raw_request(
+                state.client.clone(),
+                super::toolchain_provider::QUERY_METHOD,
+                request.params,
+            )?;
+            let request_id = (response.state.next_request_id - 1).to_string();
+            let now = Instant::now();
+            state.client = response.state;
+            state.pending.insert(
+                request_id.clone(),
+                PendingRequest {
+                    kind: PendingKind::Feature,
+                    operation_id: Some(operation_id.clone()),
+                    method: super::toolchain_provider::QUERY_METHOD.to_string(),
+                    document_uri: None,
+                    document_version: None,
+                    created_at: now,
+                    deadline: now + timeout,
+                },
+            );
+            state
+                .request_by_operation
+                .insert(operation_id, request_id.clone());
+            (response.messages, request_id)
+        };
+        self.send_request_or_fail(&outbound_order, messages, &request_id)
+    }
+
     fn vcs_request(
         &self,
         request: VcsProviderRequest,
@@ -3342,10 +3667,21 @@ impl RuntimeSession {
     }
 
     fn handle_server_message(&self, message: String) -> Result<(), CoreError> {
+        self.handle_server_message_after_policy_check(message, || {})
+    }
+
+    fn handle_server_message_after_policy_check(
+        &self,
+        message: String,
+        after_policy_check: impl FnOnce(),
+    ) -> Result<(), CoreError> {
         let value: Value = serde_json::from_str(&message).map_err(|error| {
             CoreError::new(ErrorCode::ParseFailed, "Invalid LSP server JSON message.")
                 .with_details(error.to_string())
         })?;
+        // Diagnostics and readiness flushes must share the same policy boundary
+        // as host document commits and exclusion withdrawal.
+        let _indexing_order = self.lock_indexing_roots()?;
         let outbound_order = self.lock_outbound_order()?;
         let response_id = if value.get("method").is_none() {
             lsp_value_id(value.get("id"))
@@ -3398,6 +3734,14 @@ impl RuntimeSession {
             None => value,
         };
         let method = value.get("method").and_then(Value::as_str);
+        if method == Some("textDocument/publishDiagnostics") {
+            if let Some(uri) = value.pointer("/params/uri").and_then(Value::as_str) {
+                if crate::project::indexing::uri_is_excluded(&self.root_uri, uri).unwrap_or(true) {
+                    return Ok(());
+                }
+            }
+        }
+        after_policy_check();
         let readiness = readiness_signal(&self.provider_id, method, value.get("params"));
         let java_import_progress = import_progress(&self.provider_id, method, value.get("params"));
         if method == Some("workspace/configuration") {
@@ -3581,6 +3925,25 @@ impl RuntimeSession {
                                 &pending.method,
                                 result,
                                 error,
+                            );
+                        }
+                    }
+                }
+                Some(PendingKind::Feature)
+                    if pending_before.as_ref().is_some_and(|pending| {
+                        pending.method == super::toolchain_provider::QUERY_METHOD
+                    }) =>
+                {
+                    if let Some(pending) = pending_before.as_ref() {
+                        if let Some(operation_id) = &pending.operation_id {
+                            let result = super::toolchain_provider::reply_outcome(&value);
+                            push_request_event(
+                                self,
+                                &mut state,
+                                operation_id,
+                                &pending.method,
+                                Some(result),
+                                None,
                             );
                         }
                     }
@@ -4218,6 +4581,12 @@ impl RuntimeSession {
                     )?);
                 } else if event.kind == super::vcs_provider::NEGOTIATED_EVENT {
                     push_vcs_provider_event(self, &mut state, event.result.unwrap_or_default());
+                } else if event.kind == super::toolchain_provider::NEGOTIATED_EVENT {
+                    push_toolchain_provider_event(
+                        self,
+                        &mut state,
+                        event.result.unwrap_or_default(),
+                    );
                 } else if event.kind == "diagnostics" {
                     if let Some(uri) = event.uri.as_deref() {
                         push_diagnostics_event(
@@ -4373,11 +4742,8 @@ impl RuntimeSession {
         }
         self.send_messages_or_fail(&outbound_order, outbound, "serverResponse")?;
         if service_ready {
-            let queued_messages = {
-                let mut state = self.lock_state()?;
-                state.initialize_deadline = None;
-                flush_queued_documents_locked(&mut state)?
-            };
+            self.lock_state()?.initialize_deadline = None;
+            let queued_messages = self.flush_queued_documents()?;
             self.send_messages_or_fail(&outbound_order, queued_messages, "serviceReady")?;
             {
                 let mut state = self.lock_state()?;
@@ -4567,6 +4933,36 @@ impl RuntimeSession {
     }
 
     fn flush_queued_documents(&self) -> Result<Vec<String>, CoreError> {
+        let queued = {
+            let state = self.lock_state()?;
+            state
+                .pending_workspace_file_changes
+                .keys()
+                .cloned()
+                .chain(
+                    state
+                        .client
+                        .open_documents
+                        .values()
+                        .filter(|document| document.version == 0)
+                        .map(|document| document.uri.clone()),
+                )
+                .collect::<BTreeSet<_>>()
+        };
+        for uri in queued {
+            if crate::project::indexing::uri_is_excluded(&self.root_uri, &uri)? {
+                let mut state = self.lock_state()?;
+                state.pending_workspace_file_changes.remove(&uri);
+                if state
+                    .client
+                    .open_documents
+                    .get(&uri)
+                    .is_some_and(|document| document.version == 0)
+                {
+                    state.client.open_documents.remove(&uri);
+                }
+            }
+        }
         let mut state = self.lock_state()?;
         flush_queued_documents_locked(&mut state)
     }
@@ -5302,6 +5698,12 @@ impl RuntimeSession {
         })
     }
 
+    fn lock_indexing_roots(&self) -> Result<MutexGuard<'_, Vec<String>>, CoreError> {
+        self.indexing_roots
+            .lock()
+            .map_err(|_| CoreError::new(ErrorCode::Unknown, "LSP indexing lock was poisoned"))
+    }
+
     fn lock_state(&self) -> Result<MutexGuard<'_, SessionState>, CoreError> {
         self.state.lock().map_err(|_| {
             CoreError::new(
@@ -5520,9 +5922,15 @@ fn java_entrypoint_scope_uri(root_uri: &str) -> String {
 ///
 /// Resolving links touches the file system, so it happens here in the engine
 /// rather than in the pure normalizer that receives the result.
-fn canonical_workspace_root(root_uri: &str) -> Option<String> {
+fn canonical_workspace_path(root_uri: &str) -> Option<PathBuf> {
     let path = url::Url::parse(root_uri).ok()?.to_file_path().ok()?;
-    let canonical = crate::remote::workspace_io::canonicalize(path).ok()?;
+    // Core policy identity uses the native canonical path, including Windows'
+    // verbatim prefix. A protocol/display path is not a policy registry key.
+    crate::remote::workspace_io::canonicalize(path).ok()
+}
+
+fn canonical_workspace_root(root_uri: &str) -> Option<String> {
+    let canonical = canonical_workspace_path(root_uri)?;
     let canonical = canonical.to_string_lossy().replace('\\', "/");
     // Windows canonical paths carry a verbatim `\\?\` prefix that JDT never reports.
     Some(
@@ -6143,6 +6551,40 @@ fn push_vcs_provider_event(session: &RuntimeSession, state: &mut SessionState, r
         state,
         LspRuntimeEvent {
             kind: "vcsProvider".to_string(),
+            sequence,
+            provider_id: session.provider_id.clone(),
+            session_id: session.id.clone(),
+            state: None,
+            operation_id: None,
+            method: None,
+            uri: None,
+            version: None,
+            diagnostics: None,
+            result: Some(result),
+            error: None,
+            capabilities: None,
+            server_info: None,
+            level: None,
+            message: None,
+            detail: None,
+            maven_profile_project: None,
+            maven_profile_task: None,
+        },
+    );
+}
+
+/// Publishes the providers a backend selected, so the host queries only those.
+fn push_toolchain_provider_event(
+    session: &RuntimeSession,
+    state: &mut SessionState,
+    result: Value,
+) {
+    let sequence = take_sequence(state);
+    enqueue_runtime_event(
+        session,
+        state,
+        LspRuntimeEvent {
+            kind: "toolchainProviders".to_string(),
             sequence,
             provider_id: session.provider_id.clone(),
             session_id: session.id.clone(),
@@ -6879,6 +7321,7 @@ fn clear_runtime_state(session: &RuntimeSession, state: &mut SessionState) {
     state.function_by_operation.clear();
     clear_function_registry(session, state);
     state.client.vcs_provider = None;
+    state.client.toolchain_providers.clear();
     state.linked_document_paths = LinkedDocumentPaths::default();
     state.java_navigation_marker_batches.clear();
     state.java_navigation_marker_cache.clear();
@@ -7006,6 +7449,7 @@ mod tests {
             provider_id: "gopls".to_string(),
             plugin_id: None,
             host_services: Vec::new(),
+            toolchain_providers: Vec::new(),
             executable_path: "/usr/bin/scripted-server".to_string(),
             arguments: vec!["--stdio".to_string()],
             environment: BTreeMap::new(),
@@ -7037,6 +7481,43 @@ mod tests {
         /// Events are drained by every poll, so the harness accumulates them and
         /// tests assert against the whole history.
         events: Vec<LspRuntimeEvent>,
+    }
+
+    struct IndexingPolicyFixture {
+        root: PathBuf,
+        revision: u64,
+    }
+
+    impl IndexingPolicyFixture {
+        fn new(root: PathBuf) -> Self {
+            let mut fixture = Self { root, revision: 0 };
+            fixture.exclude(&[]);
+            fixture
+        }
+
+        fn exclude(&mut self, paths: &[&str]) {
+            self.revision = crate::project::indexing::configure(
+                serde_json::from_value(json!({
+                    "root": self.root, "manualExcludedDirectories": paths,
+                    "includedDirectories": [], "gitIgnoreEnabled": false
+                }))
+                .unwrap(),
+            )
+            .unwrap()
+            .revision;
+        }
+    }
+
+    impl Drop for IndexingPolicyFixture {
+        fn drop(&mut self) {
+            let _ = crate::project::indexing::release(
+                crate::project::indexing::ReleaseIndexingRequest {
+                    root: self.root.to_string_lossy().into_owned(),
+                    owner_id: None,
+                    revision: self.revision,
+                },
+            );
+        }
     }
 
     struct TemporaryMavenWorkspace {
@@ -9133,6 +9614,582 @@ mod tests {
         assert_eq!(harness.snapshot().state, LspLifecycleState::Failed);
     }
 
+    #[test]
+    fn indexing_java_retains_plugin_exclusions_across_all_configuration_channels() {
+        let workspace = TemporaryMavenWorkspace::recursive("indexing-java-base");
+        let root = workspace.root.canonicalize().unwrap();
+        let root_uri = url::Url::from_directory_path(&root).unwrap().to_string();
+        struct Lease {
+            root: PathBuf,
+            revision: u64,
+        }
+        impl Drop for Lease {
+            fn drop(&mut self) {
+                let _ = crate::project::indexing::release(
+                    crate::project::indexing::ReleaseIndexingRequest {
+                        owner_id: None,
+                        root: self.root.to_string_lossy().into_owned(),
+                        revision: self.revision,
+                    },
+                );
+            }
+        }
+        let mut lease = Lease {
+            root: root.clone(),
+            revision: 0,
+        };
+        let plugin = json!({"settings":{"java":{"import":{"exclusions":["**/vendor/**"]}}}});
+        let mut harness = Harness::start(|request| {
+            workspace.configure(request);
+            request.root_uri = root_uri.clone();
+            request.initialization_options = Some(plugin.clone());
+        });
+        harness
+            .server
+            .complete_java_initialize(ready_capabilities());
+        harness.await_state(LspLifecycleState::Ready);
+        for (index, excluded) in [true, false, true, false].into_iter().enumerate() {
+            let status = crate::project::indexing::configure(serde_json::from_value(json!({
+                "root":root,"manualExcludedDirectories":if excluded {vec!["reactor"]} else {vec![]},
+                "includedDirectories":[],"gitIgnoreEnabled":false
+            })).unwrap()).unwrap();
+            lease.revision = status.revision;
+            apply_indexing_to_sessions(&root, vec![harness.session()]).unwrap();
+            let mut expected = vec![json!("**/vendor/**")];
+            if excluded {
+                let directory = root.join("reactor").to_string_lossy().replace('\\', "/");
+                expected.extend([json!(directory), json!(format!("{directory}/**"))]);
+            }
+            let notifications = notifications(&harness, "workspace/didChangeConfiguration");
+            assert_eq!(
+                notifications.last().unwrap()["params"]["settings"]["java"]["import"]["exclusions"],
+                json!(expected)
+            );
+            let id = format!("indexing-java-{index}");
+            harness.server.send(json!({"jsonrpc":"2.0", "id":id, "method":"workspace/configuration", "params":{"items":[
+                {"section":"java.import.exclusions"},{"section":"java.import"},{"section":"java"}
+            ]}}));
+            let reply = await_reply(&harness, &id);
+            assert_eq!(reply["result"][0], json!(expected));
+            assert_eq!(reply["result"][1]["exclusions"], json!(expected));
+            assert_eq!(reply["result"][2]["import"]["exclusions"], json!(expected));
+        }
+        assert_eq!(
+            harness.session().jdt_import_exclusions,
+            Some(json!(["**/vendor/**"]))
+        );
+        // Restarting from the same immutable plugin input must not accumulate old overlays.
+        let restarted = Harness::start(|request| {
+            workspace.configure(request);
+            request.root_uri = root_uri;
+            request.initialization_options = Some(plugin);
+        });
+        let initialize = notifications(&restarted, "initialize").pop().unwrap();
+        assert_eq!(
+            initialize["params"]["initializationOptions"]["settings"]["java"]["import"]
+                ["exclusions"],
+            json!(["**/vendor/**"])
+        );
+    }
+
+    #[test]
+    fn indexing_policy_withdrawal_serializes_with_a_checked_document_commit() {
+        assert_policy_withdrawal_serializes_with_checked_commit(false);
+    }
+
+    #[test]
+    fn indexing_policy_withdrawal_serializes_with_checked_diagnostics() {
+        assert_policy_withdrawal_serializes_with_checked_commit(true);
+    }
+
+    fn assert_policy_withdrawal_serializes_with_checked_commit(diagnostics: bool) {
+        let workspace = TemporaryMavenWorkspace::recursive("indexing-document-commit");
+        let root = workspace.root.canonicalize().unwrap();
+        let mut policy = IndexingPolicyFixture::new(root.clone());
+        let mut harness = Harness::start(|request| workspace.configure(request));
+        harness
+            .server
+            .complete_java_initialize(ready_capabilities());
+        harness.await_state(LspLifecycleState::Ready);
+        let uri = url::Url::from_file_path(root.join("reactor/Hidden.java"))
+            .unwrap()
+            .to_string();
+        let session = harness.session();
+        let (checked_tx, checked_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let (sync_done_tx, sync_done_rx) = std::sync::mpsc::channel();
+        let syncing = {
+            let session = session.clone();
+            let uri = uri.clone();
+            thread::spawn(move || {
+                let checked = || {
+                    checked_tx.send(()).unwrap();
+                    release_rx
+                        .recv_timeout(Duration::from_secs(3))
+                        .expect("document commit was not released");
+                };
+                let result = if diagnostics {
+                    session.handle_server_message_after_policy_check(json!({"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{
+                        "uri":uri,"diagnostics":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},"message":"old diagnostic"}]
+                    }}).to_string(), checked)
+                } else {
+                    session
+                        .sync_document_after_policy_check(
+                            SyncDocumentRequest {
+                                session_id: session.id.clone(),
+                                uri,
+                                language_id: "java".into(),
+                                text: "class Hidden {}".into(),
+                                content_changes: Vec::new(),
+                            },
+                            checked,
+                        )
+                        .map(|_| ())
+                };
+                let _ = sync_done_tx.send(());
+                result
+            })
+        };
+        checked_rx
+            .recv_timeout(Duration::from_secs(3))
+            .expect("document eligibility was not reached");
+        assert!(
+            matches!(
+                session.indexing_roots.try_lock(),
+                Err(std::sync::TryLockError::WouldBlock)
+            ),
+            "eligibility and document publication must retain the policy serialization guard"
+        );
+        policy.exclude(&["reactor"]);
+        let (update_done_tx, update_done_rx) = std::sync::mpsc::channel();
+        let updating = {
+            let session = session.clone();
+            let root = root.clone();
+            thread::spawn(move || {
+                let result = apply_indexing_to_sessions(&root, vec![session]);
+                let _ = update_done_tx.send(());
+                result
+            })
+        };
+        release_tx.send(()).unwrap();
+        sync_done_rx
+            .recv_timeout(Duration::from_secs(3))
+            .expect("document commit did not finish");
+        update_done_rx
+            .recv_timeout(Duration::from_secs(3))
+            .expect("policy update did not finish");
+        syncing.join().unwrap().unwrap();
+        updating.join().unwrap().unwrap();
+        assert!(!harness.snapshot().open_documents.contains_key(&uri));
+        assert!(!session
+            .lock_state()
+            .unwrap()
+            .client
+            .diagnostics
+            .contains_key(&uri));
+        if !diagnostics {
+            assert!(notifications(&harness, "textDocument/didClose")
+                .iter()
+                .any(|message| message["params"]["textDocument"]["uri"] == uri));
+        }
+    }
+
+    #[test]
+    fn indexing_policy_withdraws_queued_file_changes_before_service_readiness() {
+        let workspace = TemporaryMavenWorkspace::recursive("indexing-pending-file-changes");
+        let root = workspace.root.canonicalize().unwrap();
+        let mut policy = IndexingPolicyFixture::new(root.clone());
+        let mut harness = Harness::start(|request| workspace.configure(request));
+        let hidden = url::Url::from_file_path(root.join("reactor/Hidden.java"))
+            .unwrap()
+            .to_string();
+        let visible = url::Url::from_file_path(root.join("Visible.java"))
+            .unwrap()
+            .to_string();
+        harness
+            .session()
+            .workspace_files_changed(vec![
+                WorkspaceFileChange {
+                    uri: hidden.clone(),
+                    kind: WorkspaceFileChangeKind::Created,
+                },
+                WorkspaceFileChange {
+                    uri: visible.clone(),
+                    kind: WorkspaceFileChangeKind::Created,
+                },
+            ])
+            .unwrap();
+        assert_eq!(
+            harness
+                .session()
+                .lock_state()
+                .unwrap()
+                .pending_workspace_file_changes
+                .len(),
+            2
+        );
+        policy.exclude(&["reactor"]);
+        // The policy is installed, but this independent session has not received
+        // its withdrawal callback yet. Readiness must recheck queued eligibility.
+        harness
+            .server
+            .complete_java_initialize(ready_capabilities());
+        harness.await_state(LspLifecycleState::Ready);
+        let changes = notifications(&harness, "workspace/didChangeWatchedFiles");
+        assert!(changes.iter().any(|message| message["params"]["changes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|change| change["uri"] == visible)));
+        assert!(!changes.iter().any(|message| message["params"]["changes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|change| change["uri"] == hidden)));
+    }
+
+    #[test]
+    fn indexing_startup_cancels_when_policy_changes_during_process_launch() {
+        struct RetireOnLaunch {
+            inner: Arc<dyn LspProcessLauncher>,
+            root: PathBuf,
+            revision: Arc<AtomicU64>,
+            process: Arc<Mutex<Option<Arc<dyn LspProcessHandle>>>>,
+        }
+        impl LspProcessLauncher for RetireOnLaunch {
+            fn launch(
+                &self,
+                spec: LspProcessSpec,
+            ) -> Result<super::super::process::LspProcessStreams, CoreError> {
+                let process = self.inner.launch(spec)?;
+                *self.process.lock().unwrap() = Some(process.handle.clone());
+                let status = crate::project::indexing::configure(serde_json::from_value(json!({
+                    "root": self.root, "manualExcludedDirectories": ["reactor"], "includedDirectories": [], "gitIgnoreEnabled": false
+                })).unwrap())?;
+                self.revision.store(status.revision, Ordering::Release);
+                Ok(process)
+            }
+        }
+        struct Cleanup {
+            root: PathBuf,
+            revision: Arc<AtomicU64>,
+            process: Arc<Mutex<Option<Arc<dyn LspProcessHandle>>>>,
+        }
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                if let Some(process) = self.process.lock().unwrap().as_ref() {
+                    process.terminate();
+                }
+                let _ = crate::project::indexing::release(
+                    crate::project::indexing::ReleaseIndexingRequest {
+                        root: self.root.to_string_lossy().into_owned(),
+                        owner_id: None,
+                        revision: self.revision.load(Ordering::Acquire),
+                    },
+                );
+            }
+        }
+        for initially_configured in [false, true] {
+            let workspace = TemporaryMavenWorkspace::recursive(&format!(
+                "indexing-startup-retired-{initially_configured}"
+            ));
+            let root = workspace.root.canonicalize().unwrap();
+            let installed = if initially_configured {
+                crate::project::indexing::configure(serde_json::from_value(json!({
+            "root":root,"manualExcludedDirectories":[],"includedDirectories":[],"gitIgnoreEnabled":false
+        })).unwrap()).unwrap().revision
+            } else {
+                0
+            };
+            let cleanup = Cleanup {
+                root: root.clone(),
+                revision: Arc::new(AtomicU64::new(installed)),
+                process: Arc::new(Mutex::new(None)),
+            };
+            let server = ScriptedServer::new();
+            let engine = LspEngine::with_launcher(Arc::new(RetireOnLaunch {
+                inner: server.launcher(),
+                root: root.clone(),
+                revision: cleanup.revision.clone(),
+                process: cleanup.process.clone(),
+            }));
+            let mut request = start_request(&server);
+            request.provider_id = "python".into();
+            request.root_uri = url::Url::from_directory_path(&root).unwrap().to_string();
+            request.working_directory = root.to_string_lossy().into_owned();
+            match engine.start_server(request) {
+                Err(error) => assert!(matches!(error.code, ErrorCode::Cancelled)),
+                Ok(_) => panic!("an obsolete startup must not publish a session"),
+            }
+            assert!(engine.lock_sessions().unwrap().is_empty());
+            assert!(
+                server.input_was_closed(),
+                "the cancelled startup owns process termination"
+            );
+        }
+    }
+
+    #[test]
+    fn indexing_released_root_allows_a_standalone_provider_without_old_exclusions() {
+        let workspace = TemporaryMavenWorkspace::recursive("indexing-released-standalone");
+        let root = workspace.root.canonicalize().unwrap();
+        let root_uri = url::Url::from_directory_path(&root).unwrap().to_string();
+        let status = crate::project::indexing::configure(serde_json::from_value(json!({
+            "root": root, "manualExcludedDirectories": ["reactor"], "includedDirectories": [], "gitIgnoreEnabled": false
+        })).unwrap()).unwrap();
+        let old = crate::project::indexing::context(&root).unwrap();
+        crate::project::indexing::release(crate::project::indexing::ReleaseIndexingRequest {
+            root: root.to_string_lossy().into_owned(),
+            revision: status.revision,
+            owner_id: None,
+        })
+        .unwrap();
+        assert!(
+            old.check().is_err(),
+            "late inventory readers must remain cancelled"
+        );
+        let harness = Harness::start(|request| {
+            workspace.configure(request);
+            request.root_uri = root_uri.clone();
+            request.initialization_options =
+                Some(json!({"settings":{"java":{"import":{"exclusions":["**/vendor/**"]}}}}));
+        });
+        let initialize = notifications(&harness, "initialize").pop().unwrap();
+        assert_eq!(
+            initialize["params"]["initializationOptions"]["settings"]["java"]["import"]
+                ["exclusions"],
+            json!(["**/vendor/**"])
+        );
+        let file_uri = url::Url::from_file_path(root.join("reactor/Visible.java"))
+            .unwrap()
+            .to_string();
+        assert!(!crate::project::indexing::uri_is_excluded(&root_uri, &file_uri).unwrap());
+    }
+
+    #[test]
+    fn indexing_cold_start_resolves_git_before_provider_initialization() {
+        let workspace = TemporaryMavenWorkspace::recursive("indexing-cold-start");
+        let root = workspace.root.canonicalize().unwrap();
+        std::fs::create_dir_all(root.join("ignored")).unwrap();
+        std::fs::write(root.join("ignored/hidden.txt"), "hidden").unwrap();
+        std::fs::write(root.join(".gitignore"), "ignored/\n").unwrap();
+        let git = crate::git::execute_git_readonly(
+            &root.to_string_lossy(),
+            &["init".into(), "--quiet".into()],
+            None,
+        )
+        .unwrap();
+        assert_eq!(git.exit_code, 0, "{}", git.stderr);
+        let status = crate::project::indexing::configure(serde_json::from_value(json!({
+            "root": root, "manualExcludedDirectories": [], "includedDirectories": [], "gitIgnoreEnabled": true
+        })).unwrap()).unwrap();
+        let harness = Harness::start(|request| {
+            workspace.configure(request);
+            request.root_uri = url::Url::from_directory_path(&root).unwrap().to_string();
+            request.initialization_options =
+                Some(json!({"settings":{"java":{"import":{"exclusions":["**/vendor/**"]}}}}));
+        });
+        let initialize = notifications(&harness, "initialize").pop().unwrap();
+        let excluded = root.join("ignored").to_string_lossy().replace('\\', "/");
+        assert_eq!(
+            initialize["params"]["initializationOptions"]["settings"]["java"]["import"]
+                ["exclusions"],
+            json!(["**/vendor/**", excluded, format!("{excluded}/**")])
+        );
+        for (provider, pointer) in [
+            ("go", "/gopls/directoryFilters"),
+            ("rust", "/rust-analyzer/files/exclude"),
+        ] {
+            let value = crate::lsp::languages::indexing::configuration(
+                provider,
+                &harness.session().root_uri,
+                None,
+            )
+            .unwrap();
+            assert!(value
+                .pointer(pointer)
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|item| item
+                    == if provider == "go" {
+                        "-ignored"
+                    } else {
+                        "ignored"
+                    }));
+        }
+        crate::project::indexing::release(crate::project::indexing::ReleaseIndexingRequest {
+            root: root.to_string_lossy().into_owned(),
+            revision: status.revision,
+            owner_id: None,
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn indexing_watcher_rebuild_publishes_recomputed_git_exclusions_to_java() {
+        let workspace = TemporaryMavenWorkspace::recursive("indexing-watcher-provider");
+        let root = workspace.root.canonicalize().unwrap();
+        std::fs::create_dir_all(root.join("ignored")).unwrap();
+        std::fs::write(root.join("ignored/hidden.txt"), "hidden").unwrap();
+        std::fs::write(root.join(".gitignore"), "ignored/\n").unwrap();
+        let git = crate::git::execute_git_readonly(
+            &root.to_string_lossy(),
+            &["init".into(), "--quiet".into()],
+            None,
+        )
+        .unwrap();
+        assert_eq!(git.exit_code, 0, "{}", git.stderr);
+        let mut harness = Harness::start(|request| workspace.configure(request));
+        harness
+            .server
+            .complete_java_initialize(ready_capabilities());
+        harness.await_state(LspLifecycleState::Ready);
+        // Production notifications address the registry. Install this scripted
+        // session under a fixture-unique key and remove it even on assertion failure.
+        struct Registered {
+            key: String,
+            root: PathBuf,
+            revision: u64,
+        }
+        impl Drop for Registered {
+            fn drop(&mut self) {
+                engine().sessions.lock().unwrap().remove(&self.key);
+                let _ = crate::project::indexing::release(
+                    crate::project::indexing::ReleaseIndexingRequest {
+                        owner_id: None,
+                        root: self.root.to_string_lossy().into_owned(),
+                        revision: self.revision,
+                    },
+                );
+            }
+        }
+        let mut registered = Registered {
+            key: root.to_string_lossy().into_owned(),
+            root: root.clone(),
+            revision: 0,
+        };
+        engine()
+            .sessions
+            .lock()
+            .unwrap()
+            .insert(registered.key.clone(), harness.session());
+        let status = crate::project::indexing::configure(
+            serde_json::from_value(json!({
+                "root":root,"manualExcludedDirectories":[],"includedDirectories":[],
+                "gitIgnoreEnabled":true,"paths":["ignored"]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        registered.revision = status.revision;
+        let before = notifications(&harness, "workspace/didChangeConfiguration");
+        assert!(
+            before.last().unwrap()["params"]["settings"]["java"]["import"]["exclusions"]
+                .as_array()
+                .unwrap()
+                .len()
+                >= 2
+        );
+        // Hosts first refresh with no paths, before rebuilding their inventory.
+        let refreshed = crate::project::indexing::configure(
+            serde_json::from_value(json!({
+                "root":root,"manualExcludedDirectories":[],"includedDirectories":[],
+                "gitIgnoreEnabled":true,"refresh":true,"paths":[]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        registered.revision = refreshed.revision;
+        let host_refresh = notifications(&harness, "workspace/didChangeConfiguration");
+        assert_eq!(
+            host_refresh.last().unwrap()["params"]["settings"]["java"]["import"]["exclusions"],
+            before.last().unwrap()["params"]["settings"]["java"]["import"]["exclusions"]
+        );
+        crate::project::files::update_search_index(
+            serde_json::from_value(json!({
+                "root":root,"paths":[".gitignore"]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let after = notifications(&harness, "workspace/didChangeConfiguration");
+        assert!(after.len() > before.len());
+        assert_eq!(
+            after.last().unwrap()["params"]["settings"]["java"]["import"]["exclusions"],
+            before.last().unwrap()["params"]["settings"]["java"]["import"]["exclusions"]
+        );
+        assert_eq!(
+            harness.session().indexing_revision.load(Ordering::Acquire),
+            crate::project::indexing::context(&root).unwrap().revision
+        );
+    }
+
+    #[test]
+    fn indexing_change_withdraws_open_working_copies_and_rejects_sync() {
+        let workspace = TemporaryMavenWorkspace::recursive("indexing-working-copy");
+        let root = workspace.root.canonicalize().unwrap();
+        let root_uri = url::Url::from_directory_path(&root).unwrap().to_string();
+        let mut harness = Harness::start(|request| {
+            request.root_uri = root_uri.clone();
+            request.working_directory = root.to_string_lossy().into_owned();
+        });
+        harness.server.complete_initialize(ready_capabilities());
+        harness.await_state(LspLifecycleState::Ready);
+        let uri = url::Url::from_file_path(root.join("reactor/main.go"))
+            .unwrap()
+            .to_string();
+        harness.sync(&uri, "package main");
+        let status = crate::project::indexing::configure(
+            serde_json::from_value(json!({
+                "root":root,"manualExcludedDirectories":["reactor"],
+                "includedDirectories":[],"gitIgnoreEnabled":false
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        apply_indexing_to_sessions(&root, vec![harness.session()]).unwrap();
+        assert!(!harness
+            .session()
+            .lock_state()
+            .unwrap()
+            .client
+            .open_documents
+            .contains_key(&uri));
+        assert!(crate::project::indexing::uri_is_excluded(&root_uri, &uri).unwrap());
+        let session = harness.session();
+        assert!(session
+            .sync_document(SyncDocumentRequest {
+                session_id: harness.session_id.clone(),
+                uri: uri.clone(),
+                language_id: "go".into(),
+                text: "package main".into(),
+                content_changes: Vec::new(),
+            })
+            .is_err());
+        session.handle_server_message(json!({"jsonrpc":"2.0","method":"textDocument/publishDiagnostics", "params":{
+            "uri":uri,"diagnostics":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},"severity":1,"message":"late"}]
+        }}).to_string()).unwrap();
+        assert!(!session
+            .lock_state()
+            .unwrap()
+            .client
+            .diagnostics
+            .contains_key(&uri));
+
+        assert_eq!(
+            harness.session().indexing_revision.load(Ordering::Acquire),
+            status.revision
+        );
+        crate::project::indexing::release(crate::project::indexing::ReleaseIndexingRequest {
+            owner_id: None,
+            root: root.to_string_lossy().into_owned(),
+            revision: status.revision,
+        })
+        .unwrap();
+    }
+
     /// Criterion 8: diagnostics for a stale document version are ignored.
     /// Criterion 9: closing a document clears document and diagnostic state.
     #[test]
@@ -10933,6 +11990,7 @@ public class Main {
                 provider_id: "java".to_string(),
                 plugin_id: None,
                 host_services: Vec::new(),
+                toolchain_providers: Vec::new(),
                 executable_path,
                 arguments: Vec::new(),
                 environment: BTreeMap::from([(
@@ -11675,6 +12733,7 @@ public class Main {
             provider_id: String::new(),
             plugin_id: None,
             host_services: Vec::new(),
+            toolchain_providers: Vec::new(),
             executable_path: "/bin/server".to_string(),
             arguments: Vec::new(),
             environment: BTreeMap::new(),
@@ -12627,6 +13686,126 @@ public class Main {
             Some("requestTimeout")
         );
         assert!(harness.server.await_notification("$/cancelRequest"));
+    }
+
+    // Toolchain providers against a scripted backend. Only a plugin-owned
+    // session launched with declared providers is offered `litheToolchains`,
+    // and only a provider its process selected receives `toolchains/query`.
+
+    fn toolchain_backend(answer: Value) -> Harness {
+        let mut harness = Harness::start(|request| {
+            request.plugin_id = Some("dev.lithe.fixture.toolchain-provider".to_string());
+            request.toolchain_providers = vec!["mise".to_string()];
+        });
+        harness
+            .server
+            .complete_initialize(json!({ "experimental": { "litheToolchains": answer } }));
+        harness.await_state(LspLifecycleState::Ready);
+        harness
+    }
+
+    fn toolchain_query(harness: &Harness, provider: &str) -> Result<String, CoreError> {
+        let operation_id = harness.engine.next_operation_id();
+        harness
+            .session()
+            .toolchain_request(
+                ToolchainProviderRequest {
+                    session_id: harness.session_id.clone(),
+                    operation_id: Some(operation_id.clone()),
+                    params: json!({ "operationID": "query-1", "generation": 1, "providerID": provider }),
+                    timeout_milliseconds: None,
+                },
+                operation_id.clone(),
+            )
+            .map(|()| operation_id)
+    }
+
+    fn no_toolchain_query_written(harness: &Harness) -> bool {
+        harness
+            .server
+            .messages()
+            .iter()
+            .all(|message| message["method"] != "toolchains/query")
+    }
+
+    #[test]
+    fn host_sessions_are_not_offered_the_toolchain_protocol() {
+        let harness = Harness::start(|request| {
+            request.toolchain_providers = vec!["mise".to_string()];
+        });
+        harness.server.complete_initialize(json!({}));
+        let initialize = harness
+            .server
+            .messages()
+            .into_iter()
+            .find(|message| message["method"] == "initialize")
+            .expect("initialize should have been written");
+        assert!(initialize["params"]["capabilities"]["experimental"]
+            .get("litheToolchains")
+            .is_none());
+    }
+
+    #[test]
+    fn a_query_reaches_only_a_selected_provider_and_returns_the_raw_response() {
+        let mut harness = toolchain_backend(json!({ "version": 1, "providers": ["mise"] }));
+        let initialize = harness
+            .server
+            .messages()
+            .into_iter()
+            .find(|message| message["method"] == "initialize")
+            .expect("initialize should have been written");
+        assert_eq!(
+            initialize["params"]["capabilities"]["experimental"]["litheToolchains"],
+            json!({ "versions": [1], "providers": ["mise"] })
+        );
+        let event = harness
+            .await_event(|event| event.kind == "toolchainProviders")
+            .clone();
+        assert_eq!(event.result, Some(json!({ "providers": ["mise"] })));
+
+        let refused = toolchain_query(&harness, "asdf").expect_err("not selected");
+        assert_eq!(
+            refused.details.as_deref(),
+            Some("plugin.toolchain.providerUnavailable")
+        );
+        assert!(no_toolchain_query_written(&harness));
+
+        let operation = toolchain_query(&harness, "mise").expect("written");
+        let id = harness
+            .server
+            .await_request("toolchains/query")
+            .expect("the query is written");
+        let wire_id: u64 = id.parse().expect("a numeric wire ID");
+        // Even a provider error stays a raw reply: decodeReply owns its mapping.
+        let response = json!({
+            "jsonrpc": "2.0", "id": wire_id,
+            "error": { "code": -32073, "message": "untrusted", "data": { "code": "x" } }
+        });
+        harness.server.send(response.clone());
+        let event = harness
+            .await_event(|event| {
+                event.kind == "requestCompleted"
+                    && event.operation_id.as_deref() == Some(operation.as_str())
+            })
+            .clone();
+        assert!(event.error.is_none());
+        assert_eq!(
+            event.result,
+            Some(json!({ "value": { "id": wire_id, "response": response } }))
+        );
+    }
+
+    #[test]
+    fn an_undeclared_toolchain_provider_enables_nothing() {
+        let mut harness = toolchain_backend(json!({ "version": 1, "providers": ["mise", "asdf"] }));
+        harness.poll();
+        assert!(harness
+            .events
+            .iter()
+            .all(|event| event.kind != "toolchainProviders"));
+        let error = toolchain_query(&harness, "mise").expect_err("refused");
+        assert!(matches!(error.code, ErrorCode::NotSupported));
+        assert!(no_toolchain_query_written(&harness));
     }
 
     // VCS providers against a scripted backend. Only a plugin-owned session

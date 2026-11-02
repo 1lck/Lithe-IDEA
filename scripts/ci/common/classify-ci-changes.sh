@@ -214,7 +214,7 @@ classify_path() {
             swift=true
             macos_release=true
             ;;
-        macos/sources/lithegitmodule/*|macos/sources/lithe/application/composition/gitmodulecoordinator.swift|macos/sources/lithe/models/appmodel/appmodel+git*|macos/sources/lithe/models/bridges/gitmodulebridges.swift|macos/sources/lithe/platform/macos/storage/macgit*|macos/sources/lithe/views/git/*)
+        macos/sources/lithegitmodule/*|macos/sources/litheworkspacemodule/application/workspacefeaturemodel.swift|macos/sources/lithe/application/composition/gitmodulecoordinator.swift|macos/sources/lithe/models/appmodel/appmodel+git*|macos/sources/lithe/models/bridges/gitmodulebridges.swift|macos/sources/lithe/platform/macos/storage/macgit*|macos/sources/lithe/views/git/*)
             swift=true
             git_validation=true
             ;;

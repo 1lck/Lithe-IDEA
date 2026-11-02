@@ -1,5 +1,6 @@
 import {
   CURRENT_FILE_ID,
+  PRIMARY_SESSION_ID,
   type CoreGlobalToolchain,
   type CoreLocalToolchains,
   type GenericRuntime,
@@ -16,6 +17,14 @@ import {
 } from "../types/run.types";
 
 import { runConfigurationPresentation } from "./run-configuration-presentation";
+
+/** Run and IDE automation must agree on which configurations share an output slot. */
+export function runSessionId(configuration: Pick<RunConfiguration, "id" | "execution">): string {
+  return configuration.id !== CURRENT_FILE_ID &&
+    (configuration.execution === "service" || configuration.execution === "application")
+    ? configuration.id
+    : PRIMARY_SESSION_ID;
+}
 
 export function mapCoreConfiguration(value: CoreResolvedConfiguration): RunConfiguration {
   const maven = value.extensions?.maven;
