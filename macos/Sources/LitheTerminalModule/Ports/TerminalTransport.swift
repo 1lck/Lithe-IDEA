@@ -18,19 +18,24 @@ public struct TerminalProcessLaunch: Equatable, Sendable {
     public let arguments: [String]
     public let workingDirectory: String
     public let environmentChanges: [TerminalEnvironmentChange]
+    /// Plain text shown before the new process starts. It is display history,
+    /// never input written to the PTY.
+    public let initialDisplayText: String
 
     public init(
         title: String?,
         executablePath: String,
         arguments: [String],
         workingDirectory: String,
-        environmentChanges: [TerminalEnvironmentChange] = []
+        environmentChanges: [TerminalEnvironmentChange] = [],
+        initialDisplayText: String = ""
     ) {
         self.title = title
         self.executablePath = executablePath
         self.arguments = arguments
         self.workingDirectory = workingDirectory
         self.environmentChanges = environmentChanges
+        self.initialDisplayText = initialDisplayText
     }
 }
 
@@ -93,6 +98,9 @@ public protocol TerminalTransport: AnyObject {
     func interrupt() throws
     func focus()
     func clear()
+    /// A bounded plain-text suffix of the rendered terminal, excluding escape
+    /// sequences and without exposing the input stream.
+    func displayText(maximumBytes: Int) -> String
     /// Starts stopping every process of the terminal session, including jobs
     /// in their own process groups and jobs that outlived the shell.
     func stop()
@@ -118,4 +126,5 @@ public extension TerminalTransport {
     var reportsLightBackground: Bool? { nil }
     /// Hosts without wallpaper keep the initial surface configuration a no-op.
     func configureInitialSurface(showsWorkbenchBackground: Bool) {}
+    func displayText(maximumBytes: Int) -> String { "" }
 }

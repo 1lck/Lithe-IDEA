@@ -105,6 +105,7 @@ pub(crate) const HOST_PERMISSIONS: &[&str] = &[
     "preview.open",
     "browser.open",
     "window.messages",
+    "terminal.create",
 ];
 
 const CREDENTIALS_GET: &str = "lithe/host/credentials/get";
@@ -499,6 +500,48 @@ pub(crate) struct HostMethod {
 /// service adds its rows here, its grant to `GRANTABLE_HOST_SERVICES` and
 /// the manifest permission, and its handler to the host's dispatcher.
 pub(crate) const HOST_METHODS: &[HostMethod] = &[
+    HostMethod {
+        method: "lithe/host/terminal/reopen",
+        service: "terminal",
+        permission: Some("terminal.create"),
+        since: CONTEXT_VERSION,
+        params: HostParams::Object,
+    },
+    HostMethod {
+        method: "lithe/host/terminal/dispose",
+        service: "terminal",
+        permission: Some("terminal.create"),
+        since: CONTEXT_VERSION,
+        params: HostParams::Object,
+    },
+    HostMethod {
+        method: "lithe/host/terminal/create",
+        service: "terminal",
+        permission: Some("terminal.create"),
+        since: CONTEXT_VERSION,
+        params: HostParams::Object,
+    },
+    HostMethod {
+        method: "lithe/host/terminal/show",
+        service: "terminal",
+        permission: Some("terminal.create"),
+        since: CONTEXT_VERSION,
+        params: HostParams::Object,
+    },
+    HostMethod {
+        method: "lithe/host/terminal/close",
+        service: "terminal",
+        permission: Some("terminal.create"),
+        since: CONTEXT_VERSION,
+        params: HostParams::Object,
+    },
+    HostMethod {
+        method: "lithe/host/terminal/onExit",
+        service: "terminal",
+        permission: Some("terminal.create"),
+        since: CONTEXT_VERSION,
+        params: HostParams::Object,
+    },
     HostMethod {
         method: CREDENTIALS_GET,
         service: HOST_SERVICE_CREDENTIALS,
