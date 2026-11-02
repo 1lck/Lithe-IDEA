@@ -32,11 +32,12 @@ OBSERVER_OPTIONS = {"namespace": "__litheSettingsAcceptance", "includePluginComm
 CASES = ("source-and-install-review", "provider-model", "task-test-dependencies",
          "tree-state-and-selection", "list-long-empty", "function-progress-cancel-error",
          "form-controls-and-restore", "settings-explicit-save-cancel", "two-window-global-settings",
+         "shared-provider-functions-and-registration", "settings-effects-and-project-reload",
          "replace-disable-uninstall", "quit-and-resource-invariance")
 PENDING = {
     "real-ime-and-native-focus": "Real Chinese IME composition, candidate windows, native hierarchy and window activation need human observation; DOM events are insufficient.",
     "theme-narrow-docking": "Dark/light visual geometry, narrow docking and cross-slot drag/restore need native manual acceptance.",
-    "full-version-contract": "Shared-language Provider, all execution selectors, dynamic function withdrawal, settings reload/restart and cleanup-failure retry require their full product lanes before capability admission.",
+    "full-version-contract": "Model task selectors, missing-report presentation, overlapping requests and injected native cleanup-failure recovery require their full product lanes before capability admission.",
     "external-formal-M10": "This newly generated unsigned community archive is not an external signed official artifact.",
     "windows-arm64": "No native ARM64 product run in this lane.",
 }
@@ -78,6 +79,38 @@ def function_receipt(calls, operation):
                     raise AssertionError(f"{operation}: terminal identity mismatch")
                 return value
     return None
+
+
+def settings_conflict_receipt(calls):
+    """A saved revision revokes the old panel receipt before any approval."""
+    prepared = [row for row in calls if row["command"] == "declarative_plugins_native_function_prepare"]
+    if len(prepared) != 1 or not prepared[0].get("settled"):
+        raise AssertionError("expected one settled stale native preparation")
+    row = prepared[0]
+    if not isinstance(row.get("error"), dict) or row["error"].get("code") != "plugin.settings.conflict":
+        raise AssertionError(f"expected exact settings conflict: {row}")
+    if any(call["command"] == "declarative_plugins_function_confirm" for call in calls):
+        raise AssertionError("stale native preparation was confirmed")
+    return row
+
+
+def project_reload_receipt(calls):
+    """The reload notice owns one normal approved model load, not a second load."""
+    def one(command):
+        rows = [row for row in calls if row["command"] == command]
+        if len(rows) != 1 or not rows[0].get("settled") or rows[0].get("error") or not rows[0].get("value"):
+            raise AssertionError(f"project reload requires one successful {command}: {rows}")
+        return rows[0]
+    reloaded = one("declarative_plugins_reload_settings")
+    prepared = one("declarative_plugins_prepare_settings_reload_model")
+    loaded = one("declarative_plugins_build_load_model")
+    receipt = reloaded.get("args", {})
+    operation = prepared["value"].get("operationId")
+    if (receipt.get("scope") != "project" or not receipt.get("project")
+            or prepared.get("args", {}).get("receipt") != receipt
+            or not operation or loaded.get("args", {}).get("operationId") != operation):
+        raise AssertionError("project reload model receipt/operation identity mismatch")
+    return {"reload": reloaded, "prepared": prepared, "loaded": loaded}
 
 
 def run_receipt(calls, events, action, scope, workspace):
@@ -138,7 +171,8 @@ class Workflow:
         self.workspace = args.fixture_root / "one"
         self.manifest = declaration(self.version)
         self.observed = []
-        self.deadline = time.monotonic() + 480
+        self.saved_backend_events = []
+        self.deadline = time.monotonic() + 780
 
     def wait(self, predicate, description):
         def pump():
@@ -152,6 +186,8 @@ class Workflow:
 
     def capture_failure(self):
         try:
+            self.driver.write_json(self.args.artifact_root / "ipc-snapshot-failure.json",
+                                   read(self.page, "() => window.__litheSettingsAcceptance.snapshot()"))
             self.driver.write_json(self.args.artifact_root / "ipc-failure.json", self.calls())
         finally:
             self.driver.capture_session_failure(self.session, self.args.artifact_root)
@@ -164,6 +200,12 @@ class Workflow:
                 for line in path.read_text(encoding="utf-8").splitlines(keepends=True):
                     if line.endswith("\n"):
                         rows.append(json.loads(line))
+        return rows
+
+    def preserve_backend(self, stage):
+        rows = self.backend_events()
+        self.driver.write_json(self.args.artifact_root / (stage + "-backend-events.json"), rows)
+        self.saved_backend_events.append({"stage": stage, "events": rows})
         return rows
 
     def settled(self, command, offset):
@@ -205,8 +247,10 @@ class Workflow:
                 raise AssertionError("cancelled install changed the catalog")
             return
         self.driver.confirm_review(self.page, review)
-        self.wait(lambda: self.catalog() and self.catalog().get("status") == "accepted", "accepted complete package")
+        self.wait(lambda: (row := self.catalog()) and row.get("status") == "accepted"
+                  and row.get("version") == version, "accepted complete package")
         self.version = version
+        self.manifest = declaration(version)
         self.check_package("installed-" + version)
 
     def check_package(self, name):
@@ -240,7 +284,7 @@ class Workflow:
         row = self.approved(lambda: self.settled("declarative_plugins_build_load_model", offset), "real Core Provider model")
         if row.get("error") or not row.get("value"):
             raise AssertionError(f"Provider model failed: {row}")
-        self.driver.write_json(self.args.artifact_root / "provider-model.json", row)
+        self.driver.write_json(self.args.artifact_root / ("provider-model-" + self.version + ".json"), row)
 
     def choose(self, region, name, option):
         region.get_by_role("combobox", name=name, exact=True).click(timeout=5000)
@@ -276,6 +320,11 @@ class Workflow:
             if snapshot["dropped"] or snapshot["errors"]:
                 raise AssertionError("native task/test observation lost evidence")
             receipt = run_receipt(snapshot["calls"][offset:], snapshot["events"], action, scope, self.workspace)
+            if action == "Tests":
+                summary = self.page.locator("[data-slot='build-output-tests']")
+                summary.wait_for(state="visible", timeout=5000)
+                if "Tests failed" not in summary.inner_text(timeout=5000):
+                    raise AssertionError("Core-decoded JUnit failure is not visible in product output")
             receipts.append({"action": action, "scope": scope, "calls": snapshot["calls"][offset:], **receipt})
             self.wait(lambda: region.get_by_role("button", name="Prepare task / test…", exact=True).is_enabled(), "run owner returned idle")
         self.driver.write_json(self.args.artifact_root / "task-test-selectors.json", receipts)
@@ -343,6 +392,35 @@ class Workflow:
                                  for row in self.calls()[offset:])
                       and not panel.get_by_role("button", name="Cancel", exact=True).count()
                       and not panel.get_by_role("alert").count(), "reset source completed")
+
+    def refresh_after_settings_change(self, panel, snapshot):
+        offset = len(self.calls())
+        panel.get_by_role("button", name="Reset native panel state", exact=True).click(timeout=5000)
+        self.wait(lambda: self.settled("declarative_plugins_native_function_prepare", offset),
+                  "old native settings receipt rejected")
+        expired = settings_conflict_receipt(self.calls()[offset:])
+        panel.get_by_role("alert").wait_for(state="visible", timeout=5000)
+        retry_offset = len(self.calls())
+        # Only this explicit product retry may replace the stale registration.
+        panel.get_by_role("button", name="Retry", exact=True).click(timeout=5000)
+        self.approved(lambda: any(row["command"] == "declarative_plugins_function_state"
+                                 and (row.get("value") or {}).get("phase") == "succeeded"
+                                 for row in self.calls()[retry_offset:])
+                      and not panel.get_by_role("button", name="Cancel", exact=True).count()
+                      and not panel.get_by_role("alert").count(), "fresh native settings receipt completed")
+        calls = self.calls()[retry_offset:]
+        opened = [row for row in calls if row["command"] == "declarative_plugins_native_function_open" and row.get("settled")]
+        if (len(opened) != 1 or opened[0].get("error")
+                or opened[0].get("value", {}).get("settingIdentity") != snapshot["identity"]
+                or opened[0].get("value", {}).get("packageIdentity") != snapshot["packageIdentity"]
+                or opened[0]["value"]["bindingId"] == expired["args"]["request"]["bindingId"]):
+            raise AssertionError("explicit Retry did not register the exact saved settings/package revision")
+        closed = [row for row in calls if row["command"] == "declarative_plugins_native_function_close"
+                  and row.get("args", {}).get("bindingId") == expired["args"]["request"]["bindingId"]]
+        if len(closed) != 1 or not closed[0].get("settled") or closed[0].get("error"):
+            raise AssertionError("explicit Retry did not release the old native binding")
+        self.driver.write_json(self.args.artifact_root / "settings-native-retry.json",
+                               {"expired": expired, "retry": calls})
 
     def tree(self):
         panel = self.panel("tree")
@@ -551,16 +629,167 @@ class Workflow:
             raise AssertionError("global settings differed across product windows")
         self.driver.write_json(self.args.artifact_root / "two-windows.json", {"first": first, "second": second})
 
-    def lifecycle(self):
+    def setting_editor(self, scope="global"):
+        details = self.details()
+        details.get_by_role("tab", name=re.compile(r"^Settings(?:\s|\d|$)")).click(timeout=5000)
+        editor = details.locator(f"[data-plugin-settings='{PLUGIN_ID}']")
+        editor.get_by_role("combobox").click(timeout=5000)
+        self.page.get_by_role("option", name="this workspace" if scope == "project" else "all workspaces",
+                              exact=True).click(timeout=5000)
+        return editor
+
+    def save_setting(self, setting, value, scope="global"):
+        editor = self.setting_editor(scope)
+        row = editor.locator(f"[data-plugin-setting='{setting}']")
+        row.get_by_role("textbox").fill(value, timeout=5000)
+        offset = len(self.calls())
+        row.get_by_role("button", name=re.compile(r": Save$")).click(timeout=5000)
+        call = self.wait(lambda: self.settled("declarative_plugins_store_setting", offset), "save " + setting)
+        if call.get("error"):
+            raise AssertionError(str(call))
+        self.wait(lambda: row.get_by_role("textbox").is_enabled(), "setting effect settled")
+        if editor.get_by_role("alert").count():
+            raise AssertionError(editor.get_by_role("alert").inner_text(timeout=5000))
+        snapshot = self.driver.invoke(self.page, "declarative_plugins_setting_snapshot",
+                                     {"pluginId": PLUGIN_ID, "workspacePath": str(self.workspace)})
+        if snapshot["projectValues" if scope == "project" else "globalValues"].get(setting) != value:
+            raise AssertionError("setting did not read back from its saved scope")
+        return snapshot
+
+    def setting_action(self, action_id, message):
+        editor = self.setting_editor()
+        action = editor.locator(f"[data-plugin-function-action='{action_id}']")
+        declaration = next(item for item in self.manifest["settingActions"] if item["id"] == action_id)
+        offset = len(self.calls())
+        action.get_by_role("button", name=declaration["title"], exact=True).click(timeout=5000)
+        prepared = self.wait(lambda: self.settled("declarative_plugins_function_prepare", offset), "settings action review")
+        if prepared.get("error"):
+            raise AssertionError(str(prepared))
+        operation = prepared["value"]["context"]["operationId"]
+        action.get_by_role("button", name="Confirm and run", exact=True).click(timeout=5000)
+        receipt = self.wait(lambda: function_receipt(self.calls()[offset:], operation), "settings action terminal")
+        action.locator("pre").filter(has_text=message).wait_for(state="visible", timeout=5000)
+        self.driver.write_json(self.args.artifact_root / (self.version + "-action-" + action_id + ".json"),
+                               {"review": prepared, "terminal": receipt, "calls": self.calls()[offset:]})
+
+    def shared_provider(self):
+        self.preserve_backend("before-shared-upgrade")
         self.install("1.1.0")
+        self.load_model()  # Real model approval authorizes the existing editor owner.
+        self.tree()
+        self.functions()  # Cancels only its own request, then refreshes the same peer.
+        self.setting_action("inspect", "Workflow inspect succeeded")
+        self.setting_action("withdraw", "Workflow rename withdrawn")
+        panel = self.panel("tree")
+        native = next(w["native"] for w in self.manifest["ui"]["toolWindows"] if w["id"].endswith(".tree"))
+        title = next(a["title"] for a in native["actions"] if a["id"] == "rename")
+        before = sum(row.get("params", {}).get("functionID") == "tree.rename" for row in self.backend_events())
+        offset = len(self.calls())
+        panel.get_by_role("treeitem").first.click(button="right", timeout=5000)
+        self.page.get_by_role("menuitem", name=title, exact=True).click(timeout=5000)
+        self.approved(lambda: panel.get_by_role("alert").count(), "withdrawn function is rejected")
+        if before != sum(row.get("params", {}).get("functionID") == "tree.rename" for row in self.backend_events()):
+            raise AssertionError("withdrawn function reached the backend")
+        self.driver.write_json(self.args.artifact_root / "withdrawn-function.json", self.calls()[offset:])
+        self.setting_action("restore", "Workflow rename restored")
+        panel = self.panel("tree")
+        self.reset(panel)
+        self.action(panel, "tree", "rename")
+        rows = self.backend_events()
+        starts = [row for row in rows if row["event"] == "started" and "1.1.0" in row.get("argv", [])
+                  and row["workspace"].lower() == str(self.workspace).lower()]
+        shared_pids = {row["pid"] for row in starts}
+        requests = [row for row in rows if row["event"] == "request" and row["pid"] in shared_pids]
+        methods = {row.get("params", {}).get("functionID") for row in requests}
+        if len(shared_pids) != 1 or not {"tree.rename", "tree.nodes", "tree.slow", "buttons.inspect"} <= methods:
+            raise AssertionError("native and settings functions did not borrow exactly one authorized language process")
+        registrations = [row for row in rows if row["event"] == "registration" and row["pid"] in shared_pids]
+        if len(registrations) != 2 or any(row.get("error") for row in registrations):
+            raise AssertionError("Core did not acknowledge withdrawal and re-registration")
+        self.driver.write_json(self.args.artifact_root / "shared-provider.json", {"pids": sorted(shared_pids),
+                               "requests": requests, "registrations": registrations})
+
+    def settings_effects(self):
+        rows = self.backend_events()
+        starts = [row for row in rows if row["event"] == "started" and "1.1.0" in row.get("argv", [])]
+        pid = starts[-1]["pid"]
+        offset = len(rows)
+        snapshot = self.save_setting("immediateMessage", "immediate-applied", "project")
+        updated = self.wait(lambda: next((row for row in self.backend_events()[offset:]
+            if row["event"] == "request" and row.get("method") == "workspace/didChangeConfiguration"
+            and row.get("params", {}).get("settings", {}).get("workflow", {}).get("message") == "immediate-applied"), None),
+            "shared language configuration notification")
+        if updated["pid"] != pid:
+            raise AssertionError("immediate setting replaced the editor owner")
+        panel = self.panel("tree")
+        self.refresh_after_settings_change(panel, snapshot)
+        self.action(panel, "tree", "rename")
+        self.setting_action("inspect", "Workflow inspect succeeded")
+        following = [row for row in self.backend_events()[offset:] if row["event"] == "request"
+                     and row.get("params", {}).get("functionID") in ("tree.nodes", "tree.rename", "buttons.inspect")]
+        if not {"tree.nodes", "tree.rename", "buttons.inspect"} <= {row["params"]["functionID"] for row in following} or any(row["pid"] != pid for row in following):
+            raise AssertionError("functions after immediate configuration did not retain the same language owner")
+        self.save_setting("reloadMessage", "project-reloaded", "project")
+        notice = self.page.locator(f"[data-plugin-reload='{PLUGIN_ID}'][data-plugin-reload-scope='project']")
+        notice.wait_for(state="visible", timeout=5000)
+        offset = len(self.calls())
+        self.preserve_backend("before-project-reload")
+        notice.locator("[data-plugin-reload-confirm]").click(timeout=5000)
+        call = self.wait(lambda: self.settled("declarative_plugins_reload_settings", offset), "project settings reload")
+        if call.get("error") or not call.get("value") or not call.get("args", {}).get("project"):
+            raise AssertionError(f"project reload did not consume the native receipt: {call}")
+        # Native drain/detection precedes an ordinary model review. Keep
+        # processing the real approval before waiting for the notice to leave.
+        self.approved(lambda: self.settled("declarative_plugins_build_load_model", offset),
+                      "project reload model approved and completed")
+        reload_model = project_reload_receipt(self.calls()[offset:])
+        notice.wait_for(state="detached", timeout=5000)
+        self.setting_action("inspect", "Workflow inspect succeeded")
+        starts = [row for row in self.backend_events() if row["event"] == "started" and "1.1.0" in row.get("argv", [])]
+        if starts[-1]["pid"] != pid:
+            raise AssertionError("model-only project reload replaced the shared language owner")
+        self.driver.write_json(self.args.artifact_root / "settings-effects.json", {"immediate": updated, "followingFunctions": following,
+            "reload": reload_model, "retainedStart": starts[-1]})
+        # A restart setting takes effect on the next explicit language start,
+        # not during the model-only project reload above. Lifecycle below
+        # performs that start through Disable/Enable and normal model consent.
+        offset = len(self.backend_events())
+        self.save_setting("restartMessage", "restart-on-next-start")
+        if any(row["event"] == "started" for row in self.backend_events()[offset:]):
+            raise AssertionError("restart setting silently restarted a process")
+        self.restart_pid = pid
+        self.check_package("after-settings-effects")
+
+    def lifecycle(self):
         for action in ("Disable", "Enable"):
             self.details().get_by_role("button", name=action, exact=True).click(timeout=5000)
             self.wait(lambda: self.catalog()["enabled"] == (action == "Enable"), action)
             self.check_package(action.lower())
+        self.load_model()
+        self.setting_action("inspect", "Workflow inspect succeeded")
+        starts = [row for row in self.backend_events() if row["event"] == "started"
+                  and "1.1.0" in row.get("argv", [])
+                  and row["workspace"].lower() == str(self.workspace).lower()]
+        if starts[-1]["pid"] == self.restart_pid or "restart-on-next-start" not in starts[-1]["argv"]:
+            raise AssertionError("explicit next language start did not read saved restart settings")
+        self.driver.write_json(self.args.artifact_root / "settings-restart.json",
+                               {"previousPid": self.restart_pid, "newStart": starts[-1]})
+        self.preserve_backend("before-uninstall")
         self.details().get_by_role("button", name="Uninstall", exact=True).click(timeout=5000)
         self.wait(lambda: self.catalog() is None, "uninstall")
         if (self.args.app_local_data / "plugins" / PLUGIN_ID).exists():
             raise AssertionError("uninstalled package retained")
+
+    def native_review(self):
+        if os.environ.get("LITHE_NATIVE_WORKFLOW_REVIEW") != "1":
+            return
+        # External native input has a separate bounded checkpoint. Releasing
+        # this gate proves no visual/IME claim; those need their own evidence.
+        self.driver.write_json(self.args.artifact_root / "native-review-ready.json",
+                               {"pid": self.session.process.pid, "workspace": str(self.workspace),
+                                "timeoutSeconds": 180, "automaticVisualPass": False})
+        self.driver.wait_until(lambda: (self.args.artifact_root / "native-review-continue").is_file(),
+                               180, "bounded native Computer Use checkpoint")
 
     def run(self):
         from playwright.sync_api import sync_playwright
@@ -591,10 +820,13 @@ class Workflow:
                 self.install("1.0.0", cancel=True)
                 self.install("1.0.0")
             for name, action in zip(CASES[1:-1], (self.model, self.tasks, self.tree, self.lists,
-                    self.functions, self.form, self.settings, self.two_windows, self.lifecycle)):
+                    self.functions, self.form, self.settings, self.two_windows,
+                    self.shared_provider, self.settings_effects, self.lifecycle)):
                 with self.reporter.step(name):
                     action()
                     self.page.screenshot(path=str(self.args.artifact_root / (name + ".png")), timeout=10000)
+                if action == self.form:
+                    self.native_review()
             # Restore the actual transport before the original native quit.
             for index, page in enumerate(self.observed):
                 final = read(page, "() => window.__litheSettingsAcceptance.stop()")
@@ -605,7 +837,8 @@ class Workflow:
             with self.reporter.step(CASES[-1]):
                 try:
                     try:
-                        self.driver.write_json(self.args.artifact_root / "backend-events.json", self.backend_events())
+                        self.preserve_backend("before-quit")
+                        self.driver.write_json(self.args.artifact_root / "backend-events.json", self.saved_backend_events)
                     finally:
                         cleanup = cleanup_session(self.args, self.driver, self.session)
                         self.driver.write_json(self.args.artifact_root / "cleanup.json", cleanup)
@@ -645,13 +878,13 @@ def main():
         from vcs_move_diagnostic import WindowsJob, cleanup_proven, supervised
         args.report.parent.mkdir(parents=True, exist_ok=True)
         result = supervised([sys.executable, "-B", str(Path(__file__).resolve()), *sys.argv[1:], "--worker"],
-                            600, args.report.with_suffix(".worker.log"), WindowsJob)
+                            900, args.report.with_suffix(".worker.log"), WindowsJob)
         report = json.loads(args.report.read_text(encoding="utf-8")) if args.report.exists() else {
             "runner": "acceptance", "complete": False, "controlledSubsetPassed": False,
             "warnMs": 30000, "maxMs": 120000, "tests": pending_rows("Worker did not complete.")}
         report["tests"].append({"name": "native workflow suite owner", "status": result["status"],
-                                "durationMs": result["durationMs"], "maxMs": 600000, "details": str(result)})
-        args.report.with_suffix(".owner.json").write_bytes(json_bytes(result))
+                                "durationMs": result["durationMs"], "maxMs": 900000, "details": str(result)})
+        (args.artifact_root / "worker-owner.json").write_bytes(json_bytes(result))
         if result["status"] != "passed" or not cleanup_proven(result):
             report["controlledSubsetPassed"] = False
         args.report.write_bytes(json_bytes(report))

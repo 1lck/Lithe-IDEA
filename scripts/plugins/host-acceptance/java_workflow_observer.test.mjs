@@ -62,13 +62,16 @@ test('observes actual asynchronous Core reply without changing callback identity
 test('forwards actual native errors unchanged and unwraps platform routing only for evidence', { timeout: 2000 }, async () => {
   const owner = observer();
   await owner.dispatch('platform_invoke', { command: 'run_start_process', args: { args: { executable: 'java.exe', environment: { TOKEN: 'redact' } } } }, 5);
-  const reason = { code: 'native-failure', message: 'refused' };
+  const reason = { code: 'native-failure', message: 'refused', environment: { TOKEN: 'never record' } };
   assert.equal(owner.callbacks.get(6)(reason), 'original-error-result');
   assert.equal(owner.received[0], reason);
   const snapshot = owner.window.__litheJavaWorkflow.snapshot();
   assert.equal(snapshot.calls[0].command, 'run_start_process');
   assert.equal(snapshot.calls[0].args.args.executable, 'java.exe');
+  assert.equal(snapshot.calls[0].error.code, 'native-failure');
+  assert.equal(snapshot.calls[0].error.message, 'refused');
   assert.equal(JSON.stringify(snapshot).includes('TOKEN'), false);
+  assert.equal(JSON.stringify(snapshot).includes('never record'), false);
   assert.equal(owner.forwarded.length, 1);
   assert.equal((await owner.window.__litheJavaWorkflow.stop()).originalInvokeRestored, true);
 });

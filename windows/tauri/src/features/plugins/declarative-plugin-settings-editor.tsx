@@ -154,6 +154,15 @@ export function DeclarativePluginSettingsEditor({
               })}
         </p>
       )}
+      {state.effectRetry && (
+        <Button
+          size="sm"
+          disabled={state.busy || invalid || reloadBusy}
+          onClick={() => void session.current?.retryEffect()}
+        >
+          {t("ui.retry")}
+        </Button>
+      )}
       {snapshot && (
         <>
           {visible.length === 0 && declaredActions.length === 0 && (
@@ -208,6 +217,7 @@ export function DeclarativePluginSettingsEditor({
                   const raw = scope === "project" ? snapshot.projectValues : snapshot.globalValues;
                   const disabled =
                     state.busy ||
+                    state.effectRetry ||
                     reloadBusy ||
                     invalid ||
                     recoveryRequired ||

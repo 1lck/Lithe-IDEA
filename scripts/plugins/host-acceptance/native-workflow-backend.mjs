@@ -15,9 +15,11 @@ const send = (message) => {
 };
 const trees = new Map();
 const pending = new Map();
+const registrations = new Map();
+let registration = 0;
 const methods = ["nodes", "inspect", "reset", "rename", "add", "remove", "reverse", "empty", "large", "slow", "fail", "sourceError", "invalid"];
 const functions = ["tree", "list"].flatMap((kind) => methods.map((method) => `${kind}.${method}`))
-  .concat(["form.nodes", "form.changed", "form.slow", "form.fail", "buttons.inspect"]);
+  .concat(["form.nodes", "form.changed", "form.slow", "form.fail", "buttons.inspect", "buttons.withdraw", "buttons.restore"]);
 const defaults = (kind) => kind === "tree"
   ? [{ id: "root", label: "Workflow root", children: [{ id: "group", label: "Workflow group", children: [{ id: "leaf", label: "中文 leaf" }] }] }, { id: "other", label: "Other root" }]
   : Array.from({ length: 30 }, (_, i) => ({ id: `row-${i}`, label: `Workflow row ${i}` }));
@@ -53,6 +55,13 @@ function result(functionID, params) {
   return { message: `Workflow ${action} succeeded` };
 }
 function handle(message) {
+  if (!message.method && registrations.has(message.id)) {
+    const done = registrations.get(message.id);
+    registrations.delete(message.id);
+    evidence("registration", { id: message.id, result: message.result, error: message.error });
+    done(message);
+    return;
+  }
   evidence("request", { method: message.method, id: message.id, params: message.params });
   const reply = (value) => send({ id: message.id, result: value });
   if (message.method === "initialize") return reply({ capabilities: { experimental: {
@@ -72,6 +81,28 @@ function handle(message) {
     dependencies: [{ name: "workflow-dependency", version: "1.0.0", children: [] }] });
   if (message.method === "lithe/function/invoke") {
     const { functionID, operationID, params = {} } = message.params;
+    if (functionID === "buttons.withdraw" || functionID === "buttons.restore") {
+      const withdraw = functionID === "buttons.withdraw";
+      const id = `registration-${++registration}`;
+      const timer = setTimeout(() => {
+        registrations.delete(id);
+        pending.delete(message.id);
+        send({ id: message.id, error: { code: -32603, message: "Registration acknowledgement deadline" } });
+      }, 5000);
+      pending.set(message.id, () => {
+        clearTimeout(timer);
+        registrations.delete(id);
+      });
+      registrations.set(id, (response) => {
+        clearTimeout(timer);
+        pending.delete(message.id);
+        if (response.error) send({ id: message.id, error: response.error });
+        else reply({ message: withdraw ? "Workflow rename withdrawn" : "Workflow rename restored" });
+      });
+      send({ id, method: withdraw ? "lithe/function/unregister" : "lithe/function/register",
+        params: withdraw ? { ids: ["tree.rename"] } : { functions: [{ id: "tree.rename" }] } });
+      return;
+    }
     if (functionID.endsWith(".slow")) {
       send({ method: "lithe/function/progress", params: { operationID, message: "Controlled native operation waiting", percentage: 25 } });
       let closed = false;
@@ -111,4 +142,4 @@ process.stdin.on("data", (chunk) => {
 });
 process.stdin.on("end", () => process.exit(0));
 process.once("exit", () => { for (const close of pending.values()) close(); evidence("exit"); });
-evidence("started");
+evidence("started", { argv });

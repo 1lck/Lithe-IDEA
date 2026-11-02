@@ -52,7 +52,7 @@
             if (typeof callback !== 'function') throw new Error('native IPC callback unavailable');
             const wrapper = function(value) {
               try {
-                call[key] = key === 'error' ? String(value) :
+                call[key] = key === 'error' ? (value && typeof value === 'object' ? keep(value) : String(value)) :
                   keep(command === 'core_execute' && typeof value === 'string' ? JSON.parse(value) : value);
                 call.settled = true;
               } catch (error) { state.errors.push(String(error)); }
