@@ -506,6 +506,16 @@ macOS Debug 的源码兜底定位现在优先使用 `buildProject.root`，把模
 新增用例首轮因误写 Swift 枚举名而在编译阶段失败、未执行测试，修正后全部通过；
 失败日志与零用例报告保留，没有调整预算或断言。
 
+### 本轮 Windows 原生 CI 结束（2026-11-02）
+
+[Windows CI 41414153616](https://github.com/1lck/Lithe-IDEA/actions/runs/41414153616)
+固定 `3a46b1b83ff5af707e26aca82e696a1cd63f306f`，五项作业全部通过。Run 前端
+364 项包含新增四项编辑/保存回归，共享 Core 与真实 JDT 各 1585 项通过，原生
+Project/host 和 broker 车道通过。原始报告下载在
+`.artifacts/test-stability/ci-41414153616/`；后续提交只改 macOS、矩阵和文档，
+Windows/Core/共享契约与该 CI 提交相同，macOS 另由上述 124 项报告验证。
+这仍不代替 Windows 产品包、完整 GUI 或正式 SDK/插件发行验收，阶段 D 不关闭。
+
 ### D-MIGRATION-REMOVAL：旧 Maven 数据迁移器清理
 
 这是 #1495 下独立跟踪的删除项，状态为未完成。`MacLegacyMavenConfigurationMigration`
