@@ -111,9 +111,11 @@ enum MacImportedKeybindings {
             ? reference.mapValues { [binding($0, idea: false)!] } : [:]
         var seen: Set<String> = [], rejected: Set<String> = []
         for row in rows {
-            // Later rules own their key even when their command/context cannot be migrated.
+            // Later rules own their first key even when a chord/command/context cannot be migrated.
             // Apply this to both reference defaults and earlier user mappings.
-            if let key = row["key"] as? String, let value = binding(key, idea: false) {
+            if let key = row["key"] as? String,
+               let firstKey = key.split(whereSeparator: \.isWhitespace).first,
+               let value = binding(String(firstKey), idea: false) {
                 result = result.filter { !$0.value.contains(value) }
             }
             guard let name = row["command"] as? String else { continue }

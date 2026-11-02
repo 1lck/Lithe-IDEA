@@ -54,6 +54,26 @@ struct EditorSettingsImportTests {
         #expect(reversed["navigate-back"] == [.keyPress(key: "b", modifiers: [.control, .option, .command])])
     }
 
+    @Test(arguments: [false, true])
+    func laterChordShadowsItsFirstKeyWithoutBecomingASingleKeyBinding(includeDefaults: Bool) throws {
+        let supported = #"{"key":"ctrl+alt+cmd+b","command":"workbench.action.navigateBack"}"#
+        for chord in [
+            #"{"key":"ctrl+alt+cmd+b ctrl+c","command":"extension.other"}"#,
+            #"{"key":"ctrl+alt+cmd+b ctrl+c","command":"extension.other","when":"editorTextFocus"}"#,
+            #"{"key":"ctrl+alt+cmd+b ctrl+c","command":"workbench.action.navigateForward"}"#,
+        ] {
+            let parsed = try MacImportedKeybindings.parseVSCode(Data("[\(supported),\(chord)]".utf8), includeDefaults: includeDefaults)
+            #expect(parsed["navigate-back"] == nil)
+            #expect(!parsed.values.flatMap { $0 }.contains(.keyPress(key: "c", modifiers: .control)))
+            if chord.contains("workbench.action.navigateForward") { #expect(parsed["navigate-forward"] == nil) }
+            let reversed = try MacImportedKeybindings.parseVSCode(Data("[\(chord),\(supported)]".utf8), includeDefaults: includeDefaults)
+            #expect(reversed["navigate-back"] == [.keyPress(key: "b", modifiers: [.control, .option, .command])])
+        }
+        let defaults = try MacImportedKeybindings.parseVSCode(Data(#"[{"key":"ctrl+- ctrl+c","command":"extension.other"}]"#.utf8), includeDefaults: includeDefaults)
+        #expect(defaults["navigate-back"] == nil)
+        #expect((defaults["settings"] != nil) == includeDefaults)
+    }
+
     @Test @MainActor func vscodeDefaultsOverridesAndShadowedKeys() throws {
         let defaults = try MacEditorSettingsImportReader.parseVSCode(Data("{}".utf8), fonts: [], includeAppearanceDefaults: true).0
         #expect(defaults["tabSize"] == "4" && defaults["insertSpaces"] == "true")
