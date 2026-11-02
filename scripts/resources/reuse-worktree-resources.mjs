@@ -113,7 +113,8 @@ async function readRegistry() {
   // profile's generator-runtime; retained executable probes never become cache inputs.
   // Java workflow plans retain raw formal-package references, coordination receipts,
   // JDK identities and JDT/run IPC owner evidence for one isolated invocation only;
-  // none proves a reusable cache identity or supplies publisher trust.
+  // Controlled Java public keys, signatures and complete candidate copies are also
+  // invocation-owned; none proves a reusable cache identity or supplies publisher trust.
   // Offline preflight fake tools/manifests and tar.gz/VSIX extraction fixtures in OS temporary storage also remain
   // plugin-host-acceptance-state; they have no downloadable resource validator.
   // Installer test scratch, generated native-handle waiters and ownership/identity

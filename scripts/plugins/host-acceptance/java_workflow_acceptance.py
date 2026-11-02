@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Generated plain/Maven/Gradle Java UI/JDT/build-registry/run acceptance.
 
-Preflight starts nothing. Runtime needs final source/config/EXE identity, A's
-production-trusted complete independent Java archive and B's real JDK/workspace
-evidence. An unsigned candidate is blocked. Existing AppSession and the gated
+Preflight starts nothing. Runtime needs final source/config/EXE identity and
+complete signed packages. Production receipts and explicit controlled-key runs
+have separate assurance. Unsigned candidates remain blocked. AppSession and the gated
 Windows Job own every product, JDT, Java and observer process.
 """
 from __future__ import annotations
@@ -25,8 +25,9 @@ from java_workflow_build import JavaBuildWorkflow
 from java_workflow_inputs import (CASES, BUILD_CASES, PENDING, PLUGIN_ID, REQUIRES, DESCRIPTORS, archive_manifest, assert_actual_launch, assert_observer, completed_preparation,
                                   java_source, json_bytes, pending_rows, read_reference,
                                   generated_operation, ready_session, same_path, saved_and_synced, sha256, validate_plan, workflow_variant)
+from java_workflow_inputs import controlled_run, verify_installed_package
 from settings_functions_acceptance import (assert_resources, resource_diff, snapshot_resources,
-                                          verify_host, verify_installed_archive, wait_for)
+                                          verify_host, wait_for)
 from text_window_fixture import source_inventory
 from web_bridge_fallback_acceptance import require_x64_executable
 
@@ -45,6 +46,8 @@ def workflow_result(plan, tests, runtime_executed):
     build_passed = runtime_executed and variant != "plain" and all(variant + "-java / " + name in passed
         for name in (*BUILD_CASES, CASES[7], CASES[8], CASES[9])) and not failures
     return {"complete": False, "variant": variant, "scope": variant + "-runtime-driver", "runtimeExecuted": runtime_executed,
+            "assurance": "controlled" if controlled_run(plan) else "production",
+            "productionAcceptance": bool(all_passed and not controlled_run(plan)),
             "workflowPassed": bool(all_passed), "plainJavaPassed": bool(all_passed and variant == "plain"), "buildPluginPassed": bool(build_passed)}
 
 
@@ -65,6 +68,7 @@ def preflight(plan: dict, capabilities: dict) -> dict:
         blocked.extend("closed build capability " + item for item in missing_capabilities(build_requires, capabilities))
     reason = "Not executed. " + ("; ".join(blocked) if blocked else "Explicit isolated final-source product invocation required.")
     return {"complete": False, "variant": variant, "workflowPassed": False, "buildPluginPassed": False,
+            "productionAcceptance": False, "assurance": plan.get("assurance", "production"),
             "plainJavaPassed": False, "runtimeExecuted": False, "scope": variant + "-runtime-driver",
             "blocked": blocked, "requires": requires, "buildRequires": build_requires, "tests": pending_rows(reason, variant) +
             [{"name": name, "suite": "plugin-host-acceptance / pending-platforms", "status": "skipped",
@@ -72,6 +76,8 @@ def preflight(plan: dict, capabilities: dict) -> dict:
 
 
 def run(args, driver, reporter, plan):
+    if controlled_run(plan) != bool(getattr(args, "controlled", False)):
+        raise ValueError("controlled plans require an explicit --controlled invocation")
     work_deadline = time.monotonic() + WORK_SECONDS
     prerequisites = preflight(plan, source_capabilities())
     if prerequisites["blocked"]:
@@ -147,9 +153,12 @@ def run(args, driver, reporter, plan):
         packages.append({"root": root, "before": snapshot_resources(root), "archive": package["archive"],
                          "pluginId": plugin_id, "displayName": package_manifest["displayName"], "uninstalled": False})
         details = driver.invoke(page, "declarative_plugins_details", {"pluginId": plugin_id, "source": "installed"})
-        if details["versions"]["current"]["verification"]["status"] != "publisherSignature":
+        verification = details["versions"]["current"]["verification"]
+        if verification["status"] != "publisherSignature":
             raise AssertionError("runtime install did not verify a trusted publisher package")
-        verify_installed_archive(root, original, evidence / ("installed-" + plugin_id + ".json"))
+        if controlled_run(plan) and verification.get("keyId") != plan["controlledHost"]["keyId"]:
+            raise AssertionError("native verification did not use the frozen controlled key")
+        verify_installed_package(root, original, evidence / ("installed-" + plugin_id + ".json"))
         record = json.loads((root.parent / "installation.json").read_text(encoding="utf-8"))
         if record["disk"]["archiveSha256"] != package["archive"]["sha256"]:
             raise AssertionError("native installation provenance differs from reviewed archive")
@@ -268,6 +277,23 @@ def run(args, driver, reporter, plan):
                     content = java_source("LITHE_JAVA_SAVED_BUILD_OK", package_name=plan["project"].get("groupId"))
                     saved = edit_save(content)
                     write("save-synchronize", saved)
+                with step("workspace-switch-restore", 240_000):
+                    local = target / ".lithe/run/local.json"
+                    local_before = local.read_bytes()
+                    visits = []
+                    for workspace in (startup.resolve(strict=True), target):
+                        tab = page.get_by_role("tab").and_(page.get_by_title(workspace.as_posix(), exact=True))
+                        tab.click(timeout=10_000)
+                        wait(lambda: tab.get_attribute("aria-selected") == "true", "selected Java workflow workspace")
+                        visits.append(str(workspace))
+                        if owned_runs():
+                            raise AssertionError("workspace switch started an unrequested process")
+                    if local.read_bytes() != local_before or (startup / ".lithe/run/local.json").exists():
+                        raise AssertionError("switching workspaces changed or leaked Java runtime selection")
+                    page.get_by_role("tab", selected=True).filter(has=page.get_by_title(source.as_posix(), exact=True)).wait_for(state="visible", timeout=30_000)
+                    java = wait(lambda: ready_session(snapshot(), target, package_root), "restored plugin JDT session", 180)
+                    saved = edit_save(content + "\n// explicit workspace restoration\n")
+                    write("workspace-switch-restore", {"visits": visits, "java": java, "save": saved, "localSha256": sha256(local)})
                 if variant != "plain":
                     with step("approved-build-model-task", 480_000):
                         build_workflow = JavaBuildWorkflow(page, driver, plan, target, raw_snapshot, wait, write)
@@ -315,11 +341,19 @@ def run(args, driver, reporter, plan):
                     if not any(call["args"].get("sessionId") == launch["sessionId"] for call in stops):
                         raise AssertionError("Stop did not address the observed run session")
                     write("stopped-run", {"stopCalls": stops, "owners": owned_runs()})
-                with step(CASES[6], 180_000):
+                with step("save-compilation-error"):
                     rejected = edit_save(java_source("unused", invalid=True, package_name=plan["project"].get("groupId")))
+                if variant != "plain":
+                    with step("build-compile-error-terminal", 240_000):
+                        build_workflow.run_task(build_workflow.open(), build_workflow.instance, expected="failed")
+                    if not page.get_by_role("navigation", name="Run configurations", exact=True).is_visible():
+                        page.keyboard.press("Shift+F10")
+                with step(CASES[6], 180_000):
                     row.get_by_role("button", name="Run", exact=True).click(timeout=10_000)
                     build_failure = wait(lambda: completed_preparation(snapshot(), source, main_class, java["sessionId"], rejected["notification"]["sequence"], "buildFailed"),
                                          "real compilation error result", 150)
+                    if build_failure["result"].get("failure", {}).get("code") != "javaBuildCompilationErrors":
+                        raise AssertionError("compile-error case requires upstream compilation errors, not an internal build failure")
                     page.get_by_role("button", name="Run Anyway", exact=True).wait_for(state="visible", timeout=10_000)
                     page.get_by_role("button", name="Cancel", exact=True).click(timeout=10_000)
                     page.get_by_role("button", name="Run Anyway", exact=True).wait_for(state="detached", timeout=10_000)
@@ -327,6 +361,26 @@ def run(args, driver, reporter, plan):
                     if owned_runs() or any(call["command"] == "run_start_process" and call["sequence"] > rejected["save"]["sequence"] for call in calls):
                         raise AssertionError("compile-error refusal started a process")
                     write("compile-error-refused", {"save": rejected, "preparation": build_failure, "owners": owned_runs()})
+                with step("compile-error-explicit-recovery", 180_000):
+                    restored = edit_save(java_source("LITHE_JAVA_RECOVERED_OK", package_name=plan["project"].get("groupId")))
+                    before_recovery = {owner.pid for owner in driver.capture_owned_tree(session.root_owner)}
+                    row.get_by_role("button", name="Run", exact=True).click(timeout=10_000)
+                    recovery = wait(lambda: completed_preparation(snapshot(), source, main_class, java["sessionId"], restored["notification"]["sequence"], "ready"),
+                                    "explicit recovery Core preparation", 150)
+                    recovered_start = wait(lambda: next((call for call in snapshot() if call["command"] == "run_start_process"
+                        and call["sequence"] > recovery["request"]["sequence"] and call.get("settled") and not call.get("error")), None), "recovered actual Java process")
+                    assert_actual_launch(recovered_start["args"]["args"], recovery["result"]["target"], target, Path(plan["jdk"]["home"]), main_class)
+                    wait(lambda: page.locator("pre").filter(has_text="LITHE_JAVA_RECOVERED_OK").count() > 0, "newly compiled recovery stdout")
+                    retained = driver.capture_owned_tree(session.root_owner)
+                    session.owned_tree = list(dict.fromkeys(session.owned_tree + retained))
+                    recovery_children = [owner for owner in retained if owner.pid not in before_recovery and owner.running()
+                        and same_path(owner.executable, recovered_start["args"]["args"]["executable"])]
+                    if len(recovery_children) != 1:
+                        raise AssertionError("recovery lacks one retained actual Java child")
+                    row.get_by_role("button", name="Stop", exact=True).click(timeout=10_000)
+                    wait(lambda: not owned_runs(), "recovery Stop reclaimed native owners", 20)
+                    wait(lambda: not any(owner.running() for owner in recovery_children), "recovery Stop ended actual Java child", 20)
+                    write("compile-error-explicit-recovery", {"save": restored, "prepare": recovery, "start": recovered_start, "owners": owned_runs()})
                 with step("disable-uninstall-cleanup"):
                     # Keep retained identities: a historical PID never grants
                     # cleanup authority. JDT is the product's own descendant.
@@ -420,6 +474,7 @@ def main():
     parser.add_argument("--plan", required=True, type=Path)
     parser.add_argument("--report", required=True, type=Path)
     parser.add_argument("--preflight", action="store_true")
+    parser.add_argument("--controlled", action="store_true", help="Explicit non-production run with a separately pinned controlled signing key; native trust/approvals remain mandatory")
     parser.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
     for key in ("host-identity", "executable", "run-image", "artifact-root", "app-local-data", "app-roaming-data", "webview-data"):
         parser.add_argument("--" + key, type=Path)
@@ -430,6 +485,8 @@ def main():
     if args.report.exists():
         parser.error("report must be absent; never adopt or overwrite an earlier run's evidence")
     plan = json.loads(args.plan.read_text(encoding="utf-8-sig"))
+    if controlled_run(plan) != args.controlled:
+        parser.error("assurance and explicit --controlled must agree")
     if not args.preflight and any(path is not None and path.exists() for path in
                                  (args.artifact_root, args.app_local_data, args.app_roaming_data, args.webview_data)):
         parser.error("run-owned evidence/profiles must be absent before preflight or the suite owner")
@@ -465,6 +522,7 @@ def main():
             report["plainJavaPassed"] = False
             report["workflowPassed"] = False
             report["buildPluginPassed"] = False
+            report["productionAcceptance"] = False
         args.report.write_bytes(json_bytes(report))
         return int(not report["workflowPassed"])
     import acceptance_driver as driver
@@ -488,7 +546,7 @@ def main():
             reporter.document_pending(name, details)
         outcome = workflow_result(plan, reporter.tests, getattr(reporter, "runtime_executed", False))
         if code:
-            outcome.update(workflowPassed=False, plainJavaPassed=False, buildPluginPassed=False)
+            outcome.update(workflowPassed=False, plainJavaPassed=False, buildPluginPassed=False, productionAcceptance=False)
         driver.write_json(args.report, {"runner": "acceptance", "warnMs": 30_000, "maxMs": 120_000,
                           **outcome, "tests": reporter.tests})
     return code

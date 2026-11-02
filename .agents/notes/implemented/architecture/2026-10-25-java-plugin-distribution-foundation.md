@@ -203,3 +203,26 @@ Windows、供应商及 JDK 类型逐项比较。清单顶层版本不能覆盖 A
 - `scripts/resources/worktree-resources.json`
 - `scripts/resources/reuse-worktree-resources.mjs`
 - `docs/ci-builds.md`
+
+## R39：受控工作流与生产准入分别取证
+
+完整 Java/JDT/JDK 候选不能套用小型 UI fixture 的 64 MiB 限制。Java 验收按单一包根目录规范化 ZIP，
+以 2 GiB、十万条目为硬上限，并逐文件比较安装前后哈希及目录清单；它不会修改或重新组装上游资源。
+
+首次产品验收不能先要求“已经完成同一工作流”的回执。显式 `--controlled` 使用一次性内存 Ed25519
+密钥签署完整输入副本，协调者只在隔离构建中固定公钥和所需能力，保留正常原生验签、完整 requires
+和审批；运行结束恢复原始源码字节。默认生产路径仍要求原来的证据，受控报告始终
+`productionAcceptance=false`，不能据此开放生产能力或发布。
+
+实际 Maven/Gradle 插件分别位于 `Plugins/win/Official/MavenSupport/` 与 `GradleSupport/`，
+不注册到正式发行。Maven 复用已有 Core hostIntegration；Gradle init script 只读取上游已求值公开 API，
+不维护第二份配置解析器。JDT LS 1.61.0 与 Java Debug 继续拥有导入、编译、main class、classpath 和
+`java.prepareLaunch`，宿主不拼 Java 启动路径。
+
+输入计划、临时公钥、签名副本和运行证据均为本次调用所有，按 `plugin-host-acceptance-state`
+拒绝跨 worktree 复用，没有版本/平台/架构/工具链复用印记。它们写入外部验收目录，
+运行时不写安装资源，不影响签名和增量更新基线。私钥不落盘。
+
+验证入口为 `java_workflow_acceptance_test.py`、前端 workspace-toolchain-paths 回归和
+`java_workflow_acceptance.py` 的 plain/Maven/Gradle 独立报告；只有最后一项能证明产品工作流。
+当前真实三变体执行和生产准入仍待独立验收。

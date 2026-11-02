@@ -13,7 +13,7 @@ import hashlib
 import json
 import re
 import zipfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from urllib.parse import unquote, urlsplit
 
 from build_fixture import json_bytes
@@ -25,8 +25,8 @@ REQUIRES = {"languages": 1, "languageServers": 1, "serverProcess": 1,
 CASES = ("trusted-complete-package", "generate-open-real-jdk", "java-import-ready",
          "edit-save-synchronize", "prepare-launch-run-output", "stop-run-owner",
          "compile-error-refused", "product-profile-cleanup", "resource-invariance",
-         "disable-uninstall-cleanup")
-BUILD_CASES = ("trusted-build-package", "approved-build-model-task", "declarative-build-run-binding")
+         "disable-uninstall-cleanup", "workspace-switch-restore", "compile-error-explicit-recovery")
+BUILD_CASES = ("trusted-build-package", "approved-build-model-task", "declarative-build-run-binding", "build-compile-error-terminal")
 PENDING = {
     "other-java-variants": "Other variants require independent reports; a successful JDT session alone does not establish build-plugin acceptance.",
     "signed-installer-upgrade": "Not executed: signed installer, installed-directory immutability and upgrade require independent channel evidence.",
@@ -36,6 +36,28 @@ PENDING = {
 VARIANTS = ("plain", "maven", "gradle")
 # These are generated-input expectations, never project/classpath/build models.
 DESCRIPTORS = {"plain": (), "maven": ("pom.xml",), "gradle": ("build.gradle", "settings.gradle")}
+
+
+def controlled_run(plan: dict) -> bool:
+    assurance = plan.get("assurance", "production")
+    if assurance not in ("production", "controlled"):
+        raise ValueError("unknown Java workflow assurance")
+    if assurance == "controlled":
+        key = plan.get("controlledHost", {})
+        if (not re.fullmatch(r"lithe-controlled-java-[0-9a-f]{16}", key.get("keyId", ""))
+                or not re.fullmatch(r"[A-Za-z0-9+/]{43}=", key.get("publicKeyBase64", ""))):
+            raise ValueError("controlled execution needs a distinct frozen verification key")
+        return True
+    return False
+
+
+def controlled_package(plan: dict, package: dict) -> None:
+    """Normal native signature verification remains mandatory at install time."""
+    with zipfile.ZipFile(read_reference(package["archive"])) as source:
+        entries = archive_entries(source)
+        signature = json.loads(source.read(entries["lithe-plugin-signature.json"]))
+    if signature.get("keyId") != plan["controlledHost"]["keyId"]:
+        raise ValueError("controlled package has another signing key")
 
 
 def workflow_variant(plan: dict) -> str:
@@ -60,6 +82,9 @@ def variant_plan(base: dict, variant: str, group_id="org.example.acceptance", ar
     if len(artifact_id) > 200 or not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]*", artifact_id):
         raise ValueError("expected a generator artifactId")
     plan = {key: copy.deepcopy(base[key]) for key in ("sourceCommit", "sourceInventory", "package", "jdk")}
+    for key in ("assurance", "controlledHost"):
+        if key in base:
+            plan[key] = copy.deepcopy(base[key])
     plan.update(schemaVersion=2, kind="windows-java-workflow", variant=variant)
     plan["project"] = {"name": base["project"]["name"] + " " + variant.title(), "buildSystem": variant,
                        "groupId": group_id, "artifactId": artifact_id,
@@ -68,22 +93,67 @@ def variant_plan(base: dict, variant: str, group_id="org.example.acceptance", ar
     return plan
 
 
+def archive_entries(source) -> dict:
+    """Normalize either a flat package or the single release-package directory.
+
+    These bounds cover the real JDT/JDK archive, unlike small UI fixtures. No
+    extraction or trust inference occurs here; native install verifies again.
+    """
+    entries = source.infolist()
+    names = [item.filename for item in entries]
+    if (len(entries) > 100_000 or sum(item.file_size for item in entries) > 2 * 1024**3
+            or len(names) != len(set(name.casefold() for name in names))):
+        raise ValueError("package exceeds bounded unique inventory limits")
+    for item in entries:
+        name = item.filename.rstrip('/')
+        if (not name or '\\' in name or ':' in name or name.startswith('/')
+                or any(part in ('', '.', '..') for part in name.split('/'))
+                or (item.external_attr >> 16) & 0o170000 == 0o120000):
+            raise ValueError("package has an unsafe or linked archive entry")
+    prefix = ''
+    if 'plugin.json' not in names:
+        candidates = [name[:-len('plugin.json')] for name in names
+                      if name.endswith('/plugin.json') and len(PurePosixPath(name).parts) == 2]
+        if len(candidates) != 1:
+            raise ValueError("expected one complete package root")
+        prefix = candidates[0]
+        if any(not name.startswith(prefix) for name in names):
+            raise ValueError("archive includes bytes outside its package root")
+    return {item.filename[len(prefix):]: item for item in entries if item.filename != prefix}
+
+
 def archive_manifest(package: dict) -> tuple[dict, set[str]]:
     archive = read_reference(package["archive"])
     with zipfile.ZipFile(archive) as source:
-        entries = source.infolist()
-        names = [item.filename for item in entries]
-        if (len(entries) > 100_000 or sum(item.file_size for item in entries) > 2 * 1024**3
-                or len(names) != len(set(names))):
-            raise ValueError("package exceeds bounded unique inventory limits")
-        if source.getinfo("plugin.json").file_size > 4 * 1024**2:
+        entries = archive_entries(source)
+        if entries["plugin.json"].file_size > 4 * 1024**2:
             raise ValueError("manifest exceeds bounded JSON size")
-        raw = source.read("plugin.json")
+        raw = source.read(entries["plugin.json"])
     manifest = json.loads(raw)
     if (not isinstance(manifest, dict) or not isinstance(manifest.get("requires"), dict)
             or hashlib.sha256(raw).hexdigest() != package["manifestSha256"] or manifest["requires"] != package["requires"]):
         raise ValueError("archive manifest/requires identity mismatch")
-    return manifest, set(names)
+    return manifest, set(entries)
+
+
+def verify_installed_package(root: Path, archive: Path, evidence: Path) -> None:
+    from settings_functions_acceptance import assert_resources, resource_diff, snapshot_resources
+    expected = {}
+    with zipfile.ZipFile(archive) as source:
+        for name, entry in archive_entries(source).items():
+            for parent in PurePosixPath(name.rstrip('/')).parents:
+                if parent.as_posix() != '.':
+                    expected[parent.as_posix() + '/'] = {'kind': 'directory'}
+            if entry.is_dir():
+                expected[name] = {'kind': 'directory'}
+            else:
+                with source.open(entry) as stream:
+                    digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+                expected[name] = {'kind': 'file', 'bytes': entry.file_size, 'sha256': digest}
+    actual = snapshot_resources(root, max_bytes=2 * 1024**3)
+    evidence.write_bytes(json_bytes({'archiveSha256': sha256(archive), 'expected': expected,
+                                    'actual': actual, 'diff': resource_diff(expected, actual)}))
+    assert_resources(expected, actual)
 
 
 def receipt_blockers(plan: dict, key: str, expected: dict) -> list[str]:
@@ -138,6 +208,9 @@ def validate_build_package(plan: dict) -> list[str]:
             or selection.get("scope") not in (["project"] if task.get("fromModel") else task.get("scopes", []))
             or (task.get("fromModel") and not selection.get("modelTaskId"))):
         return ["buildTask must select an actual declared build task and scope from the independent package"]
+    if controlled_run(plan):
+        controlled_package(plan, package)
+        return []
     return receipt_blockers(plan, "buildPackageEvidence", {
         "variant": plan["variant"], "sourceCommit": plan["sourceCommit"],
         "pluginId": manifest["id"], "buildSystemId": package["buildSystemId"],
@@ -175,6 +248,7 @@ def validate_plan(plan: dict) -> tuple[dict, list[str]]:
     Native install/scan must validate the supplied package again at runtime.
     """
     variant = workflow_variant(plan)
+    controlled = controlled_run(plan)
     if (not re.fullmatch(r"[0-9a-f]{40}", plan.get("sourceCommit", ""))
             or not isinstance(plan.get("sourceInventory"), dict) or not plan["sourceInventory"]):
         raise ValueError("complete fixed source identity is required")
@@ -216,10 +290,16 @@ def validate_plan(plan: dict) -> tuple[dict, list[str]]:
         raise ValueError("real fixed JDK java/javac bytes are required")
     blocked = []
     binding = {} if variant == "plain" else {"variant": variant, "sourceCommit": plan["sourceCommit"]}
-    for key, expected in (("packageEvidence", {"packageSha256": package["archive"]["sha256"],
+    if controlled:
+        # The actual generate/open/JDT/save cases establish workspace evidence
+        # in this run. Requiring an earlier product receipt is circular. This
+        # branch confers no trust: native signature checks and all capabilities
+        # still gate execution, and every result is labelled non-production.
+        controlled_package(plan, package)
+    for key, expected in (() if controlled else (("packageEvidence", {"packageSha256": package["archive"]["sha256"],
                                               "manifestSha256": package["manifestSha256"]}),
                           ("workspaceEvidence", {"javaHome": jdk["home"], "javaVersion": jdk["version"],
-                                                "javaSha256": jdk["javaSha256"]})):
+                                                "javaSha256": jdk["javaSha256"]}))):
         if variant != "plain" and key == "workspaceEvidence":
             expected.update(project=project, generatorId="java", javacSha256=jdk["javacSha256"],
                             packageSha256=package["archive"]["sha256"])
@@ -338,7 +418,13 @@ def saved_and_synced(calls: list[dict], source: Path, content: str, session_id: 
 
 def completed_preparation(calls: list[dict], source: Path, main_class: str, session_id: str,
                           after: int, expected: str) -> dict | None:
-    for prepared in core_calls(calls, "java.prepareLaunch"):
+    preparations = [call for call in core_calls(calls, "java.prepareLaunch")
+                    if call["sequence"] > after and call["core"]["payload"].get("sessionId") == session_id
+                    and same_path(call["core"]["payload"].get("sourcePath", ""), source)
+                    and call["core"]["payload"].get("mainClass") == main_class]
+    if len(preparations) > 1:
+        raise AssertionError("one Run must issue exactly one Core java.prepareLaunch")
+    for prepared in preparations:
         payload = prepared["core"]["payload"]
         if (prepared["sequence"] <= after or payload.get("sessionId") != session_id
                 or not same_path(payload.get("sourcePath", ""), source) or payload.get("mainClass") != main_class
@@ -348,17 +434,22 @@ def completed_preparation(calls: list[dict], source: Path, main_class: str, sess
         if any(call["core"]["payload"].get("operationId") == operation_id
                and call["sequence"] > prepared["sequence"] for call in core_calls(calls, "lsp.cancelOperation")):
             raise AssertionError("java.prepareLaunch was cancelled; a late result cannot establish success")
+        completions = []
         for drain in core_calls(calls, "lsp.waitEvents"):
             if drain["core"]["payload"].get("sessionId") != session_id or not drain.get("settled"):
                 continue
             for event in core_value(drain).get("events", []):
                 if event.get("type") != "requestCompleted" or event.get("operationId") != operation_id:
                     continue
+                completions.append(event)
                 result = event.get("result", {})
                 if event.get("error") or result.get("kind") != expected:
                     raise AssertionError("actual java.prepareLaunch result differs: " + str(event))
-                return {"request": prepared, "operationId": operation_id, "completion": event,
-                        "result": result}
+        if len(completions) > 1:
+            raise AssertionError("java.prepareLaunch must have one terminal result")
+        if completions:
+            return {"request": prepared, "operationId": operation_id, "completion": completions[0],
+                    "result": completions[0]["result"]}
     return None
 
 
@@ -397,14 +488,25 @@ def assert_actual_launch(launch: dict, target: dict, root: Path, java_home: Path
 def main():
     parser = argparse.ArgumentParser(description="Prepare variant-specific inputs; never launch, sign, download or adopt plain receipts.")
     parser.add_argument("--base-plan", type=Path, required=True)
-    parser.add_argument("--variant", choices=("maven", "gradle"), required=True)
+    parser.add_argument("--variant", choices=("plain", "maven", "gradle"), required=True)
+    parser.add_argument("--host-identity", type=Path, help="Freeze a new plan against A's final controlled build identity after temporary public-key/capability configuration")
     parser.add_argument("--group-id", default="org.example.acceptance")
     parser.add_argument("--artifact-id", default="workflow")
     parser.add_argument("--build-package-input", type=Path, help="Fixed buildPackage object (archive/requires/manifestSha256/pluginId/buildSystemId)")
     parser.add_argument("--build-task-input", type=Path, help="Explicit buildTask selection from the admitted package: taskId, scope, optional projectId/targetId/modelTaskId")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    plan = variant_plan(json.loads(args.base_plan.read_text(encoding="utf-8-sig")), args.variant, args.group_id, args.artifact_id)
+    base = json.loads(args.base_plan.read_text(encoding="utf-8-sig"))
+    plan = base if workflow_variant(base) == args.variant else variant_plan(base, args.variant, args.group_id, args.artifact_id)
+    if args.host_identity:
+        if not controlled_run(plan):
+            parser.error("host rebinding is only for an explicitly controlled plan")
+        from text_window_fixture import source_inventory
+        identity = json.loads(args.host_identity.read_text(encoding="utf-8-sig"))
+        if (identity.get("identifier") != "app.lithe.windows.host-acceptance"
+                or identity.get("sourceInventory") != source_inventory()):
+            parser.error("controlled host identity must match the current full source inventory")
+        plan.update(sourceCommit=identity["gitRevision"], sourceInventory=identity["sourceInventory"])
     if args.build_package_input:
         plan["buildPackage"] = json.loads(args.build_package_input.read_text(encoding="utf-8-sig"))
     if args.build_task_input:

@@ -21,6 +21,7 @@ from unittest.mock import MagicMock, patch
 import java_workflow_acceptance as acceptance
 import java_workflow_inputs as inputs
 import java_workflow_build as build
+import java_workflow_packages as packages
 
 
 def core(sequence, command, payload, data, *, session="java-session"):
@@ -30,6 +31,107 @@ def core(sequence, command, payload, data, *, session="java-session"):
 
 
 class JavaWorkflowHelperTests(unittest.TestCase):
+    def test_complete_release_package_root_and_large_inventory_are_verified_without_fixture_limits(self):
+        archive = self.root / 'complete-rooted.zip'
+        installed = self.root / 'installed'
+        installed.mkdir()
+        with zipfile.ZipFile(archive, 'x', compression=zipfile.ZIP_DEFLATED) as target:
+            target.writestr('java-support/plugin.json', inputs.json_bytes(self.manifest))
+            # Cross the old small-fixture 64 MiB limit without a large source file.
+            with target.open('java-support/runtime/modules', 'w') as stream:
+                for _ in range(65):
+                    stream.write(b'x' * (1024 * 1024))
+        with zipfile.ZipFile(archive) as source:
+            for name, entry in inputs.archive_entries(source).items():
+                path = installed / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                with source.open(entry) as src, path.open('wb') as dst:
+                    shutil.copyfileobj(src, dst)
+        evidence = self.root / 'installed-check.json'
+        inputs.verify_installed_package(installed, archive, evidence)
+        self.assertEqual(json.loads(evidence.read_text(encoding='utf-8'))['diff'], {'added': [], 'removed': [], 'changed': []})
+        (installed / 'runtime/modules').write_bytes(b'mutated')
+        with self.assertRaises(AssertionError):
+            inputs.verify_installed_package(installed, archive, evidence)
+
+    def test_archive_root_normalization_refuses_escape_links_and_case_collisions(self):
+        for extra in ('../escape', 'other/file', 'java-support/PLUGIN.JSON'):
+            archive = self.root / 'unsafe.zip'
+            with zipfile.ZipFile(archive, 'w') as target:
+                target.writestr('java-support/plugin.json', '{}')
+                target.writestr(extra, 'foreign')
+            with zipfile.ZipFile(archive) as source, self.assertRaises(ValueError):
+                inputs.archive_entries(source)
+
+    def test_controlled_signed_inputs_do_not_need_a_previous_workspace_run(self):
+        output = self.root / 'controlled'
+        output.mkdir()
+        archives, key = packages.controlled_packages(output, Path(self.plan['package']['archive']['path']), Path(shutil.which('node')))
+        self.plan.update(assurance='controlled', controlledHost=key, package=packages.package_input(archives['plain']))
+        manifest, blockers = inputs.validate_plan(self.plan)
+        self.assertEqual(manifest['requires'], inputs.REQUIRES)
+        self.assertEqual(blockers, [])
+        plan = inputs.variant_plan(self.plan, 'gradle')
+        plan.update(buildPackage=packages.package_input(archives['gradle']), buildTask={'taskId': 'build', 'scope': 'workspace'})
+        self.assertEqual(inputs.validate_plan(plan)[1], [])
+        plan['controlledHost'] = {**key, 'keyId': 'lithe-controlled-java-' + '0' * 16}
+        with self.assertRaisesRegex(ValueError, 'another signing key'):
+            inputs.validate_plan(plan)
+
+    def test_controlled_mode_never_adopts_unsigned_packages_or_claims_production(self):
+        self.plan.update(assurance="controlled", controlledHost={"keyId": "lithe-controlled-java-" + "a" * 16,
+                                                              "publicKeyBase64": "A" * 43 + "="})
+        with self.assertRaises(KeyError):
+            inputs.validate_plan(self.plan)
+        outcome = acceptance.workflow_result(self.plan, [
+            {"name": "plain-java / " + name, "status": "passed", "durationMs": 1} for name in inputs.CASES], True)
+        self.assertTrue(outcome['workflowPassed'])
+        self.assertFalse(outcome['productionAcceptance'])
+        with self.assertRaisesRegex(ValueError, "explicit --controlled"):
+            acceptance.run(SimpleNamespace(controlled=False), MagicMock(), MagicMock(), self.plan)
+
+    def test_one_run_cannot_adopt_duplicate_preparations_or_terminal_results(self):
+        source = Path('C:/example/src/Main.java')
+        request = core(1, 'java.prepareLaunch', {'sourcePath': str(source), 'mainClass': 'Main'}, {'operationId': 'one'})
+        completion = {'type': 'requestCompleted', 'operationId': 'one', 'result': {'kind': 'ready'}}
+        drain = core(2, 'lsp.waitEvents', {}, {'events': [completion, completion]})
+        with self.assertRaisesRegex(AssertionError, 'one terminal'):
+            inputs.completed_preparation([request, drain], source, 'Main', 'java-session', 0, 'ready')
+        drain['value']['data']['events'] = [completion]
+        with self.assertRaisesRegex(AssertionError, 'exactly one Core'):
+            inputs.completed_preparation([request, {**request, 'sequence': 3}, drain], source, 'Main', 'java-session', 0, 'ready')
+
+    def test_real_build_packages_preserve_upstream_owners_and_complete_trust(self):
+        result = packages.build_packages(self.root)
+        for variant, path in result.items():
+            manifest, files = packages.inventory(path)
+            self.assertEqual(manifest['requires'], {'buildSystems': 1, 'packageTrust': 1})
+            self.assertEqual(manifest['vendor']['signatureRequirement'], 'publisherPackage')
+            system = manifest['buildSystems'][0]
+            self.assertEqual(system['languageImport']['kind'], variant)
+            if variant == 'gradle':
+                self.assertIn('lithe-model.init.gradle', files)
+                self.assertEqual(system['model']['source'], 'command')
+                self.assertIn('--no-daemon', system['invocation']['globalArguments'])
+            else:
+                self.assertEqual(system['model']['source'], 'hostIntegration')
+
+    def test_controlled_signer_uses_a_distinct_key_and_signs_exact_inventory(self):
+        input_path, output = self.root / 'signer-input.json', self.root / 'signer-output.json'
+        input_path.write_bytes(inputs.json_bytes([{'pluginId': name, 'pluginVersion': '1.0.0', 'files': {'plugin.json': 'a' * 64}}
+                                                for name in (inputs.PLUGIN_ID, 'dev.lithe.plugin.maven-support', 'dev.lithe.plugin.gradle-support')]))
+        result = subprocess.run(['node', str(Path(__file__).with_name('java_workflow_controlled_signer.mjs')), str(input_path), str(output)],
+                                capture_output=True, timeout=8)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        value = json.loads(output.read_text(encoding='utf-8'))
+        self.assertFalse(value['productionTrusted'])
+        self.assertRegex(value['keyId'], r'^lithe-controlled-java-[0-9a-f]{16}$')
+        self.assertNotIn('private', output.read_text(encoding='utf-8').lower())
+        self.assertEqual(len(value['signatures']), 3)
+        for signature in value['signatures']:
+            self.assertEqual(signature['files'], {'plugin.json': 'a' * 64})
+            self.assertEqual(signature['keyId'], value['keyId'])
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
@@ -557,6 +659,32 @@ class JavaWorkflowHelperTests(unittest.TestCase):
         plan["package"]["archive"]["sha256"] = inputs.sha256(Path(plan["package"]["archive"]["path"]))
         with self.assertRaisesRegex(ValueError, "variant generator requirements/templates"):
             inputs.validate_plan(plan)
+
+    def test_host_rebinding_requires_controlled_assurance_and_current_full_source(self):
+        base, identity, output = (self.root / name for name in ('base.json', 'host.json', 'new-plan.json'))
+        frozen = {'owned-source': 'a' * 64}
+        host = {'identifier': 'app.lithe.windows.host-acceptance', 'gitRevision': 'b' * 40, 'sourceInventory': frozen}
+        identity.write_bytes(inputs.json_bytes(host))
+        args = ['java_workflow_inputs.py', '--base-plan', str(base), '--variant', 'plain',
+                '--host-identity', str(identity), '--output', str(output)]
+        base.write_bytes(inputs.json_bytes(self.plan))
+        with patch.object(sys, 'argv', args), self.assertRaises(SystemExit):
+            inputs.main()
+        self.assertFalse(output.exists())
+        self.plan.update(assurance='controlled', controlledHost={'keyId': 'lithe-controlled-java-' + 'a' * 16,
+                                                                'publicKeyBase64': 'A' * 43 + '='})
+        base.write_bytes(inputs.json_bytes(self.plan))
+        with patch('text_window_fixture.source_inventory', return_value={'different-source': 'c' * 64}), \
+                patch.object(sys, 'argv', args), self.assertRaises(SystemExit):
+            inputs.main()
+        self.assertFalse(output.exists())
+        with patch('text_window_fixture.source_inventory', return_value=frozen), patch.object(sys, 'argv', args):
+            inputs.main()
+        bound = json.loads(output.read_text(encoding='utf-8'))
+        self.assertEqual(bound['sourceCommit'], host['gitRevision'])
+        self.assertEqual(bound['sourceInventory'], frozen)
+        self.assertEqual(bound['controlledHost'], self.plan['controlledHost'])
+        self.assertEqual(json.loads(base.read_text(encoding='utf-8'))['sourceCommit'], self.plan['sourceCommit'])
 
     def test_variant_input_cli_preserves_previous_plan_bytes(self):
         base = self.root / "base.json"

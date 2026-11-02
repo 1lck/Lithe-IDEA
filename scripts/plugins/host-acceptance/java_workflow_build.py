@@ -155,6 +155,7 @@ class JavaBuildWorkflow:
             raise AssertionError("detected build instance has no upstream model source")
         if instance.get("modelError") or instance.get("stale") or not instance.get("model", {}).get("projects"):
             raise AssertionError("upstream build model is missing, stale or failed")
+        self.instance = instance
         self.run_task(region, instance)
 
     def load_model(self, region):
@@ -180,7 +181,7 @@ class JavaBuildWorkflow:
                 "javaPackageSha256": self.plan["package"]["archive"]["sha256"],
                 "workspaceRoot": str(self.target), "generation": self.generation, "root": ".", "jdk": self.plan["jdk"]}
 
-    def run_task(self, region, instance):
+    def run_task(self, region, instance, *, expected="succeeded"):
         selected = self.plan["buildTask"]
         manifest, _ = archive_manifest(self.plan["buildPackage"])
         system = next(row for row in manifest["buildSystems"] if row["id"] == self.system)
@@ -198,21 +199,34 @@ class JavaBuildWorkflow:
         if task.get("fromModel"):
             model_task = next(row for row in instance["model"]["tasks"] if row["id"] == selected["modelTaskId"] and row.get("template") == task["id"])
             self.choose(controls, "Model task", " / ".join([*model_task.get("category", []), model_task.get("displayName", model_task["name"])]))
+        trigger = lambda: controls.get_by_role("button", name="Prepare task / test…", exact=True).click(timeout=10_000)
+        declined, _ = self.approve("declarative_plugins_build_prepare_run", "Review task / test execution", "Allow and execute",
+                                  trigger, decline=True)
+        self.wait(lambda: controls.get_by_role("button", name="Prepare task / test…", exact=True).is_enabled(), "declined task cleanup")
         review, after = self.approve("declarative_plugins_build_prepare_run", "Review task / test execution", "Allow and execute",
-            lambda: controls.get_by_role("button", name="Prepare task / test…", exact=True).click(timeout=10_000))
+            trigger)
+        if review["operationId"] == declined["operationId"]:
+            raise AssertionError("explicit retry reused a declined operation")
         prepared = matching_call(self.calls(), "declarative_plugins_build_prepare_run", after)
         selection = prepared["args"]["selection"]
-        for key in ("taskId", "projectId", "targetId", "modelTaskId"):
+        if selection.get("kind") != "task" or selection.get("userArguments"):
+            raise AssertionError("task execution changed kind or added arguments")
+        for key in ("taskId", "projectId", "targetId", "modelTaskId", "suite", "case"):
             if selection.get(key) != selected.get(key):
                 raise AssertionError("UI selected another upstream build task: " + key)
         executed = self.wait(lambda: approved_result(self.calls(), EXECUTION_COMMANDS[1], review, after), "approved upstream build task", 180)
-        if (executed["value"].get("kind") != "succeeded"
-                or executed["value"].get("exitCode") != 0):
+        code = executed["value"].get("exitCode")
+        if (executed["value"].get("kind") != expected or type(code) is not int
+                or (code != 0 if expected == "succeeded" else code == 0)):
             raise AssertionError("upstream build task failed/cancelled")
-        events = self.wait(lambda: terminal_events(self.snapshot(), review), "ordered native build output", 30)
+        events = self.wait(lambda: terminal_events(self.snapshot(), review, expected, code), "ordered native build output", 30)
         if events[-1]["terminal"] != executed["value"]:
             raise AssertionError("build IPC and output stream reported different terminals")
-        if not any(event.get("type") == "chunk" and event.get("stream") == "stdout"
+        if not any(event.get("type") == "chunk" and (event.get("stream") == "stdout" or expected == "failed")
                    and event.get("text") for event in events):
             raise AssertionError("actual build task emitted no stdout")
-        self.write("build-task", {"review": review, "prepare": prepared, "execute": executed, "events": events, "binding": self.binding()})
+        output = ''.join(event.get('text', '') for event in events if event.get('type') == 'chunk')
+        proof = selected.get('outputContains', 'BUILD SUCCESS') if expected == 'succeeded' else 'missingAcceptanceSymbol'
+        if proof not in output:
+            raise AssertionError("actual build output lacks the expected upstream proof: " + proof)
+        self.write("build-task-" + expected, {"declined": declined, "review": review, "prepare": prepared, "execute": executed, "events": events, "binding": self.binding()})

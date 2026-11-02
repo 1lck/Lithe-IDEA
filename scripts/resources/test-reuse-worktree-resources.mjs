@@ -613,6 +613,9 @@ try {
       ".artifacts/plugin-host-acceptance/generator-archive-input/receipt.json",
       ".artifacts/plugin-host-acceptance/evidence/generators/cleanup.json",
       ".artifacts/plugin-host-acceptance/java-workflow-inputs-first/plan.json",
+      ".artifacts/plugin-host-acceptance/java-workflow-inputs-controlled/controlled-signatures.json",
+      ".artifacts/plugin-host-acceptance/java-workflow-inputs-controlled/plain-controlled.zip",
+      ".artifacts/plugin-host-acceptance/java-workflow-inputs-controlled/package-inputs.json",
       ".artifacts/plugin-host-acceptance/evidence/java-workflow/ipc.json",
     ]) {
       const source = path.join(sourceRoot, fixture);

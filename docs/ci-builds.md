@@ -1155,3 +1155,17 @@ CI 在 Windows frontend lane 构建并上传独立包，同时运行包、Worker
 此处 Node 是已有本机工具，不能据 fixture 哈希将其当成可复用缓存。发行镜像、安装目录、ZIP
 逐字节比较；可写状态经平台 adapter 或本次临时工作区，清理前保留报告。中文 IME、原生焦点、
 窄停靠/主题以及尚未跑过的完整版本行为保持 pending；受控包不替代 M10 外部正式签名工件。
+
+### R39 Java 受控三变体验收输入
+
+独立工作树可运行 `python -B scripts/plugins/host-acceptance/java_workflow_packages.py --output <不存在的绝对目录>`
+冻结实际 Maven/Gradle 包。附加 `--controlled-java-archive <完整固定的Java候选ZIP> --node <node.exe>
+--jdk-home <实际JDK> --jdk-version <实际版本>` 生成一次性签名副本、公钥和三个输入计划；不下载、不重组 JDT，
+不构建或启动产品。私钥仅在 signer 内存中。运行者在隔离构建临时固定公钥、packageTrust/buildSystems，
+保留完整 requires、原生验签和审批，以最终 host identity 重绑定计划后按 plain/Maven/Gradle 串行运行
+`java_workflow_acceptance.py --controlled`，结束恢复源码原字节。受控报告不是生产签名或准入证据。
+
+这些 ZIP、签名文档、公钥、候选输入与 JDT/Run owner 回执写入
+`.artifacts/plugin-host-acceptance/java-workflow-inputs-*/`，生命周期属于单次验收，随证据保留策略回收。
+现有 `plugin-host-acceptance-state` 排除路由在所有复制阶段拒绝它们；无可靠可复用 identity stamp，
+不共享 mutable 安装、工作区、工具状态或审批。运行时资源目录保持只读，真实工作流需逐文件哈希比较。
