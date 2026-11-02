@@ -9869,7 +9869,8 @@
     "native.toolchainSettings.providerDidNotRespond": "{provider} did not respond",
     "native.toolchainSettings.providerIsUnavailable": "{provider} is unavailable",
     "native.toolchainSettings.noAnswerWithinSeconds": "No answer within {seconds} s",
-    "lsp.projectJdkInvalid": "The project JDK is invalid or its version could not be read. Check JDK Home in Project settings."
+    "lsp.projectJdkInvalid": "The project JDK is invalid or its version could not be read. Check JDK Home in Project settings.",
+    "native.downloadingAndVerifyingPlugin": "Downloading and verifying plugin…"
   },
   "overrides": {
     "windows": {

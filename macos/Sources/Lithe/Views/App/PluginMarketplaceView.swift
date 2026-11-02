@@ -319,7 +319,16 @@ private struct PluginMarketplaceDetail: View {
 
     @ViewBuilder private var action: some View {
         if isBusy {
-            ProgressView().controlSize(.small)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Downloading and verifying plugin…")
+                    .font(LitheTheme.settingsFont)
+                    .foregroundStyle(LitheTheme.secondaryText)
+                ProgressView()
+                    .progressViewStyle(.linear)
+                    .accessibilityLabel(Text("Downloading and verifying plugin…"))
+            }
+            .frame(maxWidth: 280, alignment: .leading)
+            .accessibilityIdentifier("plugin-marketplace-install-progress")
         } else {
             switch state {
             case .installable:

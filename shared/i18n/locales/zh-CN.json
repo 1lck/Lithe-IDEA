@@ -9869,7 +9869,8 @@
     "native.toolchainSettings.providerDidNotRespond": "{provider} 未响应",
     "native.toolchainSettings.providerIsUnavailable": "{provider} 不可用",
     "native.toolchainSettings.noAnswerWithinSeconds": "{seconds} 秒内未响应",
-    "lsp.projectJdkInvalid": "项目 JDK 无效或无法读取其版本。请检查项目设置中的 JDK Home。"
+    "lsp.projectJdkInvalid": "项目 JDK 无效或无法读取其版本。请检查项目设置中的 JDK Home。",
+    "native.downloadingAndVerifyingPlugin": "正在下载并校验插件…"
   },
   "overrides": {
     "macos": {

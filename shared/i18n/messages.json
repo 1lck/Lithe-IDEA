@@ -94816,6 +94816,17 @@
       "platforms": [
         "windows"
       ]
+    },
+    {
+      "id": "native.downloadingAndVerifyingPlugin",
+      "description": "Plugin marketplace installation preparation progress",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Downloading and verifying plugin…",
+        "arguments": []
+      }
     }
   ]
 }
