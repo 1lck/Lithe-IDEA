@@ -590,6 +590,22 @@ describe("Windows Build Provider workspace operations", () => {
     } finally { await f.workspace.dispose(); }
   }, 5000);
 
+  test("target task plans use the current model identity and reject another project's target", async () => {
+    const f = fixture(), target = { id: "app", projectID: "service", name: "Application", path: "service", tags: ["application"], properties: { upstream: "owned" } };
+    try {
+      f.holdCore("build.decodeModel", Promise.resolve({ model: { ...model, targets: [target],
+        projects: [...model.projects, { id: "other", name: "Other", path: "other", properties: {} }] } }));
+      await f.workspace.loadModel(instance).completion;
+      await f.workspace.executeTask(instance, "compile", "service", ["", "two words"], "app").completion;
+      expect(f.coreCalls.find(call => call.command === "build.taskPlan")?.request).toMatchObject({
+        project: model.projects[0], target, userArguments: ["", "two words"],
+      });
+      const sent = f.sent.length;
+      await expect(f.workspace.executeTask(instance, "compile", "other", [], "app").completion).rejects.toThrow();
+      expect(f.sent).toHaveLength(sent);
+    } finally { await f.workspace.dispose(); }
+  }, 5000);
+
   test("a task cannot run without a complete current model or select an unknown project", async () => {
     const f = fixture();
     try {

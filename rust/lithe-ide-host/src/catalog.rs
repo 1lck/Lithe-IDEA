@@ -279,8 +279,30 @@ mod tests {
         for platform in ["macos", "windows"] {
             let exposure: Vec<ToolExposure> =
                 serde_json::from_value(fixture[platform].clone()).unwrap();
-            assert_eq!(exposed_tools(&exposure).unwrap().len(), 13);
+            assert_eq!(
+                exposed_tools(&exposure).unwrap().len(),
+                fixture[platform].as_array().unwrap().len()
+            );
         }
+        let windows: Vec<ToolExposure> =
+            serde_json::from_value(fixture["windows"].clone()).unwrap();
+        assert!(validate_exposed(
+            "lithe_build_execute",
+            &json!({"instanceID":"example:.","taskID":"compile"}),
+            &permissions,
+            &windows
+        )
+        .is_ok());
+        assert_eq!(
+            validate_exposed(
+                "lithe_build_configure",
+                &json!({"instanceID":"example:.","optionID":"offline","value":true}),
+                &permissions,
+                &windows
+            )
+            .unwrap_err()["error"]["code"],
+            "NOT_SUPPORTED"
+        );
         let exposure: Vec<ToolExposure> = serde_json::from_value(fixture["macos"].clone()).unwrap();
         assert!(validate_exposed(
             "lithe_environment_configure",

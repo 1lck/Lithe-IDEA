@@ -15,6 +15,9 @@ import { useFileSystemStore } from "@/features/file-system/stores/file-system.st
 import type { MavenModule } from "@/features/maven/types/maven.types";
 import { PRIMARY_SESSION_ID } from "@/features/run/types/run.types";
 import { runSessionId } from "@/features/run/utils/run-configuration";
+import { windowsBuildWorkspaces } from "@/platform/build-workspaces";
+import { buildCore } from "@/platform/build-core-api";
+import { IdeBuildCapabilities } from "./ide-build-capabilities";
 
 export interface IdePermissions {
   configure: boolean;
@@ -51,12 +54,15 @@ const defaultDependencies = {
   resolveRunToolchains,
   mavenLaunchContextForWorkspace,
   reloadMavenWorkspaceProjects,
+  buildWorkspace: (id: string, root: string) => windowsBuildWorkspaces.get(id, root),
+  buildCore,
 };
 
 /** A workspace-bound application API; never consults the currently focused tab. */
 export class IdeCapabilities {
   private active = true;
   private mutationInFlight = false;
+  private readonly build: IdeBuildCapabilities;
   revoke() {
     this.active = false;
   }
@@ -65,7 +71,10 @@ export class IdeCapabilities {
     readonly root: string,
     readonly permissions: IdePermissions,
     private readonly dependencies = defaultDependencies,
-  ) {}
+  ) {
+    this.build = new IdeBuildCapabilities(() => this.dependencies.buildWorkspace(this.workspaceId, this.root),
+      () => { if (!this.isCurrent()) throw new Error("The authorized project was closed"); }, this.dependencies.buildCore);
+  }
   isCurrent() {
     return (
       this.active &&
@@ -139,7 +148,9 @@ export class IdeCapabilities {
         exitCode: m.lastExitCode,
         output: m.output,
       });
-    return result.sort((a, b) => a.operationID.localeCompare(b.operationID));
+    // Logs stay in their existing bounded product store. Listing summaries
+    // does not copy every retained build log into API state.
+    return [...result, ...this.build.operations()].sort((a, b) => a.operationID.localeCompare(b.operationID));
   }
   async call(
     name: string,
@@ -314,8 +325,9 @@ export class IdeCapabilities {
       }
       case "lithe_build_inspect":
       case "lithe_build_reload":
-      case "lithe_build_configure":
       case "lithe_build_execute":
+        return this.build.call(name, args);
+      case "lithe_build_configure":
         return fail("NOT_AVAILABLE", createTranslator(useSettingsStore.getState().settings.displayLanguage)("ide.build.windowsUnavailable"));
       case "lithe_maven_execute": {
         if (!this.maven.project) return fail("NOT_READY", "Load a Maven project first");
@@ -366,7 +378,13 @@ export class IdeCapabilities {
             "OPERATION_EXPIRED",
             "This execution has exited the IDE history or was replaced",
           );
-        if (name === "lithe_operation_output") return operation;
+        if (name === "lithe_operation_output") return operation.kind === "build"
+          ? { ...operation, ...this.build.output(operation.sessionID) } : operation;
+        if (operation.kind === "build") {
+          if (name === "lithe_run_restart") return fail("INVALID_ARGUMENTS", "Use Build execute to start another build");
+          this.build.stop(operation.sessionID);
+          return { operationID: operation.operationID, stopRequested: true };
+        }
         if (name === "lithe_run_restart" && operation.configurationID === "current-file")
           return fail("INVALID_ARGUMENTS", "Restart requires a saved project configuration");
         if (operation.kind === "maven") {

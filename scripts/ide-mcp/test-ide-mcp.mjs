@@ -96,6 +96,13 @@ test(`stdio MCP ${mode}: discovery, calls and tool failures`, {timeout:15000}, a
   assert.ok(!selected.result.tools.some(tool => tool.name.startsWith("lithe_maven_")));
   const environment = selected.result.tools.find(tool => tool.name === "lithe_environment_configure");
   assert.deepEqual(Object.keys(environment.inputSchema.properties).sort(), ["javaHomePath", "mavenExecutablePath", "mavenJavaHomePath"].sort());
+  descriptor.toolExposure = exposure.windows;
+  await writeFile(connection, JSON.stringify(descriptor), {mode:0o600});
+  const windows = await send("tools/list", params);
+  assert.deepEqual(windows.result.tools.map(tool => tool.name).sort(), exposure.windows.map(tool => tool.name).sort());
+  assert.ok(windows.result.tools.some(tool => tool.name === "lithe_build_execute"));
+  assert.ok(windows.result.tools.some(tool => tool.name === "lithe_maven_execute"));
+  assert.ok(!windows.result.tools.some(tool => tool.name === "lithe_build_configure"));
   const inspected = await send("tools/call",{...params,name:"lithe_project_inspect",arguments:{}});
   assert.equal(inspected.result.structuredContent.workspaceID,"fixture-project");
   assert.notEqual(inspected.result.isError,true,"a nullable domain error field is a successful inspection");

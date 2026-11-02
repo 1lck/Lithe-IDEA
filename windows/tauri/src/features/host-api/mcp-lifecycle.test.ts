@@ -159,7 +159,10 @@ test("native connection publishes only the Windows workflows from the shared fix
     directory: "fixture", helperPath: "fixture/helper", workspaceKey: "fixture",
     permissions, toolExposure: toolExposureFixture.windows,
   }]);
-  expect(ideToolExposure.some(({ name }) => name.startsWith("lithe_build_"))).toBe(false);
+  expect(ideToolExposure.filter(({ name }) => name.startsWith("lithe_build_"))).toEqual([
+    { name: "lithe_build_inspect" }, { name: "lithe_build_reload" }, { name: "lithe_build_execute" },
+  ]);
+  expect(ideToolExposure.some(({ name }) => name === "lithe_build_configure")).toBe(false);
 }, 1000);
 
 test("closing during open revokes access and closes the late native host", async () => {

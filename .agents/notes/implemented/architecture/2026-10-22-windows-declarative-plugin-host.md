@@ -224,6 +224,11 @@ Run 的全量工具版本发现。Core 声明的 command、environment 等候选
 
 ### Build 工作区与原生窗口接线（阶段 D，准入仍关闭）
 
+Agent 的 Build inspect/reload/execute 复用此工作区和同一领域操作，不另建 Provider。
+原生准入后的目录决定可见实例；只读查询不启动工具，执行前核对当前模型的项目/目标/
+模板归属。原生能力表继续关闭，通用选项写入尚未接通也不暴露；旧 Maven/Java 消费者
+不得借此删除。授权和输出 ID 约束见 [IDE API 决策](2026-09-30-ide-capabilities-and-local-mcp.md)。
+
 Provider Run 的工具 ID 必须绑定到本次原生解析得到的具体程序，不能通过旧 Maven
 可执行字段、语言导入值或全局 runtime 路径补齐。原生上下文只发布当前定义解析且支持直接执行的
 `resolvedExecutables`；同一 ID 在不同根得到不同路径时明确拒绝。前端将其中的路径

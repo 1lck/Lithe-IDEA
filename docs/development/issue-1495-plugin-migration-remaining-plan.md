@@ -428,6 +428,33 @@ Project crate 100 项逐项计时通过，新增通用工具验证安装依赖�
 `stage-d-installation-use-native` 的 HTML/JSON/JUnit。安装包清单和后端清理均通过。
 Windows host 生产/测试编译在 macOS 仍仅两处已有 Windows API 错误，不算原生执行通过。
 
+修正提交 `dc041fb9e` 的 [Windows CI 41406039323](https://github.com/1lck/Lithe-IDEA/actions/runs/41406039323)
+已全部通过：Project 101 项通过/1 跳过、host 394 项通过/3 跳过，包含安装依赖、直接
+模板拒绝和绑定过滤；共享 Core、前端与真实 JDT 同时通过。报告已下载到本工作树的
+`.artifacts/test-stability/ci-41406039323/`，不把后续 Agent 接线算入这轮。
+
+### Windows Agent 的通用 Build 消费者（2026-11-02）
+
+接通已实现的 Build inspect/reload/execute：复用现有工作区 controller、领域模型、
+原生工具准备及 Provider 所有者。只读检测不启动工具，未准入包不进入清单；Agent
+不从旧 Maven store 补实例。工作区、插件和 MCP 授权失效后拒绝迟到调用；已接受的
+操作继续由 IDE 持有，工作区关闭等待取消和清理。
+
+任务选择同时核对声明、项目、目标和模型模板，领域层从当前模型二次选取目标，再交
+Core 校验，不按目标显示名或 Maven goal 猜测。argv 保持数组；操作摘要、输出和停止
+使用同一有界记录及精确 UUID，不复制日志历史或创建第二个后端。Windows 暂不暴露
+尚未实现存储工作流的通用 Build configure，旧 Maven/Java 配置及消费者仍须迁移。
+原生插件能力表继续关闭，不能把 API 接通当成完整 Maven 包准入。
+
+本机前端最终 457 项逐项计时通过，涵盖 Agent、Build 与 Run 的受影响范围；Rust
+broker 14 项通过。TypeScript 和生产 bundle 通过，真实 MCP stdio 的三个协议会话
+均验证 Windows 平台清单，计时为 1.028 秒/34 毫秒/24 毫秒；配置写入不暴露，调用
+仍经过 broker 权限。报告为 `stage-d-agent-build-frontend-final`、
+`stage-d-agent-build-ide-host` 和 `stage-d-agent-build-mcp-stdio` 的 HTML/JSON/JUnit。
+共享契约、服务/Windows 边界、bundle 只读、Notes、矩阵与测试稳定性检查通过。
+此批没有改 Core Build 协议或下载/状态目录，
+没有代替完整 Windows 产品工作流或阶段 D 的其他退出条件。
+
 ### D-MIGRATION-REMOVAL：旧 Maven 数据迁移器清理
 
 这是 #1495 下独立跟踪的删除项，状态为未完成。`MacLegacyMavenConfigurationMigration`

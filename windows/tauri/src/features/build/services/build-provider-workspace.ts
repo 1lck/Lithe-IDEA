@@ -356,11 +356,14 @@ export class WindowsBuildProviderWorkspace {
     this.factsChanged();
   }
 
-  executeTask(instance: BuildInstance, task: string, projectID?: string, userArguments: string[] = []) {
+  executeTask(instance: BuildInstance, task: string, projectID?: string, userArguments: string[] = [], targetID?: string) {
     const argumentsSnapshot = [...userArguments];
     return this.begin<Record<string, unknown>>(instance, true, async operation => {
       const project = this.project(operation.record.instance, projectID);
-      return await this.execution(operation, await operation.perform("build.taskPlan", { task, project, userArguments: argumentsSnapshot }), project);
+      const target = targetID === undefined ? undefined : this.models.get(owner(operation.record.instance))?.targets
+        .find(target => target.id === targetID && target.projectID === project?.id);
+      if (targetID !== undefined && !target) throw new Error(this.message("missingProject"));
+      return await this.execution(operation, await operation.perform("build.taskPlan", { task, project, target, userArguments: argumentsSnapshot }), project);
     });
   }
 

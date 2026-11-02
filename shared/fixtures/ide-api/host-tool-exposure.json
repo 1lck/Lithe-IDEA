@@ -85,6 +85,15 @@
     },
     {
       "name": "lithe_maven_execute"
+    },
+    {
+      "name": "lithe_build_inspect"
+    },
+    {
+      "name": "lithe_build_reload"
+    },
+    {
+      "name": "lithe_build_execute"
     }
   ]
 }
