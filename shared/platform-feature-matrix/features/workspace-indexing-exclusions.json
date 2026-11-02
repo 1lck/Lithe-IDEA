@@ -65,5 +65,6 @@
       "windows/tauri/src/features/git/runtime/git-status-refresh-host.tsx",
       "shared/fixtures/workspace/ignored-directory-suggestions-v1.json"
     ]
-  }
+  },
+  "notes": "排除目录及后代的行底色采用 JetBrains Islands FileColor.Yellow：浅色 #FFF9EB、深色 #291F1C，覆盖旧主题回退色；选择色仍优先。上游主题来源和浅色截图像素核验见目录索引排除 Agent Note；Swift 渲染回归覆盖两种外观与焦点状态，Windows 原生外观验收仍待完成。"
 }

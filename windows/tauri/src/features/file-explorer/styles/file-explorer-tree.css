@@ -66,10 +66,10 @@
   background-color: transparent !important;
 }
 
-/* Community 536da82a: NonProjectFilesScope uses FileColor.Yellow (Brown in Darcula). */
+/* Community 536da82a: Islands overrides NonProjectFilesScope's FileColor.Yellow. */
 .file-tree-container .file-tree-item > button[data-excluded="true"]:not(.bg-selected),
 .file-tree-container .file-tree-item > button[data-excluded="true"]:not(.bg-selected):hover {
-  background-color: light-dark(#ffffe4, #4f4b41) !important;
+  background-color: light-dark(#fff9eb, #291f1c) !important;
 }
 
 .file-tree-ignored-label {

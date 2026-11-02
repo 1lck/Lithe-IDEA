@@ -485,8 +485,8 @@ enum LitheTheme {
         static let verticalInset: CGFloat = 4
         static var text: Color { searchFieldText }
         static var secondaryText: Color { searchFieldPlaceholder }
-        // IntelliJ Community 536da82a: NonProjectFilesScope -> FileColor.Yellow.
-        static var excludedBackground: Color { controlColor(light: 0xFFFFE4, dark: 0x4F4B41) }
+        // Community 536da82a: Islands overrides NonProjectFilesScope's FileColor.Yellow.
+        static var excludedBackground: Color { controlColor(light: 0xFFF9EB, dark: 0x291F1C) }
         static var focusedSelection: Color {
             activeTheme == .lithe ? controlColor(light: 0xD0DFFE, dark: 0x2A4371) : selection
         }

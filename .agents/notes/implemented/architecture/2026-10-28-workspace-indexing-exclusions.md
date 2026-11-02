@@ -439,10 +439,17 @@ macOS 使用最新构建的可执行及 Swift 资源，组装独立 QA bundle，
 虽然搜索库存和 provider 仍正确。configure 与 refresh 的状态汇总现在也受自动开关约束；
 回归断言候选查询后的重复 configure 不改变有效原因、库存或租约版本。
 
-显示沿用 JetBrains 的 Non-Project Files 行底色：浅色 `#FFFFE4`，深色 `#4F4B41`；
-Git ignored 仍仅修改文件名颜色。选中行先保证既有选中色和文字对比度。出处为
-JetBrains/intellij-community 的 `536da82a2cbce90820cbb0c158d91e78cda75d82` 中
-`NonProjectFilesScope.java` 与 `FileColorManagerImpl.java`。本次没有新增运行时资源目录；
+显示沿用 JetBrains Islands 的 Non-Project Files 行底色：浅色 `#FFF9EB`，深色 `#291F1C`；
+Git ignored 仍仅修改文件名颜色。选中行先保证既有选中色和文字对比度。出处固定为
+JetBrains/intellij-community 的 `536da82a2cbce90820cbb0c158d91e78cda75d82`：
+`NonProjectFilesScope.java` 选择 `FileColor.Yellow`，而 Islands 的
+[`ManyIslandsLight.theme.json`](https://github.com/JetBrains/intellij-community/blob/536da82a2cbce90820cbb0c158d91e78cda75d82/platform/platform-resources/src/themes/islands/ManyIslandsLight.theme.json#L713-L718)
+和 [`ManyIslandsDark.theme.json`](https://github.com/JetBrains/intellij-community/blob/536da82a2cbce90820cbb0c158d91e78cda75d82/platform/platform-resources/src/themes/islands/ManyIslandsDark.theme.json#L665-L670)
+覆盖该颜色。首次实现误用了 `FileColorManagerImpl.java` 的旧主题回退值
+`#FFFFE4`／`#4F4B41`，导致浅色偏黄；不能只读取作用域默认值而忽略目标主题覆盖。
+用户的 PyCharm 浅色截图背景像素为 `#FFF9EB`，与 Islands 源码一致；两端同步采用这组值，
+原有深浅色、选中／未选中及窗口焦点渲染回归验证实际行底色，保持选择色优先。
+本次没有新增运行时资源目录；
 查询只读取工作区与 Git，偏好沿用平台存储 adapter，不写发行 bundle，因此不改变签名或 delta 基线。
 
 原生验收补充：macOS 提示必须保留空态也存在的容器，不能把首次查询的 task 挂在

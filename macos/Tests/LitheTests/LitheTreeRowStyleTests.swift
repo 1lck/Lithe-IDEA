@@ -40,7 +40,7 @@ struct LitheTreeRowStyleTests {
                     context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
                 }
                 let active = focused && windowState == .key
-                let expected: UInt32 = !selected ? (scheme == .dark ? 0x4F4B41 : 0xFFFFE4) : scheme == .dark
+                let expected: UInt32 = !selected ? (scheme == .dark ? 0x291F1C : 0xFFF9EB) : scheme == .dark
                     ? (active ? 0x2A4371 : 0x33353B)
                     : (active ? 0xD0DFFE : 0xE9EAEE)
                 // Sample the row interior beyond text, so actual shared chrome rather
