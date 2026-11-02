@@ -37,7 +37,9 @@ pub use model::{
     TaskStatus,
 };
 pub use output::MavenOutputPanel;
-pub use session::{Diagnostic, DiagnosticSeverity, SessionEvent, TestFailure, TestResults};
+pub use session::{
+    Diagnostic, DiagnosticSeverity, MavenLaunch, SessionEvent, TestFailure, TestResults, plan_goal,
+};
 pub use view::{MavenPanel, MavenPanelEvent};
 
 /// 检测本机 Maven 可执行文件（无保存覆盖时的解析结果）。

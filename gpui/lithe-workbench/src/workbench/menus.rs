@@ -498,7 +498,7 @@ impl Workbench {
 
         if let Some(action) = editor_command {
             self.editor.update(cx, |editor, editor_cx| {
-                editor.run_command(action, editor_cx);
+                editor.run_command(action, window, editor_cx);
             });
             return;
         }
@@ -588,27 +588,27 @@ impl Workbench {
             "navigate.previousTab" | "go.previousTab" => self.cycle_tab(-1, window, cx),
             "go.definition" => {
                 self.editor.update(cx, |e, ecx| {
-                    e.run_command("editor.action.revealDefinition", ecx);
+                    e.run_command("editor.action.revealDefinition", window, ecx);
                 });
             }
             "go.implementation" => {
                 self.editor.update(cx, |e, ecx| {
-                    e.run_command("editor.action.goToImplementation", ecx);
+                    e.run_command("editor.action.goToImplementation", window, ecx);
                 });
             }
             "go.typeDefinition" => {
                 self.editor.update(cx, |e, ecx| {
-                    e.run_command("editor.action.goToTypeDefinition", ecx);
+                    e.run_command("editor.action.goToTypeDefinition", window, ecx);
                 });
             }
             "go.references" => {
                 self.editor.update(cx, |e, ecx| {
-                    e.run_command("editor.action.referenceSearch.trigger", ecx);
+                    e.run_command("editor.action.referenceSearch.trigger", window, ecx);
                 });
             }
             "go.renameSymbol" => {
                 self.editor.update(cx, |e, ecx| {
-                    e.run_command("editor.action.rename", ecx);
+                    e.run_command("editor.action.rename", window, ecx);
                 });
             }
             "terminal.new" => self.show_tool(ToolWindow::Terminal, window, cx),

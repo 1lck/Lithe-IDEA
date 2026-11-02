@@ -338,6 +338,8 @@ impl Workbench {
         let text = tab.text.clone();
         secondary.update(cx, |editor, editor_cx| {
             editor.open_file(root, absolute, text, window, editor_cx);
+            // 分屏副窗格只观察，不接收编辑，保存仍只经过主编辑器。
+            editor.set_readonly(true, editor_cx);
         });
     }
 
@@ -366,7 +368,7 @@ impl Workbench {
                 window,
                 editor_cx,
             );
-            editor.set_render_whitespace(render_whitespace, editor_cx);
+            editor.set_render_whitespace(render_whitespace, window, editor_cx);
             editor.set_editor_extras(font_ligatures, code_lens, tab_size, editor_cx);
             editor.set_language_service_preferences(
                 auto_completion,
@@ -387,7 +389,7 @@ impl Workbench {
                     window,
                     editor_cx,
                 );
-                editor.set_render_whitespace(render_whitespace, editor_cx);
+                editor.set_render_whitespace(render_whitespace, window, editor_cx);
                 editor.set_editor_extras(font_ligatures, code_lens, tab_size, editor_cx);
                 editor.set_language_service_preferences(
                     auto_completion,

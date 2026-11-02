@@ -9,7 +9,7 @@ gpui/
 ├── lithe-ui/           设计系统：token、主题、字体、图标、活动栏、工具窗标题、多行标签、状态栏
 ├── lithe-core-client/  lithe-core 的 typed 阻塞客户端
 ├── lithe-platform/     文件对话框、打开 URL、最近项目
-├── lithe-features/     项目树、WebView 编辑器、欢迎页
+├── lithe-features/     项目树、原生 GPUI 编辑器、欢迎页
 ├── lithe-workbench/    顶栏、活动栏、分栏、标签、状态栏、打开项目/文件
 └── lithe-desktop/      三端启动入口
 ```
@@ -18,14 +18,7 @@ gpui/
 
 ## 运行
 
-Monaco 资源不随源码提交，首次运行前先生成：
-
-```bash
-npx -y bun@1.3.12 install
-npx -y bun@1.3.12 gpui/editor/build.ts
-```
-
-然后：
+原生 GPUI 编辑器不依赖 Monaco 资源，直接：
 
 ```bash
 cargo run -p lithe-desktop
@@ -66,7 +59,7 @@ cargo check -p lithe-desktop
 - macOS 锚点工具窗：左（Project/Changes/Search/PR）、底（Git Log/Terminal/Agent/References/Problems/Spring/Run/Tests/Debug/Build Output）、右（Database/Services）；每个工作区独立持久化布局与尺寸。
 - 左右活动栏：工具入口、通知、更新/背景占位；底部工具窗横跨整行。
 - 多行编辑器标签、重复文件去重、关闭后自动激活相邻标签、未保存关闭确认。
-- Monaco 编辑器：Java/Markdown/XML/CSS/HTML 语法着色、编辑、`Ctrl/Cmd+S` 保存、脏标记、行列号。
+- 原生 GPUI 编辑器（gpui-kit `Editor`）：Java/Markdown/XML/CSS/HTML 等 tree-sitter 语法着色、折叠、多光标、列选择、内置查找替换、`Ctrl/Cmd+S` 保存、脏标记、行列号。
 - Markdown 预览（预览磁盘上的已保存内容）。
 - 顶栏分支切换器、真实分支名、状态栏 Git 变更计数。
 - Git 工具窗：Changes 分组、Unified/Split Diff、Commit/Amend、Log、Stage/Unstage/Discard（丢弃二次确认）。
@@ -75,17 +68,18 @@ cargo check -p lithe-desktop
 - 运行入口：常见项目类型（Cargo/npm/Maven/Gradle/Go/Python/Make/Compose/Procfile）检测候选命令，在终端执行。
 - 终端工具窗：xterm.js + portable-pty。
 - Agent 工具窗：自动发现已安装 ACP adapter，基础对话、权限、停止/重连。
-- Monaco 轻量语言能力：补全、悬停、跳转定义、查找引用（走 Core `lsp.builtin*`，不启动语言服务器）。
+- 原生编辑器轻量语言能力：补全、悬停、跳转定义（走 Core `lsp.builtin*`，不启动语言服务器）。
 - 设置页：7 组 19 页，English / 中文即时切换。
 - 命令面板与快捷键、通知中心、内存状态、三套主题。
 
 ## 已知限制
 
-- Monaco 没有接完整 LSP 服务器、TextMate 语义高亮和自定义上下文菜单；只有基础语法着色和 Core 的轻量补全/悬停/导航。
+- 原生编辑器没有接完整 LSP 服务器、TextMate 语义高亮和自定义上下文菜单；只有 tree-sitter 语法着色和 Core 的轻量补全/悬停/导航。
+- Problems 面板暂没有原生诊断来源；此前来自 Monaco markers 的列表不再生成。
 - 关闭未保存标签只能丢弃或取消，没有“保存后关闭”。
-- 外部文件修改不会自动重载；页面重载后回到最近一次打开/保存的快照。
-- 大文件通过 `evaluate_script` 传文本，受 WebView 脚本长度限制。
-- 终端和 Monaco 都依赖 WebView：Linux 仅 X11，Wayland 不支持。
+- 外部文件修改不会自动重载；重新打开文件回到最近一次打开/保存的快照。
+- 原生编辑器按文件重建编辑状态，切换标签不保留撤销历史。
+- 终端采用纯 GPUI 原生画布与文字系统（alacritty_terminal + lithe-terminal），不再依赖 WebView。
 - Git 只做整文件 Stage/Unstage，没有 hunk 级操作；没有自动文件监视。
 - Run 只按根目录常见文件做启发式检测，不使用 Core 的构建插件模型；不持久化自定义运行配置。
 - Agent 只做基础对话，未接会话历史、模型/配置选择、Markdown 渲染和安装向导。

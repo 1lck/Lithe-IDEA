@@ -135,7 +135,7 @@ fn launch(
     client: CoreClient,
     root: PathBuf,
     configuration: RunConfiguration,
-    _skip_build: bool,
+    skip_build: bool,
     sender: Sender<SessionEvent>,
 ) -> Result<(), String> {
     let request = launch_request(&root, &configuration);
@@ -149,19 +149,20 @@ fn launch(
         })?;
 
     let launch = LaunchPlan::from_json(&plan)?;
-    let module_opt = configuration
+    let module = configuration
         .extensions
         .get("maven")
         .and_then(|m| m.get("module"))
         .and_then(Value::as_str)
-        .filter(|m| *m != "." && !m.is_empty());
-    // 子模块项目直接将工作目录指向子模块，使 Maven 天然使用子模块 POM 中声明的插件版本
-    // 避免父工程没有配置对应插件导致前缀找不到或拉取不兼容的高版本插件。
-    let working_directory = if let Some(module) = module_opt {
-        root.join(module)
-    } else {
-        resolve_working_directory(&root, &launch.working_directory)
-    };
+        .filter(|module| *module != "." && !module.is_empty());
+    // 模块目录启动看不到 sibling 源码，Maven 只从本地仓库解析依赖；源码改动
+    // 后不重新安装依赖模块，编译会停在“找不到符号”。先构建依赖链再启动。
+    if !skip_build && needs_maven_install(&configuration.provider, module) {
+        if let Some(module) = module {
+            run_maven_install(client, &root, &configuration, module, &sender)?;
+        }
+    }
+    let working_directory = launch_working_directory(&root, &launch.working_directory, module);
     let toolchains = ProjectToolchains::resolve(
         &root,
         &working_directory,
@@ -230,6 +231,9 @@ fn launch(
         &resolve_plan_paths(&root, &launch.classpath),
         &resolve_plan_paths(&root, &launch.modulepath),
     );
+    if let Some(module) = module {
+        strip_reactor_selection(&mut arguments, module);
+    }
 
     let command_line = format!(
         "$ {} {}\n\n",
@@ -479,6 +483,146 @@ fn resolve_working_directory(root: &Path, value: &str) -> PathBuf {
         path
     } else {
         root.to_path_buf()
+    }
+}
+
+/// 是否需要在模块目录启动前安装 Maven 依赖链。
+///
+/// 只有 Maven 框架服务和 Maven 模块任务在子模块目录运行时才需要：其他配置
+/// 要么没有模块选择，要么由 Java 语言服务直接给出运行路径。
+fn needs_maven_install(provider: &str, module: Option<&str>) -> bool {
+    module.is_some() && (provider.ends_with(".maven") || provider == "maven.module")
+}
+
+/// 在 reactor 根安装当前模块及其依赖链。
+///
+/// 参数由 Core 的 `maven.launchPlan` 生成，因此 profiles、settings、本地仓库
+/// 与 `-pl`/`-am` 的选择规则和 Maven 工具窗一致，宿主不自行拼装。
+fn run_maven_install(
+    client: CoreClient,
+    root: &Path,
+    configuration: &RunConfiguration,
+    module: &str,
+    sender: &Sender<SessionEvent>,
+) -> Result<(), String> {
+    let context = maven_install_context(root, configuration);
+    let launch = crate::maven::plan_goal(
+        client,
+        root,
+        &context,
+        Some(module),
+        &["install".to_string()],
+    )?;
+    let command_line = format!(
+        "$ {} {}\n\n",
+        launch
+            .executable
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("mvn"),
+        launch.display_arguments()
+    );
+    let _ = sender.send_blocking(SessionEvent::Output(command_line));
+
+    let mut command = command_for(&launch.executable, &launch.arguments);
+    command
+        .current_dir(&launch.working_directory)
+        .envs(&launch.environment)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let output = command.output().map_err(|error| {
+        format!(
+            "{}: {}: {error}",
+            lithe_ui::i18n::tr("Could not start configuration"),
+            launch.executable.display()
+        )
+    })?;
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    if !text.is_empty() {
+        let _ = sender.send_blocking(SessionEvent::Output(text));
+    }
+    if !output.status.success() {
+        return Err(format!(
+            "{} ({})",
+            lithe_ui::i18n::tr("Could not start configuration"),
+            output.status
+        ));
+    }
+    Ok(())
+}
+
+/// 构造依赖构建的 Maven 上下文；安装依赖时跳过测试阶段。
+fn maven_install_context(
+    root: &Path,
+    configuration: &RunConfiguration,
+) -> crate::maven::LaunchContext {
+    let maven = configuration.extensions.get("maven");
+    let reactor_path = maven
+        .and_then(|maven| maven.get("reactorPath"))
+        .and_then(Value::as_str)
+        .unwrap_or(".");
+    let profiles = maven
+        .and_then(|maven| maven.get("profiles"))
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let settings = crate::maven::configuration::load_local(root, reactor_path);
+    crate::maven::LaunchContext {
+        reactor_path: reactor_path.to_string(),
+        profiles,
+        settings_path: settings.settings_path,
+        local_repository_path: settings.local_repository_path,
+        skip_tests: true,
+        maven_executable_path: settings.maven_executable_path,
+        java_home_path: settings.java_home_path,
+    }
+}
+
+/// 启动进程的工作目录。
+///
+/// Maven 的插件前缀和插件版本由当前项目的 effective POM 解析。多模块项目里
+/// 聚合父 POM 往往只声明 `<pluginManagement>`，模块自己才在 `<build><plugins>`
+/// 声明 `spring-boot-maven-plugin` 等框架插件；只有在模块目录启动，Maven 才能
+/// 解析出正确的插件，并从模块 POM 取到版本。`-pl`/`-am` 只相对于 reactor 根，
+/// 模块目录启动时由 [`strip_reactor_selection`] 移除。
+fn launch_working_directory(
+    root: &Path,
+    plan_working_directory: &str,
+    module: Option<&str>,
+) -> PathBuf {
+    match module {
+        Some(module) => root.join(module),
+        None => resolve_working_directory(root, plan_working_directory),
+    }
+}
+
+/// 移除只在 reactor 根有效的模块选择参数。
+///
+/// 工作目录已经切到 `<module>` 后，Maven 的 reactor 只包含该模块本身（相对路径
+/// 为 `.`）；再传 `-pl <module>` 会让 Maven 在 reactor 中查找一个不存在的路径并
+/// 以 `Could not find the selected project in the reactor` 失败，`-am` 也随之失去
+/// 意义。其他参数（profiles、settings、目标）原样保留。
+fn strip_reactor_selection(arguments: &mut Vec<String>, module: &str) {
+    let Some(index) = arguments
+        .windows(2)
+        .position(|pair| pair[0] == "-pl" && pair[1] == module)
+    else {
+        return;
+    };
+    arguments.drain(index..index + 2);
+    if arguments.get(index).is_some_and(|value| value == "-am") {
+        arguments.remove(index);
     }
 }
 
@@ -1049,6 +1193,81 @@ mod tests {
     }
 
     #[test]
+    fn installs_maven_dependencies_only_for_module_services() {
+        assert!(needs_maven_install(
+            "spring-boot.maven",
+            Some("services/api")
+        ));
+        assert!(needs_maven_install("quarkus.maven", Some("services/api")));
+        assert!(needs_maven_install("maven.module", Some("services/api")));
+        assert!(!needs_maven_install("spring-boot.maven", None));
+        assert!(!needs_maven_install(
+            "java.current-file",
+            Some("services/api")
+        ));
+    }
+
+    #[test]
+    fn maven_module_launches_from_the_module_directory() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock should be after epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "lithe-maven-module-{}-{unique}",
+            std::process::id()
+        ));
+        let module = root.join("services").join("api");
+        std::fs::create_dir_all(&module).expect("module directory should be created");
+
+        // 有模块时必须在模块目录启动：框架插件由模块 POM 声明并提供版本。
+        assert_eq!(
+            launch_working_directory(&root, ".", Some("services/api")),
+            module
+        );
+        // 没有模块时沿用 Core 计划的 reactor 目录。
+        assert_eq!(launch_working_directory(&root, ".", None), root);
+        assert_eq!(
+            launch_working_directory(&root, "services", None),
+            root.join("services")
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn strips_reactor_selection_when_running_from_a_module_directory() {
+        let mut arguments = vec![
+            "-B".to_string(),
+            "-ntp".to_string(),
+            "-pl".to_string(),
+            "services/api".to_string(),
+            "-am".to_string(),
+            "-DskipTests".to_string(),
+            "spring-boot:run".to_string(),
+        ];
+
+        strip_reactor_selection(&mut arguments, "services/api");
+
+        assert_eq!(arguments, ["-B", "-ntp", "-DskipTests", "spring-boot:run"]);
+    }
+
+    #[test]
+    fn keeps_reactor_selection_for_a_different_module() {
+        let mut arguments = vec![
+            "-pl".to_string(),
+            "services/web".to_string(),
+            "-am".to_string(),
+            "spring-boot:run".to_string(),
+        ];
+        let original = arguments.clone();
+
+        strip_reactor_selection(&mut arguments, "services/api");
+
+        assert_eq!(arguments, original);
+    }
+
+    #[test]
     fn runs_a_procfile_process_and_reports_its_output_and_exit() {
         let unique = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -1071,7 +1290,7 @@ mod tests {
             .into_iter()
             .find(|configuration| configuration.provider == "procfile.process")
             .expect("Procfile configuration should exist");
-        let receiver = start(client, root.clone(), configuration);
+        let receiver = start(client, root.clone(), configuration, false);
 
         let watchdog = receiver.clone();
         let started = Instant::now();

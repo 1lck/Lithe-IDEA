@@ -7,7 +7,7 @@
 - 以 macOS 现有界面为原型，用 Rust/GPUI 重建工作台，代码按 macOS、Windows、Linux 三端可编译来写。
 - 业务能力全部来自 `../rust/lithe-core`，界面不复制业务规则。
 - 不参考、不依赖 `windows/tauri`。
-- 本轮只做 Phase 0 骨架：壳、主题、核心客户端、平台抽象、项目树、编辑器 WebView、桌面入口。
+- 本轮只做 Phase 0 骨架：壳、主题、核心客户端、平台抽象、项目树、原生编辑器、桌面入口。
 - **禁止运行任何编译、构建、测试、格式化命令**：`cargo`、`rustc`、`rustfmt`、`bun`、`npm`、`make`、`xcodebuild` 等全部不允许。只允许读文件和写文件。
 
 ## 依赖方向
@@ -54,10 +54,10 @@ lithe-desktop
 | 能力 | 位置与行为 |
 | --- | --- |
 | Quick Open | `lithe-features/src/quick_open.rs`；打开面板时在 `background_spawn` 里递归扫描项目文件，输入时做模糊过滤（子串命中优先，其次文件名 / 相对路径的子序列匹配） |
-| Save As | 编辑器 → JS 往返（Monaco 发起保存请求）→ Rust 在后台写盘 → `EditorEvent::SavedAs` → 工作台迁移标签路径与脏状态 |
+| Save As | 原生编辑器读取当前文本 → Rust 在后台写盘 → `EditorEvent::SavedAs` → 工作台迁移标签路径与脏状态 |
 | Local History | `lithe-features/src/local_history.rs`；每次保存记一份快照，按绝对路径哈希分目录，每文件保留 50 份；恢复只写编辑器缓冲并标记未保存，不直接写盘 |
 | 通用输入弹窗 | `lithe-ui/src/components/prompt.rs` 的 `LithePrompt`；New File / New Folder / New Project / 新建 Java 类型与包共用 |
-| 终端分屏 | Terminal > Split Right / Split Down；复用两个独立 `TerminalPanel`，各自持有 PTY 与 WebView；已分屏时只切换方向，不重建实体 |
+| 终端分屏 | Terminal > Split Right / Split Down；复用两个独立 `TerminalPanel`，各自持有 PTY 与原生渲染画布；已分屏时只切换方向，不重建实体 |
 | 编辑器分屏 | Split Editor 打开只读副窗格，只观察当前活动文件；不接收编辑、不参与 Save / Save As，写盘仍只经过主编辑器 |
 
 调试（Stop / Breakpoint）未接入：`lithe-core` 已有 DAP 命令面（`debug.*`），但 GPUI 宿主缺少 DAP 传输层与调试 UI，菜单项保持禁用。
@@ -490,7 +490,7 @@ impl WelcomeView {
 impl Render for WelcomeView { /* ... */ }
 ```
 
-`EditorSurface` 本轮用 gpui-webview 加载一个最小 HTML 页面显示文件内容，保留 Monaco 接入点。它必须持有 `Entity<WebView>`，不得在 render 里重复创建。
+`EditorSurface` 使用 gpui-kit 的原生 `Editor`（tree-sitter 语法高亮、折叠、多光标和查找替换），不再依赖 WebView 或 Monaco。文本模型由编辑器实体拥有，Rust 侧维护当前文档路径、保存语义和事件。
 
 ### 路径约定
 
@@ -673,8 +673,7 @@ Workbench 在设置变化时应用主题、编辑器偏好、终端偏好；打�
 
 ## 终端（Phase 1）
 
-采用 `xterm.js`（WebView 内容岛）+ `rust/lithe-terminal`（portable-pty）。
-不自行实现 VT 解析和字形绘制；Wayland 限制与 Monaco 相同，首批只支持 X11。
+采用纯原生 GPUI 画布与文字系统 + `alacritty_terminal`（VT 解析）+ `rust/lithe-terminal`（portable-pty），不依赖任何 WebView。
 
 ### `lithe-features::terminal::TerminalPanel`
 
@@ -744,8 +743,9 @@ impl Render for TerminalPanel { /* ... */ }
   根目录加载就是按这个方式实现的。
 - **`h_flex()` 默认 `items_center`。** 需要子项在交叉轴拉伸到整高时，
   显式加 `.items_stretch()`；否则分栏、侧栏会按内容高度垂直居中。
-- 原生 WebView 在 `new` 中只创建一次；只在打开/清空文件时调用
-  `load_url`，不要在 `render` 里导航。
+- 终端 WebView 在 `new` 中只创建一次；只在打开/清空终端时调用
+  `load_url`，不要在 `render` 里导航。编辑器已改用原生 gpui-kit `Editor`，
+  不再需要 WebView 生命周期约束。
 
 ## 本轮文件归属
 

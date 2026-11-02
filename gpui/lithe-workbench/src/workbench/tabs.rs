@@ -194,6 +194,7 @@ impl Workbench {
 
         self.editor.update(cx, |editor, editor_cx| {
             editor.open_file(root, absolute, file.text, window, editor_cx);
+            editor.focus(window, editor_cx);
         });
         self.sync_editor_secondary(window, cx);
         self.sync_preview_with_active_tab(cx);
@@ -217,6 +218,7 @@ impl Workbench {
         self.active_tab = Some(tab_id);
         self.editor.update(cx, |editor, editor_cx| {
             editor.open_file(root, absolute, text, window, editor_cx);
+            editor.focus(window, editor_cx);
         });
         self.sync_preview_with_active_tab(cx);
         self.sync_editor_secondary(window, cx);
@@ -577,6 +579,7 @@ impl Workbench {
             .unwrap_or_else(|| PathBuf::from("."));
         self.editor.update(cx, |editor, editor_cx| {
             editor.open_file(root, absolute_path, String::new(), window, editor_cx);
+            editor.focus(window, editor_cx);
         });
         self.sync_editor_secondary(window, cx);
         self.sync_preview_with_active_tab(cx);
