@@ -17,7 +17,7 @@ function fixture(reference: BuildProviderRunReference = defaultReference) {
   const nativeEntered = deferred<void>(), modelEntered = deferred<void>();
   const watches: Array<{ attempts: number; closed: boolean; changed: () => void }> = [];
   const configurationIDs: Array<string | undefined> = [], providerInputs: Array<Record<string, unknown>> = [];
-  let moduleTools = false;
+  let moduleTools = false, unboundTool = false, toolSnapshot: import("@/features/build/services/build-provider-workspace").BuildToolContext | undefined;
   let nativeGate: Promise<void> | undefined, modelGate: Promise<void> | undefined, changedReference = false, stopFails = false, scopeReleaseFails = false;
   const domain = new WindowsBuildProviderWorkspace("C:/work", {
     core: (async (command: string, _manifest: unknown, _system: unknown, request: Record<string, unknown>) => {
@@ -31,15 +31,17 @@ function fixture(reference: BuildProviderRunReference = defaultReference) {
         uri: "file:///C:/fixture/settings.xml", revision: "sha256:" + "a".repeat(64), writable: false, fields: [] }] } };
       if (command === "build.decodeModel") return { model: { projects: [{ id: "app", name: "App", path: "app", properties: {} }],
         targets: [{ id: "application", projectID: "app", name: "Application", path: "app", tags: ["application"], properties: {} }], tasks: [], contentRoots: [], optionValues: {} } };
-      if (command === "build.decodeRunPreparation") return { launch: { executable: { kind: "toolchain", value: "project-maven" }, arguments: ["upstream-goal", "", "two words"], workingDirectory: "app", environment: { CHOSEN: "provider" } } };
+      if (command === "build.decodeRunPreparation") return { launch: { executable: { kind: "toolchain", value: "dev.example.tools:builder" }, arguments: ["upstream-goal", "", "two words"], workingDirectory: "app", environment: { CHOSEN: "provider" } } };
       if (command === "build.languageImport") return { languageImport: { kind: "maven", mavenContext: { version: 1, reactorPath: ".", profiles: [], mavenExecutablePath: request.executablePath } } };
       throw new Error(command);
     }) as WorkspacePorts["core"],
     guard: () => () => {}, translate: key => key,
     tools: async (_target, _root, _check, owner) => {
-      configurationIDs.push(owner); if (moduleTools && !owner) throw new Error("Default Maven is unavailable"); const selected = moduleTools && owner === "user:serve" ? "module" : "selected";
-      return { manifest, tool: { executable: `C:/${selected}/mvn.cmd` }, environment: { JAVA_HOME: `C:/${selected}/jdk` },
-        pluginDirectory: "C:/plugin", workspaceStateDirectory: "C:/state", executesProjectCode: false };
+      configurationIDs.push(owner); if (moduleTools && !owner) throw new Error("Default tool is unavailable"); const selected = moduleTools && owner === "user:serve" ? "module" : "selected";
+      return { ...(toolSnapshot ?? {}), manifest, tool: toolSnapshot?.tool ?? { executable: `C:/${selected}/build.cmd` },
+        resolvedExecutables: unboundTool ? {} : toolSnapshot?.resolvedExecutables ?? { "dev.example.tools:builder": `C:/${selected}/build.cmd` },
+        environment: toolSnapshot?.environment ?? { COMPILER_HOME: `C:/${selected}/compiler` },
+        pluginDirectory: toolSnapshot?.pluginDirectory ?? "C:/plugin", workspaceStateDirectory: toolSnapshot?.workspaceStateDirectory ?? "C:/state", executesProjectCode: false };
     },
     configurationCheck: async () => ({ current: true, paths: ["C:/fixture/settings.xml"] }),
     watchConfiguration: (_target, _sources, changed) => {
@@ -64,7 +66,7 @@ function fixture(reference: BuildProviderRunReference = defaultReference) {
     inputs: async () => ({ buildSystemID: reference.buildSystemID, provider: reference.run, projectPath: ".", optionOverrides: {},
       reference: { ...reference, ...(changedReference ? { targetID: "replaced" } : {}) },
       launchOptions: { execution: reference.execution ?? "application", runtimeArguments: [], arguments: [...reference.userArguments ?? []], environment: {} } }),
-    resolve: async args => { resolved.push(args); return { executable: args.mavenExecutablePath ?? "C:/selected/mvn.cmd", workingDirectory: "C:/work/app", environment: args.environment as Record<string, string> }; },
+    resolve: async args => { resolved.push(args); return { executable: args.executable.command ?? "unresolved", workingDirectory: "C:/work/app", environment: args.environment as Record<string, string> }; },
     start: async args => { nativeStarts.push(args); nativeEntered.resolve(); await nativeGate; },
     stop: async (session, execution) => { nativeStops.push([session, execution]); if (stopFails) throw new Error("native stop failed"); },
   };
@@ -72,27 +74,50 @@ function fixture(reference: BuildProviderRunReference = defaultReference) {
   const start = (id = "run", overrides: Partial<BuildProviderRunRequest> = {}) => {
     current.set(id, true);
     const request: BuildProviderRunRequest = { workspaceId: "workspace", root: "C:/work", configurationId: "user:serve", name: "Service", reference,
-      sessionId: id, executionId: `execution:${id}`, runtimeExecutablePaths: {}, isCurrent: () => current.get(id) === true,
+      sessionId: id, executionId: `execution:${id}`, isCurrent: () => current.get(id) === true,
       onRevoked: () => { current.set(id, false); }, onOutput: text => { output.push(text); }, onReady: () => {}, ...overrides };
     const handle = startBuildProviderRun(request, ports); void handle.completion.catch(() => {}); handles.push(handle); return handle;
   };
   return { start, ports, workspace, sent, nativeStarts, nativeStops, resolved, output, nativeEntered: nativeEntered.promise, modelEntered: modelEntered.promise,
     nativeGate: (gate: Promise<void>) => { nativeGate = gate; }, modelGate: (gate: Promise<void>) => { modelGate = gate; },
     changeReference: () => { changedReference = true; }, failStop: (value: boolean) => { stopFails = value; }, watches, processes, providerInputs, configurationIDs,
-    selectConfigurationTools: () => { moduleTools = true; },
+    selectConfigurationTools: () => { moduleTools = true; }, unbindTool: () => { unboundTool = true; },
+    useNativeToolSnapshot: (value: import("@/features/build/services/build-provider-workspace").BuildToolContext) => { toolSnapshot = value; },
     failScopeRelease: (value: boolean) => { scopeReleaseFails = value; },
     close: async () => { stopFails = false; scopeReleaseFails = false; await processes.stop(); await Promise.allSettled(handles.map(handle => handle.completion)); await workspace.dispose(); } };
 }
 
-test("saved Provider execution uses Core selectors and the current native Maven/JDK without losing argv or output", async () => {
+test("saved Provider execution uses current definition bindings without losing argv or output", async () => {
   const f = fixture();
   try {
     const run = f.start(); await run.completion;
     expect(f.nativeStarts).toHaveLength(1); expect(f.nativeStarts[0]).toMatchObject({ executionId: "execution:run", arguments: ["upstream-goal", "", "two words"] });
-    expect(f.resolved[0]).toMatchObject({ executable: { toolchain: "project-maven" }, mavenExecutablePath: "C:/selected/mvn.cmd", mavenJavaHomePath: "C:/selected/jdk", environment: { CHOSEN: "provider", JAVA_HOME: "C:/selected/jdk" } });
+    expect(f.resolved[0]).toMatchObject({ executable: { command: "C:/selected/build.cmd" }, runtimeExecutablePaths: {}, environment: { CHOSEN: "provider", COMPILER_HOME: "C:/selected/compiler" } });
     expect(f.output.join("")).toBe("model progress\nupstream progress\n");
     expect(f.watches.map(watch => watch.closed)).toEqual([true]);
     await run.stop(); expect(f.nativeStops).toEqual([["run", "execution:run"]]);
+  } finally { await f.close(); }
+}, 5000);
+
+test("the shared native context binds declared tool IDs and preserves the actual wire field names", async () => {
+  const snapshot = JSON.parse(readFileSync(new URL("../../../../../../shared/fixtures/build/native-tool-context.json", import.meta.url), "utf8"));
+  const f = fixture(); f.useNativeToolSnapshot(snapshot);
+  try {
+    await f.start().completion;
+    expect(f.resolved[0]?.executable).toEqual({ command: snapshot.resolvedExecutables["dev.example.tools:builder"] });
+    expect(f.nativeStarts[0]?.environment).toMatchObject(snapshot.environment);
+    expect(f.providerInputs[0]?.pluginDirectory).toBe(snapshot.pluginDirectory);
+    expect(f.providerInputs[0]?.workspaceStateDirectory).toBe(snapshot.workspaceStateDirectory);
+    expect(f.resolved[0]?.mavenExecutablePath).toBeUndefined();
+    expect(f.resolved[0]?.mavenJavaHomePath).toBeUndefined();
+  } finally { await f.close(); }
+}, 5000);
+
+test("an unbound definition ID cannot use a legacy language import", async () => {
+  const f = fixture(); f.unbindTool();
+  try {
+    await expect(f.start().completion).rejects.toThrow("unavailable");
+    expect(f.resolved).toEqual([]); expect(f.nativeStarts).toEqual([]);
   } finally { await f.close(); }
 }, 5000);
 
@@ -181,7 +206,7 @@ test("a configuration-owned Run reads its private Profiles and selected module M
     const run = f.start("saved");
     await run.completion;
     expect(f.providerInputs.some(input => JSON.stringify(input.options) === JSON.stringify({ profiles: ["run-only"], skipTests: false }))).toBe(true);
-    expect(f.resolved[0]).toMatchObject({ mavenExecutablePath: "C:/module/mvn.cmd", mavenJavaHomePath: "C:/module/jdk" });
+    expect(f.resolved[0]).toMatchObject({ executable: { command: "C:/module/build.cmd" }, environment: { COMPILER_HOME: "C:/module/compiler" } });
     const entry = f.workspace.snapshot().entries[0]!; expect(entry.options).toEqual({}); expect(f.workspace.domain.hasCurrentModel(entry)).toBe(false);
     expect(f.configurationIDs).toContain("user:serve");
     await f.processes.stop(undefined, defaultReference.pluginID); expect(f.nativeStops).toEqual([["saved", "execution:saved"]]);

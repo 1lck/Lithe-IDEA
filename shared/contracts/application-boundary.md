@@ -889,6 +889,15 @@ launch and the owned native process ID afterward. Missing or stale references fa
 A Provider application's native output remains visible even without generated
 Run configurations. See `../fixtures/run-configuration/build-provider.json`.
 
+Windows native preparation returns `resolvedExecutables`, binding definition IDs
+to this operation's checked native executable paths. Provider Run accepts a
+toolchain reference only when that ID is present; it hands the bound path and
+selected environment to the native process resolver. Saved legacy runtime paths
+and language-import fields cannot replace a missing binding. Conflicting roots
+for one ID fail instead of selecting by iteration order. The host-only JSON shape
+is exercised by Rust serialization and the TypeScript Run workflow using
+`../fixtures/build/native-tool-context.json`; it is not a persisted launch permit.
+
 Automatic Provider run discovery uses the current public declaration/target pairs,
 independently of language imports. The host projects generic selectors and upstream
 labels; Core owns stable Run IDs, layering and snapshot freshness. Neither layer

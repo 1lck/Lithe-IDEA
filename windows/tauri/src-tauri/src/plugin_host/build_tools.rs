@@ -23,6 +23,9 @@ pub struct BuildToolContext {
     /// Only selected runtime and explicitly declared environment inputs cross RPC.
     pub environment: BTreeMap<String, String>,
     pub tool: Value,
+    /// Only freshly resolved definition IDs are bound; legacy Run preferences
+    /// cannot supply or replace these executable paths at the process handoff.
+    pub resolved_executables: BTreeMap<String, String>,
     pub executes_project_code: bool,
 }
 
@@ -104,11 +107,12 @@ pub async fn declarative_plugins_build_tool(
         let environment = selected.environment;
         let native_inputs: BTreeMap<_,_> = resolver.definitions.iter().filter_map(|(id, selected)|
             selected.definition_identity.as_ref().map(|identity| (id,identity))).collect();
+        let resolved_executables = resolver.resolved_executables()?;
         Ok(BuildToolContext { manifest:package.manifest, plugin_directory: package.root.to_string_lossy().into_owned(),
             identity: json!({"globalSettings":layers.global,"projectSettings":layers.project,"toolchain":choices["toolchain"],
                 "toolDefinitions":tool_registry,"definedToolInputs":native_inputs,"runTools":choices["definedTools"]}),
             workspace_state_directory: workspace_state.to_string_lossy().into_owned(), environment,
-            tool: json!({"executable":selected.path}), executes_project_code:selected.project_code })
+            tool: json!({"executable":selected.path}), resolved_executables, executes_project_code:selected.project_code })
         })();
         queries.close()?;
         current()?;
@@ -146,6 +150,22 @@ struct DefinitionContext<'a> {
 }
 
 impl Resolver<'_> {
+    fn resolved_executables(&self) -> Result<BTreeMap<String, String>, String> {
+        let mut bindings = BTreeMap::new();
+        for (key, selected) in &self.definitions {
+            let (id, _) = key.split_once('\n').ok_or("toolchain.native.unavailable")?;
+            let path = selected.path.to_string_lossy().into_owned();
+            if bindings
+                .insert(id.into(), path.clone())
+                .is_some_and(|previous| previous != path)
+            {
+                // A single Run reference cannot choose between two directories
+                // of the same tool. Never choose by map or candidate ordering.
+                return Err("toolchain.native.unavailable".into());
+            }
+        }
+        Ok(bindings)
+    }
     fn prepare_definitions(
         &mut self,
         candidates: &Value,
@@ -472,6 +492,64 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
     static SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
+    #[test]
+    fn native_tool_context_serializes_the_shared_frontend_wire_shape() {
+        let expected: Value = serde_json::from_str(include_str!(
+            "../../../../../shared/fixtures/build/native-tool-context.json"
+        ))
+        .unwrap();
+        let context = BuildToolContext {
+            manifest: expected["manifest"].clone(),
+            identity: expected["identity"].clone(),
+            plugin_directory: expected["pluginDirectory"].as_str().unwrap().into(),
+            workspace_state_directory: expected["workspaceStateDirectory"].as_str().unwrap().into(),
+            environment: serde_json::from_value(expected["environment"].clone()).unwrap(),
+            tool: expected["tool"].clone(),
+            resolved_executables: serde_json::from_value(expected["resolvedExecutables"].clone())
+                .unwrap(),
+            executes_project_code: false,
+        };
+        assert_eq!(serde_json::to_value(context).unwrap(), expected);
+    }
+
+    #[test]
+    fn definition_bindings_exclude_saved_paths_and_refuse_conflicting_roots() {
+        let fixture = Fixture::new();
+        let workspace = fixture.workspace();
+        let choices = json!({});
+        let selected = fixture.file("kit/build.cmd");
+        let other = fixture.file("other/build.cmd");
+        let mut resolver = Resolver {
+            workspace: &workspace,
+            root: ".",
+            choices: &choices,
+            runtimes: HashMap::from([("dev.example.tools:builder".into(), "stale-input".into())]),
+            environment: BTreeMap::new(),
+            project_code: false,
+            definitions: BTreeMap::new(),
+        };
+        let selection = |path| Selected {
+            path,
+            environment: BTreeMap::new(),
+            project_code: false,
+            definition_identity: Some("operation-evidence".into()),
+        };
+        resolver.definitions.insert(
+            "dev.example.tools:builder\n.".into(),
+            selection(selected.clone()),
+        );
+        assert_eq!(
+            resolver.resolved_executables().unwrap(),
+            BTreeMap::from([(
+                "dev.example.tools:builder".into(),
+                selected.to_string_lossy().into_owned()
+            )])
+        );
+        resolver
+            .definitions
+            .insert("dev.example.tools:builder\nother".into(), selection(other));
+        assert!(resolver.resolved_executables().is_err());
+    }
     struct Fixture(PathBuf);
     impl Fixture {
         fn new() -> Self {

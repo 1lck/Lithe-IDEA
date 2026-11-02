@@ -209,6 +209,17 @@ Run 的全量工具版本发现。Core 声明的 command、environment 等候选
 
 ### Build 工作区与原生窗口接线（阶段 D，准入仍关闭）
 
+Provider Run 的工具 ID 必须绑定到本次原生解析得到的具体程序，不能通过旧 Maven
+可执行字段、语言导入值或全局 runtime 路径补齐。原生上下文只发布当前定义解析的
+`resolvedExecutables`；同一 ID 在不同根得到不同路径时明确拒绝。前端将其中的路径
+交给既有进程解析器，环境仍来自当前准备，启动前再次校验完整上下文。
+
+例如第二种工具 `dev.example.tools:builder` 可以使用完全相同的链路；未绑定的 ID
+不能借一个 Maven languageImport 继续启动。不要按工具名回到 `project-maven`，也不要
+从应用偏好取路径覆盖当前解析结果。上下文既有 camelCase 序列化保持不变，新增共享
+fixture 由 Rust 序列化与 TypeScript 的真实 Run 编排共同读取，避免仅靠手写 mock 掩盖
+边界不一致。没有新磁盘资源，不把这份操作内值保存为启动许可。
+
 团队 Build 文档复用 `.lithe/build/options.json`，只读 adapter 拒绝越界别名、损坏、
 非普通文件和超过 2 MiB 的输入；缺失时不创建文件。结构校验交给 Core 的
 `build.projectOptions`，检测直接使用 Core 返回的逐根选项，不重写继承或空值规则。

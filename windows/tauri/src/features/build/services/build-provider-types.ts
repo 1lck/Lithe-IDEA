@@ -34,6 +34,8 @@ export interface BuildToolContext {
   pluginDirectory: string;
   workspaceStateDirectory: string;
   tool: { executable: string };
+  /** Native, operation-owned bindings. Missing IDs never use legacy preferences. */
+  resolvedExecutables?: Record<string, string>;
   environment: Record<string, string>;
   executesProjectCode: boolean;
 }

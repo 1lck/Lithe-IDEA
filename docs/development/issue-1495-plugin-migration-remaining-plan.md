@@ -350,6 +350,25 @@ Windows host 在 macOS 的编译仍仅有两处既有 Windows API 错误；CI �
 SDK 六项 E2E 与公开镜像 CI 保持各自固定提交的证据，不作为新取消路径的产品验收。
 完整默认值迁移、Windows 产品准入/Registry/旧消费者、正式包和完整 UI 仍未完成。
 
+### Windows Provider Run 使用本次工具定义绑定（2026-11-02）
+
+删除 Provider Run 通过 Maven languageImport 和旧 `mavenExecutablePath` /
+`mavenJavaHomePath` 补齐启动程序的路径，也不再传入应用的旧 runtime 路径表。
+原生工具上下文发布当前定义 ID 到已校验程序的绑定，前端只把绑定路径交给通用进程
+解析器；没有绑定就失败，同一 ID 在不同根出现不同路径也拒绝，不按工具名或迭代
+顺序选择。旧 Java/Windows 消费者仍使用的全局旧工具 API 按各自迁移继续处理。
+
+共享 `native-tool-context.json` 由 Rust 的真实 Serialize 和 TypeScript Run 编排共同
+消费，固定 camelCase、选中环境和两个不同工具的路径映射。现有 camelCase 声明本身
+无需修改；新回归补的是此前手写 mock 未覆盖的原生传输边界。按 Run 的选项、argv、
+操作身份、来源失效和清理仍沿用现有工作流，没有新增资源或持久化许可。
+
+本地前端 476 项、类型检查、生产构建、共享契约及 bundle 只读检查通过。新增 Rust
+序列化/路径冲突回归已通过 macOS 编译检查（仍有两处既有 Windows API 错误），实际
+运行留给下一批现有 Windows CI；不冒充已经运行宿主二进制测试。报告前缀为
+`stage-d-tool-bindings-*`。此增量和窗口取消合并成下一次 push，等待当前 CI 结束后再
+触发完整原生验证，避免取消尚未完成的 runner。
+
 ### D-MIGRATION-REMOVAL：旧 Maven 数据迁移器清理
 
 这是 #1495 下独立跟踪的删除项，状态为未完成。`MacLegacyMavenConfigurationMigration`

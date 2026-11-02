@@ -1010,7 +1010,7 @@ export const createRunStore = (
             const startProvider = dependencies.startBuildProviderRun ?? startWindowsBuildProviderRun;
             const handle = startProvider({ workspaceId, root, configurationId: configuration.id, name: configuration.name,
               reference: configuration.buildProvider,
-              sessionId, executionId, runtimeExecutablePaths: state.effectiveRuntimeExecutablePaths,
+              sessionId, executionId,
               isCurrent, onRevoked: stopPresentation,
               onOutput: text => { if (isCurrent()) get().actions.appendOutput(sessionId, text); },
               onReady: launch => {

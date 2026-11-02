@@ -13,7 +13,6 @@ export interface BuildProviderRunRequest {
   reference: BuildProviderRunReference;
   sessionId: string; executionId: string;
   debug?: NonNullable<BuildProviderLaunchInputs["launchOptions"]["debug"]>;
-  runtimeExecutablePaths: Record<string, string>;
   isCurrent: () => boolean; onRevoked: () => void; onOutput: (text: string) => void; onReady: (launch: PreparedNativeBuildRun) => void;
 }
 export interface BuildProviderRunHandle { completion: Promise<void>; stop: () => Promise<void>; finished: () => void | Promise<void> }
@@ -100,12 +99,14 @@ export function startBuildProviderRun(request: BuildProviderRunRequest, ports: B
       const unsubscribe = scope.domain.subscribe(drain);
       try {
         const prepared = await wait(operation.completion); drain(); catalogCurrent();
-        const executable = prepared.launch.executable.kind === "toolchain"
-          ? { toolchain: prepared.launch.executable.value } : { command: prepared.launch.executable.value };
-        const imported = prepared.languageImport?.kind === "maven" ? prepared.languageImport.mavenContext : undefined;
+        const requested = prepared.launch.executable;
+        const bound = requested.kind === "toolchain" ? prepared.tool.resolvedExecutables?.[requested.value] : requested.value;
+        if (typeof bound !== "string" || !bound.length) throw ports.unavailable();
+        // A definition ID is bound by this preparation's native evidence. The
+        // generic Run resolver receives a path, never a legacy ecosystem alias.
+        const executable = { command: bound };
         const resolved = await wait(ports.resolve({ root: request.root, executable, workingDirectory: prepared.launch.workingDirectory,
-          runtimeExecutablePaths: request.runtimeExecutablePaths,
-          ...(imported ? { mavenExecutablePath: imported.mavenExecutablePath ?? undefined, mavenJavaHomePath: prepared.tool.environment.JAVA_HOME } : {}),
+          runtimeExecutablePaths: {},
           environment: { ...prepared.tool.environment, ...prepared.launch.environment },
         }));
         const latest = await wait(ports.inputs(request.root, request.configurationId, entry.root));
