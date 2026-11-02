@@ -52,6 +52,8 @@ const REFERENCED = 'referenced';
 // first matching rule wins, so narrower rules come before broader ones.
 export const CI_INFRA_RULES = Object.freeze([
   { pattern: /^\.github\/(workflows|actions)\//, workflows: REFERENCED },
+  // This cross-engine check runs in the Linux job on every revision.
+  { pattern: /^scripts\/plugins\/plugin-settings-schema\.test\.mjs$/, workflows: [] },
   { pattern: /^\.agents\/skills\/write-stable-tests\/scripts\/test-stability-windows\.ps1$/, workflows: ['windows'] },
   { pattern: /^\.agents\/skills\/write-stable-tests\/scripts\/test-stability-macos\.sh$/, workflows: MACOS_FAMILY },
   { pattern: /^\.agents\/skills\/write-stable-tests\/scripts\//, workflows: ALL_WORKFLOWS },

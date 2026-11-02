@@ -369,6 +369,25 @@ SDK 六项 E2E 与公开镜像 CI 保持各自固定提交的证据，不作为�
 `stage-d-tool-bindings-*`。此增量和窗口取消合并成下一次 push，等待当前 CI 结束后再
 触发完整原生验证，避免取消尚未完成的 runner。
 
+### 当前原生 CI 通过与公开契约更新（2026-11-02）
+
+`cb060460f` 的 [Windows CI 41398771918](https://github.com/1lck/Lithe-IDEA/actions/runs/41398771918)
+已全部通过：前端、共享 Core、原生 Project/host 和真实 JDT。这是整合 #1581 最终实现
+及 preview@50b4ebe0f 后的独立原生证据；不覆盖随后 `3c950a34c` 的取消和 `06ad4d58f`
+的工具绑定增量，两者须由下一次 CI 验收。
+
+本地继续合入已发布到 preview 的 `04b1fb848`（#1646 设置 v2 Schema、#1650 SDK/函数
+协议文档），保留本分支未合并的 Build 7～11 修正。JavaScript/Python 设置 Schema
+四项与共享契约检查通过；新合入内容不改变 Core 执行代码。三个 SDK 现有协议 3 实现
+来自公开 main，不能在整合时退回协议 1。SDK PR 正在整合相同公开提交，镜像由 main
+既有同步引入，不手改未合并契约副本。
+
+固定 SDK `5703d37` / 宿主 `cb060460f` 的 [CI 41400817947](https://github.com/Lithe-IDEA/lithe-plugin-docs/actions/runs/41400817947)
+中 Node、Java、Rust 和显式宿主六项 E2E 全部通过；整体仍因 preview 在验证期间新增
+README/Schema 而漂移失败。记录保留，更新 main 后重新核对，不关闭漂移门禁。
+Maven 的 [固定组合 Java 8 CI 41400819604](https://github.com/Lithe-IDEA/lithe-plugin-maven/actions/runs/41400819604)
+继续按其实际结果登记，不以本地 JDK 21 代替。
+
 ### D-MIGRATION-REMOVAL：旧 Maven 数据迁移器清理
 
 这是 #1495 下独立跟踪的删除项，状态为未完成。`MacLegacyMavenConfigurationMigration`
