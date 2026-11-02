@@ -386,6 +386,13 @@ assert_classification metadata \
 assert_classification classifier \
     "$(classification true true true true true true false false true true pull_request true)" \
     modify_classifier
+modify_plugin_settings_schema_test() {
+    mkdir -p scripts/plugins
+    printf '%s\n' '// Plugin settings schema regression test' > scripts/plugins/plugin-settings-schema.test.mjs
+}
+assert_classification plugin-settings-schema-test-runs-on-linux \
+    "$(classification false false false false false false false false)" \
+    modify_plugin_settings_schema_test
 LITHE_CI_DRAFT_PULL_REQUEST=true assert_classification draft-defers-runner-lanes \
     "$(classification false false false false false false false false false false pull_request true)" \
     modify_unknown_script

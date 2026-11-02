@@ -606,6 +606,7 @@ Rules for publishing across levels and capability versions:
 | `credentials.store` | the backend uses the [credentials host service](#host-services-protocol-version-2); refused without a `backend` |
 | `workspace.metadata` | the backend uses the [workspace host service](#workspace-contexts-and-capability-discovery-protocol-version-3); refused without `backend` 2 |
 | `editor.actions` | the backend registers independent editor actions; requires `backend` 2 and `documents.read`, grants only `editor/registerActions`, not document edits or domain execution |
+| `terminal.create` | the backend creates and manages its own [native terminals](#plugin-owned-native-terminals-function-protocol-3), including bounded display history for reopen; requires `backend` 2 |
 
 | Activation event | Meaning |
 | --- | --- |
@@ -1787,7 +1788,7 @@ A plugin backend (a language server, build provider, or
 **plugin functions**: plugin-private actions with
 serializable params and results, which the host invokes on behalf of the same
 plugin, for example from that plugin's own window. Functions complement the
-typed domain protocols; they never replace them. Versions 1 and 2 of the protocol are
+typed domain protocols; they never replace them. Versions 1 to 3 of the protocol are
 implemented in Rust Core (`rust/lithe-core/src/lsp/interface/plugin_function.rs`).
 macOS starts every build provider process as a session of the plugin that
 owns it and invokes its functions from that plugin's web pages (the
@@ -2377,28 +2378,28 @@ The official SDKs live in
 also releases them; they implement this contract and never define protocol.
 
 [`sdk/node`](https://github.com/Lithe-IDEA/lithe-plugin-docs/blob/main/sdk/node/README.md) is the official SDK for backends
-started through a `node` runtime launch. It implements this protocol and
-`litheBuild` 1, so a plugin author writes only handlers. It is released
-(`sdk-node-v<version>`) as a `.tgz` with its SHA-256 for plugins to vendor
-into their package. It enforces the rules above on the backend side: `lithe/*` methods are never sent, stdout
+started through a `node` runtime launch. It implements this protocol with
+its host services, `litheBuild`, and VCS providers, so a plugin author writes
+only handlers. It is released (`sdk-node-v<version>`) as a `.tgz` with its
+SHA-256 for plugins to vendor into their package. It enforces the rules above on the backend side: `lithe/*` methods are never sent, stdout
 carries only protocol frames, `PluginError` is the only way to set a
 `pluginErrorCode`, processes started for a call end with it, and its state
 store refuses the plugin package.
 
 [`sdk/java`](https://github.com/Lithe-IDEA/lithe-plugin-docs/blob/main/sdk/java/README.md) is the Java twin for backends
-started through a `java` runtime launch. It needs Java 8 or newer, has no
-runtime dependencies, and is released as a JAR with its SHA-256 for plugins
-to shade into their backend. It enforces the same rules with the same error
+started through a `java` runtime launch. It implements this protocol with
+its host services and `litheBuild`, but not VCS providers. It needs Java 8 or
+newer, has no runtime dependencies, and is released as a JAR with its SHA-256
+for plugins to shade into their backend. It enforces the same rules with the same error
 mapping, with one difference: on Java 8 it stops only a cancelled tool's
 direct child, and the host's process scope ends the rest.
 
 [`sdk/rust`](https://github.com/Lithe-IDEA/lithe-plugin-docs/blob/main/sdk/rust/README.md) is the SDK for
 [plugin backends](#plugin-backend), which ship as packaged executables. It
-implements plugin-function protocol versions 1 and 2, including the
-`credentials` host service, but neither build nor VCS providers. It needs
-Rust 1.87 or newer, depends only on `serde_json`, and is released
-(`sdk-rust-v<version>`) as a `.crate` archive with its SHA-256, or used as a
-Git dependency pinned by the tag. It enforces the same rules: on Unix it
+implements this protocol with its host services, but neither build nor VCS
+providers. It needs Rust 1.87 or newer, depends only on `serde_json`, and is
+released (`sdk-rust-v<version>`) as a `.crate` archive with its SHA-256, or
+used as a Git dependency pinned by the tag. It enforces the same rules: on Unix it
 points stdout at stderr so only protocol frames reach the host, and a panic
 ends only its call, reported like any unexpected failure.
 
@@ -2406,9 +2407,11 @@ The Node.js and Java SDKs each have a sample build provider
 (`sdk/*/examples/sample-build`) that answers one end-to-end scenario driven
 through a real Core session; the Rust SDK's sample backend
 (`sdk/rust/examples/sample-backend`) answers a plugin backend scenario in which
-the test plays the host and serves the credential requests. That repository
-runs them against the Lithe commit its contract copy pins, and weekly against
-the latest `preview`, the branch Lithe changes merge into.
+the test plays the host: it serves the credential requests and the protocol 3
+workspace, file watch and window requests, delivers a command and a context
+change, and checks that cancellation reaches the host. That repository runs
+them against the Lithe commit its contract copy pins, and weekly against the
+latest `preview`, the branch Lithe changes merge into.
 
 No SDK adds a wire field: a backend written without one is equally valid.
 
@@ -2970,3 +2973,104 @@ Schema 1 loads the complete node set on refresh. Forms, lazy child data sources,
 multi-instance selectors, global function commands, native renderer factories
 and Windows rendering remain follow-up work under #1209; this subset does not
 claim completion of that whole issue.
+
+### Plugin-owned native terminals (function protocol 3)
+
+[`terminal-backend.plugin.json`](fixtures/terminal-backend.plugin.json) is the
+minimal manifest. `terminal.create` grants `lithe/host/terminal/create`, `show`, `close`, `reopen`,
+`dispose`, and `onExit`. It requires `backend:2`; discover the individual
+methods through `getCapabilities` before using them. macOS implements this
+service. Windows has no handler and does not advertise its methods. The
+plugin's web page calls its backend through `functions.invoke`; the backend
+uses these host requests with the invocation's workspace context. There is
+no direct web `terminal.*` bridge and no new protocol version.
+
+| Method (prefix `lithe/host/terminal/`) | Params, in addition to `context` | Result |
+| --- | --- | --- |
+| `create` | `executable`, optional `arguments`, `title`, `cwd`, `environment`, `show`, `retainedContextBytes` | `{terminalID,generation:1}` |
+| `show` | `terminalID` | `null` |
+| `close` | `terminalID`, optional `retainedContextBytes` | `{retainedContextBytes}` after bounded native cleanup |
+| `reopen` | `terminalID`, optional `show` | `{terminalID,generation,restoredContextBytes}` |
+| `dispose` | `terminalID` | `null` after closing and forgetting the handle |
+| `onExit` | `terminalID` | `{subscriptionID}` |
+
+`executable` is an absolute path or a bare command resolved by the native
+terminal's PATH lookup; relative paths containing separators are refused.
+`arguments` is an argv array, never shell text. `cwd` is a `{rootID,path}`
+workspace directory resource (an empty path selects the folder root); without
+it, the workspace root is used. The native adapter rejects a canonical cwd
+outside that workspace. `environment` maps variable names to string overrides
+or `null` removals. Process-ownership scope variables cannot be overridden.
+`show` defaults to true; it selects the terminal in its own window without
+raising a background window. With `show:false`, creation and reopening preserve
+the current terminal selection and do not reveal the terminal panel or request
+input focus; the native tab is mounted when the plugin explicitly calls `show`.
+Unknown options fail before any side effect.
+
+Creation and reopening ask for execution consent with the program, argv and
+working directory, all available in a scrollable, selectable native text view,
+then revalidate context and cancellation before launching
+through the existing PTY terminal module. The response waits for user choice
+without a machine-operation deadline, but cancellation/session/context closure
+still ends it. Native launch and process cleanup retain their own bounds.
+The host never types a launch into an existing shell or reads other terminals.
+There is no `sendText`, user-terminal enumeration, web emulator, or Docker
+special case. First release is local authority only; a remote context fails
+with `plugin.host.authorityUnsupported` instead of starting anything locally.
+
+Each handle belongs to one plugin backend session and one context generation.
+A handle from another plugin, context or replacement backend is `notFound`.
+At most eight handles per plugin are retained, including closed handles;
+`dispose` releases one. Limits are 256 arguments, 16 KiB per argument or
+environment value, 64 environment entries, 64 KiB combined launch data, and
+128 UTF-8 bytes in a nonempty single-line title. `busy` refuses concurrent
+close/reopen/dispose on the same handle. Reopening a running terminal is
+`preconditionFailed`; showing a closed terminal asks the plugin to reopen it.
+
+#### Close, retained context and reopen
+
+`close` ends the process tree and removes the native tab, keeping the handle's
+launch configuration and a plain-text suffix of its displayed terminal output.
+`retainedContextBytes` is a nonnegative UTF-8 byte budget: default **16384**,
+maximum **262144**, and **0** disables history. It can be chosen at create or
+changed at close; over-limit values are refused, never silently expanded.
+The result reports actual retained bytes, which can be smaller to avoid cutting
+a Unicode scalar. The history is a rendering snapshot, not input events, raw
+escape sequences, a resumable process image, or shell state. Secrets already
+printed or echoed by a program can be part of that display; choose 0 when no
+history should be retained.
+
+`reopen` uses the saved executable, argv, cwd and environment in a **new** PTY
+process. It feeds retained plain text to the display before spawning, never to
+stdin. Shell variables, unsubmitted input, process state and automatic command
+replay are not restored. Natural exit and user tab close are also reopenable;
+the snapshot is bounded by the same budget. It keeps `terminalID` and increments
+`generation`; late exit callbacks of previous generations are ignored. These
+handles/history exist only in memory, not across app/backend restart or
+workspace close. No state is written to the app bundle or plugin package.
+
+Natural exit and user tab close run the same bounded native cleanup before
+retaining the budgeted snapshot and releasing the complete native session and
+render buffer. The handle is `busy` during cleanup; its exit notification is
+sent after cleanup, so a subscriber can reopen immediately. A zero-byte budget
+retains no display text on any close or exit path.
+
+`dispose` closes any live process and permanently forgets the launch settings
+and history. Ending the backend session, disabling/updating the plugin or
+closing/replacing its workspace does the same for only its owned terminals;
+user-created terminals are unaffected. Closing a page alone does not close a
+completed terminal creation. Cancellation before launch creates nothing;
+cancellation or context loss during launch closes the newly created process.
+Cancelled creation/reopen is not safe to retry automatically.
+
+`onExit` supports one live subscription per handle. Its event is
+`{type:"exit",terminalID,generation,exitCode,reason}`, with an integer or null
+exit code and `reason:"exited"|"closed"`. Each generation publishes one outcome.
+Subscribing after exit delivers its recorded outcome once; the subscription
+continues across reopen. Disposing it stops notifications and keeps the
+terminal open. A disposed terminal has no further events.
+
+The executable and argv remain plugin-owned semantics. A container plugin can
+launch the user's Docker CLI with an explicit engine and container ID; another
+tool can launch its interactive client through exactly the same service.
+Neither requires a fake Build/Run provider.

@@ -337,6 +337,7 @@
 "Allow project environment and Maven configuration changes" = "允许修改项目环境和 Maven 配置";
 "Allow run, build, reload and stop (executes project code)" = "允许运行、构建、重载和停止（会执行项目代码）";
 "Allow the Agent to continue?" = "允许 Agent 继续吗？";
+"Allow “%@” to open a terminal?" = "允许“%@”打开终端？";
 "Allow “%@” to run build tools?" = "允许“%@”运行构建工具吗？";
 "Always ask before making changes" = "修改文件或执行需要权限的操作前请求你的批准。";
 "Always ask to edit external files and use the internet" = "修改工作区外文件或访问网络时先请求批准。";
@@ -1309,6 +1310,7 @@
 "Downloaded (%lld of %lld enabled)" = "已下载（%lld 个，%lld 个已启用）";
 "Downloaded data was kept. Try again to resume from where it stopped." = "已下载的部分已保留，重试时会从中断处继续下载。";
 "Downloading %@…" = "正在下载 %@…";
+"Downloading and verifying plugin…" = "正在下载并校验插件…";
 "Downloading full stable release…" = "正在下载正式版完整安装包…";
 "Downloading packages…" = "正在下载软件包…";
 "Downloading update %@…" = "正在下载更新 %@…";
@@ -2744,6 +2746,7 @@
 "Open a Java project before connecting the debugger" = "连接调试器前，请先打开 Java 项目";
 "Open a local folder to start working." = "打开本地文件夹开始工作。";
 "Open a local project folder" = "打开本地项目文件夹";
+"Open a plugin terminal" = "打开插件终端";
 "Open a project" = "打开项目";
 "Open a project and enable a plugin that defines tools to inspect its environment." = "打开项目并启用定义工具的插件，即可查看环境。";
 "Open a project before choosing project paths." = "请先打开项目，再选择项目路径。";
@@ -2762,6 +2765,7 @@
 "Open a source file or choose a project Run configuration" = "请打开一个源文件，或选择项目的运行配置";
 "Open a text file instead of a folder." = "请选择文本文件，而不是文件夹。";
 "Open again" = "重新打开";
+"Open and manage its own native terminals, retaining bounded display history for reopening" = "打开并管理自己的原生终端，保留有限的显示历史用于重新打开";
 "Open file" = "打开文件";
 "Open file in editor to see problems" = "在编辑器中打开文件以查看问题";
 "Open folder" = "打开文件夹";
@@ -4233,6 +4237,11 @@
 "The plugin package's %@ is not an executable file. Reinstall the plugin." = "插件包中的 %@ 不是可执行文件。请重新安装该插件。";
 "The plugin repository %@ has already been added." = "插件仓库 %@ 已添加。";
 "The plugin server returned HTTP %@." = "插件服务器返回了 HTTP %@。";
+"The plugin terminal does not exist." = "插件终端不存在。";
+"The plugin terminal is changing state. Try again when it finishes." = "插件终端正在切换状态，请完成后重试。";
+"The plugin terminal is closed. Reopen it first." = "插件终端已关闭，请先重新打开。";
+"The plugin terminal is still running." = "插件终端仍在运行。";
+"The plugin terminal was not opened." = "未打开插件终端。";
 "The plugin will be removed after restarting Lithe." = "插件将在重启 Lithe 后移除。";
 "The plugin “%@” wants to use your camera and microphone." = "插件“%@”想使用你的摄像头和麦克风。";
 "The plugin “%@” wants to use your camera." = "插件“%@”想使用你的摄像头。";
@@ -4321,6 +4330,7 @@
 "The stopped source file is no longer available: %@" = "程序停住的源文件已不存在：%@";
 "The switch controls the Lithe shared block, not the Agent or its own instructions. Save shared changes before switching. Open a row to edit the complete native file." = "开关控制是否使用 Lithe 共享区块，不会停用 Agent 或它的自有指令。请先保存共享修改再操作开关。点击行可编辑完整原生文件。";
 "The terminal directory is outside the remote workspace." = "终端目录不在远程工作区内。";
+"The terminal is unavailable." = "终端不可用。";
 "The test file is outside the current workspace: %@" = "测试文件在当前工作区之外：%@";
 "The toolchain query could not be built." = "无法构建工具链查询。";
 "The update could not be installed. Download the release manually and try again." = "无法安装更新，请手动下载版本后重试。";
@@ -6185,6 +6195,7 @@
 "native.downloadedLldOfLldEnabled" = "已下载（%1$lld 个，%2$lld 个已启用）";
 "native.downloadedS" = "已下载 %1$@ · %2$@/秒";
 "native.downloading" = "正在下载 %1$@…";
+"native.downloadingAndVerifyingPlugin" = "正在下载并校验插件…";
 "native.downloadingFullStableRelease" = "正在下载正式版完整安装包…";
 "native.downloadingPackages" = "正在下载软件包…";
 "native.downloadingUpdate" = "正在下载更新 %1$@…";
@@ -9757,6 +9768,15 @@
 "outline.expandAll" = "全部展开";
 "plugin.host.invalidParameters" = "插件宿主请求的参数无效。";
 "plugin.host.requestFailed" = "未能完成插件宿主请求。";
+"plugin.terminal.busy" = "插件终端正在切换状态，请完成后重试。";
+"plugin.terminal.cancelled" = "未打开插件终端。";
+"plugin.terminal.closed" = "插件终端已关闭，请先重新打开。";
+"plugin.terminal.consent" = "允许“%1$@”打开终端？";
+"plugin.terminal.notFound" = "插件终端不存在。";
+"plugin.terminal.open" = "打开插件终端";
+"plugin.terminal.permission" = "打开并管理自己的原生终端，保留有限的显示历史用于重新打开";
+"plugin.terminal.running" = "插件终端仍在运行。";
+"plugin.terminal.unavailable" = "终端不可用。";
 "plugins.java.installNotice" = "Java Support 现已独立安装。请从插件市场安装，或使用“从磁盘安装”导入离线包。原有 Java 设置会保留。";
 "plugins.java.installTemplates" = "安装 Java Support，获取 Java、Maven 和 Spring 项目模板…";
 "plugins.title" = "插件";

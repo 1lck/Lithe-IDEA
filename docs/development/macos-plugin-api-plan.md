@@ -46,7 +46,7 @@ Windows 不在本轮，平台矩阵的 partial/pending 保持真实。
 | API-21 | 既有能力 | 协议 2 credentials/get/set/delete；权限与插件隔离不变 |
 | API-22 | 部分完成 | 既有函数进度与取消；独立 output channel、通用 log/progress API 未做 |
 | API-23 | 部分完成 | 已有进程声明与运行时解析；通用 toolchains/process 服务未开放 |
-| API-24 | 未做 | 插件专属终端 create/sendText/onExit 未开放 |
+| API-24 | 部分完成 | 已公开插件自有原生终端 create/show/close/reopen/dispose/onExit（macOS、本机）；不开放 sendText/输出读取，Windows 待接入 |
 | API-25 | 部分完成 | 既有语言/LSP 贡献；新增 `languages:2` 的清单与包内 JSON 语法/编辑配置，仅支持 Monarch；运行期传入 JSON 动态注册/替换高亮 Provider、独立语言语义 Provider 未做，详见下方范围说明 |
 | API-26 | 未做 | 公共诊断 collection/events API 未开放；既有 LSP 诊断不等于该 API |
 | API-27 | 部分完成 | 独立 `editor/registerActions` 绑定普通函数与文档范围，不依赖 LSP/Build/Run；通用主题、片段、其他装饰未做 |
@@ -228,7 +228,7 @@ Mac 当前声明的能力版本为：`backend:1`、`buildModelInputs:1`、`build
 | API-21 H | `secrets.get/set/delete`；已有函数协议 v2 credentials 服务 [S2] | 保持本插件隔离和现有凭据授权；不得读取 IDE/Agent/其他插件密钥，不将 secret 放日志、普通配置或状态。先补 SDK/文档一致性，不另造密码库 | M1 |
 | API-22 H/E | `output.createChannel/append/dispose`、`log`、`progress.withCancellation`；已有函数进度与输出生命周期 [S2/S11] | 插件/操作归属、日志脱敏与字节预算；取消/超时后不再更新 UI。只复用已有进度状态机，不把 stdout 协议流与业务日志混用 | M1：命令结果/进度；M3：独立输出 |
 | API-23 H | `toolchains.resolve/list`、受管 `process.run/cancel`；已有 executable/runtime 解析与进程链路 [S1/S11] | 显式执行授权，executable/argv 分离，cwd/环境白名单、输出和超时上限、进程树清理；不提供任意 shell 字符串，也不自动下载运行时 | M4 |
-| API-24 H/E | `terminal.create/show/sendText/onExit`；已有终端模块 [S12] | 创建与写终端都按执行授权处理；只控制自身终端，不能读用户其他会话或注入命令。禁用释放插件拥有资源，不停止用户独立终端 | 后续 |
+| API-24 H/E | `terminal.create/show/close/reopen/dispose/onExit` 已复用原生终端模块 [S12]；函数协议 3 宿主服务 | `terminal.create` 权限、创建逐操作确认；只控制本 backend session/context 的终端，禁用/关闭工作区清理。无 sendText 或输出读取；本机 macOS，Windows 与远程未实现 | 首版接线，原生验收见功能矩阵 |
 | API-25 C/P | 语言/语法/LSP、补全/悬浮/定义/符号/格式化/重命名/Code Action；已有语言服务器贡献 [S1/S13] | 优先接成熟 LSP 的完整能力；自定义 Provider 仅补上游确实缺失项，按文档版本取消旧请求。避免让 SDK 成为第二套语言/工程引擎 | M4：已支持能力文档；`languages:2` 声明式语法已实现（见 Agent Note 2026-10-31-plugin-editor-extension-apis）；后续：新 Provider |
 | API-26 H/P/E | `diagnostics.createCollection/set/delete/onDidChange`；已有 Problems/诊断 owner [S13] | 只能写本插件 collection，带文档版本和稳定范围；编辑/卸载后旧诊断可撤回。不能覆盖其他 LSP 结果或伪造宿主诊断身份 | M4 |
 | API-27 C/H/P | 主题/图标/片段、只读装饰、CodeLens/Inlay；已有内部 theme/editor 能力 [S5/S16] | 数据贡献/资源路径校验、预算与卸载；图标/主题用宿主 token，不允许 CSS/原生视图注入。语言信息优先走 LSP，UI 资源不得执行脚本 | 独立编辑器动作 API 已接线（Mac，待运行验收；复用 backend 2/函数协议 3，不升领域版本）；主题/片段/其他装饰后续 |
