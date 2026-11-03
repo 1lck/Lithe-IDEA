@@ -631,10 +631,9 @@ jobs:
             echo "The app is ad-hoc signed for testing. Check the CI gate for the combined test result."
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # Preview pushes save even when the job times out or a newer push cancels
-      # it, so the next build resumes instead of starting cold again. Pull
-      # requests restore preview's entries without saving: PR-scoped copies are
-      # unreadable by preview and pushed its own entries past the cache quota.
+      # Preview pushes retain partial compilation after ordinary failures, but
+      # superseded runs stop before cache upload. Pull requests only restore:
+      # their scoped copies are unreadable by preview and waste its cache quota.
       - name: Save Cargo compilation cache
         if: ${{ !cancelled() && github.event_name != 'pull_request' }}
         uses: ./.github/actions/save-macos-cargo-build-cache

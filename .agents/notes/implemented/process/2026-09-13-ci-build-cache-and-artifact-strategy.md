@@ -307,13 +307,14 @@ CI 缓存 Cargo fingerprints、build script outputs 和依赖 outputs，不缓�
 构建步骤，确保产物来自当前验证过的源代码。
 
 Cargo 编译缓存只在准备阶段恢复，保存由
-`.github/actions/save-macos-cargo-build-cache` 以 `if: always()` 单独执行。
+`.github/actions/save-macos-cargo-build-cache` 单独执行。macOS CI 的调用条件是
+`!cancelled()`：普通失败仍保存部分结果，取消时优先释放 runner。
 `actions/cache` 的 post 步骤在失败或取消时会被跳过：2026-10-13 一次依赖改动
 让 universal 精确键失效，旧 universal 条目又因仓库缓存超过 10 GB 被淘汰，
 冷构建约 45 分钟，超过 40 分钟上限被取消后什么也没保存，随后每次 preview
 推送都从冷启动开始并继续超时。现在的做法：
 
-- 成功的 job 保存精确键；失败、超时或被新推送取消的 job 保存
+- 成功的 job 保存精确键；未被 workflow 取消的失败或超时 job 保存
   `<精确键>-partial-<run_id>-<attempt>`，下一次通过精确键的前缀匹配续用，
   精确键留给第一次完整成功的构建。Cargo 只在单元编译成功后写 fingerprint，
   被中断的产物会重新编译，不会被当作有效结果。
@@ -377,8 +378,9 @@ macOS 并发上限冲突，也会和 PR、Swift 测试互相排队，因此不�
 ### 对 preview 推送关闭 cancel-in-progress
 
 能让每次推送都跑完并保存缓存，但连续合并时 runner 分钟数成倍增加，
-后续推送要排队等待前一次完成。always() 保存部分缓存已经让被取消的运行
-留下进度，因此保留取消旧运行。
+后续推送要排队等待前一次完成，因此保留取消旧运行。此前用 `always()` 在取消
+后保存部分缓存，但实测会拖延新运行；当前只在未取消的失败任务中保存部分缓存，
+已完成的缓存仍可复用。
 
 ### 只缓存下载依赖
 
