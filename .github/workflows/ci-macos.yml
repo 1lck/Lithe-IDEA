@@ -124,7 +124,7 @@ jobs:
             exit 1
           fi
 
-      # A lane already passed (or still running) on an earlier revision of this
+      # A lane that completed successfully on an earlier revision of this
       # pull request is reused when none of the pull request's own new changes
       # affect it; base-branch changes only count when they touch CI.
       - name: Reuse unaffected lane results

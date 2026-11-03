@@ -81,7 +81,7 @@ jobs:
           fi
           ./scripts/ci/common/classify-ci-changes.sh "$BASE_SHA" "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
 
-      # Reuse lanes that passed (or are running) on an earlier revision of this
+      # Reuse lanes that completed successfully on an earlier revision of this
       # pull request when its own new changes cannot affect them.
       - name: Reuse unaffected lane results
         id: reuse

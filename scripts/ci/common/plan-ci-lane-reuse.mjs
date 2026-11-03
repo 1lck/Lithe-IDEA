@@ -337,7 +337,7 @@ export function planOutputs(workflow, plan) {
 
 function summary(workflow, plan) {
   const rows = WORKFLOW_LANES[workflow].map(({ lane }) => {
-    if (plan.reuse[lane]) return `| ${lane} | reuse ${plan.reuse[lane].status === 'completed' ? 'passed' : 'running'} job from [${plan.reuse[lane].head_sha.slice(0, 8)}](${plan.reuse[lane].url}) |`;
+    if (plan.reuse[lane]) return `| ${lane} | reuse passed job from [${plan.reuse[lane].head_sha.slice(0, 8)}](${plan.reuse[lane].url}) |`;
     return `| ${lane} | ${plan.run[lane] ? 'run' : 'not selected'} |`;
   });
   const cancelled = plan.cancelled.length ? `\n\nCancelled obsolete runs: ${plan.cancelled.join(', ')}` : '';
