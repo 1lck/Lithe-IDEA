@@ -330,15 +330,27 @@ impl JavaLanguageServiceModel {
                         .get("workspaceKey")
                         .and_then(Value::as_str)
                         .map(str::to_string)?;
-                    Some(cache.join(key))
+                    // Core 把 JDT 的 `-data` 放在 `<cache>/jdtls/<workspaceKey>`；
+                    // macOS 的 `resetWorkspaceState` 删除的正是这一层。
+                    Some(cache.join("jdtls").join(key))
                 })
                 .await;
             if let Some(directory) = directory {
+                let result = std::fs::remove_dir_all(&directory);
+                let outcome = match &result {
+                    Ok(()) => "removed".to_string(),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                        "not found".to_string()
+                    }
+                    Err(error) => error.to_string(),
+                };
                 crate::logging::log_info(
                     "language",
-                    format!("Rebuilding Java index: {}", directory.display()),
+                    format!(
+                        "Rebuilding Java index: {} ({outcome})",
+                        directory.display()
+                    ),
                 );
-                let _ = std::fs::remove_dir_all(directory);
             }
             let _ = this.update(cx, |this, cx| this.start_service(cx));
         })
@@ -771,6 +783,38 @@ fn handle_event(event: &Value, sender: &Sender<JavaServiceEvent>) -> bool {
             }
             _ => false,
         },
+        // 编译错误只写日志供诊断；决策横幅展示的是汇总报告，具体错误应由
+        // 编辑器诊断呈现。这里限制条数，避免整棵工作区的 marker 刷满日志。
+        Some("diagnostics") => {
+            let uri = event.get("uri").and_then(Value::as_str).unwrap_or("");
+            let errors: Vec<String> = event
+                .get("diagnostics")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter(|item| item.get("severity").and_then(Value::as_i64) == Some(1))
+                .take(5)
+                .map(|item| {
+                    let line = item
+                        .pointer("/range/start/line")
+                        .and_then(Value::as_u64)
+                        .map(|line| line + 1)
+                        .unwrap_or(0);
+                    let message = item
+                        .get("message")
+                        .and_then(Value::as_str)
+                        .unwrap_or("");
+                    format!("{uri}:{line}: {message}")
+                })
+                .collect();
+            if !errors.is_empty() {
+                crate::logging::log_info(
+                    "language",
+                    format!("Java diagnostics: {}", errors.join(" | ")),
+                );
+            }
+            false
+        }
         _ => false,
     }
 }
