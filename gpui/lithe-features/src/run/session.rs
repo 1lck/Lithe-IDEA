@@ -4,11 +4,12 @@
 //! `lithe-git-host::ProcessTree` 保证停止时整棵进程树一起结束，stdout/stderr
 //! 通过独立线程回传，视图线程只合并文本和状态。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -338,15 +339,16 @@ fn launch(
             executable.display()
         )
     })?;
-    let tree = ProcessTree::adopt(&mut child).map_err(|error| {
+    let tree = Arc::new(ProcessTree::adopt(&mut child).map_err(|error| {
         let _ = child.kill();
         format!(
             "{}: {}: {error}",
             lithe_ui::i18n::tr("Could not start configuration"),
             executable.display()
         )
-    })?;
-    let _ = sender.send_blocking(SessionEvent::Started(Arc::new(tree)));
+    })?);
+    let stop_flag = register_stop_flag(&tree);
+    let _ = sender.send_blocking(SessionEvent::Started(Arc::clone(&tree)));
 
     if let Some(stdout) = child.stdout.take() {
         spawn_reader(stdout, sender.clone());
@@ -354,7 +356,7 @@ fn launch(
     if let Some(stderr) = child.stderr.take() {
         spawn_reader(stderr, sender.clone());
     }
-    spawn_exit_waiter(child, sender, None);
+    spawn_exit_waiter(child, sender, stop_flag, None);
     Ok(())
 }
 
@@ -377,17 +379,72 @@ fn spawn_reader<R: Read + Send + 'static>(mut reader: R, sender: Sender<SessionE
     });
 }
 
+/// 已经登记的会话停止标记；键是视图持有的 `Arc<ProcessTree>` 地址。
+///
+/// `stop` 通过这个地址把「用户主动停止」传给退出等待线程，退出 System 行
+/// 据此与自然退出区分措辞。
+static STOP_FLAGS: LazyLock<Mutex<HashMap<usize, Arc<AtomicBool>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// 会话启动后登记停止标记，并返回交给退出等待线程的副本。
+fn register_stop_flag(tree: &Arc<ProcessTree>) -> Arc<AtomicBool> {
+    let flag = Arc::new(AtomicBool::new(false));
+    STOP_FLAGS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .insert(Arc::as_ptr(tree) as usize, Arc::clone(&flag));
+    flag
+}
+
+/// 标记一次用户主动停止。
+fn mark_user_stop(tree: &Arc<ProcessTree>) {
+    if let Some(flag) = STOP_FLAGS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .get(&(Arc::as_ptr(tree) as usize))
+    {
+        flag.store(true, Ordering::SeqCst);
+    }
+}
+
+/// 会话退出后注销停止标记，避免进程树地址被复用后误判新会话。
+fn forget_stop_flag(stop_flag: &Arc<AtomicBool>) {
+    STOP_FLAGS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .retain(|_, flag| !Arc::ptr_eq(flag, stop_flag));
+}
+
 fn spawn_exit_waiter(
     mut child: Child,
     sender: Sender<SessionEvent>,
+    stop_flag: Arc<AtomicBool>,
     temporary: Option<LaunchArgumentFile>,
 ) {
     thread::spawn(move || {
         let code = child.wait().ok().and_then(|status| status.code());
         // 缩短参数文件在进程结束后才清理；启动失败时它随调用栈就地删除。
         drop(temporary);
+        let stopped = stop_flag.load(Ordering::SeqCst);
+        forget_stop_flag(&stop_flag);
+        // 退出行先于 Exited 事件进入输出流；渲染层把它作为 System 行显示。
+        let _ = sender.send_blocking(SessionEvent::Output(exit_system_line(code, stopped)));
         let _ = sender.send_blocking(SessionEvent::Exited(code));
     });
+}
+
+/// 进程退出后的 System 行文本。
+///
+/// 措辞对齐 IDEA：自然退出是 `Process finished with exit code N`；用户主动
+/// 停止时附加 stopped 标记，退出码拿不到时如实说明。
+pub fn exit_system_line(code: Option<i32>, stopped: bool) -> String {
+    let description = match (code, stopped) {
+        (Some(code), false) => format!("Process finished with exit code {code}"),
+        (Some(code), true) => format!("Process finished with exit code {code} (stopped)"),
+        (None, false) => "Process finished with an unknown exit code".to_string(),
+        (None, true) => "Process stopped before it reported an exit code".to_string(),
+    };
+    format!("{description}\n")
 }
 
 /// 一次启动自有的缩短参数文件（argfile 或 pathing JAR）。
@@ -441,15 +498,16 @@ pub(super) fn spawn_session(
             executable.display()
         )
     })?;
-    let tree = ProcessTree::adopt(&mut child).map_err(|error| {
+    let tree = Arc::new(ProcessTree::adopt(&mut child).map_err(|error| {
         let _ = child.kill();
         format!(
             "{}: {}: {error}",
             lithe_ui::i18n::tr("Could not start configuration"),
             executable.display()
         )
-    })?;
-    let _ = sender.send_blocking(SessionEvent::Started(Arc::new(tree)));
+    })?);
+    let stop_flag = register_stop_flag(&tree);
+    let _ = sender.send_blocking(SessionEvent::Started(Arc::clone(&tree)));
 
     if let Some(stdout) = child.stdout.take() {
         spawn_reader(stdout, sender.clone());
@@ -457,12 +515,13 @@ pub(super) fn spawn_session(
     if let Some(stderr) = child.stderr.take() {
         spawn_reader(stderr, sender.clone());
     }
-    spawn_exit_waiter(child, sender.clone(), temporary);
+    spawn_exit_waiter(child, sender.clone(), stop_flag, temporary);
     Ok(())
 }
 
 /// 停止整棵进程树。调用方应放到后台线程，避免等待内核回收时卡住界面。
 pub fn stop(tree: Arc<ProcessTree>) -> Result<(), String> {
+    mark_user_stop(&tree);
     tree.terminate(Duration::from_secs(10))
         .map_err(|error| format!("{}: {error}", lithe_ui::i18n::tr("Could not stop run")))
 }
@@ -471,160 +530,9 @@ pub fn stop(tree: Arc<ProcessTree>) -> Result<(), String> {
 // 启动计划
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, Debug)]
-enum ExecutableRef {
-    Command(String),
-    Toolchain {
-        name: String,
-        /// `project-jdk` may name a sibling tool such as `javac`.
-        tool: Option<String>,
-    },
-}
+mod launch_plan;
 
-#[derive(Clone, Debug)]
-enum EnvironmentRef {
-    Literal(String),
-    ToolchainHome(String),
-}
-
-struct LaunchPlan {
-    executable: ExecutableRef,
-    arguments: Vec<String>,
-    working_directory: String,
-    environment: BTreeMap<String, EnvironmentRef>,
-    env: BTreeMap<String, String>,
-    classpath: Vec<String>,
-    modulepath: Vec<String>,
-    pre_launch_steps: Vec<LaunchStep>,
-}
-
-struct LaunchStep {
-    executable: ExecutableRef,
-    arguments: Vec<String>,
-    working_directory: Option<String>,
-    classpath: Vec<String>,
-}
-
-impl LaunchPlan {
-    fn from_json(value: &Value) -> Result<Self, String> {
-        let executable =
-            parse_executable(value.get("executable").ok_or_else(|| {
-                lithe_ui::i18n::tr("Could not read run configuration").to_string()
-            })?)?;
-        let arguments = string_array(value.get("arguments"));
-        let working_directory = value
-            .get("workingDirectory")
-            .and_then(Value::as_str)
-            .unwrap_or(".")
-            .to_string();
-        let env = string_map(value.get("env"));
-        let mut environment = BTreeMap::new();
-        if let Some(object) = value.get("environment").and_then(Value::as_object) {
-            for (key, reference) in object {
-                if let Some(toolchain) = reference.get("toolchain").and_then(Value::as_str) {
-                    environment.insert(
-                        key.clone(),
-                        EnvironmentRef::ToolchainHome(toolchain.to_string()),
-                    );
-                } else if let Some(literal) = reference.as_str() {
-                    environment.insert(key.clone(), EnvironmentRef::Literal(literal.to_string()));
-                }
-            }
-        }
-        let classpath = string_array(value.get("classpath"));
-        let modulepath = string_array(value.get("modulepath"));
-        let pre_launch_steps = value
-            .get("preLaunchSteps")
-            .and_then(Value::as_array)
-            .map(|items| {
-                items
-                    .iter()
-                    .filter_map(|step| {
-                        let executable = parse_executable(step.get("executable")?).ok()?;
-                        Some(LaunchStep {
-                            executable,
-                            arguments: string_array(step.get("arguments")),
-                            working_directory: step
-                                .get("workingDirectory")
-                                .and_then(Value::as_str)
-                                .map(str::to_string),
-                            classpath: string_array(step.get("classpath")),
-                        })
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        Ok(Self {
-            executable,
-            arguments,
-            working_directory,
-            environment,
-            env,
-            classpath,
-            modulepath,
-            pre_launch_steps,
-        })
-    }
-}
-
-fn parse_executable(value: &Value) -> Result<ExecutableRef, String> {
-    if let Some(command) = value.get("command").and_then(Value::as_str) {
-        return Ok(ExecutableRef::Command(command.to_string()));
-    }
-    if let Some(toolchain) = value.get("toolchain").and_then(Value::as_str) {
-        return Ok(ExecutableRef::Toolchain {
-            name: toolchain.to_string(),
-            tool: value
-                .get("tool")
-                .and_then(Value::as_str)
-                .map(str::to_string),
-        });
-    }
-    Err(lithe_ui::i18n::tr("Could not read run configuration").to_string())
-}
-
-fn string_array(value: Option<&Value>) -> Vec<String> {
-    value
-        .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(Value::as_str)
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-fn string_map(value: Option<&Value>) -> BTreeMap<String, String> {
-    value
-        .and_then(Value::as_object)
-        .map(|object| {
-            object
-                .iter()
-                .filter_map(|(key, value)| {
-                    value.as_str().map(|value| (key.clone(), value.to_string()))
-                })
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-/// Core 的 classpath/modulepath 是项目相对路径；JVM 需要宿主绝对路径。
-fn resolve_plan_paths(root: &Path, paths: &[String]) -> Vec<String> {
-    paths
-        .iter()
-        .map(|value| {
-            let path = Path::new(value);
-            if path.is_absolute() {
-                value.clone()
-            } else {
-                root.join(path).to_string_lossy().into_owned()
-            }
-        })
-        .collect()
-}
+use launch_plan::{EnvironmentRef, ExecutableRef, LaunchPlan, LaunchStep, resolve_plan_paths};
 
 fn resolve_working_directory(root: &Path, value: &str) -> PathBuf {
     let path = Path::new(value);
@@ -1473,7 +1381,98 @@ mod tests {
         }
         let _ = std::fs::remove_dir_all(&root);
         assert!(output.contains("lithe-run-ok"), "output was: {output}");
+        assert!(output.contains("Process finished with exit code 0"));
         assert_eq!(exit_code, Some(0));
         assert!(started.elapsed() < Duration::from_secs(10));
+    }
+
+    #[test]
+    fn exit_system_line_distinguishes_user_stops_from_natural_exits() {
+        assert_eq!(
+            exit_system_line(Some(0), false),
+            "Process finished with exit code 0\n"
+        );
+        assert_eq!(
+            exit_system_line(Some(1), false),
+            "Process finished with exit code 1\n"
+        );
+        assert_eq!(
+            exit_system_line(Some(143), true),
+            "Process finished with exit code 143 (stopped)\n"
+        );
+        assert_eq!(
+            exit_system_line(None, false),
+            "Process finished with an unknown exit code\n"
+        );
+        assert_eq!(
+            exit_system_line(None, true),
+            "Process stopped before it reported an exit code\n"
+        );
+    }
+
+    /// 用户点停止后，退出 System 行必须带 stopped 措辞，与自然退出区分。
+    #[test]
+    fn a_user_stop_reports_a_stopped_exit_line() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock should be after epoch")
+            .as_nanos();
+        let root =
+            std::env::temp_dir().join(format!("lithe-run-stop-{}-{unique}", std::process::id()));
+        std::fs::create_dir_all(&root).expect("temp project should be created");
+        #[cfg(windows)]
+        let procfile = "web: cmd /c ping -n 15 127.0.0.1\n";
+        #[cfg(not(windows))]
+        let procfile = "web: sleep 15\n";
+        std::fs::write(root.join("Procfile"), procfile).expect("Procfile should be written");
+
+        let client = CoreClient::new();
+        let loaded =
+            super::super::config::load_configurations(&client, &root).expect("config should load");
+        let configuration = loaded
+            .configurations
+            .into_iter()
+            .find(|configuration| configuration.provider == "procfile.process")
+            .expect("Procfile configuration should exist");
+        let receiver = start(client, root.clone(), configuration, false);
+
+        let watchdog = receiver.clone();
+        let started = Instant::now();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_secs(15));
+            watchdog.close();
+        });
+
+        let mut output = String::new();
+        let mut exit_code = None;
+        let mut stopped_tree = None;
+        // 必须在测试期间保留进程树；Job Object 在最后一个 Arc 释放时会杀死
+        // 子进程，与真实视图的 SessionState 生命周期一致。
+        while started.elapsed() < Duration::from_secs(15) {
+            match receiver.recv_blocking() {
+                Ok(SessionEvent::Output(text)) => output.push_str(&text),
+                Ok(SessionEvent::Started(tree)) => {
+                    // 连续两次停止覆盖「第一次等待、第二次强杀」的语义。
+                    let _ = stop(Arc::clone(&tree));
+                    let _ = stop(Arc::clone(&tree));
+                    stopped_tree = Some(tree);
+                }
+                Ok(SessionEvent::Exited(code)) => {
+                    exit_code = Some(code);
+                    break;
+                }
+                Ok(SessionEvent::Failed(message)) => panic!("run failed: {message}"),
+                Err(_) => break,
+            }
+        }
+        let _ = std::fs::remove_dir_all(&root);
+        assert!(stopped_tree.is_some(), "the session should have started");
+        assert!(exit_code.is_some(), "the session should have exited");
+        assert!(
+            output.contains("stopped"),
+            "the exit line must mark a user stop, output was: {output}"
+        );
+        // 停止必须早于 15 秒的自然结束，证明是停止动作终结了进程。
+        assert!(started.elapsed() < Duration::from_secs(15));
     }
 }
