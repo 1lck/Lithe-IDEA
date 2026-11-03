@@ -2,6 +2,13 @@
   "schemaVersion": 1,
   "messages": [
     {
+      "id": "debugger.breakpointRelocationFailed",
+      "description": "Breakpoint relocation failed; reset unsafe source anchors before debugging.",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
       "id": "agent.actions.close",
       "description": "Windows UI: agent.actions.close",
       "platforms": [

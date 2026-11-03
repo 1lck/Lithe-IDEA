@@ -4691,3 +4691,19 @@ indexing policies or retired roots. Hosts discard in-flight results when their
 workspace root set changes. Removing a nested root restores parent scanning.
 An unavailable non-current root does not fail a scoped request for an accessible
 root; a missing descendant retains its ownership boundary until removed by the host.
+
+
+### Windows source-breakpoint relocation
+
+Windows forwards the editor's exact source-preserving edits to
+`debug.relocateBreakpoints` and converts its zero-based store lines to/from Core's
+one-based lines. The context-expanded patches used to synchronize the editor's
+source mirror must not be used as anchor edits: unchanged neighboring code must
+not be treated as deleted. The existing cases in
+`shared/fixtures/debug/breakpoint-relocation-v1.json` cover both platforms.
+
+Multi-cursor events replay the native source edits from the end. Between edits,
+`lsp.applyTextEdits` supplies intermediate source text; Windows does not calculate
+breakpoint offsets or replacement text itself. Rapid events serialize, split
+views share a mutation identity, and launch reads the current owner after all
+pending relocations complete. No new Core request fields or commands are added.

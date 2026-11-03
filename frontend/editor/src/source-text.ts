@@ -171,6 +171,9 @@ export class SourceText {
     this.versions.set(version, this.current);
   }
 
+  /** Exact native replacements before the context added for source-mirror synchronization. */
+  lastAnchorChanges: SourceTextChange[] = [];
+
   /** Translate a simultaneous Monaco batch to original-source UTF-16 edits. */
   /** `eol` overrides the separator for inserted line breaks of this batch only. */
   apply(changes: readonly NormalizedTextChange[], version: number, eol: string = this.defaultEOL): SourceTextChange[] {
@@ -187,6 +190,11 @@ export class SourceText {
       return { change, text, offset: start,
         length: sourceOffset(previous, change.rangeOffset + change.rangeLength) - start };
     });
+    this.lastAnchorChanges = translated.map(({ change, text, offset, length }) => ({
+      offset, length, text,
+      start: positionAt(previous, change.rangeOffset),
+      end: positionAt(previous, change.rangeOffset + change.rangeLength),
+    }));
     for (const { change, text } of [...translated].reverse()) {
       const [before, rest] = split(this.current, change.rangeOffset);
       this.current = join(join(before, fromText(text)), split(rest, change.rangeLength)[1]);

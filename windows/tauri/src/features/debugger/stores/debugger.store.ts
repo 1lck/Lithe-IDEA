@@ -24,6 +24,7 @@ const WATCH_EXPRESSIONS_STORAGE_KEY = "lithe-debugger-watch-expressions";
 
 interface DebuggerState {
   breakpoints: DebugBreakpoint[];
+  breakpointGeneration: number;
   watchExpressions: DebugWatchExpression[];
   watchResults: Record<string, DebugWatchResult>;
   workspaceConfigs: DebugLaunchConfig[];
@@ -48,6 +49,7 @@ interface DebuggerState {
     setBreakpointEnabled: (breakpointId: string, enabled: boolean) => void;
     removeBreakpoint: (breakpointId: string) => void;
     clearBreakpoints: () => void;
+    applyRelocatedBreakpoints: (filePath: string, expected: DebugBreakpoint[], points: { line: number; enabled: boolean }[]) => boolean;
     addWatchExpression: (expression: string) => DebugWatchExpression | null;
     updateWatchExpression: (expressionId: string, expression: string) => void;
     removeWatchExpression: (expressionId: string) => void;
@@ -149,6 +151,7 @@ const createWatchExpressionId = () => `watch_${Date.now()}_${Math.random().toStr
 export const useDebuggerStore = createSelectors(
   create<DebuggerState>()((set, get) => ({
     breakpoints: loadBreakpoints(),
+    breakpointGeneration: 0,
     watchExpressions: loadWatchExpressions(),
     watchResults: {},
     workspaceConfigs: [],
@@ -229,9 +232,30 @@ export const useDebuggerStore = createSelectors(
         });
       },
 
+      applyRelocatedBreakpoints: (filePath, expected, points) => {
+        const current = get().actions.getBreakpointsForFile(filePath);
+        if (!current.length) return true;
+        if (current.length !== expected.length || current.some((point, index) => point !== expected[index])) return false;
+        if (points.length === current.length && points.every(point => current.some(
+          existing => existing.line === point.line - 1 && existing.enabled === point.enabled,
+        ))) return true;
+        const key = debugSourcePathKey(filePath);
+        const originalPath = expected[0]!.filePath;
+        const nextBreakpoints = [
+          ...get().breakpoints.filter(point => debugSourcePathKey(point.filePath) !== key),
+          ...points.map(point => current.find(existing => existing.line === point.line - 1 && existing.enabled === point.enabled) ?? ({
+            id: createBreakpointId(originalPath, point.line - 1), filePath: originalPath,
+            line: point.line - 1, enabled: point.enabled, createdAt: expected[0]!.createdAt,
+          })),
+        ];
+        saveBreakpoints(nextBreakpoints);
+        set({ breakpoints: nextBreakpoints });
+        return true;
+      },
+
       clearBreakpoints: () => {
         saveBreakpoints([]);
-        set({ breakpoints: [] });
+        set(state => ({ breakpoints: [], breakpointGeneration: state.breakpointGeneration + 1 }));
       },
 
       addWatchExpression: (expression) => {
