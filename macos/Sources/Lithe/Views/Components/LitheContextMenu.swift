@@ -80,7 +80,6 @@ struct LitheContextMenuItem: Identifiable {
     let shortcut: String?
     let role: Role
     var isEnabled: Bool
-    var contextItems: (() -> [LitheContextMenuItem])? = nil
     let action: () -> Void
 
     static func action(
@@ -96,7 +95,6 @@ struct LitheContextMenuItem: Identifiable {
         shortcut: String? = nil,
         role: Role = .standard,
         isEnabled: Bool = true,
-        contextItems: (() -> [LitheContextMenuItem])? = nil,
         action: @escaping () -> Void
     ) -> Self {
         Self(
@@ -113,7 +111,6 @@ struct LitheContextMenuItem: Identifiable {
             shortcut: shortcut,
             role: role,
             isEnabled: isEnabled,
-            contextItems: contextItems,
             action: action
         )
     }
@@ -201,12 +198,6 @@ private final class LitheContextMenuSelection: ObservableObject {
         } else if let item = items.first(where: { pointerFrames[$0.id]?.contains(point) == true }) {
             hover(item, isChild: false)
         }
-    }
-
-    func contextItems(at point: CGPoint) -> [LitheContextMenuItem]? {
-        let item = (children ?? []).first { pointerFrames[$0.id]?.contains(point) == true }
-            ?? items.first { pointerFrames[$0.id]?.contains(point) == true }
-        return item?.contextItems?()
     }
 
     func hover(_ item: LitheContextMenuItem, isChild: Bool) {
@@ -529,12 +520,9 @@ private final class LitheContextMenuPanel: NSPanel {
     var handleKey: ((NSEvent) -> Bool)?
     var handleContentKey: ((NSEvent) -> Bool)?
     var handleMouseMoved: ((NSEvent) -> Void)?
-    var handleContextMenu: ((NSEvent) -> Bool)?
     var handleResizeCursor: ((NSEvent) -> Void)?
     override var canBecomeKey: Bool { !retainsParentKey }
     override func sendEvent(_ event: NSEvent) {
-        if (event.type == .rightMouseDown || (event.type == .leftMouseDown && event.modifierFlags.contains(.control))),
-           handleContextMenu?(event) == true { return }
         if event.type == .keyDown, handleKey?(event) == true { return }
         if event.type == .mouseMoved { handleMouseMoved?(event) }
         super.sendEvent(event)
@@ -721,18 +709,6 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
             // later SwiftUI hover callback after keyboard scrolling.
             selection.pointerMoved(to: content.convert(event.locationInWindow, from: nil))
         }
-        panel.handleContextMenu = { [weak self, weak panel, weak owner] event in
-            guard let panel, let content = panel.contentView,
-                  let items = selection.contextItems(at: content.convert(event.locationInWindow, from: nil)),
-                  !items.isEmpty else { return false }
-            let point = panel.convertPoint(toScreen: event.locationInWindow)
-            // Dismiss before restoring the last hidden rail entry can unmount its trigger.
-            self?.dismiss()
-            LitheContextMenuPresenter.shared.show(items: items, at: point, appearance: panel.effectiveAppearance,
-                                                 locale: locale, parentWindow: owner)
-            return true
-        }
-
         // Installing the hosting controller can reset the initial content size.
         panel.setFrame(NSRect(origin: origin, size: NSSize(width: menuWidth, height: menuHeight)), display: true)
 

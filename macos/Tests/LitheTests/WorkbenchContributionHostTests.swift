@@ -193,22 +193,22 @@ struct WorkbenchContributionHostTests {
             model.workbenchFeature.move(.terminal, to: position)
             model.workbenchFeature.customizeContribution(terminal.id, isHidden: true)
             let hiddenItem = try #require(WorkbenchToolWindowsMenu.items(for: model).first { $0.title == terminal.title })
-            let unhide = try #require(hiddenItem.contextItems?().first)
-            unhide.action()
-            #expect(model.rightSidebarContributions.contains(terminal))
+            guard case .submenu(let children) = hiddenItem.kind else {
+                Issue.record("Hidden tool windows must expose Show in a submenu")
+                return
+            }
+            #expect(children.count == 1)
+            #expect(hiddenItem.icon != nil)
+            let show = try #require(children.first)
+            #expect(show.title == L10n.string("Show"))
+            #expect(show.isEnabled && !show.isChecked)
+            #expect(show.shortcut == model.keyboardShortcutFeature.displayText(for: "toggle-terminal"))
             #expect(!model.workbenchFeature.isVisible(.terminal))
             #expect(model.terminalFeature == nil)
             #expect(model.contributionActivationTasks[terminal.id] == nil)
             #expect(model.workbenchFeature.state(for: .terminal).position == position)
-            #expect(!WorkbenchToolWindowsMenu.items(for: model).contains { $0.title == terminal.title })
-            model.workbenchFeature.customizeContribution(terminal.id, isHidden: true)
             #expect(!model.rightSidebarContributions.contains(terminal))
-            let item = try #require(WorkbenchToolWindowsMenu.items(for: model).first { $0.title == terminal.title })
-            #expect(item.isEnabled && !item.isChecked)
-            #expect(item.icon != nil)
-            #expect(item.shortcut != nil)
-            #expect(item.shortcut == model.keyboardShortcutFeature.displayText(for: "toggle-terminal"))
-            item.action()
+            show.action()
             try await scope.run("restore terminal from tool windows menu") {
                 await model.contributionActivationTasks[terminal.id]?.value
             }
@@ -218,7 +218,7 @@ struct WorkbenchContributionHostTests {
             #expect(model.rightSidebarContributions.contains(terminal))
             #expect(model.workbenchFeature.contributionPreferences[terminal.id]?.isHidden == false)
             #expect(!WorkbenchToolWindowsMenu.items(for: model).contains { $0.title == terminal.title })
-            item.action()
+            show.action()
             try await scope.run("show an already open terminal") {
                 await model.contributionActivationTasks[terminal.id]?.value
             }
@@ -230,7 +230,7 @@ struct WorkbenchContributionHostTests {
                 try await container.services.moduleRuntime.setEnabled(false, for: .terminal)
             }
             #expect(!WorkbenchToolWindowsMenu.items(for: model).contains { $0.title == terminal.title })
-            item.action()
+            show.action()
             #expect(model.contributionActivationTasks[terminal.id] == nil)
             #expect(!model.workbenchFeature.isVisible(.terminal))
         }
@@ -759,7 +759,12 @@ struct WorkbenchContributionHostTests {
             #expect(model.leftSidebarContributions.contains { $0.id == window.id })
             model.workbenchFeature.customizeContribution(window.id, isHidden: true)
             let menuItem = try #require(WorkbenchToolWindowsMenu.items(for: model).first { $0.title == window.title })
-            menuItem.action()
+            guard case .submenu(let children) = menuItem.kind else {
+                Issue.record("Hidden plugin windows must expose Show in a submenu")
+                return
+            }
+            let show = try #require(children.first)
+            show.action()
             try await scope.run("restore installed plugin from tool windows menu") {
                 await model.contributionActivationTasks[window.id]?.value
             }
