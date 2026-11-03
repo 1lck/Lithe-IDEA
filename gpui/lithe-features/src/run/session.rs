@@ -19,7 +19,7 @@ use lithe_git_host::ProcessTree;
 use serde_json::{Value, json};
 
 use super::direct;
-use super::model::RunConfiguration;
+use super::model::{PreparationPhase, RunConfiguration};
 use super::toolchain;
 
 /// 运行会话向视图发送的事件。
@@ -29,8 +29,29 @@ pub enum SessionEvent {
     /// 子进程已经创建；视图保留进程树用于 Stop。
     Started(Arc<ProcessTree>),
     Output(String),
+    /// 准备状态条的真实进度；视图转交 `apply_preparation_event`。
+    Preparation(PreparationEvent),
     Exited(Option<i32>),
     Failed(String),
+}
+
+/// 准备状态条的真实进度事件，字段语义与视图侧消费契约一致。
+///
+/// GPUI 侧没有 Java 语言服务导入，`import_percent` 与 `current_project`
+/// 始终为 `None`，不伪造导入进度。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PreparationEvent {
+    /// 准备阶段推进。
+    Phase {
+        phase: PreparationPhase,
+        import_percent: Option<u8>,
+        current_project: Option<String>,
+        download_artifact: Option<String>,
+    },
+    /// 准备完成，主进程已经拉起。
+    Ready,
+    /// 准备失败。
+    Failed,
 }
 
 /// 一次会话真正用上的启动方式。
@@ -62,6 +83,8 @@ pub fn start(
     let (sender, receiver) = unbounded();
     thread::spawn(move || {
         if let Err(message) = launch(client, root, configuration, skip_build, sender.clone()) {
+            // 整条启动链失败是唯一的准备失败节点；直启回退路径不会走到这里。
+            let _ = sender.send_blocking(SessionEvent::Preparation(PreparationEvent::Failed));
             let _ = sender.send_blocking(SessionEvent::Failed(message));
         }
     });
@@ -224,6 +247,9 @@ fn launch(
         })?;
 
     let launch = LaunchPlan::from_json(&plan)?;
+    // 启动计划解析完成，进入配置同步（pre-launch 编译等）；失败仍由
+    // SessionEvent::Failed 承载，直启回退路径不会误报准备失败。
+    send_preparation_phase(&sender, PreparationPhase::Configuring);
     let module = configuration
         .extensions
         .get("maven")
@@ -234,6 +260,7 @@ fn launch(
     // 后不重新安装依赖模块，编译会停在“找不到符号”。先构建依赖链再启动。
     if !skip_build && needs_maven_install(&configuration.provider, module) {
         if let Some(module) = module {
+            send_preparation_phase(&sender, PreparationPhase::Building);
             run_maven_install(client, &root, &configuration, module, &sender)?;
         }
     }
@@ -347,7 +374,7 @@ fn launch(
             executable.display()
         )
     })?);
-    let stop_flag = register_stop_flag(&tree);
+    let stop_flag = register_stop_flag(&tree, &sender);
     let _ = sender.send_blocking(SessionEvent::Started(Arc::clone(&tree)));
 
     if let Some(stdout) = child.stdout.take() {
@@ -356,6 +383,7 @@ fn launch(
     if let Some(stderr) = child.stderr.take() {
         spawn_reader(stderr, sender.clone());
     }
+    send_preparation_ready(&sender);
     spawn_exit_waiter(child, sender, stop_flag, None);
     Ok(())
 }
@@ -379,40 +407,50 @@ fn spawn_reader<R: Read + Send + 'static>(mut reader: R, sender: Sender<SessionE
     });
 }
 
-/// 已经登记的会话停止标记；键是视图持有的 `Arc<ProcessTree>` 地址。
+/// 已经登记的会话停止状态；键是视图持有的 `Arc<ProcessTree>` 地址。
 ///
-/// `stop` 通过这个地址把「用户主动停止」传给退出等待线程，退出 System 行
-/// 据此与自然退出区分措辞。
-static STOP_FLAGS: LazyLock<Mutex<HashMap<usize, Arc<AtomicBool>>>> =
+/// `stopped` 把「用户主动停止」传给退出等待线程，退出 System 行据此与
+/// 自然退出区分措辞；`sender` 让强杀发生后能向输出流追加强制停止系统行。
+struct StopRegistration {
+    stopped: Arc<AtomicBool>,
+    sender: Sender<SessionEvent>,
+}
+
+static STOP_REGISTRATIONS: LazyLock<Mutex<HashMap<usize, StopRegistration>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-/// 会话启动后登记停止标记，并返回交给退出等待线程的副本。
-fn register_stop_flag(tree: &Arc<ProcessTree>) -> Arc<AtomicBool> {
-    let flag = Arc::new(AtomicBool::new(false));
-    STOP_FLAGS
+/// 会话启动后登记停止状态，并返回交给退出等待线程的停止标记。
+fn register_stop_flag(tree: &Arc<ProcessTree>, sender: &Sender<SessionEvent>) -> Arc<AtomicBool> {
+    let stopped = Arc::new(AtomicBool::new(false));
+    STOP_REGISTRATIONS
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .insert(Arc::as_ptr(tree) as usize, Arc::clone(&flag));
-    flag
+        .insert(
+            Arc::as_ptr(tree) as usize,
+            StopRegistration {
+                stopped: Arc::clone(&stopped),
+                sender: sender.clone(),
+            },
+        );
+    stopped
 }
 
-/// 标记一次用户主动停止。
-fn mark_user_stop(tree: &Arc<ProcessTree>) {
-    if let Some(flag) = STOP_FLAGS
+/// 标记一次用户主动停止，并返回会话输出发送端供强杀提示使用。
+fn mark_user_stop(tree: &Arc<ProcessTree>) -> Option<Sender<SessionEvent>> {
+    let registration = STOP_REGISTRATIONS
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .get(&(Arc::as_ptr(tree) as usize))
-    {
-        flag.store(true, Ordering::SeqCst);
-    }
+        .get(&(Arc::as_ptr(tree) as usize))?;
+    registration.stopped.store(true, Ordering::SeqCst);
+    Some(registration.sender.clone())
 }
 
-/// 会话退出后注销停止标记，避免进程树地址被复用后误判新会话。
+/// 会话退出后注销停止状态，避免进程树地址被复用后误判新会话。
 fn forget_stop_flag(stop_flag: &Arc<AtomicBool>) {
-    STOP_FLAGS
+    STOP_REGISTRATIONS
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .retain(|_, flag| !Arc::ptr_eq(flag, stop_flag));
+        .retain(|_, registration| !Arc::ptr_eq(&registration.stopped, stop_flag));
 }
 
 fn spawn_exit_waiter(
@@ -506,7 +544,7 @@ pub(super) fn spawn_session(
             executable.display()
         )
     })?);
-    let stop_flag = register_stop_flag(&tree);
+    let stop_flag = register_stop_flag(&tree, sender);
     let _ = sender.send_blocking(SessionEvent::Started(Arc::clone(&tree)));
 
     if let Some(stdout) = child.stdout.take() {
@@ -523,12 +561,76 @@ pub(super) fn spawn_session(
 ///
 /// 第一次停止先等宽限期让进程自行退出（Unix 先发 SIGINT），超时才强杀；
 /// 对同一棵进程树再次调用跳过宽限期立即强杀，对应界面的连续停止。
+/// 强杀发生后向输出流追加一条强制停止系统行，视图无需改动即可呈现。
 pub fn stop(tree: Arc<ProcessTree>) -> Result<(), String> {
-    mark_user_stop(&tree);
-    // 返回值区分是否经历过强杀；呈现交给控制台渲染层，这里只负责终止。
-    tree.terminate_gracefully(Duration::from_secs(10))
-        .map(|_| ())
-        .map_err(|error| format!("{}: {error}", lithe_ui::i18n::tr("Could not stop run")))
+    let sender = mark_user_stop(&tree);
+    let forced = tree
+        .terminate_gracefully(Duration::from_secs(10))
+        .map_err(|error| format!("{}: {error}", lithe_ui::i18n::tr("Could not stop run")))?;
+    if forced {
+        if let Some(sender) = sender {
+            let _ = sender.send_blocking(SessionEvent::Output(force_stop_system_line()));
+        }
+    }
+    Ok(())
+}
+
+/// 强制停止后的系统行文本；与退出 System 行同一机制进入输出流。
+fn force_stop_system_line() -> String {
+    "Process was force-stopped after the grace period\n".to_string()
+}
+
+// ---------------------------------------------------------------------------
+// 准备进度事件
+// ---------------------------------------------------------------------------
+
+/// 推进准备状态条的阶段；导入相关字段在 GPUI 侧没有数据来源，保持 None。
+pub(super) fn send_preparation_phase(sender: &Sender<SessionEvent>, phase: PreparationPhase) {
+    let _ = sender.send_blocking(SessionEvent::Preparation(PreparationEvent::Phase {
+        phase,
+        import_percent: None,
+        current_project: None,
+        download_artifact: None,
+    }));
+}
+
+/// 主进程已经拉起，准备阶段完成。
+pub(super) fn send_preparation_ready(sender: &Sender<SessionEvent>) {
+    let _ = sender.send_blocking(SessionEvent::Preparation(PreparationEvent::Ready));
+}
+
+/// 从 Maven 批处理输出里识别正在下载的构件并推进准备状态条。
+///
+/// `-B` 模式下每条 `Downloading from <仓库>: <URL>`（旧版为 `Downloading: <URL>`）
+/// 对应一个构件；连续重复的构件只发一次事件。
+pub(super) fn emit_downloads(text: &str, sender: &Sender<SessionEvent>) {
+    let mut last = String::new();
+    for line in text.lines() {
+        let Some(artifact) = maven_download_artifact(line) else {
+            continue;
+        };
+        if artifact == last {
+            continue;
+        }
+        last = artifact.clone();
+        let _ = sender.send_blocking(SessionEvent::Preparation(PreparationEvent::Phase {
+            phase: PreparationPhase::Building,
+            import_percent: None,
+            current_project: None,
+            download_artifact: Some(artifact),
+        }));
+    }
+}
+
+/// 从一行 Maven 下载日志提取构件名；非下载行返回 None。
+fn maven_download_artifact(line: &str) -> Option<String> {
+    let url = line
+        .strip_prefix("Downloading from ")
+        .and_then(|rest| rest.split_once(": "))
+        .map(|(_, url)| url)
+        .or_else(|| line.strip_prefix("Downloading: "))?;
+    let artifact = url.rsplit('/').next()?;
+    (!artifact.is_empty()).then(|| artifact.to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -536,8 +638,10 @@ pub fn stop(tree: Arc<ProcessTree>) -> Result<(), String> {
 // ---------------------------------------------------------------------------
 
 mod launch_plan;
+mod toolchain_probe;
 
 use launch_plan::{EnvironmentRef, ExecutableRef, LaunchPlan, LaunchStep, resolve_plan_paths};
+pub(crate) use toolchain_probe::toolchain_candidates;
 
 fn resolve_working_directory(root: &Path, value: &str) -> PathBuf {
     let path = Path::new(value);
@@ -611,8 +715,9 @@ fn run_maven_install(
         String::from_utf8_lossy(&output.stderr)
     );
     if !text.is_empty() {
-        let _ = sender.send_blocking(SessionEvent::Output(text));
+        let _ = sender.send_blocking(SessionEvent::Output(text.clone()));
     }
+    emit_downloads(&text, sender);
     if !output.status.success() {
         return Err(format!(
             "{} ({})",
@@ -895,178 +1000,6 @@ fn resolve_toolchain_fallback(
             })
         }
     }
-}
-
-/// 一种工具链的探测方式。
-///
-/// `id` 必须和 Core `.lithe/toolchains/requirements.json` 里的 id 完全一致：Core 只在
-/// 候选里找到「同 id + 同 type」的条目时才认为该工具链已选择，否则对每条
-/// requirement 都报 `missingToolchain`。`type` 始终取 requirement 声明的值。
-struct ToolchainProbe {
-    id: &'static str,
-    command: &'static str,
-    version_arguments: &'static [&'static str],
-}
-
-/// 宿主能上报的工具链候选，覆盖 Core 生成 requirement 时会用到的 id。
-const TOOLCHAIN_PROBES: &[ToolchainProbe] = &[
-    ToolchainProbe {
-        id: "project-jdk",
-        command: "java",
-        version_arguments: &["-version"],
-    },
-    ToolchainProbe {
-        id: "project-maven",
-        command: "mvn",
-        version_arguments: &["-v"],
-    },
-    ToolchainProbe {
-        id: "project-gradle",
-        command: "gradle",
-        version_arguments: &["--version"],
-    },
-    ToolchainProbe {
-        id: "project-node",
-        command: "node",
-        version_arguments: &["--version"],
-    },
-    ToolchainProbe {
-        id: "project-python",
-        command: "python",
-        version_arguments: &["--version"],
-    },
-    ToolchainProbe {
-        id: "project-rust",
-        command: "cargo",
-        version_arguments: &["--version"],
-    },
-    ToolchainProbe {
-        id: "project-go",
-        command: "go",
-        version_arguments: &["version"],
-    },
-];
-
-/// 本机工具链候选，随 `runConfig.resolve` 一起上报。
-///
-/// Core 只把「候选里存在同 id + 同 type」的 requirement 视为已选择；宿主不报候选
-/// 时，即使机器上装了 JDK，每个 Java 配置都会报 “No local java toolchain is
-/// selected”。这里读取 `.lithe/toolchains/requirements.json`，只为声明过的工具链
-/// 探测，避免每次刷新都为全部工具拉起子进程；requirements 不存在时 Core 本来也
-/// 不会产出工具链诊断。
-pub(crate) fn toolchain_candidates(root: &Path) -> Vec<Value> {
-    let Some(requirements) = read_toolchain_requirements(root) else {
-        return Vec::new();
-    };
-
-    let mut candidates = Vec::new();
-    for (id, kind, needs_version) in requirements {
-        let Some((command, version_arguments)) = probe_for(&id) else {
-            continue;
-        };
-        let Ok(executable) = resolve_toolchain(root, root, &id, Some(command.as_str())) else {
-            continue;
-        };
-        // 版本只在 requirement 声明了版本约束时探测：没有约束时 Core 不比较版本。
-        let version = if needs_version {
-            toolchain_version(&executable, &kind, version_arguments)
-        } else {
-            String::new()
-        };
-        candidates.push(json!({
-            "id": id,
-            "type": kind,
-            "version": version,
-            "vendor": "",
-        }));
-    }
-    candidates
-}
-
-/// 读取 requirements 里的 `(id, type, 是否声明版本约束)`。
-fn read_toolchain_requirements(root: &Path) -> Option<Vec<(String, String, bool)>> {
-    let path = root
-        .join(".lithe")
-        .join("toolchains")
-        .join("requirements.json");
-    let text = std::fs::read_to_string(path).ok()?;
-    let document: Value = serde_json::from_str(&text).ok()?;
-    let toolchains = document.get("toolchains")?.as_object()?;
-
-    let mut entries = Vec::new();
-    for (id, requirement) in toolchains {
-        let Some(kind) = requirement.get("type").and_then(Value::as_str) else {
-            continue;
-        };
-        let has_version_constraint = ["minimumVersion", "version"].iter().any(|field| {
-            requirement
-                .get(*field)
-                .and_then(Value::as_str)
-                .is_some_and(|value| !value.trim().is_empty())
-        });
-        entries.push((id.clone(), kind.to_string(), has_version_constraint));
-    }
-    Some(entries)
-}
-
-/// 按 requirement id 找探测方式；未知 id 退化成 `project-<tool>` + `--version`。
-fn probe_for(id: &str) -> Option<(String, &'static [&'static str])> {
-    if let Some(probe) = TOOLCHAIN_PROBES.iter().find(|probe| probe.id == id) {
-        return Some((probe.command.to_string(), probe.version_arguments));
-    }
-    let tool = id.strip_prefix("project-")?;
-    if tool.is_empty() {
-        return None;
-    }
-    Some((tool.to_string(), &["--version"]))
-}
-
-/// 探测工具链版本；探测不出来时返回空串，让 Core 自己决定如何诊断。
-fn toolchain_version(executable: &Path, kind: &str, arguments: &[&str]) -> String {
-    // JDK 的 `bin/java` 上一级总有 `release`，读它比拉起 `java -version` 便宜。
-    if kind == "java" {
-        if let Some(version) = java_release_version(executable) {
-            return version;
-        }
-    }
-    let Ok(output) = Command::new(executable)
-        .args(arguments)
-        .stdin(Stdio::null())
-        .output()
-    else {
-        return String::new();
-    };
-    let text = format!(
-        "{}\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    first_version_token(&text).unwrap_or_default()
-}
-
-/// 读 `<jdk>/release` 里的 `JAVA_VERSION`。
-fn java_release_version(executable: &Path) -> Option<String> {
-    let release = executable.parent()?.parent()?.join("release");
-    let text = std::fs::read_to_string(release).ok()?;
-    text.lines().find_map(|line| {
-        let value = line.strip_prefix("JAVA_VERSION=")?.trim().trim_matches('"');
-        (!value.is_empty()).then(|| value.to_string())
-    })
-}
-
-/// 取输出里第一个形如 `21.0.1` / `3.9.9` / `1.22` 的版本号。
-fn first_version_token(text: &str) -> Option<String> {
-    for raw in text.split_whitespace() {
-        let token = raw.trim_matches(|character: char| !character.is_ascii_digit());
-        if token.contains('.')
-            && token
-                .chars()
-                .all(|character| character.is_ascii_digit() || character == '.')
-        {
-            return Some(token.to_string());
-        }
-    }
-    None
 }
 
 /// Maven wrapper entry that this platform can actually execute. A Windows
@@ -1381,6 +1314,7 @@ mod tests {
                     exit_code = code;
                 }
                 Ok(SessionEvent::Failed(message)) => panic!("run failed: {message}"),
+                Ok(SessionEvent::LaunchMode(_)) | Ok(SessionEvent::Preparation(_)) => {}
                 Err(_) => break,
             }
         }
@@ -1412,6 +1346,67 @@ mod tests {
         assert_eq!(
             exit_system_line(None, true),
             "Process stopped before it reported an exit code\n"
+        );
+        assert_eq!(
+            force_stop_system_line(),
+            "Process was force-stopped after the grace period\n"
+        );
+    }
+
+    #[test]
+    fn maven_download_lines_reveal_the_artifact() {
+        assert_eq!(
+            maven_download_artifact(
+                "Downloading from central: https://repo.maven.apache.org/maven2/org/springframework/spring-core/6.1.1/spring-core-6.1.1.jar"
+            ),
+            Some("spring-core-6.1.1.jar".to_string())
+        );
+        assert_eq!(
+            maven_download_artifact("Downloading: https://repo.example.org/a/b/c-lib-1.0.jar"),
+            Some("c-lib-1.0.jar".to_string())
+        );
+        assert_eq!(
+            maven_download_artifact(
+                "Downloaded from central: https://repo.maven.apache.org/maven2/x.jar"
+            ),
+            None
+        );
+        assert_eq!(
+            maven_download_artifact("[INFO] Building tiku-backend 1.0.0"),
+            None
+        );
+        assert_eq!(
+            maven_download_artifact(
+                "Downloading from central: https://repo.maven.apache.org/maven2/"
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn download_events_cover_each_artifact_once() {
+        let (sender, receiver) = unbounded();
+        let text = "\
+[INFO] Scanning for projects...\n\
+Downloading from central: https://repo.maven.apache.org/maven2/org/a/a-1.0.jar\n\
+Progress (1): 4.1/5.6 kB\n\
+Downloaded from central: https://repo.maven.apache.org/maven2/org/a/a-1.0.jar\n\
+Downloading from central: https://repo.maven.apache.org/maven2/org/a/a-1.0.jar\n\
+Downloading from central: https://repo.maven.apache.org/maven2/org/b/b-2.0.pom\n";
+        emit_downloads(text, &sender);
+        let mut artifacts = Vec::new();
+        while let Ok(SessionEvent::Preparation(PreparationEvent::Phase {
+            phase,
+            download_artifact,
+            ..
+        })) = receiver.try_recv()
+        {
+            assert_eq!(phase, PreparationPhase::Building);
+            artifacts.push(download_artifact);
+        }
+        assert_eq!(
+            artifacts,
+            [Some("a-1.0.jar".to_string()), Some("b-2.0.pom".to_string())]
         );
     }
 
@@ -1467,6 +1462,7 @@ mod tests {
                     break;
                 }
                 Ok(SessionEvent::Failed(message)) => panic!("run failed: {message}"),
+                Ok(SessionEvent::LaunchMode(_)) | Ok(SessionEvent::Preparation(_)) => {}
                 Err(_) => break,
             }
         }
