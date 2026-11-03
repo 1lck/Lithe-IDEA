@@ -35,6 +35,9 @@ final class MacLogStore: ApplicationLogging, LogSink, @unchecked Sendable {
     private var diagnosticRoots: Set<String>?
     private var stopped = false
     // Everything below is owned by the serial I/O queue.
+    private var diagnosticExpiry: DispatchWorkItem?
+    private var logSessions: [String: String] = [:]
+    private var diagnosticAttempts: [String: Bool] = [:]
     private var directory: URL?
     private var sequence: UInt64 = 0
     private var previousEvent: RustCoreBridge.LogInput?
@@ -61,6 +64,7 @@ final class MacLogStore: ApplicationLogging, LogSink, @unchecked Sendable {
     }
     private enum Pending: Sendable {
         case typed(any LogEvent, Date)
+        case core(CoreLogRecord, Date)
     }
     private struct OpenLog {
         let handle: FileHandle
@@ -98,6 +102,12 @@ final class MacLogStore: ApplicationLogging, LogSink, @unchecked Sendable {
         }
     }
 
+    func emit(_ record: CoreLogRecord) {
+        enqueue(level: record.level.lowercased(), category: record.channel.split(separator: "/").first.map(String.init) ?? "") {
+            .core(record, now())
+        }
+    }
+
     private func enqueue(level: String, category: String, make: () -> Pending) {
         let action = lock.withLock { () -> Int in
             guard !stopped else { return 0 }
@@ -114,6 +124,70 @@ final class MacLogStore: ApplicationLogging, LogSink, @unchecked Sendable {
         if action == 1 {
             // One-shot only while work exists; no idle polling timer.
             queue.asyncAfter(deadline: .now() + .milliseconds(100)) { [weak self] in self?.drainSafely() }
+        }
+    }
+
+    /// Called only with the channel Core returned at startup. The serial writer
+    /// owns the active-session set and all trace I/O alongside diagnostic state.
+    func registerSession(_ id: String, channel: String) {
+        queue.async { [self] in logSessions[id] = channel; updateSessionDiagnostics() }
+    }
+    func releaseSession(_ id: String) {
+        queue.async { [self] in logSessions.removeValue(forKey: id); diagnosticAttempts.removeValue(forKey: id) }
+    }
+    private func updateSessionDiagnostics() {
+        let state = lock.withLock { (!stopped && diagnosticNow() < diagnosticUntil, diagnosticRoots) }
+        for (id, channel) in logSessions {
+            // Core owns the root-to-category mapping (configureDiagnostic), so
+            // engine sessions follow the same admission as persisted DEBUG facts.
+            let root = channel.split(separator: "/").first.map(String.init) ?? ""
+            let enabled = state.0 && (state.1.map { $0.contains(root) } ?? true)
+            guard (diagnosticAttempts[id] ?? false) != enabled else { continue }
+            // Do not retry the same failed command on every drain, which would
+            // recursively enqueue failure logs. A changed desired state retries.
+            diagnosticAttempts[id] = enabled
+            do {
+                try core.setLogSessionDiagnostics(sessionID: id, enabled: enabled)
+            } catch {
+                // The caller handles transport failures through the existing
+                // session lifecycle. This host command failure has one boundary.
+                emit(AppLoggingDiagnosticsFailed(error: LogFailure(domain: "core", code: (error as? RustCoreBridge.CoreCallError)?.code ?? "trace_failed")))
+            }
+        }
+    }
+
+    /// Native filesystem I/O under this session's writable log root. If storage
+    /// is unavailable callers omit logDirectory and Core rejects ${logDir} use.
+    /// Descriptor-relative traversal refuses symbolic links even during a race.
+    func pluginFilesDirectory(pluginID: String) throws -> URL {
+        try queue.sync {
+            guard !lock.withLock({ stopped }) else { throw CocoaError(.fileWriteNoPermission) }
+            if directory == nil { try switchDirectory(defaultDirectory) }
+            guard let root = directory else { throw CocoaError(.fileNoSuchFile) }
+            _ = try header("app")
+            guard let sessionPath else { throw CocoaError(.coderInvalidValue) }
+            let relative = sessionPath + "/" + (try core.pluginLogFilesPath(pluginID: pluginID))
+            // Anchor traversal to directory descriptors. O_NOFOLLOW prevents a
+            // concurrently replaced component from redirecting mkdir/open outside
+            // the configured root, unlike a check-then-create URL traversal.
+            let physicalRoot = root.resolvingSymlinksInPath()
+            var descriptor = Darwin.open(physicalRoot.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+            guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+            defer { Darwin.close(descriptor) }
+            var cursor = physicalRoot
+            for component in relative.split(separator: "/") {
+                let name = String(component)
+                guard name != ".", name != ".." else { throw CocoaError(.fileWriteNoPermission) }
+                if mkdirat(descriptor, name, 0o700) != 0 && errno != EEXIST {
+                    throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                }
+                let next = openat(descriptor, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+                guard next >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+                Darwin.close(descriptor); descriptor = next
+                guard fchmod(descriptor, 0o700) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+                cursor.appendPathComponent(name, isDirectory: true)
+            }
+            return cursor
         }
     }
 
@@ -146,6 +220,9 @@ final class MacLogStore: ApplicationLogging, LogSink, @unchecked Sendable {
     private func input(_ pending: Pending) -> RustCoreBridge.LogInput {
         sequence += 1
         switch pending {
+        case .core(let record, let timestamp):
+            return .init(ts: record.ts ?? formatter.string(from: timestamp), level: record.level,
+                seq: sequence, event: record.event, op: record.op, msg: "", fields: record.fields, channel: record.channel)
         case .typed(let event, let timestamp):
             var fields: [String: RustCoreBridge.LogScalar] = [:]
             for (key, value) in event.fields {
@@ -195,16 +272,30 @@ final class MacLogStore: ApplicationLogging, LogSink, @unchecked Sendable {
             scheduled = false; urgent = false
             return (values, count)
         }
+        // The same writer drains process-owned facts on its existing work/flush
+        // cadence, including the final close. No idle observer or second writer.
+        updateSessionDiagnostics()
+        let coreWork = try core.drainCoreLogEvents()
         var batch: [RustCoreBridge.LogInput] = []
+        for record in coreWork.events {
+            let root = record.channel.split(separator: "/").first.map(String.init) ?? ""
+            let accepted = lock.withLock { record.level != "DEBUG" || (diagnosticNow() < diagnosticUntil &&
+                (diagnosticRoots.map { $0.contains(root) } ?? true)) }
+            if accepted {
+                batch.append(input(.core(record, now())))
+                if batch.count >= batchSize { try persist(batch, token: token); batch.removeAll(keepingCapacity: true) }
+            }
+        }
         for value in work.0 {
             try token.check()
             batch.append(input(value))
             if batch.count >= batchSize { try persist(batch, token: token); batch.removeAll(keepingCapacity: true) }
         }
-        if work.1 > 0 {
+        if work.1 > 0 || coreWork.dropped > 0 {
             sequence += 1
+            let sum = UInt64(work.1).addingReportingOverflow(coreWork.dropped)
             batch.append(.init(ts: formatter.string(from: now()), level: "WARN", seq: sequence,
-                event: "log.dropped", msg: "Dropped events", fields: ["count": .int(Int64(work.1))], channel: "app"))
+                event: "log.dropped", msg: "Dropped events", fields: ["count": .int(Int64(clamping: sum.overflow ? UInt64.max : sum.partialValue))], channel: "app"))
         }
         if !batch.isEmpty { try persist(batch, token: token) }
         if let root = directory, now().timeIntervalSince(lastMaintenance) >= 60 { try maintain(root, token: token) }
@@ -412,10 +503,26 @@ final class MacLogStore: ApplicationLogging, LogSink, @unchecked Sendable {
                     diagnosticRoots = selected == nil ? nil : roots
                     diagnosticUntil = enabled ? diagnosticNow() + 900 : 0
                 }
+                applySessionDiagnostics(enabled: enabled)
             }
         } catch {
             lock.withLock { failures += 1; diagnosticUntil = 0 }
+            await withCheckedContinuation { continuation in
+                queue.async { [self] in applySessionDiagnostics(enabled: false); continuation.resume() }
+            }
         }
+    }
+
+    /// Writer-queue only. Pushes the new state to active engine sessions and
+    /// keeps one cancellable expiry; repeated enables never accumulate timers.
+    private func applySessionDiagnostics(enabled: Bool) {
+        diagnosticExpiry?.cancel()
+        diagnosticExpiry = nil
+        updateSessionDiagnostics()
+        guard enabled else { return }
+        let expiry = DispatchWorkItem { [weak self] in self?.updateSessionDiagnostics() }
+        diagnosticExpiry = expiry
+        queue.asyncAfter(deadline: .now() + 900, execute: expiry)
     }
 
     func clear() async throws {
@@ -485,6 +592,7 @@ final class MacLogStore: ApplicationLogging, LogSink, @unchecked Sendable {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             queue.async { [self] in
                 defer {
+                    diagnosticExpiry?.cancel(); diagnosticExpiry = nil
                     closeHandles()
                     for subscriber in subscribers.values { subscriber.finish() }
                     subscribers.removeAll()

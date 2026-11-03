@@ -196,6 +196,8 @@ try {
   await test("application log state and export snapshots cannot be reused", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const resource = registry.excludedResources.find(item => item.id === "application-log-state");
+    assert(resource.locations.includes("<platform-log-root>/sessions/<session>/plugins/<id>/files/"));
+    assert.match(resource.reason, /0700.*no-follow/);
     assert.equal(resource.reusable, false);
     assert.ok(resource.locations.some(location => location.includes("diagnostics-export")));
     const result = reuse(["--resource", resource.id]);

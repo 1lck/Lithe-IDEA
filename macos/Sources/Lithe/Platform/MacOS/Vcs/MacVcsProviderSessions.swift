@@ -231,7 +231,7 @@ final class MacVcsProviderSessions: VcsProviderRequesting {
             core: prepared?.owner.core ?? core,
             processRegistry: processRegistry,
             moduleID: .vcsProvidersExtension(target.pluginID),
-            pluginID: target.pluginID
+            pluginID: target.pluginID, role: .vcs, logSubject: target.vcs
         )
         let endBackendProcesses = endBackendProcesses
         if let owner = prepared?.owner { session.releaseResources = owner.release }

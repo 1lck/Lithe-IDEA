@@ -115,14 +115,17 @@ struct MacPluginLanguageServerLaunchResolver {
     private let planner: any DeclarativeLanguageServerLaunchPlanning
     private let directories: MacPluginStateDirectories
     private let settings: any PluginSettingsStoring
+    private let logDirectory: @Sendable (String) throws -> URL?
     private let fileManager: FileManager
 
     init(
         planner: any DeclarativeLanguageServerLaunchPlanning,
         directories: MacPluginStateDirectories,
         settings: any PluginSettingsStoring,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        logDirectory: @escaping @Sendable (String) throws -> URL? = { _ in nil }
     ) {
+        self.logDirectory = logDirectory
         self.planner = planner
         self.directories = directories
         self.settings = settings
@@ -160,7 +163,7 @@ struct MacPluginLanguageServerLaunchResolver {
         _ source: DeclarativeLanguageServerLaunchSource,
         workspaceRootURL: URL
     ) throws -> ResolvedLanguageServerLaunch {
-        let request = request(for: source, workspaceRootURL: workspaceRootURL)
+        let request = try request(for: source, workspaceRootURL: workspaceRootURL)
         let plan = try planner.languageServerLaunchPlan(
             manifest: source.manifest,
             languageID: source.languageID,
@@ -226,7 +229,8 @@ struct MacPluginLanguageServerLaunchResolver {
             ),
             architecture: Self.hostArchitecture,
             settings: settings.values(forPlugin: pluginID),
-            projectSettings: settings.projectValues(forPlugin: pluginID, projectRoot: workspaceRootURL)
+            projectSettings: settings.projectValues(forPlugin: pluginID, projectRoot: workspaceRootURL),
+            logDirectory: try logDirectory(pluginID)
         )
         let plan = try planner.buildProviderLaunchPlan(
             manifest: manifest,
@@ -278,7 +282,8 @@ struct MacPluginLanguageServerLaunchResolver {
             ),
             architecture: Self.hostArchitecture,
             settings: settings.values(forPlugin: pluginID),
-            projectSettings: settings.projectValues(forPlugin: pluginID, projectRoot: workspaceRootURL)
+            projectSettings: settings.projectValues(forPlugin: pluginID, projectRoot: workspaceRootURL),
+            logDirectory: try logDirectory(pluginID)
         )
         let plan = try planner.vcsProviderLaunchPlan(manifest: manifest, vcs: vcs, request: request)
         guard let provider = plan.vcsProvider, provider.vcs == vcs else {
@@ -323,7 +328,8 @@ struct MacPluginLanguageServerLaunchResolver {
             stateDirectory: stateDirectory,
             workspaceStateDirectory: nil,
             architecture: Self.hostArchitecture,
-            settings: launchSettings
+            settings: launchSettings,
+            logDirectory: try logDirectory(pluginID)
         )
         let plan = try planner.backendLaunchPlan(manifest: manifest, request: request)
         guard let backend = plan.backend else {
@@ -378,7 +384,8 @@ struct MacPluginLanguageServerLaunchResolver {
                 .appendingPathComponent(MacPluginStateDirectories.workspaceDigest(workspaceRootURL), isDirectory: true),
             architecture: Self.hostArchitecture,
             settings: settings.values(forPlugin: pluginID),
-            projectSettings: settings.projectValues(forPlugin: pluginID, projectRoot: workspaceRootURL)
+            projectSettings: settings.projectValues(forPlugin: pluginID, projectRoot: workspaceRootURL),
+            logDirectory: try logDirectory(pluginID)
         )
         let plan = try planner.debugAdapterLaunchPlan(manifest: manifest, adapterID: adapterID, request: request)
         guard let adapter = plan.debugAdapter, adapter.id == adapterID else {
@@ -487,7 +494,7 @@ struct MacPluginLanguageServerLaunchResolver {
         let plan = try planner.languageServerLaunchPlan(
             manifest: source.manifest,
             languageID: source.languageID,
-            request: request(for: source, workspaceRootURL: source.packageURL)
+            request: try request(for: source, workspaceRootURL: source.packageURL)
         )
         guard let integration = plan.hostIntegration else { return nil }
         try verifyPackagePaths(plan.requiredPackagePaths, packageURL: source.packageURL)
@@ -516,7 +523,7 @@ struct MacPluginLanguageServerLaunchResolver {
         let plan = try planner.languageServerLaunchPlan(
             manifest: source.manifest,
             languageID: source.languageID,
-            request: request(for: source, workspaceRootURL: source.packageURL)
+            request: try request(for: source, workspaceRootURL: source.packageURL)
         )
         return ExecutableProbe(
             validationArguments: plan.validationArguments,
@@ -530,7 +537,7 @@ struct MacPluginLanguageServerLaunchResolver {
     private func request(
         for source: DeclarativeLanguageServerLaunchSource,
         workspaceRootURL: URL
-    ) -> DeclarativeLanguageServerLaunchRequest {
+    ) throws -> DeclarativeLanguageServerLaunchRequest {
         DeclarativeLanguageServerLaunchRequest(
             pluginDirectory: source.packageURL.standardizedFileURL,
             stateDirectory: directories.stateDirectory(
@@ -544,7 +551,8 @@ struct MacPluginLanguageServerLaunchResolver {
             ),
             architecture: Self.hostArchitecture,
             settings: settings.values(forPlugin: source.pluginID),
-            projectSettings: settings.projectValues(forPlugin: source.pluginID, projectRoot: workspaceRootURL)
+            projectSettings: settings.projectValues(forPlugin: source.pluginID, projectRoot: workspaceRootURL),
+            logDirectory: try logDirectory(source.pluginID)
         )
     }
 
@@ -557,6 +565,7 @@ struct MacPluginLanguageServerLaunchResolver {
     ) throws {
         for directory in plan.requiredDirectories {
             let url: URL? = switch directory {
+            case .log: request.logDirectory
             case .state: request.stateDirectory
             case .workspaceState: request.workspaceStateDirectory
             }
