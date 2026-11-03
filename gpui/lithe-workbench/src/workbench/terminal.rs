@@ -158,8 +158,11 @@ impl Workbench {
             .child(Icon::new(IconName::ChevronDown).with_size(px(10.0)))
             .tooltip(tr("Choose terminal profile"))
             .dropdown_menu_with_anchor(Anchor::TopLeft, move |menu, _window, _cx| {
+                // Tauri 的 profile 下拉以 terminal.newTerminal 作为标题（不可
+                // 点击），不是动作项。gpui-kit 弹出菜单提供 Label 条目承担这一
+                // 角色，比伪装成「可点但禁用的动作项」更接近原语义。
                 let mut menu = menu
-                    .item(PopupMenuItem::new(tr("New Terminal")).disabled(true))
+                    .item(PopupMenuItem::label(tr("New Terminal")))
                     .separator();
 
                 // 系统默认 shell（不指定 id）。
@@ -409,6 +412,57 @@ impl Workbench {
         cx.notify();
     }
 
+    /// Terminal > New Terminal：真正新建终端会话，不是只切面板。
+    ///
+    /// - 面板未显示时 `show_tool` 本身就会懒启动主终端 PTY 会话
+    ///   （`TerminalPanel` 首次渲染时启动），即一个新会话；
+    /// - 面板已在显示且只有一个会话时，走 `+` 按钮同一入口
+    ///   （`split_terminal`）创建第二个真实 PTY 会话；
+    /// - 已有两个会话（终端模型上限）时什么都不做；菜单侧用
+    ///   `MenuState::terminal_has_split` 把 New Terminal 灰置，保证
+    ///   「能点就一定新建了会话」。
+    ///
+    /// 对齐 Tauri `terminal.new` 派发 `terminal-new` 事件的语义；Tauri
+    /// 不限制会话数，GPUI 终端模型上限为 2。
+    pub(super) fn new_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let terminal_active =
+            self.bottom_visible && self.active_bottom == Some(ToolWindow::Terminal);
+        if terminal_active && self.terminal_secondary.is_none() {
+            self.split_terminal(TerminalSplitAxis::Horizontal, window, cx);
+        } else {
+            self.show_tool(ToolWindow::Terminal, window, cx);
+        }
+    }
+
+    /// Zoom 系列的目标判定：底部终端工具窗当前可见且活跃时缩放终端字号
+    /// （对齐 Tauri `zoomIn` 按焦点目标分发到 editor/terminal 的语义），
+    /// 否则缩放编辑器字号。
+    pub(super) fn zoom_prefers_terminal(&self) -> bool {
+        self.bottom_visible && self.active_bottom == Some(ToolWindow::Terminal)
+    }
+
+    /// 按 `delta` 调整终端字号（Zoom In/Out 在终端工具窗活跃时的目标，
+    /// 对齐 Tauri `zoomIn("terminal")`）。
+    pub(super) fn nudge_terminal_zoom(
+        &mut self,
+        delta: f32,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.settings.nudge_terminal_font_size(delta) {
+            self.save_settings(cx);
+            self.apply_terminal_preferences(window, cx);
+        }
+    }
+
+    /// 重置终端字号（Zoom Reset 在终端工具窗活跃时的目标）。
+    pub(super) fn reset_terminal_zoom(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.settings.reset_terminal_font_size() {
+            self.save_settings(cx);
+            self.apply_terminal_preferences(window, cx);
+        }
+    }
+
     pub(super) fn apply_terminal_preferences(
         &mut self,
         window: &mut Window,
@@ -416,12 +470,17 @@ impl Workbench {
     ) {
         let font_size = self.settings.terminal_font_size;
         let scrollback = self.settings.terminal_scrollback;
+        // 设置页的默认 Shell（`terminal_default_shell`）在这里消费：`None`
+        // 表示系统默认。`set_shell` 对相同值 no-op，不会误杀运行中的会话。
+        let default_shell = self.settings.terminal_default_shell.clone();
         self.terminal.update(cx, |panel, panel_cx| {
             panel.set_preferences(font_size, scrollback, window, panel_cx);
+            panel.set_shell(default_shell.clone(), window, panel_cx);
         });
         if let Some(panel) = self.terminal_secondary.clone() {
             panel.update(cx, |panel, panel_cx| {
                 panel.set_preferences(font_size, scrollback, window, panel_cx);
+                panel.set_shell(default_shell.clone(), window, panel_cx);
             });
         }
     }

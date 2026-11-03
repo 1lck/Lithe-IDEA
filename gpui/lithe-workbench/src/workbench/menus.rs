@@ -10,6 +10,7 @@ use gpui_kit::{
 };
 use lithe_ui::i18n::tr;
 use lithe_ui::icons::{LitheIcon, icon};
+use lithe_ui::links;
 use lithe_ui::{LitheMetrics, LitheTokens, current_tokens};
 
 use super::dock::{DockAnchor, ToolWindow};
@@ -415,7 +416,7 @@ impl Workbench {
         cx.notify();
     }
 
-    pub(super) fn menu_state(&self) -> MenuState {
+    pub(super) fn menu_state(&self, cx: &Context<Self>) -> MenuState {
         MenuState {
             has_project: self.project_root.is_some(),
             has_active_tab: self.active_tab.is_some(),
@@ -438,11 +439,16 @@ impl Workbench {
             can_reopen_closed: !self.closed_tabs.is_empty(),
             menu_bar_visible: self.menu_bar_visible,
             language: lithe_ui::i18n::language(),
+            // Theme 子菜单的数据源；注册表随主题一起静态注册。
+            themes: lithe_ui::registered_themes(),
+            // Stop Debugging 映射为停止当前运行会话，菜单按会话状态启停。
+            run_running: self.run_panel.read(cx).is_running(),
+            terminal_has_split: self.terminal_secondary.is_some(),
         }
     }
 
     pub(super) fn install_menus(&mut self, cx: &mut Context<Self>) {
-        let state = self.menu_state();
+        let state = self.menu_state(cx);
         let menus = app_menu::build_menus(&state);
         self.menu_bar
             .update(cx, |bar, bar_cx| bar.set_menus(menus, bar_cx));
@@ -480,15 +486,8 @@ impl Workbench {
             "edit.selectAll" => Some("editor.action.selectAll"),
             "edit.find" => Some("actions.find"),
             "edit.replace" => Some("editor.action.startFindReplaceAction"),
-            "edit.findNext" => Some("editor.action.nextMatchFindAction"),
-            "edit.findPrevious" => Some("editor.action.previousMatchFindAction"),
             "edit.toggleComment" => Some("editor.action.commentLine"),
-            "edit.format" => Some("editor.action.formatDocument"),
-            "edit.formatSelection" => Some("editor.action.formatSelection"),
-            "edit.gotoLine" => Some("editor.action.gotoLine"),
             "edit.quickFix" => Some("editor.action.quickFix"),
-            "edit.triggerParameterHints" => Some("editor.action.triggerParameterHints"),
-            "edit.showHover" => Some("editor.action.showHover"),
             "edit.duplicateLine" => Some("editor.action.copyLinesDownAction"),
             "edit.deleteLine" => Some("editor.action.deleteLines"),
             "edit.moveLineUp" => Some("editor.action.moveLinesUpAction"),
@@ -497,12 +496,15 @@ impl Workbench {
         };
 
         if let Some(action) = editor_command {
-            self.editor.update(cx, |editor, editor_cx| {
-                editor.run_command(action, window, editor_cx);
-            });
+            self.dispatch_editor_action(command, action, window, cx);
             return;
         }
 
+        // 分支里的同名别名（例如 `file.closeTab` → `file.closeFile`、
+        // `navigate.*` → `go.*`、`view.quickOpen` → `go.quickOpen`）是历史
+        // 命令名。当前没有菜单项或快捷键构造这些别名，因此它们不进
+        // `command_handled` 白名单（放进白名单会让“没有入口的命令”看起来
+        // 像可用能力）；分支保留给可能直接构造 `MenuCommand` 的内部调用。
         match command {
             "file.openProject" => self.pick_project(window, cx),
             "file.openFile" => self.pick_file(window, cx),
@@ -537,7 +539,17 @@ impl Workbench {
             "file.reopenClosedTab" | "file.reopenClosed" => self.reopen_last_closed_tab(window, cx),
             "file.localHistory" => self.open_local_history(window, cx),
             "file.settings" | "tools.settings" => self.toggle_settings(window, cx),
-            "file.exit" => cx.quit(),
+            "file.exit" => self.request_quit(window, cx),
+            // Edit > Go to Line：行号输入复用工作台 prompt 弹层，确认后由
+            // 编辑器移动光标并滚动到目标行。
+            "edit.gotoLine" => self.open_go_to_line_prompt(window, cx),
+            // 别名命令：以下 id 只由快捷键、活动栏或工具条发送，不在应用菜单
+            // 里出现，因此不需要进 `app_menu::command_handled` 的白名单。
+            // `file.closeTab` / `file.closeOtherTabs` / `file.closeAllTabs` /
+            // `file.reopenClosedTab` 是菜单 id 的旧拼写；`view.toolBar`、
+            // `view.toggleDark`、`view.splitRight`、`view.splitDown`、
+            // `view.quickOpen`、`navigate.*`、`git.commit` 同理，保持两条入口
+            // 行为一致。
             "view.toolBar" | "window.toggleMenuBar" => self.toggle_menu_bar(window, cx),
             "view.toggleDark" | "view.appearance.dark" => {
                 let dark = !self.settings.dark;
@@ -549,9 +561,30 @@ impl Workbench {
             "view.minimap" => self.toggle_editor_minimap(window, cx),
             "view.lineNumbers" => self.toggle_editor_line_numbers(window, cx),
             "view.renderWhitespace" => self.toggle_editor_render_whitespace(window, cx),
-            "view.zoomIn" => self.nudge_editor_zoom(1.0, window, cx),
-            "view.zoomOut" => self.nudge_editor_zoom(-1.0, window, cx),
-            "view.zoomReset" => self.reset_editor_zoom(window, cx),
+            // Zoom 系列按目标分发：底部终端工具窗活跃时缩放终端字号，否则
+            // 缩放编辑器字号（对齐 Tauri `zoomIn/zoomOut/zoomReset` 按焦点
+            // 目标分发到 editor/terminal 的语义；Tauri 同样不是全局 UI 缩放）。
+            "view.zoomIn" => {
+                if self.zoom_prefers_terminal() {
+                    self.nudge_terminal_zoom(1.0, window, cx);
+                } else {
+                    self.nudge_editor_zoom(1.0, window, cx);
+                }
+            }
+            "view.zoomOut" => {
+                if self.zoom_prefers_terminal() {
+                    self.nudge_terminal_zoom(-1.0, window, cx);
+                } else {
+                    self.nudge_editor_zoom(-1.0, window, cx);
+                }
+            }
+            "view.zoomReset" => {
+                if self.zoom_prefers_terminal() {
+                    self.reset_terminal_zoom(window, cx);
+                } else {
+                    self.reset_editor_zoom(window, cx);
+                }
+            }
             "view.splitEditor" => self.toggle_editor_split(window, cx),
             "view.splitRight" => self.split_editor_right(window, cx),
             "view.splitDown" => {
@@ -570,48 +603,43 @@ impl Workbench {
             "view.dock.bottom" => {
                 self.set_dock_visible(DockAnchor::Bottom, !self.bottom_visible, cx)
             }
-            "view.globalSearch" | "go.findInFiles" | "go.replaceInFiles" => {
-                self.show_tool(ToolWindow::Search, window, cx)
+            "view.globalSearch" | "go.findInFiles" => {
+                self.show_tool(ToolWindow::Search, window, cx);
+                // 显式切回查找模式，避免残留上次的替换模式（open_find
+                // 只切模式，显示工具窗由 show_tool 负责）。
+                self.search.update(cx, |panel, panel_cx| {
+                    panel.open_find(panel_cx);
+                });
+            }
+            // Replace in Files：打开搜索面板并展开替换区（SearchPanel 的替换
+            // 输入与 Replace / Replace all 在详情区内渲染），对齐 Tauri 搜索
+            // 面板 SearchReplaceToggle 的展开态。
+            "go.replaceInFiles" => {
+                self.show_tool(ToolWindow::Search, window, cx);
+                self.search.update(cx, |panel, panel_cx| {
+                    panel.open_replace(panel_cx);
+                });
             }
             "view.sourceControl" | "tools.git" | "git.commit" => {
                 self.show_tool(ToolWindow::Changes, window, cx)
             }
             "view.diagnostics" => self.show_tool(ToolWindow::Problems, window, cx),
             "view.runAndDebug" => self.show_tool(ToolWindow::Run, window, cx),
-            "view.github" => {
-                self.platform
-                    .open_url("https://github.com/Lithe-IDEA/Lithe-IDEA");
-            }
+            // View > GitHub 已从白名单移除（菜单灰置）：Tauri 侧它切换
+            // GitHub 侧栏，而 GPUI 对应的 Pull Requests 工具窗仍是空壳，
+            // 按「能点必有效果」原则禁用；不允许退回打开浏览器冒充。
             "navigate.back" | "go.back" => self.navigate_history(true, window, cx),
             "navigate.forward" | "go.forward" => self.navigate_history(false, window, cx),
             "navigate.nextTab" | "go.nextTab" => self.cycle_tab(1, window, cx),
             "navigate.previousTab" | "go.previousTab" => self.cycle_tab(-1, window, cx),
             "go.definition" => {
-                self.editor.update(cx, |e, ecx| {
-                    e.run_command("editor.action.revealDefinition", window, ecx);
-                });
+                self.dispatch_editor_action(command, "editor.action.revealDefinition", window, cx);
             }
-            "go.implementation" => {
-                self.editor.update(cx, |e, ecx| {
-                    e.run_command("editor.action.goToImplementation", window, ecx);
-                });
-            }
-            "go.typeDefinition" => {
-                self.editor.update(cx, |e, ecx| {
-                    e.run_command("editor.action.goToTypeDefinition", window, ecx);
-                });
-            }
-            "go.references" => {
-                self.editor.update(cx, |e, ecx| {
-                    e.run_command("editor.action.referenceSearch.trigger", window, ecx);
-                });
-            }
-            "go.renameSymbol" => {
-                self.editor.update(cx, |e, ecx| {
-                    e.run_command("editor.action.rename", window, ecx);
-                });
-            }
-            "terminal.new" => self.show_tool(ToolWindow::Terminal, window, cx),
+            // Go to Implementation / Type Definition / References / Rename Symbol
+            // 没有对应的原生能力（编辑器没有多结果 peek UI 与重命名控件，Core 的
+            // 同文档兜底只覆盖 definition），菜单项已在 `command_handled` 里
+            // 禁用；这些入口落地前不要在这里留空转发。
+            "terminal.new" => self.new_terminal(window, cx),
             "terminal.split" => {
                 self.split_terminal(super::terminal::TerminalSplitAxis::Horizontal, window, cx)
             }
@@ -638,49 +666,66 @@ impl Workbench {
             // View > Run 与活动栏「运行」、Shift+F10 同一条路径：只切面板不启动，
             // 与 Tauri `toggleRunPane` 一致。`run.run` 才是“运行选中配置”。
             "run.toggleWindow" | "view.tool.run" => self.toggle_tool(ToolWindow::Run, window, cx),
+            // gpui 构建没有调试器：Tauri 的 `debug.start` 在这里降级为打开
+            // Debug 工具窗。工具窗还是空壳，菜单项已按「不放行空壳」禁用，
+            // 因此本分支当前没有真实入口（活动栏 debug 图标直接调
+            // toggle_tool，不经命令）；调试器落地后改回启动调试会话。
             "run.debug" => self.show_tool(ToolWindow::Debug, window, cx),
             "run.configurations" => self.show_tool(ToolWindow::Run, window, cx),
-            "run.stop" | "run.toggleBreakpoint" => {}
+            // Stop Debugging：停止当前运行会话。Tauri 的 `debug.stop` 停止当前
+            // 调试会话；gpui 构建没有调试器，语义映射为停止当前活跃的运行会话
+            // （`stop_active`：优先选中配置，否则停止所有仍在启动/运行的会话），
+            // 与菜单 `run_running` 的启用条件严格对应，点击必有真实效果。
+            // `run.toggleBreakpoint` 没有断点模型，白名单不放行，由此永远到不
+            // 了派发。
+            "run.stop" => {
+                self.run_panel
+                    .update(cx, |panel, panel_cx| panel.stop_active(panel_cx));
+            }
             "tools.agent" => self.show_tool(ToolWindow::Agent, window, cx),
+            // Database / Services 工具窗还是空壳（dock.rs 渲染占位说明），
+            // 菜单入口在 app_menu.rs 里禁用；分支保留给内容落地后放行。
             "tools.database" => self.show_tool(ToolWindow::Database, window, cx),
             "tools.services" => self.show_tool(ToolWindow::Services, window, cx),
-            "tools.webInspector" => {
-                self.editor
-                    .update(cx, |editor, editor_cx| editor.open_devtools(editor_cx));
-            }
+            // Tools > Web Inspector 已移除入口：GPUI 构建没有 WebView，
+            // `open_devtools` 是空壳；菜单项在 `command_handled` 里禁用。
             "tools.keyboardShortcuts" | "help.keyboardShortcuts" => {
-                self.toggle_settings(window, cx)
+                self.open_keymap_settings(window, cx)
             }
             "window.minimize" => window.minimize_window(),
-            "window.zoom" | "window.fullscreen" => window.zoom_window(),
+            // Maximize 走 native zoom；Fullscreen 用 gpui `Window::toggle_fullscreen`
+            // （此前误映射成 zoom_window，F11 变成了最大化/还原）。语义对齐
+            // Tauri `setFullscreen(!isFullscreen)`。
+            "window.zoom" => window.zoom_window(),
+            "window.fullscreen" => window.toggle_fullscreen(),
             "window.close" => window.remove_window(),
-            "help.documentation" | "help.repository" => {
-                self.platform
-                    .open_url("https://github.com/Lithe-IDEA/Lithe-IDEA");
+            // Help 菜单 URL 统一走 `lithe_ui::links` 常量（真源为
+            // `git remote -v` 的 origin `1lck/Lithe-IDEA`，与 Tauri
+            // services.json 一致），不再出现裸 URL 字符串。
+            "help.documentation" => {
+                self.platform.open_url(links::DOCS_URL);
+            }
+            "help.repository" => {
+                self.platform.open_url(links::REPOSITORY_URL);
             }
             "help.whatsNew" => {
-                self.platform
-                    .open_url("https://github.com/Lithe-IDEA/Lithe-IDEA/releases");
+                self.platform.open_url(links::RELEASES_URL);
             }
             "help.changelog" => {
-                self.platform
-                    .open_url("https://github.com/Lithe-IDEA/Lithe-IDEA/blob/preview/CHANGELOG.md");
+                self.platform.open_url(links::CHANGELOG_URL);
             }
             "help.reportBug" => {
-                self.platform.open_url(
-                    "https://github.com/Lithe-IDEA/Lithe-IDEA/issues/new?template=bug_report.yml",
-                );
+                // 对齐 Tauri：先把环境信息写入剪贴板，再打开模板化 issue 表单。
+                lithe_features::bug_report::copy_environment_report(cx);
+                self.platform.open_url(links::BUG_REPORT_URL);
             }
             "help.requestFeature" => {
-                self.platform.open_url("https://github.com/Lithe-IDEA/Lithe-IDEA/issues/new?template=feature_request.yml");
+                self.platform.open_url(links::FEATURE_REQUEST_URL);
             }
-            "help.checkUpdates" => {
-                self.push_notification(
-                    tr("Updates"),
-                    Some(tr("Updates are not available in this GPUI build.").into()),
-                    super::notifications::NotificationKind::Info,
-                );
-            }
+            // 检查更新与 Updates 页按钮走同一状态机入口：落到 Updates 页并触发
+            // 一次检查（本构建结果只能落在 Unavailable，页面文案给出下载页）。
+            // Tauri 的对应动作是 menu_check_updates → updater。
+            "help.checkUpdates" => self.open_update_check_settings(window, cx),
             "help.about" => {
                 self.push_notification(
                     "Lithe",
@@ -699,6 +744,9 @@ impl Workbench {
                 self.save_settings(cx);
                 self.apply_theme_to_workbench(cx);
             }
+            // 语言切换目前只在设置页（General › Language）提供入口；保留
+            // `view.language.{code}` 前缀供后续菜单语言子菜单复用，当前没有
+            // 菜单项生成这些 id（不是未接线，而是尚无调用方）。
             cmd if cmd.starts_with("view.language.") => {
                 let code = &cmd["view.language.".len()..];
                 self.settings.language = code.to_string();
@@ -707,7 +755,38 @@ impl Workbench {
                 self.install_menus(cx);
                 cx.notify();
             }
-            _ => {}
+            // 兜底：菜单层只会发送 `app_menu::command_handled` 放行过的 id，
+            // 其余调用方（快捷键/活动栏）如果传错 id，这里只写一条 debug 日志，
+            // 不再静默丢弃，便于用日志时间线定位未接线入口。
+            other => {
+                lithe_features::logging::log_event(
+                    lithe_features::logging::Level::Debug,
+                    "application",
+                    format!("Unhandled menu command: {other}"),
+                );
+            }
+        }
+    }
+
+    /// 把菜单命令翻译成编辑器 action 并派发；`run_command` 返回 false 表示
+    /// 编辑器没有接线（action 未映射或没有打开的文档），写 debug 日志而不是
+    /// 静默吞掉，避免菜单出现「点了没反应」的假可用。
+    fn dispatch_editor_action(
+        &mut self,
+        menu_command: &str,
+        editor_action: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let handled = self.editor.update(cx, |editor, editor_cx| {
+            editor.run_command(editor_action, window, editor_cx)
+        });
+        if !handled {
+            lithe_features::logging::log_event(
+                lithe_features::logging::Level::Debug,
+                "application",
+                format!("Menu command had no effect: {menu_command}"),
+            );
         }
     }
 }

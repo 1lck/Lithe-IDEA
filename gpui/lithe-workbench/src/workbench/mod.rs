@@ -88,6 +88,17 @@ pub(crate) const TOP_MENU_CONTEXT: &str = "LitheTopMenu";
 pub(crate) const MENU_CONTEXT: &str = "LitheWorkbench";
 pub(crate) const MEMORY_REFRESH_INTERVAL: Duration = Duration::from_secs(2);
 
+/// 组装一条菜单快捷键绑定：`mac` 是 macOS 的 Keystroke（⌘=cmd），`other`
+/// 是其它平台的 Keystroke（⌘=ctrl），与菜单文案的显示规则同源。按键统一
+/// 转成 `MenuCommand`，由 `run_menu_command` 单入口派发。
+fn menu_key_binding(mac: &'static str, other: &'static str, command: &'static str) -> KeyBinding {
+    KeyBinding::new(
+        if cfg!(target_os = "macos") { mac } else { other },
+        crate::app_menu::MenuCommand::new(command),
+        Some(MENU_CONTEXT),
+    )
+}
+
 pub struct Workbench {
     client: CoreClient,
     platform: Arc<dyn PlatformServices>,
@@ -154,6 +165,9 @@ pub struct Workbench {
     active_tab: Option<SharedString>,
     untitled_counter: usize,
     pending_close_tab: Option<SharedString>,
+    /// 退出确认：File > Quit 在有未保存标签时先弹确认（对齐 Tauri
+    /// `requestApplicationQuit` 让每个窗口走 close guard 的语义）。
+    pending_quit: bool,
     closed_tabs: Vec<PathBuf>,
     nav_back: Vec<PathBuf>,
     nav_forward: Vec<PathBuf>,
@@ -218,8 +232,9 @@ pub struct Workbench {
     project_search_open: bool,
     project_search_query: String,
     project_options_open: bool,
+    // 「隐藏文件」开关；真实落点在项目树的点前缀行过滤（workspace.rs）。
+    // 默认显示：对齐 Tauri showHiddenFilesInFileTree 的默认值。
     project_show_hidden: bool,
-    project_show_ignored: bool,
     project_view_dependencies: bool,
     tab_context_menu: Option<(Entity<PopupMenu>, Point<Pixels>)>,
     _tab_context_menu_subscription: Option<Subscription>,
@@ -420,11 +435,109 @@ impl Workbench {
             }
         }
 
+        // Eye 预览 / Choose Diff Source：工作区（staged / 未暂存 / 未跟踪）
+        // 差异在中央编辑区打开（对齐 Tauri `viewFileDiff` 的 working-tree 页）。
+        {
+            let owner = owner.clone();
+            for panel in [git.clone(), git_log.clone()] {
+                panel.update(cx, |panel, _panel_cx| {
+                    let owner = owner.clone();
+                    panel.on_open_diff_source(move |source, path, window, cx| {
+                        let _ = owner.update(cx, |this, cx| {
+                            this.open_diff_source(source, path, window, cx);
+                        });
+                    });
+                });
+            }
+        }
+
+        // Git 管理器对话框的意图来源：变更树右键 / View Options 复用标题栏
+        // 菜单的对话框打开路径（dock.rs 的 commit_header_action），
+        // 保证只有一条创建路径。
+        {
+            let owner = owner.clone();
+            for panel in [git.clone(), git_log.clone()] {
+                panel.update(cx, |panel, _panel_cx| {
+                    let owner = owner.clone();
+                    panel.on_open_dialog(move |kind, window, cx| {
+                        let _ = owner.update(cx, |this, cx| {
+                            this.commit_header_action(
+                                CommitHeaderAction::Dialog(kind),
+                                window,
+                                cx,
+                            );
+                        });
+                    });
+                });
+            }
+        }
+
         cx.bind_keys([
             // 活动栏「运行」的快捷键提示写的是 Shift+F10，这里必须真的注册，
             // 否则 tooltip 会承诺一个不存在的按键。语义与活动栏点击一致：
             // 只切换底部 Run 工具窗，不启动进程。
             KeyBinding::new("shift-f10", ToggleRunWindow, Some(MENU_CONTEXT)),
+            // 菜单承诺的快捷键（app_menu.rs 的 shortcut 文案）在这里真实注册，
+            // 统一走 MenuCommand → run_menu_command 派发，不在 UI 层另写逻辑。
+            // 平台约定与 `lithe_ui::shortcut::display_shortcut` 一致：菜单里的
+            // ⌘ 在 macOS 是 cmd，其它平台是 ctrl。
+            //
+            // File
+            menu_key_binding("cmd-n", "ctrl-n", "file.newTab"),
+            menu_key_binding("shift-cmd-n", "ctrl-shift-n", "file.newWindow"),
+            menu_key_binding("cmd-o", "ctrl-o", "file.openProject"),
+            menu_key_binding("cmd-s", "ctrl-s", "file.save"),
+            menu_key_binding("shift-cmd-s", "ctrl-shift-s", "file.saveAs"),
+            menu_key_binding("alt-cmd-s", "ctrl-alt-s", "file.saveAll"),
+            menu_key_binding("cmd-w", "ctrl-w", "file.closeFile"),
+            menu_key_binding("shift-cmd-w", "ctrl-shift-w", "window.close"),
+            menu_key_binding("shift-cmd-t", "ctrl-shift-t", "file.reopenClosed"),
+            menu_key_binding("cmd-q", "ctrl-q", "file.exit"),
+            // Edit。⌘/ ⇧⌘K ⌥↑ ⌥↓ 对应原生实现的行级编辑操作；⌘D 不注册：
+            // Duplicate Line 与 Terminal > Split Right 共用 ⌘D，终端面板目前
+            // 没有独立的 key context 区分焦点，全局注册会抢占另一边，两个入口
+            // 暂时都只从菜单触发（Tauri 靠编辑器/终端两套 keymap 作用域区分）。
+            menu_key_binding("cmd-/", "ctrl-/", "edit.toggleComment"),
+            menu_key_binding("alt-cmd-f", "ctrl-alt-f", "edit.replace"),
+            menu_key_binding("shift-cmd-k", "ctrl-shift-k", "edit.deleteLine"),
+            menu_key_binding("alt-up", "alt-up", "edit.moveLineUp"),
+            menu_key_binding("alt-down", "alt-down", "edit.moveLineDown"),
+            menu_key_binding("cmd-g", "ctrl-g", "edit.gotoLine"),
+            // View。⌘B 只给 Toggle Activity Sidebar：Go > Go to References 的
+            // ⌘B 因为能力未落地已禁用，不存在冲突。macOS 上编辑器 Input
+            // context 自己绑了 cmd-shift-f（编辑器内替换），焦点在编辑器时
+            // Global Search 的全局绑定让位给它，菜单里的编辑器替换入口是 ⌥⌘F。
+            menu_key_binding("shift-cmd-p", "ctrl-shift-p", "view.commandPalette"),
+            menu_key_binding("cmd-b", "ctrl-b", "view.activityBar"),
+            menu_key_binding("cmd-e", "ctrl-e", "view.secondarySidebar"),
+            menu_key_binding("cmd-j", "ctrl-j", "view.tool.terminal"),
+            menu_key_binding("shift-cmd-f", "ctrl-shift-f", "view.globalSearch"),
+            menu_key_binding("shift-cmd-j", "ctrl-shift-j", "view.diagnostics"),
+            menu_key_binding("shift-cmd-e", "ctrl-shift-e", "view.fileExplorer"),
+            menu_key_binding("shift-cmd-g", "ctrl-shift-g", "view.sourceControl"),
+            menu_key_binding("alt-z", "alt-z", "view.wrap"),
+            menu_key_binding("cmd-=", "ctrl-=", "view.zoomIn"),
+            menu_key_binding("cmd--", "ctrl--", "view.zoomOut"),
+            menu_key_binding("cmd-0", "ctrl-0", "view.zoomReset"),
+            // Go。⌃⌥←/⌃⌥→ 与 ⌥⌘←/⌥⌘→ 在非 macOS 上都塌缩成 ctrl-alt-方向键：
+            // 按菜单文案把 ctrl-alt-方向键 给 Next/Previous Tab，Go Back/Forward
+            // 在非 macOS 上改用 VSCode 约定的 alt-方向键（macOS 两组都能用）。
+            menu_key_binding("cmd-p", "ctrl-p", "go.quickOpen"),
+            menu_key_binding("f12", "f12", "go.definition"),
+            menu_key_binding("ctrl-alt-left", "alt-left", "go.back"),
+            menu_key_binding("ctrl-alt-right", "alt-right", "go.forward"),
+            menu_key_binding("alt-cmd-right", "ctrl-alt-right", "go.nextTab"),
+            menu_key_binding("alt-cmd-left", "ctrl-alt-left", "go.previousTab"),
+            // Run
+            menu_key_binding("f5", "f5", "run.run"),
+            menu_key_binding("shift-f5", "shift-f5", "run.stop"),
+            // Tools（⌘, 是 keymap 设置页承诺的 Open Settings 入口）
+            menu_key_binding("cmd-,", "ctrl-,", "tools.settings"),
+            // Window
+            menu_key_binding("alt-m", "alt-m", "window.toggleMenuBar"),
+            menu_key_binding("alt-f9", "alt-f9", "window.minimize"),
+            menu_key_binding("alt-f10", "alt-f10", "window.zoom"),
+            menu_key_binding("f11", "f11", "window.fullscreen"),
         ]);
 
         let mut workbench = Self {
@@ -485,6 +598,7 @@ impl Workbench {
             active_tab: None,
             untitled_counter: 0,
             pending_close_tab: None,
+            pending_quit: false,
             closed_tabs: Vec::new(),
             nav_back: Vec::new(),
             nav_forward: Vec::new(),
@@ -541,8 +655,7 @@ impl Workbench {
             project_search_open: false,
             project_search_query: String::new(),
             project_options_open: false,
-            project_show_hidden: false,
-            project_show_ignored: false,
+            project_show_hidden: true,
             project_view_dependencies: false,
             tab_context_menu: None,
             _tab_context_menu_subscription: None,
@@ -654,9 +767,16 @@ impl Workbench {
     }
 
     /// 切换提交工具窗的分段（提交 / Stash）。
+    ///
+    /// Stash 分段是 `GitPanel` 的实际视图（列表 / 搜索 / Apply / Pop / Drop），
+    /// 因此这里把可见性同步进面板；切回提交分段不重复加载。
     pub(crate) fn set_commit_tab(&mut self, tab: CommitTab, cx: &mut Context<Self>) {
         if self.commit_tab != tab {
             self.commit_tab = tab;
+            let visible = tab == CommitTab::Stash;
+            self.git.update(cx, |panel, panel_cx| {
+                panel.set_stash_visible(visible, panel_cx);
+            });
             cx.notify();
         }
     }
@@ -868,7 +988,7 @@ impl Render for Workbench {
             });
         }
 
-        let menu_signature = self.menu_state().signature();
+        let menu_signature = self.menu_state(cx).signature();
         if !self.menu_installed || menu_signature != self.menu_signature {
             if !self.menu_install_pending {
                 self.menu_install_pending = true;

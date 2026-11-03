@@ -1,5 +1,5 @@
 use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::{Sizable as _, h_flex, v_flex};
+use gpui_kit::component::{Sizable as _, WindowExt as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, ClickEvent, Context, FontWeight, InteractiveElement as _, IntoElement,
@@ -156,7 +156,26 @@ impl Workbench {
         let Some(view) = self.settings_view.clone() else {
             return;
         };
-        view.update(cx, |view, view_cx| view.restore_defaults(window, view_cx));
+        // 对齐 Tauri `settings-dialog.tsx`：恢复默认值先弹确认对话框，确认
+        // 后才执行，避免一键丢掉全部个人设置。
+        let owner = cx.weak_entity();
+        window.open_alert_dialog(cx, move |alert, _window, _cx| {
+            let owner = owner.clone();
+            let view = view.clone();
+            alert
+                .title(tr("Reset Settings"))
+                .description(tr(
+                    "All settings will be reset to their default values. This action cannot be undone.",
+                ))
+                .confirm()
+                .ok_text(tr("Reset"))
+                .on_ok(move |_event, window, cx| {
+                    let _ = owner.update(cx, |this, cx| {
+                        view.update(cx, |view, view_cx| view.restore_defaults(window, view_cx));
+                    });
+                    true
+                })
+        });
     }
 
     pub(crate) fn toggle_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -169,6 +188,7 @@ impl Workbench {
         self.palette_visible = false;
         self.notifications_visible = false;
         self.pending_close_tab = None;
+        self.pending_quit = false;
         self.project_menu_visible = false;
         self.branch_menu_visible = false;
         self.settings_visible = true;
@@ -253,6 +273,35 @@ impl Workbench {
         }
         if let Some(view) = self.settings_view.clone() {
             view.update(cx, |view, view_cx| view.open_logs_page(view_cx));
+        }
+        cx.notify();
+    }
+
+    /// 打开设置覆盖层并直接落在「Keymap」页。Tools / Help 菜单的
+    /// Keyboard Shortcuts 入口用它（对齐 Tauri
+    /// `workbench.openKeyboardShortcuts` → `openSettingsDialog("keyboard")`）。
+    pub(crate) fn open_keymap_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.settings_visible {
+            self.toggle_settings(window, cx);
+        }
+        if let Some(view) = self.settings_view.clone() {
+            view.update(cx, |view, view_cx| view.open_keymap_page(view_cx));
+        }
+        cx.notify();
+    }
+
+    /// 打开设置覆盖层并直接落在「Updates」页，同时推进检查更新状态机。
+    /// Help > Check for Updates 与 Updates 页按钮共用同一入口。
+    pub(crate) fn open_update_check_settings(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.settings_visible {
+            self.toggle_settings(window, cx);
+        }
+        if let Some(view) = self.settings_view.clone() {
+            view.update(cx, |view, view_cx| view.open_updates_page_with_check(view_cx));
         }
         cx.notify();
     }

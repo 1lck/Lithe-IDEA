@@ -85,13 +85,20 @@ pub(crate) struct MenuState {
     pub(crate) menu_bar_visible: bool,
     /// 当前界面语言标识，来自 `lithe_ui::i18n::language()`。
     pub(crate) language: &'static str,
+    /// 注册的主题列表：`(id, 显示名)`，来自 `lithe_ui::theme::registered_themes`，供 Theme 子菜单动态生成。
+    pub(crate) themes: Vec<(SharedString, SharedString)>,
+    /// 是否有运行会话在跑（Run 面板任一配置启动中或运行中）。
+    pub(crate) run_running: bool,
+    /// 终端是否已有分屏（即已有 2 个会话，达到终端模型上限）。New
+    /// Terminal 在达到上限时禁用，保证「能点就一定新建了会话」。
+    pub(crate) terminal_has_split: bool,
 }
 
 impl MenuState {
     /// 菜单标签、勾选和禁用状态所依赖的全部字段的哈希。
     ///
-    /// 工作台缓存上一次的签名；签名变化（含语言切换、主题切换、最近项目变化）
-    /// 时才重建菜单，避免每帧重复构造。
+    /// 工作台缓存上一次的签名；签名变化（含语言切换、主题切换、最近项目变化、
+    /// 运行会话增删）时才重建菜单，避免每帧重复构造。
     pub(crate) fn signature(&self) -> u64 {
         let mut hasher = DefaultHasher::new();
         self.has_project.hash(&mut hasher);
@@ -115,6 +122,9 @@ impl MenuState {
         self.can_reopen_closed.hash(&mut hasher);
         self.menu_bar_visible.hash(&mut hasher);
         self.language.hash(&mut hasher);
+        self.themes.hash(&mut hasher);
+        self.run_running.hash(&mut hasher);
+        self.terminal_has_split.hash(&mut hasher);
         hasher.finish()
     }
 }
@@ -127,7 +137,7 @@ pub(crate) fn build_menus(state: &MenuState) -> Vec<MenuSpec> {
         view_menu(state),
         go_menu(state),
         terminal_menu(state),
-        run_menu(),
+        run_menu(state),
         tools_menu(),
         window_menu(state),
         help_menu(),
@@ -148,11 +158,12 @@ pub(crate) fn decode_open_recent(command: &str) -> Option<PathBuf> {
 
 /// 命令是否已经被 `Workbench::run_menu_command` 接线。
 ///
-/// 未接线时菜单项必须禁用：这里只承认工作台真正会处理的两类动态命令
-/// （最近项目、已实现的工具窗）和下面显式列出的固定 id。
+/// 未接线时菜单项必须禁用：这里只承认工作台真正会处理的三类动态命令
+/// （最近项目、有真实内容的工具窗、注册表里的主题）和下面显式列出的固定 id。
 ///
-/// `view.tool.*` 不是整段放行：只有存在实际工具窗实现的 id 才算接线，其余
-/// 仍由 [`item_state`] 统一禁用，避免未实现的工具窗在菜单里显示为可点击。
+/// `view.tool.*` 不是整段放行：只有 `workbench::dock::render_tool_content`
+/// 渲染真实内容的工具窗才放行，空壳（Database / Services / Debug 等）统一
+/// 走 [`item_state`] 的兜底禁用，避免未实现的工具窗在菜单里显示为可点击。
 fn command_handled(command: &str) -> bool {
     if command.starts_with(OPEN_RECENT_PREFIX) {
         return true;
@@ -164,6 +175,8 @@ fn command_handled(command: &str) -> bool {
             "project"
                 | "changes"
                 | "search"
+                | "maven"
+                | "maven-output"
                 | "git-log"
                 | "terminal"
                 | "agent"
@@ -172,9 +185,15 @@ fn command_handled(command: &str) -> bool {
         );
     }
 
+    if command.starts_with("view.theme.") {
+        return true;
+    }
+
     matches!(
         command,
-        // 编辑器命令：走 Monaco action 白名单。
+        // 编辑器命令：只放行 EditorSurface::run_command 真正接线的条目。
+        // format / parameterHints / showHover / findNext|findPrevious 没有原生
+        // 实现，菜单项保持禁用，避免「点了没反应」的假可用。
         "edit.undo"
             | "edit.redo"
             | "edit.cut"
@@ -183,24 +202,16 @@ fn command_handled(command: &str) -> bool {
             | "edit.selectAll"
             | "edit.find"
             | "edit.replace"
-            | "edit.findNext"
-            | "edit.findPrevious"
             | "edit.toggleComment"
-            | "edit.format"
-            | "edit.formatSelection"
             | "edit.quickFix"
-            | "edit.triggerParameterHints"
-            | "edit.showHover"
             | "edit.duplicateLine"
             | "edit.deleteLine"
             | "edit.moveLineUp"
             | "edit.moveLineDown"
             | "edit.gotoLine"
             | "go.definition"
-            | "go.implementation"
-            | "go.typeDefinition"
-            | "go.references"
-            | "go.renameSymbol"
+            // go.implementation / go.typeDefinition / go.references /
+            // go.renameSymbol：编辑器没有多结果 peek UI 与重命名控件，禁用。
             | "go.nextTab"
             | "go.previousTab"
             // 项目、文件与设置。
@@ -238,16 +249,16 @@ fn command_handled(command: &str) -> bool {
             | "view.commandPalette"
             | "view.searchEverywhere"
             | "view.notifications"
-            | "view.theme.lithe"
-            | "view.theme.codex"
-            | "view.theme.linear"
             | "view.activityBar"
             | "view.secondarySidebar"
             | "view.globalSearch"
             | "view.fileExplorer"
             | "view.sourceControl"
             | "view.diagnostics"
-            | "view.github"
+            // `view.github` 不放行：Tauri 侧它切换 GitHub 侧栏，而 GPUI 对应的
+            // Pull Requests 工具窗仍是空壳（render_tool_content 渲染「不可用」
+            // 占位），按「不放行空壳」规则禁用；也不允许退回打开浏览器冒充。
+            // GitHub 面板内容落地后同时放行此命令与 `view.tool.pull-requests`。
             | "view.runAndDebug"
             | "view.minimap"
             | "view.lineNumbers"
@@ -268,6 +279,9 @@ fn command_handled(command: &str) -> bool {
             | "tools.commandPalette"
             | "tools.settings"
             // 搜索、终端与运行。
+            // `run.stop` 停止当前活跃运行会话（Run::stop_active，与菜单的
+            // run_running 启用条件严格对应）；`run.debug` 与
+            // `run.toggleBreakpoint` 因本构建没有调试器/断点模型而不放行。
             | "go.quickOpen"
             | "go.findInFiles"
             | "go.replaceInFiles"
@@ -277,15 +291,16 @@ fn command_handled(command: &str) -> bool {
             | "terminal.split"
             | "terminal.splitDown"
             | "run.run"
+            | "run.stop"
             | "run.toggleWindow"
-            | "run.debug"
             | "run.configurations"
             // 工具入口与窗口控制。
+            // Database / Services 工具窗还是空壳说明页，两条入口（Tools 菜单
+            // 与 View > Tool Windows）一起保持禁用，内容落地后同时放行。
             | "tools.agent"
             | "tools.git"
-            | "tools.database"
-            | "tools.services"
-            | "tools.webInspector"
+            // Web Inspector 不放行：GPUI 构建没有 WebView，`open_devtools`
+            // 是空壳，菜单项保持禁用。
             | "window.minimize"
             | "window.zoom"
             | "window.fullscreen"
@@ -324,6 +339,15 @@ fn item_state(
         spec = spec.shortcut(lithe_ui::shortcut::display_shortcut(shortcut));
     }
     spec
+}
+
+/// 标签与命令 id 由调用方动态给出的菜单项（最近项目、注册表主题等数据来源）。
+///
+/// 这些命令不走 [`command_handled`]：id 由菜单构建与派发两端的同一前缀约定
+/// （最近项目的 [`OPEN_RECENT_PREFIX`]、主题的 `view.theme.` 前缀）保证接线，
+/// 没有独立白名单可以遗漏。
+fn item_dynamic(label: SharedString, command: String, checked: bool) -> MenuItemSpec {
+    MenuItemSpec::action(label, command).checked(checked)
 }
 
 fn file_menu(state: &MenuState) -> MenuSpec {
@@ -421,6 +445,10 @@ fn file_menu(state: &MenuState) -> MenuSpec {
 }
 
 /// “最近项目”条目：最多 10 条，空列表时给出禁用提示项。
+///
+/// 当前最近项目由顶栏的 Recent Projects 菜单承担；File 菜单不再重复这一段，
+/// 因此本函数与 [`recent_item`] 暂未被调用（保留给 File › Open Recent 子菜单
+/// 的后续入口，`file.noop` 只出现在这里的禁用提示项里，不是可点命令）。
 #[allow(dead_code)]
 fn recent_items(state: &MenuState) -> Vec<MenuItemSpec> {
     if state.recent_projects.is_empty() {
@@ -672,6 +700,20 @@ fn view_menu(state: &MenuState) -> MenuSpec {
             right_active("services"),
             tools_disabled,
         ),
+        item_state(
+            "Maven",
+            "view.tool.maven",
+            None,
+            right_active("maven"),
+            tools_disabled,
+        ),
+        item_state(
+            "Maven Output",
+            "view.tool.maven-output",
+            None,
+            bottom_active("maven-output"),
+            tools_disabled,
+        ),
     ];
 
     let docks = vec![
@@ -698,30 +740,19 @@ fn view_menu(state: &MenuState) -> MenuSpec {
         ),
     ];
 
-    // 主题子菜单：id 与设置里的主题名一致，当前主题打勾。
-    let themes = vec![
-        item_state(
-            "Lithe",
-            "view.theme.lithe",
-            None,
-            state.theme == "lithe",
-            false,
-        ),
-        item_state(
-            "Codex",
-            "view.theme.codex",
-            None,
-            state.theme == "codex",
-            false,
-        ),
-        item_state(
-            "Linear",
-            "view.theme.linear",
-            None,
-            state.theme == "linear",
-            false,
-        ),
-    ];
+    // 主题子菜单：数据来自注册表（对齐 Tauri useRegisteredThemes 的行为），
+    // 主题显示名是数据不是 i18n 词条，当前主题打勾。
+    let themes = state
+        .themes
+        .iter()
+        .map(|(id, name)| {
+            item_dynamic(
+                name.clone(),
+                format!("view.theme.{id}"),
+                state.theme == id.as_str(),
+            )
+        })
+        .collect::<Vec<_>>();
 
     let appearance = vec![
         item_state("Dark Mode", "view.appearance.dark", None, state.dark, false),
@@ -880,7 +911,15 @@ fn terminal_menu(state: &MenuState) -> MenuSpec {
     let terminal_active = state.bottom_visible && state.active_bottom == Some("terminal");
 
     MenuSpec::new(tr("Terminal")).items([
-        item("New Terminal", "terminal.new", None),
+        // New Terminal 真正新建会话（见 Workbench::new_terminal）；已有两个
+        // 会话（终端模型上限）时禁用，避免「点了没反应」。
+        item_state(
+            "New Terminal",
+            "terminal.new",
+            None,
+            false,
+            state.terminal_has_split,
+        ),
         item("Split Terminal Right", "terminal.split", Some("⌘D")),
         item("Split Terminal Down", "terminal.splitDown", Some("⇧⌘D")),
         item_state(
@@ -900,11 +939,37 @@ fn terminal_menu(state: &MenuState) -> MenuSpec {
     ])
 }
 
-fn run_menu() -> MenuSpec {
+fn run_menu(state: &MenuState) -> MenuSpec {
+    // gpui 构建没有调试器宿主，Run 菜单前三项按能力诚实降级：
+    //
+    // - Start Debugging：Debug 工具窗在本构建仍是空壳（dock.rs 的
+    //   render_tool_content 渲染「调试器不可用」占位）。按“不放行空壳”的
+    //   规则，该项经 `command_handled` 兜底禁用；调试器能力落地后改回与
+    //   Tauri `debug.start` 相同的启动调试语义。
+    // - Stop Debugging（run.stop）：映射为停止当前活跃运行会话
+    //   （`RunPanel::stop_active`：优先选中配置，否则停止所有仍在启动/运行的
+    //   会话），与 Tauri `debug.stop` 的「停止当前会话」对齐；没有任何会话在
+    //   跑时禁用。
+    // - Toggle Breakpoint：编辑器还没有断点模型，白名单不放行，保持禁用；
+    //   断点模型落地后才允许接线。
+    //
+    // Run / Toggle Run / Run Configurations 是 gpui 独有入口，已全部接线。
     MenuSpec::new(tr("Run")).items([
-        item("Start Debugging", "run.debug", None),
-        item("Stop Debugging", "run.stop", Some("⇧F5")),
-        item("Toggle Breakpoint", "run.toggleBreakpoint", Some("F9")),
+        item_state("Start Debugging", "run.debug", None, false, false),
+        item_state(
+            "Stop Debugging",
+            "run.stop",
+            Some("⇧F5"),
+            false,
+            !state.run_running,
+        ),
+        item_state(
+            "Toggle Breakpoint",
+            "run.toggleBreakpoint",
+            Some("F9"),
+            false,
+            false,
+        ),
         MenuItemSpec::separator(),
         item("Run", "run.run", Some("F5")),
         // 只切换底部 Run 工具窗，不启动进程：与活动栏点击、Shift+F10 同一条路径。
@@ -914,11 +979,21 @@ fn run_menu() -> MenuSpec {
 }
 
 fn tools_menu() -> MenuSpec {
+    // Database / Services 工具窗在本构建仍是空壳（见 [`command_handled`] 的
+    // 注释），两条入口（这里与 View > Tool Windows）一起保持禁用；菜单里
+    // 不再提供能让用户点开空白占位面板的假可用入口。
+    //
+    // 插件命令注入（Tauri `placements.includes("menu")` 语义）暂不注入：
+    // `lithe_features::plugins::menu_commands::PluginMenuRegistry` 已能投影
+    // 菜单声明，但 GPUI 没有插件宿主进程，也没有打开插件工具窗的桥接
+    // （Web 型插件工具窗在无 WebView 约束下无法执行）。注入后点击没有任何
+    // 真实效果，按「能点必有效果、没效果必灰置」的规则这里不生成动态项，
+    // 避免造假菜单。
     MenuSpec::new(tr("Tools")).items([
         item("AI Agent", "tools.agent", None),
         item("Git", "tools.git", None),
-        item("Database", "tools.database", None),
-        item("Services", "tools.services", None),
+        item_state("Database", "tools.database", None, false, true),
+        item_state("Services", "tools.services", None, false, true),
         MenuItemSpec::separator(),
         item("Web Inspector", "tools.webInspector", Some("⌥⌘I")),
         MenuItemSpec::separator(),
@@ -994,6 +1069,13 @@ mod tests {
             can_reopen_closed: false,
             menu_bar_visible: true,
             language: "en-US",
+            themes: vec![
+                ("lithe".into(), "Lithe".into()),
+                ("codex".into(), "Codex".into()),
+                ("linear".into(), "Linear".into()),
+            ],
+            run_running: false,
+            terminal_has_split: false,
         }
     }
 
@@ -1006,6 +1088,30 @@ mod tests {
 
     fn is_disabled(item: &MenuItemSpec) -> bool {
         matches!(item, MenuItemSpec::Action { disabled: true, .. })
+    }
+
+    /// 在相邻的一层菜单项里取 label 匹配的子菜单。
+    fn find_submenu<'a>(
+        items: &'a [MenuItemSpec],
+        label: &'static str,
+    ) -> Option<&'a Vec<MenuItemSpec>> {
+        items.iter().find_map(|item| match item {
+            MenuItemSpec::Submenu {
+                label: name,
+                items,
+            } if name.as_ref() == label => Some(items),
+            _ => None,
+        })
+    }
+
+    /// 在相邻的一层菜单项里取 command 匹配的动作项。
+    fn find_action<'a>(items: &'a [MenuItemSpec], command: &str) -> Option<&'a MenuItemSpec> {
+        items.iter().find(|item| match item {
+            MenuItemSpec::Action {
+                command: id, ..
+            } => id.as_ref() == command,
+            _ => false,
+        })
     }
 
     #[test]
@@ -1082,9 +1188,137 @@ mod tests {
         // 已实现的工具窗保持可用；未实现的只靠白名单变灰。
         assert!(!is_disabled(tool_window("view.tool.project")));
         assert!(!is_disabled(tool_window("view.tool.terminal")));
+        // render_tool_content 渲染真实内容的两个 Maven 面板也放行。
+        assert!(!is_disabled(tool_window("view.tool.maven")));
+        assert!(!is_disabled(tool_window("view.tool.maven-output")));
+        // 空壳工具窗（说明占位页）必须全部保持禁用：Tools 菜单与
+        // View > Tool Windows 是同一工具窗的两条入口，状态不能漂移。
         assert!(is_disabled(tool_window("view.tool.pull-requests")));
+        assert!(is_disabled(tool_window("view.tool.debug")));
         assert!(is_disabled(tool_window("view.tool.tests")));
+        assert!(is_disabled(tool_window("view.tool.build-output")));
+        assert!(is_disabled(tool_window("view.tool.spring")));
+        assert!(is_disabled(tool_window("view.tool.references")));
+        assert!(is_disabled(tool_window("view.tool.database")));
         assert!(is_disabled(tool_window("view.tool.services")));
+    }
+
+    /// View > GitHub 对应的 Pull Requests 工具窗仍是空壳，菜单项必须禁用
+    /// （不允许退回打开浏览器冒充，见 `command_handled` 的注释）。
+    #[test]
+    fn view_github_stays_disabled() {
+        let menus = build_menus(&state());
+        let view = &menus[2];
+        let github = action(view, "view.github").expect("github item");
+        assert!(is_disabled(github));
+    }
+
+    /// Terminal > New Terminal 真正新建会话：达到两会话上限时禁用，否则可用，
+    /// 保持「能点就一定新建了会话」。
+    #[test]
+    fn new_terminal_disabled_when_session_cap_reached() {
+        let mut state = state();
+        let menus = build_menus(&state);
+        let new_terminal = action(&menus[4], "terminal.new").expect("new terminal item");
+        assert!(!is_disabled(new_terminal));
+
+        state.terminal_has_split = true;
+        let menus = build_menus(&state);
+        let new_terminal = action(&menus[4], "terminal.new").expect("new terminal item");
+        assert!(is_disabled(new_terminal));
+    }
+
+    /// Theme 子菜单来自注册表：命令 id 由 `view.theme.{id}` 生成，显示名是
+    /// 注册表数据（不做 i18n），当前主题打勾。派发端按前缀接这条命令，
+    /// 所以两项入口（子菜单命令、设置页）行为一致。
+    #[test]
+    fn theme_submenu_lists_registered_themes() {
+        let mut state = state();
+        state.theme = "codex";
+
+        let menus = build_menus(&state);
+        let view = &menus[2];
+        let appearance = find_submenu(&view.items, lang("Appearance")).expect("appearance submenu");
+        let themes = find_submenu(appearance, lang("Theme")).expect("theme submenu");
+
+        let mut ids = themes
+            .iter()
+            .filter_map(|item| match item {
+                MenuItemSpec::Action { command, .. } => Some(command.as_ref().to_string()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        ids.sort();
+
+        let mut expected = state
+            .themes
+            .iter()
+            .map(|(id, _)| format!("view.theme.{id}"))
+            .collect::<Vec<_>>();
+        expected.sort();
+        assert_eq!(ids, expected);
+
+        let theme_item = |command: &str| find_action(themes, command).expect("theme item");
+        // 显示名直接来自注册表数据，不经过 tr()。
+        let lithe = theme_item("view.theme.lithe");
+        match lithe {
+            MenuItemSpec::Action { label, checked: false, .. } => {
+                assert_eq!(label.as_ref(), "Lithe");
+            }
+            _ => panic!("lithe theme item should be unchecked"),
+        }
+        assert!(matches!(
+            theme_item("view.theme.codex"),
+            MenuItemSpec::Action { checked: true, .. }
+        ));
+    }
+
+    /// Run 菜单前三项的降级语义：Stop 跟随运行会话状态；Start Debugging 与
+    /// Toggle Breakpoint 因本构建没有调试器/断点模型而保持禁用。
+    #[test]
+    fn run_menu_debug_entries_match_capability() {
+        // Run 是第六个顶层菜单（下标 5）：File/Edit/View/Go/Terminal/Run/…。
+        let mut running = state();
+        running.has_project = true;
+        running.run_running = true;
+        let running_menus = build_menus(&running);
+        let running_run_menu = &running_menus[5];
+        let running_item = |command: &str| {
+            find_action(&running_run_menu.items, command).expect("run menu item")
+        };
+
+        // Stop 只看运行会话状态，跟随 MenuState::run_running。
+        assert!(!is_disabled(running_item("run.stop")));
+
+        let mut idle = state();
+        idle.has_project = true;
+        idle.run_running = false;
+        let idle_menus = build_menus(&idle);
+        let idle_run_menu = &idle_menus[5];
+        assert!(is_disabled(
+            find_action(&idle_run_menu.items, "run.stop").expect("stop item")
+        ));
+        // 无调试器与断点模型：两项保持禁用，禁止放行白名单。
+        assert!(is_disabled(running_item("run.debug")));
+        assert!(is_disabled(running_item("run.toggleBreakpoint")));
+    }
+
+    /// 两条 Database / Services 入口（Tools 菜单与 View > Tool Windows）必须
+    /// 同禁同启，避免一开一禁的不一致。
+    #[test]
+    fn database_and_services_entries_are_disabled_together() {
+        let mut state = state();
+        state.has_project = true;
+
+        let menus = build_menus(&state);
+        // Tools 是第七个顶层菜单（下标 6）。
+        let tools = &menus[6];
+        assert!(is_disabled(
+            find_action(&tools.items, "tools.database").expect("database item")
+        ));
+        assert!(is_disabled(
+            find_action(&tools.items, "tools.services").expect("services item")
+        ));
     }
 
     #[test]

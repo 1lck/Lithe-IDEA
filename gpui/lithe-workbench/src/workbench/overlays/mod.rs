@@ -9,6 +9,13 @@ mod palette;
 mod prompt;
 mod settings;
 
+pub(crate) mod git_dialogs;
+// `git_dialogs_manage.rs` 在 `impl GitDialogView` 上补充 Branch/Worktree/
+// Patch/Rebase 的渲染与动作；不声明该模块时 git_dialogs.rs 对这些方法的
+// 调用会报“不存在”。
+pub(crate) mod git_dialogs_manage;
+pub(crate) mod git_dialogs_pull;
+
 pub(crate) use palette::PaletteMode;
 pub(crate) use prompt::PromptAction;
 
@@ -19,7 +26,9 @@ impl Workbench {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        if self.pending_close_tab.is_some()
+        if self.pending_quit {
+            Some(self.render_quit_confirm_overlay(window, cx))
+        } else if self.pending_close_tab.is_some()
             && self
                 .tabs
                 .iter()
@@ -43,6 +52,7 @@ impl Workbench {
             && !self.palette_visible
             && !self.notifications_visible
             && self.pending_close_tab.is_none()
+            && !self.pending_quit
             && self.prompt.is_none()
         {
             return;
@@ -54,6 +64,7 @@ impl Workbench {
         self.history_target = None;
         self.notifications_visible = false;
         self.pending_close_tab = None;
+        self.pending_quit = false;
         self.prompt = None;
         self.prompt_action = None;
         self.pending_new_project_parent = None;
