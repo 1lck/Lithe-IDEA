@@ -147,6 +147,10 @@ const saveWatchExpressions = (watchExpressions: DebugWatchExpression[]) => {
 const createBreakpointId = (filePath: string, line: number) =>
   `bp_${filePath.replace(/[^a-zA-Z0-9]/g, "_")}_${line}`;
 
+const sameBreakpoint = (left: DebugBreakpoint, right: DebugBreakpoint) =>
+  left.id === right.id && left.filePath === right.filePath && left.line === right.line &&
+  left.enabled === right.enabled && left.createdAt === right.createdAt;
+
 const createWatchExpressionId = () => `watch_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
 export const useDebuggerStore = createSelectors(
@@ -239,7 +243,8 @@ export const useDebuggerStore = createSelectors(
       applyRelocatedBreakpoints: (filePath, expected, points) => {
         const current = get().actions.getBreakpointsForFile(filePath);
         if (!current.length) return true;
-        if (current.length !== expected.length || current.some((point, index) => point !== expected[index])) return false;
+        // Hydration recreates equivalent objects without changing their meaning.
+        if (current.length !== expected.length || current.some((point, index) => !sameBreakpoint(point, expected[index]!))) return false;
         if (points.length === current.length && points.every(point => current.some(
           existing => existing.line === point.line - 1 && existing.enabled === point.enabled,
         ))) return true;

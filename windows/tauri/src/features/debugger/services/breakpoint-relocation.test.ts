@@ -134,6 +134,27 @@ test("clearing breakpoints retires an in-flight result without resurrecting them
   }
 });
 
+test("hydrating unchanged breakpoints during relocation preserves the pending update", async () => {
+  useDebuggerStore.getState().actions.toggleBreakpoint("D:/work/Main.java", 1);
+  let release!: (value: { breakpoints: { line: number; enabled: boolean }[] }) => void;
+  let entered!: () => void;
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const response = new Promise<{ breakpoints: { line: number; enabled: boolean }[] }>(resolve => { release = resolve; });
+  const invoke = spyOn(native, "invoke").mockImplementation(async <T>(): Promise<T> => { entered(); return await response as T; });
+  try {
+    queueBreakpointRelocation("D:/work/Main.java", insertion());
+    await started;
+    useDebuggerStore.getState().actions.hydrate();
+    release({ breakpoints: [{ line: 3, enabled: true }] });
+    await flushBreakpointRelocations();
+    expect(useDebuggerStore.getState().actions.getBreakpointsForFile("D:/work/Main.java")[0]?.line).toBe(2);
+  } finally {
+    release({ breakpoints: [] });
+    await flushBreakpointRelocations();
+    invoke.mockRestore();
+  }
+});
+
 test("a failed relocation blocks launch until the user clears unsafe anchors", async () => {
   useDebuggerStore.getState().actions.toggleBreakpoint("D:/work/Main.java", 1);
   const invoke = spyOn(native, "invoke").mockRejectedValue(new Error("native failure"));
