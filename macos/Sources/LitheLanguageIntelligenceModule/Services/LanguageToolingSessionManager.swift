@@ -46,6 +46,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
     @Published package private(set) var languageServerFeatures: [String: LanguageServerFeatureSet] = [:]
     /// Application composition persists lifecycle facts without raw protocol payloads.
     package var onLogEvent: ((String, String?, String, String, String?) -> Void)?
+    package var onLogIssue: ((String, String?, Bool, String, String, Int?) -> Void)?
     @Published package private(set) var languageServerLogs: [LanguageServerLogEntry] = []
     @Published package private(set) var projectPreparation: ProjectPreparationSnapshot?
     package var onJavaDependencySnapshotChange: (@MainActor () -> Void)?
@@ -151,6 +152,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
             } catch is CancellationError {
                 return
             } catch {
+                self.onLogIssue?("java", nil, true, "dependencies", "dependencyProjectionUnavailable", nil)
                 self.recordLanguageServerLog(
                     providerID: "java", level: .warning,
                     message: "Java dependency projection unavailable",
@@ -1112,6 +1114,8 @@ package final class LanguageToolingSessionManager: ObservableObject,
             case .startingProcess, .initializing: true
             default: false
             }
+            if wasPreparing { onLogIssue?(providerID, languageServerOperationIDs[providerID]?.uuidString,
+                true, "startup", "requestCancelled", nil) }
             recordLanguageServerLog(
                 providerID: providerID,
                 level: wasPreparing ? .warning : .info,
@@ -1702,6 +1706,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
                 message: message
             ))
             languageServerStates[descriptor.id] = state
+            onLogIssue?(descriptor.id, operationID.uuidString, false, "discovery", "tool_not_found", nil)
             recordLanguageServerLog(
                 providerID: descriptor.id,
                 operationID: operationID,
@@ -1726,6 +1731,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
                 message: error.localizedDescription
             ))
             languageServerStates[descriptor.id] = state
+            onLogIssue?(descriptor.id, operationID.uuidString, false, "workspaceFingerprint", "workspace_fingerprint_failed", nil)
             recordLanguageServerLog(
                 providerID: descriptor.id,
                 operationID: operationID,
@@ -1760,6 +1766,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
             } catch {
                 // Cache maintenance is best-effort and must not prevent the
                 // current workspace's language server from starting.
+                onLogIssue?(descriptor.id, operationID.uuidString, true, "cacheCleanup", "cacheCleanupFailed", nil)
                 recordLanguageServerLog(
                     providerID: descriptor.id,
                     operationID: operationID,
@@ -1823,6 +1830,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
                     )
                 let state = LanguageServerSessionState.failed(failure)
                 languageServerStates[descriptor.id] = state
+                onLogIssue?(descriptor.id, languageServerOperationIDs[descriptor.id]?.uuidString, false, failure.stage ?? "processStart", failure.code ?? "start_failed", failure.exitCode.map(Int.init))
                 recordLanguageServerLog(
                     providerID: descriptor.id,
                     operationID: operationID,
@@ -2108,6 +2116,11 @@ package final class LanguageToolingSessionManager: ObservableObject,
             guard let self, self.languageServerSessionIdentities[providerID] == sessionIdentity else { return }
             self.mavenProfileProjectResults[result.projectURI] = result
         }
+        session.onLogIssue = { [weak self] warning, stage, code, exitCode, operationID in
+            guard let self, self.languageServerSessionIdentities[providerID] == sessionIdentity else { return }
+            self.onLogIssue?(providerID, operationID ?? self.languageServerOperationIDs[providerID]?.uuidString,
+                warning, stage, code, exitCode)
+        }
         session.onLog = { [weak self] level, message, detail, operationID in
             guard let self, self.languageServerSessionIdentities[providerID] == sessionIdentity else { return }
             self.recordLanguageServerLog(
@@ -2171,6 +2184,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
                 stop: false
             )
             if case .failed(let failure) = state {
+                onLogIssue?(providerID, languageServerOperationIDs[providerID]?.uuidString, false, failure.stage ?? "processStart", failure.code ?? "start_failed", failure.exitCode.map(Int.init))
                 recordLanguageServerLog(
                     providerID: providerID,
                     level: .error,

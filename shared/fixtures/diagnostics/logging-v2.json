@@ -207,6 +207,16 @@
       "rotation": 2
     },
     {
+      "channel": "lsp/foo.1",
+      "path": "lsp/foo.1.log",
+      "rotation": 0
+    },
+    {
+      "channel": "lsp/foo",
+      "path": "lsp/foo~1.log",
+      "rotation": 1
+    },
+    {
       "channel": "plugins/io.example.test/host",
       "path": "plugins/io.example.test/host.log",
       "rotation": 0
@@ -880,6 +890,309 @@
     "-32049": "invalidRetentionInventory",
     "-32050": "invalidQuerySource",
     "-32051": "invalidEventShape",
-    "-32052": "reversedQueryRange"
-  }
+    "-32052": "reversedQueryRange",
+    "-32053": "unknownCatalogEvent",
+    "-32054": "missingCatalogField",
+    "-32055": "invalidCatalogField",
+    "-32056": "unknownCatalogField",
+    "-32057": "catalogLevelMismatch",
+    "-32058": "invalidCollectionInventory"
+  },
+  "catalogBatch": [
+    {
+      "name": "catalog message and channel",
+      "input": {
+        "ts": "2026-11-03T08:00:00Z",
+        "level": "WARN",
+        "seq": 1,
+        "event": "app.font.missing",
+        "msg": "untrusted message",
+        "fields": {
+          "font": "FixtureFont"
+        }
+      },
+      "channel": "app",
+      "contains": "Bundled font FixtureFont missing"
+    },
+    {
+      "name": "unknown event",
+      "input": {
+        "ts": "2026-11-03T08:00:00Z",
+        "level": "WARN",
+        "seq": 1,
+        "event": "unknown.event",
+        "msg": "untrusted message",
+        "fields": {
+          "font": "FixtureFont"
+        }
+      },
+      "code": -32053
+    },
+    {
+      "name": "missing field",
+      "input": {
+        "ts": "2026-11-03T08:00:00Z",
+        "level": "WARN",
+        "seq": 1,
+        "event": "app.font.missing",
+        "msg": "untrusted message",
+        "fields": {}
+      },
+      "code": -32054
+    },
+    {
+      "name": "invalid field",
+      "input": {
+        "ts": "2026-11-03T08:00:00Z",
+        "level": "WARN",
+        "seq": 1,
+        "event": "app.font.missing",
+        "msg": "untrusted message",
+        "fields": {
+          "font": "has spaces"
+        }
+      },
+      "code": -32055
+    },
+    {
+      "name": "unknown field",
+      "input": {
+        "ts": "2026-11-03T08:00:00Z",
+        "level": "WARN",
+        "seq": 1,
+        "event": "app.font.missing",
+        "msg": "untrusted message",
+        "fields": {
+          "font": "FixtureFont",
+          "extra": true
+        }
+      },
+      "code": -32056
+    },
+    {
+      "name": "level mismatch",
+      "input": {
+        "ts": "2026-11-03T08:00:00Z",
+        "level": "INFO",
+        "seq": 1,
+        "event": "app.font.missing",
+        "msg": "untrusted message",
+        "fields": {
+          "font": "FixtureFont"
+        }
+      },
+      "code": -32057
+    },
+    {
+      "name": "legacy identity is not a catalog event",
+      "input": {
+        "ts": "2026-11-03T08:00:00Z",
+        "level": "WARN",
+        "seq": 1,
+        "event": "legacy",
+        "msg": "untrusted message",
+        "fields": {
+          "font": "FixtureFont"
+        }
+      },
+      "code": -32053
+    }
+  ],
+  "catalogNormalization": [
+    {
+      "event": "editor.document.open_failed",
+      "level": "ERROR",
+      "fields": {
+        "reason": "unavailable",
+        "error_code": 42,
+        "error_domain": "fixture"
+      },
+      "diagnosticField": "error"
+    },
+    {
+      "event": "lsp.stderr.received",
+      "level": "WARN",
+      "fields": {
+        "server": "fixture"
+      },
+      "diagnosticField": "diagnostic"
+    }
+  ],
+  "lspMaintenanceWarnings": [
+    {
+      "code": "mavenSettingsUnchanged",
+      "stage": "mavenSettings"
+    },
+    {
+      "code": "configurationCleanupFailed",
+      "stage": "configurationCleanup"
+    },
+    {
+      "code": "mavenProfileStartFailed",
+      "stage": "mavenProfileStart"
+    },
+    {
+      "code": "upstreamStderr",
+      "stage": "stderr"
+    },
+    {
+      "code": "stderrReadFailed",
+      "stage": "stderr"
+    },
+    {
+      "code": "navigationLimited",
+      "stage": "navigation"
+    },
+    {
+      "code": "navigationMarkerFailed",
+      "stage": "navigation"
+    },
+    {
+      "code": "workspaceImportStalled",
+      "stage": "workspaceImport"
+    },
+    {
+      "code": "mavenProfileUpdateFailed",
+      "stage": "mavenProfile"
+    },
+    {
+      "code": "shutdownTimeout",
+      "stage": "shutdown"
+    },
+    {
+      "code": "mavenProfileTimeout",
+      "stage": "mavenProfile"
+    }
+  ],
+  "collection": [
+    {
+      "name": "active channels before rotations under byte pressure",
+      "request": {
+        "files": [
+          {
+            "relativePath": "sessions/2026-11-03T00-00-00_abcdef12/lsp/z~2.log",
+            "sizeBytes": 2097152,
+            "modifiedAt": "2026-11-03T01:00:00Z"
+          },
+          {
+            "relativePath": "sessions/2026-11-03T00-00-00_abcdef12/lsp/z~1.log",
+            "sizeBytes": 2097152,
+            "modifiedAt": "2026-11-03T01:00:00Z"
+          },
+          {
+            "relativePath": "sessions/2026-11-03T00-00-00_abcdef12/lsp/z.log",
+            "sizeBytes": 2097152,
+            "modifiedAt": "2026-11-03T01:00:00Z"
+          },
+          {
+            "relativePath": "sessions/2026-11-03T00-00-00_abcdef12/lsp/a~2.log",
+            "sizeBytes": 2097152,
+            "modifiedAt": "2026-11-03T01:00:00Z"
+          },
+          {
+            "relativePath": "sessions/2026-11-03T00-00-00_abcdef12/lsp/a~1.log",
+            "sizeBytes": 2097152,
+            "modifiedAt": "2026-11-03T01:00:00Z"
+          },
+          {
+            "relativePath": "sessions/2026-11-03T00-00-00_abcdef12/lsp/a.log",
+            "sizeBytes": 2097152,
+            "modifiedAt": "2026-11-03T01:00:00Z"
+          }
+        ],
+        "currentSession": "",
+        "session": "all",
+        "category": "language"
+      },
+      "reads": [
+        {
+          "relativePath": "sessions/2026-11-03T00-00-00_abcdef12/lsp/a.log",
+          "offset": 0,
+          "maxBytes": 2097152
+        },
+        {
+          "relativePath": "sessions/2026-11-03T00-00-00_abcdef12/lsp/z.log",
+          "offset": 0,
+          "maxBytes": 2097152
+        },
+        {
+          "relativePath": "sessions/2026-11-03T00-00-00_abcdef12/lsp/a~1.log",
+          "offset": 0,
+          "maxBytes": 2097152
+        },
+        {
+          "relativePath": "sessions/2026-11-03T00-00-00_abcdef12/lsp/z~1.log",
+          "offset": 0,
+          "maxBytes": 2097152
+        },
+        {
+          "relativePath": "sessions/2026-11-03T00-00-00_abcdef12/lsp/a~2.log",
+          "offset": 0,
+          "maxBytes": 2097152
+        }
+      ],
+      "truncated": true
+    },
+    {
+      "name": "update maps to application and plugin files stay opaque",
+      "request": {
+        "files": [
+          {
+            "relativePath": "sessions/2026-11-03T00-00-00_abcdef12/update.log",
+            "sizeBytes": 10,
+            "modifiedAt": "2026-11-03T01:00:00Z"
+          },
+          {
+            "relativePath": "sessions/2026-11-03T00-00-00_abcdef12/plugins/example/files/native.log",
+            "sizeBytes": 10,
+            "modifiedAt": "2026-11-03T01:00:00Z"
+          }
+        ],
+        "currentSession": "2026-11-03T00-00-00_abcdef12",
+        "session": "current",
+        "category": "application"
+      },
+      "reads": [
+        {
+          "relativePath": "sessions/2026-11-03T00-00-00_abcdef12/update.log",
+          "offset": 0,
+          "maxBytes": 10
+        }
+      ],
+      "truncated": false
+    },
+    {
+      "name": "current and previous ignore unparseable and opaque files",
+      "request": {
+        "files": [
+          {
+            "relativePath": "sessions/2026-11-03T00-00-00_abcdef12/app.log",
+            "sizeBytes": 100,
+            "modifiedAt": "2026-11-03T01:00:00Z"
+          },
+          {
+            "relativePath": "sessions/2026-11-02T00-00-00_12345678/app.log",
+            "sizeBytes": 50,
+            "modifiedAt": "2026-11-02T01:00:00Z"
+          },
+          {
+            "relativePath": "sessions/2026-11-03T00-00-00_abcdef12/plugins/p/files/server.log",
+            "sizeBytes": 1000000,
+            "modifiedAt": "2026-11-03T01:00:00Z"
+          }
+        ],
+        "currentSession": "2026-11-03T00-00-00_abcdef12",
+        "session": "previous",
+        "category": null
+      },
+      "reads": [
+        {
+          "relativePath": "sessions/2026-11-02T00-00-00_12345678/app.log",
+          "offset": 0,
+          "maxBytes": 50
+        }
+      ],
+      "truncated": false
+    }
+  ]
 }

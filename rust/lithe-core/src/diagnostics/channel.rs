@@ -63,6 +63,18 @@ impl ChannelRoot {
     }
 }
 
+/// Maps every structured root into the existing product's six log categories.
+pub fn log_category(channel: &str) -> &'static str {
+    match channel.split('/').next().unwrap_or("") {
+        "editor" | "lsp" => "language",
+        "vcs" => "git",
+        "perf" => "performance",
+        "run" | "debug" | "terminal" => "run",
+        "plugins" => "plugins",
+        _ => "application",
+    }
+}
+
 /// Owned domain failure. Numeric codes have one documented meaning across hosts.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LogError {
@@ -251,6 +263,8 @@ pub struct ResolveLogChannelRequest {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResolvedLogChannel {
+    /// Existing product category shared by filtering and verbose diagnostic admission.
+    pub category: String,
     /// Session-relative file destination, possibly the overflow sink.
     pub relative_path: String,
 }
@@ -264,6 +278,7 @@ pub fn resolve_log_channel(
         LogChannel::parse(existing)?;
     }
     Ok(ResolvedLogChannel {
+        category: log_category(channel.as_str()).into(),
         relative_path: bounded_log_path(
             &channel,
             &request.existing_channels,
@@ -295,6 +310,18 @@ mod tests {
         );
         let existing = (0..128).map(|i| format!("vcs/git{i}")).collect();
         assert_eq!(bounded_log_path(&base, &existing, 2), "_overflow~2.log");
+    }
+
+    #[test]
+    fn rotations_never_alias_legal_active_channels() {
+        for name in ["foo", "foo.1", "foo.2", "foo.1.2"] {
+            let channel = LogChannel::parse(&format!("lsp/{name}")).unwrap();
+            for index in 1..=3 {
+                let rotated = relative_log_path(&channel, index);
+                assert_eq!(rotated, format!("lsp/{name}~{index}.log"));
+                assert!(LogChannel::parse(rotated.strip_suffix(".log").unwrap()).is_err());
+            }
+        }
     }
 
     #[test]

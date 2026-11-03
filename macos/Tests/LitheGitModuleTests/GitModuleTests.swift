@@ -2386,9 +2386,9 @@ struct GitModuleTests {
 
         let messages = logger.messages
         #expect(messages.count == 1)
-        #expect(messages.first?.contains("operation=history") == true)
-        #expect(messages.first?.contains("duration_ms=") == true)
-        #expect(messages.first?.contains("status=success") == true)
+        if case .token(let operation) = messages.first?.fields["operation"] { #expect(operation == "history") } else { Issue.record("Missing operation") }
+        #expect(messages.first?.fields["duration"] != nil)
+        if case .bool(let succeeded) = messages.first?.fields["succeeded"] { #expect(succeeded) } else { Issue.record("Missing result") }
     }
 
     @Test
@@ -5910,17 +5910,17 @@ private func waitForGitWorkToBecomeIdle(
 
 private final class GitPerformanceLogRecorder: GitPerformanceLogger, @unchecked Sendable {
     private let lock = NSLock()
-    private var recordedMessages: [String] = []
+    private var recordedMessages: [any LogEvent] = []
 
-    var messages: [String] {
+    var messages: [any LogEvent] {
         lock.lock()
         defer { lock.unlock() }
         return recordedMessages
     }
 
-    func record(_ message: String) {
+    func emit(_ event: any LogEvent) {
         lock.lock()
-        recordedMessages.append(message)
+        recordedMessages.append(event)
         lock.unlock()
     }
 }

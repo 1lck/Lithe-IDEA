@@ -14,6 +14,7 @@ struct MacRemotePluginPackageDeployer: RemotePluginPackageDeploying {
     let transport: any MacPluginMarketplaceTransport
     let host: any RemotePluginFileAccess
     let temporaryDirectory: URL
+    var logSink: (any LogSink)? = nil
 
     func buildRequiresPackage(pluginID: String, buildSystemID: String, packageURL: URL) throws -> Bool {
         guard let original = installed.first(where: {
@@ -166,7 +167,7 @@ struct MacRemotePluginPackageDeployer: RemotePluginPackageDeploying {
                 } catch let error as RemoteProbeFailure where error.code == "workspace_not_found" {
                     // Cancellation may have won before the allocation.
                 }
-            } catch { NSLog("Remote plugin snapshot cleanup failed (%@)", String(describing: type(of: error))) }
+            } catch { logSink?.emit(RemotePluginsCleanupFailed(error: error, stage: "snapshot")) }
         }
         await cleanup.value
     }
@@ -174,7 +175,7 @@ struct MacRemotePluginPackageDeployer: RemotePluginPackageDeploying {
     private func removeLocal(_ directory: URL) async {
         await Task.detached {
             do { try FileManager().removeItem(at: directory) }
-            catch { NSLog("Remote plugin extraction cleanup failed (%@)", String(describing: type(of: error))) }
+            catch { logSink?.emit(RemotePluginsCleanupFailed(error: error, stage: "extraction")) }
         }.value
     }
 

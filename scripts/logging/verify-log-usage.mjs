@@ -119,7 +119,7 @@ function validatePolicy(policy, label, permanent) {
   for (const entry of policy.entries) {
     const key = `${entry.file}:${entry.rule}`;
     if (typeof entry.file !== 'string' || !/^(macos\/Sources\/.*\.swift|rust\/lithe-core\/src\/.*\.rs)$/.test(entry.file) || entry.file.split('/').some(part => part === '..') || !Object.hasOwn(RULES, entry.rule) || !Number.isSafeInteger(entry.count) || entry.count <= 0 || keys.has(key) || !entry.reason?.trim()) throw new Error(`${label}: invalid or duplicate entry ${key}`);
-    if (!permanent && entry.reason !== '待 PR2/PR3 迁移') throw new Error(`${label}: expected migration reason for ${key}`);
+    if (!permanent && entry.reason !== (entry.file.startsWith('rust/') ? 'PR3：经运行时事件流交给宿主' : '待 PR2/PR3 迁移')) throw new Error(`${label}: expected migration reason for ${key}`);
     keys.add(key);
   }
 }

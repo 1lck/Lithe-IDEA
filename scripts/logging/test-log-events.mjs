@@ -132,3 +132,18 @@ test('checked-in catalog and baseline agree with current sources', { timeout: 15
   await generate(ROOT, true);
   await verify();
 });
+
+// These are actual host inputs; output/argv/source fields must remain undeclared.
+test('macOS performance events preserve numeric evidence without raw payloads', { timeout: 1000 }, async () => {
+  const { events } = await loadCatalog();
+  const opening = events.find(event => event.id === 'perf.editor.open_measured');
+  assert.equal(opening.fields.model.type, 'duration');
+  assert.equal(opening.fields.utf16_length.type, 'int');
+  assert.equal(opening.fields.reused.type, 'bool');
+  assert.equal(Object.hasOwn(opening.fields, 'text'), false);
+  const latency = events.find(event => event.id === 'perf.settings.latency_measured');
+  for (const key of ['input_ns', 'received_ns', 'selected_ns', 'time_ns']) assert.equal(latency.fields[key].type, 'int');
+  const git = events.find(event => event.id === 'perf.git.command_finished');
+  assert.equal(Object.hasOwn(git.fields, 'arguments'), false);
+  assert.equal(Object.hasOwn(git.fields, 'output'), false);
+});
