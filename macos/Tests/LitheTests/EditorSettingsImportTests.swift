@@ -237,7 +237,7 @@ struct EditorSettingsImportTests {
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
         #expect(source.contains("LitheCenteredPopup(isPresented: $isPresented"))
         #expect(source.contains("allowsDismiss: !feature.isBusy"))
-        #expect(source.contains("hasShadow: false"))
+        #expect(!source.contains("hasShadow: false"))
         #expect(source.contains("dialogTitle: L10n.string(\"Import IDE settings\")"))
         #expect(source.contains("EditorSettingsImportView(feature: feature) { isPresented = false }"))
         #expect(source.contains("LitheCommitDialogStyle.background"))

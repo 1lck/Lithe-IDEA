@@ -159,7 +159,7 @@ struct LitheCenteredPopupTests {
 
     @MainActor
     @Test(arguments: [ColorScheme.dark, .light])
-    func shadowlessImportPanelRetainsNativeChromeAndCloses(scheme: ColorScheme) async throws {
+    func importPanelRetainsNativeShadowChromeAndCloses(scheme: ColorScheme) async throws {
         let parent = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 800, height: 600),
                               styleMask: [.borderless], backing: .buffered, defer: false)
         parent.isReleasedWhenClosed = false
@@ -168,13 +168,12 @@ struct LitheCenteredPopupTests {
         defer { presenter.close(); parent.close() }
         let host = NSHostingController(rootView: Color.clear.frame(width: 640, height: 467))
         var dismissals = 0
-        presenter.show(contentController: host, parent: parent, dialogTitle: "Import IDE settings",
-                       hasShadow: false) { dismissals += 1 }
+        presenter.show(contentController: host, parent: parent, dialogTitle: "Import IDE settings") { dismissals += 1 }
         let panel = try #require(host.view.window)
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(1))
         while host.view.bounds.width == 0, clock.now < deadline { await Task.yield() }
-        #expect(!panel.hasShadow)
+        #expect(panel.hasShadow)
         #expect(panel.styleMask.contains(.titled))
         #expect(panel.standardWindowButton(.closeButton)?.isEnabled == true)
         #expect(panel.contentLayoutRect.size == NSSize(width: 640, height: 467))

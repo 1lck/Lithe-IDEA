@@ -23,7 +23,7 @@ struct EditorSettingsImportControl: View {
     var body: some View {
         trigger
             .background(LitheCenteredPopup(isPresented: $isPresented,
-                allowsDismiss: !feature.isBusy, dialogTitle: L10n.string("Import IDE settings"), hasShadow: false) {
+                allowsDismiss: !feature.isBusy, dialogTitle: L10n.string("Import IDE settings")) {
                 EditorSettingsImportView(feature: feature) { isPresented = false }
             }.frame(width: 0, height: 0).allowsHitTesting(false))
 
