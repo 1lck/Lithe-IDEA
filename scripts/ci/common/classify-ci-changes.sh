@@ -325,6 +325,9 @@ classify_path() {
         scripts/plugins/verify-official-plugins.sh|scripts/plugins/build-official-plugins.sh)
             plugins=true
             ;;
+        scripts/logging/*)
+            # Catalog generation and usage checks run in verify-logging.yml.
+            ;;
         scripts/plugins/plugin-settings-schema.test.mjs)
             # Runs in the always-on Linux classification job, not a product lane.
             ;;

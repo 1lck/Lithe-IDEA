@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import LitheModuleAPI
 import SwiftUI
 
 /// Debug-only native demo; all writable files and settings belong to this instance.
@@ -8,6 +9,7 @@ final class ProblemsDemo: NSObject, NSApplicationDelegate {
     private let workspace = FileManager.default.temporaryDirectory
         .appendingPathComponent("Lithe-Problems-Demo-\(UUID().uuidString)", isDirectory: true)
     private let settingsDomain = "Lithe.ProblemsDemo.\(UUID().uuidString)"
+    private let logSink = MacLogStore()
     private var model: AppModel?
     private var window: NSWindow?
     private var loadTask: Task<Void, Never>?
@@ -36,9 +38,9 @@ final class ProblemsDemo: NSObject, NSApplicationDelegate {
             let settings = AppSettings(store: store, logDirectoryProvider: MacServiceContainer.makeLogDirectoryProvider())
             settings.language = .english
             settings.themePreference = .dark
-            MacBundledFontRegistry.registerFonts()
+            MacBundledFontRegistry.registerFonts(logSink: logSink)
             let model = AppModel(settings: settings,
-                services: MacServiceContainer(store: store, settings: settings, moduleLaunchMode: .safeMode).services)
+                services: MacServiceContainer(store: store, settings: settings, moduleLaunchMode: .safeMode, applicationLogging: logSink).services)
             self.model = model
             // Seed only the fixture root; do not start normal workspace scanners or language servers.
             model.workspaceSessionCoordinator.beginWorkspace(at: workspace)
@@ -75,7 +77,7 @@ final class ProblemsDemo: NSObject, NSApplicationDelegate {
                 model.editorDiagnosticsStore.replace(ProblemsDemoData.diagnostics(at: workspace))
             }
         } catch {
-            FileHandle.standardError.write(Data("Problems demo failed: \(error.localizedDescription)\n".utf8))
+            logSink.emit(AppDemoFailed(error: error, stage: "prepare"))
             NSApp.terminate(nil)
         }
     }
@@ -106,7 +108,7 @@ final class ProblemsDemo: NSObject, NSApplicationDelegate {
         do {
             if FileManager.default.fileExists(atPath: workspace.path) { try FileManager.default.removeItem(at: workspace) }
         } catch {
-            FileHandle.standardError.write(Data("Could not remove demo files: \(error.localizedDescription)\n".utf8))
+            logSink.emit(AppDemoFailed(error: error, stage: "cleanup"))
         }
     }
 }

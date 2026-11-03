@@ -127,7 +127,7 @@ struct SettingsView: View {
                 .ignoresSafeArea()
         }
         .onAppear {
-            SettingsPageLatencyTrace.installIfEnabled()
+            SettingsPageLatencyTrace.installIfEnabled(logSink: model.services.logSink)
             expandGroup(containing: viewState.selection)
             syncVisibilityDrafts()
             model.refreshAIConfigurations()
@@ -271,7 +271,7 @@ struct SettingsView: View {
 
     private func categoryNode(_ category: SettingsCategory, nested: Bool = false) -> LitheTreeListNode {
         LitheTreeListNode(id: "page:" + category.id, onSelect: {
-            SettingsPageLatencyTrace.selected(category.id)
+            SettingsPageLatencyTrace.selected(category.id, logSink: model.services.logSink)
             isSearchFocused = false; viewState.contributedPageID = nil; viewState.selection = category
         }) {
             HStack(spacing: 8) {
@@ -877,7 +877,7 @@ struct SettingsView: View {
                 Button("Detect Installed Shells") {
                     model.terminalFeature?.refreshAvailableShells()
                     viewState.detectedTerminalShells = model.availableTerminalShells
-                    viewState.knownTerminalShells = MacTerminalShellDiscovery.knownShells()
+                    viewState.knownTerminalShells = MacTerminalShellDiscovery.knownShells(logSink: model.services.logSink)
                 }
                 .buttonStyle(LitheActionButtonStyle())
             }
@@ -897,7 +897,7 @@ struct SettingsView: View {
         .task {
             guard await model.activateTerminalModule() else { return }
             viewState.detectedTerminalShells = model.availableTerminalShells
-            viewState.knownTerminalShells = MacTerminalShellDiscovery.knownShells()
+            viewState.knownTerminalShells = MacTerminalShellDiscovery.knownShells(logSink: model.services.logSink)
         }
     }
 

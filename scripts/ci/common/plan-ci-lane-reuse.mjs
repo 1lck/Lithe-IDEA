@@ -51,6 +51,8 @@ const REFERENCED = 'referenced';
 // the matching rule names; other workflows keep reusing their results. The
 // first matching rule wins, so narrower rules come before broader ones.
 export const CI_INFRA_RULES = Object.freeze([
+  // Logging scripts belong to the independent verify-logging workflow.
+  { pattern: /^scripts\/logging\//, workflows: [] },
   { pattern: /^\.github\/(workflows|actions)\//, workflows: REFERENCED },
   // This cross-engine check runs in the Linux job on every revision.
   { pattern: /^scripts\/plugins\/plugin-settings-schema\.test\.mjs$/, workflows: [] },

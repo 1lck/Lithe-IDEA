@@ -38,10 +38,10 @@ struct BundledUIFontTests {
                                                   .process, nil)
             }
         }
-        var messages: [String] = []
-        MacBundledFontRegistry.registerFonts(bundle: bundle) { messages.append($0) }
-        MacBundledFontRegistry.registerFonts(bundle: bundle) { messages.append($0) }
-        #expect(messages.isEmpty)
+        let messages = TypedLogRecorder()
+        MacBundledFontRegistry.registerFonts(bundle: bundle, logSink: messages)
+        MacBundledFontRegistry.registerFonts(bundle: bundle, logSink: messages)
+        #expect(messages.events.isEmpty)
         for font in fonts {
             let isNerdFont = font.lastPathComponent.hasPrefix("JetBrainsMonoNerdFontMono-")
             let name = font.deletingPathExtension().lastPathComponent

@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import AppKit
 import CoreServices
 import Foundation
@@ -56,9 +57,12 @@ final class MacDocumentObservation: DocumentFileObservation, @unchecked Sendable
     private var focusObserver: NSObjectProtocol?
     private var cancelled = false
 
-    init(urls: [URL], onChange: @escaping @Sendable ([URL]) -> Void) {
+    private let logSink: (any LogSink)?
+
+    init(urls: [URL], logSink: (any LogSink)? = nil, onChange: @escaping @Sendable ([URL]) -> Void) {
         self.urls = urls
         eventRouter = MacDocumentEventRouter(urls: urls)
+        self.logSink = logSink
         self.onChange = onChange
         restart()
         focusObserver = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: nil) { [weak self] _ in
@@ -97,8 +101,8 @@ final class MacDocumentObservation: DocumentFileObservation, @unchecked Sendable
             UInt32(kFSEventStreamCreateFlagUseCFTypes | kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagWatchRoot))
         if let stream {
             FSEventStreamSetDispatchQueue(stream, .main)
-            if !FSEventStreamStart(stream) { NSLog("Document watch unavailable; saves remain guarded") }
-        } else { NSLog("Could not create document watch; saves remain guarded") }
+            if !FSEventStreamStart(stream) { logSink?.emit(EditorDocumentWatchFailed(stage: "start")) }
+        } else { logSink?.emit(EditorDocumentWatchFailed(stage: "create")) }
         onChange(urls)
     }
 

@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 import LitheCoreContracts
 
@@ -15,12 +16,16 @@ final class RemoteDirectoryObservation: DirectoryChangeSource, @unchecked Sendab
     private var tasks: [Task<Void, Never>] = []
     private var generation = UUID()
 
+    private let logSink: (any LogSink)?
+
     init(
+        logSink: (any LogSink)? = nil,
         configuration: DirectoryWatchConfiguration, visibilityRules: FileVisibilityRules,
         binding: RemoteWorkspaceBinding, registry: RemoteWorkspaceRegistry,
         transport: any RemoteWorkspaceTransport,
         onChange: @escaping @Sendable (DirectoryChangeBatch) -> Void
     ) {
+        self.logSink = logSink
         self.configuration = configuration
         self.visibilityRules = visibilityRules
         self.binding = binding
@@ -45,7 +50,7 @@ final class RemoteDirectoryObservation: DirectoryChangeSource, @unchecked Sendab
                         }
                     } catch {
                         guard !Task.isCancelled else { return }
-                        NSLog("Remote directory watch ended: %@", String(describing: type(of: error)))
+                        self?.logSink?.emit(RemoteDirectoryWatchFailed(error: error))
                         self?.receive(.invalidated(rootRemoved: false), generation: current)
                     }
                 })

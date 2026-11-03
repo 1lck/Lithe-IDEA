@@ -128,6 +128,7 @@ final class MacLivePluginRegistry {
     ) -> MacPluginAcceptance
 
     private let box = LivePluginSnapshotBox()
+    private let logSink: (any LogSink)?
     private let makeScanStore: @Sendable () -> MacPluginPackageStore
     private let accept: Acceptor
     /// Manifests registered with the module graph at launch, so a live package
@@ -150,6 +151,7 @@ final class MacLivePluginRegistry {
     nonisolated var snapshotBox: LivePluginSnapshotBox { box }
 
     init(
+        logSink: (any LogSink)? = nil,
         initial: [InstalledPluginPackage],
         registeredManifests: [PluginManifest],
         makeScanStore: @escaping @Sendable () -> MacPluginPackageStore,
@@ -160,6 +162,7 @@ final class MacLivePluginRegistry {
     ) {
         self.notificationCenter = notificationCenter
         self.registeredManifests = registeredManifests
+        self.logSink = logSink
         self.makeScanStore = makeScanStore
         self.accept = accept
         self.isEnabled = isEnabled
@@ -241,7 +244,7 @@ final class MacLivePluginRegistry {
         guard let result = outcome.result else {
             // Keep the last known registrations rather than dropping them all
             // on a transient read failure.
-            NSLog("Lithe live plugin scan failed: %@", outcome.error ?? "")
+            logSink?.emit(PluginsScanFailed(error: NSError(domain: "plugins.scan", code: 1, userInfo: [NSLocalizedDescriptionKey: outcome.error ?? ""])))
             return
         }
         apply(result.packages)
@@ -254,7 +257,7 @@ final class MacLivePluginRegistry {
             $0.installation.status == .installed && $0.descriptor.canActivateWithoutRestart
         }
         let acceptance = accept(candidates, registeredManifests)
-        MacPluginStartupLoader.log(acceptance.issues)
+        MacPluginStartupLoader.log(acceptance.issues, sink: logSink)
         var next = LivePluginSnapshot(generation: box.snapshot.generation)
         for package in acceptance.accepted {
             next.entries[package.manifest.id] = LivePluginEntry(package: package, isEnabled: isEnabled(package))
