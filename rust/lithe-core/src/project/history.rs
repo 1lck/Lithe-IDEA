@@ -375,8 +375,10 @@ pub fn record(request: HistoryRecordRequest) -> Result<Option<HistoryEntryRespon
     }
     if let Err(error) = fs::write(&metadata_path, &metadata) {
         // A failed metadata write must not leave an unaccounted snapshot behind.
-        let _ = fs::remove_file(snapshot_path);
-        let _ = fs::remove_file(metadata_path);
+        let mut cleanup = crate::diagnostics::core_events::StorageCleanup::default();
+        cleanup.observe(fs::remove_file(snapshot_path));
+        cleanup.observe(fs::remove_file(metadata_path));
+        cleanup.finish("snapshot-rollback");
         invalidate_storage_usage(&storage);
         return Err(error.into());
     }
@@ -493,7 +495,9 @@ fn relocate_file_history(storage: &Path, source: &str, destination: &str) -> Res
             serde_json::to_vec(&relocated).expect("history metadata should encode"),
         )?;
     }
-    let _ = fs::remove_dir_all(source_directory);
+    let mut cleanup = crate::diagnostics::core_events::StorageCleanup::default();
+    cleanup.observe(fs::remove_dir_all(source_directory));
+    cleanup.finish("history-relocation");
     Ok(())
 }
 
@@ -553,7 +557,9 @@ pub fn delete(request: HistoryDeleteRequest) -> Result<(), CoreError> {
         .map(|mut entries| entries.next().is_none())
         .unwrap_or(false)
     {
-        let _ = fs::remove_dir(directory);
+        let mut cleanup = crate::diagnostics::core_events::StorageCleanup::default();
+        cleanup.empty_directory(&directory);
+        cleanup.finish("snapshot-directory");
     }
     Ok(())
 }
@@ -830,14 +836,16 @@ fn default_prune_expired() -> bool {
 }
 
 fn trim_entries(directory: &Path, storage: &Path) {
+    let mut cleanup = crate::diagnostics::core_events::StorageCleanup::default();
     let mut removed = false;
     for entry in read_entries(directory, storage)
         .into_iter()
         .skip(MAX_ENTRIES_PER_FILE)
     {
-        remove_entry(storage, &entry);
+        remove_entry(storage, &entry, &mut cleanup);
         removed = true;
     }
+    cleanup.finish("history-pruning");
     if removed {
         invalidate_storage_usage(storage);
     }
@@ -850,15 +858,17 @@ fn trim_entries(directory: &Path, storage: &Path) {
 /// touching snapshots of real edits.
 fn prune_expired(storage: &Path, rules: &HistoryIgnoreRules) {
     let cutoff = unix_seconds() - RETENTION_SECONDS;
+    let mut cleanup = crate::diagnostics::core_events::StorageCleanup::default();
     let mut removed = false;
     for entry in all_entries(storage) {
         let excluded_baseline = entry.reason == "projectBaseline"
             && ignored_rule(rules, &entry.relative_path).is_some();
         if entry.timestamp < cutoff || excluded_baseline {
-            remove_entry(storage, &entry);
+            remove_entry(storage, &entry, &mut cleanup);
             removed = true;
         }
     }
+    cleanup.finish("history-pruning");
     if removed {
         invalidate_storage_usage(storage);
     }
@@ -885,13 +895,15 @@ fn enforce_storage_limit(storage: &Path, limit: u64) -> Result<(), CoreError> {
             entry.relative_path.clone(),
         )
     });
+    let mut cleanup = crate::diagnostics::core_events::StorageCleanup::default();
     for entry in entries {
         if usage <= limit {
             break;
         }
         usage = usage.saturating_sub(entry_allocated_bytes(storage, &entry));
-        remove_entry(storage, &entry);
+        remove_entry(storage, &entry, &mut cleanup);
     }
+    cleanup.finish("history-eviction");
     invalidate_storage_usage(storage);
     Ok(())
 }
@@ -932,12 +944,15 @@ fn all_entries(storage: &Path) -> Vec<StoredEntry> {
         .collect()
 }
 
-fn remove_entry(storage: &Path, entry: &StoredEntry) {
-    let _ = fs::remove_file(storage.join(&entry.content_path));
-    let _ = fs::remove_file(metadata_path(storage, entry));
+fn remove_entry(
+    storage: &Path,
+    entry: &StoredEntry,
+    cleanup: &mut crate::diagnostics::core_events::StorageCleanup,
+) {
+    cleanup.observe(fs::remove_file(storage.join(&entry.content_path)));
+    cleanup.observe(fs::remove_file(metadata_path(storage, entry)));
     if let Some(directory) = storage.join(&entry.content_path).parent() {
-        // Only succeeds once the file has no snapshots left.
-        let _ = fs::remove_dir(directory);
+        cleanup.empty_directory(directory);
     }
 }
 

@@ -109,23 +109,66 @@ mod integration_tests;
 
 impl Connection {
     fn close(&self) {
-        let _ = self.session.request_value(
+        if let Err(error) = self.session.request_value(
             methods::SERVER_SHUTDOWN,
             serde_json::Value::Null,
             EXIT_GRACE,
-        );
+        ) {
+            // A peer that already closed needs no shutdown; other failures use WARN.
+            if !matches!(error, ClientError::Disconnected { .. }) {
+                crate::diagnostics::core_events::recovery_failed(
+                    "remote.session.cleanup_failed",
+                    "shutdown",
+                    &crate::diagnostics::core_events::client_failure_category(&error),
+                    "remote",
+                );
+            }
+        }
         match &self.transport {
             ConnectionTransport::Ssh { child, tree } => {
-                let _ = tree.terminate(EXIT_GRACE);
+                // Grace expiry is advisory: the checked kill and wait below own the result.
+                if let Err(error) = tree.terminate(EXIT_GRACE) {
+                    if error.kind() != std::io::ErrorKind::TimedOut {
+                        record_cleanup_io("tree-terminate", &error);
+                    }
+                }
                 let mut child = child
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner());
-                let _ = child.kill();
-                let _ = child.wait();
+                if let Err(error) = child.kill() {
+                    // Killing an already exited child is an expected missing process.
+                    if !matches!(child.try_wait(), Ok(Some(_))) {
+                        record_cleanup_io("kill", &error);
+                    }
+                }
+                if let Err(error) = child.wait() {
+                    record_cleanup_io("wait", &error);
+                }
             }
             #[cfg(test)]
             ConnectionTransport::InProcess => {}
         }
+    }
+}
+
+/// Records one failed SSH transport cleanup step. The caller keeps its own
+/// result; WARN reports a process that may outlive the session.
+fn record_cleanup_io(stage: &str, error: &std::io::Error) {
+    crate::diagnostics::core_events::recovery_failed(
+        "remote.session.cleanup_failed",
+        stage,
+        &format!("{:?}", error.kind()),
+        "io",
+    );
+}
+
+/// Kills the SSH process tree and reaps its root, recording each failed step.
+fn reap(tree: &ProcessTree, child: &mut Child) {
+    if let Err(error) = tree.kill() {
+        record_cleanup_io("tree-kill", &error);
+    }
+    if let Err(error) = child.wait() {
+        record_cleanup_io("wait", &error);
     }
 }
 
@@ -275,12 +318,12 @@ pub(super) fn connect_with(
                 }
             }
         });
+        // log-exempt: User cancellation: abandon drops the launch receiver before killing the SSH tree.
         let _ = finished.send((result, output, input));
     });
     let deadline = Instant::now() + CONNECT_DEADLINE;
     let abandon = |error: CoreError, child: &mut Child| {
-        let _ = tree.kill();
-        let _ = child.wait();
+        reap(&tree, child);
         Err(error)
     };
     let (result, output, input) = loop {
@@ -349,7 +392,14 @@ pub(super) fn connect_with(
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .take();
         if let Some(reader) = reader {
-            let _ = reader.join();
+            if reader.join().is_err() {
+                crate::diagnostics::core_events::recovery_failed(
+                    "remote.session.diagnostics_failed",
+                    "reader",
+                    "reader_panicked",
+                    "thread",
+                );
+            }
         }
         let bytes: Vec<u8> = tail
             .lock()
@@ -371,15 +421,13 @@ pub(super) fn connect_with(
         Err(LaunchError::NoShell) => {
             // OpenSSH prints why it gave up only as it exits.
             let status = wait_for_exit(&mut child, EXIT_GRACE);
-            let _ = tree.kill();
-            let _ = child.wait();
+            reap(&tree, &mut child);
             let probe = classify(status, &[], &tail(&stderr_tail));
             return Ok(failed(probe.status, None, probe.diagnostics));
         }
         Err(LaunchError::NoArtifact(report)) => {
             let report = *report;
-            let _ = tree.kill();
-            let _ = child.wait();
+            reap(&tree, &mut child);
             let unreadable = unreadable
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -405,8 +453,7 @@ pub(super) fn connect_with(
             ));
         }
         Err(error) => {
-            let _ = tree.kill();
-            let _ = child.wait();
+            reap(&tree, &mut child);
             let stderr = diagnostics(&String::from_utf8_lossy(&tail(&stderr_tail)));
             return Ok(failed(
                 ProbeStatus::Failed,
@@ -430,9 +477,9 @@ pub(super) fn connect_with(
     let (session, events) = match RemoteSession::from_streams(output, input, &options) {
         Ok(value) => value,
         Err(error) => {
-            let _ = wait_for_exit(&mut child, EXIT_GRACE);
-            let _ = tree.kill();
-            let _ = child.wait();
+            // Grace expiry is advisory: the following checked kill/wait owns the final cleanup result.
+            wait_for_exit(&mut child, EXIT_GRACE);
+            reap(&tree, &mut child);
             let stderr = diagnostics(&String::from_utf8_lossy(&tail(&stderr_tail)));
             return Ok(failed(
                 ProbeStatus::Failed,
@@ -664,7 +711,15 @@ pub(super) fn close_registry(connections: &Mutex<HashMap<String, Arc<Connection>
         .map(|connection| std::thread::spawn(move || connection.close()))
         .collect();
     for closer in closers {
-        let _ = closer.join();
+        if closer.join().is_err() {
+            // Parallel close owns recovery; WARN reports a distinct worker panic.
+            crate::diagnostics::core_events::recovery_failed(
+                "remote.session.cleanup_failed",
+                "closer",
+                "closer_panicked",
+                "thread",
+            );
+        }
     }
     count
 }
@@ -741,7 +796,17 @@ fn keep_tail(
         let mut buffer = [0_u8; 4096];
         loop {
             match stderr.read(&mut buffer) {
-                Ok(0) | Err(_) => return,
+                Ok(0) => return,
+                Err(error) => {
+                    // Once per reader completion; WARN explains truncated launch evidence.
+                    crate::diagnostics::core_events::recovery_failed(
+                        "remote.session.diagnostics_failed",
+                        "stderr",
+                        &format!("{:?}", error.kind()),
+                        "io",
+                    );
+                    return;
+                }
                 Ok(read) => {
                     let mut tail = tail.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
                     tail.extend(&buffer[..read]);

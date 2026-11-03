@@ -503,6 +503,26 @@
           "description": "Validated plugin identity assigned by Core to this engine session"
         }
       }
+    },
+    {
+      "id": "plugins.host.process.cleanup_failed",
+      "channel": "plugins/{plugin}/host",
+      "level": "warn",
+      "message": "Engine process cleanup failed",
+      "owner": "lithe-core",
+      "rate": 60,
+      "fields": {
+        "plugin": {
+          "type": "id",
+          "required": true,
+          "description": "Validated session identity selected from the explicit engine role"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Stable native cleanup failure category; excludes process arguments and paths"
+        }
+      }
     }
   ]
 }

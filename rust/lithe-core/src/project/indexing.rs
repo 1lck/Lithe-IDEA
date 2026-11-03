@@ -268,19 +268,40 @@ fn configure_with_provider_update(
     })();
     if result.is_err() && installed_lease {
         // A caller receiving no token cannot release a failed installation.
-        let _ = release_lease(
+        if let Err(error) = release_lease(
             ReleaseIndexingRequest {
                 root: root.to_string_lossy().into_owned(),
                 revision: lease_revision,
                 owner_id: request.owner_id,
             },
             true,
-        );
+        ) {
+            // Failed installation owns recovery; WARN keeps the original failure.
+            crate::diagnostics::core_events::recovery_failed(
+                "app.indexing.rollback_failed",
+                "lease",
+                serde_json::to_value(&error.code)
+                    .expect("Core code encodes")
+                    .as_str()
+                    .expect("Core code token"),
+                "core",
+            );
+        }
         if rollback_failed_policy(&root, &context)? {
             super::search_index::invalidate_root(&root);
             // Restore providers that received only part of the failed update.
             // Preserve the original error if shutdown/cancellation also blocks recovery.
-            let _ = update_provider(&root);
+            if let Err(error) = update_provider(&root) {
+                crate::diagnostics::core_events::recovery_failed(
+                    "app.indexing.rollback_failed",
+                    "provider",
+                    serde_json::to_value(&error.code)
+                        .expect("Core code encodes")
+                        .as_str()
+                        .expect("Core code token"),
+                    "core",
+                );
+            }
         }
     }
     result

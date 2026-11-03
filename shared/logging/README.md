@@ -76,7 +76,7 @@ Rust 通过静态 `EVENTS`（按 ID 排序）和二分查找 `event_by_id` 暴�
 
 ## 用法门禁与存量
 
-门禁分两类规则，都只扫描生产代码：词法遮蔽注释和字符串内容，排除 `Tests/`、`tests/`、`tests.rs` 及明确 `#[cfg(test)]` 项；只检查列出的直接写法，不跨文件追踪别名或动态调用。
+门禁分两类规则，都只扫描生产代码：词法遮蔽注释和字符串内容，排除 `Tests/`、`tests/`、`tests.rs`、文件名以 `_tests.rs` 结尾的 Rust 文件及明确 `#[cfg(test)]` 项；只检查列出的直接写法，不跨文件追踪别名或动态调用。
 
 - 绕过日志：Swift 的 `NSLog`、stderr 写入、`os_log`、导入 `os.log` 后的 `Logger`、`.record(level:)`、`print`/`debugPrint`；Rust 的 `eprintln!`、`println!`、`dbg!`。这些写法不经过目录和脱敏，只能改成生成事件；确属机器协议时进 `log-usage-allowlist.json`。这类写法的存量已在 PR2/PR3 清零；Rust 的非 LSP 事实通过 256 条的 Core 队列交给宿主。
 - 吞掉失败：Swift 语句级 `try?`（含 `_ = try?`）、块体只有 `return`/`break`/`continue` 的 `catch`；Rust 语句级 `.ok();` 和 `let _ = …;`。失败要么处理并记录事件，要么在同一行或上一行写 `// log-exempt: <原因>`。原因至少 3 个非空白字符，必须属于日志参考页的四类封闭例外；空原因本身报错。标记只对这四条规则生效，不能豁免绕过日志的写法。

@@ -117,10 +117,17 @@ pub fn history(request: GitHistoryRequest) -> Result<GitHistoryResponse, CoreErr
         limit: request.limit,
     })?;
     if let Some(cursor) = page.next_cursor.as_deref() {
-        let _ = close_history_cursor(GitHistoryCursorCloseRequest {
+        if let Err(error) = close_history_cursor(GitHistoryCursorCloseRequest {
             root: request.root,
             cursor: cursor.to_string(),
-        });
+        }) {
+            // The legacy snapshot is complete; WARN reports cursor cleanup only.
+            crate::diagnostics::core_events::core_failed(
+                "vcs.history.cleanup_failed",
+                "cursor",
+                &error,
+            );
+        }
     }
     Ok(GitHistoryResponse {
         references: references.references,
@@ -597,7 +604,15 @@ impl HistorySession {
         let stdout_reader = thread::spawn(move || read_history_stream(stdout, sender));
         let stderr_reader = thread::spawn(move || {
             let mut bytes = Vec::new();
-            let _ = stderr.read_to_end(&mut bytes);
+            if let Err(error) = stderr.read_to_end(&mut bytes) {
+                // One reader completion, not per chunk: WARN explains partial diagnostics.
+                crate::diagnostics::core_events::recovery_failed(
+                    "vcs.history.read_failed",
+                    "stderr",
+                    &format!("{:?}", error.kind()),
+                    "io",
+                );
+            }
             bytes
         });
         let cursor = format!(
@@ -703,7 +718,17 @@ impl HistorySession {
         self.receiver.take();
         let status = if let Some(mut child) = self.child.take() {
             if terminate {
-                let _ = child.kill();
+                if let Err(error) = child.kill() {
+                    // An already reaped child is expected; other cleanup failures are distinct.
+                    if !matches!(child.try_wait(), Ok(Some(_))) {
+                        crate::diagnostics::core_events::recovery_failed(
+                            "vcs.history.cleanup_failed",
+                            "kill",
+                            &format!("{:?}", error.kind()),
+                            "io",
+                        );
+                    }
+                }
             }
             child.wait().map_err(|error| {
                 CoreError::new(
@@ -716,24 +741,56 @@ impl HistorySession {
             return Ok(());
         };
         if let Some(reader) = self.stdout_reader.take() {
-            let _ = reader.join();
+            if reader.join().is_err() {
+                crate::diagnostics::core_events::recovery_failed(
+                    "vcs.history.cleanup_failed",
+                    "stdout-reader",
+                    "reader_panicked",
+                    "thread",
+                );
+            }
         }
         let stderr = self
             .stderr_reader
             .take()
-            .and_then(|reader| reader.join().ok())
+            .and_then(|reader| match reader.join() {
+                Ok(bytes) => Some(bytes),
+                Err(_) => {
+                    crate::diagnostics::core_events::recovery_failed(
+                        "vcs.history.cleanup_failed",
+                        "stderr-reader",
+                        "reader_panicked",
+                        "thread",
+                    );
+                    None
+                }
+            })
             .unwrap_or_default();
         validate_history_exit(status, stderr, terminate)
     }
 
     fn stop(mut self) {
-        let _ = self.finish_process(true);
+        if let Err(error) = self.finish_process(true) {
+            // This owner stops the cursor without failing the completed page.
+            crate::diagnostics::core_events::core_failed(
+                "vcs.history.cleanup_failed",
+                "wait",
+                &error,
+            );
+        }
     }
 }
 
 impl Drop for HistorySession {
     fn drop(&mut self) {
-        let _ = self.finish_process(true);
+        if let Err(error) = self.finish_process(true) {
+            // This owner stops the cursor without failing the completed page.
+            crate::diagnostics::core_events::core_failed(
+                "vcs.history.cleanup_failed",
+                "wait",
+                &error,
+            );
+        }
     }
 }
 
@@ -744,16 +801,19 @@ fn read_history_stream(stdout: impl Read, sender: SyncSender<HistoryStreamMessag
         line.clear();
         match reader.read_line(&mut line) {
             Ok(0) => {
+                // log-exempt: User cancellation: the cursor owner dropped its receiver when closing the stream.
                 let _ = sender.send(HistoryStreamMessage::End);
                 break;
             }
             Ok(_) => {
                 let normalized = line.trim_end_matches(['\r', '\n']).to_string();
+                // log-exempt: User cancellation: closing the cursor drops the only receiver.
                 if sender.send(HistoryStreamMessage::Line(normalized)).is_err() {
                     break;
                 }
             }
             Err(error) => {
+                // log-exempt: User cancellation: the cursor owner dropped its receiver when closing the stream.
                 let _ = sender.send(HistoryStreamMessage::ReadFailed(error.to_string()));
                 break;
             }

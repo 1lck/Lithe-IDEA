@@ -182,11 +182,23 @@ impl Drop for RemoteHistory {
     fn drop(&mut self) {
         self.events.take();
         self.host.connection.session.unsubscribe("process", self.id);
-        let _ = self.host.connection.session.request_value(
+        if let Err(error) = self.host.connection.session.request_value(
             methods::PROCESS_KILL,
             json!({"processId": self.id, "force": true}),
             Duration::from_secs(2),
-        );
+        ) {
+            // A finished log process is already pruned by the host, which is the
+            // expected missing case. Drop owns other cleanup failures; WARN keeps
+            // the page result.
+            if !crate::diagnostics::core_events::remote_resource_already_gone(&error) {
+                crate::diagnostics::core_events::recovery_failed(
+                    "vcs.history.cleanup_failed",
+                    "remote-kill",
+                    &crate::diagnostics::core_events::client_failure_category(&error),
+                    "remote",
+                );
+            }
+        }
     }
 }
 
