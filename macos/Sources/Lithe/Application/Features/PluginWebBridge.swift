@@ -111,6 +111,24 @@ protocol PluginBackendRequesting: AnyObject {
         _ functionID: String, params: ToolingJSONValue, ofPlugin pluginID: String, timeout: Duration,
         progress: @escaping @MainActor @Sendable (PluginFunctionProgress) -> Void
     ) async throws -> ToolingJSONValue
+    /// Like the call above, naming the workspace context of the page's
+    /// window. A backend of function protocol 3 receives it as
+    /// `params.context`; an older one receives the call unchanged.
+    func invokePluginFunction(
+        _ functionID: String, params: ToolingJSONValue, ofPlugin pluginID: String,
+        context: PluginWorkspaceContextReference?, timeout: Duration,
+        progress: @escaping @MainActor @Sendable (PluginFunctionProgress) -> Void
+    ) async throws -> ToolingJSONValue
+}
+
+extension PluginBackendRequesting {
+    func invokePluginFunction(
+        _ functionID: String, params: ToolingJSONValue, ofPlugin pluginID: String,
+        context _: PluginWorkspaceContextReference?, timeout: Duration,
+        progress: @escaping @MainActor @Sendable (PluginFunctionProgress) -> Void
+    ) async throws -> ToolingJSONValue {
+        try await invokePluginFunction(functionID, params: params, ofPlugin: pluginID, timeout: timeout, progress: progress)
+    }
 }
 
 /// What a page may cause in its host window.
@@ -127,10 +145,14 @@ protocol PluginWebBridgeHost: AnyObject {
     func pluginWebChooseFile(_ request: PluginWebFileRequest) async -> URL?
     /// The application's plugin backends; nil on hosts that run none.
     var pluginWebBackends: (any PluginBackendRequesting)? { get }
+    /// The workspace context of this window, named on every backend call;
+    /// nil when the window shows no workspace.
+    var pluginWebWorkspaceContext: PluginWorkspaceContextReference? { get }
 }
 
 extension PluginWebBridgeHost {
     var pluginWebBackends: (any PluginBackendRequesting)? { nil }
+    var pluginWebWorkspaceContext: PluginWorkspaceContextReference? { nil }
 }
 
 /// Page state kept by the host, per window and workspace.
@@ -583,6 +605,7 @@ final class PluginWebBridge {
         }
         let timeout = requestTimeout
         let pluginID = window.pluginID
+        let workspaceContext = host?.pluginWebWorkspaceContext
         let instanceID: String? = if case .instance(_, let entry) = target { entry.id } else { nil }
         let progress: @MainActor @Sendable (PluginFunctionProgress) -> Void = { [weak self, weak reservation] progress in
             guard let self, let pageCall, let reservation, self.functionCalls[pageCall] === reservation else { return }
@@ -600,7 +623,8 @@ final class PluginWebBridge {
                 )
             case .backend(let backends):
                 try await backends.invokePluginFunction(
-                    functionID, params: input, ofPlugin: pluginID, timeout: timeout, progress: progress
+                    functionID, params: input, ofPlugin: pluginID, context: workspaceContext,
+                    timeout: timeout, progress: progress
                 )
             }
         }

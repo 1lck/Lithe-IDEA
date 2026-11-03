@@ -70,6 +70,27 @@ category 分组展示。
 `shared/fixtures/execution/maven-java-main-source-sets-v1.json` 保证，不要
 为了让列表变短而整体排除测试源码。
 
+### 普通应用与服务同样拥有独立进程和输出（#1562）
+
+Windows 普通 `application` 配置现在和 `service` 一样，以配置 ID 拥有会话。
+启动应用 B 不停止 A；停止、重跑和标准输入只路由到目标配置，旧执行的回调仍受执行代次保护。
+当前文件与一次性任务保留既有 primary 行为。同一配置重跑替换自己的实例，未增加同配置多实例能力。
+
+这借鉴 OpenIdea `b3abc8edd11a2869e3361c66c73e6464714a6c0f` 的
+`src/features/run/sessionTargets.ts`：目标由所选配置决定，不能用全局运行状态或工具窗口焦点决定。
+没有照搬其整套 session store，因为 Lithe 已有可复用的服务会话与执行代次保护。
+代价是保留多个应用输出会占更多内存，仍受现有每会话输出上限和项目关闭清理约束。
+`run-prelaunch.test.ts` 覆盖 A/B 并行、停止 B、重启 B、A 输出与进程不变。
+
+Run 和 IDE 自动化 API 必须共用会话选择规则：只有当前文件和一次性任务争用 primary，
+其他任务正在运行不能阻止独立应用启动。同一个配置在保存或准备阶段就登记会话及执行代次，
+这样 API 能拒绝重复启动，界面能停止准备，取消后的保存结果不会再启动进程。
+顶部停止动作也读取所选配置的准备状态；标准输入和热更新仍只允许已运行的进程。
+工具链检查拒绝启动时，错误只写入目标配置的输出，不改动其他会话；如果目标配置
+已有运行实例，拒绝重跑也不能伪造该实例已退出。
+`ide-capabilities.test.ts`、`run-pane.test.tsx` 和 `run-prelaunch.test.ts` 验证这些边界；
+`maven-module-debug.test.ts` 验证 Debug 的迟到清理不会停止同配置的新执行。
+
 ### 4. Windows 按语言生态、运行类型和输出分三栏浏览
 
 复合项目可能同时包含 Java、Node.js、Python 和 Rust。只按框架排列，用户要在

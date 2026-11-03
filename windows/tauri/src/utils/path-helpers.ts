@@ -126,6 +126,18 @@ export const getRelativePath = (
 };
 
 /**
+ * Respell a path inside rootPath with the root's own prefix and separator so it
+ * matches tree nodes exactly. Paths outside the root are returned unchanged.
+ */
+export const toRootedPath = (fullPath: string, rootPath: string): string => {
+  if (!pathStartsWithRoot(fullPath, rootPath)) return fullPath;
+  const relativePath = getRelativePath(fullPath, rootPath);
+  if (!relativePath) return rootPath;
+  const separator = rootPath.includes("\\") ? "\\" : "/";
+  return `${stripTrailingPathSeparators(rootPath)}${separator}${relativePath.split("/").join(separator)}`;
+};
+
+/**
  * Get the directory path without the filename
  * @param fullPath - The full file path
  * @param rootFolderPath - The root folder path

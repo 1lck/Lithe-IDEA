@@ -588,6 +588,10 @@ struct WorkbenchView: View {
                 .padding(.bottom, LitheTheme.Metrics.statusBarHeight + LitheTheme.Notification.edgeInset)
             }
         }
+        .overlay(alignment: .bottomLeading) {
+            // Messages that plugins show in this window; the host's own balloons stay on the right.
+            PluginHostMessageStack(messages: model.hostMessages)
+        }
         .overlay {
             if model.isSearchEverywhereVisible, let feature = model.searchFeatureIfActive {
                 SearchEverywhereView(
@@ -1815,18 +1819,21 @@ struct WorkbenchView: View {
                 .fixedSize()
                 .help("File encoding")
             }
-            Text("\(settings.tabWidth) spaces")
+            if let document = model.focusedEditorDocument ?? model.activeDocument {
+                EditorIndentationStatusLabel(document: document)
+            }
             Button {
                 model.saveActiveDocument()
             } label: {
                 Image(systemName: model.activeDocument?.isReadOnly == true ? "lock.fill" : "lock.open")
             }
-            .litheIconButton()
+            .litheStatusBarIconButton()
             .disabled(model.activeDocument?.isReadOnly == true)
             .help(LocalizedStringKey(
                 model.activeDocument?.isReadOnly == true ? "Read-only document" : "Save"
             ))
             ProjectPreparationStatusView(compact: true)
+            LanguageServerStatusView()
             MemoryUsageStatusView()
             FrameRateStatusView()
             gitStatus
@@ -1837,6 +1844,7 @@ struct WorkbenchView: View {
         HStack(spacing: 10) {
             EditorCaretPositionLabel(chrome: model.editorChrome) { model.showGoToLine() }
             ProjectPreparationStatusView(compact: true)
+            LanguageServerStatusView()
             MemoryUsageStatusView()
             FrameRateStatusView()
             gitStatus

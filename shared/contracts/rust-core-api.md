@@ -227,7 +227,8 @@ can correlate concurrent requests. `stopReason` uses ACP wire names such as
 `end_turn` and `cancelled`.
 
 Codex `sessions` and `archivedSessions` use the installed official App Server's
-`thread/list` with matching provider, source-kind and workspace scope. The Host
+`thread/list` across all providers, within the selected account's Codex home,
+source-kind and workspace scope. The Host
 normalizes its `recencyAt` (conversation activity) into the existing optional
 ISO 8601 `updatedAt` history field, and sorts upstream pages by `recency_at`.
 `useStateDbOnly: true` avoids rollout-file scans/read-repair for this read-only
@@ -240,6 +241,17 @@ Listing failure retains consumers' existing rows through `requestFailed`; it
 does not fabricate a local timestamp. Other Agents retain standard ACP listing.
 `shared/fixtures/agent/history-activity-v1.json` covers initial state, metadata-only
 viewing, and a new conversation turn. The history UI geometry is unchanged.
+
+History summaries may additionally include `modelProvider`, the opaque provider
+identity reported by upstream history. Missing, null or blank metadata is unknown;
+it is never inferred from the current billing route, model name or local annotation.
+Codex forwards `thread/list.modelProvider`; standard ACP Agents without equivalent
+metadata omit it. Older consumers can ignore this additive field. Presentation
+defaults to all providers and may explicitly filter an exact identity or unknown
+metadata, composing with search, favorites, local removal and archived rows.
+Provider choices come from active and archived snapshots, not the configured
+provider catalog. Filtering is local and read-only: it never changes the current
+route, resumes a thread, rewrites history or starts another list request.
 
 Both native Codex App Server listing and standard ACP listing may emit additive `sessionsPage` events for nonterminal pages with matching rows. Each carries the original `listSessions` token and only that page’s summaries. Consumers merge these rows without pruning cached entries or completing the loading state. The existing terminal `sessions` event still carries the full snapshot; consumers that ignore `sessionsPage` remain compatible. A later `requestFailed` retains cached and already received rows. Ignore pages from superseded, completed, or disconnected requests. Empty filtered pages do not end a scan: follow the Agent’s cursor. Platform history surfaces may reuse successful connection-local snapshots (including empty results) for 30 seconds, with independent active/archive freshness; explicit refresh and post-unarchive reconciliation bypass freshness. Failed scans remain retryable and reconnection invalidates freshness. On macOS, a confirmed `turnFinished` invalidates active-list freshness, including for background sessions, without expiring the archive snapshot. A scan still in flight at that boundary may update displayed rows but cannot renew freshness when it completes; the next history open queries again after that scan finishes. Loading or viewing history alone does not invalidate freshness or synthesize activity timestamps. This adds no persisted history or runtime resource directory.
 
@@ -975,8 +987,12 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `community.discourse.search` | Search normalized topics and sanitized posts |
 | `editor.lineEdit` | Apply a deterministic line-level text transform and return the replacement plus selection to restore |
 | `editor.lineCommentToken` | Resolve the line comment token for a file extension or language id |
-| `workspace.snapshot` | Enumerate visible workspace nodes and relative file paths; `nestedWorktrees` lists linked worktrees checked out inside their own repository, which are left out of the tree, files, and search index ; `includeTree: false` returns only `files` and a childless `root`; `files` (and the tree, when included) keep the lowercase traversal order that bounded consumers such as Windows Quick Open rely on, not the natural display order of `workspace.listDirectories` |
-| `workspace.filterChanges` | Filter an array of workspace-relative paths against Core's default build/cache exclusions; preserve order, spelling, and the empty root path. Native event loss bypasses filtering. Hosts relativize to the most specific explicit watch root and retain explicitly watched files. |
+| `workspace.releaseIndexing` | Retire a policy and clear index/cache data at project close; accepts `root`, optional `ownerId`, and that owner's last observed `revision`, returns `released`; an old close must not retire a new generation |
+| `workspace.refreshIndexing` | Refresh external Git decisions for a live `root`, `ownerId`, `revision` lease without changing preferences or release tokens; returns lazy `IndexingStatus` |
+| `workspace.configureIndexing` | Install a process-local, canonical-root indexing policy before workspace consumers run; returns a monotonic revision, effective directory reasons and Git failure state; see `shared/fixtures/workspace/indexing-policy-v1.json` |
+| `network.proxyPolicy` | Normalize the stored proxy settings into the policy a network stack must apply (mode, server, credentials, exclusions) |
+| `workspace.snapshot` | Enumerate visible workspace nodes and relative file paths; `nestedWorktrees` lists linked worktrees checked out inside their own repository, which are left out of the tree, files, and search index; the built-in hidden names are skipped without being read, and include `node_modules`, Python virtual environments (`.venv`, `venv`), `__pycache__` and `*.pyc` files; `includeTree: false` returns only `files` and a childless `root`; `files` (and the tree, when included) keep the lowercase traversal order that bounded consumers such as Windows Quick Open rely on, not the natural display order of `workspace.listDirectories` |
+| `workspace.filterChanges` | Filter an array of workspace-relative paths, or `{ paths, hiddenFilePatterns }` whose `!` entries turn default exclusions off, against Core's default build/cache exclusions; preserve order, spelling, and the empty root path. Native event loss bypasses filtering. Hosts relativize to the most specific explicit watch root and retain explicitly watched files. |
 | `workspace.listDirectories` | Return one visible level of children for each requested workspace-relative directory (`""` is the root); missing, hidden, symlinked, or nested-worktree paths are omitted, and each listing reports the nested worktrees it left out. Child directories have `children: []` only when a shallow probe proves them visibly empty; otherwise children remain omitted (unloaded), with no recursive tree allocation. Children list directories first, then names in IDEA's natural file-name order (digit runs compare by value, case-insensitive, `-` next to `_`; fixture `shared/fixtures/workspace/file-name-order-v1.json`) |
 | `workspace.repositories` | Discover deterministic Git repository roots for an opened workspace |
 | `workspace.search` | Search visible file names and UTF-8 text files |
@@ -988,9 +1004,12 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `history.record` | Store a versioned text snapshot and metadata |
 | `history.entries` | List valid history entries for one file or a workspace |
 | `history.content` | Read a stored history snapshot by relative storage path |
-| `history.relocate` | Move a file's history records after a rename |
+| `history.relocate` | Move retained history for a file or directory subtree after a rename or move |
 | `history.rename` | Set or clear a user-visible label on a history entry |
 | `history.delete` | Delete one history entry and its snapshot |
+| `history.ignorePreview` | Validate local history ignore rules and report which rule skips a sample path |
+| `history.usage` | Report one project's allocated history size and the storage cap |
+| `history.clear` | Delete every snapshot of one project's history |
 | `maven.scan` | Parse a Maven project descriptor and recursively return modules/profiles |
 | `maven.launchPlan` | Produce a deterministic Maven invocation from a versioned project context |
 | `execution.resolveEnvironment` | Merge native `inherited` string values, selected `javaHome`/`mavenJavaHome` for the current `toolchain`, and `overrides` into `{ environment }`. `caseInsensitive: true` canonicalizes Windows keys to uppercase. Maven uses Maven JDK with project-JDK fallback; Java uses project JDK. String overrides win; structured `{ toolchain, property: "home" }` bindings use the current step's home for JAVA_HOME, and the named toolchain for other variables. Unknown bindings are omitted. |
@@ -1047,6 +1066,8 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `lsp.buildRequest` | Forward one planned `lithe/build/*` request to a session that negotiated the build-provider protocol |
 | `lsp.functionRequest` | Invoke one registered plugin function on a session its plugin started |
 | `lsp.hostResponse` | Answer one host-service request a plugin backend sent |
+| `lsp.hostNotify` | Send one host notification to a plugin backend that negotiated it |
+| `lsp.toolchainRequest` | Send one `toolchains/query` to a plugin backend that negotiated the provider |
 | `lsp.vcsRequest` | Send one VCS operation, planned by Core, to a session that negotiated the VCS-provider protocol |
 | `java.prepareLaunch` | Prepare a saved Java source through shared entry selection, serialized build and runtime path resolution |
 | `java.navigationMarkers` | Resolve versioned Java gutter markers from bounded JDT LS semantic requests |
@@ -1124,6 +1145,11 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `github.normalizeResponse` | Normalize raw GitHub JSON and HTTP status into deterministic data or a stable error |
 | `diagnostics.prepareLogEvent` | Normalize a bounded application event and recursively redact structured fields |
 | `diagnostics.queryLogs` | Merge and filter bounded host-collected module log tails |
+| `diagnostics.encodeLogBatch` | Encode independent structured v2 log events with per-item errors |
+| `diagnostics.queryLogsV2` | Query structured v2 and legacy v1 native log tails |
+| `diagnostics.planLogCollection` | Plan bounded native log-tail reads from raw file metadata |
+| `diagnostics.planLogRetention` | Plan log cleanup from host-owned file inventories |
+| `diagnostics.resolveLogChannel` | Validate channels and resolve safe session-relative destinations |
 | `diagnostics.redactText` | Redact credentials, tokens, and home-directory paths from diagnostic-bundle text |
 | `diagnostics.buildManifest` | Shape a deterministic diagnostic bundle manifest from host-gathered environment and file facts |
 | `plugins.declarative.validate` | Validate and normalize a declarative plugin manifest (plugin contract v1) |
@@ -1136,6 +1162,16 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `plugins.declarative.resolveSettings` | Merge a plugin's stored global and project setting layers into effective values with their source |
 | `plugins.declarative.workspaceConfiguration` | Expand a language server's `workspaceConfiguration` with the merged setting values |
 | `plugins.declarative.checkRuntimeVersion` | Decide whether a launch runtime's version output meets the declared minimum version |
+| `toolchains.registry` | Revalidate complete enabled plugin manifests and host-verified official origin into a deterministic tool-definition/provider registry; no native host capability claim |
+| `toolchains.decodeReply` | Validate an inert toolchain query/reply pair against bound provider identity, generation, declared tools and host-native filesystem evidence; no transport or native I/O |
+| `toolchains.failureReply` | Build the JSON-RPC error reply for a query that missed its deadline or found no backend, so the host passes it to `toolchains.decodeReply` like a provider's own error; cancellation has none |
+| `toolchains.resolvePins` | Validate a captured local document and find the nearest ancestor directory pin, retaining dormant and legacy entries without probing or writing |
+| `toolchains.resolve` | Resolve the fixed/project/global/automatic layers from one generation-bound snapshot, retaining unmet requirements, unavailable providers with their cause, conflicts and terminal fixed-value failures |
+| `toolchains.checkVersion` | Match captured output with an enabled plugin definition's version expression and compare generic numeric components with an optional minimum; never starts a probe |
+| `toolchains.discoveryPlan` | Return platform-filtered definition-owned scan declarations, layouts, probes, PATH entries, login-shell home variables and budgets; never scans native directories |
+| `toolchains.candidates` | List one tool's login-shell homes and host-scanned installations with checked executables, versions or skip reasons, and the automatic-layer choice; never starts a probe |
+| `plugins.declarative.decodeGrammar` | Validate independent static editor resources (`languages` 2) |
+| `plugins.editorActions.decode` | Validate independent action registration or collection results |
 | `build.detect` | Find every build-system instance the enabled plugins declare in a workspace, with models that need no process |
 | `build.invocationPlan` | List a build system's executable candidates, runtime dependencies, and version probe for one platform |
 | `build.checkToolVersion` | Decide whether a build tool's or runtime's version output meets the declared minimum |
@@ -1277,8 +1313,8 @@ the marker's directory) that exists and holds `HEAD`. A stale submodule or
 worktree pointer whose gitdir was removed is not listed, because status and
 reference loads for the whole workspace would otherwise fail for it. The default traversal
 skips dot-prefixed descendant directories and the built-in workspace hidden
-directory names (including `.build`, `node_modules`, `target`, `build`,
-`DerivedData`, `dist` and `coverage`). `.worktree` and `.worktrees` remain
+directory names (including `.build`, `node_modules`, `.venv`, `venv`, `__pycache__`,
+`target`, `build`, `DerivedData`, `dist` and `coverage`). `.worktree` and `.worktrees` remain
 traversable checkout containers; the same exclusions apply inside them.
 Traversal continues below eligible discovered repositories, including ordinary
 `vendor` source checkouts. An explicitly opened root and its containing repository
@@ -2018,7 +2054,9 @@ matcher itself, so `**/dist/` covers a root-level `dist` as well as nested ones
 (no client has to add the root form). An entry ending in
 `/*` or `/**` is the same folder rule as one ending in `/`, so `.lithe/*` hides the
 folder and everything below it rather than leaving an empty folder; ordinary file globs
-and plain names (such as `.lithe`) retain their file-only semantics. The macOS file
+and plain names (such as `.lithe`) retain their file-only semantics. macOS hides the
+workspace-root `.lithe` folder by default with the built-in entry `.lithe/**`, like IDEA's
+`.idea`; deleting that line (stored as `!.lithe/**`) shows it again. The macOS file
 watcher is the one place that does not follow the hiding rules for the workspace-root `.lithe`
 folder: hiding it removes it from the tree and listings, but its file events are still
 delivered (except built-in noise such as `.lithe/run/local.json`) because editing its JSON
@@ -2037,9 +2075,11 @@ and additionally accepts `maxSymbolResults` and optional
 case-insensitive contiguous fragments and camel/word humps, rather than arbitrary
 subsequences. Each file/type/symbol bucket is ranked before its requested cap;
 the total cap still applies to the file, type, symbol, then content buckets.
-A zero `maxFileResults` skips the names-only index entirely; zero
-`maxContentResults` together with zero `maxSymbolResults` skips the content/symbol
-index. All three zero caps produce no index builds. Omitted caps retain their
+A zero `maxFileResults` skips file-name result collection. Text-only queries use
+a ready content index, or a names-only inventory with the content visibility rules
+and the existing exact matcher while the content index is cold or warming.
+Symbol queries still require the content/symbol index. All three zero caps produce
+no index builds. Omitted caps retain their
 existing defaults. macOS forwards the selected workspace sources through these
 existing caps: Actions-only stays local, Text-only requests contents, Files and
 Agent completion request names, and Classes/Symbols share the symbol index.
@@ -2171,6 +2211,32 @@ implementations (`comment-toggle.ts`, `line-operations.ts`) and is expected
 to adopt the same contract in a follow-up change; the fixture pins the
 canonical behavior for that migration. Deterministic cases are pinned by
 `shared/fixtures/editor/line-edit-v1.json`.
+
+`network.proxyPolicy` normalizes the stored proxy settings into the policy a
+network stack must apply. It accepts `{ "mode": "system" | "direct" |
+"custom", "proxyType"?: "http" | "socks5", "host"?: string, "port"?: number,
+"username"?: string, "password"?: string, "passwordIdentity"?: {
+"proxyType": "http" | "socks5", "host": string, "port": number,
+"username": string }, "exclusions"?: string[] }` (`port` must fit in 16 bits,
+otherwise the request is rejected with `invalid_request`) and returns
+`{ "policy": "system" | "direct" | "custom", "proxyType", "host", "port",
+"username", "password", "exclusions", "configured" }`.
+
+An optional `passwordIdentity` binds a restored password to its saved proxy
+type, host, port and username; a mismatch removes the password. Host matching
+is ASCII case-insensitive after trimming; usernames are case-sensitive after
+trimming. Omit the identity only for a password explicitly entered for this
+candidate, never for a restored secret. Hosts persist the identity together
+with the secret in the OS credential vault, not as independently mutable
+preferences. Legacy unscoped saved passwords require re-entry rather than
+being rebound to the current endpoint.
+
+Hosts and usernames are trimmed, empty exclusion entries are
+dropped, and passwords keep every character. A custom server without a host
+or port normalizes to `policy: "system"` with `configured: false`; system and
+direct never carry credentials, so hosts can forward the plan to their network
+stack without a second credential-scoping decision. Deterministic cases are
+pinned by `shared/fixtures/network/proxy-policy-v1.json`.
 
 The `debug.*` commands are the shared Debug Adapter Protocol boundary. Rust
 owns DAP framing, request sequences, response correlation, initialization and
@@ -2560,7 +2626,7 @@ directory, initialization options, optional runtime executable,
 optional `pluginId` of the plugin that owns the process, its optional
 `workspaceConfiguration` (an object, plugin-owned sessions only), its
 optional `hostServices` (the launch plan's `backend.hostServices`;
-plugin-owned sessions only, and only services Core defines), plus
+plugin-owned sessions only; legacy service grants or full public host-method names Core defines), plus
 initialize, post-initialize readiness, request, Java project build
 (`javaBuildTimeoutMilliseconds`), and shutdown deadlines.
 Java callers may also provide the versioned `mavenContext` accepted by
@@ -2785,12 +2851,21 @@ filesystem I/O. See `shared/fixtures/lsp/jdt-cache-retention-v1.json`.
 
 `lsp.syncDocument` accepts `{ sessionId, uri, languageId, text?, contentChanges? }`.
 The first sync emits `didOpen` at version 1. Later syncs emit `didChange` with
-increasing versions. When the server advertised incremental `textDocumentSync`
-and `contentChanges` includes LSP ranges, the notification carries those
-range-based edits and does not require a full document `text` field. Otherwise
-the change is a full-text replacement. The response is
-`{ documentVersion, changed }`; submitting identical full text returns
-`changed: false`, preserves the version, and emits no LSP notification.
+increasing versions. `contentChanges` follow LSP `didChange` semantics: they
+apply in array order and each range is relative to the result of the previous
+change, so a host that accumulates edits between syncs appends them in the order
+they happened and sends the ranges of one simultaneous edit end to start.
+Core replays them over the text it holds. `text` may be omitted alongside
+`contentChanges`, which keeps a large document off the wire for every keystroke;
+when it is present and disagrees with the replay, `text` replaces the document
+and the notification is a full-text replacement. When the server advertised
+incremental `textDocumentSync`, a successful replay is sent as range-based edits;
+otherwise the replayed text is sent whole. Ranged edits without `text` fail with
+`InvalidRequest` when they cannot be replayed, and with details
+`documentNotSynchronized` when Core has never received the document; the host
+then resends the full text. The response is `{ documentVersion, changed }`;
+submitting identical full text returns `changed: false`, preserves the version,
+and emits no LSP notification.
 
 `lsp.saveDocument` accepts `{ sessionId, uri, text }` after a successful native
 save and returns `{ sent }`. The text is the exact saved snapshot, not the latest
@@ -2855,6 +2930,20 @@ cancellation and late results follow `lsp.cancelOperation`. Execution replies
 are validated as `{exitCode: Int32, output: string}` and progress is mapped
 from a Core-owned wire request ID to `requestProgress` for the still-pending
 operation. See the [provider execution contract](plugins/v1/README.md#provider-task-execution-buildproviders-2).
+
+`lsp.toolchainRequest` accepts `{ sessionId, operationId?, params,
+timeoutMilliseconds? }` and returns `{ operationId }`. `lsp.startServer` takes
+`toolchainProviders`, the manifest's provider IDs; only a plugin-owned session
+with some offers `capabilities.experimental.litheToolchains: { versions: [1],
+providers }`. A backend that answers `{ version: 1, providers }` with a non-empty,
+duplicate-free subset of the offer emits a `toolchainProviders` runtime event
+with `result: { providers }`; any other answer enables none. A request whose
+`params.providerID` was not negotiated is `not_supported` with details
+`plugin.toolchain.providerUnavailable`, and nothing is written. The
+`requestCompleted` event carries `result.value: { id, response }`: the JSON-RPC
+ID and the complete, unvalidated response, error replies included, which the host
+passes to `toolchains.decodeReply` with the same `params`. The timeout is capped
+at 60 seconds; cancellation and late results follow `lsp.buildRequest`.
 
 `lsp.vcsRequest` accepts `{ sessionId, operationId?, vcs, operation, root,
 tool?, arguments?, timeoutMilliseconds? }` and returns `{ operationId }`.
@@ -2926,7 +3015,29 @@ event. `lsp.hostResponse` accepts `{ sessionId, hostRequestID, result? }` or
 `result` (default `null`) or `-32603` with `data.code: "plugin.host.failed"`
 to the backend. An unknown or already answered `hostRequestID` is
 `invalid_request`. At most 16 host requests are unanswered per session; more
-are refused with `plugin.host.failed`.
+are refused with `plugin.host.failed`. From version 3 the error may also be
+`{ message, code?, details? }`: a host code reaches the backend with its own
+JSON-RPC number, and `details`, an object of at most 4 KiB, as
+`error.data.details`
+([failure codes](plugins/v1/README.md#workspace-contexts-and-capability-discovery-protocol-version-3)).
+
+The macOS public document/file/window adapters use method-level grants for new
+permissions. Core intersects grants with its method table for capability discovery;
+macOS first intersects them with actual registered handlers. Legacy `workspace`
+never authorizes file methods. Host request/result JSON is bounded to 1 MiB;
+oversized v3 results return `plugin.host.limitExceeded`. See the plugin contract's
+public document, file and window method table for exact shapes and cancellation
+semantics. The underlying `PluginFunctionRequest` context and legacy SDK wire
+shapes remain compatible.
+
+`lsp.hostNotify` accepts `{ sessionId, method, params }` for a ready
+plugin-owned session and returns `{ delivered }`. Core sends the
+[host notification](plugins/v1/README.md#host-notifications-protocol-version-3)
+when the session negotiated version 3 and is granted its service, and returns
+`delivered: false` without sending for an older version. Another method, an
+ungranted service, malformed or oversized params, a session that is not
+plugin-owned, or one that is not ready is `invalid_request` with the
+`plugin.host.*` code in `details`.
 
 `lsp.request` accepts a semantic `operation` plus
 the operation-specific URI, position, range, diagnostics, item, action, or
@@ -3069,9 +3180,40 @@ tree, so a hidden path (including folder patterns such as `**/generated/` or
 `.lithe/*`) is neither recorded nor listed. Invalid metadata and missing snapshot files
 are ignored. `history.entries` returns Unix-second timestamps and relative
 `contentPath` values. `history.content` rejects traversal,
-`history.relocate` updates metadata and storage paths, and `history.rename` and
+`history.relocate` updates metadata and storage paths for the exact `sourcePath`
+and its `/`-delimited descendants, preserving each suffix under `destinationPath`.
+It enumerates retained history metadata independently of workspace indexing and
+current visibility rules; similarly prefixed siblings are unchanged. Equal paths
+are a no-op; overlapping ancestor/descendant paths are rejected. `history.rename` and
 `history.delete` validate both the relative file path and entry ID before
 changing stored metadata.
+File and subtree relocation cases are defined in `shared/fixtures/history/relocation-v1.json`.
+
+A `hiddenFilePatterns` entry starting with `!` turns a rule off instead of
+adding one: `!**/name/` or `!name` removes that hidden folder (built-in or not),
+and `!pattern` removes an equal file pattern. `!` entries never match a path.
+
+`history.record` also accepts optional `ignoreRules: { pathPatterns, pathRegexes }`
+and an optional `storageLimitBytes` (default
+100 MiB, clamped to 10 MiB–100 GiB); baselines stop at half of that cap.
+Patterns use the hidden-path glob syntax; regexes use Rust `regex` syntax,
+case-insensitive, matched unanchored against the `/`-separated relative path.
+A matching file is not recorded, existing entries stay listed, and an invalid
+or empty regex never matches. Built-in dependency, cache and build output
+folders (such as `node_modules`, `.venv`, `target`) also apply as `**/name/`
+patterns, for baselines and edits alike; a `!**/name/` or `!name` pattern turns
+one off, and saving drops baselines the current rules reject. `history.ignorePreview` accepts the
+same `ignoreRules`, optional `hiddenFilePatterns`, an optional relative
+`path` and an optional `workspaceRoot`, and returns `regexErrors` (`{ index, message }` per rejected regex), the
+built-in patterns as `builtInIgnorePatterns`, and `matched`: `null` or an object tagged by
+`kind` — `hidden`, `pattern` (the matching `pattern`, built-in or the user's) or
+`regex` (`index` into its list), plus `gitIgnored`: whether `git check-ignore` ignores
+`path` under `workspaceRoot`, or `null` without a path, workspace or repository.
+It is informational; local history does not follow Git ignore rules. `history.usage` and `history.clear` accept
+`storageRoot`, and `history.usage` also the optional `storageLimitBytes` it
+reports back as `limitBytes`; usage rescans the disk and returns `{ usedBytes, limitBytes }` in
+allocated bytes, and clear removes every snapshot directory while keeping the
+storage root, returning `{ "cleared": true }`.
 
 `maven.scan` accepts `{ "root": string, "paths"?: string[] }` and returns
 `null` when neither the root nor the supplied visible workspace-relative paths
@@ -3168,7 +3310,11 @@ by this operation. Lower priority wins; equal-priority candidates use descending
 numeric Java versions (including legacy `1.8`), then ascending ID.
 
 When `project-jdk.minimumVersion` exists, selection first filters using the same
-Java version comparison as run-configuration diagnostics. The response is
+Java version comparison as run-configuration diagnostics. Among the compatible
+candidates, the one whose Java feature version equals the declared one wins, else
+the oldest newer feature version; source priority only breaks ties within a feature
+version. A Java 8 project therefore runs on an installed JDK 8 even when `JAVA_HOME`
+points at JDK 21, matching IDEA and OpenIDEA. The response is
 `{ id, warning }`: the compatible candidate, or the supplied usable fallback
 with an actionable warning if none qualifies. Missing requirements retain the
 platform's unconstrained choice; a malformed or unsupported `requirements`
@@ -3484,9 +3630,18 @@ is joined by the UI from the shared Git result. `java.className` accepts Java
 source text and a file simple name and returns the fully qualified runtime class
 name.
 
-`java.sourceDefinition` accepts `source`, `declarationName`, and an optional
-`memberName`, returning zero-based `line` and UTF-16 `utf16Column` or `null`
-when no declaration is found.
+`java.sourceDefinition` accepts `source`, `declarationName`, an optional
+`memberName`, an optional `declarationsOnly`, and an optional `reference`
+(`line`, `utf16Column`), returning zero-based `line` and UTF-16 `utf16Column` or
+`null` when no declaration is found. A member is looked up as a syntax-tree
+method, field, or enum-constant declaration that the `declarationName` type
+declares directly. With `reference`, the member is instead resolved from that
+position: the identifier must be a plain name or a `this.` access, the innermost
+type is searched first and then the enclosing ones, and the result is `null` when
+a type on the way may inherit the name or a local may shadow a field.
+Without `declarationsOnly`, text that merely resembles a declaration, such as a
+call, is accepted next, and then the `declarationName` type; with it, a missing
+member returns `null`.
 
 `java.structure` accepts Java `source` and optional `declarationSources`. It
 returns `foldRegions`, `inlayHints`, and `syntaxHighlights`.
@@ -3569,6 +3724,177 @@ discard partial first lines, and report both native
 collection truncation and Core query truncation, including files omitted by the cap.
 Time comparisons use parsed RFC3339 instants, so fractional precision and equivalent
 UTC offsets do not change ordering or inclusive boundaries. Missing filters include all.
+
+Structured logging v2 adds pure opt-in commands. The v1 APIs and commands above
+retain their behavior and public Rust signatures. Native adapters own writable
+log roots, I/O, clocks, queues, and file lifecycle operations. Core never resolves
+logs under installed application resources. Executable cases and numeric errors
+are in [`logging-v2.json`](../fixtures/diagnostics/logging-v2.json).
+
+All commands use the existing `{id?,command,payload}` Core request/response
+envelope. Malformed payload shapes return outer `invalid_request` without raw
+input. Channel, query, and retention domain results are the union
+`data:{result:...}` or `data:{error:{code,reason}}`; callers inspect that union even
+when outer `ok` is true. Batch encoding returns
+`data:{results:[{line}|{error:{code,reason}}]}` in input order. Reasons are safe
+parser diagnostics; hosts localize codes for presentation.
+
+- `diagnostics.resolveLogChannel` accepts
+  `{channel,rotationIndex?:0,existingChannels?:[]}` and returns
+  `{result:{relativePath,category}}` or `{error}`. The category maps app/update/remote/agent
+  and overflow to application, editor/lsp to language, vcs to git, perf to performance,
+  run/debug/terminal to run, and plugins to plugins. Roots are `app`, `editor`, `perf`,
+  `lsp`, `vcs`, `run`, `debug`, `terminal`, `remote`, `agent`, `update`, `plugins`.
+  Channels are `root`, non-plugin `root/segment`, or `plugins/<id>/host`. Segments match
+  `[a-z0-9][a-z0-9._-]{0,63}`, excluding trailing dots and Windows device
+  basenames (`con`, `prn`, `aux`, `nul`, `com1`–`com9`, `lpt1`–`lpt9`,
+  including those followed by an extension). Paths are `app.log`, `vcs/git.log`, or
+  `plugins/<id>/host.log`; positive rotation indices produce `git~1.log` siblings. The `~` delimiter
+  cannot occur in a channel, so rotations never alias dotted channel IDs.
+  After 128 admitted channels a new identity maps to `_overflow.log`; existing
+  channels retain their paths. The overflow sink rotates as `_overflow~1.log`
+  and its header uses the channel `_overflow`. Rust `plugin_files_path` returns
+  `plugins/<id>/files/`. `session_directory_name`,
+  `parse_session_directory_name`, and `session_relative_path` convert explicit
+  RFC3339 start time/full UUID to `sessions/YYYY-MM-DDTHH-MM-SS_<8 lowercase
+  hex>`. Native adapters join these relative paths only to platform-owned
+  writable storage, never a bundle or installation directory.
+- `diagnostics.encodeLogBatch` accepts `{validateCatalog?:false,deduplicate?:false,previousEvent?:event,headers?:[],events:[{ts,level,seq,event,op?,msg,
+  fields?:{key:scalar}}]}`. `level` is `DEBUG|INFO|WARN|ERROR`, `seq` is `u64`,
+  and `ts` is RFC3339 normalized to UTC milliseconds. Scalars become text;
+  arrays and objects fail per item. Malformed event shapes also fail per item.
+  Disk order is timestamp, level, `seq`, `event`, optional `op`, `msg`, then
+  lexical context keys (the truncation marker is last). Keys match
+  `[a-z][a-z0-9_]{0,63}` and cannot repeat or reuse reserved keys
+  (`ts`, `level`, `seq`, `event`, `op`, `msg`). Event/op
+  identities are nonempty bare tokens. Shared redaction runs before escaping,
+  including prefixed credential-key fields such as `client_secret` and
+  `auth_token`; the same structured-field redactor runs on queried v1/v2
+  evidence. Bare values match `[A-Za-z0-9._:/@+-]+`;
+  other values use double quotes, escaping quote, backslash, newline, carriage
+  return, tab, and other controls as `\u{XX}`. Each result excludes a newline
+  and reserves one byte for it within 8192 bytes. Oversized lines shorten the
+  longest non-reserved context values first and append `truncated=1`.
+  If needed, the message is shortened next; mandatory identity/key overhead
+  that still cannot fit returns `-32046`. No context keys are silently dropped.
+  Rust `encode_header`/`decode_line` support
+  `#lithe-log v2 session=<uuid> pid=<u32> app=<bare version> channel=<channel> started=<UTC milliseconds>`.
+  `decode_line` returns a typed header or record and rejects invalid lines with
+  reasons. `repeated_event` and `dropped_event` create ordinary `log.repeated`
+  records with `count,first,last,of`, and `log.dropped` records with `count`.
+  With `deduplicate:true`, adjacent facts with equal event ID, fields, channel,
+  level, message and op merge within a batch into `log.repeated`; structural hashing
+  is followed by equality comparison. Results then correspond to retained records,
+  and the repeated record uses the last omitted event sequence. `previousEvent`
+  carries the prior batch’s last input for bounded cross-batch comparison; it is
+  validated again and never emitted by itself.
+  With `validateCatalog:true`, every ordinary event must exist in `catalog::EVENTS`;
+  required/unknown/invalid fields and a mismatched level fail before encoding.
+  Messages and channels are derived from the catalog, never trusted from input.
+  Before strict field validation, Core redacts declared error/text messages, removes
+  control characters, and truncates to at most 1024 bytes at a UTF-8 boundary.
+  `catalog::validate_fields` still rejects unnormalized strings, invalid types, unknown
+  keys, incomplete error components, and invalid code/domain tokens.
+  Path fields are redacted before template interpolation; unrecognized absolute
+  paths become `<PATH>`. Item results additionally contain `channel` on success.
+  Codes: `-32053` unknown event, `-32054` missing field, `-32055` invalid field,
+  `-32056` unknown field, `-32057` catalog level mismatch.
+  Catalog validation rejects `event:legacy` as an unknown event. macOS collects only v2
+  session files; its v1 files participate solely in age retention. The public v1
+  APIs, old commands and shared v1 query compatibility remain available to Windows.
+  `log.dropped` and `log.repeated` accept only their documented field shapes and
+  an optional validated `channel`. No other identity bypasses catalog validation.
+  Optional `headers:[{session,pid,app,channel,started}]` returns ordered `headers`
+  results and `sessionPath`, using the same Core header/session grammar. These
+  fields are additive; the default generic PR1 batch remains compatible.
+  Overflow rotation paths are `_overflow~1.log` and `_overflow~2.log`.
+- `diagnostics.queryLogsV2` accepts `{sources:[{relativePath,text,
+  startsMidLine?:false,firstLineNumber?:1}],channelPrefixes?:[],minimumLevel?,
+  since?,until?,search?,fields?:{key:value},op?,limit?}`. The adapter marks a
+  tail beginning inside a line with `startsMidLine:true`; Core discards its
+  first fragment without counting it as invalid. Complete first lines stay.
+  Paths are session-relative v2 paths, `sessions/<name>/<path>`, or legacy
+  `<category>/lithe.*.log`. Channel prefixes match slash boundaries; severity
+  and parsed RFC3339 time bounds are inclusive; search is case-insensitive;
+  field/op filters match exactly, including reserved `ts` and `level` fields. Returns `{result:{records:[{channel,
+  relativePath,lineNumber,ts,level,seq,event,op?,msg,fields}],channelCounts:
+  {channel:{warn,error}},truncated,skippedInvalidLines}}` or `{error}`.
+  Counts reflect all filtered matches before the newest 1–10000 limit (default
+  2000). Records sort ascending by parsed timestamp, seq, file, line, then
+  source order. The aggregate native-tail byte budget is 10 MiB. Omitted bytes,
+  partial first lines, or output limits set `truncated`. Invalid physical lines
+  are skipped and counted. V1 records use `event:legacy`, preserve available
+  sequence/op/context, and map application→app, language→lsp, git→vcs,
+  performance→perf, run→run, plugins→plugins. Queries redact decoded evidence.
+  Each returned record also includes `line`, the canonical, redacted v2 line for
+  presentation and frozen export (without a newline).
+- `diagnostics.planLogCollection` accepts `{files:[{relativePath,sizeBytes,modifiedAt}],
+  currentSession,session,category?}`. Inventory is raw log-root-relative native
+  metadata; no contents are read before planning. `session` is `all|current|previous`,
+  and category is one of the existing six product categories. Returns
+  `{result:{reads:[{relativePath,offset,maxBytes}],truncated}}` or `{error}`.
+  Only validated v2 session log files are selected; plugin-owned `files/` and legacy
+  files remain retention inputs. Filters run before budgets. Order is newest session,
+  active before rotation 1 before rotation 2, descending native modification instant,
+  then lexical path. Session ties use descending basename. Previous means the newest
+  session other than current. Reads are capped at 200 files, 2 MiB per file and 10 MiB
+  aggregate. Any omitted eligible bytes/files set truncated. Duplicate paths or invalid
+  selections return -32058; invalid selected timestamps return -32035. Exact native
+  offsets and read sizes belong to Core; adapters validate containment and report I/O errors.
+- `diagnostics.planLogRetention` accepts `{sessions:[{name,files:[{
+  relativePath,sizeBytes,modifiedAt}]}],legacyFiles?:[same file shape],
+  currentSession,now,limits?:{maxAgeMs,totalBytes,perfBytes,pluginFilesBytes},
+  startupCleanup?:false}`. Timestamps are explicit RFC3339. Defaults are 30
+  days, 100 MiB combined, 20 MiB perf, 20 MiB per plugin files directory per
+  session. Returns `{result:{deletions:[{relativePath,directory,reason}],
+  warnings:[{session,pluginId,relativePath,sizeBytes,limitBytes}]}}` or `{error}`.
+  Paths are relative to the writable log root and sorted lexically. Whole
+  sessions expire first, combined pressure removes oldest whole sessions,
+  then perf files are removed from oldest surviving sessions and startup
+  cleanup removes oldest plugin files. Whole-session removal supersedes child
+  deletion. Reasons are `expired|totalBudget|perfBudget|pluginFilesBudget`.
+  The current session and all its files are always protected, even if budgets
+  cannot be satisfied. Runtime plugin overages emit warnings; startup may also
+  delete files in inactive sessions. Legacy files count toward the total but
+  only age can delete them. `should_rotate(size)` is true above 10 MiB;
+  `rotation_indices_to_delete` returns existing indices >=2 to remove before
+  shifting active→1 and 1→2, retaining three segments including active;
+  `rotation_paths_to_delete` resolves those indices to session-relative paths.
+  Unsafe paths, duplicate inventories, and negative age limits are rejected.
+
+Each v2 numeric domain code has one meaning. Existing outer Core string codes
+are unchanged:
+
+| Code | Meaning |
+| --- | --- |
+| -32031 | Unknown channel root |
+| -32032 | Unsupported channel shape |
+| -32033 | Invalid channel/plugin segment |
+| -32034 | Invalid full session UUID |
+| -32035 | Invalid timestamp |
+| -32036 | Invalid session directory basename |
+| -32037 | Invalid context field key |
+| -32038 | Reserved key reused as context |
+| -32039 | Duplicate context key |
+| -32040 | Invalid file header |
+| -32041 | Invalid line grammar |
+| -32042 | Invalid value escape |
+| -32043 | Missing or misordered reserved fields |
+| -32044 | Invalid unpadded u64 sequence |
+| -32045 | Invalid log level |
+| -32046 | Line cannot fit the byte budget |
+| -32047 | Non-scalar context value |
+| -32048 | Invalid event or operation identity |
+| -32049 | Invalid retention inventory or limits |
+| -32050 | Invalid query source path or line origin |
+| -32051 | Invalid structured event JSON shape |
+| -32052 | Reversed query time range |
+| -32053 | Unknown catalog event |
+| -32054 | Missing catalog field |
+| -32055 | Invalid catalog field |
+| -32056 | Unknown catalog field |
+| -32057 | Catalog level mismatch |
+| -32058 | Invalid collection inventory or selection |
 
 Diagnostic previews freeze the selected redacted bytes before confirmation.
 Windows returns a `snapshotId` from `preview_diagnostic_bundle`; export consumes
@@ -3728,6 +4054,25 @@ Hosts never merge layers themselves.
 for the plan's `launch.versionArguments`, and returns
 `{ "status": "ok", "check": { "satisfied": bool, "version"?: string } }`.
 `version` is absent when the output contains none. It takes no manifest.
+
+`plugins.declarative.decodeGrammar` accepts `{ manifest, languageID, grammar }`,
+where `grammar` is the text the host read from the language's `grammar.path`
+inside the installed package, and returns `language: { id, fileExtensions,
+fileNames, grammar: { kind, source }, configuration }`. `source` is the
+validated original JSON text, kept opaque through host dictionaries so Monarch's
+ordered `cases` retain their precedence. Only the terminable worker parses and
+compiles it, explicitly using `root` when `start` is absent. A grammar Core
+refuses is `plugin.grammar.invalid` with the failing `field`; a language
+without static editor resources is `plugin.grammar.unavailable`. Configuration-only
+languages return `grammar:null` and require no file read. Core reads no files.
+
+`plugins.editorActions.decode` accepts `{kind:"registration",value}` or
+`{kind:"actions",value,text}` and returns `{registration}` or `{actions}`.
+Core validates literal selectors, one-based UTF-16 ranges and bounded opaque
+function bindings. Hosts enforce permission, live document versions and session
+ownership; HTTP/SQL business semantics stay with plugins. See the plugin
+contract's independent editor actions section.
+
 
 The `plugins.marketplace.*` commands are equally pure: hosts fetch indexes and
 archives and pass the parsed JSON. `validateIndex` accepts
@@ -4425,3 +4770,124 @@ The macOS settings surface offers search, refresh, file details, native open and
 reveal, creation and import. It keeps native loading separate from management
 and rejects stale results after project changes. Windows can use the same Core
 operations; the settings UI and Windows runtime validation remain pending.
+
+### Project JDK supplied to JDT LS
+
+`lsp.startServer.javaRuntimes` entries contain `homePath`, `version`, and optional
+`isDefault` (default `false`). Platforms use their existing project toolchain selection,
+including explicit JDK homes outside discovery roots. The server process JVM remains
+independent. Core registers one JDK per Java major; the first valid selected candidate
+wins its major and alone receives `default: true` in `java.configuration.runtimes`,
+both at initialization and in configuration responses. Empty homes and unparseable versions
+are ignored during projection; platform adapters validate explicit choices before launch.
+Legacy callers that omit `isDefault` retain their previous behavior.
+Fixture: `shared/fixtures/lsp/java-project-runtimes-v1.json`.
+
+
+### Workspace indexing policy
+
+`workspace.configureIndexing` accepts `root`, `manualExcludedDirectories`,
+`includedDirectories`, `gitIgnoreEnabled`, optional `refresh` and `paths`.
+Directory identifiers are workspace-relative `/` paths; `.` names the root.
+Manual ancestor exclusions take precedence over every include exception. An include
+exception disables automatic Git exclusion for its subtree, while allowing a
+more-specific manual exclusion. Ancestors needed to reach an exception remain
+traversable. Standalone ignored files are not converted to directory exclusions.
+Git checks use native `check-ignore` and protect tracked descendants with `ls-files`.
+No `.gitignore`, index, or project configuration files are written by this command.
+
+`ownerId` optionally identifies one workspace runtime lifetime. Independent runtimes
+using the same canonical root hold independent leases. Hosts acquire/release leases
+with workspace membership, never with tool-window or tree mounting. Omitting
+`ownerId` retains the legacy revision-guarded lease. A native window host must reclaim
+its leases on destruction, including installations that finish after destruction.
+
+`workspace.refreshIndexing` requires `root`, `ownerId` and its published `revision`.
+It validates the live lease, retires the scan generation and clears Git decisions and
+search caches without installing settings, acquiring a lease or replacing any owner's
+release token. Closed or superseded leases return `cancelled`. Its `IndexingStatus`
+retains the supplied release token; directory reasons remain lazy, just as for configure.
+Without a running language service it does not scan directories or prewarm content.
+Live providers reuse the existing directory-only preparation and withdraw excluded
+working copies and diagnostics. Hosts resynchronize still-open buffers after success.
+
+Windows maintains one invalidation queue per native canonical root. Events advance an
+epoch before fan-out to WebViews; waiting queries consume the same queue and reject
+results if its epoch changes. Concurrent refresh requests share the completed root status
+but retain their own envelope and lease token. Lock waits have a 30-second deadline;
+refreshes consume at most three epochs, leaving newer events dirty on failure. Root
+membership and watcher registrations belong to runtime lifetimes, including background
+workspaces. Preferences and refresh completion use distinct events to avoid write loops.
+The native host injects the window identity for Git/file watcher ownership, shares paths
+and releases only the last holder; window destruction also revokes late registrations.
+
+The directory-action sequence contract is `shared/fixtures/workspace/directory-actions-v1.json`.
+Role changes retain include exceptions, explicit exclusion deletes only its own exception,
+and canceling Git exclusion preserves the current role. Only canceling a manual exclusion
+restores the remembered role. Manual ancestor exclusion cannot be overridden.
+
+`revision` is the requesting owner's release token. Explicit policy replacement or legacy `configureIndexing` refresh
+replaces only that owner's token; other owners retain their valid release tokens; internal Git watcher refreshes retain it while advancing a
+separate Core-only scan generation used by index and language-service caches.
+Changing settings or `refresh: true` retires the old generation and discards its
+cache. Hosts persist settings in application storage and reinstall them on project
+open. Consumers must not create a new policy root for a scoped search; search scopes
+are subsets of the registered project root. `paths` asks for additional effective
+directory reasons without changing the generation. `excludedDirectories` is a
+resolved, lazily populated set, not a complete enumeration of the filesystem.
+`gitIgnoreFailed` means automatic decisions are incomplete; manual exclusions remain
+in force. Hosts must display this state instead of treating it as empty rules.
+
+Tree listings deliberately remain available. Snapshot inventories, filename and
+content indexes, symbols and replacement preview candidates obey the policy.
+Generated filename search cannot bypass it. Language-server working-copy sync is
+blocked for excluded paths. Java additionally receives import exclusions; this does
+not promise resource-scan exclusion for imported or build-declared modules. Rust and Go receive native configuration overlays that preserve user settings;
+other providers may continue background scanning and hosts must display that limitation.
+
+`workspace.snapshot.incompleteDirectories` is present when optional child directories
+could not be scanned. Hosts retain browsing but must not treat that inventory as an
+authoritative deletion list or refresh automatic analysis from it. Root failures and
+cancellation remain errors. `workspace.releaseIndexing` removes only the matching owner/token lease. The last
+release retires the policy and clears cached Git decisions and indexes; a small retired policy record rejects late work
+until the next explicit configuration for that root.
+
+`workspace.search.scopePaths` optionally limits candidates to workspace-relative
+files or directory subtrees before applying result caps. It never establishes a new
+policy root. Empty scopes search the full registered project.
+
+Inventory snapshots, search (including Search Everywhere and its pages), index
+warm/update requests and replacement previews accept optional `workspaceRoots`:
+the absolute native roots explicitly opened in the calling workspace. Omission or
+an empty array preserves single-root behavior. Core canonicalizes the roots and
+prunes strict descendant roots from the current root's inventory and indexes;
+the host queries each descendant using its own policy. Directory listing remains
+available. Explicit replacement paths and text overrides cannot bypass ownership.
+The effective descendant set is part of each index cache key and is retained for
+save/watcher updates. It is request-local, never inferred from process-global
+indexing policies or retired roots. Hosts discard in-flight results when their
+workspace root set changes. Removing a nested root restores parent scanning.
+An unavailable non-current root does not fail a scoped request for an accessible
+root; a missing descendant retains its ownership boundary until removed by the host.
+
+### Structured logging of recoverable LSP maintenance warnings
+
+`lsp.pollEvents` log observations may carry the existing `error` object even at
+WARN severity. Its code and stage describe a recoverable diagnostic; `type:log`
+does not transition session state. Codes have one meaning:
+
+| code | stage | meaning |
+| --- | --- | --- |
+| `mavenSettingsUnchanged` | `mavenSettings` | Maven settings could not be normalized and were forwarded unchanged |
+| `configurationCleanupFailed` | `configurationCleanup` | Unused language-server configuration areas could not be removed |
+| `mavenProfileStartFailed` | `mavenProfileStart` | The pending Maven profile update could not start |
+
+The existing Core log sources additionally classify `upstreamStderr` (stderr
+observation), `stderrReadFailed` (stderr I/O), `navigationLimited` (batch cap),
+`navigationMarkerFailed` (marker verification), `workspaceImportStalled`
+(no import progress), `mavenProfileUpdateFailed` (project update failure),
+`shutdownTimeout` (forced termination after shutdown deadline), and
+`mavenProfileTimeout` (profile application deadline). Each code names exactly
+that observation; arbitrary upstream messages retain `upstreamDiagnostic`.
+
+Hosts persist these controlled identities, never the raw detail, URL, output or argv.

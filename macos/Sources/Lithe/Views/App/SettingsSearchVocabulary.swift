@@ -16,13 +16,17 @@ enum SettingsSearchVocabulary {
     static func terms(for category: SettingsCategory) -> [String] {
         switch category {
         case .general:
-            ["General", "Appearance", "Color theme", "Appearance mode", "Language", "Projects", "Files", "Version control", "Hidden paths"]
+            ["General", "Appearance", "Color theme", "Appearance mode", "Language", "Projects", "Files", "Version control", "Hidden paths", "Local history", "Wildcard", "Regular expression", "Limit per project", "Clear Project History…"]
         case .editor:
             ["Editor", "Display", "Editor tabs", "tabs", "Font", "Font size", "Search fonts", "File tree row height", "Show minimap", "Minimap", "Indentation", "Tab width", "Line spacing", "Font ligatures", "Syntax highlighting", "Editor color scheme", "Italic comments", "Colorize bracket pairs", "Line numbers", "Render whitespace", "Soft wrap", "Show indent guides", "Highlight current line", "Sticky scroll", "Smooth scrolling", "Scroll beyond last line", "Cursor style", "Cursor blinking"]
         case .keymap:
             ["Keymap", "Keyboard shortcuts", "Shortcuts", "Actions"]
         case .project:
             ["Project", "Java SDK", "JDK", "Project JDK", "Maven", "Maven Home", "Maven Wrapper", "Maven JDK"]
+        case .toolchainEnvironment:
+            ["Runtime Environment", "Tools", "Directories", "Version files", "Fixed", "Project requirements", "Global defaults", "Automatic discovery"]
+        case .toolchainSources:
+            ["Toolchain Sources", "Login shell", "Shell", "PATH", "Version managers", "Watched files"]
         case .run:
             ["Run configurations", "Program arguments", "VM options", "Environment variables", "Working directory", "Services"]
         case .terminal:
@@ -42,9 +46,11 @@ enum SettingsSearchVocabulary {
         case .providers:
             ["AI Providers", "AI provider", "Model", "API key", "Endpoint", "Responses", "Anthropic"]
         case .git:
-            ["Git", "Fetch", "Tags", "Submodules", "Prune", "Commit identity", "Committer name", "Committer email", "Configuration scope", "user.name", "user.email"]
+            ["Git", "Fetch", "Tags", "Submodules", "Prune", "Commit identity", "Committer name", "Committer email", "Configuration scope", "user.name", "user.email", "Project Indexing", "Automatically exclude Git-ignored directories", "Excluded", "Cancel Exclusion"]
         case .updates:
             ["Updates", "Application version", "Update status", "Check for Updates", "Update channel", "Stable (Recommended)", "AutoBuild Rolling"]
+        case .network:
+            ["Network", "Proxy", "Proxy mode", "Proxy type", "Proxy server", "Server address", "Port", "Username", "Password", "Exclusion list", "Test connection", "Follow system proxy", "No proxy", "Custom proxy server", "HTTP", "SOCKS5"]
         case .processTermination:
             ["Process Termination Policy", "Process", "Quit", "Run services", "Terminals with running programs", "Agent tasks", "Background services", "Closing a terminal tab", "After Lithe closes unexpectedly", "Time to exit", "Remembered choices", "Daemon"]
         case .diagnostics:

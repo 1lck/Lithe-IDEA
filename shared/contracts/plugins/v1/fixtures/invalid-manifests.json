@@ -969,7 +969,7 @@
     {
       "name": "backend capability version this Core does not know",
       "base": "backend.plugin.json",
-      "edits": [{ "op": "set", "path": "/requires/backend", "value": 2 }],
+      "edits": [{ "op": "set", "path": "/requires/backend", "value": 99 }],
       "expectedCode": "plugin.api.unsupported"
     },
     {
@@ -1013,6 +1013,47 @@
       "base": "backend.plugin.json",
       "edits": [{ "op": "remove", "path": "/backend" }, { "op": "set", "path": "/requires", "value": {"ui":  2} }, { "op": "set", "path": "/permissions", "value": ["credentials.store", "ui.contribute", "ui.web"] }],
       "expectedCode": "plugin.manifest.invalid"
-    }
+    },
+    {
+      "name": "backend 2 still needs a way to start",
+      "base": "backend-workspace.plugin.json",
+      "edits": [{ "op": "set", "path": "/activationEvents", "value": [] }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "onWorkspaceOpen needs backend 2",
+      "base": "backend.plugin.json",
+      "edits": [{ "op": "set", "path": "/activationEvents", "value": ["onView:dev.lithe.fixture.backend.window", "onWorkspaceOpen"] }],
+      "expectedCode": "plugin.activation.invalid"
+    },
+    {
+      "name": "workspace.metadata needs backend 2",
+      "base": "backend.plugin.json",
+      "edits": [{ "op": "set", "path": "/permissions", "value": ["backend.launch", "credentials.store", "ui.contribute", "ui.web", "workspace.metadata"] }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "workspace.metadata without a backend",
+      "base": "backend.plugin.json",
+      "edits": [{ "op": "remove", "path": "/backend" }, { "op": "set", "path": "/requires", "value": {"ui":  2} }, { "op": "set", "path": "/permissions", "value": ["ui.contribute", "ui.web", "workspace.metadata"] }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "backend 2 does not start on every launch",
+      "base": "backend-workspace.plugin.json",
+      "edits": [{ "op": "set", "path": "/activationEvents", "value": ["onStartupFinished", "onWorkspaceOpen"] }],
+      "expectedCode": "plugin.activation.invalid"
+    },
+    {
+      "name": "backend 2 is still one process for every workspace",
+      "base": "backend-workspace.plugin.json",
+      "edits": [{ "op": "set", "path": "/backend/arguments", "value": ["--cache", "${workspaceStateDir}"] }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {"name": "a grammar needs languages 2", "base": "language-grammar.plugin.json", "edits": [{"op": "set", "path": "/requires/languages", "value": 1}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "languages 2 is used by a grammar or configuration", "base": "language-grammar.plugin.json", "edits": [{"op": "remove", "path": "/languages/0/grammar"}, {"op": "remove", "path": "/languages/0/configuration"}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "a grammar names a known engine", "base": "language-grammar.plugin.json", "edits": [{"op": "set", "path": "/languages/0/grammar/kind", "value": "textmate"}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "a grammar file stays in the package", "base": "language-grammar.plugin.json", "edits": [{"op": "set", "path": "/languages/0/grammar/path", "value": "../http.monarch.json"}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "a comment delimiter is one short line", "base": "language-grammar.plugin.json", "edits": [{"op": "set", "path": "/languages/0/configuration/lineComment", "value": "#\n"}], "expectedCode": "plugin.manifest.invalid"}
   ]
 }

@@ -1,0 +1,26 @@
+{
+  "id": "plugin-editor-actions",
+  "area": "扩展",
+  "group": "插件与主题",
+  "capability": "普通工具插件的独立编辑器动作：运行期注册文件选择器，收集文档范围与同插件函数绑定，点击复用普通 invocation；不接 LSP/Build/Run/Debug",
+  "macos": {
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
+    "evidence": [
+      "rust/lithe-core/src/plugins/editor_actions.rs",
+      "macos/Sources/Lithe/Application/Features/PluginEditorActionHostService.swift",
+      "frontend/editor/src/plugin-editor-actions.ts",
+      "shared/contracts/plugins/v1/fixtures/editor-actions.plugin.json"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
+    "evidence": [
+      "shared/contracts/plugins/v1/README.md"
+    ]
+  },
+  "owner": "Extensions",
+  "verification": "用 HTTP 与 SQL 两种解析函数注册动作；验证当前脏文档版本、同一行多动作、明确点击执行、编辑取消旧解析、撤回/关闭/会话替换清理，不自动重试副作用。慢收集保持未完成时刷新立即确认，仍能输入并完成保存屏障；整批只使用八秒预算。",
+  "notes": "当前仅 macOS 接线；真机和完整用户流程仍待验证。共享校验通过不代表 Windows 已实现。"
+}

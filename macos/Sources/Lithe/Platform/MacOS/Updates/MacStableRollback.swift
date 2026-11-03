@@ -23,14 +23,17 @@ final class MacStableRollback: ObservableObject {
     private var staged: StableRollbackPackage?
     private var helper: Process?
     private let loadPackage: PackageLoader
-    private let diagnosticSink: @Sendable (String) -> Void
+    private let logSink: (any LogSink)?
 
-    init(diagnosticSink: @escaping @Sendable (String) -> Void = { NSLog("%@", $0) },
-         loadPackage: @escaping PackageLoader = { bundle, preparing in
-        try await StableRollbackPackage.download(bundle: bundle, preparing: preparing)
-    }) {
-        self.loadPackage = loadPackage
-        self.diagnosticSink = diagnosticSink
+    init(logSink: (any LogSink)? = nil,
+         sessionFactory: @escaping @Sendable (URLSessionConfiguration) -> MacNetworkSessionLease = {
+             MacNetworkSessionProvider.makeSession(configuration: $0, plan: nil)
+         },
+         loadPackage: PackageLoader? = nil) {
+        self.loadPackage = loadPackage ?? { bundle, preparing in
+            try await StableRollbackPackage.download(bundle: bundle, preparing: preparing, sessionFactory: sessionFactory, logSink: logSink)
+        }
+        self.logSink = logSink
     }
 
     func download(bundle: Bundle) {
@@ -56,7 +59,7 @@ final class MacStableRollback: ObservableObject {
                 state = .ready(package.version)
             } catch {
                 if let failure = error as? StableRollbackPreparationFailure {
-                    diagnosticSink(failure.diagnostic + "\n")
+                    logSink?.emit(UpdateRollbackPreparationFailed(error: NSError(domain: "update.rollback", code: Int(failure.exitCode)), exitCode: Int64(failure.exitCode), stage: URL(fileURLWithPath: failure.executable).lastPathComponent))
                 }
                 if error is CancellationError || (Task.isCancelled && (error as? URLError)?.code == .cancelled) { state = .idle }
                 else { state = .failed((error as? UpdateCheckError)?.userMessage ?? error.localizedDescription) }
@@ -136,6 +139,7 @@ final class MacStableRollback: ObservableObject {
 struct StableRollbackPreparationFailure: LocalizedError {
     let executable: String
     let diagnostic: String
+    var exitCode: Int32 = -1
     var errorDescription: String? { UpdateCheckError.toolFailed(executable).userMessage }
 }
 
@@ -158,7 +162,11 @@ struct StableRollbackPackage: Sendable {
     let target: URL
     let version: String
 
-    static func download(bundle: Bundle, preparing: @escaping @Sendable () async -> Void) async throws -> Self {
+    static func download(bundle: Bundle,
+                         preparing: @escaping @Sendable () async -> Void,
+                         sessionFactory: @escaping @Sendable (URLSessionConfiguration) -> MacNetworkSessionLease = {
+                             MacNetworkSessionProvider.makeSession(configuration: $0, plan: nil)
+                         }, logSink: (any LogSink)? = nil) async throws -> Self {
         let target = bundle.bundleURL.resolvingSymlinksInPath()
         guard target.pathExtension == "app", let identifier = bundle.bundleIdentifier,
               let architecture = UpdateArchitecture.current else { throw UpdateCheckError.notAppBundle }
@@ -167,11 +175,9 @@ struct StableRollbackPackage: Sendable {
         guard FileManager.default.isWritableFile(atPath: target.deletingLastPathComponent().path) else {
             throw StableRollbackFailure.cannotReplace
         }
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = 60
-        configuration.timeoutIntervalForResource = 1800
-        let session = URLSession(configuration: configuration)
-        defer { session.invalidateAndCancel() }
+        let lease = makeDownloadSession(using: sessionFactory)
+        defer { lease.session.invalidateAndCancel() }
+        let session = lease.session
         let (data, response) = try await session.data(from: UpdateEndpointConfiguration.productionManifestURL)
         try validateResponse(response)
         let manifest = try JSONDecoder().decode(UpdateManifest.self, from: data).validated()
@@ -185,13 +191,57 @@ struct StableRollbackPackage: Sendable {
         try Task.checkCancellation()
         await preparing()
         return try await prepare(download: download, asset: asset, version: manifest.version,
-            target: target, identifier: identifier, architecture: architecture, publicKey: publicKey)
+            target: target, identifier: identifier, architecture: architecture, publicKey: publicKey, logSink: logSink)
+    }
+
+    static func makeDownloadSession(
+        using factory: @Sendable (URLSessionConfiguration) -> MacNetworkSessionLease
+    ) -> MacNetworkSessionLease {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 60
+        configuration.timeoutIntervalForResource = 1800
+        return factory(configuration)
     }
 
     private static func validateResponse(_ response: URLResponse) throws {
         guard let response = response as? HTTPURLResponse else { throw UpdateCheckError.invalidResponse }
         if response.statusCode == 404 { throw UpdateCheckError.noPublishedRelease }
         guard (200..<300).contains(response.statusCode) else { throw UpdateCheckError.httpStatus(response.statusCode) }
+    }
+
+    /// Removes staging folders the replacement script left beside `target`.
+    ///
+    /// A folder holding only `previous.app` belongs to a finished replacement:
+    /// the running app is its successor, so the recovery copy has served its
+    /// purpose. A folder still holding `new.app` was never installed and goes once
+    /// it is a day old. Folders of another app, or with a disk image possibly
+    /// still mounted, are left alone.
+    @discardableResult
+    static func removeLeftoverStaging(beside target: URL, identifier: String,
+                                      now: Date = Date(), logSink: (any LogSink)? = nil) -> [URL] {
+        let manager = FileManager.default
+        let parent = target.resolvingSymlinksInPath().deletingLastPathComponent()
+        guard let entries = try? manager.contentsOfDirectory(at: parent,
+                includingPropertiesForKeys: [.contentModificationDateKey], options: []) else { return [] }
+        var removed: [URL] = []
+        for root in entries where root.lastPathComponent.hasPrefix(".lithe-stable-") {
+            let mount = root.appendingPathComponent("mount")
+            if let contents = try? manager.contentsOfDirectory(atPath: mount.path), !contents.isEmpty { continue }
+            let previous = root.appendingPathComponent("previous.app")
+            let staged = root.appendingPathComponent("new.app")
+            let candidate = manager.fileExists(atPath: previous.path) ? previous : staged
+            guard let info = NSDictionary(contentsOf: candidate.appendingPathComponent("Contents/Info.plist")),
+                  info["CFBundleIdentifier"] as? String == identifier else { continue }
+            if candidate == staged {
+                let modified = (try? root.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+                guard let modified, now.timeIntervalSince(modified) > 24 * 60 * 60 else { continue }
+            }
+            do {
+                try manager.removeItem(at: root)
+                removed.append(root)
+            } catch { logSink?.emit(UpdateRollbackCleanupFailed(error: error, stage: "leftovers")) }
+        }
+        return removed
     }
 
     func discard() async throws {
@@ -203,21 +253,21 @@ struct StableRollbackPackage: Sendable {
     }
 
     nonisolated static func prepare(download: URL, asset: UpdateManifestAsset, version: String,
-                                   target: URL, identifier: String, architecture: UpdateArchitecture, publicKey: String) async throws -> Self {
+                                   target: URL, identifier: String, architecture: UpdateArchitecture, publicKey: String, logSink: (any LogSink)? = nil) async throws -> Self {
         // Native filesystem and process work is bounded, but blocking; keep it
         // off both the UI thread and Swift's cooperative executor.
         try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .utility).async {
                 continuation.resume(with: Result {
                     try prepareSynchronously(download: download, asset: asset, version: version,
-                        target: target, identifier: identifier, architecture: architecture, publicKey: publicKey)
+                        target: target, identifier: identifier, architecture: architecture, publicKey: publicKey, logSink: logSink)
                 })
             }
         }
     }
 
     private static func prepareSynchronously(download: URL, asset: UpdateManifestAsset, version: String,
-                                            target: URL, identifier: String, architecture: UpdateArchitecture, publicKey: String) throws -> Self {
+                                            target: URL, identifier: String, architecture: UpdateArchitecture, publicKey: String, logSink: (any LogSink)?) throws -> Self {
         let data = try Data(contentsOf: download, options: .mappedIfSafe)
         let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
         guard digest == asset.normalizedSHA256 else { throw UpdateCheckError.checksumMismatch }
@@ -239,12 +289,12 @@ struct StableRollbackPackage: Sendable {
                 do {
                     try run("/usr/bin/hdiutil", ["detach", mount.path, "-force"])
                     mounted = false
-                } catch { NSLog("Stable rollback disk image cleanup failed: %@", error.localizedDescription) }
+                } catch { logSink?.emit(UpdateRollbackCleanupFailed(error: error, stage: "unmount")) }
             }
             // Never recurse through a mount that macOS refused to detach.
             if !succeeded && !mounted {
                 do { try manager.removeItem(at: root) }
-                catch { NSLog("Stable rollback staging cleanup failed: %@", error.localizedDescription) }
+                catch { logSink?.emit(UpdateRollbackCleanupFailed(error: error, stage: "staging")) }
             }
         }
         try manager.createDirectory(at: mount, withIntermediateDirectories: false)
@@ -282,7 +332,7 @@ struct StableRollbackPackage: Sendable {
         guard result.succeeded else {
             throw StableRollbackPreparationFailure(executable: executable,
                 diagnostic: preparationDiagnostic(executable: executable, arguments: arguments,
-                    exitCode: result.exitCode, output: result.output))
+                    exitCode: result.exitCode, output: result.output), exitCode: result.exitCode)
         }
     }
 
@@ -327,6 +377,7 @@ struct StableRollbackPackage: Sendable {
         "$opener" "$target" || true
         exit 1
     fi
-    # Retain previous.app and the log for recovery; user data is never removed.
+    # Retain previous.app and the log for recovery until the replacement app
+    # starts; it removes them on launch. User data is never removed.
     """#
 }

@@ -879,6 +879,9 @@ package protocol LanguageServerSession: AnyObject {
     var javaTestRunnerURL: URL? { get }
     var onDiagnostics: ((URL, [LanguageServerDiagnostic]) -> Void)? { get set }
     var onLog: ((LanguageServerLogLevel, String, String?, String?) -> Void)? { get set }
+    /// Controlled issue facts: isWarning, source stage, stable code, exit status, operation ID.
+    /// No message/detail payload crosses this persistence callback.
+    var onLogIssue: ((Bool, String, String, Int?, String?) -> Void)? { get set }
     var onStateChange: ((LanguageServerSessionState) -> Void)? { get set }
     var features: LanguageServerFeatureSet { get }
     var onFeaturesChange: ((LanguageServerFeatureSet) -> Void)? { get set }
@@ -1022,6 +1025,21 @@ package protocol LanguageServerSession: AnyObject {
     func updateWorkspaceConfigurationAsync(_ configuration: ToolingJSONValue) async
         -> WorkspaceConfigurationUpdateResult
     func stop()
+    /// Stops the session and confirms process/resource release within a local
+    /// deadline. A false result must not be followed by a replacement launch.
+    func stopAndWait() async -> Bool
+}
+
+package extension LanguageServerSession {
+    func stopAndWait() async -> Bool {
+        stop()
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while isRunning, ContinuousClock.now < deadline {
+            do { try await Task.sleep(for: .milliseconds(10)) }
+            catch { return false }
+        }
+        return !isRunning
+    }
 }
 
 /// Completion metadata is list-scoped, including when the list is empty.
@@ -1151,6 +1169,10 @@ package extension LanguageServerSession {
         set {}
     }
     var onLog: ((LanguageServerLogLevel, String, String?, String?) -> Void)? {
+        get { nil }
+        set {}
+    }
+    var onLogIssue: ((Bool, String, String, Int?, String?) -> Void)? {
         get { nil }
         set {}
     }

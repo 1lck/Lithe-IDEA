@@ -703,6 +703,11 @@
       "source": "expui/general/refresh.svg"
     },
     {
+      "icon": "AgentIcon",
+      "source": null,
+      "note": "lucide bot glyph shared with the macOS Agent tool-window icon"
+    },
+    {
       "icon": "RobotIcon",
       "source": null,
       "note": "no confident IntelliJ platform asset; lucide fallback"

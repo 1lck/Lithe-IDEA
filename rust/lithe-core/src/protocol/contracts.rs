@@ -71,6 +71,9 @@ pub struct WorkspaceNode {
 #[serde(rename_all = "camelCase")]
 /// Complete visible workspace tree and its flattened file paths.
 pub struct WorkspaceSnapshotResponse {
+    /// Optional directories that could not be read; hosts must not infer deletions from this inventory.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub incomplete_directories: Vec<String>,
     pub root: WorkspaceNode,
     pub files: Vec<String>,
     /// Linked worktrees checked out inside their own repository. They are left

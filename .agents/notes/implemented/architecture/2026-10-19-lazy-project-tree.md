@@ -22,7 +22,7 @@
 ## 决策
 
 - 由 Rust Core 负责列目录。`workspace.snapshot` 接受 `includeTree: false`，这时只返回 `files`
-  和一个没有子项的 `root`。Windows 不传这个字段，行为不变。
+  和一个没有子项的 `root`。Windows 起初不传这个字段；后来 Windows 的文件清单调用方（`fffListFiles`、Lombok 导航）也改为传 `includeTree: false`，因为它们只用 `files`，Windows 文件树自己按目录读取，从不使用快照里的树（见 `2026-10-29-skip-python-environments-in-workspace-scans.md`）。
 - `workspace.listDirectories` 一次可以列出多个相对路径的下一层。它与快照使用同一套过滤规则：
   隐藏目录、隐藏文件、符号链接、嵌套工作树。
   不存在、被隐藏或越过根目录的路径直接不返回，调用方不需要区分具体是哪种原因。

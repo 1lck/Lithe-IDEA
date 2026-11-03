@@ -214,7 +214,7 @@ classify_path() {
             swift=true
             macos_release=true
             ;;
-        macos/sources/lithegitmodule/*|macos/sources/lithe/application/composition/gitmodulecoordinator.swift|macos/sources/lithe/models/appmodel/appmodel+git*|macos/sources/lithe/models/bridges/gitmodulebridges.swift|macos/sources/lithe/platform/macos/storage/macgit*|macos/sources/lithe/views/git/*)
+        macos/sources/lithegitmodule/*|macos/sources/litheworkspacemodule/application/workspacefeaturemodel.swift|macos/sources/lithe/application/composition/gitmodulecoordinator.swift|macos/sources/lithe/models/appmodel/appmodel+git*|macos/sources/lithe/models/bridges/gitmodulebridges.swift|macos/sources/lithe/platform/macos/storage/macgit*|macos/sources/lithe/views/git/*)
             swift=true
             git_validation=true
             ;;
@@ -325,6 +325,12 @@ classify_path() {
         scripts/plugins/verify-official-plugins.sh|scripts/plugins/build-official-plugins.sh)
             plugins=true
             ;;
+        scripts/logging/*)
+            # Catalog generation and usage checks run in verify-logging.yml.
+            ;;
+        scripts/plugins/plugin-settings-schema.test.mjs)
+            # Runs in the always-on Linux classification job, not a product lane.
+            ;;
         scripts/rust-core/verify-rust-core.sh|scripts/rust-core/verify-rust-core-crates.sh|scripts/rust-core/verify-rust-core-swift-bridge.sh|scripts/rust-core/verify-rust-core-comments.sh|scripts/rust-core/verify-rust-core-layout.sh|scripts/rust-core/build-rust-core.sh|scripts/rust-core/rustcorebridgeverification.swift)
             rust_core=true
             macos_release=true
@@ -357,6 +363,9 @@ classify_path() {
             macos_release=true
             ;;
         scripts/windows/build/build-windows.ps1|scripts/windows/verify/verify-windows-boundaries.ps1|scripts/windows/verify/verify-windows-boundaries.sh|scripts/windows/prepare/prepare-jdtls.ps1|scripts/windows/prepare/prepare-jdk.ps1|scripts/windows/package/package-windows.ps1|scripts/windows/build/install-windows-frontend-dependencies.ps1|scripts/windows/build/invoke-windows-bun-install.ps1|scripts/windows/build/windows-frontend-install.test.ts|scripts/windows/build/invoke-windows-tauri-build.ps1|scripts/release/windows/create-windows-updater-manifest.ps1|scripts/release/windows/test-windows-updater-manifest.ps1)
+            windows=true
+            ;;
+        scripts/windows/perf/*)
             windows=true
             ;;
         scripts/ci/update-repo-charts/update-repo-charts.py)

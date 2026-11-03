@@ -127,7 +127,7 @@ struct SettingsView: View {
                 .ignoresSafeArea()
         }
         .onAppear {
-            SettingsPageLatencyTrace.installIfEnabled()
+            SettingsPageLatencyTrace.installIfEnabled(logSink: model.services.logSink)
             expandGroup(containing: viewState.selection)
             syncVisibilityDrafts()
             model.refreshAIConfigurations()
@@ -271,7 +271,7 @@ struct SettingsView: View {
 
     private func categoryNode(_ category: SettingsCategory, nested: Bool = false) -> LitheTreeListNode {
         LitheTreeListNode(id: "page:" + category.id, onSelect: {
-            SettingsPageLatencyTrace.selected(category.id)
+            SettingsPageLatencyTrace.selected(category.id, logSink: model.services.logSink)
             isSearchFocused = false; viewState.contributedPageID = nil; viewState.selection = category
         }) {
             HStack(spacing: 8) {
@@ -392,6 +392,18 @@ struct SettingsView: View {
         } else if viewState.selection == .project {
             ProjectRuntimeSettingsView(feature: model.runtimeFeature)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if viewState.selection == .toolchainEnvironment {
+            ToolchainEnvironmentSettingsView(feature: model.toolchainSettingsFeature, onOpenPlugins: {
+                viewState.selection = .plugins
+            })
+            .task(id: model.workspaceURL) { await model.toolchainSettingsFeature.load(workspace: model.workspaceURL) }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if viewState.selection == .toolchainSources {
+            ToolchainSourcesSettingsView(feature: model.toolchainSettingsFeature, onOpenPlugins: {
+                viewState.selection = .plugins
+            })
+            .task(id: model.workspaceURL) { await model.toolchainSettingsFeature.load(workspace: model.workspaceURL) }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if viewState.selection == .keymap {
             KeyboardShortcutSettingsView(
                 feature: model.keyboardShortcutFeature,
@@ -417,6 +429,7 @@ struct SettingsView: View {
                     case .terminal: terminalSettings
                     case .lsp: EmptyView()
                     case .project: EmptyView()
+                    case .toolchainEnvironment, .toolchainSources: EmptyView()
                     case .run: EmptyView()
                     case .ai: aiSettings
                     case .instructions:
@@ -438,6 +451,7 @@ struct SettingsView: View {
                     case .git:
                         GitSettingsPage(settings: settings)
                     case .updates: updatesSettings
+                    case .network: NetworkSettingsView(settings: settings)
                     case .processTermination: ProcessTerminationSettingsView(settings: settings)
                     case .diagnostics: diagnosticsSettings
                     case .plugins: EmptyView()
@@ -548,31 +562,23 @@ struct SettingsView: View {
                 }
             }
 
-            group("Hidden paths", info: "One pattern per line, case-insensitive. Patterns use wildcards, a simplified form of regular expressions: `*` matches any characters and `?` matches one.\nEnd a pattern with `/` or `/*` to hide a folder and everything in it; start with `**/` to match at any depth. Other patterns hide matching files.\nExamples:\n`**/dist/` — every dist folder\n`.lithe/*` — the .lithe folder in the project root\n`*.log` — all log files\n`docs/*.md` — Markdown files in docs\nThe built-in patterns below always apply.") {
+            group("Hidden paths", info: "One pattern per line, case-insensitive. Patterns use wildcards, a simplified form of regular expressions: `*` matches any characters and `?` matches one.\nEnd a pattern with `/`, `/*` or `/**` to hide a folder and everything in it; start with `**/` to match at any depth. A pattern without a trailing slash only hides files: `.lithe` hides a file named .lithe, not the folder.\nExamples:\n`**/dist/` — every dist folder\n`.lithe/**` — the .lithe folder in the project root\n`*.log` — all log files\n`docs/*.md` — Markdown files in docs\nThe list starts with the built-in patterns. Delete one to show those files again; type it back to hide them.") {
                 hiddenPathsEditor
+            }
+
+            group("Local history", info: "Local history keeps versions of files as you save and edit them, up to 100 MB per project by default; change the limit next to Used.\nIgnore rules only keep files out of local history; the project tree still shows them. Hidden paths are never recorded.\nWildcard: one pattern per line, using the same syntax as Hidden paths, for example `*.log` or `**/generated/`. The list starts with built-in dependency, cache and build output folders such as `**/node_modules/`; delete a line to record that folder again.\nRegular expression: one per line, case-insensitive, matched anywhere in the project-relative path with `/` separators, for example `^build/` or `(test|spec)/`.") {
+                LocalHistorySettingsControl(settings: settings)
             }
         }
     }
 
-    /// One pattern list with the built-in patterns echoed beneath it, so the
-    /// effective rules are visible without being editable.
+    /// One pattern list that starts with the built-in patterns. Deleting a
+    /// built-in line turns that rule off; typing it again turns it back on.
     private var hiddenPathsEditor: some View {
-        let builtIn = FileVisibilityRules.builtInPatterns
-        let shown = builtIn.prefix(3)
-        return VStack(alignment: .leading, spacing: 6) {
-            LitheTextEditor(text: $viewState.hiddenPathPatternsDraft, height: 72)
+        VStack(alignment: .leading, spacing: 6) {
+            LitheTextEditor(text: $viewState.hiddenPathPatternsDraft, height: 120)
                 .accessibilityLabel(Text("Hidden paths"))
             HStack(spacing: 6) {
-                HStack(spacing: 6) {
-                    Text("Built-in")
-                        .font(LitheTheme.uiFont(size: 11))
-                        .foregroundStyle(LitheTheme.tertiaryText)
-                    ForEach(shown, id: \.self) { LitheSettingsPill(verbatim: $0, kind: .value) }
-                    if builtIn.count > shown.count {
-                        LitheSettingsPill(verbatim: "+\(builtIn.count - shown.count)")
-                    }
-                }
-                .help(Text(verbatim: builtIn.joined(separator: "   ")))
                 Spacer(minLength: 8)
                 Button("Apply") { applyVisibilityDrafts() }
                     .buttonStyle(LitheActionButtonStyle())
@@ -590,6 +596,7 @@ struct SettingsView: View {
 
     private var editorSettings: some View {
         VStack(alignment: .leading, spacing: 10) {
+            EditorSettingsImportControl(feature: model.editorSettingsImport)
             group("Display") {
                 row("Font") {
                     VStack(alignment: .leading, spacing: 4) {
@@ -644,6 +651,12 @@ struct SettingsView: View {
                     }
                 }
                 LitheSettingsCheckbox(isOn: $settings.editorAppearance.fontLigatures, title: "Font ligatures")
+                row("Tab size") {
+                    LitheSettingsStepper(value: $settings.editorAppearance.tabSize, in: 1...16, step: 1,
+                        width: 126, accessibilityLabel: "Tab size", title: { String($0) })
+                }
+                LitheSettingsCheckbox(isOn: $settings.editorAppearance.insertSpaces, title: "Insert spaces")
+                LitheSettingsCheckbox(isOn: $settings.editorAppearance.detectIndentation, title: "Detect indentation")
                 row("File tree row height") {
                     LitheSettingsStepper(
                         value: $settings.projectTreeRowHeight,
@@ -679,17 +692,7 @@ struct SettingsView: View {
                     )
                 }
             }
-            group("Indentation") {
-                row("Tab width") {
-                    LitheSettingsSelect(
-                        selection: $settings.tabWidth,
-                        options: [2, 4, 8],
-                        width: 130,
-                        accessibilityLabel: "Tab width",
-                        title: { "\($0) spaces" }
-                    )
-                }
-            }
+
         }
         .task {
             guard viewState.editorFontFamilies.isEmpty else { return }
@@ -762,6 +765,12 @@ struct SettingsView: View {
                         options: EditorAppearanceSettings.ColorScheme.allCases,
                         width: 190, accessibilityLabel: "Editor color scheme", title: \.title
                     )
+                }
+                if let imported = ImportedEditorTheme.decode(settings.editorAppearance.customTheme) {
+                    row("Imported editor theme", info: "Imported editor colors override the built-in palette. Remove the imported theme to use the built-in colors again.") {
+                        Text(verbatim: imported.name).lineLimit(1).truncationMode(.middle)
+                        Button("Remove") { settings.editorAppearance.customTheme = "" }
+                    }
                 }
                 LitheSettingsCheckbox(isOn: $settings.editorAppearance.italicComments, title: "Italic comments")
                 row("Colorize bracket pairs", info: "Bracket colors follow the selected editor color scheme.") {
@@ -868,7 +877,7 @@ struct SettingsView: View {
                 Button("Detect Installed Shells") {
                     model.terminalFeature?.refreshAvailableShells()
                     viewState.detectedTerminalShells = model.availableTerminalShells
-                    viewState.knownTerminalShells = MacTerminalShellDiscovery.knownShells()
+                    viewState.knownTerminalShells = MacTerminalShellDiscovery.knownShells(logSink: model.services.logSink)
                 }
                 .buttonStyle(LitheActionButtonStyle())
             }
@@ -888,7 +897,7 @@ struct SettingsView: View {
         .task {
             guard await model.activateTerminalModule() else { return }
             viewState.detectedTerminalShells = model.availableTerminalShells
-            viewState.knownTerminalShells = MacTerminalShellDiscovery.knownShells()
+            viewState.knownTerminalShells = MacTerminalShellDiscovery.knownShells(logSink: model.services.logSink)
         }
     }
 
@@ -1453,6 +1462,10 @@ struct SettingsView: View {
                 UpdateChannelControl()
             }
 
+            group("Update source", info: "Stable updates download from this address. A mirror must serve the same signed appcast and update archives side by side, and Lithe still verifies their signatures before installing. AutoBuild always uses the official source.") {
+                UpdateSourceControl()
+            }
+
             group("Update status") {
                 updateStatusDescription
                 StableRollbackControl()
@@ -1750,11 +1763,17 @@ struct SettingsView: View {
     }
 
     private func syncVisibilityDrafts() {
-        viewState.hiddenPathPatternsDraft = settings.hiddenPathPatterns.joined(separator: "\n")
+        viewState.hiddenPathPatternsDraft = BuiltInRuleList.displayed(
+            stored: settings.hiddenPathPatterns,
+            builtIns: FileVisibilityRules.builtInPatterns
+        ).joined(separator: "\n")
     }
 
     private func applyVisibilityDrafts() {
-        settings.hiddenPathPatterns = entries(from: viewState.hiddenPathPatternsDraft)
+        settings.hiddenPathPatterns = BuiltInRuleList.stored(
+            lines: entries(from: viewState.hiddenPathPatternsDraft),
+            builtIns: FileVisibilityRules.builtInPatterns
+        )
     }
 
     private func entries(from text: String) -> [String] {

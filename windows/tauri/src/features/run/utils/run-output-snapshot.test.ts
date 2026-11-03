@@ -80,7 +80,7 @@ describe("run output snapshot retention", () => {
 
   test("without pinning a snapshot would be evictable, which is why creation pins it", () => {
     const unpinned = editor("unpinned-snapshot", false);
-    const { evictedBuffer } = evictLeastRecentAutoClosableBuffer([unpinned], 0);
+    const { evictedBuffer } = evictLeastRecentAutoClosableBuffer([unpinned], 1);
     expect(evictedBuffer?.id).toBe("unpinned-snapshot");
   });
 });

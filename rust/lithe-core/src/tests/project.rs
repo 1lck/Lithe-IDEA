@@ -690,6 +690,98 @@ fn workspace_snapshot_hides_build_artifact_directory() {
 }
 
 #[test]
+fn workspace_snapshot_skips_python_environments_and_bytecode_caches() {
+    let root = temporary_root("snapshot-python");
+    write_fixture_file(&root.join("app/main.py"), "print('hi')");
+    write_fixture_file(&root.join("app/helper.py"), "");
+    // Environments are skipped at any depth, not only at the workspace root.
+    write_fixture_file(&root.join(".venv/Lib/site-packages/pkg/mod.py"), "");
+    write_fixture_file(&root.join("venv/bin/activate"), "");
+    write_fixture_file(&root.join("service/.venv/Lib/site-packages/dep.py"), "");
+    // Bytecode is generated output: both the cache folder and stray `.pyc` files.
+    write_fixture_file(&root.join("app/__pycache__/main.cpython-311.pyc"), "");
+    write_fixture_file(&root.join("app/legacy.pyc"), "");
+    // Names that merely resemble the hidden ones stay visible.
+    write_fixture_file(&root.join("environment/venv_notes.md"), "");
+    write_fixture_file(&root.join("app/pyc_overview.md"), "");
+
+    let expected = serde_json::json!([
+        "app/helper.py",
+        "app/main.py",
+        "app/pyc_overview.md",
+        "environment/venv_notes.md",
+    ]);
+    let sorted = |data: &Value| {
+        let mut files: Vec<String> = data["files"]
+            .as_array()
+            .expect("snapshot should list files")
+            .iter()
+            .map(|path| path.as_str().expect("path should be text").to_string())
+            .collect();
+        files.sort();
+        serde_json::json!(files)
+    };
+    let full = core_data(
+        "snapshot-python",
+        "workspace.snapshot",
+        serde_json::json!({"root": root}),
+    );
+    let files_only = core_data(
+        "snapshot-python-files-only",
+        "workspace.snapshot",
+        serde_json::json!({"root": root, "includeTree": false}),
+    );
+    assert_eq!(sorted(&full), expected);
+    assert_eq!(sorted(&files_only), expected);
+
+    // The project tree lists directories through the same rules, so the hidden
+    // folders must not appear one level at a time either.
+    let listing = core_data(
+        "list-python",
+        "workspace.listDirectories",
+        serde_json::json!({"root": root, "paths": ["", "app"]}),
+    );
+    let listed = listing.to_string();
+    for hidden in [".venv", "\"venv\"", "__pycache__", "legacy.pyc"] {
+        assert!(
+            !listed.contains(hidden),
+            "{hidden} must stay hidden: {listed}"
+        );
+    }
+    assert!(listed.contains("main.py"), "{listed}");
+
+    // File watchers use the same boundary, so environment churn raises no refresh.
+    assert!(!crate::project::files::is_workspace_event_relevant(
+        ".venv/Lib/site-packages/pkg/mod.py"
+    ));
+    assert!(!crate::project::files::is_workspace_event_relevant(
+        "app/__pycache__/main.cpython-311.pyc"
+    ));
+    assert!(crate::project::files::is_workspace_event_relevant(
+        "app/main.py"
+    ));
+    // A built-in folder turned off with `!` is shown again, and its events kept.
+    let turned_off = crate::project::files::VisibilityRules::new(
+        vec!["venv".into()],
+        vec!["!**/venv/".into(), "!*.pyc".into()],
+    );
+    assert!(!turned_off.is_hidden("venv/lib/site.py", false));
+    assert!(!turned_off.is_hidden("app/a.pyc", false));
+    assert!(turned_off.is_hidden(".venv/lib/site.py", false));
+    assert_eq!(
+        crate::project::filter_workspace_changes(
+            serde_json::from_value(serde_json::json!({
+                "paths": ["venv/lib/site.py", ".venv/lib/site.py", "app/main.py"],
+                "hiddenFilePatterns": ["!**/venv/"]
+            }))
+            .unwrap()
+        ),
+        vec!["venv/lib/site.py".to_string(), "app/main.py".to_string()]
+    );
+    fs::remove_dir_all(root).expect("temporary fixture should be removable");
+}
+
+#[test]
 fn search_everywhere_names_exclude_nested_worktrees_during_incremental_updates() {
     let root = temporary_root("everywhere-linked-worktree");
     struct Cleanup(std::path::PathBuf);
@@ -1093,6 +1185,124 @@ fn preserve_case_matches_original_occurrence_shape() {
     assert_eq!(replace(true), "bazQux BazQux BAZQUX bazQux();");
 
     fs::remove_dir_all(root).expect("temporary fixture should be removable");
+}
+
+#[test]
+fn local_history_relocates_excluded_files_and_subtrees_from_retained_metadata() {
+    let cases: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/history/relocation-v1.json"
+    ))
+    .unwrap();
+    for case in cases["cases"].as_array().unwrap() {
+        let root = temporary_root("excluded-history-relocation");
+        struct Cleanup(std::path::PathBuf, Option<u64>);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                if let Some(revision) = self.1 {
+                    let _ = execute_json(&serde_json::json!({
+                        "command": "workspace.releaseIndexing",
+                        "payload": {"root": self.0, "revision": revision, "ownerId": "history-relocation-test"}
+                    }).to_string());
+                }
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+        let mut cleanup = Cleanup(root.clone(), None);
+        let storage = root.join("history-storage");
+        let request = |command: &str, payload: Value| -> Value {
+            let response: Value = serde_json::from_str(&execute_json(
+                &serde_json::json!({"command": command, "payload": payload}).to_string(),
+            ))
+            .unwrap();
+            assert_eq!(response["ok"], true, "{response}");
+            response["data"].clone()
+        };
+        let source = case["source"].as_str().unwrap();
+        let destination = case["destination"].as_str().unwrap();
+        let unaffected = cases["unaffected"].as_str().unwrap();
+        let paths = case["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|path| path.as_str().unwrap())
+            .chain([unaffected])
+            .collect::<Vec<_>>();
+        let mut recorded = Vec::new();
+        for path in &paths {
+            let file = root.join(path);
+            fs::create_dir_all(file.parent().unwrap()).unwrap();
+            fs::write(&file, path).unwrap();
+            recorded.push(request(
+                "history.record",
+                serde_json::json!({
+                    "workspaceRoot": root, "storageRoot": storage, "path": path,
+                    "reason": "saved", "content": path
+                }),
+            ));
+        }
+        let policy = request(
+            "workspace.configureIndexing",
+            serde_json::json!({
+                "root": root, "ownerId": "history-relocation-test", "gitIgnoreEnabled": false,
+                "manualExcludedDirectories": ["archive"], "includedDirectories": []
+            }),
+        );
+        cleanup.1 = policy["revision"].as_u64();
+        let snapshot = request("workspace.snapshot", serde_json::json!({"root": root}));
+        assert!(!snapshot["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|path| path.as_str().unwrap().starts_with("archive/")));
+        fs::create_dir_all(root.join(destination).parent().unwrap()).unwrap();
+        fs::rename(root.join(source), root.join(destination)).unwrap();
+        request(
+            "history.relocate",
+            serde_json::json!({
+                "storageRoot": storage, "sourcePath": source, "destinationPath": destination
+            }),
+        );
+        request(
+            "history.relocate",
+            serde_json::json!({
+                "storageRoot": storage, "sourcePath": destination, "destinationPath": destination
+            }),
+        );
+        for (path, original) in paths.iter().zip(recorded) {
+            let relocated = if *path == unaffected {
+                path.to_string()
+            } else {
+                format!("{destination}{}", &path[source.len()..])
+            };
+            let entries = request(
+                "history.entries",
+                serde_json::json!({
+                    "workspaceRoot": root, "storageRoot": storage, "path": relocated
+                }),
+            );
+            let entries = entries["entries"].as_array().unwrap();
+            assert_eq!(entries.len(), 1, "{relocated}");
+            for field in ["id", "timestamp", "reason", "byteCount", "label"] {
+                assert_eq!(entries[0][field], original[field], "{relocated}: {field}");
+            }
+            let content = request(
+                "history.content",
+                serde_json::json!({
+                    "storageRoot": storage, "contentPath": entries[0]["contentPath"]
+                }),
+            );
+            assert_eq!(content["text"], *path);
+            if *path != unaffected {
+                let previous = request(
+                    "history.entries",
+                    serde_json::json!({
+                        "workspaceRoot": root, "storageRoot": storage, "path": path
+                    }),
+                );
+                assert!(previous["entries"].as_array().unwrap().is_empty());
+            }
+        }
+    }
 }
 
 #[test]

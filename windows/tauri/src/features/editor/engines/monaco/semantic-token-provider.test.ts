@@ -3,7 +3,7 @@ import type * as Monaco from "monaco-editor";
 import fixture from "../../../../../../../shared/fixtures/lsp/semantic-tokens-v1.json";
 import { registerLspDocumentChangeFlusher } from "@/features/editor/lsp/pending-document-changes";
 import type { LspSemanticTokensResponse } from "@/features/editor/lsp/semantic-token-types";
-import { createMonacoSemanticTokenProvider } from "./semantic-token-provider";
+import { createMonacoSemanticTokenProvider, HIDDEN_MODEL_BUSY_MESSAGE } from "./semantic-token-provider";
 
 function harness() {
   const state = {
@@ -105,4 +105,28 @@ test("keeps basic highlighting available when Core returns no semantic colors", 
   const h = harness();
   h.request.mockResolvedValue(null);
   expect(await h.provide()).toBeNull();
+});
+
+test("keeps current colors for a model only hidden tabs show", async () => {
+  const request = mock(async (): Promise<LspSemanticTokensResponse | null> => null);
+  const model = {
+    uri: { toString: () => "file:///C:/work/Main.java" },
+  } as unknown as Monaco.editor.ITextModel;
+  const provider = createMonacoSemanticTokenProvider({
+    client: {
+      getActiveServerEntryForFile: () => ({}),
+      isDocumentOpen: () => true,
+      getSemanticTokens: request,
+    },
+    filePathFromModel: () => "C:/work/Main.java",
+    isLspModel: () => true,
+    skipHiddenModel: () => true,
+  });
+  const token = { isCancellationRequested: false } as Monaco.CancellationToken;
+
+  // Monaco treats a "busy" failure as "keep the tokens you have".
+  await expect(provider.provideDocumentSemanticTokens(model, null, token)).rejects.toThrow(
+    HIDDEN_MODEL_BUSY_MESSAGE,
+  );
+  expect(request).not.toHaveBeenCalled();
 });

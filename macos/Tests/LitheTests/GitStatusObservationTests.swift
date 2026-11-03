@@ -696,6 +696,7 @@ struct GitStatusObservationTests {
         #expect(recorder.gitRefreshCount == 1, "A commit event burst should be coalesced")
         #expect(recorder.externalChangeBatches.isEmpty)
         #expect(recorder.projectServiceReloadCount == 0)
+        #expect(recorder.snapshotPublicationCount == 0, "Unchanged indexing inventory must not republish a project snapshot")
     }
 
     @Test
@@ -923,11 +924,13 @@ private final class GitObservationRecorder {
     var gitRefreshCount = 0
     var externalChangeBatches: [[URL]] = []
     var projectServiceReloadCount = 0
+    var snapshotPublicationCount = 0
 
     func reset() {
         gitRefreshCount = 0
         externalChangeBatches = []
         projectServiceReloadCount = 0
+        snapshotPublicationCount = 0
     }
 }
 
@@ -1061,7 +1064,7 @@ private func makeObservationModel(
             recorder.gitRefreshCount += 1
         },
         updateHistoryVisibilityRules: { _ in },
-        onSnapshotLoaded: { _, _, _ in }
+        onSnapshotLoaded: { _, _, _ in recorder.snapshotPublicationCount += 1 }
     )
     return model
 }

@@ -121,6 +121,8 @@ function GitPushDialog({
   // that resolves elsewhere means the tracking configuration moved under the choice.
   const confirmedDestination = useRef<{ remote: string; remoteBranch: string } | null>(null);
   const previewSequence = useRef(0);
+  // The push menu anchors to the whole button group so it is exactly as wide as the group.
+  const pushGroupRef = useRef<HTMLDivElement>(null);
 
   const loadPreview = useCallback(async () => {
     const sequence = ++previewSequence.current;
@@ -458,9 +460,10 @@ function GitPushDialog({
             <Button variant="default" disabled={isPushing} onClick={() => onComplete(false)}>
               {t("ui.cancel")}
             </Button>
-            <ButtonGroup variant="accent">
+            <ButtonGroup ref={pushGroupRef} variant="primary">
               <Button
-                variant="accent"
+                variant="ghost"
+                className="min-w-18 px-4"
                 disabled={!canPush || isPushing || needsTargetChoice}
                 onClick={() => void performPush(false)}
               >
@@ -471,8 +474,11 @@ function GitPushDialog({
                 <DropdownMenuTrigger
                   render={
                     <Button
-                      variant="accent"
-                      size="icon"
+                      variant="ghost"
+                      // A tooltip wraps the button in a span, so the group's direct-child
+                      // selectors cannot reach it; the chevron carries its own styling and
+                      // stays the same color on hover and while the menu is open.
+                      className="rounded-l-none border-0 px-2 text-white hover:bg-transparent hover:text-white focus-visible:ring-inset focus-visible:ring-white/70 disabled:opacity-100"
                       disabled={!canPush || isPushing || needsTargetChoice}
                       tooltip={t("git.pushDialog.moreActions")}
                       aria-label={t("git.pushDialog.moreActions")}
@@ -481,7 +487,12 @@ function GitPushDialog({
                 >
                   <CaretDown />
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" side="top">
+                <DropdownMenuContent
+                  anchor={pushGroupRef}
+                  align="end"
+                  side="top"
+                  className="min-w-0"
+                >
                   <DropdownMenuItem closeOnClick onClick={() => void performPush(true)}>
                     {t("git.pushDialog.forcePush")}
                   </DropdownMenuItem>

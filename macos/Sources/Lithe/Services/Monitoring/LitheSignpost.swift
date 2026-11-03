@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 import os
 
@@ -6,6 +7,7 @@ enum LitheSignpost {
         let osState: OSSignpostIntervalState
         let startedAt: UInt64
         let name: String
+        let logSink: (any LogSink)?
     }
 
     private static let signposter = OSSignposter(
@@ -14,30 +16,26 @@ enum LitheSignpost {
     )
     private static let baselineEnabled =
         ProcessInfo.processInfo.environment["LITHE_PERFORMANCE_BASELINE"] == "1"
-    private static var baselineOutput: ((String) -> Void)?
     static let settingsLatencyTracingEnabled =
         ProcessInfo.processInfo.environment["LITHE_SETTINGS_LATENCY_TRACE"] == "1"
-
-    static func configureBaselineOutput(_ output: @escaping (String) -> Void) {
-        baselineOutput = output
-    }
 
     /// Opt-in native timestamps, independent of the external AX observer and
     /// of the baseline mode that disables the normal frame-rate monitor.
     static func settingsLatencyEvent(
         _ phase: String, category: String, eventID: Int64,
-        input: UInt64, received: UInt64, selected: UInt64
+        input: UInt64, received: UInt64, selected: UInt64, logSink: (any LogSink)? = nil
     ) {
         guard settingsLatencyTracingEnabled else { return }
         let time = DispatchTime.now().uptimeNanoseconds
-        baselineOutput?("LITHE_SETTINGS_LATENCY phase=\(phase) category=\(category) event_id=\(eventID) time_ns=\(time) input_ns=\(input) received_ns=\(received) selected_ns=\(selected)\n")
+        logSink?.emit(PerfSettingsLatencyMeasured(category: category, eventId: eventID, inputNs: Int64(clamping: input), phase: phase, receivedNs: Int64(clamping: received), selectedNs: Int64(clamping: selected), timeNs: Int64(clamping: time)))
+        (logSink as? any PerformanceMarkerWriting)?.writePerformanceMarker("LITHE_SETTINGS_LATENCY phase=\(phase) category=\(category) event_id=\(eventID) time_ns=\(time) input_ns=\(input) received_ns=\(received) selected_ns=\(selected)\n")
     }
 
-    static func begin(_ name: StaticString) -> State {
+    static func begin(_ name: StaticString, logSink: (any LogSink)? = nil) -> State {
         State(
             osState: signposter.beginInterval(name),
             startedAt: DispatchTime.now().uptimeNanoseconds,
-            name: "\(name)"
+            name: "\(name)", logSink: logSink
         )
     }
 
@@ -54,7 +52,8 @@ enum LitheSignpost {
             state.name,
             durationMilliseconds
         )
-        baselineOutput?(line)
+        state.logSink?.emit(PerfAppSignpostMeasured(duration: .nanoseconds(Int64(clamping: durationNanoseconds)), name: state.name))
+        (state.logSink as? any PerformanceMarkerWriting)?.writePerformanceMarker(line)
     }
 
     #if DEBUG

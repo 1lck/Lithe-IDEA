@@ -5,7 +5,7 @@ import { showConfirmDialog } from "@/ui/dialog";
 import { CaretDownIcon, CaretRightIcon, CopyIcon, StarIcon } from "@/ui/icons";
 import { Spinner } from "@/ui/spinner";
 import { tryWriteClipboardText } from "@/utils/clipboard";
-import { agentHistoryRows } from "../services/agent-history-view";
+import { agentHistoryRows, type AgentHistoryProviderFilter } from "../services/agent-history-view";
 import type { AgentSessionSummary } from "../types/agent.types";
 import type { AgentHistoryFilter, AgentHistoryMetadataMap } from "../types/agent-history.types";
 
@@ -22,19 +22,20 @@ export interface AgentArchiveHistoryProps {
 }
 
 /** The provider archive shares search/annotations, but never the local hidden flag. */
-export function AgentArchivedHistory({ archive, query, filter, metadata, onSelect, onSetHidden, onSetFavorite }: {
+export function AgentArchivedHistory({ archive, query, filter, provider = null, metadata, onSelect, onSetHidden, onSetFavorite }: {
   archive: AgentArchiveHistoryProps;
   query: string;
   filter: AgentHistoryFilter;
+  provider?: AgentHistoryProviderFilter;
   metadata: AgentHistoryMetadataMap;
   onSelect: (sessionID: string) => void;
   onSetHidden: (ids: string[], hidden: boolean) => void;
   onSetFavorite: (ids: string[], favorite: boolean) => void;
 }) {
   const { t } = useTranslation();
-  const [expanded, setExpanded] = useState(false);
-  const rows = agentHistoryRows(archive.sessions, metadata, query, filter);
-  const isExpanded = expanded || (query.trim().length > 0 && rows.length > 0);
+  const [expanded, setExpanded] = useState<boolean | null>(null);
+  const rows = agentHistoryRows(archive.sessions, metadata, query, filter, provider);
+  const isExpanded = expanded ?? ((query.trim().length > 0 || provider !== null) && rows.length > 0);
   const restore = async (sessionID: string) => {
     if (filter === "removed") {
       onSetHidden([sessionID], false);

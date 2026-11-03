@@ -27,6 +27,8 @@ public final class SearchFeatureModel: ObservableObject {
     private let operations: any SearchOperations
     private var indexTask: Task<Void, Never>?
     private var indexTaskGeneration = 0
+    // Queries wait for watcher/settings mutations, never speculative content warming.
+    private var indexMutationTask: Task<Void, Never>?
     private var everywhereSearchGeneration = 0
     private var everywhereSearchTask: Task<Void, Never>?
     private var replacementPreviewGeneration = 0
@@ -43,6 +45,7 @@ public final class SearchFeatureModel: ObservableObject {
         indexTaskGeneration += 1
         indexTask?.cancel()
         indexTask = nil
+        indexMutationTask = nil
         searchResults = []
         isSearching = false
         clearSearchEverywhere()
@@ -51,7 +54,7 @@ public final class SearchFeatureModel: ObservableObject {
     }
 
     public func warmIndex(at workspaceURL: URL, visibilityRules: SearchVisibilityRules) {
-        replaceIndexTask { operations in
+        replaceIndexTask(isWarmup: true) { operations in
             operations.warmSearchIndex(at: workspaceURL, visibilityRules: visibilityRules)
         }
     }
@@ -75,11 +78,12 @@ public final class SearchFeatureModel: ObservableObject {
                 visibilityRules: visibilityRules
             )
         }
-        await indexTask?.value
+        await indexMutationTask?.value
     }
 
     private func replaceIndexTask(
         mustComplete: Bool = false,
+        isWarmup: Bool = false,
         operation: @escaping @Sendable (any SearchOperations) -> Void
     ) {
         let previousTask = indexTask
@@ -107,7 +111,9 @@ public final class SearchFeatureModel: ObservableObject {
             }
             guard let self, self.indexTaskGeneration == generation else { return }
             self.indexTask = nil
+            self.indexMutationTask = nil
         }
+        if !isWarmup { indexMutationTask = indexTask }
     }
 
     public func clearProjectSearch() {
@@ -128,7 +134,7 @@ public final class SearchFeatureModel: ObservableObject {
         }
 
         isSearching = true
-        await indexTask?.value
+        await indexMutationTask?.value
         let operations = self.operations
         let results = await Task.detached(priority: .userInitiated) {
             operations.search(
@@ -201,7 +207,7 @@ public final class SearchFeatureModel: ObservableObject {
                 isSearchingEverywhere = false
             }
         }
-        await indexTask?.value
+        await indexMutationTask?.value
         guard generation == everywhereSearchGeneration, !Task.isCancelled, isCurrent() else { return }
         let operations = self.operations
         let cursor = searchEverywhereResults.nextCursor
@@ -265,7 +271,7 @@ public final class SearchFeatureModel: ObservableObject {
         query: String,
         visibilityRules: SearchVisibilityRules
     ) async -> [URL] {
-        await indexTask?.value
+        await indexMutationTask?.value
         let operations = self.operations
         let results = await Task.detached(priority: .userInitiated) {
             operations.searchEverywhere(
@@ -356,7 +362,7 @@ public final class SearchFeatureModel: ObservableObject {
         }
 
         isLoadingProjectReplacement = true
-        await indexTask?.value
+        await indexMutationTask?.value
         let operations = self.operations
         let results = await Task.detached(priority: .userInitiated) {
             operations.previewReplacement(

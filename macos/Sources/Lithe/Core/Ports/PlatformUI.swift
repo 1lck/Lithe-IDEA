@@ -11,7 +11,15 @@ protocol PlatformUI: AnyObject {
     func choosePluginPackage(title: String, prompt: String) -> URL?
     func revealInFileBrowser(_ url: URL)
     func open(_ url: URL)
+    var supportsExternalFileApplications: Bool { get }
+    func applications(toOpen url: URL) -> [ExternalFileApplication]
+    func chooseExternalFileApplication() async -> URL?
+    func openFile(_ url: URL, withApplicationAt application: URL?) async throws
+    func findApplicationsOnAppStore(for url: URL) throws
     func openHTMLInBrowser(_ url: URL) async throws
+    /// Opens an http or https address in the web browser. The platform
+    /// refuses any other scheme.
+    func openWebURLInBrowser(_ url: URL) async throws
     func copyToClipboard(_ value: String)
     func copyFilesToClipboard(_ urls: [URL]) -> Bool
     func fileURLsFromClipboard() -> [URL]
@@ -21,12 +29,24 @@ protocol PlatformUI: AnyObject {
 }
 
 extension PlatformUI {
+    var supportsExternalFileApplications: Bool { false }
+    func applications(toOpen url: URL) -> [ExternalFileApplication] { [] }
+    func chooseExternalFileApplication() async -> URL? { nil }
+    func openFile(_ url: URL, withApplicationAt application: URL?) async throws {
+        throw CocoaError(.featureUnsupported)
+    }
+    func findApplicationsOnAppStore(for url: URL) throws { throw CocoaError(.featureUnsupported) }
+
     func confirmHardLinkSave(at url: URL) -> DocumentHardLinkSaveMode? { nil }
     func choosePluginPackage(title: String, prompt: String) -> URL? {
         chooseDirectory(title: title, prompt: prompt)
     }
 
     func openHTMLInBrowser(_ url: URL) async throws {
+        throw CocoaError(.featureUnsupported)
+    }
+
+    func openWebURLInBrowser(_ url: URL) async throws {
         throw CocoaError(.featureUnsupported)
     }
 

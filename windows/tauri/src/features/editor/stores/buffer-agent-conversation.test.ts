@@ -1,8 +1,16 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
+import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useBufferStore } from "./buffer.store";
 
 const WORKSPACE = "buffer-agent-conversation-test";
+
+const defaultMaxOpenTabs = useSettingsStore.getState().settings.maxOpenTabs;
+function setMaxOpenTabs(maxOpenTabs: number) {
+  useSettingsStore.setState((state) => {
+    state.settings.maxOpenTabs = maxOpenTabs;
+  });
+}
 
 beforeEach(() => {
   workspaceRuntimeRegistry.resetForTests();
@@ -10,6 +18,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  setMaxOpenTabs(defaultMaxOpenTabs);
   useBufferStore.getStore(WORKSPACE).setState({ buffers: [], activeBufferId: null });
 });
 
@@ -58,7 +67,7 @@ describe("openAgentConversationBuffer", () => {
     const store = useBufferStore.getStore(WORKSPACE);
     const id = store.getState().actions.openAgentConversationBuffer("session-a");
 
-    store.setState({ maxOpenTabs: 1 });
+    setMaxOpenTabs(1);
     store.getState().actions.openAgentConversationBuffer("session-b");
 
     expect(

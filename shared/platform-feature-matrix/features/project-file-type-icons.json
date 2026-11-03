@@ -1,0 +1,29 @@
+{
+  "id": "project-file-type-icons",
+  "area": "工作台",
+  "group": "项目侧边栏",
+  "capability": "项目树、标签页和搜索结果为常见项目文件显示专用图标：.gitignore/.gitattributes 用 Git 图标，go.mod/go.sum 用 Go 图标，Makefile 与 *.mk 用 Makefile 图标，package.json 用 Node.js 图标，bun.lock、Cargo.lock、package-lock.json 等锁文件用锁图标，README 用信息图标，LICENSE/COPYING 用许可证图标",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "macos/Sources/Lithe/Theme/LitheIcons.swift",
+      "macos/Resources/IDEAIcons/fileTypes",
+      "macos/Tests/LitheTests/LitheCoreLogicTests.swift",
+      "macos/Tests/LitheTests/FileTypeIconResourceTests.swift"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "windows/tauri/scripts/idea-file-icon-mappings.json",
+      "windows/tauri/scripts/generate-idea-file-icons.ts",
+      "windows/tauri/scripts/lithe-file-icons",
+      "windows/tauri/src/extensions/bundled/icon-themes/idea/extension.json",
+      "windows/tauri/src/extensions/bundled-extension-manifests.test.ts"
+    ]
+  },
+  "owner": "Workbench",
+  "verification": "在深浅主题下打开含 go.mod、go.sum、Makefile、.gitignore、.gitattributes、bun.lock、package.json、README.md、LICENSE、NOTICE 的项目，核对项目树、编辑器标签和 Search Everywhere/快速打开中的图标与上述分类一致，不再显示问号或纯文本图标；NOTICE 等未分类文本仍显示文本图标。Windows 使用 IDEA Icons 主题核对同一组文件，PowerShell 文件仍显示原 Windows 四格图标。"
+}

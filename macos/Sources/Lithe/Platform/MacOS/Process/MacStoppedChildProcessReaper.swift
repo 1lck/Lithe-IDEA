@@ -34,18 +34,18 @@ final class MacStoppedChildProcessReaper: @unchecked Sendable {
             return
         }
 
-        let processSource = DispatchSource.makeProcessSource(
-            identifier: processID,
-            eventMask: .exit,
-            queue: queue
-        )
-        let shouldActivate = lock.withLock { () -> Bool in
+        let processSource = lock.withLock { () -> DispatchSourceProcess? in
             completions[processID, default: []].append(completion)
-            guard sources[processID] == nil else { return false }
+            guard sources[processID] == nil else { return nil }
+            // A second stop may register while the first source still waits.
+            // Never create and discard an inactive dispatch source for it.
+            let processSource = DispatchSource.makeProcessSource(
+                identifier: processID, eventMask: .exit, queue: queue
+            )
             sources[processID] = processSource
-            return true
+            return processSource
         }
-        guard shouldActivate else { return }
+        guard let processSource else { return }
 
         // Retaining self until the event fires keeps reaping alive even when a
         // terminal session is closed immediately after stop().

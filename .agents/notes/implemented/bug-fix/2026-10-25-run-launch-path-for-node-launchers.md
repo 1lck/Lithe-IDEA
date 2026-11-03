@@ -14,6 +14,10 @@
 解释器目录，以及解析出的可执行文件目录；项目内的 `node` 和项目根目录永远不加。
 终端、调试适配器和语言服务器不走这条路径，行为不变。
 
+后续：启动时读取登录 shell 环境后，进程 `PATH` 本身就包含这些目录，这里的补齐只在
+读取失败或被 `LITHE_SKIP_SHELL_ENV` 关闭时起作用。见
+[读取登录 shell 环境，并按项目 Java 版本精确挑选 JDK](2026-10-30-login-shell-environment-and-jdk-selection.md)。
+
 ## 问题
 
 用户从 Finder 启动 0.6.2 发行包，打开 pnpm 管理的项目，点 package.json 里的

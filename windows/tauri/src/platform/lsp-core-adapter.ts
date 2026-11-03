@@ -1696,8 +1696,7 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
       sessionId: session.id,
       uri: fileUri(args.filePath),
       languageId: args.languageId ?? session.languageId,
-      // Prefer ranged changes when present, but keep full text so Core can
-      // fall back to a full-document didChange for unsafe multi-change batches.
+      // Absent when the ranged changes alone describe the edit.
       text: args.content ?? "",
       ...(contentChanges.length > 0 ? { contentChanges } : {}),
     });

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
 import { enableMapSet } from "immer";
 import { mockIPC, clearMocks } from "@tauri-apps/api/mocks";
 import { act, forwardRef, type ComponentProps } from "react";
+import { createPortal } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import * as debounce from "use-debounce";
 import * as searchApi from "@/features/file-search/lib/file-search-api";
@@ -21,6 +22,7 @@ import { openFocusedFile } from "@/features/keymaps/hooks/use-file-open-target";
 import { registerDefaultKeymaps } from "@/features/keymaps/defaults/register-defaults";
 import { keymapRegistry } from "@/features/keymaps/utils/registry";
 import { FileExplorerPane } from "./file-explorer-pane";
+import * as dialog from "@/ui/dialog";
 import * as sidebar from "@/ui/sidebar";
 
 const originalSidebar = { ...sidebar };
@@ -215,17 +217,38 @@ async function click(path: string, additive = false, range = false) {
     ),
   );
 }
-async function key(target: HTMLElement, value: string, ctrlKey = false) {
+async function key(target: HTMLElement, value: string, ctrlKey = false, shiftKey = false) {
   await act(async () =>
     target.dispatchEvent(
       new KeyboardEvent("keydown", {
         bubbles: true,
         key: value,
         ctrlKey,
+        shiftKey,
       }),
     ),
   );
 }
+// The native dialog's portal and focus lifecycle is outside this keyboard-routing regression.
+function mockDialogFrame() {
+  spies.push(
+    spyOn(dialog, "default").mockImplementation(({ title, children, footer }) =>
+      // Like the real dialog, render outside the tree DOM so its clicks are not tree clicks.
+      createPortal(
+        <div role="dialog">
+          <h2>{title}</h2>
+          {children}
+          {footer}
+        </div>,
+        document.body,
+      ),
+    ),
+  );
+}
+const dialogButton = (label: string) =>
+  [...document.querySelectorAll<HTMLElement>("button")].find(
+    (button) => button.textContent?.trim() === label,
+  );
 async function menuAction(label: string) {
   await act(async () =>
     row(child).dispatchEvent(new window.MouseEvent("contextmenu", { bubbles: true })),
@@ -388,4 +411,65 @@ test("following an editor tab also moves the anchor for the next range selection
   expect(row(readme).getAttribute("aria-selected")).toBe("true");
   expect(row(matches[1].path).getAttribute("aria-selected")).toBe("true");
   expect(row(child).getAttribute("aria-selected")).toBe("false");
+});
+
+test("Delete key always asks before deleting, even when the context menu skips confirmation", async () => {
+  mockDialogFrame();
+  const tree = container.querySelector<HTMLElement>('[role="tree"]')!;
+  await click(readme);
+  await key(tree, "Delete");
+  expect(deleted).toEqual([]);
+  expect(document.body.textContent).toContain("Delete File");
+
+  await act(async () => dialogButton("Cancel")!.click());
+  expect(deleted).toEqual([]);
+  expect(document.body.textContent).not.toContain("Delete File");
+
+  await key(tree, "Delete");
+  await act(async () => dialogButton("Delete")!.click());
+  expect(deleted).toEqual([readme]);
+});
+
+test("Delete key confirms and deletes the whole multi-selection", async () => {
+  mockDialogFrame();
+  const tree = container.querySelector<HTMLElement>('[role="tree"]')!;
+  await click(directory);
+  await click(readme, true);
+  await key(tree, "Delete");
+  expect(deleted).toEqual([]);
+  expect(document.body.textContent).toContain("Delete 2 selected items?");
+  await act(async () => dialogButton("Delete")!.click());
+  expect(deleted).toEqual([directory, readme]);
+});
+
+test("Delete key ignores the workspace root and modified presses", async () => {
+  mockDialogFrame();
+  const tree = container.querySelector<HTMLElement>('[role="tree"]')!;
+  await click(workspace);
+  await key(tree, "Delete");
+  expect(dialogButton("Delete")).toBeUndefined();
+
+  await click(readme);
+  await key(tree, "Delete", false, true);
+  await key(tree, "Delete", true);
+  expect(dialogButton("Delete")).toBeUndefined();
+  expect(deleted).toEqual([]);
+});
+
+test("single click only selects a file; double click opens it", async () => {
+  const open = mock(async (_path: string, _isDir: boolean) => {});
+  const select = mock(async (path: string) => path);
+  await act(async () =>
+    useFileSystemStore.setState({ handleFileOpen: open, handleFileSelect: select }),
+  );
+  await click(readme);
+  expect(row(readme).getAttribute("aria-selected")).toBe("true");
+  expect(select).not.toHaveBeenCalled();
+  expect(open).not.toHaveBeenCalled();
+
+  await act(async () =>
+    row(readme).dispatchEvent(new window.MouseEvent("dblclick", { bubbles: true })),
+  );
+  expect(open).toHaveBeenCalledTimes(1);
+  expect(open).toHaveBeenLastCalledWith(readme, false);
 });

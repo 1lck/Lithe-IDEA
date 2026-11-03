@@ -373,6 +373,16 @@ SwiftPM 的 `.build/`、资源 bundle 和 `.lithe-swift-toolchain` 标记登记�
 由本工作树 SwiftPM 清理管理；这些操作仅作用于构建目录，不修改已安装应用、签名
 发行基线或 Sparkle delta。
 
+`scripts/windows/perf/run-windows-perf.mjs` 的生产构建、本地基线和 CPU profile 写入
+`.artifacts/windows-perf/`，登记为 `windows-perf-state`，所有复用阶段均拒绝复制。这些内容
+跟随所在工作树的源码和机器，没有 identity stamp；工具在本工作树重新构建，不写 app bundle、
+安装目录或 Sparkle delta 基线。
+
+结构化日志目录位于 `shared/logging/`，Swift/Rust 生成源码随 Git 获取。在每个工作树运行
+`node scripts/logging/generate-log-events.mjs --check`；修改目录后本地重新生成再编译。
+`shared-logging` 登记为不可复用资源：没有封存的版本、平台、架构、工具链 identity stamp，
+校验和复制阶段均拒绝跨工作树搬运；没有下载物或缓存，也没有运行时写入，签名和 Sparkle delta 不受影响。
+
 共享翻译源文件位于 `shared/i18n/`。每个工作树通过 Git 获取源文件和已提交的
 macOS 字符串表、`AppLanguage.generated.swift`、Windows `shared.generated.ts`，
 然后运行 `node scripts/i18n/generate-i18n.mjs --check` 校验。修改源翻译后运行不带
@@ -599,6 +609,22 @@ Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono
 
 以下目录不应直接复制或跨工作树共享：
 
+- Markdown 离线预览的模板、脚本、样式、字体和许可来自 Git 跟踪的
+  `macos/Sources/Lithe/Resources/MarkdownPreview/`。KaTeX 0.16.0 的 mhchem 扩展与现有
+  KaTeX 版本匹配，npm 归档完整性及文件 SHA-256 固定在 `THIRD_PARTY_NOTICES.md`。
+  输入与平台架构、工具链无关；构建时从当前 checkout 复制进 bundle 后签名，运行时仅只读加载，
+  不下载、不写回、不产生持久化渲染缓存，不影响签名和 Sparkle delta。生成 bundle 没有可靠的
+  跨 worktree identity stamp，`excludedResources.markdown-preview-assets` 走资源脚本的
+  通用拒绝路由，任何复制阶段都不得从其他工作树或安装 app 复用这些资源。
+- macOS Markdown PlantUML：Git 中的 `MarkdownPreview/vendor/plantuml/`、
+  `plantuml.html` 与 `plantuml-renderer.js` 随当前 checkout 打包，来源为固定的
+  MIT `@plantuml/core` 1.2026.9，归档 SHA-512、引擎 SHA-256 和上游 revision 见
+  `THIRD_PARTY_NOTICES.md`。使用内置 Smetana，不另下载 Java、Graphviz 或 WASM。
+  输入与平台架构、工具链无关；生成 bundle 没有跨 worktree identity stamp。
+  运行时一项请求拥有一个非持久 WebView，源码、回调和 SVG 图片只在内存存活，
+  完成、取消、八秒超时或关闭预览后释放；不下载、不写发行目录、不改签名及 Sparkle 基线。
+  `excludedResources.markdown-plantuml-assets` 走资源脚本通用拒绝路由，所有复制阶段都禁止
+  复用其他工作树的 bundle 或运行态。
 - AutoBuild 应用发布校验 staging：
   `<RUNNER_TEMP>/lithe-autobuild-<invocation>/{baselines,verification}/`。
   源码 SHA、应用 release/tag/asset、当前 build/ISO 时间与本次发布共同决定输入；
@@ -688,7 +714,9 @@ Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono
 
 - Codex 短重连配置及历史上下文 helper：`<system-temp>/lithe-codex-retry-<UUID>/` 由单次
   Agent 连接独占，内容来自当前 Rust Host 内嵌的一方源码，原生 CLI 路径和预算
-  经非敏感环境字段传递，密钥仍只走标准输入。系统临时目录由平台解析；准备、
+  经非敏感环境字段传递，密钥仍只走标准输入。原生 App Server 的供应商准入路由也属于
+  此连接：通过非敏感进程参数与显式认证方式保持一致，不携带真实地址或凭据，不能复制
+  到另一工作树或连接；用户配置和账号目录保持不变。系统临时目录由平台解析；准备、
   启动失败、取消或进程树结束后删除。它没有可复用的版本、平台、架构、工具链
   stamp，任何复制阶段都不得共享；`excludedResources.codex-retry-relay` 走脚本
   的排除路由。订阅连接也复用同一 helper 获取原生历史用量，但不改重试策略；单次连接的回环监听器、随机访问令牌及每次加载票据只存在内存中，随连接关闭，不进入复制阶段。helper 不修改已安装适配器、用户配置、app bundle 或 Windows 安装
@@ -710,6 +738,8 @@ Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono
   版本绑定，没有可靠构建身份 stamp；各工作树构建时一起生成 JS 并复制许可证，不在任何阶段
   跨树复制。运行时只读，不改变签名和 Sparkle delta。官方插件等尚未写入构建身份 stamp 的
   生成资源同样不得复用；
+- 内置 Make/CMake/Groovy 语法为 `frontend/editor/vendor/` 中 Git 固定输入，上游提交和许可证见 `NOTICE.txt`；Monaco 0.55.1、TextMate 9.3.2、Oniguruma 1.7.0 及当前 Bun 参与构建身份。macOS 构建复制语法/WASM/worker/许可证，Windows Vite 生成本地资源与许可证，两端签名前完成。没有下载入口、解压目录或可靠构建 stamp，不允许任何阶段跨 worktree 复用；`editor-theme-assets` 排除路由拒绝复制，运行时 worker/token 只在内存，不影响签名和 Sparkle delta。
+- 插件高亮沿用本工作树生成的 `textmate-worker.js`，不新增下载入口；解码语法、worker/token 状态和编辑器动作租约仅在进程内，属于 `editor-theme-assets` 排除路由，无 identity stamp，任何阶段不得跨工作树复制。源插件包只读，运行时不写安装目录或改变 Sparkle 基线。
 - `.build` 中的 SwiftPM 构建状态；
 - `rust/target/` 中与当前源码、编译器或构建参数绑定的构建输出；
 - LSP workspace `-data`、运行时数据库、测试报告和其他会被进程修改的状态。
@@ -802,6 +832,12 @@ Java Support（`dev.lithe.plugin.java-support`）是过渡期唯一随 Lithe.app
 这类用户 JSON 没有版本、平台、架构或工具链 identity stamp，工作区摘要只是存储键，
 任何复制阶段都不得复用或共享。`excludedResources.plugin-web-state` 通过复用脚本的
 排除路由直接拒绝，由 `scripts/resources/test-reuse-worktree-resources.mjs` 验证，不能给它增加缓存校验器。
+
+插件宿主的 `<app-support>/Lithe/PluginHost/root-id.key` 是安装级密钥，
+`<app-support>/Lithe/PluginState/<plugin-id>/backend/workspaces/<workspace-digest>/`
+是按插件、工作区归属的可变状态。二者都没有版本/平台/架构/工具链复用身份，
+任何复制阶段都不得共享；`excludedResources.plugin-host-runtime-state` 走拒绝路由，
+由资源复用测试验证。运行期仅写平台 Application Support，不改签名包或 Sparkle 源基线。
 
 如果后续新增可复用资源，必须同步更新注册表、校验器、脚本测试和本节说明。
 生成资源只有在构建流程写入可验证的源码、配置、平台、架构和工具链 identity

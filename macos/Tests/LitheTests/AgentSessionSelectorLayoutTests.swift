@@ -115,13 +115,16 @@ struct AgentSessionSelectorLayoutTests {
                         showsToolbar: showsToolbar).environment(\.colorScheme, scheme).environment(\.locale, locale)
                 }
                 let host = NSHostingView(rootView: composer("first"))
+                host.sizingOptions = []
                 let window = makeWindow(host, size: NSSize(width: width, height: 180))
                 defer { window.contentView = nil; window.close() }
                 try #require(await waitUntil(updating: host) { dropdownAnchors(in: host).count == 2 })
                 let trigger = try #require(dropdownAnchors(in: host).max {
                     $0.convert($0.bounds, to: host).midX < $1.convert($1.bounds, to: host).midX
                 })
-                #expect(trigger.convert(trigger.bounds, to: host).midY < 90,
+                let frame = trigger.convert(trigger.bounds, to: host)
+                let distanceFromBottom = host.isFlipped ? host.bounds.maxY - frame.midY : frame.midY
+                #expect(distanceFromBottom < host.bounds.height / 2,
                         "The single details entry stays beside Send with or without context usage")
                 func openDetails() async throws -> NSPanel {
                     try click(NSPoint(x: trigger.bounds.midX, y: trigger.bounds.midY), in: trigger, window: window)
@@ -576,6 +579,7 @@ struct AgentSessionSelectorLayoutTests {
                 onSelectAgent: { _ in }, onOpenSettings: {}, onError: { _ in },
                 configOptions: options, onSetConfig: { selections[$0] = $1 }
             ).environment(\.colorScheme, scheme))
+            host.sizingOptions = []
             let window = makeWindow(host, size: NSSize(width: width, height: 200))
             defer {
                 // Detaching the anchors dismisses their panels and removes event monitors.
@@ -608,8 +612,12 @@ struct AgentSessionSelectorLayoutTests {
                 let content = try #require(panel.contentView)
                 let scroll = try #require(scrollView(in: content))
                 let document = try #require(scroll.documentView)
-                let rowHeight = document.bounds.height / 2
-                try click(NSPoint(x: 100, y: rowHeight * 1.5), in: document, window: panel)
+                panel.displayIfNeeded()
+                let fromTop = category == "mode"
+                    ? LitheDropdownMetrics.popupPadding + LitheDropdownMetrics.rowHeight * 2.5
+                    : LitheDropdownMetrics.rowHeight * 1.5
+                let y = document.isFlipped ? document.bounds.minY + fromTop : document.bounds.maxY - fromTop
+                try click(NSPoint(x: document.bounds.midX, y: y), in: document, window: panel)
                 #expect(await waitUntil(updating: host) { selections[category] == value }, "The open dropdown must preserve its selection callback")
                 #expect(await waitUntil(updating: host) { popup(in: window) == nil }, "Choosing a value must dismiss the dropdown")
             }
@@ -636,7 +644,10 @@ struct AgentSessionSelectorLayoutTests {
             try capture(content, name: "mode-menu-\(scheme)-\(count)")
             if count == 2 {
                 #expect(panel.frame.height < 100, "A heading and two single-line options remain compact")
-                try click(NSPoint(x: 90, y: LitheDropdownMetrics.popupPadding + LitheDropdownMetrics.rowHeight * 1.5), in: document, window: panel)
+                panel.displayIfNeeded()
+                let fromTop = LitheDropdownMetrics.popupPadding + LitheDropdownMetrics.rowHeight * 1.5
+                let y = document.isFlipped ? document.bounds.minY + fromTop : document.bounds.maxY - fromTop
+                try click(NSPoint(x: document.bounds.midX, y: y), in: document, window: panel)
                 #expect(await waitUntil(updating: host) { selected == "choice-0" })
             } else {
                 for _ in 1..<count { try sendKey(125, to: panel) }

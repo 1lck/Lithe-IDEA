@@ -101,7 +101,6 @@ final class DiagnosticsExportService: ObservableObject {
         do { collection = try await applicationLogging?.collect(query: query) }
         catch { if generation == operationGeneration { state = .failed(error.localizedDescription) }; return }
         guard generation == operationGeneration else { return }
-        let logFileURL = logDirectoryProviding.applicationLogFileURL
         let logDirectoryURL = collection?.effectiveDirectory ?? logDirectoryProviding.defaultLogDirectory
         let fileStorage = fileStorage
         let systemDiagnostics = systemDiagnostics
@@ -111,19 +110,9 @@ final class DiagnosticsExportService: ObservableObject {
         let exportFolderName = Self.exportFolderName
 
         let outcome = await Task.detached(priority: .userInitiated) { () -> PrepareOutcome in
-            let collectedFiles: [ApplicationLogFile]
-            if let collection {
-                collectedFiles = collection.files
-            } else {
-                do {
-                    let data = try fileStorage.readData(from: logFileURL, options: [])
-                    let text = String(decoding: data, as: UTF8.self)
-                    guard case .success(let redacted) = core.redactDiagnosticText(text) else {
-                        return .failure("Could not redact the application log for export.")
-                    }
-                    collectedFiles = [ApplicationLogFile(relativePath: logFileURL.lastPathComponent, data: Data(redacted.redacted.utf8))]
-                } catch { return .failure("Could not read the application log: \(error.localizedDescription)") }
-            }
+            // A host without an installed collector exports only the system snapshot.
+            // Never reopen v1 files: macOS v2 evidence comes exclusively from collect.
+            let collectedFiles = collection?.files ?? []
 
             let snapshot = systemDiagnostics.currentSnapshot(volumeURL: logDirectoryURL)
             let stagingRootURL = fileStorage.cacheDirectory()

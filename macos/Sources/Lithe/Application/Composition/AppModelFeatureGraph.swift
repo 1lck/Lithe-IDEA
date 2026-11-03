@@ -10,12 +10,15 @@ import LitheWorkspaceModule
 final class AppModelFeatureGraph {
     let keyboardShortcut: KeyboardShortcutFeatureModel
     let notification: WorkbenchNotificationFeatureModel
+    /// Plugin messages show their own text verbatim, so they are not part of `notification`.
+    let pluginMessages = PluginHostMessageFeatureModel()
     let workbench: WorkbenchFeatureModel
     let commitDraft: CommitDraftFeatureModel
     let searchSession: SearchSessionFeatureModel
     let workspaceSession: WorkspaceSessionCoordinator
     let workbenchBackground: WorkbenchBackgroundFeatureModel
     let runtime: RuntimeSettingsFeatureModel
+    let toolchainSettings: ToolchainSettingsFeatureModel
     let languageTooling: LanguageToolingFeatureModel
     let workspace: WorkspaceFeatureModel
     let github: GitHubFeatureModel
@@ -58,6 +61,20 @@ final class AppModelFeatureGraph {
             directoryMarkStore: services.directoryMarkStore
         )
         self.workspace = workspace
+        services.toolchainSettingsDirectories = { [weak workspace] in
+            guard let root = workspace?.rootNode else { return [] }
+            let prefix = root.url.standardizedFileURL.path + "/"
+            var pending = root.children ?? []
+            var paths: [String] = []
+            while !pending.isEmpty && paths.count < 1_024 {
+                let node = pending.removeLast()
+                guard node.isDirectory else { continue }
+                let path = node.url.standardizedFileURL.path
+                if path.hasPrefix(prefix) { paths.append(String(path.dropFirst(prefix.count))) }
+                pending.append(contentsOf: node.children ?? [])
+            }
+            return paths
+        }
         workspaceSession = WorkspaceSessionCoordinator(
             recentProjectsStore: services.recentProjectsStore,
             platformUI: services.platformUI,
@@ -69,6 +86,10 @@ final class AppModelFeatureGraph {
             platform: services.workbenchBackgroundPlatform
         )
         runtime = RuntimeSettingsFeatureModel(service: services.projectRuntimeService)
+        toolchainSettings = ToolchainSettingsFeatureModel(
+            loader: services.toolchainSettingsLoader, loginShell: services.loginShellEnvironmentInspector,
+            inputWatcher: services.toolchainInputWatcher
+        )
         languageTooling = LanguageToolingFeatureModel(
             catalogSource: services.languageProviderCatalogSource,
             catalogSnapshot: services.languageProviderCatalogSnapshot,
@@ -81,6 +102,7 @@ final class AppModelFeatureGraph {
         media = MediaDocumentFeatureModel()
         terminalPlacement = TerminalPlacementFeatureModel()
         document = DocumentFeatureModel(
+            logSink: services.logSink,
             operations: services.workspaceOperations,
             documentLifecycleDecider: services.documentLifecycleDecider,
             fileOperations: services.fileOperations,

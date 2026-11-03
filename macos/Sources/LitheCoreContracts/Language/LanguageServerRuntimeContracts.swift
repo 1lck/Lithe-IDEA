@@ -51,11 +51,13 @@ package struct LanguageServerRuntimeStart: Equatable, Sendable {
 
 /// An installed JDK the Java language service may compile projects against.
 package struct JavaLanguageServiceRuntime: Equatable, Sendable {
+    package let isDefault: Bool
     package let homePath: String
     /// Version reported by `java -version`, such as `25.0.4` or `1.8.0_402`.
     package let version: String
 
-    package init(homePath: String, version: String) {
+    package init(homePath: String, version: String, isDefault: Bool = false) {
+        self.isDefault = isDefault
         self.homePath = homePath
         self.version = version
     }
@@ -487,6 +489,29 @@ package protocol LanguageServerRuntimeCore: Sendable {
         arguments: ToolingJSONValue,
         timeout: TimeInterval
     ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure>
+    /// Sends one `toolchains/query`. Its completion is a `requestCompleted`
+    /// event whose `result.value` is `{ id, response }`, the raw reply the
+    /// caller passes to `toolchains.decodeReply` with the same JSON-RPC ID.
+    func requestToolchainProvider(
+        sessionID: String,
+        params: ToolingJSONValue,
+        timeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure>
+    /// Starts a plugin backend and offers it the manifest's toolchain providers.
+    func startPluginToolchainBackend(
+        pluginID: String,
+        providerID: String,
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String],
+        rootURL: URL,
+        initializationOptions: ToolingJSONValue?,
+        hostServices: [String],
+        toolchainProviders: [String],
+        initializeTimeout: TimeInterval,
+        requestTimeout: TimeInterval,
+        shutdownTimeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure>
     /// Starts a process a plugin owns. Only such a session negotiates plugin
     /// functions, and Core lets it serve that plugin's functions alone.
     func startPluginLanguageServer(
@@ -545,6 +570,14 @@ package protocol LanguageServerRuntimeCore: Sendable {
         hostRequestID: String,
         outcome: Result<ToolingJSONValue, PluginHostRequestFailure>
     ) -> Result<Void, LanguageServerRuntimeFailure>
+    /// Sends a plugin backend one host notification (`lsp.hostNotify`), such
+    /// as a subscription event. `true` when Core wrote it; `false` when the
+    /// backend negotiated a function protocol without it.
+    func notifyPluginBackend(
+        sessionID: String,
+        method: String,
+        params: ToolingJSONValue
+    ) -> Result<Bool, LanguageServerRuntimeFailure>
     /// Replaces the configuration a running plugin server reads and tells it
     /// through `workspace/didChangeConfiguration`.
     func updateWorkspaceConfiguration(
@@ -559,6 +592,17 @@ package protocol LanguageServerRuntimeCore: Sendable {
         pluginID: String,
         functionID: String,
         params: ToolingJSONValue,
+        timeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure>
+    /// Like `requestPluginFunction`, naming the workspace context of the
+    /// call. Core forwards it only to a backend that negotiated function
+    /// protocol 3; a runtime without contexts drops it.
+    func requestPluginFunction(
+        sessionID: String,
+        pluginID: String,
+        functionID: String,
+        params: ToolingJSONValue,
+        context: PluginWorkspaceContextReference?,
         timeout: TimeInterval
     ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure>
     func cancelLanguageServerOperation(sessionID: String, operationID: String)
@@ -709,6 +753,41 @@ package extension LanguageServerRuntimeCore {
         ))
     }
 
+    func requestToolchainProvider(
+        sessionID _: String,
+        params _: ToolingJSONValue,
+        timeout _: TimeInterval
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
+        .failure(LanguageServerRuntimeFailure(
+            code: "not_supported",
+            message: "Toolchain-provider requests are not supported by this runtime."
+        ))
+    }
+
+    /// Runtimes without the protocol start the backend without the offer, so
+    /// it negotiates no provider and receives no query.
+    func startPluginToolchainBackend(
+        pluginID: String,
+        providerID: String,
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String],
+        rootURL: URL,
+        initializationOptions: ToolingJSONValue?,
+        hostServices: [String],
+        toolchainProviders _: [String],
+        initializeTimeout: TimeInterval,
+        requestTimeout: TimeInterval,
+        shutdownTimeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> {
+        startPluginLanguageServer(
+            pluginID: pluginID, providerID: providerID, executableURL: executableURL, arguments: arguments,
+            environment: environment, rootURL: rootURL, initializationOptions: initializationOptions,
+            hostServices: hostServices,
+            initializeTimeout: initializeTimeout, requestTimeout: requestTimeout, shutdownTimeout: shutdownTimeout
+        )
+    }
+
     /// Runtimes without plugin ownership start a host-owned session, which
     /// serves no plugin functions.
     func startPluginLanguageServer(
@@ -812,6 +891,17 @@ package extension LanguageServerRuntimeCore {
         ))
     }
 
+    func notifyPluginBackend(
+        sessionID _: String,
+        method _: String,
+        params _: ToolingJSONValue
+    ) -> Result<Bool, LanguageServerRuntimeFailure> {
+        .failure(LanguageServerRuntimeFailure(
+            code: "not_supported",
+            message: "Plugin host notifications are not supported by this runtime."
+        ))
+    }
+
     func updateWorkspaceConfiguration(
         sessionID _: String,
         configuration _: ToolingJSONValue
@@ -820,6 +910,19 @@ package extension LanguageServerRuntimeCore {
             code: "not_supported",
             message: "Workspace configuration updates are not supported by this runtime."
         ))
+    }
+
+    func requestPluginFunction(
+        sessionID: String,
+        pluginID: String,
+        functionID: String,
+        params: ToolingJSONValue,
+        context _: PluginWorkspaceContextReference?,
+        timeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
+        requestPluginFunction(
+            sessionID: sessionID, pluginID: pluginID, functionID: functionID, params: params, timeout: timeout
+        )
     }
 
     func requestPluginFunction(
@@ -855,12 +958,33 @@ package struct PluginHostRequest: Equatable, Sendable {
 }
 
 /// The host could not complete a host-service request. The message reaches
-/// the backend; never put a secret in it.
+/// the backend; never put a secret in it. `code` is a `plugin.host.*` code
+/// Core passes to a function protocol 3 backend; nil, or a code Core does
+/// not pass, reaches it as `plugin.host.failed`. `details` is an object of
+/// facts the backend may act on, such as a document's current version; Core
+/// passes it within 4 KiB to a protocol 3 backend and drops it otherwise.
 package struct PluginHostRequestFailure: Error, Equatable, Sendable {
     package let message: String
+    package let code: String?
+    package let details: ToolingJSONValue?
 
-    package init(message: String) {
+    package init(message: String, code: String? = nil, details: ToolingJSONValue? = nil) {
         self.message = message
+        self.code = code
+        self.details = details
+    }
+}
+
+/// One generation of one workspace context, as a call or a host request
+/// names it (function protocol 3). Only the host decides whether it is
+/// still current.
+package struct PluginWorkspaceContextReference: Hashable, Sendable {
+    package let contextID: String
+    package let generation: Int
+
+    package init(contextID: String, generation: Int) {
+        self.contextID = contextID
+        self.generation = generation
     }
 }
 

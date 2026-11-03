@@ -34,7 +34,7 @@ Equinox（JDT LS 使用的 OSGi 框架，负责加载插件）会往 `-configura
 
 1. **已发布的 app bundle 和 Windows 安装目录都是只读发行物。** 构建脚本可以生成
    资源，运行时只能读取。规则写在 `develop-lithe` Skill 的
-   “Keep installed packages read-only” 一节，根目录 `AGENTS.md` 只做入口，不重复
+   “已安装程序包运行时只读”一节，根目录 `AGENTS.md` 只做入口，不重复
    这些规则。
 2. **Rust Core 负责 JDT LS 的可写配置区**，代码在
    `rust/lithe-core/src/lsp/languages/jdt_configuration.rs`。平台适配层仍然把安装包

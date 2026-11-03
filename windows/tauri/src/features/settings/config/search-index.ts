@@ -3,6 +3,14 @@ import { IS_LINUX, IS_MAC, IS_WINDOWS } from "@/utils/platform";
 
 export const settingsSearchIndex: SettingSearchRecord[] = [
   {
+    id: "git-indexing-exclusions",
+    tab: "git",
+    section: "Git Program and Credentials",
+    label: "Automatically exclude Git-ignored directories",
+    description: "Exclude ignored directories from current project analysis while keeping them browsable",
+    keywords: ["indexing", "ignore", "exclude", "索引", "忽略", "排除"],
+  },
+  {
     id: "run-configurations",
     tab: "run",
     section: "Run configurations",
@@ -396,14 +404,6 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     label: "Remember Last Git Panel Mode",
     description: "Restore the last open stash or history panel section",
     keywords: ["git", "remember", "panel", "stash", "history"],
-  },
-  {
-    id: "git-enable-inline-blame",
-    tab: "git",
-    section: "Editor",
-    label: "Enable Inline Blame",
-    description: "Show inline Git blame metadata in the editor",
-    keywords: ["git", "blame", "inline", "editor"],
   },
   {
     id: "git-enable-gutter",

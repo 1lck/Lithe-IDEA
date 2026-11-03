@@ -20,6 +20,14 @@ indirect enum EditorGroupLayout: Equatable {
         }
     }
 
+    /// Splits `id` along `side`; a leading edge puts the new group first.
+    func splitting(_ id: UUID, by side: EditorGroupDropSide, newGroup: UUID) -> EditorGroupLayout {
+        let new = Self.group(newGroup), old = Self.group(id)
+        let leading = side == .left || side == .top
+        let layout = Self.split(id: UUID(), vertical: side.isVertical, first: leading ? new : old, second: leading ? old : new)
+        return replacing(id, with: layout)
+    }
+
     func keeping(_ ids: Set<UUID>) -> EditorGroupLayout? {
         switch self {
         case .group(let id): return ids.contains(id) ? self : nil
@@ -31,4 +39,8 @@ indirect enum EditorGroupLayout: Equatable {
     }
 }
 
-enum EditorGroupDropSide: CaseIterable { case center, left, right, top, bottom }
+enum EditorGroupDropSide: CaseIterable {
+    case center, left, right, top, bottom
+
+    var isVertical: Bool { self == .top || self == .bottom }
+}

@@ -131,6 +131,19 @@ final class KeyboardShortcutFeatureModel: ObservableObject {
         settings.setKeyboardShortcutOverrides(overrides)
     }
 
+    /// Validate a batch against its final registrations, allowing swaps without transient conflicts.
+    func validateOverrides(_ proposed: [String: [KeyboardShortcutBinding]]) throws {
+        let final = registrations(for: proposed)
+        for (id, bindings) in proposed {
+            guard LitheCommandCatalog.command(id: id) != nil else { throw KeyboardShortcutUpdateError.unknownCommand(id) }
+            guard bindings.allSatisfy(\.isAssignable), Set(bindings).count == bindings.count else { throw KeyboardShortcutUpdateError.invalidBinding }
+            guard bindings != effectiveBindings(for: id) else { continue }
+            if let owner = final.first(where: { $0.commandID != id && !Set(bindings).isDisjoint(with: $0.bindings) }) {
+                throw KeyboardShortcutUpdateError.conflict(commandID: owner.commandID)
+            }
+        }
+    }
+
     func resetCommand(_ commandID: String) {
         guard settings.keyboardShortcutOverrides[commandID] != nil else { return }
         var overrides = settings.keyboardShortcutOverrides

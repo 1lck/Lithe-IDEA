@@ -1,0 +1,3 @@
+{
+  "source": "# Rich Markdown\n\nInline math $x^2 + y^2 = z^2$ and units $\\pu{123 kJ}$.\n\n$$\n\\ce{2 H2 + O2 -> 2 H2O}\n$$\n\nWater H~2~O, power x^2^, ~~removed~~ and `H~2~O x^2^`.\n\nReference[^note].\n\n[^note]: A real footnote.\n\n```mermaid\nflowchart LR\n  A[Source] --> B[Preview]\n```\n"
+}

@@ -92,8 +92,23 @@ pub fn select_java(request: JavaSelectionRequest) -> Result<JavaSelection, CoreE
     ))
 }
 
-/// Applies only the project minimum; explicit paths and vendor preferences
-/// remain the responsibility of existing launch validation and diagnostics.
+/// Java feature version (`8` for `1.8.0_402`, `21` for `21.0.4`); `None` when unknown.
+fn java_feature(version: &str) -> Option<u32> {
+    java_feature_version_parts(version_parts(version))
+        .first()
+        .copied()
+}
+
+/// Applies only the project's declared Java version; explicit paths and vendor
+/// preferences remain the responsibility of existing launch validation and diagnostics.
+///
+/// A JDK of exactly the declared feature version wins over a newer one, even from a
+/// higher-priority source such as `JAVA_HOME`: a Java 8 project must not run on the
+/// JDK 21 a shell exports. Without one, the oldest newer JDK is the closest match.
+/// Source priority only breaks ties within the same feature version.
+///
+/// The policy follows OpenIDEA's `pick_jdk` (`crates/ide-sdk/src/java.rs`,
+/// <https://github.com/l0ng-ai/openidea>, Apache-2.0); see the repository `NOTICE`.
 pub fn select_java_candidates(
     candidates: &[JavaSelectionCandidate],
     fallback_id: Option<&str>,
@@ -113,10 +128,20 @@ pub fn select_java_candidates(
             warning: None,
         };
     };
+    let required = java_feature(minimum);
+    let distance = |candidate: &JavaSelectionCandidate| {
+        java_feature(&candidate.version)
+            .zip(required)
+            .map(|(feature, required)| feature.saturating_sub(required))
+    };
     let matching = candidates
         .iter()
         .filter(|candidate| version_satisfies("java", &candidate.version, minimum, true))
-        .min_by(|a, b| compare_java_candidates(a, b));
+        .min_by(|a, b| {
+            distance(a)
+                .cmp(&distance(b))
+                .then_with(|| compare_java_candidates(a, b))
+        });
     JavaSelection {
         id: matching.or(fallback).map(|candidate| candidate.id.clone()),
         warning: matching.is_none().then(|| format!("No installed JDK satisfies Java {minimum} or newer. Install a compatible JDK or choose one in project settings.")),

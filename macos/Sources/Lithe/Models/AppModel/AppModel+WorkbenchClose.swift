@@ -16,6 +16,10 @@ extension AppModel {
             closeLanguageNavigationResults()
             return true
         }
+        if editorTabOrderFeature.focusedItem == .languageLogs {
+            closeLanguageServerLogsTab()
+            return true
+        }
         if let tab = focusedAgentEditorTab {
             closeAgentEditorTab(tab)
             return true
@@ -38,6 +42,7 @@ extension AppModel {
         }
         guard let item = editorTabItems.last else { return false }
         switch item {
+        case .languageLogs: closeLanguageServerLogsTab()
         case .agentConversation(let tab): closeAgentEditorTab(tab)
         case .repositoryDiff(let id):
             closeRepositoryDiffTab(id)

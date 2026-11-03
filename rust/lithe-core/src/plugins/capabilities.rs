@@ -22,7 +22,8 @@ use std::collections::{BTreeMap, BTreeSet};
 /// First plugin API level whose manifests declare capability versions.
 pub(crate) const CAPABILITIES_API_VERSION: u32 = 3;
 
-/// `languages[]`: file types and project markers.
+/// `languages[]`: file types and project markers. Version 2 adds a
+/// declarative `grammar` and an editing `configuration`; see `super::grammar`.
 pub(crate) const LANGUAGES: &str = "languages";
 /// `languageServers[]` apart from their launch fields. Version 2 adds
 /// `workspaceConfiguration`.
@@ -50,8 +51,10 @@ pub(crate) const BUILD_MODEL_INPUTS: &str = "buildModelInputs";
 /// process; see `crate::vcs`.
 pub(crate) const VCS_PROVIDERS: &str = "vcsProviders";
 
-/// `backend`: the plugin's own long-lived process serving its pages; see
-/// `super::backend`.
+/// `backend`: the plugin's own long-lived process; see `super::backend`.
+/// Version 1 serves only the plugin's web pages. Version 2 may start without
+/// a page (`onWorkspaceOpen`, a plugin command) and may be granted the
+/// `workspace` host service; it needs plugin-function protocol 3 for that.
 pub(crate) const BACKEND: &str = "backend";
 
 /// `projectGenerators[]`: entries of the New Project window.
@@ -66,24 +69,30 @@ pub(crate) const DEBUG_ADAPTERS_API_VERSION: u32 = 4;
 
 /// Shared executable candidate order and strict explicit selection.
 pub(crate) const EXECUTABLE_RESOLUTION: &str = "executableResolution";
+/// Plugin-owned tool identities, discovery policy and executable candidates.
+pub(crate) const TOOL_DEFINITIONS: &str = "toolDefinitions";
+/// Backend facts that can influence the executable selected for a defined tool.
+pub(crate) const TOOLCHAIN_PROVIDERS: &str = "toolchainProviders";
 
 /// Capability versions this Core build validates and plans. Version 1 of a
 /// capability keeps the meaning its section had at API level 2.
 pub const SUPPORTED_CAPABILITIES: &[(&str, &[u32])] = &[
-    (BACKEND, &[1]),
+    (BACKEND, &[1, 2]),
     (BUILD_MODEL_INPUTS, &[1]),
     (BUILD_PROVIDERS, &[1, 2, 3, 4, 5, 6]),
     (BUILD_SYSTEMS, &[1, 2]),
     (DEBUG_ADAPTERS, &[1, 2]),
     (EXECUTION_PROVIDERS, &[1]),
-    (EXECUTABLE_RESOLUTION, &[1]),
+    (EXECUTABLE_RESOLUTION, &[1, 2]),
     (LANGUAGE_SERVERS, &[1, 2]),
-    (LANGUAGES, &[1]),
+    (LANGUAGES, &[1, 2]),
     (PACKAGE_TRUST, &[1]),
     (PROJECT_GENERATORS, &[1]),
     (SERVER_PROCESS, &[1, 2]),
     (SETTINGS, &[1, 2]),
-    (UI, &[1, 2, 3]),
+    (TOOL_DEFINITIONS, &[1]),
+    (TOOLCHAIN_PROVIDERS, &[1]),
+    (UI, &[1, 2, 3, 4]),
     (VCS_PROVIDERS, &[1]),
 ];
 

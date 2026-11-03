@@ -104,6 +104,26 @@ pub enum CoreCommand {
     PluginsDeclarativeResolveSettings,
     /// Expands a language server's `workspaceConfiguration` (`plugins.declarative.workspaceConfiguration`).
     PluginsDeclarativeWorkspaceConfiguration,
+    /// Validates a language's grammar file (`plugins.declarative.decodeGrammar`).
+    PluginsDeclarativeDecodeGrammar,
+    /// Validates independent editor action registration or results.
+    PluginsEditorActionsDecode,
+    /// Registers plugin-owned tools with verified package provenance.
+    ToolchainsRegistry,
+    /// Validates provider answers using native evidence supplied by the host.
+    ToolchainsDecodeReply,
+    /// Builds the error reply for a provider query that timed out or found no backend.
+    ToolchainsFailureReply,
+    /// Resolves the nearest machine-local directory pin.
+    ToolchainsResolvePins,
+    /// Resolves the four toolchain layers from a captured value snapshot.
+    ToolchainsResolve,
+    /// Checks a plugin-defined version probe without per-tool parsing.
+    ToolchainsCheckVersion,
+    /// Plans system scans solely from enabled tool definitions.
+    ToolchainsDiscoveryPlan,
+    /// Lists checked installations and the automatic choice for one tool.
+    ToolchainsCandidates,
     /// Finds the build-system instances of a workspace (`build.detect`).
     BuildDetect,
     /// Lists a build system's executable candidates and version probes (`build.invocationPlan`).
@@ -184,6 +204,12 @@ pub enum CoreCommand {
     CommunityDiscourseAuthRevoke,
     /// Builds the visible project tree (`workspace.snapshot`).
     WorkspaceSnapshot,
+    /// Configure workspace indexing independently of tree visibility.
+    WorkspaceConfigureIndexing,
+    /// Refreshes external indexing facts while retaining the owner's lease.
+    WorkspaceRefreshIndexing,
+    /// Releases an indexing generation when its project closes.
+    WorkspaceReleaseIndexing,
     /// Lists the visible children of project directories (`workspace.listDirectories`).
     WorkspaceListDirectories,
     /// Filter ordinary workspace-relative event paths using shared defaults.
@@ -222,6 +248,12 @@ pub enum CoreCommand {
     HistoryRename,
     /// Deletes one history snapshot (`history.delete`).
     HistoryDelete,
+    /// Validates local-history ignore rules against a sample path (`history.ignorePreview`).
+    HistoryIgnorePreview,
+    /// Reports one project's history storage size (`history.usage`).
+    HistoryUsage,
+    /// Deletes every snapshot of one project (`history.clear`).
+    HistoryClear,
     /// Inspects a declared Maven reactor (`maven.scan`).
     MavenScan,
     /// Produces a deterministic Maven invocation (`maven.launchPlan`).
@@ -294,6 +326,9 @@ pub enum CoreCommand {
     /// Resolves the line comment token for a file extension
     /// (`editor.lineCommentToken`).
     EditorLineCommentToken,
+    /// Normalizes the stored proxy settings into the policy a network stack
+    /// must apply (`network.proxyPolicy`).
+    NetworkProxyPolicy,
     /// Reduces an LSP snippet to insertion text (`lsp.plainSnippet`).
     LspPlainSnippet,
     /// Provides same-document fallback completions (`lsp.builtinCompletions`).
@@ -338,10 +373,14 @@ pub enum CoreCommand {
     LspBuildRequest,
     /// Queues one VCS-provider request (`lsp.vcsRequest`).
     LspVcsRequest,
+    /// Queues one toolchain-provider query (`lsp.toolchainRequest`).
+    LspToolchainRequest,
     /// Invokes one plugin function (`lsp.functionRequest`).
     LspFunctionRequest,
     /// Answers a plugin backend's host-service request (`lsp.hostResponse`).
     LspHostResponse,
+    /// Sends a plugin backend one host notification (`lsp.hostNotify`).
+    LspHostNotify,
     /// Queues shared Java gutter marker resolution (`java.navigationMarkers`).
     JavaNavigationMarkers,
     /// Queues shared Java entry selection, build and classpath preparation (`java.prepareLaunch`).
@@ -522,6 +561,16 @@ pub enum CoreCommand {
     DiagnosticsPrepareLogEvent,
     /// Filters and merges bounded host-collected log tails (`diagnostics.queryLogs`).
     DiagnosticsQueryLogs,
+    /// Encodes structured log events independently in one batch (`diagnostics.encodeLogBatch`).
+    DiagnosticsEncodeLogBatch,
+    /// Merges structured and legacy log evidence (`diagnostics.queryLogsV2`).
+    DiagnosticsQueryLogsV2,
+    /// Plans bounded native tail reads (`diagnostics.planLogCollection`).
+    DiagnosticsPlanLogCollection,
+    /// Plans log cleanup without filesystem access (`diagnostics.planLogRetention`).
+    DiagnosticsPlanLogRetention,
+    /// Validates a logical channel and resolves its session-relative path (`diagnostics.resolveLogChannel`).
+    DiagnosticsResolveLogChannel,
     /// Shapes a deterministic diagnostic bundle manifest from host-gathered facts (`diagnostics.buildManifest`).
     DiagnosticsBuildManifest,
 }
@@ -571,6 +620,16 @@ impl CoreCommand {
             "plugins.declarative.workspaceConfiguration" => {
                 Some(Self::PluginsDeclarativeWorkspaceConfiguration)
             }
+            "plugins.declarative.decodeGrammar" => Some(Self::PluginsDeclarativeDecodeGrammar),
+            "plugins.editorActions.decode" => Some(Self::PluginsEditorActionsDecode),
+            "toolchains.registry" => Some(Self::ToolchainsRegistry),
+            "toolchains.decodeReply" => Some(Self::ToolchainsDecodeReply),
+            "toolchains.failureReply" => Some(Self::ToolchainsFailureReply),
+            "toolchains.resolvePins" => Some(Self::ToolchainsResolvePins),
+            "toolchains.resolve" => Some(Self::ToolchainsResolve),
+            "toolchains.checkVersion" => Some(Self::ToolchainsCheckVersion),
+            "toolchains.discoveryPlan" => Some(Self::ToolchainsDiscoveryPlan),
+            "toolchains.candidates" => Some(Self::ToolchainsCandidates),
             "build.detect" => Some(Self::BuildDetect),
             "build.invocationPlan" => Some(Self::BuildInvocationPlan),
             "build.checkToolVersion" => Some(Self::BuildCheckToolVersion),
@@ -611,6 +670,9 @@ impl CoreCommand {
             "community.discourse.search" => Some(Self::CommunityDiscourseSearch),
             "community.discourse.auth.revoke" => Some(Self::CommunityDiscourseAuthRevoke),
             "workspace.snapshot" => Some(Self::WorkspaceSnapshot),
+            "workspace.releaseIndexing" => Some(Self::WorkspaceReleaseIndexing),
+            "workspace.configureIndexing" => Some(Self::WorkspaceConfigureIndexing),
+            "workspace.refreshIndexing" => Some(Self::WorkspaceRefreshIndexing),
             "workspace.filterChanges" => Some(Self::WorkspaceFilterChanges),
             "workspace.listDirectories" => Some(Self::WorkspaceListDirectories),
             "workspace.repositories" => Some(Self::WorkspaceRepositories),
@@ -630,6 +692,9 @@ impl CoreCommand {
             "history.relocate" => Some(Self::HistoryRelocate),
             "history.rename" => Some(Self::HistoryRename),
             "history.delete" => Some(Self::HistoryDelete),
+            "history.ignorePreview" => Some(Self::HistoryIgnorePreview),
+            "history.usage" => Some(Self::HistoryUsage),
+            "history.clear" => Some(Self::HistoryClear),
             "maven.scan" => Some(Self::MavenScan),
             "maven.launchPlan" => Some(Self::MavenLaunchPlan),
             "execution.resolveEnvironment" => Some(Self::ExecutionResolveEnvironment),
@@ -665,6 +730,7 @@ impl CoreCommand {
             "lsp.applyTextEdits" => Some(Self::LspApplyTextEdits),
             "editor.lineEdit" => Some(Self::EditorLineEdit),
             "editor.lineCommentToken" => Some(Self::EditorLineCommentToken),
+            "network.proxyPolicy" => Some(Self::NetworkProxyPolicy),
             "lsp.plainSnippet" => Some(Self::LspPlainSnippet),
             "lsp.builtinCompletions" => Some(Self::LspBuiltinCompletions),
             "lsp.builtinHover" => Some(Self::LspBuiltinHover),
@@ -686,8 +752,10 @@ impl CoreCommand {
             "lsp.request" => Some(Self::LspRequest),
             "lsp.buildRequest" => Some(Self::LspBuildRequest),
             "lsp.vcsRequest" => Some(Self::LspVcsRequest),
+            "lsp.toolchainRequest" => Some(Self::LspToolchainRequest),
             "lsp.functionRequest" => Some(Self::LspFunctionRequest),
             "lsp.hostResponse" => Some(Self::LspHostResponse),
+            "lsp.hostNotify" => Some(Self::LspHostNotify),
             "java.resolveNavigation" => Some(Self::JavaResolveNavigation),
             "java.prepareLaunch" => Some(Self::JavaPrepareLaunch),
             "lsp.cancelOperation" => Some(Self::LspCancelOperation),
@@ -778,6 +846,11 @@ impl CoreCommand {
             "diagnostics.redactText" => Some(Self::DiagnosticsRedactText),
             "diagnostics.prepareLogEvent" => Some(Self::DiagnosticsPrepareLogEvent),
             "diagnostics.queryLogs" => Some(Self::DiagnosticsQueryLogs),
+            "diagnostics.encodeLogBatch" => Some(Self::DiagnosticsEncodeLogBatch),
+            "diagnostics.queryLogsV2" => Some(Self::DiagnosticsQueryLogsV2),
+            "diagnostics.planLogCollection" => Some(Self::DiagnosticsPlanLogCollection),
+            "diagnostics.planLogRetention" => Some(Self::DiagnosticsPlanLogRetention),
+            "diagnostics.resolveLogChannel" => Some(Self::DiagnosticsResolveLogChannel),
             "diagnostics.buildManifest" => Some(Self::DiagnosticsBuildManifest),
             _ => None,
         }
@@ -801,8 +874,10 @@ mod tests {
             "lsp.request",
             "lsp.buildRequest",
             "lsp.vcsRequest",
+            "lsp.toolchainRequest",
             "lsp.functionRequest",
             "lsp.hostResponse",
+            "lsp.hostNotify",
             "lsp.cancelOperation",
             "lsp.pollEvents",
             "lsp.waitEvents",
@@ -825,6 +900,12 @@ mod tests {
         ] {
             assert!(CoreCommand::parse(command).is_some(), "missing {command}");
         }
+    }
+
+    #[test]
+    fn parses_network_proxy_policy_command() {
+        assert!(CoreCommand::parse("network.proxyPolicy").is_some());
+        assert!(CoreCommand::parse("network.unknown").is_none());
     }
 
     #[test]

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { editAffectsMybatisIndex } from "./mybatis-index-paths";
+import { editAffectsMybatisIndex, hasMybatisMapperCandidate } from "./mybatis-index-paths";
 
 describe("MyBatis edit invalidation", () => {
   test("Java edits remain eligible before the first pair and after the last pair disappears", () => {
@@ -14,5 +14,17 @@ describe("MyBatis edit invalidation", () => {
     expect(editAffectsMybatisIndex("C:/work/shop/Mapper.xml")).toBe(true);
     expect(editAffectsMybatisIndex("C:/work/shop/pom.xml")).toBe(false);
     expect(editAffectsMybatisIndex("C:/work/shop/README.md")).toBe(false);
+  });
+});
+
+describe("MyBatis mapper candidates", () => {
+  test("Java-only workspaces skip native indexing", () => {
+    expect(hasMybatisMapperCandidate(["src/A.java", "src/B.java"], {})).toBe(false);
+    expect(hasMybatisMapperCandidate([], { "src/A.java": "interface A {}" })).toBe(false);
+  });
+
+  test("a mapper XML on disk or only in an unsaved buffer requires indexing", () => {
+    expect(hasMybatisMapperCandidate(["src/A.java", "mapper/A.XML"], {})).toBe(true);
+    expect(hasMybatisMapperCandidate(["src/A.java"], { "mapper/A.xml": "<mapper/>" })).toBe(true);
   });
 });

@@ -10,6 +10,8 @@
     <a href="#core-features">Core features</a> ·
     <a href="#product-tour">Product tour</a> ·
     <a href="#download-and-install">Download</a> ·
+    <a href="https://github.com/Lithe-IDEA/Lithe-store">Plugin marketplace</a> ·
+    <a href="https://github.com/Lithe-IDEA/lithe-plugin-docs">Plugin development</a> ·
     <a href="https://1lck.github.io/Lithe-IDEA/">Decision board</a> ·
     <a href="#develop-lithe">Develop Lithe</a>
   </p>

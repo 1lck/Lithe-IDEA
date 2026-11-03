@@ -5,7 +5,8 @@
   "capability": "应用与语言服务内存监控",
   "macos": {
     "evidence": [
-      "macos/Sources/Lithe/Services/Monitoring/MemoryUsageMonitor.swift"
+      "macos/Sources/Lithe/Services/Monitoring/MemoryUsageMonitor.swift",
+      "macos/Sources/Lithe/Views/Workbench/WorkbenchStatusViews.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -19,5 +20,5 @@
     "verificationStatus": "pending"
   },
   "owner": "Workbench",
-  "verification": "打开内存指标并观察应用、语言服务和总内存变化，确认采样失败不会阻塞工作台。"
+  "verification": "打开内存指标并观察应用、语言服务和总内存变化，确认采样失败不会阻塞工作台。macOS 状态栏只显示内存芯片图标，不再显示总计与 Lithe 数值；悬停提示显示总计、Lithe、LSP 和服务内存，点击图标打开托管内存详情并在关闭后停止详细采样，VoiceOver 读出托管内存及当前总计。同一状态栏中帧率只显示数字和 FPS 单位，不带图标；只读锁和内存图标按钮使用 18pt 紧凑尺寸，相邻项之间不再留出大块空白。Windows 状态栏仍显示总计与 Lithe 数值。"
 }

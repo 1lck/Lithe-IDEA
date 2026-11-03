@@ -14,6 +14,12 @@ interface GitBlameState {
   isLoading: Map<string, boolean>;
   errors: Map<string, string>;
   fileToRepo: Map<string, string>;
+  /**
+   * Files whose annotation the user turned on from the gutter menu. IDEA scopes
+   * annotate to the editor, not to a global preference, so visibility lives
+   * with the file instead of the settings.
+   */
+  visibleFiles: Set<string>;
 
   actions: {
     /**
@@ -29,6 +35,7 @@ interface GitBlameState {
     clearAllBlame: () => void;
     getBlameForLine: (filePath: string, lineNumber: number) => GitBlameLine | null;
     getRepoPath: (filePath: string) => string | null;
+    toggleBlameForFile: (filePath: string, visible?: boolean) => void;
   };
 }
 
@@ -45,6 +52,7 @@ export const createGitBlameStore = () =>
     isLoading: new Map(),
     errors: new Map(),
     fileToRepo: new Map(),
+    visibleFiles: new Set(),
 
     actions: {
       loadBlameForFile: async (repoPath: string, filePath: string, options) => {
@@ -116,7 +124,33 @@ export const createGitBlameStore = () =>
           isLoading: new Map(),
           errors: new Map(),
           fileToRepo: new Map(),
+          visibleFiles: new Set(),
         });
+      },
+
+      toggleBlameForFile: (filePath: string, visible?: boolean) => {
+        const state = get();
+        const nextVisible = visible ?? !state.visibleFiles.has(filePath);
+        if (nextVisible === state.visibleFiles.has(filePath)) return;
+
+        const visibleFiles = new Set(state.visibleFiles);
+        let blameData = state.blameData;
+        if (nextVisible) {
+          visibleFiles.add(filePath);
+          // Blame cached while the annotation was off can be older than the
+          // working tree, so turning annotate on reads it again.
+          const suffix = `\0${filePath}`;
+          const staleKeys = [...blameData.keys()].filter((key) => key.endsWith(suffix));
+          if (staleKeys.length > 0) {
+            blameData = new Map(blameData);
+            for (const key of staleKeys) blameData.delete(key);
+          }
+        } else {
+          visibleFiles.delete(filePath);
+        }
+        // The revision re-runs the load effect for the file that just became
+        // visible; the shown lines stay until the new result replaces them.
+        set({ blameData, visibleFiles, revision: state.revision + 1 });
       },
 
       getBlameForLine: (filePath: string, lineNumber: number) => {

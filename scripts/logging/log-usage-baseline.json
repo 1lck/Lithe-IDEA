@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "file": "rust/lithe-core/src/lsp/interface/remote_process.rs",
+      "rule": "rust.eprintln",
+      "count": 1,
+      "reason": "PR3：经运行时事件流交给宿主"
+    },
+    {
+      "file": "rust/lithe-core/src/project/files.rs",
+      "rule": "rust.eprintln",
+      "count": 2,
+      "reason": "PR3：经运行时事件流交给宿主"
+    },
+    {
+      "file": "rust/lithe-core/src/project/search_index.rs",
+      "rule": "rust.eprintln",
+      "count": 1,
+      "reason": "PR3：经运行时事件流交给宿主"
+    },
+    {
+      "file": "rust/lithe-core/src/remote/upload.rs",
+      "rule": "rust.eprintln",
+      "count": 1,
+      "reason": "PR3：经运行时事件流交给宿主"
+    },
+    {
+      "file": "rust/lithe-core/src/remote/workspace_io.rs",
+      "rule": "rust.eprintln",
+      "count": 1,
+      "reason": "PR3：经运行时事件流交给宿主"
+    }
+  ]
+}

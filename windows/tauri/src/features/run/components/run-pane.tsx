@@ -119,6 +119,7 @@ export default function RunPane() {
   const primaryOutput = useRunStore((state) => state.primaryOutput);
   const primaryConfigurationId = useRunStore((state) => state.primaryConfigurationId);
   const primaryRunning = useRunStore((state) => state.primaryRunning);
+  const primaryPreparing = useRunStore((state) => state.primaryPreparing);
   const primaryExitCode = useRunStore((state) => state.primaryExitCode);
   const recoveryAction = useRunStore((state) => state.recoveryAction);
   const invalidMessage = useRunStore((state) => state.invalidMessage);
@@ -154,6 +155,7 @@ export default function RunPane() {
     configurationId: primaryConfigurationId,
     output: primaryOutput,
     isRunning: primaryRunning,
+    isPreparing: primaryPreparing,
     exitCode: primaryExitCode,
   });
   const blockingDiagnostic = blockingToolchainDiagnosticForConfiguration(
@@ -166,6 +168,7 @@ export default function RunPane() {
     diagnostic.code === "incompleteProjectScan" ||
     diagnostic.code === "staleJavaEntrypoint");
   const isSelectedRunning = selection.isRunning;
+  const isSelectedActive = isSelectedRunning || selection.isPreparing;
   const output = selection.output;
   const exitCode = selection.exitCode;
   const decisionSessionId = selection.sessionId;
@@ -206,7 +209,7 @@ export default function RunPane() {
   };
 
   const runSelected = () => {
-    if (isSelectedRunning) {
+    if (isSelectedActive) {
       void actions.stop(decisionSessionId);
       return;
     }
@@ -239,9 +242,9 @@ export default function RunPane() {
             {exitCode === 0 ? t("run.succeeded") : t("run.failed")}
           </span>
         ) : null}
-        <Tooltip content={isSelectedRunning ? t("run.stop") : t("run.run")} side="bottom">
+        <Tooltip content={isSelectedActive ? t("run.stop") : t("run.run")} side="bottom">
           <Button variant="ghost" size="icon-xs" onClick={runSelected} disabled={isLoading || Boolean(javaLaunchDecision)} aria-label={t("run.run")}>
-            {isSelectedRunning ? <StopIcon className="text-warning" /> : <PlayIcon className="text-success" />}
+            {isSelectedActive ? <StopIcon className="text-warning" /> : <PlayIcon className="text-success" />}
           </Button>
         </Tooltip>
         {canUpdateService ? (

@@ -1,0 +1,362 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Lithe-IDEA/lithe-plugin-docs/main/contract/v1/proposals/toolchains/resolution.schema.json",
+  "title": "Proposed shared toolchain resolution result v1 (not implemented)",
+  "description": "Review-only normalized resolver output. Host-owned snapshots and native filesystem evidence are inputs; providers never produce this object directly.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "operationID",
+    "tool",
+    "directory",
+    "outcome",
+    "trace",
+    "unmet",
+    "conflicts"
+  ],
+  "properties": {
+    "operationID": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "tool": {
+      "$ref": "#/$defs/toolID"
+    },
+    "directory": {
+      "$ref": "#/$defs/directory"
+    },
+    "outcome": {
+      "$ref": "#/$defs/outcome"
+    },
+    "trace": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "$ref": "#/$defs/trace"
+      }
+    },
+    "unmet": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "$ref": "#/$defs/reason"
+      }
+    },
+    "conflicts": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "scope",
+              "providers",
+              "action"
+            ],
+            "properties": {
+              "scope": {
+                "enum": [
+                  "project",
+                  "global"
+                ]
+              },
+              "providers": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 32,
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                }
+              },
+              "action": {
+                "const": "chooseProvider"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "scope",
+              "providers",
+              "installations",
+              "action"
+            ],
+            "properties": {
+              "scope": {
+                "const": "automatic"
+              },
+              "providers": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 32,
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                }
+              },
+              "installations": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 512,
+                "uniqueItems": true,
+                "items": {
+                  "$ref": "#/$defs/nativePath"
+                }
+              },
+              "action": {
+                "const": "chooseInstallation"
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "directory": {
+      "type": "string",
+      "maxLength": 2048,
+      "pattern": "^(?:\\.|(?!\\.\\.?(?:/|$))[^/\\\\:]+(?:/(?!\\.\\.?(?:/|$))[^/\\\\:]+)*)$",
+      "not": {
+        "pattern": "[\\u0000-\\u001f\\u007f]"
+      }
+    },
+    "toolID": {
+      "$ref": "manifest-contributions.schema.json#/$defs/toolID"
+    },
+    "layer": {
+      "enum": [
+        "pinned",
+        "project",
+        "global",
+        "automatic"
+      ]
+    },
+    "reason": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code"
+      ],
+      "properties": {
+        "code": {
+          "enum": [
+            "notConfigured",
+            "notFound",
+            "notExecutable",
+            "probeFailed",
+            "versionUnsatisfied",
+            "requestedNotInstalled",
+            "definitionUnavailable",
+            "providerConflict",
+            "unsafePath",
+            "providerUnavailable",
+            "ambiguousInstallation",
+            "homeUnavailable",
+            "projectCodeRequiresAction"
+          ]
+        },
+        "tool": {
+          "$ref": "#/$defs/toolID"
+        },
+        "provider": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "request": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        }
+      },
+      "description": "Structured facts, not assembled English. The host renders its shared i18n message with these arguments. Required facts per code are specified in protocol.md."
+    },
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "home",
+        "executable",
+        "version",
+        "provider",
+        "layer",
+        "projectCode",
+        "environment",
+        "pathPrepend"
+      ],
+      "properties": {
+        "home": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/nativePath" }
+          ]
+        },
+        "executable": {
+          "$ref": "#/$defs/nativePath"
+        },
+        "version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "provider": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "layer": {
+          "$ref": "#/$defs/layer"
+        },
+        "projectCode": {
+          "type": "boolean"
+        },
+        "environment": {
+          "type": "object",
+          "maxProperties": 32,
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "propertyNames": {
+            "$ref": "manifest-contributions.schema.json#/$defs/safeEnvironmentName"
+          }
+        },
+        "pathPrepend": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/nativePath"
+          }
+        }
+      }
+    },
+    "outcome": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "selection"
+          ],
+          "properties": {
+            "kind": {
+              "const": "resolved"
+            },
+            "selection": {
+              "$ref": "#/$defs/selection"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "reason"
+          ],
+          "properties": {
+            "kind": {
+              "const": "skip"
+            },
+            "reason": {
+              "$ref": "#/$defs/reason"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "reason"
+          ],
+          "properties": {
+            "kind": {
+              "const": "terminalFailure"
+            },
+            "reason": {
+              "$ref": "#/$defs/reason"
+            }
+          }
+        }
+      ]
+    },
+    "trace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidateID",
+        "layer",
+        "state"
+      ],
+      "properties": {
+        "candidateID": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "layer": {
+          "$ref": "#/$defs/layer"
+        },
+        "state": {
+          "enum": [
+            "skip",
+            "resolved",
+            "terminalFailure",
+            "shadowed",
+            "empty"
+          ]
+        },
+        "reason": {
+          "$ref": "#/$defs/reason"
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "enum": [
+                  "skip",
+                  "terminalFailure"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "reason"
+            ]
+          }
+        }
+      ]
+    },
+    "nativePath": {
+      "$ref": "query.schema.json#/$defs/nativePath"
+    }
+  }
+}

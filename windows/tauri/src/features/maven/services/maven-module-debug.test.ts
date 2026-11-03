@@ -246,7 +246,7 @@ for (const execution of ["service", "application"] as const) {
       deps.stopRunSession = (_workspace, instance) =>
         store.getState().actions.stop(instance.sessionId, instance.executionId);
       deps.registerSessionCleanup = registerDebugSessionCleanup;
-      const slot = execution === "service" ? selected.id : "primary";
+      const slot = selected.id;
       try {
         await startMavenModuleDebug(
           { workspaceId: "workspace", root: "D:/work" },
@@ -268,11 +268,7 @@ for (const execution of ["service", "application"] as const) {
         await (cleanup ?? releaseDebugSessionResources("debug-session"));
         expect(processes.get(slot)).toBe(replacement);
         expect(stopRunProcess).toHaveBeenCalledWith(slot, debugExecution);
-        expect(
-          execution === "service"
-            ? store.getState().sessions[0].isRunning
-            : store.getState().primaryRunning,
-        ).toBe(true);
+        expect(store.getState().sessions[0].isRunning).toBe(true);
       } finally {
         finishStop.resolve();
         await cleanup;
