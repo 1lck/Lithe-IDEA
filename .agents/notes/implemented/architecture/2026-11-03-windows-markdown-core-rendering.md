@@ -45,6 +45,8 @@ Windows 的数学公式与图表展示没有因此自动达到 macOS 的能力�
 本次不新增常驻服务、磁盘缓存、运行时资源或发行目录写入；请求与结果只在内存中使用，
 组件卸载释放其展示状态，不影响代码签名与 Sparkle 增量更新基线。
 
+共享调度器同时最多执行 2 个原生渲染，排队上限 64 个；视图关闭或内容过期会撤销未执行请求，已执行任务释放前仍占用并发槽。GitHub 不再删除 Core 输出中的 `<br>` 或折叠代码空白。
+
 ## 验证
 
 - `./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend`：

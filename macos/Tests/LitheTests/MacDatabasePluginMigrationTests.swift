@@ -120,8 +120,8 @@ struct MacDatabasePluginMigrationTests {
 
         #expect(fixture.migration.prepare(installation: .fromLitheStore(), stateDirectory: fixture.state)
             == .migrated(profiles: 1, passwords: 0))
-        #expect(fixture.logged.messages.count == 1)
-        #expect(fixture.logged.messages.allSatisfy { !$0.contains("pg-secret") })
+        #expect(fixture.logged.events.count == 1)
+        #expect(fixture.logged.events.allSatisfy { type(of: $0).id == "plugins.migration.password_failed" })
     }
 
     @Test
@@ -144,7 +144,7 @@ private struct Fixture {
     let state: URL
     let preferences = MigrationPreferences()
     let credentials: any PluginCredentialStoring
-    let logged = MigrationLog()
+    let logged = TypedLogRecorder()
     let legacyPasswordBox = LegacyPasswords()
     let migration: MacDatabasePluginMigration
 
@@ -164,7 +164,7 @@ private struct Fixture {
             preferences: preferences,
             legacyPassword: { key in passwords.values[key] },
             credentials: credentials,
-            log: { message in log.append(message) }
+            logSink: log
         )
     }
 
@@ -193,13 +193,6 @@ private final class LegacyPasswords: @unchecked Sendable {
         get { lock.withLock { stored } }
         set { lock.withLock { stored = newValue } }
     }
-}
-
-private final class MigrationLog: @unchecked Sendable {
-    private let lock = NSLock()
-    private var recorded: [String] = []
-    var messages: [String] { lock.withLock { recorded } }
-    func append(_ message: String) { lock.withLock { recorded.append(message) } }
 }
 
 private struct LockedCredentials: PluginCredentialStoring {

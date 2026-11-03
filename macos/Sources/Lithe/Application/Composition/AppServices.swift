@@ -10,6 +10,8 @@ import LitheLanguageIntelligenceModule
 /// Platform composition roots construct this graph with their own adapters.
 @MainActor
 final class AppServices {
+    /// Process log sink supplied by the composition root; modules receive the same instance.
+    var logSink: (any LogSink)?
     var editorSettingsImportScan: ((URL?) async throws -> [EditorSettingsImportSource])?
     func makeEditorSettingsImport(settings: AppSettings) -> EditorSettingsImportFeatureModel {
         EditorSettingsImportFeatureModel(settings: settings, chooseDirectory: { [platformUI] in

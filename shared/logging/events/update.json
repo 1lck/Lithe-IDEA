@@ -8,10 +8,15 @@
       "level": "warn",
       "message": "Update download interrupted with resume data retained",
       "fields": {
-        "error": {
-          "type": "error",
+        "reason": {
+          "type": "token",
           "required": true,
-          "description": "Download transfer failure that stopped the update while preserving partial data for resume"
+          "description": "Existing UpdateDownloadFailure case: timedOut, connectionFailed, tlsOrProxyFailure, httpStatus or invalidResponse; unclassified when no upstream cause exists."
+        },
+        "http_status": {
+          "type": "int",
+          "required": false,
+          "description": "Actual upstream HTTP status when the download failed with httpStatus."
         }
       },
       "rate": 60,
@@ -62,6 +67,16 @@
           "type": "error",
           "required": true,
           "description": "Download, verification or staging error that prevented preparing the stable rollback package"
+        },
+        "stage": {
+          "type": "token",
+          "required": false,
+          "description": "Controlled installer tool basename that failed during package preparation."
+        },
+        "exit_code": {
+          "type": "int",
+          "required": false,
+          "description": "Native installer tool exit status observed at the rollback boundary."
         }
       },
       "rate": 60,

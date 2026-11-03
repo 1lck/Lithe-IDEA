@@ -95,6 +95,15 @@
       "absent": [
         "<p"
       ]
+    },
+    {
+      "name": "semantic hard breaks and fenced blank lines",
+      "source": "first  \nsecond\\\nthird<br>fourth\n\n```text\na\n\nb\n```\n",
+      "contains": [
+        "<br",
+        "a\n\nb\n"
+      ],
+      "absent": []
     }
   ]
 }

@@ -6,19 +6,20 @@ import { renderMarkdown } from "./render";
 export function useHighlightedMarkdown(
   content: string | null | undefined,
   highlight: (html: string) => Promise<string> = highlightMarkdownCodeBlocks,
-  render: (source: string) => Promise<string> = renderMarkdown,
+  render: (source: string, signal?: AbortSignal) => Promise<string> = renderMarkdown,
 ) {
   const { t } = useTranslation();
   const [html, setHtml] = useState("");
 
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
     if (!content) {
       setHtml("");
       return;
     }
 
-    void render(content).then(
+    void render(content, controller.signal).then(
       async (parsedHtml) => {
         if (cancelled) return;
         // Preserve the last highlighted preview until this edit is ready.
@@ -44,6 +45,7 @@ export function useHighlightedMarkdown(
 
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [content, highlight, render, t]);
 

@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import AppKit
 import Combine
 import Foundation
@@ -7,6 +8,27 @@ import Testing
 
 private struct WorkflowLogDirectory: LogDirectoryProviding {
     let defaultLogDirectory: URL
+}
+
+/// Real filesystem adapter with task-owned staging, never the user's cache.
+private struct WorkflowDiskStorage: FileStorage {
+    let root: URL
+    private let native = MacFileStorage()
+    func homeDirectory() -> URL { root }
+    func cacheDirectory() -> URL { root }
+    func applicationSupportDirectory() -> URL { root }
+    func temporaryDirectory() -> URL { root }
+    func metadata(for url: URL) -> FileMetadata? { native.metadata(for: url) }
+    func fileExists(at url: URL) -> Bool { native.fileExists(at: url) }
+    func isExecutable(at url: URL) -> Bool { native.isExecutable(at: url) }
+    func listDirectory(at url: URL) -> [URL] { native.listDirectory(at: url) }
+    func readPrefix(from url: URL, byteCount: Int) throws -> Data { try native.readPrefix(from: url, byteCount: byteCount) }
+    func readData(from url: URL, options: Data.ReadingOptions) throws -> Data { try native.readData(from: url, options: options) }
+    func writeData(_ data: Data, to url: URL, options: Data.WritingOptions) throws { try native.writeData(data, to: url, options: options) }
+    func createDirectory(at url: URL, withIntermediateDirectories: Bool) throws { try native.createDirectory(at: url, withIntermediateDirectories: withIntermediateDirectories) }
+    func removeItem(at url: URL) throws { try native.removeItem(at: url) }
+    func moveItem(at sourceURL: URL, to destinationURL: URL) throws { try native.moveItem(at: sourceURL, to: destinationURL) }
+    func copyItem(at sourceURL: URL, to destinationURL: URL) throws { try native.copyItem(at: sourceURL, to: destinationURL) }
 }
 
 private struct WorkflowEnvironment: SystemDiagnosticsProviding {
@@ -30,7 +52,6 @@ private final class WorkflowCollector: ApplicationLogging, @unchecked Sendable {
     let entered = TestGate()
     let release = TestGate()
     var receivedQueries: [ApplicationLogQuery] { lock.withLock { queries } }
-    func record(level: String, scope: String, message: String, fields: [String: String]) {}
     func collect(query: ApplicationLogQuery) async throws -> ApplicationLogCollection {
         lock.withLock { queries.append(query) }
         entered.open()
@@ -50,7 +71,7 @@ private final class WorkflowCollector: ApplicationLogging, @unchecked Sendable {
 struct DiagnosticsWorkflowTests {
     private func service(root: URL, logging: any ApplicationLogging) -> DiagnosticsExportService {
         .init(logDirectoryProviding: WorkflowLogDirectory(defaultLogDirectory: root),
-            fileStorage: MacFileStorage(), systemDiagnostics: WorkflowEnvironment(),
+            fileStorage: WorkflowDiskStorage(root: root), systemDiagnostics: WorkflowEnvironment(),
             archiver: MacDittoArchiver(processRunner: MacProcessRunner()), core: RustCoreBridge(),
             applicationLogging: logging)
     }
@@ -80,13 +101,13 @@ struct DiagnosticsWorkflowTests {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let clock = WorkflowClock()
-        let writer = MacApplicationLogWriter(diagnosticNow: clock.now)
+        let writer = MacLogStore(diagnosticNow: clock.now)
         try writer.redirect(to: root.appendingPathComponent("logs"))
         let workflow = service(root: root, logging: writer)
         let feature = DiagnosticsFeatureModel(service: workflow)
         defer { feature.dismiss() }
-        writer.record(level: "error", scope: "language.java", message: "first evidence password=synthetic-secret")
-        writer.record(level: "info", scope: "git.fetch", message: "other module")
+        writer.emit(EditorDocumentOpenFailed(error: NSError(domain: "fixture", code: 1, userInfo: [NSLocalizedDescriptionKey: "first evidence password=synthetic-secret"]), reason: "unavailable"))
+        writer.emit(AppSessionStarted())
         feature.logCategory = "language"
         await feature.refreshLogs()
         #expect(feature.logContent.contains("first evidence"))
@@ -97,22 +118,22 @@ struct DiagnosticsWorkflowTests {
         await feature.refreshLogs()
         #expect(!feature.diagnosticEnabled)
         #expect(await feature.changeLogDirectory(to: root.appendingPathComponent("selected")))
-        writer.record(level: "error", scope: "language.java", message: "confirmed evidence")
+        writer.emit(EditorDocumentOpenFailed(error: NSError(domain: "fixture", code: 1, userInfo: [NSLocalizedDescriptionKey: "confirmed evidence"]), reason: "unavailable"))
         await feature.refreshLogs()
         #expect(feature.logContent.contains("confirmed evidence") && !feature.logContent.contains("first evidence"))
         let ready = TestGate()
         let observation = workflow.$state.sink { if case .awaitingConfirmation = $0 { ready.open() } }
         defer { observation.cancel() }
         feature.presentExport()
-        try #require(await ready.waitUntilOpen())
-        writer.record(level: "error", scope: "language.java", message: "later evidence")
+        try #require(await ready.waitUntilOpen(), "Export state: \(String(describing: workflow.state))")
+        writer.emit(EditorDocumentOpenFailed(error: NSError(domain: "fixture", code: 1, userInfo: [NSLocalizedDescriptionKey: "later evidence"]), reason: "unavailable"))
         feature.logCategory = "git"
         #expect(feature.exportQuery.category == "language")
         let destination = root.appendingPathComponent("diagnostics.zip")
         await feature.export(to: destination)
         guard case .completed = feature.state else { Issue.record("Archive did not complete"); return }
         let unpack = try await TestProcess.run(executableURL: URL(fileURLWithPath: "/usr/bin/unzip"),
-            arguments: ["-p", destination.path, "*/logs/language/*"], currentDirectoryURL: root)
+            arguments: ["-p", destination.path, "*/logs/sessions/*/editor*.log"], currentDirectoryURL: root)
         #expect(unpack.terminationStatus == 0)
         let evidence = String(decoding: unpack.output, as: UTF8.self)
         #expect(evidence.contains("confirmed evidence") && !evidence.contains("later evidence"))

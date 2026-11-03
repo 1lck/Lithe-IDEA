@@ -31,17 +31,52 @@
       "id": "perf.editor.open_measured",
       "channel": "perf",
       "level": "debug",
-      "message": "Document {document} editor open measured",
+      "message": "Editor opening measured",
       "fields": {
-        "document": {
-          "type": "id",
-          "required": true,
-          "description": "Internal document UUID associated with the editor open measurement"
-        },
-        "duration": {
+        "model": {
           "type": "duration",
-          "required": true,
-          "description": "Elapsed editor open time reported by the browser performance probe, in milliseconds"
+          "required": false,
+          "description": "Monaco opening model elapsed monotonic time in milliseconds."
+        },
+        "attach": {
+          "type": "duration",
+          "required": false,
+          "description": "Monaco opening attach elapsed monotonic time in milliseconds."
+        },
+        "settled": {
+          "type": "duration",
+          "required": false,
+          "description": "Monaco opening settled elapsed monotonic time in milliseconds."
+        },
+        "first_frame": {
+          "type": "duration",
+          "required": false,
+          "description": "Monaco opening first_frame elapsed monotonic time in milliseconds."
+        },
+        "max_frame_gap": {
+          "type": "duration",
+          "required": false,
+          "description": "Monaco opening max_frame_gap elapsed monotonic time in milliseconds."
+        },
+        "frames": {
+          "type": "int",
+          "required": false,
+          "description": "Monaco opening frames count reported by the editor measurement."
+        },
+        "lines": {
+          "type": "int",
+          "required": false,
+          "description": "Monaco opening lines count reported by the editor measurement."
+        },
+        "utf16_length": {
+          "type": "int",
+          "required": false,
+          "description": "Monaco opening utf16_length count reported by the editor measurement."
+        },
+        "reused": {
+          "type": "bool",
+          "required": false,
+          "description": "Whether opening reused the existing Monaco document model."
         }
       },
       "rate": 60,
@@ -141,13 +176,8 @@
       "id": "perf.git.worktree_inspected",
       "channel": "perf",
       "level": "debug",
-      "message": "Git worktree {worktree} inspection measured at {phase}",
+      "message": "Git worktree inspection measured",
       "fields": {
-        "worktree": {
-          "type": "id",
-          "required": true,
-          "description": "Validated worktree identity passed to the Git worktree inspection workflow"
-        },
         "phase": {
           "type": "token",
           "required": true,
@@ -157,10 +187,78 @@
           "type": "duration",
           "required": true,
           "description": "Elapsed time for this worktree inspection phase, in milliseconds"
+        },
+        "worktree": {
+          "type": "path",
+          "required": true,
+          "description": "Worktree root path from the Git snapshot, redacted by Core before persistence."
         }
       },
       "rate": 60,
       "owner": "LitheGitModule"
+    },
+    {
+      "id": "perf.app.signpost_measured",
+      "channel": "perf",
+      "level": "debug",
+      "message": "Native signpost measured",
+      "owner": "Lithe.Monitoring",
+      "fields": {
+        "name": {
+          "type": "token",
+          "required": true,
+          "description": "Controlled native signpost name for the measured operation."
+        },
+        "duration": {
+          "type": "duration",
+          "required": true,
+          "description": "Monotonic duration of the native signpost operation."
+        }
+      }
+    },
+    {
+      "id": "perf.settings.latency_measured",
+      "channel": "perf",
+      "level": "debug",
+      "message": "Settings latency measured",
+      "owner": "Lithe.Monitoring",
+      "fields": {
+        "phase": {
+          "type": "token",
+          "required": true,
+          "description": "Native settings latency phase value; timestamps use monotonic nanoseconds."
+        },
+        "category": {
+          "type": "token",
+          "required": true,
+          "description": "Native settings latency category value; timestamps use monotonic nanoseconds."
+        },
+        "event_id": {
+          "type": "int",
+          "required": true,
+          "description": "Native settings latency event_id value; timestamps use monotonic nanoseconds."
+        },
+        "time_ns": {
+          "type": "int",
+          "required": true,
+          "description": "Native settings latency time_ns value; timestamps use monotonic nanoseconds."
+        },
+        "input_ns": {
+          "type": "int",
+          "required": true,
+          "description": "Native settings latency input_ns value; timestamps use monotonic nanoseconds."
+        },
+        "received_ns": {
+          "type": "int",
+          "required": true,
+          "description": "Native settings latency received_ns value; timestamps use monotonic nanoseconds."
+        },
+        "selected_ns": {
+          "type": "int",
+          "required": true,
+          "description": "Native settings latency selected_ns value; timestamps use monotonic nanoseconds."
+        }
+      }
     }
   ]
 }

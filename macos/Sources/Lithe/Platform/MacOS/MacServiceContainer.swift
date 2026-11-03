@@ -17,6 +17,7 @@ import LitheWorkspaceModule
 private struct MacDirectoryWatcherFactory: DirectoryWatcherFactory {
     let registry: RemoteWorkspaceRegistry
     let transport: any RemoteWorkspaceTransport
+    var logSink: (any LogSink)? = nil
 
     func make(
         configuration: DirectoryWatchConfiguration,
@@ -25,6 +26,7 @@ private struct MacDirectoryWatcherFactory: DirectoryWatcherFactory {
     ) -> any DirectoryChangeSource {
         if let binding = registry.resolve(configuration.workspaceRoot)?.binding {
             return RemoteDirectoryObservation(
+                logSink: logSink,
                 configuration: configuration, visibilityRules: visibilityRules,
                 binding: binding, registry: registry, transport: transport, onChange: onChange
             )
@@ -54,8 +56,8 @@ final class MacServiceContainer {
         MacLogDirectoryProvider()
     }
 
-    static func makeApplicationLogWriter(onDirectoryFallback: @escaping @Sendable () -> Void = {}) -> MacApplicationLogWriter {
-        MacApplicationLogWriter(onDirectoryFallback: onDirectoryFallback)
+    static func makeApplicationLogWriter(onDirectoryFallback: @escaping @Sendable () -> Void = {}) -> MacLogStore {
+        MacLogStore(onDirectoryFallback: onDirectoryFallback)
     }
 
     static func makeDiagnosticsExportService(
@@ -92,14 +94,11 @@ final class MacServiceContainer {
         applicationLogging: (any ApplicationLogging)? = nil,
         networkSessionProvider providedNetworkSessionProvider: MacNetworkSessionProvider? = nil
     ) {
+        let logSink = applicationLogging as? any LogSink
         let pluginWebPageLifecycle = providedPluginWebPageLifecycle ?? .shared
         let gitExecutionJournal = GitExecutionJournal()
-        gitExecutionJournal.onLifecycleEvent = { event in
-            applicationLogging?.record(level: event.error != nil || (event.exitCode ?? 0) != 0 ? "error" : "info",
-                scope: "git.execution", message: event.type,
-                fields: ["operation_id": event.operationId, "duration_ms": event.durationMilliseconds.map(String.init) ?? "",
-                    "exit_code": event.exitCode.map(String.init) ?? "", "error_code": event.error?.code ?? ""])
-        }
+        let gitLifecycleLog = MacGitLifecycleLog(sink: logSink)
+        gitExecutionJournal.onLifecycleEvent = { gitLifecycleLog.receive($0) }
         let remoteWorkspaces = RemoteWorkspaceRegistry()
         let rustCore = RustCoreBridge(gitPreferences: settings.gitExecutionPreferences,
                                       gitExecutionJournal: gitExecutionJournal,
@@ -150,9 +149,9 @@ final class MacServiceContainer {
         }
         let remoteTransport = ConnectionWatchingTransport(base: remoteOperations, registry: remoteWorkspaces)
         let fileOperations = RemoteRoutingFileOperations(
-            local: MacWorkspaceFileOperations(), registry: remoteWorkspaces, transport: remoteTransport
+            local: MacWorkspaceFileOperations(logSink: logSink), registry: remoteWorkspaces, transport: remoteTransport
         )
-        let processRunner = MacProcessRunner(logging: applicationLogging)
+        let processRunner = MacProcessRunner(logging: logSink)
         let secureStore = MacLocalSecretStore()
         let githubService = GitHubService(
             core: RustGitHubCore(bridge: rustCore),
@@ -162,7 +161,6 @@ final class MacServiceContainer {
             git: MacGitHubGitOperations(core: rustCore)
         )
         let platformUI = providedPlatformUI ?? MacPlatformUI()
-        let logWindowID = UUID().uuidString
         let diagnosticsExportService = Self.makeDiagnosticsExportService(
             fileStorage: fileStorage,
             processRunner: processRunner,
@@ -185,7 +183,8 @@ final class MacServiceContainer {
         let moduleRuntime = ModuleRuntime(
             configurationStore: moduleStore,
             recoveryStore: moduleStore,
-            launchMode: moduleLaunchMode
+            launchMode: moduleLaunchMode,
+            logSink: applicationLogging as? any LogSink
         )
         moduleLifecycleCoordinator = ModuleLifecycleCoordinator(runtime: moduleRuntime)
         let declarativePluginOperations = RustDeclarativePluginOperations(core: rustCore)
@@ -209,6 +208,7 @@ final class MacServiceContainer {
         )
         let pluginStartupLoader = MacPluginStartupLoader(
             packageStore: pluginPackageStore,
+            logSink: logSink,
             validateUI: { _ = try WorkbenchModuleUIComposition.registry(for: $0) }
         )
         let pluginStartup = pluginStartupLoader.load(recoveryStore: moduleStore)
@@ -221,6 +221,7 @@ final class MacServiceContainer {
         let moduleEnablement = moduleStore
         let launchMode = moduleLaunchMode
         let livePlugins = MacLivePluginRegistry(
+            logSink: logSink,
             initial: pluginStartup.livePlugins,
             registeredManifests: pluginStartup.registeredManifests,
             makeScanStore: pluginPackageStore.makeScanStoreFactory(),
@@ -296,7 +297,7 @@ final class MacServiceContainer {
                     validator: declarativePluginOperations, architecture: architecture)
             },
             evaluator: pluginMarketplaceEvaluator, transport: pluginMarketplaceTransport,
-            host: remoteOperations, temporaryDirectory: fileStorage.temporaryDirectory()
+            host: remoteOperations, temporaryDirectory: fileStorage.temporaryDirectory(), logSink: logSink
         )
         let bundledLanguageManifests = BundledLanguagePluginCatalog.manifests
         let moduleRegistry = ModuleRegistry(
@@ -338,12 +339,14 @@ final class MacServiceContainer {
                 TerminalModule(
                     terminalFactory: {
                         MacTerminalTransport(
+                            logSink: logSink,
                             scrollbackLines: settings.terminalScrollbackLines,
                             preferredAppearanceIsDark: { settings.themePreference.preferredIsDark }
                         )
                     },
                     workspaceTerminalFactory: { root in
                         let renderer = MacTerminalTransport(
+                            logSink: logSink,
                             scrollbackLines: settings.terminalScrollbackLines,
                             preferredAppearanceIsDark: { settings.themePreference.preferredIsDark }
                         )
@@ -351,7 +354,7 @@ final class MacServiceContainer {
                         return MacRemoteTerminalTransport(renderer: renderer, binding: resolved.binding,
                                                           transport: remoteOperations)
                     },
-                    shellDiscovery: { MacTerminalTransport.availableShells() },
+                    shellDiscovery: { MacTerminalTransport.availableShells(logSink: logSink) },
                     workspaceShellDiscovery: { root in
                         guard let resolved = remoteWorkspaces.resolve(root) else { return nil }
                         return try await MacRemoteShellDiscovery.discover(session: resolved.binding.sessionID, host: remoteOperations)
@@ -431,9 +434,7 @@ final class MacServiceContainer {
                 preferences: store,
                 legacyPassword: { [secureStore] key in databaseKeychain.read(key: key) ?? secureStore.read(key: key) },
                 credentials: pluginCredentials,
-                log: { [applicationLogging] message in
-                    applicationLogging?.record(level: "warn", scope: "plugins.migration", message: message, fields: [:])
-                }
+                logSink: logSink
             )
             // Host services of backend requests: the credentials of
             // protocol 2 and the workspace contexts of protocol 3. Context
@@ -455,7 +456,7 @@ final class MacServiceContainer {
             hostDispatcher.register(PluginFileHostService(contexts: .shared, metadata: workspaceHost,
                 files: MacPluginWorkspaceFileService(
                     searchOperations: RustWorkspaceOperations(core: rustCore),
-                    watcherFactory: MacDirectoryWatcherFactory(registry: remoteWorkspaces, transport: remoteTransport),
+                    watcherFactory: MacDirectoryWatcherFactory(registry: remoteWorkspaces, transport: remoteTransport, logSink: logSink),
                     isRemoteWorkspaceRoot: { remoteWorkspaces.resolve($0) != nil }
                 )))
             hostDispatcher.register(PluginWindowHostService(contexts: .shared, metadata: workspaceHost,
@@ -468,10 +469,9 @@ final class MacServiceContainer {
                 core: rustCore,
                 processRegistry: processRegistry,
                 credentials: pluginCredentials,
-                prepareState: { [applicationLogging] installation, stateDirectory in
+                prepareState: { installation, stateDirectory in
                     if case let .migrated(profiles, passwords) = databaseMigration.prepare(installation: installation, stateDirectory: stateDirectory) {
-                        applicationLogging?.record(level: "info", scope: "plugins.migration", message: "database connections moved into the plugin",
-                            fields: ["profiles": String(profiles), "passwords": String(passwords)])
+                        if let plugin = LogSegment(installation.pluginID.rawValue) { logSink?.emit(PluginsMigrationFinished(passwords: Int64(passwords), plugin: plugin, profiles: Int64(profiles))) }
                     }
                 },
                 canStart: { id in
@@ -486,9 +486,8 @@ final class MacServiceContainer {
                 hostDispatcher: hostDispatcher
             )
             sessions.editorActions = editorActions
-            sessions.onActivationFailure = { [applicationLogging] pluginID, error in
-                applicationLogging?.record(level: "warn", scope: "plugins.backend", message: "backend activation failed",
-                    fields: ["plugin": pluginID, "error": error.localizedDescription])
+            sessions.onActivationFailure = { pluginID, error in
+                if let plugin = LogSegment(pluginID) { logSink?.emit(PluginsBackendActivationFailed(error: error, plugin: plugin)) }
             }
             return sessions
         }
@@ -608,10 +607,29 @@ final class MacServiceContainer {
                             )
                         }
                     )
+                    sessions.onLogIssue = { provider, operation, warning, stage, code, exitCode in
+                        guard let server = LogSegment(provider) else { return }
+                        if warning {
+                            logSink?.emit(LspSessionDegradationReceived(exitCode: exitCode.map(Int64.init), failureCode: code, server: server, stage: stage, operationID: operation))
+                        } else {
+                            logSink?.emit(LspSessionIssueFailed(exitCode: exitCode.map(Int64.init), failureCode: code, server: server, stage: stage, operationID: operation))
+                        }
+                    }
                     sessions.onLogEvent = { provider, operation, level, message, detail in
-                        applicationLogging?.record(level: level == "warning" ? "warn" : level,
-                            scope: "language.\(provider)", message: message,
-                            fields: ["operation_id": operation ?? "", "window_id": logWindowID, "detail": detail ?? ""])
+                        guard let server = LogSegment(provider) else { return }
+                        // PR3 replaces upstream message/detail with catalog identities at their source.
+                        // No arbitrary protocol detail enters a text or error field here.
+                        switch message {
+                        case "Language server cache cleanup succeeded":
+                            let removed = detail?.split(separator: "=").last.flatMap { Int64($0) } ?? 0
+                            logSink?.emit(LspConfigurationCleaned(removed: removed, server: server, operationID: operation))
+                        case "Language server ready", "Language server is ready":
+                            logSink?.emit(LspProtocolInitialized(server: server, operationID: operation))
+                        case "Language server start requested", "Resolving language server", "Language server session registered", "Stopping language server", "Language server terminated", "Language server start cancelled":
+                            let state = message == "Language server start requested" ? "requested" : message == "Resolving language server" ? "resolving" : message == "Language server session registered" ? "registered" : message == "Stopping language server" ? "stopping" : message == "Language server terminated" ? "terminated" : "cancelled"
+                            logSink?.emit(LspSessionUpdated(server: server, state: state, operationID: operation))
+                        default: break
+                        }
                     }
 
                     let graph = LanguageIntelligenceFeatureGraph(
@@ -664,7 +682,7 @@ final class MacServiceContainer {
                         stateLocator: MacRemoteBuildStateLocator(local: MacBuildSystemStateLocator(
                             directories: MacPluginStateDirectories(fileStorage: fileStorage),
                             fileStorage: fileStorage
-                        ), registry: remoteWorkspaces, host: remoteOperations, packages: remotePluginPackages),
+                        ), registry: remoteWorkspaces, host: remoteOperations, logSink: logSink, packages: remotePluginPackages),
                         runner: MacRemoteBuildCommandRunner(
                             local: MacBuildCommandRunner(processRegistry: processRegistry),
                             registry: remoteWorkspaces, host: remoteOperations),
@@ -696,7 +714,7 @@ final class MacServiceContainer {
                             dependencyProcess: MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution),
                             mavenOperations: javaMavenOperations,
                             configurationStore: MacMavenConfigurationStore(storage: fileStorage),
-                            dependencyOutputs: MacMavenDependencyOutputStore()
+                            dependencyOutputs: MacMavenDependencyOutputStore(logSink: logSink)
                         ),
                         run: runService,
                         tests: LanguageTestService(
@@ -908,7 +926,7 @@ final class MacServiceContainer {
                 GitModule(
                     operations: gitOperations,
                     shelfStorage: MacGitShelfStorage(storage: fileStorage),
-                    performanceLogger: gitPerformanceLogger ?? NullGitPerformanceLogger(),
+                    performanceLogger: gitPerformanceLogger ?? (applicationLogging as? any GitPerformanceLogger) ?? NullGitPerformanceLogger(),
                     patchFileAccess: MacGitPatchFileAccess(storage: fileStorage),
                     executionJournal: gitExecutionJournal,
                     changelistStorage: MacGitChangelistStorage(store: store)
@@ -1138,12 +1156,13 @@ final class MacServiceContainer {
             directoryMarkStore: directoryMarkStore,
             workbenchLayoutStore: WorkbenchLayoutStore(store: store),
             workbenchBackgroundPlatform: MacWorkbenchBackgroundPlatform(store: store),
-            directoryWatcherFactory: MacDirectoryWatcherFactory(registry: remoteWorkspaces, transport: remoteTransport),
+            directoryWatcherFactory: MacDirectoryWatcherFactory(registry: remoteWorkspaces, transport: remoteTransport, logSink: logSink),
             platformUI: platformUI,
             shortcutDetectorFactory: MacShortcutDetectorFactory(),
             debugPerformanceSampler: MacDebugPerformanceSampler(processRegistry: processRegistry),
             testJVMPerformance: MacTestJVMPerformance(processRegistry: processRegistry)
         )
+        services.logSink = applicationLogging as? any LogSink
         services.editorSettingsImportScan = { try await MacEditorSettingsImportReader.scan(directory: $0) }
         services.ideCapabilityRegistry = ideCapabilityRegistry
         services.pluginRegistrationChanges = livePlugins.changes
@@ -1171,9 +1190,7 @@ final class MacServiceContainer {
             livePackages: { liveSnapshotBox.snapshot.activePackages },
             decoder: declarativePluginOperations,
             triggers: [livePlugins.changes, editorLanguageModuleChanges.eraseToAnyPublisher()],
-            log: { message, fields in
-                NSLog("Lithe %@ %@", message, fields.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: " "))
-            }
+            logSink: logSink
         )
         services.ideHostTransport = MacIdeHostTransport(core: rustCore, storage: fileStorage)
         services.proxyPasswordStore = proxyPasswordStore
@@ -1196,7 +1213,7 @@ final class MacServiceContainer {
                 mappingStore: MacVcsRootMappingStore(store: store),
                 readFile: { url in try? fileStorage.readData(from: url, options: .mappedIfSafe) },
                 fileExists: { url in fileStorage.fileExists(at: url) },
-                metadataWatcherFactory: MacDirectoryWatcherFactory(registry: remoteWorkspaces, transport: remoteTransport),
+                metadataWatcherFactory: MacDirectoryWatcherFactory(registry: remoteWorkspaces, transport: remoteTransport, logSink: logSink),
                 sources: {
                     // Enablement is read on every detection, so turning a
                     // plugin off takes its roots away at once.
@@ -1329,10 +1346,9 @@ final class MacServiceContainer {
         Task {
             do {
                 try await moduleRegistry.startEagerModules()
-                applicationLogging?.record(level: "info", scope: "plugins.lifecycle", message: "eager modules started", fields: [:])
+                logSink?.emit(PluginsLifecycleStarted())
             } catch {
-                applicationLogging?.record(level: "error", scope: "plugins.lifecycle", message: "module activation failed",
-                    fields: ["error": error.localizedDescription])
+                logSink?.emit(PluginsLifecycleFailed(error: error))
             }
         }
     }

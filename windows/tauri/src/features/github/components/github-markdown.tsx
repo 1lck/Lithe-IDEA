@@ -29,11 +29,11 @@ function getRenderedMarkdownSnapshot(content: string): string | null {
   return cached;
 }
 
-async function getCachedRenderedMarkdown(content: string): Promise<string> {
+async function getCachedRenderedMarkdown(content: string, signal?: AbortSignal): Promise<string> {
   const cached = getRenderedMarkdownSnapshot(content);
   if (cached) return cached;
 
-  const parsed = stripRedundantBreaks(await renderMarkdown(content));
+  const parsed = await renderMarkdown(content, signal);
   const rendered = await highlightMarkdownCodeBlocks(parsed).catch(() => parsed);
   markdownRenderCache.set(content, rendered);
 
@@ -45,13 +45,6 @@ async function getCachedRenderedMarkdown(content: string): Promise<string> {
   }
 
   return rendered;
-}
-
-function stripRedundantBreaks(html: string): string {
-  return html
-    .replace(/<br\s*\/?>/gi, "")
-    .replace(/(?:\s*\n\s*){2,}/g, "\n")
-    .trim();
 }
 
 // GitHub-flavored markdown renderer for PR descriptions and comments
@@ -80,6 +73,7 @@ const GitHubMarkdown = memo(
       setRenderedHtml(null);
 
       let cancelled = false;
+      const controller = new AbortController();
       const idleApi = window as Window & {
         requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
         cancelIdleCallback?: (id: number) => void;
@@ -88,7 +82,7 @@ const GitHubMarkdown = memo(
 
       const render = async () => {
         try {
-          const nextHtml = await getCachedRenderedMarkdown(normalizedContent);
+          const nextHtml = await getCachedRenderedMarkdown(normalizedContent, controller.signal);
           if (!cancelled) setRenderedHtml(nextHtml);
         } catch {
           if (!cancelled) setRenderFailed(true);
@@ -99,6 +93,7 @@ const GitHubMarkdown = memo(
         const idleId = schedule(() => void render(), { timeout: 200 });
         return () => {
           cancelled = true;
+          controller.abort();
           idleApi.cancelIdleCallback?.(idleId);
         };
       }

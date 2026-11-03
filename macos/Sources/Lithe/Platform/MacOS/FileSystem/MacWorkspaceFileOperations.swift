@@ -5,13 +5,16 @@ import LitheModuleAPI
 struct MacWorkspaceFileOperations: WorkspaceFileOperations {
     private let moveToTrash: @Sendable (URL) throws -> URL
 
-    init(moveToTrash: @escaping @Sendable (URL) throws -> URL = { try MacWorkspaceFileOperations.systemTrash($0) }) {
+    private let logSink: (any LogSink)?
+
+    init(logSink: (any LogSink)? = nil, moveToTrash: @escaping @Sendable (URL) throws -> URL = { try MacWorkspaceFileOperations.systemTrash($0) }) {
+        self.logSink = logSink
         self.moveToTrash = moveToTrash
     }
 
     var supportsDocumentEncoding: Bool { true }
     func observeDocuments(at urls: [URL], onChange: @escaping @Sendable ([URL]) -> Void) -> any DocumentFileObservation {
-        MacDocumentObservation(urls: urls, onChange: onChange)
+        MacDocumentObservation(urls: urls, logSink: logSink, onChange: onChange)
     }
 
     func readDocumentTextAsync(from url: URL) async throws -> String? {
@@ -185,7 +188,7 @@ struct MacWorkspaceFileOperations: WorkspaceFileOperations {
             defer {
                 do { try FileManager.default.removeItem(at: temporary) }
                 catch let error as CocoaError where error.code == .fileNoSuchFile { }
-                catch { NSLog("Could not clean document staging file: %@", error.localizedDescription) }
+                catch { logSink?.emit(EditorDocumentStagingCleanupFailed(error: error)) }
             }
             if current != nil {
                 // Copy metadata before replacing content so permissions and extended attributes survive.

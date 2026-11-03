@@ -102,6 +102,7 @@ final class AppModelFeatureGraph {
         media = MediaDocumentFeatureModel()
         terminalPlacement = TerminalPlacementFeatureModel()
         document = DocumentFeatureModel(
+            logSink: services.logSink,
             operations: services.workspaceOperations,
             documentLifecycleDecider: services.documentLifecycleDecider,
             fileOperations: services.fileOperations,

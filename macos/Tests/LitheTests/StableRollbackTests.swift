@@ -9,12 +9,10 @@ struct StableRollbackTests {
     func preparationFailureReachesTheExportedApplicationLog() async throws {
         let fixture = try RollbackFixture()
         defer { fixture.remove() }
-        let writer = MacApplicationLogWriter()
+        let writer = MacLogStore()
         try writer.redirect(to: fixture.root)
         let finished = TestGate()
-        let rollback = MacStableRollback(diagnosticSink: { message in
-            writer.record(level: "error", scope: "application.update", message: message, fields: [:])
-        }, loadPackage: { _, _ in
+        let rollback = MacStableRollback(logSink: writer, loadPackage: { _, _ in
             try await withCheckedThrowingContinuation { continuation in
                 DispatchQueue.global(qos: .utility).async {
                     continuation.resume(with: Result<StableRollbackPackage, Error> {
@@ -30,7 +28,7 @@ struct StableRollbackTests {
         #expect(await finished.waitUntilOpen())
         let contents = try await writer.collect(query: ApplicationLogQuery()).content
         #expect(contents.contains("stage=codesign"))
-        #expect(contents.contains("exit=1"))
+        #expect(contents.contains("exit_code=1"))
         #expect(!contents.contains(fixture.root.path))
     }
 

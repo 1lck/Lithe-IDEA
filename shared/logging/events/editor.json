@@ -5,7 +5,7 @@
     {
       "id": "editor.document.open_failed",
       "channel": "editor",
-      "level": "warn",
+      "level": "error",
       "message": "Document open failed: {reason}",
       "fields": {
         "error": {
@@ -45,7 +45,7 @@
     {
       "id": "editor.document.save_failed",
       "channel": "editor",
-      "level": "warn",
+      "level": "error",
       "message": "Document {document} revision {revision} save failed at {stage}",
       "fields": {
         "document": {
@@ -75,7 +75,7 @@
     {
       "id": "editor.document.save_superseded",
       "channel": "editor",
-      "level": "warn",
+      "level": "debug",
       "message": "Document {document} revision {revision} save superseded",
       "fields": {
         "document": {
@@ -222,6 +222,11 @@
           "type": "int",
           "required": false,
           "description": "UTF-16 code units in the native document at the freeze observation"
+        },
+        "native_revision": {
+          "type": "int",
+          "required": false,
+          "description": "Current native document revision at freeze completion, comparable with browser and snapshot revisions."
         }
       },
       "rate": 60,

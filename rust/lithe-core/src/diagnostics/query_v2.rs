@@ -57,6 +57,8 @@ pub struct LogQueryV2Request {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QueriedLogRecord {
+    /// Canonical redacted disk line for native presentation and frozen exports.
+    pub line: String,
     /// Logical channel, resolved from metadata or the validated source path.
     pub channel: String,
     /// Source file relative to the host log root or session.
@@ -92,7 +94,7 @@ pub struct LogQueryV2Response {
 fn parse_time(value: &str) -> Result<DateTime<FixedOffset>, LogError> {
     DateTime::parse_from_rfc3339(value).map_err(|_| LogError::new(-32035, "Invalid timestamp"))
 }
-fn source_channel(path: &str) -> Result<(String, bool), LogError> {
+pub(super) fn source_channel(path: &str) -> Result<(String, bool), LogError> {
     if path.contains(['\\', ':'])
         || path.chars().any(char::is_control)
         || path
@@ -104,7 +106,7 @@ fn source_channel(path: &str) -> Result<(String, bool), LogError> {
     let parts: Vec<_> = path.split('/').collect();
     if parts.len() == 2
         && LOG_CATEGORIES.contains(&parts[0])
-        && parts[1].starts_with("lithe.")
+        && (parts[1] == "lithe.log" || parts[1].starts_with("lithe."))
         && parts[1].ends_with(".log")
     {
         let channel = match parts[0] {
@@ -413,6 +415,7 @@ pub fn query_logs_v2(request: LogQueryV2Request) -> Result<LogQueryV2Response, L
             records.insert(
                 key,
                 QueriedLogRecord {
+                    line: super::record::render(&record),
                     channel: channel.clone(),
                     relative_path: source.relative_path.clone(),
                     line_number,
@@ -431,6 +434,19 @@ pub fn query_logs_v2(request: LogQueryV2Request) -> Result<LogQueryV2Response, L
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn dotted_active_and_rotated_sources_have_distinct_channels() {
+        for (path, expected) in [
+            ("lsp/foo.1.log", "lsp/foo.1"),
+            ("lsp/foo~1.log", "lsp/foo"),
+            ("lsp/foo.1~2.log", "lsp/foo.1"),
+            ("_overflow~2.log", "_overflow"),
+        ] {
+            assert_eq!(super::source_channel(path).unwrap().0, expected);
+        }
+        assert!(super::source_channel("lsp/foo~invalid.log").is_err());
+    }
+
     use super::*;
     use serde_json::json;
 

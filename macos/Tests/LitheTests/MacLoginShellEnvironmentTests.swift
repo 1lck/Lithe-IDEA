@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 import Testing
 @testable import Lithe
@@ -114,17 +115,18 @@ struct MacLoginShellEnvironmentTests {
         // Startup runs before the log writer exists; its outcome waits for it.
         MacLoginShellEnvironment.activate(
             cacheURL: fixture.root.appendingPathComponent("login-path"),
-            environment: environment, shared: shared, applyPath: { _ in }
+            environment: environment, shared: shared,
+            shellTimeout: Self.shellTimeout, applyPath: { _ in }
         )
-        let log = RecordingLog()
+        let log = TypedLogRecorder()
         shared.attach(logging: log)
 
-        let record = try #require(log.records.first)
-        #expect(log.records.count == 1)
-        #expect(record.message == "login shell environment read")
-        #expect(record.fields["shell"] == "shell")
-        #expect(record.fields["source"] == "startup")
-        #expect(!record.fields.values.contains { $0.contains("hunter2") })
+        let record = try #require(log.events.last)
+        #expect(log.events.count == 2)
+        #expect(type(of: record).id == "app.shell.environment.finished")
+        if case .token(let shell) = record.fields["shell"] { #expect(shell == "custom") } else { Issue.record("Missing shell") }
+        if case .token(let source) = record.fields["source"] { #expect(source == "startup") } else { Issue.record("Missing trigger") }
+        #expect(record.fields["variables"] != nil)
     }
 
     @Test
@@ -260,24 +262,6 @@ struct MacLoginShellEnvironmentTests {
         #expect(disabled.rereadSynchronously(timeout: Self.shellTimeout).state == .disabled)
         #expect(!FileManager.default.fileExists(atPath: ran.path), "The opt-out must not run the shell, even on reread")
     }
-}
-
-private final class RecordingLog: ApplicationLogging, @unchecked Sendable {
-    private let lock = NSLock()
-    private var stored: [(message: String, fields: [String: String])] = []
-
-    var records: [(message: String, fields: [String: String])] { lock.withLock { stored } }
-
-    func record(level: String, scope: String, message: String, fields: [String: String]) {
-        lock.withLock { stored.append((message, fields)) }
-    }
-
-    func collect(query: ApplicationLogQuery) async throws -> ApplicationLogCollection {
-        throw CocoaError(.featureUnsupported)
-    }
-
-    func configureDiagnostic(category: String?, enabled: Bool) async {}
-    func clear() async throws {}
 }
 
 private struct ShellFixture {

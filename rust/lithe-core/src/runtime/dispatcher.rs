@@ -3387,6 +3387,20 @@ fn execute(request: &str) -> CoreResponse {
                 ),
             }
         }
+        CoreCommand::DiagnosticsPlanLogCollection => {
+            match serde_json::from_value::<crate::diagnostics::collection::PlanLogCollectionRequest>(
+                parsed.payload,
+            ) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    log_v2_result(crate::diagnostics::collection::plan_log_collection(request)),
+                ),
+                Err(_) => CoreResponse::failure(
+                    id,
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid log collection request"),
+                ),
+            }
+        }
         CoreCommand::DiagnosticsQueryLogsV2 => {
             match serde_json::from_value::<crate::diagnostics::query_v2::LogQueryV2Request>(
                 parsed.payload,
