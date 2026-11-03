@@ -143,6 +143,28 @@ struct RustGitOperations: GitOperations, Sendable {
         write(at: change.repositoryRoot, operation: "discardAll", paths: change.pathspecs)
     }
 
+    func prepareRollback(at root: URL, changes: [GitChange], deleteAddedFiles: Bool) -> Result<GitRollbackPlan, GitRollbackFailure> {
+        struct Change: Encodable {
+            let path: String
+            let originalPath: String?
+            let status: String
+        }
+        struct Request: Encodable {
+            let root: String
+            let changes: [Change]
+            let deleteAddedFiles: Bool
+        }
+        let request = Request(root: root.standardizedFileURL.path, changes: changes.map {
+            Change(path: $0.path, originalPath: $0.originalPath, status: String($0.indexStatus) + String($0.workTreeStatus))
+        }, deleteAddedFiles: deleteAddedFiles)
+        let result: Result<GitRollbackPlan, RustCoreBridge.CoreCallError> = core.executeResult(command: "git.rollbackPrepare", payload: request)
+        return result.mapError { GitRollbackFailure($0.userMessage) }
+    }
+
+    func executeRollbackStep(at root: URL, step: GitRollbackPlan.Step) -> GitProcessResult? {
+        write(at: root, operation: step.operation.rawValue, paths: step.paths)
+    }
+
     func prepareWorkspaceCommit(_ request: GitWorkspaceCommitRequest) -> Result<GitWorkspaceCommitPreparation, GitWorkspaceCommitFailure> {
         let result: Result<GitWorkspaceCommitPreparation, RustCoreBridge.CoreCallError> = core.executeResult(
             command: "git.workspaceCommitPrepare", payload: request)

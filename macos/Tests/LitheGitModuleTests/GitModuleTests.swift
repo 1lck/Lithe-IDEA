@@ -3332,6 +3332,31 @@ struct GitModuleTests {
     }
 
     @Test
+    func rollbackPreparesEveryRepositoryBeforeAnyWrite() async throws {
+        let root = URL(fileURLWithPath: "/workspace"), sibling = root.appendingPathComponent("sibling")
+        let changes = [root, sibling].map {
+            GitChange(repositoryRoot: $0, path: "target.txt", originalPath: nil, indexStatus: " ", workTreeStatus: "M")
+        }
+        let probe = WorktreeChangesProbe(root: URL(fileURLWithPath: "/unused"), changes: changes)
+        let prepared = CleanedPaths(), written = CleanedPaths()
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotHandler: { probe.snapshot($0) }, repositoryRoots: [root, sibling],
+            discardAllHandler: { change in written.append(change.repositoryRoot.path); return probe.mutate(change, action: "discard") },
+            rollbackPrepareHandler: { repository, selected in
+                prepared.append(repository.path)
+                if repository == sibling { return .failure(GitRollbackFailure("GIT_ROLLBACK_STALE_SELECTION")) }
+                return .success(GitRollbackPlan(steps: selected.map { .init(operation: .discardAll, paths: [$0.path]) }))
+            })))
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        feature.requestRollbackChanges(changes, included: changes)
+        await feature.confirmRollbackChanges(try #require(feature.pendingRollbackSelection))
+        #expect(prepared.paths == [root.path, sibling.path])
+        #expect(written.paths.isEmpty && !feature.isRollingBackChanges)
+    }
+
+    @Test
     func rollbackConfirmationSurvivesDismissalAndStopsAtFirstFailure() async throws {
         let root = URL(fileURLWithPath: "/workspace")
         let changes = ["checked.txt", "blocked.txt", "untouched.txt"].map {
@@ -6354,6 +6379,7 @@ private struct TestGitOperations: GitOperations {
     private let snapshotGate: GitModuleTestGate?
     private let discardHandler: (@Sendable (GitChange) -> GitProcessResult?)?
     private let discardAllHandler: (@Sendable (GitChange) -> GitProcessResult?)?
+    private let rollbackPrepareHandler: (@Sendable (URL, [GitChange]) -> Result<GitRollbackPlan, GitRollbackFailure>)?
     private let diffPatchHandler: (@Sendable ([String], Bool) -> String?)?
     private let applyPatchHandler: (@Sendable (String, URL, String) -> GitProcessResult?)?
     private let stageResult: GitProcessResult?
@@ -6414,6 +6440,7 @@ private struct TestGitOperations: GitOperations {
         snapshotGate: GitModuleTestGate? = nil,
         discardHandler: (@Sendable (GitChange) -> GitProcessResult?)? = nil,
         discardAllHandler: (@Sendable (GitChange) -> GitProcessResult?)? = nil,
+        rollbackPrepareHandler: (@Sendable (URL, [GitChange]) -> Result<GitRollbackPlan, GitRollbackFailure>)? = nil,
         diffPatchHandler: (@Sendable ([String], Bool) -> String?)? = nil,
         applyPatchHandler: (@Sendable (String, URL, String) -> GitProcessResult?)? = nil,
         stageResult: GitProcessResult? = nil,
@@ -6473,6 +6500,7 @@ private struct TestGitOperations: GitOperations {
         self.snapshotGate = snapshotGate
         self.discardHandler = discardHandler
         self.discardAllHandler = discardAllHandler
+        self.rollbackPrepareHandler = rollbackPrepareHandler
         self.diffPatchHandler = diffPatchHandler
         self.applyPatchHandler = applyPatchHandler
         self.stageResult = stageResult
@@ -6649,6 +6677,20 @@ private struct TestGitOperations: GitOperations {
     func unstage(_ change: GitChange) -> GitProcessResult? { unstageHandler?(change) }
     func discard(_ change: GitChange) -> GitProcessResult? { discardHandler?(change) }
     func discardAll(_ change: GitChange) -> GitProcessResult? { discardAllHandler?(change) }
+    // These module lifecycle tests use modified tracked rows and controlled
+    // one-step responses; real planning is covered through RustGitOperations.
+    func prepareRollback(at root: URL, changes: [GitChange], deleteAddedFiles: Bool) -> Result<GitRollbackPlan, GitRollbackFailure> {
+        rollbackPrepareHandler?(root, changes) ?? .success(GitRollbackPlan(steps: changes.map { .init(operation: .discardAll, paths: [$0.path]) }))
+    }
+    func executeRollbackStep(at root: URL, step: GitRollbackPlan.Step) -> GitProcessResult? {
+        guard let path = step.paths.first else { return nil }
+        let change = GitChange(repositoryRoot: root, path: path, originalPath: nil, indexStatus: "M", workTreeStatus: "M")
+        switch step.operation {
+        case .discardAll: return discardAllHandler?(change)
+        case .unstage: return unstageHandler?(change)
+        case .discard: return discardHandler?(change)
+        }
+    }
     func prepareWorkspaceCommit(_ request: GitWorkspaceCommitRequest) -> Result<GitWorkspaceCommitPreparation, GitWorkspaceCommitFailure> {
         workspaceCommitProbe.prepare(request)
     }
