@@ -256,6 +256,17 @@ function FileExplorerTreeComponent({
         : undefined;
   };
   const isIndexExcluded = (path: string) => exclusionReason(path) !== undefined;
+  const isManuallyExcluded = (path: string): boolean => {
+    const root = Object.keys(indexingStatuses)
+      .filter((root) => pathStartsWithRoot(path, root))
+      .sort((a, b) => b.length - a.length)[0];
+    if (!root) return false;
+    const relative = getRelativePath(path, root).replace(/\\/g, "/") || ".";
+    return Object.entries(indexingStatuses[root].excludedDirectories).some(
+      ([directory, reason]) => reason === "manual" &&
+        (directory === "." || relative === directory || relative.startsWith(directory + "/")),
+    );
+  };
   const [deleteCandidate, setDeleteCandidate] = useState<{
     path: string;
     isDir: boolean;
@@ -1873,6 +1884,7 @@ function FileExplorerTreeComponent({
                     : highlightedPath === row.file.path
                 }
                 exclusionReason={exclusionReason(row.file.path)}
+                isManuallyExcluded={isManuallyExcluded(row.file.path)}
                 directoryMark={directoryMark}
                 semanticKind={
                   markedRole === "sources"

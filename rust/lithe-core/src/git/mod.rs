@@ -8123,6 +8123,41 @@ pub(crate) fn untracked_candidates(directory: &Path, candidates: &[String]) -> O
     )
 }
 
+/// Strict tracked-directory query preserving native failure and cancellation categories.
+pub(crate) fn untracked_directory_candidates_checked(
+    directory: &Path,
+    candidates: &[String],
+) -> Result<HashSet<String>, CoreError> {
+    let mut untracked = candidates.iter().cloned().collect::<HashSet<_>>();
+    for batch in pathspec_batches(candidates, LS_FILES_PATHSPEC_BUDGET) {
+        let mut arguments = vec!["--literal-pathspecs", "ls-files", "-z", "--"];
+        arguments.extend(batch.iter().map(String::as_str));
+        let output = execute_git_readonly(
+            &directory.to_string_lossy(),
+            &arguments
+                .iter()
+                .map(|value| (*value).to_owned())
+                .collect::<Vec<_>>(),
+            None,
+        )?;
+        if output.exit_code != 0 {
+            return Err(CoreError::new(
+                ErrorCode::ProcessFailed,
+                "Could not inspect tracked repository directories",
+            )
+            .with_details(output.stderr));
+        }
+        for record in output
+            .stdout
+            .split('\0')
+            .filter(|record| !record.is_empty())
+        {
+            untracked.remove(record.split('/').next().unwrap_or(record));
+        }
+    }
+    Ok(untracked)
+}
+
 /// Splits `paths` into consecutive non-empty batches whose summed byte length
 /// stays within `budget`; a single longer path forms its own batch.
 fn pathspec_batches(paths: &[String], budget: usize) -> Vec<&[String]> {

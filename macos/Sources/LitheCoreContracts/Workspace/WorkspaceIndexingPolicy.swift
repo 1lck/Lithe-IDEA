@@ -14,16 +14,36 @@ package enum WorkspaceIndexingFailure: Error, Equatable, Sendable {
 
 /// Project preferences are separate from roles and from tree-hiding rules.
 package struct WorkspaceIndexingSettings: Codable, Equatable, Sendable {
-    package var gitIgnoreEnabled = true
+    package var gitIgnoreEnabled: Bool?
     package var includedDirectories: [String] = []
     package var previousRoles: [String: WorkspaceDirectoryMark] = [:]
+    package var ignoredDirectoryNoticeDismissed: Bool?
+    package init() {}
+
+    private enum CodingKeys: String, CodingKey {
+        case gitIgnoreEnabled, includedDirectories, previousRoles, ignoredDirectoryNoticeDismissed
+    }
+
+    package init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        gitIgnoreEnabled = values.contains(.gitIgnoreEnabled) ? try values.decode(Bool.self, forKey: .gitIgnoreEnabled) : nil
+        includedDirectories = try values.decode([String].self, forKey: .includedDirectories)
+        previousRoles = try values.decode([String: WorkspaceDirectoryMark].self, forKey: .previousRoles)
+        ignoredDirectoryNoticeDismissed = try values.decodeIfPresent(Bool.self, forKey: .ignoredDirectoryNoticeDismissed)
+    }
+}
+
+package struct WorkspaceIgnoredDirectorySuggestions: Decodable, Sendable {
+    package var directories: [String] = []
+    package var incomplete = false
+    package var gitIgnoreFailed = false
     package init() {}
 }
 
 package struct WorkspaceIndexingPolicy: Encodable, Equatable, Sendable {
     package let manualExcludedDirectories: [String]
     package let includedDirectories: [String]
-    package let gitIgnoreEnabled: Bool
+    package let gitIgnoreEnabled: Bool?
     package init(marks: [String: WorkspaceDirectoryMark], settings: WorkspaceIndexingSettings) {
         manualExcludedDirectories = marks.filter { $0.value == .excluded }.map(\.key).sorted()
         includedDirectories = settings.includedDirectories.sorted()
@@ -32,12 +52,13 @@ package struct WorkspaceIndexingPolicy: Encodable, Equatable, Sendable {
 }
 
 package struct WorkspaceIndexingStatus: Decodable, Sendable {
+    package var effectiveGitIgnoreEnabled: Bool?
     package var revision: UInt64 = 0
     package var excludedDirectories: [String: String] = [:]
     // Local transport capability; deliberately absent from the Core JSON contract.
     package var supportsExclusions = true
     private enum CodingKeys: String, CodingKey {
-        case revision, excludedDirectories, gitIgnoreFailed
+        case revision, excludedDirectories, gitIgnoreFailed, effectiveGitIgnoreEnabled
     }
     package var gitIgnoreFailed = false
     package init() {}

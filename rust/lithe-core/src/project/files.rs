@@ -357,6 +357,21 @@ pub fn list_directories(
             }
             Err(error) => return Err(error),
         };
+        // Query this visible sibling batch in its containing repository. Nested
+        // repositories own their children's rules, independently of analysis policy.
+        let names = listing
+            .children
+            .iter()
+            .map(|(path, _)| node_name(path))
+            .collect::<Vec<_>>();
+        let ignored_paths = crate::git::ignored_paths(&directory, &names)?.map(|paths| {
+            let mut paths = paths
+                .into_iter()
+                .map(|name| relative_path(&directory.join(name), &root))
+                .collect::<Vec<_>>();
+            paths.sort();
+            paths
+        });
         let children = listing
             .children
             .into_iter()
@@ -377,6 +392,7 @@ pub fn list_directories(
         directories.push(DirectoryListing {
             path: relative_path(&directory, &root),
             children,
+            ignored_paths,
             nested_worktrees: listing
                 .nested_worktrees
                 .iter()
@@ -1118,7 +1134,7 @@ impl VisibilityRules {
     }
 
     /// Binds scan ownership to the caller's workspace without changing directory browsing.
-    fn with_workspace_roots(mut self, root: &Path, roots: &[String]) -> Self {
+    pub(crate) fn with_workspace_roots(mut self, root: &Path, roots: &[String]) -> Self {
         for value in roots {
             // Disconnected siblings must not fail an otherwise valid scoped request.
             // Missing descendants still retain their boundary until the host removes the root.

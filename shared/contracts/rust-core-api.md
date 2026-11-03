@@ -989,11 +989,12 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `editor.lineCommentToken` | Resolve the line comment token for a file extension or language id |
 | `workspace.releaseIndexing` | Retire a policy and clear index/cache data at project close; accepts `root`, optional `ownerId`, and that owner's last observed `revision`, returns `released`; an old close must not retire a new generation |
 | `workspace.refreshIndexing` | Refresh external Git decisions for a live `root`, `ownerId`, `revision` lease without changing preferences or release tokens; returns lazy `IndexingStatus` |
+| `workspace.ignoredDirectorySuggestions` | Read bounded Git-ignored directory candidates still included in analysis; never writes project preferences |
 | `workspace.configureIndexing` | Install a process-local, canonical-root indexing policy before workspace consumers run; returns a monotonic revision, effective directory reasons and Git failure state; see `shared/fixtures/workspace/indexing-policy-v1.json` |
 | `network.proxyPolicy` | Normalize the stored proxy settings into the policy a network stack must apply (mode, server, credentials, exclusions) |
 | `workspace.snapshot` | Enumerate visible workspace nodes and relative file paths; `nestedWorktrees` lists linked worktrees checked out inside their own repository, which are left out of the tree, files, and search index; the built-in hidden names are skipped without being read, and include `node_modules`, Python virtual environments (`.venv`, `venv`), `__pycache__` and `*.pyc` files; `includeTree: false` returns only `files` and a childless `root`; `files` (and the tree, when included) keep the lowercase traversal order that bounded consumers such as Windows Quick Open rely on, not the natural display order of `workspace.listDirectories` |
 | `workspace.filterChanges` | Filter an array of workspace-relative paths, or `{ paths, hiddenFilePatterns }` whose `!` entries turn default exclusions off, against Core's default build/cache exclusions; preserve order, spelling, and the empty root path. Native event loss bypasses filtering. Hosts relativize to the most specific explicit watch root and retain explicitly watched files. |
-| `workspace.listDirectories` | Return one visible level of children for each requested workspace-relative directory (`""` is the root); missing, hidden, symlinked, or nested-worktree paths are omitted, and each listing reports the nested worktrees it left out. Child directories have `children: []` only when a shallow probe proves them visibly empty; otherwise children remain omitted (unloaded), with no recursive tree allocation. Children list directories first, then names in IDEA's natural file-name order (digit runs compare by value, case-insensitive, `-` next to `_`; fixture `shared/fixtures/workspace/file-name-order-v1.json`) |
+| `workspace.listDirectories` | Return one visible level of children for each requested workspace-relative directory (`""` is the root); missing, hidden, symlinked, or nested-worktree paths are omitted, and each listing reports the nested worktrees it left out. Optional `ignoredPaths` contains workspace-relative ignored child paths queried in the containing Git repository; omission means Git could not answer. This name decoration neither depends on indexing exclusions nor filters children. Child directories have `children: []` only when a shallow probe proves them visibly empty; otherwise children remain omitted (unloaded), with no recursive tree allocation. Children list directories first, then names in IDEA's natural file-name order (digit runs compare by value, case-insensitive, `-` next to `_`; fixture `shared/fixtures/workspace/file-name-order-v1.json`) |
 | `workspace.repositories` | Discover deterministic Git repository roots for an opened workspace |
 | `workspace.search` | Search visible file names and UTF-8 text files |
 | `workspace.searchEverywhere` | Search visible file names, Java types/methods, and UTF-8 text files |
@@ -4271,6 +4272,9 @@ returns `{ changes }`: the directory's immediate untracked files plus each
 subdirectory as a summary, using the same change shape and nested-root
 exclusion as `git.status`.
 
+Directory indexing exclusions do not filter Git commit candidates or their summary counts.
+Git ignore rules continue to govern untracked candidates through native Git.
+
 `git.workspaceCommitPrepare` owns the complete multi-repository policy. It accepts
 `repositories: [{ id, root }]`, `message`, `amend`, `push`,
 `includeParentReferences`, optional `previous` session for retry, and optional
@@ -4609,7 +4613,11 @@ Fixture: `shared/fixtures/lsp/java-project-runtimes-v1.json`.
 ### Workspace indexing policy
 
 `workspace.configureIndexing` accepts `root`, `manualExcludedDirectories`,
-`includedDirectories`, `gitIgnoreEnabled`, optional `refresh` and `paths`.
+`includedDirectories`, optional `gitIgnoreEnabled`, `refresh` and `paths`.
+Omitting `gitIgnoreEnabled` resolves to `false` in Core. Explicit saved booleans retain
+their value. Configure and refresh responses include `effectiveGitIgnoreEnabled`; hosts
+display that successful result without persisting defaults during reads. Older responses
+without the field remain decodable, but do not establish a known effective switch value.
 Directory identifiers are workspace-relative `/` paths; `.` names the root.
 Manual ancestor exclusions take precedence over every include exception. An include
 exception disables automatic Git exclusion for its subtree, while allowing a
@@ -4617,6 +4625,22 @@ more-specific manual exclusion. Ancestors needed to reach an exception remain
 traversable. Standalone ignored files are not converted to directory exclusions.
 Git checks use native `check-ignore` and protect tracked descendants with `ls-files`.
 No `.gitignore`, index, or project configuration files are written by this command.
+A nested `.git` directory or gitfile does not bypass its containing repository's ignore
+rules; tracked descendants and submodule gitlinks remain protected by the parent index.
+Directory indexing exclusions affect analysis and search, not Git repository ownership or status.
+
+`workspace.ignoredDirectorySuggestions` accepts `{ root, workspaceRoots? }` and requires
+an installed indexing policy. It returns `{ directories, incomplete, gitIgnoreFailed }`:
+sorted relative directory roots ignored by native Git but still eligible for analysis.
+It skips manual/automatic exclusions and roots explicitly delegated to another workspace,
+protects tracked descendants, does not follow symlinks, and prunes beneath each candidate.
+Scanning is bounded to 10,000 directories, 100,000 entries and 32 levels; partial/error flags never establish
+absence. Ignore checks and tracked-directory protection are batched, and retired generations
+reject late results. Inspection also works with automatic Git exclusion disabled; its cached
+Git decisions do not change the effective policy. Opening `.gitignore` only inspects. Hosts
+persist selected exclusions after explicit confirmation and store the optional project-local
+`ignoredDirectoryNoticeDismissed` preference in application storage, never in `.gitignore`.
+The shared example is `shared/fixtures/workspace/ignored-directory-suggestions-v1.json`.
 
 `ownerId` optionally identifies one workspace runtime lifetime. Independent runtimes
 using the same canonical root hold independent leases. Hosts acquire/release leases

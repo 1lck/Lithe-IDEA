@@ -168,3 +168,9 @@ Run the PowerShell harness in a real Windows environment. A macOS boundary
 check does not verify Bun timers, Windows process termination, or native Rust
 test execution. When using the Parallels guest, establish the user toolchain
 paths before invoking the script as required by `debug-windows-on-parallels`.
+
+The real-JDT Windows lane selects `lsp::interface::engine::real_jdt_tests::` via
+`--test-prefix`. SharedRust retains the ordinary full Core suite. The repeatable
+prefix option matches raw test names, defaults to all tests, reports discovery and
+selection counts, and fails closed when no case matches. Suite, case and cleanup
+deadlines remain unchanged.

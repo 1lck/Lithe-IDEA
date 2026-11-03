@@ -20,11 +20,12 @@ export function WorkspaceIndexingSettings({ root }: { root: string | undefined }
   const supported = canUseNativeFileSearch(root);
   const errorKey = (cause: unknown, fallback: string) =>
     cause instanceof IndexingSettingsError ? `indexing.${cause.code}` : fallback;
-  const [enabled, setEnabled] = useState(true);
+  const [enabled, setEnabled] = useState<boolean>();
   const [error, setError] = useState("");
   const [failed, setFailed] = useState(false);
   const [loaded, setLoaded] = useState(false);
   useEffect(() => {
+    setEnabled(undefined);
     setLoaded(false);
     setFailed(false);
     setError("");
@@ -33,9 +34,9 @@ export function WorkspaceIndexingSettings({ root }: { root: string | undefined }
     let generation = 0;
     const read = () => {
       const current = ++generation;
+      setLoaded(false);
       try {
-        setEnabled(readIndexingSettings(root).gitIgnoreEnabled);
-        setLoaded(true);
+        readIndexingSettings(root);
         setError("");
       } catch (cause) {
         setLoaded(false);
@@ -45,7 +46,11 @@ export function WorkspaceIndexingSettings({ root }: { root: string | undefined }
       if (!supported) return;
       void configureWorkspaceIndexing(root, [], false, workspaceId)
         .then((status) => {
-          if (!disposed && current === generation) setFailed(status.gitIgnoreFailed);
+          if (!disposed && current === generation) {
+            setEnabled(status.effectiveGitIgnoreEnabled);
+            setLoaded(typeof status.effectiveGitIgnoreEnabled === "boolean");
+            setFailed(status.gitIgnoreFailed);
+          }
         })
         .catch((cause) => {
           if (!disposed && current === generation)
@@ -73,14 +78,15 @@ export function WorkspaceIndexingSettings({ root }: { root: string | undefined }
           data-setting-interactive-root="true"
           data-setting-primary-control="true"
           aria-label={t("indexing.autoGit")}
-          checked={enabled}
+          checked={enabled === true}
+          indeterminate={enabled === undefined}
+          aria-description={enabled === undefined ? t("indexing.effectiveUnknown") : undefined}
           disabled={!supported || !loaded}
           onCheckedChange={(checked) => {
             if (!root || !supported || !loaded) return;
             try {
               const settings = readIndexingSettings(root);
               writeIndexingSettings(root, { ...settings, gitIgnoreEnabled: checked });
-              setEnabled(checked);
               setError("");
             } catch (cause) {
               setError(errorKey(cause, "indexing.writeFailed"));

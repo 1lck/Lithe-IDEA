@@ -132,8 +132,8 @@ struct ProjectTreeLoaderTests {
         let generation = cache.prepare(at: root, rules: .default)
         let disk: [String: [ProjectDirectoryEntry]] = [
             source.path: [.init(url: com, isDirectory: true)],
-            com.path: [.init(url: package, isDirectory: true)],
-            package.path: [.init(url: file, isDirectory: false)],
+            com.path: [.init(url: package, isDirectory: true, isGitIgnored: true)],
+            package.path: [.init(url: file, isDirectory: false, isGitIgnored: true)],
         ]
         var reads: [String: Int] = [:]
         let loader = ProjectTreeLoader(cache: cache, generation: generation) { directories in
@@ -149,6 +149,10 @@ struct ProjectTreeLoaderTests {
         #expect(rows.first?.url == package)
         #expect(rows.first?.collapsedAncestorPaths == [com.path])
         #expect(rows.first?.children?.map(\.url) == [file])
+        #expect(rows.first?.isGitIgnored == true)
+        #expect(rows.first?.children?.first?.isGitIgnored == true)
+        let visible = ProjectTreeSelection.VisibleRow(node: try #require(rows.first), depth: 1)
+        #expect(visible.node.isGitIgnored)
         #expect(reads == [source.path: 1, com.path: 1, package.path: 1])
         // Auto-expansion consumes compaction lookahead without a second read.
         // A later explicit refresh still reads the directory again.

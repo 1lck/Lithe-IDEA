@@ -22,7 +22,8 @@
     "excludedDirectories": {
       "vendor": "manual"
     },
-    "gitIgnoreFailed": false
+    "gitIgnoreFailed": false,
+    "effectiveGitIgnoreEnabled": true
   },
   "cases": [
     {
@@ -64,6 +65,20 @@
       ],
       "releasedOwner": "window-two/workspace-two",
       "rootRetired": true
+    }
+  ],
+  "defaultPreferenceCases": [
+    {
+      "storedValue": null,
+      "effectiveGitIgnoreEnabled": false
+    },
+    {
+      "storedValue": true,
+      "effectiveGitIgnoreEnabled": true
+    },
+    {
+      "storedValue": false,
+      "effectiveGitIgnoreEnabled": false
     }
   ]
 }

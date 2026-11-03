@@ -55,6 +55,7 @@ interface FileExplorerTreeItemProps {
   semanticKind?: FileIconSemanticKind;
   directoryMark?: DirectoryMark;
   exclusionReason?: string;
+  isManuallyExcluded?: boolean;
   isCut: boolean;
   isDragOver: boolean;
   isDragging: boolean;
@@ -104,6 +105,7 @@ function FileExplorerTreeItemComponent({
   semanticKind,
   directoryMark,
   exclusionReason,
+  isManuallyExcluded,
   isCut,
   isDragOver,
   isDragging,
@@ -222,6 +224,7 @@ function FileExplorerTreeItemComponent({
       data-is-dir={file.isDir}
       data-path={file.path}
       data-root={isRoot ? "true" : undefined}
+      data-excluded={isManuallyExcluded ? "true" : undefined}
       title={
         file.isSymlink && file.symlinkTarget
           ? t("files.symlinkTo", { target: file.symlinkTarget })
@@ -235,7 +238,6 @@ function FileExplorerTreeItemComponent({
         "min-w-max",
         isDragOver && "border-2! border-dashed! border-primary! bg-primary! bg-opacity-20!",
         isDragging && "cursor-move",
-        (file.ignored || directoryMark === "excluded") && "opacity-50",
         directoryMark === "module" && "font-semibold",
         isCut && "italic opacity-40",
       )}
@@ -256,6 +258,7 @@ function FileExplorerTreeItemComponent({
           className={cn(
             "file-tree-node-label select-none whitespace-nowrap",
             gitStatusDecoration?.colorClassName,
+            file.ignored && !gitStatusDecoration && "file-tree-ignored-label",
           )}
         >
           {renderHighlightedLabel(displayName ?? file.name, searchQuery)}
@@ -283,6 +286,7 @@ export const FileExplorerTreeItem = memo(
     prev.semanticKind === next.semanticKind &&
     prev.directoryMark === next.directoryMark &&
     prev.exclusionReason === next.exclusionReason &&
+    prev.isManuallyExcluded === next.isManuallyExcluded &&
     prev.isCut === next.isCut &&
     prev.isDragOver === next.isDragOver &&
     prev.isDragging === next.isDragging &&

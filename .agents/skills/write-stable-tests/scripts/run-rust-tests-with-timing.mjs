@@ -25,6 +25,7 @@ export function parseArguments(arguments_) {
     warnMs: 1000,
     maxMs: 15000,
     testBudgets: [],
+    testPrefixes: [],
     buildTimeoutMs: 1200000,
     suiteTimeoutMs: 1200000,
     report: null,
@@ -41,7 +42,11 @@ export function parseArguments(arguments_) {
     else if (argument === "--no-default-features") options.noDefaultFeatures = true;
     else if (argument === "--warn-ms") options.warnMs = positiveInteger(arguments_[++index], "--warn-ms");
     else if (argument === "--max-ms") options.maxMs = positiveInteger(arguments_[++index], "--max-ms");
-    else if (argument === "--test-budget") {
+    else if (argument === "--test-prefix") {
+      const prefix = arguments_[++index];
+      if (!prefix || prefix.startsWith("--")) throw new Error("--test-prefix requires a nonempty test-name prefix.");
+      options.testPrefixes.push(prefix);
+    } else if (argument === "--test-budget") {
       const value = arguments_[++index] ?? "";
       const match = value.match(/^([^=]+)=(\d+)$/);
       if (!match) throw new Error("--test-budget requires a nonempty test-name prefix followed by =milliseconds.");
@@ -106,6 +111,8 @@ export async function run(
   writeFileSync(logPath, "");
   const artifacts = new Map();
   const records = [];
+  let discoveredTests = 0;
+  let selectedTests = 0;
   const compilerMessages = [];
   const suiteStartedAt = now();
   const suiteDeadline = suiteStartedAt + options.suiteTimeoutMs;
@@ -144,6 +151,9 @@ export async function run(
       warnMs: options.warnMs,
       maxMs: options.maxMs,
       testBudgets: options.testBudgets ?? [],
+      testPrefixes: options.testPrefixes ?? [],
+      discoveredTests,
+      selectedTests,
       suiteTimeoutMs: options.suiteTimeoutMs,
       buildDurationMs,
       suite: {
@@ -248,8 +258,11 @@ export async function run(
         .split(/\r?\n/)
         .map((line) => line.match(/^(.*): test$/)?.[1])
         .filter(Boolean);
+      discoveredTests += tests.length;
 
       for (const testName of tests) {
+        if (options.testPrefixes?.length && !options.testPrefixes.some((prefix) => testName.startsWith(prefix))) continue;
+        selectedTests++;
         console.log(`RUN  ${artifact.target}::${testName}`);
         // The most specific integration-test prefix wins. The shared suite
         // deadline still caps every subprocess, including longer native tests.
@@ -306,7 +319,10 @@ export async function run(
       if (shouldStop) break;
     }
 
+    const noSelection = (options.testPrefixes?.length ?? 0) > 0 && selectedTests === 0;
+    if (noSelection) records.push({target: options.package ?? "rust-suite", name: "Rust test selection", status: "failed", durationMs: 0, details: "No Rust tests matched the requested prefixes."});
     writeReport();
+    if (noSelection) throw new Error("No Rust tests matched the requested prefixes.");
     console.log(`Recorded ${records.length} Rust test duration(s) in ${options.report}`);
     for (const record of records
       .filter((value) => value.durationMs >= options.warnMs)
@@ -319,7 +335,8 @@ export async function run(
         `Rust test suite exceeded ${options.suiteTimeoutMs}ms during ${suiteTimedOutStage}.`,
       );
     }
-    if (records.length === 0) throw new Error("No Rust tests were enumerated.");
+    if (records.length === 0) throw new Error(options.testPrefixes?.length
+      ? "No Rust tests matched the requested prefixes." : "No Rust tests were enumerated.");
     const failures = records.filter((record) => !["passed", "skipped"].includes(record.status)
       || record.durationMs >= (record.maxMs ?? options.maxMs));
     if (failures.length > 0) {

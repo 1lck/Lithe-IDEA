@@ -1168,6 +1168,10 @@ struct EditorAreaView: View {
                 } else if !paneDiffSelected {
                     VStack(spacing: 0) {
                         externalConflictBanner
+                        if paneTerminal == nil, let document = paneDocument,
+                           document.url.lastPathComponent == ".gitignore" {
+                            IgnoredDirectoryNotice(feature: model.workspaceFeature, fileURL: document.url)
+                        }
                         activeEditor
                     }
                 }

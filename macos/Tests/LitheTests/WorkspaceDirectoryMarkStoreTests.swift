@@ -4,6 +4,20 @@ import LitheCoreContracts
 @testable import Lithe
 
 struct WorkspaceDirectoryMarkStoreTests {
+    @Test
+    func noticeDismissalReadsLegacyPreferencesAndPersistsPerProject() throws {
+        let preferences = DirectoryMarkKeyValueStore()
+        let store = WorkspaceDirectoryMarkStore(store: preferences)
+        let root = URL(fileURLWithPath: "/projects/legacy")
+        preferences.set(Data(#"{"gitIgnoreEnabled":false,"includedDirectories":["cache"],"previousRoles":{}}"#.utf8),
+                        forKey: "lithe.workspace-indexing." + root.path)
+        var settings = try store.loadIndexingSettings(for: root)
+        #expect(settings.ignoredDirectoryNoticeDismissed == nil)
+        settings.ignoredDirectoryNoticeDismissed = true
+        try store.saveIndexingSettings(settings, for: root)
+        #expect(try store.loadIndexingSettings(for: root) == settings)
+        #expect(try store.loadIndexingSettings(for: URL(fileURLWithPath: "/projects/other")).ignoredDirectoryNoticeDismissed != true)
+    }
     @Test(arguments: ["broken", "null", "{}", "{\"gitIgnoreEnabled\":null,\"includedDirectories\":[]}", "{\"gitIgnoreEnabled\":true,\"includedDirectories\":[1]}"])
     func invalidIndexingSettingsAreClassifiedAndPreserved(_ raw: String) throws {
         let preferences = DirectoryMarkKeyValueStore()
@@ -34,11 +48,29 @@ struct WorkspaceDirectoryMarkStoreTests {
             try store.loadDirectoryMarks(for: URL(fileURLWithPath: "/projects/other")).isEmpty
         )
     }
+    @Test(arguments: [true, false])
+    func savedGitPreferencesSurviveWithoutMaterializingDefaults(enabled: Bool) throws {
+        let preferences = DirectoryMarkKeyValueStore()
+        let store = WorkspaceDirectoryMarkStore(store: preferences)
+        let root = URL(fileURLWithPath: "/projects/preferences")
+        let key = "lithe.workspace-indexing." + root.path
+        #expect(try store.loadIndexingSettings(for: root).gitIgnoreEnabled == nil)
+        #expect(preferences.data(forKey: key) == nil)
+        var settings = WorkspaceIndexingSettings()
+        try store.saveIndexingSettings(settings, for: root)
+        let encoded = try #require(preferences.data(forKey: key))
+        let object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        #expect(object["gitIgnoreEnabled"] == nil)
+        settings.gitIgnoreEnabled = enabled
+        try store.saveIndexingSettings(settings, for: root)
+        #expect(try store.loadIndexingSettings(for: root).gitIgnoreEnabled == enabled)
+    }
+
     @Test
     func indexingSettingsPreserveManualMarksAndProjectIsolation() throws {
         let store = WorkspaceDirectoryMarkStore(store: DirectoryMarkKeyValueStore())
         let root = URL(fileURLWithPath: "/projects/example")
-        #expect(try store.loadIndexingSettings(for: root).gitIgnoreEnabled)
+        #expect(try store.loadIndexingSettings(for: root).gitIgnoreEnabled == nil)
         try store.saveDirectoryMarks(["vendor": .excluded], for: root)
         var settings = WorkspaceIndexingSettings()
         settings.gitIgnoreEnabled = false

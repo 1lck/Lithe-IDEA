@@ -555,7 +555,12 @@ package final class WorkspaceFeatureModel: ObservableObject {
             return .unavailable
         }
         if indexingOnly, snapshot.files == projectFiles, snapshot.incompleteDirectories.isEmpty,
-           appliedSnapshot?.incompleteDirectories.isEmpty == true {
+           let previous = appliedSnapshot, previous.incompleteDirectories.isEmpty {
+            // Rules can change row decorations without changing analysis membership.
+            // Preserve inventory identity so services do not restart for a color update.
+            rootNode = snapshot.root
+            appliedSnapshot = WorkspaceSnapshot(root: snapshot.root, files: previous.files,
+                nestedWorktrees: previous.nestedWorktrees, incompleteDirectories: [], id: previous.id)
             isLoadingWorkspace = false
             isRefreshingWorkspace = false
             return .loaded(snapshot)
@@ -637,30 +642,37 @@ package final class WorkspaceFeatureModel: ObservableObject {
     }
 
     package func markDirectory(_ url: URL, action: WorkspaceDirectoryAction) async {
+        await markDirectories([url], action: action)
+    }
+
+    private func markDirectories(_ urls: [URL], action: WorkspaceDirectoryAction) async {
         guard !isPerformingProjectItemOperation,
               !indexingPreferencesFailed,
               action != .exclude || indexingStatus.supportsExclusions,
-              let workspaceURL,
-              let relativePath = Self.relativePath(for: url, in: workspaceURL) else { return }
+              let workspaceURL else { return }
+        let relativePaths = urls.compactMap { Self.relativePath(for: $0, in: workspaceURL) }
+        guard relativePaths.count == urls.count, !relativePaths.isEmpty else { return }
         let workspaceGeneration = self.workspaceGeneration
         let previousMarks = directoryMarks
         var updatedMarks = directoryMarks
         let previousSettings = indexingSettings
-        switch action {
-        case .cancelExclusion:
-            guard !directoryMarks.contains(where: { $0.value == .excluded && $0.key != relativePath && (relativePath.hasPrefix($0.key + "/") || $0.key == ".") }) else { return }
-            let remembered = indexingSettings.previousRoles.removeValue(forKey: relativePath)
-            if updatedMarks[relativePath] == .excluded {
-                updatedMarks[relativePath] = remembered ?? .plain
+        for relativePath in relativePaths {
+            switch action {
+            case .cancelExclusion:
+                guard !directoryMarks.contains(where: { $0.value == .excluded && $0.key != relativePath && (relativePath.hasPrefix($0.key + "/") || $0.key == ".") }) else { return }
+                let remembered = indexingSettings.previousRoles.removeValue(forKey: relativePath)
+                if updatedMarks[relativePath] == .excluded {
+                    updatedMarks[relativePath] = remembered ?? .plain
+                }
+                if !indexingSettings.includedDirectories.contains(relativePath) { indexingSettings.includedDirectories.append(relativePath) }
+            case .exclude:
+                if let previous = updatedMarks[relativePath], previous != .excluded { indexingSettings.previousRoles[relativePath] = previous }
+                updatedMarks[relativePath] = .excluded
+                indexingSettings.includedDirectories.removeAll { $0 == relativePath }
+            case .setRole(let role):
+                guard role != .excluded else { return }
+                updatedMarks[relativePath] = role
             }
-            if !indexingSettings.includedDirectories.contains(relativePath) { indexingSettings.includedDirectories.append(relativePath) }
-        case .exclude:
-            if let previous = updatedMarks[relativePath], previous != .excluded { indexingSettings.previousRoles[relativePath] = previous }
-            updatedMarks[relativePath] = .excluded
-            indexingSettings.includedDirectories.removeAll { $0 == relativePath }
-        case .setRole(let role):
-            guard role != .excluded else { return }
-            updatedMarks[relativePath] = role
         }
         guard updatedMarks != previousMarks || previousSettings != indexingSettings else { return }
 
@@ -707,6 +719,41 @@ package final class WorkspaceFeatureModel: ObservableObject {
         do { try directoryMarkStore.saveIndexingSettings(indexingSettings, for: workspaceURL) }
         catch { indexingSettings = previous; recordIndexingFailure(error, fallback: .writeFailed); return }
         await refreshCurrent()
+    }
+
+    package func ignoredDirectorySuggestions() async throws -> WorkspaceIgnoredDirectorySuggestions {
+        guard let workspaceURL, indexingStatus.supportsExclusions, !indexingPreferencesFailed else {
+            throw WorkspaceIndexingFailure.configureFailed
+        }
+        let generation = workspaceGeneration
+        let result = try await Task.detached(priority: .utility) { [operations] in
+            try operations.ignoredDirectorySuggestions(at: workspaceURL)
+        }.value
+        guard !Task.isCancelled, self.workspaceURL == workspaceURL,
+              self.workspaceGeneration == generation else { throw CancellationError() }
+        return result
+    }
+
+    package func excludeIgnoredDirectories(_ paths: Set<String>) async throws {
+        let generation = workspaceGeneration
+        let suggestions = try await ignoredDirectorySuggestions()
+        guard let workspaceURL, workspaceGeneration == generation else { throw CancellationError() }
+        let chosen = suggestions.directories.filter { paths.contains($0) }
+        await markDirectories(chosen
+            .map { workspaceURL.appendingPathComponent($0, isDirectory: true) }, action: .exclude)
+        guard self.workspaceGeneration == generation else { throw CancellationError() }
+        guard chosen.allSatisfy({ directoryMarks[$0] == .excluded }) else { throw WorkspaceIndexingFailure.writeFailed }
+    }
+
+    package func dismissIgnoredDirectoryNotice() {
+        guard let workspaceURL, !indexingPreferencesFailed else { return }
+        var settings = indexingSettings
+        settings.ignoredDirectoryNoticeDismissed = true
+        do {
+            try directoryMarkStore.saveIndexingSettings(settings, for: workspaceURL)
+            indexingSettings = settings
+            indexingSettingsRevision &+= 1
+        } catch { recordIndexingFailure(error, fallback: .writeFailed) }
     }
 
 
@@ -1395,11 +1442,11 @@ package final class WorkspaceFeatureModel: ObservableObject {
         let rulesChanged = batch.gitMetadataMayHaveChanged
             || (batch.gitStateMayHaveChanged && batch.workspacePaths.isEmpty)
             || batch.workspacePaths.contains { URL(fileURLWithPath: $0).lastPathComponent == ".gitignore" }
-        if rulesChanged, indexingSettings.gitIgnoreEnabled {
+        if rulesChanged {
             indexingRulesRevision &+= 1
             pendingIndexingRuleRefresh = true
         }
-        if !batch.workspacePaths.isEmpty || batch.watchRootsChanged || batch.requiresFullRescan {
+        if rulesChanged || !batch.workspacePaths.isEmpty || batch.watchRootsChanged || batch.requiresFullRescan {
             // Invalidate before debounce: an expansion must not consume pre-event lookahead.
             invalidateDirectoryListings()
         }
@@ -1561,8 +1608,36 @@ package final class WorkspaceFeatureModel: ObservableObject {
         guard !Task.isCancelled, workspaceGeneration == generation, activeGitRefreshID == refreshID else { return }
         if pendingIndexingRuleRefresh, !isLoadingWorkspace, !isRefreshingWorkspace {
             pendingIndexingRuleRefresh = false
-            await refreshCurrentSnapshot(refreshGitAfterwards: false, indexingOnly: true)
+            if indexingStatus.effectiveGitIgnoreEnabled == true {
+                await refreshCurrentSnapshot(refreshGitAfterwards: false, indexingOnly: true)
+            } else if let workspaceURL {
+                await refreshIgnoredDirectoryMetadata(at: workspaceURL)
+            }
         }
+    }
+
+    private func refreshIgnoredDirectoryMetadata(at root: URL) async {
+        let generation = workspaceGeneration, ownerID = indexingOwnerID
+        let policy = WorkspaceIndexingPolicy(marks: directoryMarks, settings: indexingSettings)
+        let isCurrent: @MainActor () -> Bool = { [weak self] in
+            guard let self else { return false }
+            return !self.workspaceResourcesReleased && self.workspaceURL == root
+                && self.workspaceGeneration == generation && self.indexingOwnerID == ownerID
+                && policy == WorkspaceIndexingPolicy(marks: self.directoryMarks, settings: self.indexingSettings)
+        }
+        do {
+            // Inspection uses Git decisions even when automatic exclusion is off.
+            // Refresh its generation without rebuilding the unchanged inventory.
+            let status = try await configureCurrentIndexing(at: root, policy: policy, refresh: true, isCurrent: isCurrent)
+            guard isCurrent(), !Task.isCancelled else { return }
+            indexingStatus = status
+            indexingIssue = nil
+        } catch {
+            guard isCurrent(), !Task.isCancelled else { return }
+            if !(error is CancellationError) { recordIndexingFailure(error) }
+        }
+        guard isCurrent(), !Task.isCancelled else { return }
+        await refreshExcludedTree(at: root)
     }
 
     private func applyExternalRefresh(_ paths: [String], at workspaceURL: URL) async {
@@ -1611,12 +1686,18 @@ package final class WorkspaceFeatureModel: ObservableObject {
             notifyWorkspaceFileChanges?(fileChanges)
         }
 
+        let createdFiles = changedURLs.filter {
+            !isKnownProjectFile($0) && fileOperations.fileExists(at: $0) && !fileOperations.isDirectory(at: $0)
+        }
         var reloadedProjectServices = appliedSnapshot?.id != previousSnapshotID
         switch incrementalTree(applying: changedURLs, at: workspaceURL) {
         case .unchanged:
             break
         case .updated(let root, let files, let reloadsTree):
             await applyIncrementalTree(root: root, files: files, reloadsTree: reloadsTree)
+            // Commit membership before yielding for decoration reads, so a later
+            // watcher batch cannot lose this batch's created/deleted signals.
+            if !reloadsTree { await refreshFileDecorations(createdFiles, at: workspaceURL) }
             reloadedProjectServices = true
         case .requiresSnapshot:
             await refreshCurrentSnapshot(refreshGitAfterwards: false)
@@ -1773,24 +1854,66 @@ package final class WorkspaceFeatureModel: ObservableObject {
         return didChange ? .updated(root: root, files: files, reloadsTree: reloadsTree) : .unchanged
     }
 
+    /// Reads only parents of newly inserted visible files. Unopened subtrees stay
+    /// lazy, and decoration updates never publish a new analysis inventory.
+    private func refreshFileDecorations(_ urls: [URL], at workspaceURL: URL) async {
+        guard !urls.isEmpty else { return }
+        let generation = workspaceGeneration
+        let operations = self.operations
+        while self.workspaceURL == workspaceURL, workspaceGeneration == generation,
+              let currentRoot = rootNode {
+            let revision = directoryListingRevision
+            let rules = visibilityRules
+            let parents = Set(urls.map { $0.deletingLastPathComponent() }).compactMap { url -> FileNode? in
+                guard let row = currentRoot.node(exactlyAt: url), row.isDirectory, row.children != nil else { return nil }
+                return row
+            }
+            guard !parents.isEmpty else { return }
+            let listed = await Task.detached(priority: .userInitiated) {
+                operations.childRows(of: parents, at: workspaceURL, visibilityRules: rules)
+            }.value
+            guard self.workspaceURL == workspaceURL, workspaceGeneration == generation else { return }
+            // These files were already committed before the read. A later batch
+            // can cancel its caller; retry against the current listing revision.
+            guard directoryListingRevision == revision else { continue }
+            guard let listed, var root = rootNode, let snapshot = appliedSnapshot else { return }
+            let requested = Set(urls)
+            for children in listed.values {
+                for child in children where !child.isDirectory && requested.contains(child.url) {
+                    if let updated = root.settingGitIgnored(child.isGitIgnored, at: child.url) { root = updated }
+                }
+            }
+            rootNode = root
+            appliedSnapshot = WorkspaceSnapshot(root: root, files: projectFiles,
+                nestedWorktrees: snapshot.nestedWorktrees, incompleteDirectories: snapshot.incompleteDirectories, id: snapshot.id)
+            return
+        }
+    }
+
     /// Relists only already-loaded levels; browsing never contributes index candidates.
     private func refreshExcludedTree(at workspaceURL: URL) async {
-        guard let root = rootNode, let snapshot = appliedSnapshot else { return }
         let generation = workspaceGeneration
-        let revision = directoryListingRevision
         let operations = self.operations
-        let rules = visibilityRules
-        let loaded = Self.loadedDirectoryPaths(in: root)
-        let base = FileNode(url: root.url, isDirectory: true, children: nil)
-        let relisted = await Task.detached(priority: .userInitiated) {
-            Self.listingTree(base, reloading: loaded, at: workspaceURL, operations: operations, rules: rules)
-        }.value
-        guard self.workspaceURL == workspaceURL, workspaceGeneration == generation,
-              directoryListingRevision == revision, appliedSnapshot?.id == snapshot.id,
-              let relisted else { return }
-        rootNode = relisted
-        appliedSnapshot = WorkspaceSnapshot(root: relisted, files: projectFiles,
-                                            nestedWorktrees: snapshot.nestedWorktrees, incompleteDirectories: snapshot.incompleteDirectories, id: snapshot.id)
+        while self.workspaceURL == workspaceURL, workspaceGeneration == generation,
+              let root = rootNode, let snapshot = appliedSnapshot {
+            let revision = directoryListingRevision
+            let rules = visibilityRules
+            let loaded = Self.loadedDirectoryPaths(in: root)
+            let base = FileNode(url: root.url, isDirectory: true, children: nil)
+            let relisted = await Task.detached(priority: .userInitiated) {
+                Self.listingTree(base, reloading: loaded, at: workspaceURL, operations: operations, rules: rules)
+            }.value
+            guard self.workspaceURL == workspaceURL, workspaceGeneration == generation else { return }
+            // Rule refreshes must survive overlapping file events, and expansion
+            // can change loaded children without changing the inventory identity.
+            guard directoryListingRevision == revision, appliedSnapshot?.id == snapshot.id,
+                  rootNode == root else { continue }
+            guard let relisted else { return }
+            rootNode = relisted
+            appliedSnapshot = WorkspaceSnapshot(root: relisted, files: projectFiles,
+                nestedWorktrees: snapshot.nestedWorktrees, incompleteDirectories: snapshot.incompleteDirectories, id: snapshot.id)
+            return
+        }
     }
 
     /// Publishes an updated inventory as a new snapshot so project services
@@ -2051,7 +2174,8 @@ package final class WorkspaceFeatureModel: ObservableObject {
             isDirectory: node.isDirectory,
             children: children.compactMap { removingProjectItem(targetURL, from: $0) },
             collapsedAncestorPaths: node.collapsedAncestorPaths,
-            isInsideSourceRoot: node.isInsideSourceRoot
+            isInsideSourceRoot: node.isInsideSourceRoot,
+            isGitIgnored: node.isGitIgnored
         )
     }
 

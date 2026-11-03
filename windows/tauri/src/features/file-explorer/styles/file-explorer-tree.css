@@ -66,6 +66,16 @@
   background-color: transparent !important;
 }
 
+/* Community 536da82a: Islands overrides NonProjectFilesScope's FileColor.Yellow. */
+.file-tree-container .file-tree-item > button[data-excluded="true"]:not(.bg-selected),
+.file-tree-container .file-tree-item > button[data-excluded="true"]:not(.bg-selected):hover {
+  background-color: light-dark(#fff9eb, #291f1c) !important;
+}
+
+.file-tree-ignored-label {
+  color: light-dark(#727238, #908b25);
+}
+
 .file-tree-container .file-tree-item > button.bg-selected,
 .file-tree-container .file-tree-item > button.bg-selected:hover {
   border-color: transparent !important;

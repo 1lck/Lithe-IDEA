@@ -670,6 +670,14 @@ private struct ProjectFileTreeContent: View, Equatable {
         // every descendant and cannot virtualize a large expanded directory.
         LitheTreeList(
             visibleRows, id: \.id, selection: .constant(Set<String>()),
+            hierarchy: { row in
+                let path = row.node.url.path == root.url.path ? "."
+                    : String(row.node.url.path.dropFirst(root.url.path.count + 1))
+                let excluded = supportsIndexingExclusions && directoryMarks.contains { directory, mark in
+                    mark == .excluded && (directory == "." || path == directory || path.hasPrefix(directory + "/"))
+                }
+                return LitheTreeListHierarchy(background: excluded ? LitheTheme.Tree.excludedBackground : nil)
+            },
             native: native, scrollRequest: scrollRequest
         ) { row in
             FileNodeRow(
@@ -1141,6 +1149,7 @@ private struct FileNodeRow: View {
 
     private var statusColor: Color? {
         gitStatusColor ?? gitStatus.vcsStatus(for: node.url)?.treeColor
+            ?? (node.isGitIgnored ? LitheTheme.Commit.fileIgnored : nil)
     }
 
     private var gitStatusColor: Color? {

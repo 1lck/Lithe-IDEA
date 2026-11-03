@@ -889,3 +889,5 @@ try {
 }
 
 console.log("Test stability verifier tests passed.");
+
+await import("./test-rust-test-selection.mjs");
