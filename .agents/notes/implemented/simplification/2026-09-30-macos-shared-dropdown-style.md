@@ -10,6 +10,11 @@ Project/Dependencies 标题与 Terminal shell/动作入口同样使用 `LitheMen
 不能退回读取 currentEvent 的鼠标位置或硬编码窗口偏移，否则键盘和点击按钮不同位置
 会产生不同弹出位置。命令列表与空终端禁用状态保持原语义。
 
+项目文件的“打开方式”从 2026-11-03 起有一处明确例外：用户需要 Finder 的系统菜单外观，
+共享呈现器将带该动作的整个文件右键菜单交给 AppKit。其余产品菜单继续沿用本文基准，
+业务代码不能自行构建系统菜单或选择另一组尺寸。原因、公开系统 API 的范围和验收要求见
+[macOS 文件打开方式](../feature/2026-11-03-macos-open-with.md)。
+
 ## 问题
 
 `LitheContextMenuPresenter` 原先通过 `settingsStyle` 在两套背景、边框、行高和文字尺寸之间切换。Git Log 设置按钮虽然接入了共享组件，实际使用的仍是另一套样式，因此看起来与 Project 不一致。

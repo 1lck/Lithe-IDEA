@@ -800,11 +800,17 @@ mod tests {
     fn browser_grammar_failure_accepts_cpp_and_missing_long_language_identity() {
         for language in [Some("c++"), None] {
             let mut fields = serde_json::json!({"plugin":"io.example.grammar"});
-            if let Some(language) = language { fields["language"] = language.into(); }
+            if let Some(language) = language {
+                fields["language"] = language.into();
+            }
             let input = serde_json::json!({"events":[{"ts":"2026-11-03T00:00:00Z","level":"WARN","seq":1,
                 "event":"plugins.grammar.load_failed","msg":"","fields":fields}],"validateCatalog":true});
             let result = encode_log_batch(serde_json::from_value(input).unwrap());
-            assert!(result.results[0].line.is_some(), "{language:?}: {:?}", result.results[0].error);
+            assert!(
+                result.results[0].line.is_some(),
+                "{language:?}: {:?}",
+                result.results[0].error
+            );
         }
     }
 
