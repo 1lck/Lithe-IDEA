@@ -437,10 +437,10 @@ fn register_stop_flag(tree: &Arc<ProcessTree>, sender: &Sender<SessionEvent>) ->
 
 /// 标记一次用户主动停止，并返回会话输出发送端供强杀提示使用。
 fn mark_user_stop(tree: &Arc<ProcessTree>) -> Option<Sender<SessionEvent>> {
-    let registration = STOP_REGISTRATIONS
+    let registrations = STOP_REGISTRATIONS
         .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .get(&(Arc::as_ptr(tree) as usize))?;
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let registration = registrations.get(&(Arc::as_ptr(tree) as usize))?;
     registration.stopped.store(true, Ordering::SeqCst);
     Some(registration.sender.clone())
 }
@@ -489,11 +489,11 @@ pub fn exit_system_line(code: Option<i32>, stopped: bool) -> String {
 ///
 /// Drop 时删除文件：宿主把它移交退出等待线程，进程结束后才清理；
 /// 写入失败或启动失败时在当次调用栈里就地删除。
-pub(super) struct LaunchArgumentFile(PathBuf);
+pub(super) struct LaunchArgumentFile(pub(crate) PathBuf);
 
 impl LaunchArgumentFile {
     /// 缩短参数文件的路径，供诊断与测试使用。
-    pub(super) fn path(&self) -> &Path {
+    pub(crate) fn path(&self) -> &Path {
         &self.0
     }
 }

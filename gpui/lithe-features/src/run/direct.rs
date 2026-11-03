@@ -324,7 +324,7 @@ fn encode_argfile_in_code_page(text: &str, code_page: u32) -> Result<Vec<u8>, St
 
 #[cfg(windows)]
 #[link(name = "kernel32")]
-extern "system" {
+unsafe extern "system" {
     fn GetACP() -> u32;
     fn WideCharToMultiByte(
         code_page: u32,

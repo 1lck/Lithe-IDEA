@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use async_channel::Receiver;
 use gpui_kit::component::resizable::ResizableState;
-use gpui_kit::{App, Context, KeyBinding, SharedString, Task, Window};
+use gpui_kit::{App, AppContext as _, Context, KeyBinding, SharedString, Task, Window};
 use lithe_core_client::CoreClient;
 use lithe_git_host::ProcessTree;
 use lithe_ui::i18n::tr;
@@ -273,7 +273,7 @@ impl RunPanel {
     ///
     /// 只用于复制、打印、诊断这类需要全文的一次性动作；渲染走虚拟化列表，
     /// 不再每帧拼接整段输出。
-    fn selected_output(&self) -> String {
+    pub(super) fn selected_output(&self) -> String {
         self.selected_id
             .as_ref()
             .and_then(|id| self.sessions.get(id))
@@ -282,7 +282,7 @@ impl RunPanel {
     }
 
     /// 当前选中会话展示的行数与行文本访问器。
-    fn selected_line_count(&self) -> usize {
+    pub(super) fn selected_line_count(&self) -> usize {
         self.selected_id
             .as_ref()
             .and_then(|id| self.sessions.get(id))
@@ -291,12 +291,12 @@ impl RunPanel {
     }
 
     /// 是否有任一控制台输出了内容。
-    fn selected_has_output(&self) -> bool {
+    pub(super) fn selected_has_output(&self) -> bool {
         self.selected_line_count() > 0
     }
 
     /// 当前选中会话采用的启动方式；没有运行记录时为 `None`。
-    fn selected_run_mode(&self) -> Option<RunMode> {
+    pub(super) fn selected_run_mode(&self) -> Option<RunMode> {
         self.selected_id
             .as_ref()
             .and_then(|id| self.sessions.get(id))
@@ -532,7 +532,7 @@ impl RunPanel {
         let is_output = matches!(&event, SessionEvent::Output(_));
         let mut output_chunk: Option<String> = None;
         let mut failed_output: Option<String> = None;
-        let mut preparation_event: Option<preparation::PreparationEvent> = None;
+        let mut preparation_event: Option<PreparationEvent> = None;
         let mut preparation_failed = false;
         if let Some(session) = self.sessions.get_mut(id) {
             match event {

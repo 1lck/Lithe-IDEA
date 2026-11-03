@@ -8,8 +8,8 @@ use gpui_kit::component::{
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, ClickEvent, Context, DismissEvent, EventEmitter as _, Focusable as _, FontWeight,
-    InteractiveElement as _, SharedString, StatefulInteractiveElement as _, Styled as _, Window,
-    anchored, deferred, px,
+    InteractiveElement as _, IntoElement, ParentElement as _, SharedString,
+    StatefulInteractiveElement as _, Styled as _, Window, anchored, deferred, div, px,
 };
 use lithe_ui::i18n::tr;
 use lithe_ui::{LitheIcon, LitheMetrics, LitheTokens, icon};

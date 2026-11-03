@@ -67,7 +67,7 @@ const TOOLCHAIN_PROBES: &[ToolchainProbe] = &[
 /// selected”。这里读取 `.lithe/toolchains/requirements.json`，只为声明过的工具链
 /// 探测，避免每次刷新都为全部工具拉起子进程；requirements 不存在时 Core 本来也
 /// 不会产出工具链诊断。
-pub(super) fn toolchain_candidates(root: &Path) -> Vec<Value> {
+pub(crate) fn toolchain_candidates(root: &Path) -> Vec<Value> {
     let Some(requirements) = read_toolchain_requirements(root) else {
         return Vec::new();
     };
