@@ -907,3 +907,40 @@ PluginSettingsTests 验证插件声明、默认关闭、持久化、跨项目通
 不同插件语言也可共用同一种语法。模型保留插件身份；省略语言的同文档更新保持该身份，显式改变身份时即使
 语法不变也释放旧手势并使在途语义结果过期。真实 WebKit 回归覆盖别名的开关及悬停、共用语法的主视图/分屏独立策略、
 同模型身份切换。Swift 受控回复回归覆盖选择实现 → 关闭回调 → 延迟虚拟源码到达，以及加载期间关闭功能、用户取消。
+
+
+### 基础构建文件与脚本高亮（两端）
+
+内置着色补齐 Make、CMake、Groovy/Gradle、PowerShell/Batch，其他扩展语言仍通过插件贡献。
+文件关联在共享 `basic-file-associations` 中维护；平台先查询插件，随后应用这份基础映射。
+`Makefile.*` 保留 Windows 既有识别，并让 macOS 使用同一关联。
+例如 `build.gradle` 使用 Groovy，`build.gradle.kts` 使用 Kotlin；不要因文件图标或构建工具目录认识
+某个名字，就假设编辑器已经注册了对应语法。
+
+Monaco 0.55.1 已有 PowerShell/Batch，直接启用。Make/CMake/Groovy 复用固定上游的
+TextMate 语法（描述词法作用域的静态 JSON），由已有 TextMate 9.3.2 和 Oniguruma 1.7.0
+执行，通用化现有 Java adapter；Java 的专用 token 角色和默认入口保持原行为。
+来源提交、原始路径和许可证集中在 `frontend/editor/vendor/NOTICE.txt`，语法文件逐字节保存。
+不新增手写 Make/CMake/Groovy 正则，也不为了着色启动语言服务或构建进程。
+Groovy 的可选外部 Javadoc scope 未打包，保留普通注释高亮，不承诺完整文档标签语法。
+
+每个实际打开的 TextMate 语言按需加载一个 worker（后台执行实例），复用现有逐行 20ms
+预算和分片处理；WebView 关闭或热更新时释放注册、worker 和语法引擎。
+插件优先注册自己的语法；基础文件名、扩展名映射不授予 LSP/Run 能力。
+相比新增一套语法引擎，复用让主题、撤销和模型生命周期保持一致，代价是打开这三类文件时
+分别增加按需 worker 和语法内存。没有把全部上游语言打包进基础产品。
+
+资源生命周期由构建拥有：Git 保存语法源，macOS build 复制到自己的输出，Windows Vite
+将语法/WASM/worker 生成为本地资源，并携带许可证；签名前完成所有写入。
+Windows 在 Monaco 环境入口注入指纹化资源 URL，主编辑区、独立差异与共享差异视图都通过同一 provider 解析；
+不要只在主编辑区的语言加载函数传 URL，否则首次直接打开差异视图会查找不存在的根目录资源。
+运行时仅从 bundle/安装资源读取，语法状态和 token 仅在内存，不产生缓存或下载物，
+不改代码签名及 Sparkle 增量更新基线。`editor-theme-assets` 排除路由拒绝跨工作树复用：
+这些生成资源没有可靠 identity stamp，不能从另一个工作树或安装程序复制。
+
+共享 fixture `shared/fixtures/editor/basic-file-highlighting-v1.json` 描述文件关联和实际 token，
+真实 WebKit workbench 回归覆盖选择语法、着色、编辑和撤销，原有清单回归覆盖深浅主题。
+Windows 单元回归消费同一 fixture；Windows WebView2 实机验收仍以功能矩阵为准。
+验证入口：`./scripts/macos/probe/probe-macos-monaco.sh --workbench-tests`、
+`node --test scripts/resources/test-reuse-worktree-resources.mjs`、
+`./scripts/macos/verify/verify-runtime-bundle-immutability.sh`。

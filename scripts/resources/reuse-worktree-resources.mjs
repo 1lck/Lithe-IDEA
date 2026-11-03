@@ -429,7 +429,8 @@ async function main() {
       // Per-launch Codex helpers also own memory-only context replay tickets and
       // loopback capabilities; they stay on this exclusion route, never a copy stage.
       // Agent edit-and-paste state is user-owned runtime data, without a copy stage.
-      // editor-theme-assets rebuild palettes and license notices together; no build stamp permits reuse.
+      // editor-theme-assets rebuild palettes, bundled Make/CMake/Groovy grammars and notices together.
+      // Git-owned grammar inputs and memory-only tokenizer workers never enter a copy validator.
       if (excludedResources.some((resource) => resource.id === identifier)) {
         // Per-launch relays also own their provider admission route; they stay
         // excluded even when their embedded source matches another worktree.

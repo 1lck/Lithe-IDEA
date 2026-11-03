@@ -1,4 +1,5 @@
 import { extensionRegistry } from "@/extensions/registry/extension-registry";
+import { basicLanguageForFilename } from "@lithe/editor/basic-file-associations";
 import {
   ANGULAR_TEMPLATE_LANGUAGE_ID,
   isAngularTemplatePath,
@@ -196,6 +197,7 @@ const LANGUAGE_DISPLAY_NAMES: Record<string, string> = {
   gitattributes: "Git Attributes",
   graphql: "GraphQL",
   makefile: "Makefile",
+  groovy: "Groovy",
   cmake: "CMake",
   gitignore: "Git Ignore",
   scss: "SCSS",
@@ -242,6 +244,8 @@ export function getLanguageIdFromPath(filePath: string): string | null {
   if (fromRegistry) {
     return normalizeLanguageId(fromRegistry);
   }
+  const basic = basicLanguageForFilename(filePath);
+  if (basic) return basic;
 
   const fileName = filePath.split("/").pop()?.toLowerCase() || "";
   const normalizedPath = filePath.replace(/\\/g, "/").toLowerCase();

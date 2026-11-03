@@ -1,4 +1,5 @@
 import { editor as monacoEditor } from "monaco-editor";
+import "./language-contributions";
 import {
   openExternalBrowserUrl,
   resolveExternalBrowserUrl,

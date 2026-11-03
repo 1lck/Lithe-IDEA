@@ -15,6 +15,7 @@ import "monaco-editor/esm/vs/editor/editor.all.js";
 import { language as javaLanguage } from "monaco-editor/esm/vs/basic-languages/java/java.js";
 import { ensureMonacoLanguageTokenizer } from "./language-contributions";
 import { toMonacoLanguageId } from "./language";
+import { basicLanguageForFilename } from "./basic-file-associations";
 import { SourceText } from "./source-text";
 import { toMonacoModelValue } from "./line-endings";
 import { acquireMonacoModel } from "./model-lifecycle";
@@ -64,6 +65,8 @@ function languageForFilename(filename: string | undefined): string {
   if (!filename) return "plaintext";
   const plugin = pluginLanguageForFilename(filename);
   if (plugin) return plugin;
+  const basic = basicLanguageForFilename(filename);
+  if (basic) return basic;
   const name = filename.toLowerCase();
   const registered = monaco.languages.getLanguages();
   const exact = registered.find(language => language.filenames?.some(file => file.toLowerCase() === name));

@@ -60,6 +60,11 @@ export async function buildEditorAssets(options: EditorAssetBuild): Promise<void
     for (const [source, target] of [
       ["node_modules/vscode-oniguruma/release/onig.wasm", "onig.wasm"],
       ["vendor/java.tmLanguage.json", "java.tmLanguage.json"],
+      ["vendor/make.tmLanguage.json", "makefile.tmLanguage.json"],
+      ["vendor/cmake.tmLanguage.json", "cmake.tmLanguage.json"],
+      ["vendor/groovy.tmLanguage.json", "groovy.tmLanguage.json"],
+      ["vendor/LICENSE.cmake.txt", "CMAKE-LICENSE.txt"],
+      ["vendor/LICENSE.make.txt", "MAKE-LICENSE.txt"],
       ["vendor/LICENSE.vscode.txt", "VSCODE-LICENSE.txt"],
       ["vendor/NOTICE.txt", "TEXTMATE-NOTICE.txt"],
       ["node_modules/vscode-oniguruma/LICENSE.txt", "ONIGURUMA-LICENSE.txt"],

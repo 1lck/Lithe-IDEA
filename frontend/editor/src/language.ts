@@ -1,6 +1,13 @@
 export const MONACO_LANGUAGE_BY_LITHE_ID: Record<string, string> = {
   angular: "html",
   bash: "shell",
+  batch: "bat",
+  bat: "bat",
+  cmake: "cmake",
+  groovy: "groovy",
+  make: "makefile",
+  makefile: "makefile",
+  powershell: "powershell",
   c: "c",
   cpp: "cpp",
   csharp: "csharp",
