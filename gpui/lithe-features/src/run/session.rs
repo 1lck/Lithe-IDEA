@@ -354,7 +354,7 @@ fn launch(
     if let Some(stderr) = child.stderr.take() {
         spawn_reader(stderr, sender.clone());
     }
-    spawn_exit_waiter(child, sender);
+    spawn_exit_waiter(child, sender, None);
     Ok(())
 }
 
@@ -377,11 +377,40 @@ fn spawn_reader<R: Read + Send + 'static>(mut reader: R, sender: Sender<SessionE
     });
 }
 
-fn spawn_exit_waiter(mut child: Child, sender: Sender<SessionEvent>) {
+fn spawn_exit_waiter(
+    mut child: Child,
+    sender: Sender<SessionEvent>,
+    temporary: Option<LaunchArgumentFile>,
+) {
     thread::spawn(move || {
         let code = child.wait().ok().and_then(|status| status.code());
+        // 缩短参数文件在进程结束后才清理；启动失败时它随调用栈就地删除。
+        drop(temporary);
         let _ = sender.send_blocking(SessionEvent::Exited(code));
     });
+}
+
+/// 一次启动自有的缩短参数文件（argfile 或 pathing JAR）。
+///
+/// Drop 时删除文件：宿主把它移交退出等待线程，进程结束后才清理；
+/// 写入失败或启动失败时在当次调用栈里就地删除。
+pub(super) struct LaunchArgumentFile(PathBuf);
+
+impl LaunchArgumentFile {
+    /// 缩短参数文件的路径，供诊断与测试使用。
+    pub(super) fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for LaunchArgumentFile {
+    fn drop(&mut self) {
+        if let Err(error) = std::fs::remove_file(&self.0) {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                eprintln!("Could not remove Java launch argument file: {error}");
+            }
+        }
+    }
 }
 
 /// 拉起主进程并把 stdout / stderr 转发到事件通道。
@@ -394,6 +423,7 @@ pub(super) fn spawn_session(
     working_directory: &Path,
     environment: &BTreeMap<String, String>,
     sender: &Sender<SessionEvent>,
+    temporary: Option<LaunchArgumentFile>,
 ) -> Result<(), String> {
     let mut command = command_for(executable, arguments);
     command
@@ -427,7 +457,7 @@ pub(super) fn spawn_session(
     if let Some(stderr) = child.stderr.take() {
         spawn_reader(stderr, sender.clone());
     }
-    spawn_exit_waiter(child, sender.clone());
+    spawn_exit_waiter(child, sender.clone(), temporary);
     Ok(())
 }
 
