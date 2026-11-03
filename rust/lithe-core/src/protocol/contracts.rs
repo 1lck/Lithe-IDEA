@@ -1024,6 +1024,20 @@ pub struct GitDiffHunkResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// A saved file's exact patch and independently rendered document.
+pub struct GitDiffFileResponse {
+    pub path: String,
+    /// Original Git path for a rename or copy.
+    pub original_path: Option<String>,
+    /// Git status used by the saved-changes list.
+    pub status: String,
+    pub patch: String,
+    pub rows: Vec<GitDiffRowResponse>,
+    pub hunks: Vec<GitDiffHunkResponse>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 /// Complete patch plus rendering rows and independently applicable hunks.
 pub struct GitDiffResponse {
     pub patch: String,
@@ -1033,6 +1047,9 @@ pub struct GitDiffResponse {
     /// patch bytes are not a faithful representation of the file content.
     #[serde(default)]
     pub has_decoding_loss: bool,
+    /// Present only when per-file stash output was requested.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub files: Option<Vec<GitDiffFileResponse>>,
 }
 
 #[derive(Debug, Clone, Serialize)]

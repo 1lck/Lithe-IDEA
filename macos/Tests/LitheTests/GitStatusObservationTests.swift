@@ -8,6 +8,33 @@ import Testing
 
 @Suite("Git status observation", .serialized)
 struct GitStatusObservationTests {
+    @Test
+    func savedStashSnapshotUsesCoreSectionsForTrackedUntrackedAndBinaryFiles() async throws {
+        let fixture = try GitObservationFixture(label: "saved-stash-core")
+        let root = fixture.url.appendingPathComponent("repository", isDirectory: true)
+        try await fixture.initializeRepository(at: root)
+        try await fixture.git(["config", "diff.noprefix", "true"], at: root)
+        try Data("initial\nchanged\n".utf8).write(to: root.appendingPathComponent("tracked.txt"))
+        try Data("new file\n".utf8).write(to: root.appendingPathComponent("新文件.txt"))
+        try Data([0, 255, 128, 0]).write(to: root.appendingPathComponent("binary.bin"))
+        try await fixture.git(["stash", "push", "-u", "-m", "saved"], at: root)
+        let operations = RustGitOperations(core: RustCoreBridge())
+        let stash = try #require(operations.stashes(at: root)?.first)
+        let service = GitService(operations: operations)
+        let snapshot = try await service.savedChangesSnapshot(stash: stash, shelf: nil, at: root).get()
+        #expect(snapshot.files.count == 3)
+        let tracked = try #require(snapshot.files.first { $0.file.path == "tracked.txt" })
+        #expect(tracked.file.status == "M")
+        #expect(tracked.document.rows.contains { $0.rightText == "changed" })
+        #expect(tracked.document.patch == tracked.patch)
+        let added = try #require(snapshot.files.first { $0.file.path == "新文件.txt" })
+        #expect(added.file.status == "A")
+        #expect(added.document.rows.contains { $0.rightText == "new file" })
+        let binary = try #require(snapshot.files.first { $0.file.path == "binary.bin" })
+        #expect(binary.patch.contains("GIT binary patch"))
+        #expect(binary.version == "Stash")
+    }
+
     @Test @MainActor
     func mountedCommitPanelObservesExternalEditsAndKeepsRollbackEnabledDuringBackgroundReads() async throws {
         let fixture = try GitObservationFixture(label: "mounted-commit-refresh")

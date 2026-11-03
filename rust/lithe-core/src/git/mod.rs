@@ -62,8 +62,8 @@ use crate::protocol::{CoreError, ErrorCode};
 use crate::protocol::{
     GitBlameLineResponse, GitBlameResponse, GitChange, GitCheckoutPreflightResponse,
     GitCommitLookupResponse, GitCommitResponse, GitComparisonResponse, GitConflictMarkerResponse,
-    GitDiffHunkResponse, GitDiffResponse, GitDiffRowResponse, GitFileResponse, GitFilesResponse,
-    GitIntegrationPreflightResponse, GitLineHistoryCommit, GitLineHistoryRange,
+    GitDiffFileResponse, GitDiffHunkResponse, GitDiffResponse, GitDiffRowResponse, GitFileResponse,
+    GitFilesResponse, GitIntegrationPreflightResponse, GitLineHistoryCommit, GitLineHistoryRange,
     GitLineHistoryResponse, GitLineHistoryUnmappedLine, GitOperationStateResponse,
     GitPullPreflightResponse, GitPushPreviewResponse, GitPushTagResponse, GitPushTargetKind,
     GitReferenceResponse, GitStashResponse, GitStashesResponse, GitStatusResponse,
@@ -704,6 +704,9 @@ pub struct GitDiffRequest {
     /// Inspect a saved stash, including its untracked parent, independently of the worktree.
     #[serde(default)]
     pub stash_reference: Option<String>,
+    /// Return validated sections with per-file rendering instead of a flattened stash diff.
+    #[serde(default)]
+    pub include_file_sections: bool,
     pub pathspecs: Vec<String>,
     #[serde(default)]
     pub reference: Option<String>,
@@ -1997,10 +2000,20 @@ pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
         ));
     }
 
+    if request.include_file_sections && request.pathspecs != ["."] {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Per-file stash output requires the whole repository",
+        ));
+    }
     let root = validate_root(&request.root)?;
     if let Some(reference) = request.stash_reference.as_deref() {
         let oid = resolve_commit_revision(&root, &validated_stash_reference(Some(reference))?)?;
         let arguments = vec![
+            "-c".into(),
+            "diff.noprefix=false".into(),
+            "-c".into(),
+            "diff.mnemonicprefix=false".into(),
             "stash".into(),
             "show".into(),
             "--include-untracked".into(),
@@ -2008,6 +2021,8 @@ pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
             "--binary".into(),
             "--full-index".into(),
             "--no-ext-diff".into(),
+            "--no-textconv".into(),
+            "--no-color".into(),
             format!("--unified={}", request.context_lines),
             oid,
         ];
@@ -2018,7 +2033,16 @@ pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
                     .with_details(String::from_utf8_lossy(&output.stderr).to_string()),
             );
         }
+        if request.include_file_sections {
+            return saved_stash_file_sections(&root, output);
+        }
         return Ok(structured_diff_from_output(output));
+    }
+    if request.include_file_sections {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Per-file output requires a stash",
+        ));
     }
     if request.worktree_snapshot {
         if request.reference.is_some()
@@ -2313,7 +2337,81 @@ fn structured_diff_from_output(output: GitProcessOutput) -> GitDiffResponse {
         rows: document.0,
         hunks: document.1,
         has_decoding_loss,
+        files: None,
     }
+}
+
+// Git owns filename decoding. Pair its ordered NUL-delimited metadata with
+// byte-preserving section boundaries, then parse each document exactly once.
+fn saved_stash_file_sections(
+    root: &str,
+    output: GitProcessOutput,
+) -> Result<GitDiffResponse, CoreError> {
+    if output.stdout.len() > patch_exchange::MAX_PATCH_BYTES {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Saved patch exceeds 32 MiB",
+        ));
+    }
+    let patch = std::str::from_utf8(&output.stdout).map_err(|_| {
+        CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Saved patch must contain valid UTF-8",
+        )
+    })?;
+    let mut files = Vec::new();
+    if !patch.is_empty() {
+        let identities = patch_exchange::ordered_patch_files(root, patch)?;
+        let mut starts = Vec::new();
+        let mut offset = 0;
+        for line in patch.split_inclusive('\n') {
+            if line.starts_with("diff --git ") {
+                starts.push(offset);
+            }
+            offset += line.len();
+        }
+        if starts.first() != Some(&0) || starts.len() != identities.len() {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Saved patch sections do not match Git metadata",
+            ));
+        }
+        starts.push(patch.len());
+        for (identity, range) in identities.into_iter().zip(starts.windows(2)) {
+            let section = &patch[range[0]..range[1]];
+            let status = if section
+                .lines()
+                .any(|line| line.starts_with("new file mode "))
+            {
+                "A"
+            } else if section
+                .lines()
+                .any(|line| line.starts_with("deleted file mode "))
+            {
+                "D"
+            } else if identity.original_path.is_some() {
+                "R"
+            } else {
+                "M"
+            };
+            let (rows, hunks) = parse_diff(section);
+            files.push(GitDiffFileResponse {
+                path: identity.path,
+                original_path: identity.original_path,
+                status: status.into(),
+                patch: section.into(),
+                rows,
+                hunks,
+            });
+        }
+    }
+    Ok(GitDiffResponse {
+        patch: String::new(),
+        rows: Vec::new(),
+        hunks: Vec::new(),
+        has_decoding_loss: false,
+        files: Some(files),
+    })
 }
 
 /// Applies a validated patch using the requested index or working-tree mode.
@@ -7718,13 +7816,7 @@ fn parse_hunk_header(header: &str) -> Option<(usize, usize)> {
 
 fn parse_diff(patch: &str) -> (Vec<GitDiffRowResponse>, Vec<GitDiffHunkResponse>) {
     let has_trailing_newline = patch.ends_with('\n');
-    let lines = patch.split('\n').enumerate().filter_map(|(index, line)| {
-        if has_trailing_newline && index == patch.split('\n').count() - 1 {
-            None
-        } else {
-            Some(line)
-        }
-    });
+    let lines = patch.strip_suffix('\n').unwrap_or(patch).split('\n');
 
     let mut rows = Vec::new();
     let mut old_line = 0;
@@ -8341,6 +8433,25 @@ mod tests {
     };
     use serde_json::Value;
     use std::path::PathBuf;
+
+    #[test]
+    fn saved_stash_sections_reject_lossy_or_oversized_patch_before_git() {
+        let output = |stdout| super::GitProcessOutput {
+            stdout,
+            stderr: Vec::new(),
+            exit_code: 0,
+        };
+        let invalid = super::saved_stash_file_sections("unused", output(vec![0xff])).unwrap_err();
+        assert_eq!(invalid.message, "Saved patch must contain valid UTF-8");
+        let oversized = super::saved_stash_file_sections(
+            "unused",
+            output(vec![b'x'; super::patch_exchange::MAX_PATCH_BYTES + 1]),
+        )
+        .unwrap_err();
+        assert_eq!(oversized.message, "Saved patch exceeds 32 MiB");
+        let empty = super::saved_stash_file_sections("unused", output(Vec::new())).unwrap();
+        assert!(empty.files.unwrap().is_empty());
+    }
 
     #[test]
     fn temporary_git_context_is_private_and_cleans_up_under_a_public_parent() {

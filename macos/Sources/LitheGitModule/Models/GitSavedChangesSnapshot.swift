@@ -8,12 +8,12 @@ package struct GitSavedPatchFile: Sendable {
     package let patch: String
     package let document: DiffDocument
 
-    init(file: GitCommitFile, version: String, base: String, patch: String) {
+    package init(file: GitCommitFile, version: String, base: String, patch: String, document: DiffDocument? = nil) {
         self.file = file
         self.version = version
         self.base = base
         self.patch = patch
-        document = DiffParser.parseDocument(patch)
+        self.document = document ?? DiffParser.parseDocument(patch)
     }
 }
 

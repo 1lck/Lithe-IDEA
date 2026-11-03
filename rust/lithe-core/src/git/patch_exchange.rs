@@ -12,7 +12,7 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 /// Maximum patch transported through one JSON request, in bytes.
-const MAX_PATCH_BYTES: usize = 32 * 1024 * 1024;
+pub(super) const MAX_PATCH_BYTES: usize = 32 * 1024 * 1024;
 
 /// Source trees used to generate an exchange patch.
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -563,6 +563,13 @@ fn apply_arguments(target: PatchTarget, check: bool, reverse: bool) -> Vec<Strin
 }
 
 fn patch_files(root: &str, patch: &str) -> Result<Vec<PatchFile>, CoreError> {
+    let mut files = ordered_patch_files(root, patch)?;
+    files.sort_by(|left, right| left.path.cmp(&right.path));
+    Ok(files)
+}
+
+// Keep Git's order for pairing validated identities with exact patch sections.
+pub(super) fn ordered_patch_files(root: &str, patch: &str) -> Result<Vec<PatchFile>, CoreError> {
     let mut files = patch_stat_files(root, patch, false)?;
     // Unlike git diff --numstat -z, git apply emits only one name per patch.
     // Parsing the same input in reverse exposes rename/copy source paths with
@@ -578,7 +585,6 @@ fn patch_files(root: &str, patch: &str) -> Result<Vec<PatchFile>, CoreError> {
             file.original_path = Some(original.path);
         }
     }
-    files.sort_by(|left, right| left.path.cmp(&right.path));
     if files.is_empty() {
         return Err(invalid("The patch contains no file changes"));
     }

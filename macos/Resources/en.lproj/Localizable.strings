@@ -3549,6 +3549,7 @@
 "Save title" = "Save title";
 "Saved" = "Saved";
 "Saved breakpoints could not be read." = "Saved breakpoints could not be read.";
+"Saved changes contain text that is not UTF-8. Inspect the stash with Git." = "Saved changes contain text that is not UTF-8. Inspect the stash with Git.";
 "Saved debugger stepping filters could not be read." = "Saved debugger stepping filters could not be read.";
 "Saved filters" = "saved filters";
 "Saved in .lithe/run/configurations.json for the whole team. Local JDK paths are never shared." = "Saved in .lithe/run/configurations.json for the whole team. Local JDK paths are never shared.";
@@ -8562,6 +8563,7 @@
 "native.savedInLitheRunLocalJsonAndExcludedFromGit" = "Saved in .lithe/run/local.json and excluded from Git.";
 "native.savedOnlyForThisProjectOnThisComputerInLitheRunLocalJsonAndExcludedFromGit" = "Saved only for this project on this computer in .lithe/run/local.json and excluded from Git.";
 "native.savedProviderRunUnavailable" = "The saved provider run configuration is unavailable.";
+"native.savedStashInvalidUtf8" = "Saved changes contain text that is not UTF-8. Inspect the stash with Git.";
 "native.savedTo" = "Saved to %1$@";
 "native.savesConnectsAndOpensTheRemoteFolderInThisWindow" = "Saves, connects, and opens the remote folder in this window.";
 "native.savingReplacesTheCurrentGitHubMetadata" = "Saving replaces the current GitHub metadata.";

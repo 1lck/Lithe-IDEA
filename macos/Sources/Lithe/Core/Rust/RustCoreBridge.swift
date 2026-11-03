@@ -1221,9 +1221,25 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             let patch: String
         }
 
+        struct File: Decodable, Sendable {
+            let path: String
+            let originalPath: String?
+            let status: String
+            let patch: String
+            let rows: [Row]
+            let hunks: [Hunk]
+
+            func makeDocument() -> DiffDocument {
+                DiffDocument(patch: patch,
+                    rows: rows.enumerated().map { $0.element.makeModel(sequence: $0.offset) },
+                    hunks: hunks.map { DiffHunk(id: $0.id, header: $0.header, patch: $0.patch) })
+            }
+        }
+
         let patch: String
         let rows: [Row]
         let hunks: [Hunk]
+        let files: [File]?
 
         func makeDocument() -> DiffDocument {
             DiffDocument(
@@ -2438,6 +2454,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     private struct GitDiffRequest: Encodable {
         let root: String
         let pathspecs: [String]
+        let stashReference: String?
+        let includeFileSections: Bool?
         let reference: String?
         let gitReference: GitReferenceRequest?
         let targetGitReference: GitReferenceRequest?
@@ -3535,6 +3553,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             payload: GitDiffRequest(
                 root: rootURL.standardizedFileURL.path,
                 pathspecs: pathspecs,
+                stashReference: nil,
+                includeFileSections: nil,
                 reference: reference,
                 gitReference: gitReference.map(GitReferenceRequest.init),
                 targetGitReference: targetGitReference.map(GitReferenceRequest.init),
@@ -3545,6 +3565,13 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 ignoreAllWhitespace: ignoreAllWhitespace
             )
         )
+    }
+
+    func gitSavedStashDiff(at rootURL: URL, reference: String) -> Result<GitDiffPayload, CoreCallError> {
+        executeResult(command: "git.diff", payload: GitDiffRequest(
+            root: rootURL.standardizedFileURL.path, pathspecs: ["."], stashReference: reference,
+            includeFileSections: true, reference: nil, gitReference: nil, targetGitReference: nil,
+            commit: nil, staged: false, untracked: false, contextLines: 3, ignoreAllWhitespace: false))
     }
 
     func gitApply(
