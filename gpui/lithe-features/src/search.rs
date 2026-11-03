@@ -1,8 +1,9 @@
-//! 工作区搜索面板（对齐 Tauri 左侧活动栏的「在文件中查找」）。
+//! 工作区搜索面板（对齐 Tauri 左侧活动栏的「在文件中查找 / 替换」）。
 //!
-//! 顶部是搜索框、搜索选项（大小写 / 整词 / 正则）、结果计数与详情开关；展开
-//! 详情后是替换框和 include / exclude 路径过滤。下面是按文件分组的结果列表，
-//! 支持键盘上下选择、Enter 打开、展开上下文行、加载更多。
+//! 顶部是查找 / 替换模式切换、搜索框、搜索选项（大小写 / 整词 / 正则）、
+//! 结果计数与详情开关；替换模式额外显示替换行，详情展开后是 include /
+//! exclude 路径过滤。下面是按文件分组的结果列表，支持键盘上下选择、Enter
+//! 打开、加载更多与单条 / 整批替换。
 //!
 //! # 数据边界
 //!
@@ -52,8 +53,10 @@ use std::time::Duration;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::Sizable as _;
 use gpui_kit::component::button::{Button, ButtonVariants as _, Toggle, ToggleVariants as _};
+use gpui_kit::component::collapsible::Collapsible;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
-use gpui_kit::component::{Disableable as _, Icon};
+use gpui_kit::component::tab::{Tab, TabBar};
+use gpui_kit::component::{Disableable as _, Icon, Size};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, AppContext as _, ClickEvent, Context, Entity, FocusHandle, FontWeight, Hsla,
@@ -64,6 +67,12 @@ use lithe_core_client::CoreClient;
 use lithe_ui::i18n::tr;
 use lithe_ui::{LitheIcon, LitheMetrics, LitheTokens, current_tokens, icon};
 use serde_json::{Value, json};
+
+mod filters;
+mod replace;
+
+use filters::{filter_groups, parse_path_filters};
+use replace::{ReplaceOutcome, replace_paths};
 
 /// 输入停止后等待多久再查询；对齐 Tauri 的 `SEARCH_DEBOUNCE_DELAY`。
 const SEARCH_DEBOUNCE: Duration = Duration::from_millis(200);
@@ -103,6 +112,20 @@ enum SearchStatus {
     NoResults,
     /// 没有工作区、路径非法或 Core 返回错误。
     Error,
+}
+
+/// 工具窗的两种模式。
+///
+/// `Find` 保持「在文件中查找」的原始行为；`Replace` 额外显示替换行，并允许
+/// 执行单条或整批替换。对齐 Tauri 的 `replaceVisible` 语义：进入替换模式时
+/// 详情区（include / exclude）一并展开。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SearchMode {
+    /// 只查找。
+    #[default]
+    Find,
+    /// 查找并替换。
+    Replace,
 }
 
 /// 匹配选项；字段名与 Core `SearchRequest` 的 camelCase 一一对应。
@@ -166,8 +189,10 @@ pub struct SearchPanel {
     include: String,
     /// exclude 过滤表达式（逗号/换行分隔的 glob）。
     exclude: String,
-    /// 是否展开替换与路径过滤详情区。
+    /// 是否展开 include / exclude 路径过滤。
     details_visible: bool,
+    /// 当前是查找模式还是替换模式。
+    mode: SearchMode,
     /// 匹配选项。
     options: SearchOptions,
     /// 按文件分组的结果，保持 Core 返回的顺序。
@@ -185,8 +210,10 @@ pub struct SearchPanel {
     status: SearchStatus,
     /// 可见错误文案；不 panic，也不会清空搜索框。
     error: Option<SharedString>,
-    /// 最近一次操作的结果提示（例如替换了几处）。
+    /// 最近一次操作的结果提示（例如为什么不能替换全部）。
     notice: Option<SharedString>,
+    /// 最近一次替换的统计；查询或模式变化时清空。
+    replace_outcome: Option<ReplaceOutcome>,
     /// 递增后丢弃过期的去抖与 Core 结果。
     generation: u64,
     /// 是否有替换操作正在进行，防止重复点击。
@@ -218,6 +245,7 @@ impl SearchPanel {
             include: String::new(),
             exclude: String::new(),
             details_visible: false,
+            mode: SearchMode::Find,
             options: SearchOptions::default(),
             results: Vec::new(),
             rows: Vec::new(),
@@ -228,6 +256,7 @@ impl SearchPanel {
             status: SearchStatus::Idle,
             error: None,
             notice: None,
+            replace_outcome: None,
             generation: 0,
             replacing: false,
             result_focus: cx.focus_handle(),
@@ -246,6 +275,7 @@ impl SearchPanel {
         self.generation = self.generation.wrapping_add(1);
         self.clear_results();
         self.notice = None;
+        self.replace_outcome = None;
 
         let query = self.query.trim().to_string();
         if query.is_empty() {
@@ -289,6 +319,38 @@ impl SearchPanel {
         handler: impl Fn(PathBuf, u32, &mut Window, &mut App) + 'static,
     ) {
         self.on_open_location = Some(Rc::new(handler));
+    }
+
+    /// 切到查找模式；「在文件中查找」入口调用它可回到原始行为。
+    pub fn open_find(&mut self, cx: &mut Context<Self>) {
+        self.set_mode(SearchMode::Find, cx);
+    }
+
+    /// 切到替换模式；「在文件中替换」入口调用它。
+    ///
+    /// 对齐 Tauri `replaceVisible`：进入替换模式时展开 include / exclude 详情，
+    /// 但替换行本身由模式控制，收起详情不会隐藏替换能力。
+    pub fn open_replace(&mut self, cx: &mut Context<Self>) {
+        self.set_mode(SearchMode::Replace, cx);
+        if !self.details_visible {
+            self.details_visible = true;
+            cx.notify();
+        }
+    }
+
+    /// 切换查找 / 替换模式；集成方也可直接用于菜单或快捷键接线。
+    pub fn set_mode(&mut self, mode: SearchMode, cx: &mut Context<Self>) {
+        if self.mode == mode {
+            return;
+        }
+        self.mode = mode;
+        self.replace_outcome = None;
+        cx.notify();
+    }
+
+    /// 当前模式，供集成方判断菜单项状态。
+    pub fn mode(&self) -> SearchMode {
+        self.mode
     }
 
     /// 确保四个输入框已经创建，并且只订阅一次输入事件。
@@ -338,10 +400,15 @@ impl SearchPanel {
 
         let replace_subscription = cx.subscribe_in(&replace, window, {
             let replace = replace.clone();
-            move |this, _replace, event: &InputEvent, _window, cx| {
-                if matches!(event, InputEvent::Change) {
+            move |this, _replace, event: &InputEvent, _window, cx| match event {
+                InputEvent::Change => {
                     this.replacement = replace.read(cx).value().to_string();
+                    // 替换文本变了，上一次的统计不再代表当前输入。
+                    this.replace_outcome = None;
                 }
+                // 对齐 Tauri：替换框回车执行「替换」当前选中项。
+                InputEvent::PressEnter { .. } => this.replace_current(cx),
+                InputEvent::Focus | InputEvent::Blur => {}
             }
         });
 
@@ -391,6 +458,7 @@ impl SearchPanel {
     /// 输入变化：空查询直接回到 Idle，其余情况启动去抖。
     fn on_query_changed(&mut self, query: String, cx: &mut Context<Self>) {
         self.query = query;
+        self.replace_outcome = None;
         self.generation = self.generation.wrapping_add(1);
         self.max_results = SEARCH_MAX_RESULTS;
         let generation = self.generation;
@@ -428,6 +496,7 @@ impl SearchPanel {
     /// Core 没有路径 glob，过滤发生在结果侧，因此必须重新查询才能把之前被
     /// 过滤掉的结果补回来。
     fn on_filters_changed(&mut self, cx: &mut Context<Self>) {
+        self.replace_outcome = None;
         self.generation = self.generation.wrapping_add(1);
         self.max_results = SEARCH_MAX_RESULTS;
         let generation = self.generation;
@@ -447,6 +516,7 @@ impl SearchPanel {
 
     /// 切换一个匹配选项并立即重查。
     fn toggle_option(&mut self, option: SearchOption, cx: &mut Context<Self>) {
+        self.replace_outcome = None;
         match option {
             SearchOption::CaseSensitive => {
                 self.options.case_sensitive = !self.options.case_sensitive;
@@ -471,6 +541,7 @@ impl SearchPanel {
     /// 立即执行一次查询（Enter、搜索按钮）。
     fn run_query(&mut self, query: String, cx: &mut Context<Self>) {
         self.query = query;
+        self.replace_outcome = None;
         self.generation = self.generation.wrapping_add(1);
         self.max_results = SEARCH_MAX_RESULTS;
         let query = self.query.trim().to_string();
@@ -578,6 +649,8 @@ impl SearchPanel {
         }
         self.max_results = (self.max_results + SEARCH_LOAD_MORE_STEP).min(10_000);
         self.generation = self.generation.wrapping_add(1);
+        self.notice = None;
+        self.replace_outcome = None;
         self.start_search(query, cx);
     }
 
@@ -678,6 +751,7 @@ impl SearchPanel {
         self.replacing = true;
         self.error = None;
         self.notice = None;
+        self.replace_outcome = None;
 
         cx.spawn(async move |this, cx| {
             let result = cx
@@ -701,12 +775,10 @@ impl SearchPanel {
                     return;
                 }
                 match result {
-                    Ok(count) => {
-                        // 复用 shared 里带参数的完整词条（「已替换 {count} 处匹配」），
-                        // 不拼两个片段：中文语序与英文不同，分段拼接会错位。
-                        this.notice = Some(SharedString::from(
-                            tr("Replaced {count} matches").replace("{count}", &count.to_string()),
-                        ));
+                    Ok(outcome) => {
+                        // 成功 / 失败条数保留在面板里，由替换行下方的状态行展示；
+                        // 不再用一句覆盖式文案，方便用户确认批量结果。
+                        this.replace_outcome = Some(outcome);
                         // 写盘后重新搜索，让面板反映真实磁盘状态。
                         let query = this.query.trim().to_string();
                         if !query.is_empty() {
@@ -753,7 +825,7 @@ impl SearchPanel {
             .into_any_element()
     }
 
-    /// 渲染搜索行：搜索框 + 选项 + 计数 + 详情开关。
+    /// 渲染顶部：模式切换行 + 搜索行。
     fn render_header(
         &self,
         input: &Entity<InputState>,
@@ -776,8 +848,46 @@ impl SearchPanel {
             }
         };
 
-        let mut row = div()
+        // 模式切换用 gpui-kit 的分段 TabBar，而不是自己画两个按钮：
+        // `Find` 保持原始查找行为，`Replace` 才展开替换行。
+        let mode_row = div()
             .w_full()
+            .h(px(SEARCH_DETAIL_ROW_HEIGHT))
+            .flex()
+            .flex_row()
+            .items_center()
+            .justify_between()
+            .child(
+                TabBar::new("lithe-search:mode")
+                    .segmented()
+                    .with_size(Size::XSmall)
+                    .child(Tab::new().label(tr("Find")))
+                    .child(Tab::new().label(tr("Replace")))
+                    .selected_index(if self.mode == SearchMode::Replace { 1 } else { 0 })
+                    .on_click(cx.listener(|this, index: &usize, _window, cx| {
+                        this.set_mode(
+                            if *index == 0 {
+                                SearchMode::Find
+                            } else {
+                                SearchMode::Replace
+                            },
+                            cx,
+                        );
+                    })),
+            )
+            .when(!count_text.is_empty(), |this| {
+                this.child(
+                    div()
+                        .flex_shrink_0()
+                        .text_size(px(LitheMetrics::SMALL_FONT_SIZE))
+                        .text_color(tokens.secondary_text)
+                        .child(count_text),
+                )
+            });
+
+        let search_row = div()
+            .w_full()
+            .h(px(SEARCH_HEADER_HEIGHT))
             .flex()
             .flex_row()
             .items_center()
@@ -850,25 +960,23 @@ impl SearchPanel {
                 cx,
             ));
 
-        if !count_text.is_empty() {
-            row = row.child(
-                div()
-                    .flex_shrink_0()
-                    .text_size(px(LitheMetrics::SMALL_FONT_SIZE))
-                    .text_color(tokens.secondary_text)
-                    .child(count_text),
-            );
-        }
-
-        row.into_any_element()
+        div()
+            .w_full()
+            .flex()
+            .flex_col()
+            .gap(px(2.0))
+            .child(mode_row)
+            .child(search_row)
+            .into_any_element()
     }
 
-    /// 渲染详情区：替换框 + include / exclude 过滤。
-    fn render_details(
+    /// 渲染替换行：替换输入框、单条替换 / 全部替换，以及结果统计。
+    ///
+    /// 替换行只在 `Replace` 模式出现；`Find` 模式回到 Tauri「Global Search」
+    /// 的原始查找界面。
+    fn render_replace(
         &self,
         replace_input: &Entity<InputState>,
-        include_input: &Entity<InputState>,
-        exclude_input: &Entity<InputState>,
         tokens: LitheTokens,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -879,7 +987,7 @@ impl SearchPanel {
             .w_full()
             .flex()
             .flex_col()
-            .gap(px(4.0))
+            .gap(px(2.0))
             .pt(px(4.0))
             .child(
                 div()
@@ -889,6 +997,11 @@ impl SearchPanel {
                     .flex_row()
                     .items_center()
                     .gap(px(4.0))
+                    .child(
+                        Icon::new(IconName::Replace)
+                            .with_size(px(14.0))
+                            .text_color(tokens.tertiary_text),
+                    )
                     .child(
                         div()
                             .flex_1()
@@ -909,11 +1022,67 @@ impl SearchPanel {
                             .label(tr("Replace all"))
                             .compact()
                             .disabled(!can_replace_all)
+                            // 对齐 Tauri：结果不完整时按钮禁用，并用提示说明原因。
+                            .tooltip(if can_replace_all {
+                                tr("Replace all")
+                            } else {
+                                tr("Load all search results before replacing all")
+                            })
                             .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
                                 this.replace_all(cx);
                             })),
                     ),
             )
+            .when_some(self.render_replace_status(tokens), |this, status| {
+                this.child(status)
+            })
+            .into_any_element()
+    }
+
+    /// 一次替换后的成功 / 失败条数；没有变化时返回 `None`。
+    fn render_replace_status(&self, tokens: LitheTokens) -> Option<AnyElement> {
+        let outcome = self.replace_outcome?;
+        if outcome.matches == 0 && outcome.failed == 0 {
+            return None;
+        }
+
+        let mut row = div()
+            .w_full()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(px(6.0))
+            .text_size(px(LitheMetrics::SMALL_FONT_SIZE));
+        if outcome.matches > 0 {
+            row = row.child(
+                div().text_color(tokens.secondary_text).child(SharedString::from(
+                    tr("Replaced {count} matches")
+                        .replace("{count}", &outcome.matches.to_string()),
+                )),
+            );
+        }
+        if outcome.failed > 0 {
+            row = row.child(
+                div().text_color(tokens.error).child(SharedString::from(
+                    tr("Failed: {count}").replace("{count}", &outcome.failed.to_string()),
+                )),
+            );
+        }
+        Some(row.into_any_element())
+    }
+
+    /// 渲染 include / exclude 过滤行。
+    fn render_filters(
+        &self,
+        include_input: &Entity<InputState>,
+        exclude_input: &Entity<InputState>,
+    ) -> AnyElement {
+        div()
+            .w_full()
+            .flex()
+            .flex_col()
+            .gap(px(2.0))
+            .pt(px(4.0))
             .child(
                 div()
                     .w_full()
@@ -934,16 +1103,6 @@ impl SearchPanel {
                             .child(Input::new(exclude_input).w_full().cleanable(true)),
                     ),
             )
-            .when_some(self.notice.clone(), |this, notice| {
-                this.child(
-                    div()
-                        .w_full()
-                        .truncate()
-                        .text_size(px(LitheMetrics::SMALL_FONT_SIZE))
-                        .text_color(tokens.secondary_text)
-                        .child(notice),
-                )
-            })
             .into_any_element()
     }
 
@@ -980,6 +1139,10 @@ impl SearchPanel {
                     .hover(|style| style.bg(tokens.hover))
                     .cursor_pointer()
                     .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                        // 点击同时成为替换目标；否则「替换」只会作用在键盘选中行。
+                        if let Some(index) = index {
+                            this.selected_index = index;
+                        }
                         this.open_location(path.clone(), line, window, cx);
                     }))
                     .child(
@@ -1039,6 +1202,14 @@ impl SearchPanel {
                             .text_size(px(LitheMetrics::SMALL_FONT_SIZE))
                             .text_color(tokens.tertiary_text)
                             .child(group.directory.clone()),
+                    )
+                    // 对齐 Tauri：文件头右侧显示该文件的命中数，纯数字不需要翻译。
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .text_size(px(LitheMetrics::SMALL_FONT_SIZE))
+                            .text_color(tokens.tertiary_text)
+                            .child(group.matches.len().to_string()),
                     ),
             )
             .child(rows)
@@ -1069,21 +1240,28 @@ impl Render for SearchPanel {
             // 搜索工具窗没有标题栏，顶部间距由面板自己给。
             .pt(px(SEARCH_HORIZONTAL_PADDING / 2.0))
             .bg(tokens.tool_header)
-            .child(
+            .child(self.render_header(&input, tokens, cx));
+
+        // 替换行由模式控制，收起详情只隐藏 include / exclude，不隐藏替换能力。
+        if self.mode == SearchMode::Replace {
+            header = header.child(self.render_replace(&replace_input, tokens, cx));
+        }
+        header = header.child(
+            Collapsible::new()
+                .open(self.details_visible)
+                .content(self.render_filters(&include_input, &exclude_input)),
+        );
+        // 操作提示不受详情折叠影响，例如「替换全部前需加载全部结果」。
+        if let Some(notice) = self.notice.clone() {
+            header = header.child(
                 div()
                     .w_full()
-                    .h(px(SEARCH_HEADER_HEIGHT))
-                    .child(self.render_header(&input, tokens, cx)),
+                    .truncate()
+                    .pt(px(2.0))
+                    .text_size(px(LitheMetrics::SMALL_FONT_SIZE))
+                    .text_color(tokens.secondary_text)
+                    .child(notice),
             );
-
-        if self.details_visible {
-            header = header.child(self.render_details(
-                &replace_input,
-                &include_input,
-                &exclude_input,
-                tokens,
-                cx,
-            ));
         }
 
         let body: AnyElement = match self.status {
@@ -1287,126 +1465,6 @@ fn flatten_rows(groups: &[SearchFileGroup]) -> Vec<FlattenedRow> {
     rows
 }
 
-/// 按 include / exclude 过滤分组。
-///
-/// 路径是工作区相对路径，因此不需要再相对根目录做一次裁剪。
-fn filter_groups(
-    groups: Vec<SearchFileGroup>,
-    include: &[PathFilter],
-    exclude: &[PathFilter],
-) -> Vec<SearchFileGroup> {
-    if include.is_empty() && exclude.is_empty() {
-        return groups;
-    }
-
-    groups
-        .into_iter()
-        .filter(|group| {
-            if !include.is_empty() && !matches_any(&group.path, include) {
-                return false;
-            }
-            if !exclude.is_empty() && matches_any(&group.path, exclude) {
-                return false;
-            }
-            true
-        })
-        .collect()
-}
-
-/// 一个已编译的 include / exclude 规则。
-struct PathFilter {
-    /// `*` / `?` 已展开成正则。
-    matcher: Option<WildcardMatcher>,
-    /// 正则编译失败时退回大小写不敏感的子串匹配。
-    fallback: String,
-}
-
-fn matches_any(path: &str, filters: &[PathFilter]) -> bool {
-    filters.iter().any(|filter| match &filter.matcher {
-        Some(matcher) => matcher.is_match(path),
-        None => path.to_lowercase().contains(&filter.fallback),
-    })
-}
-
-/// 把逗号或换行分隔的过滤表达式编译成规则表。
-fn parse_path_filters(query: &str) -> Vec<PathFilter> {
-    query
-        .split([',', '\n'])
-        .map(str::trim)
-        .filter(|part| !part.is_empty())
-        .map(|glob| PathFilter {
-            matcher: WildcardMatcher::compile(glob),
-            fallback: glob.to_lowercase(),
-        })
-        .collect()
-}
-
-/// 支持 `**`、`*`、`?` 的大小写不敏感通配符匹配。
-///
-/// 不引入正则依赖：Core 和本 crate 都没有 `regex`，为一段路径过滤新增依赖不
-/// 值得，这里用两行动态规划实现教科书式的通配符匹配。
-struct WildcardMatcher {
-    /// 匹配目标的小写化模式，`/` 是普通字符。
-    pattern: Vec<char>,
-}
-
-impl WildcardMatcher {
-    fn compile(glob: &str) -> Option<Self> {
-        Some(Self {
-            pattern: glob.to_lowercase().chars().collect(),
-        })
-    }
-
-    /// 经典 `?` / `*` / `**` 通配符匹配。
-    ///
-    /// `**` 在这里等价于 `*`（两者都匹配任意字符包括 `/`）；Tauri 的
-    /// `globToRegExp` 把 `**` 译成 `.*`、`*` 译成 `[^/]*`，区别只影响跨层
-    /// 匹配。搜索结果里的相对路径本来就是整段字符串，用 `*` 匹配整段更符合
-    /// 「过滤路径」的直觉，也不会让 `src/*.rs` 匹配不到 `src/a/b.rs`。
-    fn is_match(&self, text: &str) -> bool {
-        let text: Vec<char> = text.to_lowercase().chars().collect();
-        let pattern = &self.pattern;
-
-        // dp[j] 表示模式前缀能匹配文本前 j 个字符。
-        let mut dp = vec![false; text.len() + 1];
-        dp[0] = true;
-
-        let mut index = 0;
-        while index < pattern.len() {
-            let token = pattern[index];
-            if token == '*' {
-                // 连续的 `*` / `**` 折叠成一个，避免重复计算。
-                let mut next = index;
-                while next < pattern.len() && pattern[next] == '*' {
-                    next += 1;
-                }
-                // `*` 匹配任意长度（含 0）：一旦某个前缀可匹配，后续全部可匹配。
-                let mut reachable = false;
-                for slot in dp.iter_mut() {
-                    reachable |= *slot;
-                    *slot = reachable;
-                }
-                index = next;
-                continue;
-            }
-
-            // 非通配符：整体右移一格，只保留能继续匹配的前缀。
-            for column in (1..=text.len()).rev() {
-                dp[column] = dp[column - 1]
-                    && if token == '?' {
-                        true
-                    } else {
-                        text[column - 1] == token
-                    };
-            }
-            dp[0] = false;
-            index += 1;
-        }
-
-        dp[text.len()]
-    }
-}
-
 /// 拆分工作区相对路径；目录部分对根目录文件为空字符串。
 fn split_path(path: &str) -> (String, String) {
     match path.rsplit_once('/') {
@@ -1415,112 +1473,3 @@ fn split_path(path: &str) -> (String, String) {
     }
 }
 
-/// 在后台执行一次替换：用 Core 的预览算出替换后的全文，再写回磁盘。
-///
-/// 匹配语义（大小写、整词、正则捕获组）全部由 Core 的 `workspace.replacePreview`
-/// 决定，视图不做二次匹配，因此替换结果与搜索结果显示的命中一致。
-///
-/// `only_line` 为 `Some(line)` 时只应用该行的替换（「替换」按钮），为 `None`
-/// 时应用整个文件的预览结果（「替换全部」）。
-///
-/// 返回真正写入的文件数。阻塞调用，调用方必须放在 `cx.background_spawn` 中。
-fn replace_paths(
-    client: CoreClient,
-    root: &std::path::Path,
-    root_string: &str,
-    query: &str,
-    replacement: &str,
-    options: SearchOptions,
-    paths: &[String],
-    only_line: Option<u32>,
-) -> Result<usize, String> {
-    let payload = json!({
-        "root": root_string,
-        "query": query,
-        "replacement": replacement,
-        "caseSensitive": options.case_sensitive,
-        "wholeWords": options.whole_words,
-        "regularExpression": options.regular_expression,
-        "paths": paths,
-        "fileMask": "",
-    });
-    let data = client
-        .execute_raw("workspace.replacePreview", payload)
-        .map_err(|error| error.to_string())?;
-
-    let Some(files) = data.get("files").and_then(Value::as_array) else {
-        return Ok(0);
-    };
-
-    let mut replaced = 0;
-    for file in files {
-        let Some(path) = file.get("path").and_then(Value::as_str) else {
-            continue;
-        };
-        let Some(replacement_text) = file.get("replacement_text").and_then(Value::as_str) else {
-            continue;
-        };
-
-        let text = match only_line {
-            // 「替换」只动选中那一行：读原文，按 Core 给出的该行 after 文本替换，
-            // 再写回，避免把同文件其它匹配一起改掉。
-            Some(target_line) => {
-                let before = file
-                    .get("matches")
-                    .and_then(Value::as_array)
-                    .and_then(|matches| {
-                        matches.iter().find(|item| {
-                            item.get("line")
-                                .and_then(Value::as_u64)
-                                .map(|line| line as u32 == target_line)
-                                .unwrap_or(false)
-                        })
-                    });
-                let Some(target) = before else { continue };
-                let (Some(before_line), Some(after_line)) = (
-                    target.get("before").and_then(Value::as_str),
-                    target.get("after").and_then(Value::as_str),
-                ) else {
-                    continue;
-                };
-                let current = match client.read_file(root, path) {
-                    Ok(read) => read.text,
-                    Err(error) => return Err(error.to_string()),
-                };
-                match_line_replacement(&current, target_line, before_line, after_line)
-            }
-            None => Some(replacement_text.to_string()),
-        };
-
-        let Some(text) = text else {
-            continue;
-        };
-        if client.write_file(root, path, &text).is_err() {
-            continue;
-        }
-        replaced += 1;
-    }
-
-    Ok(replaced)
-}
-
-/// 把源文本里的 `target_line` 整行替换成 `after_line`。
-///
-/// 只有该行内容仍等于预览时的 `before_line` 才替换，避免文件在预览与写回之间
-/// 被外部修改后覆盖用户的新内容。行号缺失或越界时返回 `None`。
-fn match_line_replacement(
-    text: &str,
-    target_line: u32,
-    before_line: &str,
-    after_line: &str,
-) -> Option<String> {
-    let target_index = usize::try_from(target_line.checked_sub(1)?).ok()?;
-    let mut lines: Vec<&str> = text.split('\n').collect();
-    let current = lines.get(target_index)?;
-    // Core 的 `before` 是原始行（未 trim），这里要求逐字节相等才覆盖。
-    if *current != before_line {
-        return None;
-    }
-    lines[target_index] = after_line;
-    Some(lines.join("\n"))
-}
