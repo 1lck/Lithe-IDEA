@@ -1,13 +1,15 @@
-//! Java 启动决策横幅（对齐 Tauri `JavaLaunchDecisionBanner`）。
+//! Java 启动决策横幅（UI 对齐 Tauri `JavaLaunchDecisionBanner`，行为对齐 macOS）。
 //!
 //! 当 Java / Spring Boot 项目启动前构建未成功完成时（例如项目报告了编译错误），
 //! 暂停启动流程并在 Run 面板顶部展示决策横幅，由用户决定是仍然运行、对此工作区
 //! 始终继续、重建 Java 索引、打开日志还是取消。
 
+use std::path::PathBuf;
+
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::{Sizable as _, h_flex, v_flex};
 use gpui_kit::{
-    AnyElement, Context, FontWeight, IntoElement, ParentElement, SharedString, Styled, div, px,
+    AnyElement, Context, FontWeight, IntoElement, ParentElement, Styled, div, px,
 };
 use lithe_ui::i18n::tr;
 use lithe_ui::icons::{LitheIcon, icon};
@@ -15,28 +17,32 @@ use lithe_ui::{LitheMetrics, LitheTokens};
 
 use super::model::RunConfiguration;
 use super::view::RunPanel;
+use crate::language::JavaBuildFailure;
 
 /// 一次被构建失败暂停的 Java 启动决策数据。
 #[derive(Clone, Debug)]
 pub struct JavaLaunchDecision {
     pub configuration: RunConfiguration,
-    pub message: SharedString,
-    pub elapsed_ms: u128,
-    pub can_rebuild_index: bool,
+    pub failure: JavaBuildFailure,
+    /// 决策期间保留的 Current File 源文件；非 Current File 配置为 `None`。
+    pub current_file: Option<PathBuf>,
 }
 
 impl JavaLaunchDecision {
-    pub fn new(configuration: RunConfiguration, elapsed_ms: u128) -> Self {
+    pub fn from_failure(
+        configuration: RunConfiguration,
+        failure: JavaBuildFailure,
+        current_file: Option<PathBuf>,
+    ) -> Self {
         Self {
             configuration,
-            message: SharedString::from(tr("The Java project build reported compilation errors.")),
-            elapsed_ms,
-            can_rebuild_index: true,
+            failure,
+            current_file,
         }
     }
 }
 
-/// 渲染与 Tauri `JavaLaunchDecisionBanner` 100% 对齐的决策横幅。
+/// 渲染与 Tauri `JavaLaunchDecisionBanner` 对齐的决策横幅。
 pub fn render_java_launch_decision_banner(
     decision: &JavaLaunchDecision,
     tokens: LitheTokens,
@@ -45,14 +51,19 @@ pub fn render_java_launch_decision_banner(
     let name = decision.configuration.name.clone();
     let title =
         tr("The Java build for {name} did not finish successfully").replace("{name}", &name);
-    let elapsed = tr(
-        "Build response time: {milliseconds} ms. This is evidence only and does not decide whether you may run.",
-    )
-    .replace("{milliseconds}", &decision.elapsed_ms.to_string());
-    let can_rebuild = decision.can_rebuild_index;
+    let failure = &decision.failure;
+    let report = failure.report.as_ref();
+    let can_rebuild = report
+        .and_then(|report| report.recovery.as_deref())
+        .is_some_and(|recovery| recovery == "rebuildJavaIndex");
+    let builder_failed_earlier = failure.code == "javaBuildFailed"
+        || report.is_some_and(|report| report.builder_failed_earlier);
+    let workspace_scope = report
+        .and_then(|report| report.marker_scope.as_deref())
+        .is_some_and(|scope| scope == "workspace");
+    let elapsed = report.and_then(|report| report.elapsed_milliseconds);
     let config_id = decision.configuration.id.clone();
 
-    // Accent 按钮样式：对齐 Tauri 的 `variant="accent"`
     let accent_btn = Button::new("lithe-run-decision:continue")
         .primary()
         .xsmall()
@@ -87,8 +98,8 @@ pub fn render_java_launch_decision_banner(
         .ghost()
         .xsmall()
         .label(tr("Open Logs"))
-        .on_click(cx.listener(move |this, _, _, cx| {
-            this.open_decision_logs(&config_id, cx);
+        .on_click(cx.listener(move |this, _, window, cx| {
+            this.open_decision_logs(&config_id, window, cx);
         }));
 
     let cancel_btn = Button::new("lithe-run-decision:cancel")
@@ -98,6 +109,58 @@ pub fn render_java_launch_decision_banner(
         .on_click(cx.listener(|this, _, _, cx| {
             this.cancel_java_launch(cx);
         }));
+
+    let mut explanation = v_flex()
+        .min_w(px(0.0))
+        .flex_1()
+        .gap(px(2.0))
+        .child(
+            div()
+                .text_size(px(LitheMetrics::SETTINGS_FONT_SIZE))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(tokens.primary_text)
+                .child(title),
+        )
+        .child(
+            div()
+                .text_size(px(LitheMetrics::SMALL_FONT_SIZE))
+                .text_color(tokens.secondary_text)
+                .child(failure.message.clone()),
+        );
+    if builder_failed_earlier {
+        explanation = explanation.child(
+            div()
+                .mt(px(4.0))
+                .text_size(px(LitheMetrics::SMALL_FONT_SIZE))
+                .text_color(tokens.secondary_text)
+                .child(tr(
+                    "The Java language-service builder failed in this session, so these error markers may be stale. You can run the existing output or rebuild the index.",
+                )),
+        );
+    }
+    if workspace_scope {
+        explanation = explanation.child(
+            div()
+                .mt(px(4.0))
+                .text_size(px(LitheMetrics::SMALL_FONT_SIZE))
+                .text_color(tokens.secondary_text)
+                .child(tr("Workspace (may include unrelated modules)")),
+        );
+    }
+    if let Some(milliseconds) = elapsed {
+        explanation = explanation.child(
+            div()
+                .mt(px(4.0))
+                .text_size(px(LitheMetrics::SMALL_FONT_SIZE))
+                .text_color(tokens.secondary_text)
+                .child(
+                    tr(
+                        "Build response time: {milliseconds} ms. This is evidence only and does not decide whether you may run.",
+                    )
+                    .replace("{milliseconds}", &milliseconds.to_string()),
+                ),
+        );
+    }
 
     v_flex()
         .w_full()
@@ -119,32 +182,7 @@ pub fn render_java_launch_decision_banner(
                             .text_color(tokens.warning),
                     ),
                 )
-                .child(
-                    v_flex()
-                        .min_w(px(0.0))
-                        .flex_1()
-                        .gap(px(2.0))
-                        .child(
-                            div()
-                                .text_size(px(LitheMetrics::SETTINGS_FONT_SIZE))
-                                .font_weight(FontWeight::MEDIUM)
-                                .text_color(tokens.primary_text)
-                                .child(title),
-                        )
-                        .child(
-                            div()
-                                .text_size(px(LitheMetrics::SMALL_FONT_SIZE))
-                                .text_color(tokens.secondary_text)
-                                .child(decision.message.clone()),
-                        )
-                        .child(
-                            div()
-                                .mt(px(4.0))
-                                .text_size(px(LitheMetrics::SMALL_FONT_SIZE))
-                                .text_color(tokens.secondary_text)
-                                .child(elapsed),
-                        ),
-                ),
+                .child(explanation),
         )
         .child(
             h_flex()

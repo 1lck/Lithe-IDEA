@@ -7,19 +7,22 @@
 mod actions;
 mod console;
 mod details;
+mod launch;
 mod list;
 mod render;
 mod state;
 mod toolbar;
 
 use std::collections::{BTreeMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Duration;
 
 use gpui_kit::component::menu::PopupMenu;
 use gpui_kit::component::resizable::ResizableState;
-use gpui_kit::{App, Entity, EventEmitter, FocusHandle, SharedString, Subscription, Window};
+use gpui_kit::{
+    App, Entity, EventEmitter, FocusHandle, SharedString, Subscription, Task, Window,
+};
 use lithe_core_client::CoreClient;
 
 use crate::console::{ConsoleHost, ConsoleScroll};
@@ -52,12 +55,19 @@ impl ConsoleHost for RunPanel {
     }
 }
 
-/// 启动前保存回调：工作台用它把脏缓冲写盘，面板不直接持有编辑器实体。
+/// 启动前保存回调：工作台用它把脏缓冲写盘、通知语言服务，并返回活动文档。
 ///
 /// 与 `GitPanel::on_open_file` 等回调同形，避免 `lithe-features` 反向依赖
-/// `lithe-workbench`。对齐 Tauri `run.store.ts` 在启动前强制
-/// `saveWorkspaceBeforeLaunch` 的语义。
-type BeforeLaunchHandler = Rc<dyn Fn(&mut App) + 'static>;
+/// `lithe-workbench`。对齐 macOS `saveJavaWorkspaceForLaunch`：保存失败时
+/// 必须中止启动，不能带着旧 class 或旧 working copy 去构建。
+type BeforeLaunchHandler =
+    Rc<dyn Fn(&mut App) -> Task<Result<Option<PathBuf>, String>> + 'static>;
+
+/// 读取某个工作区的 Java 构建失败策略（`true` = 始终继续）。
+type JavaBuildPolicyHandler = Rc<dyn Fn(&mut App, &Path) -> bool + 'static>;
+
+/// 写入某个工作区的 Java 构建失败策略（对齐 macOS `javaBuildFailurePolicy`）。
+type SetJavaBuildPolicyHandler = Rc<dyn Fn(&mut App, &Path, bool) + 'static>;
 
 /// 打开设置页编辑指定配置；工作台注入，面板不直接依赖设置视图。
 type OpenSettingsHandler = Rc<dyn Fn(&str, &mut Window, &mut App) + 'static>;
@@ -163,6 +173,9 @@ pub struct RunPanel {
     output_flush_scheduled: bool,
     /// 启动前保存回调查调；由工作台注入，见 [`BeforeLaunchHandler`]。
     on_before_launch: Option<BeforeLaunchHandler>,
+    /// Java 构建失败策略读写；由工作台注入，按工作区保存。
+    java_build_policy: Option<JavaBuildPolicyHandler>,
+    set_java_build_policy: Option<SetJavaBuildPolicyHandler>,
     /// 打开 Run 配置设置页回调；由工作台注入。
     on_open_settings: Option<OpenSettingsHandler>,
     /// 顶部项目准备状态是否展开（Run 面板自己的详情状态）。
@@ -175,6 +188,4 @@ pub struct RunPanel {
     launch_decision: Option<JavaLaunchDecision>,
     /// 构建失败但 classpath 已解析的启动目标；用户选择“仍然运行”时使用。
     launch_decision_target: Option<JavaLaunchTarget>,
-    /// 用户选择「对此工作区始终继续」后跳过后续构建检查。
-    skip_build_check: bool,
 }

@@ -8,6 +8,7 @@ pub(crate) mod java_decision;
 pub(crate) mod model;
 /// 供 Maven 工具窗复用 `project-maven` 工具链与 Windows 命令包装。
 pub(crate) mod session;
+pub(crate) mod source;
 pub(crate) mod toolchain;
 mod view;
 

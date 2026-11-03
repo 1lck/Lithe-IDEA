@@ -379,23 +379,61 @@ impl Workbench {
         self.save_active_as(window, cx);
     }
 
-    /// 启动前把所有脏缓冲写盘。
+    /// 启动前保存当前文档，并等写盘完成后再返回。
     ///
-    /// Run 面板通过 `on_before_launch` 回调查调这里。与 File > Save All 走同一个
-    /// 前端入口（Monaco 自己判断哪些模型需要保存），宿主不按自己的脏标记挑文件：
-    /// Rust 侧的 `dirty` 有 150ms 防抖，刚敲完立刻点 Run 会漏掉最新修改。
-    ///
-    /// 保存本身是异步的（`saveAll` 发出后前端逐个提交 `save` 请求）。这里不做
-    /// 阻塞等待：Run 启动也在后台线程里读文件，二者并发时最坏是跑到保存前的
-    /// 版本，而不会丢用户的修改；真正的“等保存完成再启动”需要编辑器回报
-    /// 保存完成事件，属于后续增强。
-    pub(super) fn save_all_before_launch(&mut self, cx: &mut Context<Self>) {
-        if self.tabs.is_empty() {
-            return;
+    /// 对齐 macOS `saveJavaWorkspaceForLaunch`：保存失败必须中止启动，不能
+    /// 带着旧内容去编译。原生编辑器只持有一个文档，后台标签的文本缓存不保证
+    /// 是最新内容，因此这里不冒险用缓存覆盖磁盘。
+    pub(super) fn save_all_before_launch(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> gpui_kit::Task<Result<Option<PathBuf>, String>> {
+        let Some(path) = self.active_tab_path() else {
+            return gpui_kit::Task::ready(Ok(None));
+        };
+        if self.is_active_tab_untitled() {
+            return gpui_kit::Task::ready(Ok(Some(path)));
         }
-        self.editor.update(cx, |editor, editor_cx| {
-            editor.save_all(editor_cx);
-        });
+        let Some(root) = self.project_root.clone() else {
+            return gpui_kit::Task::ready(Ok(Some(path)));
+        };
+        let text = self
+            .editor
+            .update(cx, |editor, editor_cx| editor.current_text(editor_cx));
+        let client = self.client;
+        let relative = workspace_relative(&root, &path);
+        let save_path = path.clone();
+        let save_text = text.clone();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_spawn(async move {
+                    client.write_file(&root, &relative, &save_text)
+                })
+                .await;
+            match result {
+                Ok(_) => {
+                    let _ = this.update(cx, |this, cx| {
+                        this.editor.update(cx, |editor, _editor_cx| {
+                            editor.mark_saved(&save_path, text.clone());
+                        });
+                        if let Some(tab) = this
+                            .tabs
+                            .iter_mut()
+                            .find(|tab| tab.absolute_path == save_path)
+                        {
+                            tab.text = text.clone();
+                            tab.modified = false;
+                        }
+                        this.java_language.update(cx, |model, _model_cx| {
+                            model.notify_document_saved(save_path.clone(), text.clone());
+                        });
+                        cx.notify();
+                    });
+                    Ok(Some(path))
+                }
+                Err(error) => Err(error.to_string()),
+            }
+        })
     }
 
     pub(super) fn close_other_tabs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -781,6 +819,19 @@ pub(super) fn file_identity(path: &Path) -> String {
     } else {
         normalised
     }
+}
+
+/// 工作区相对路径，`CoreClient::write_file` 使用 `/` 分隔。
+fn workspace_relative(root: &Path, path: &Path) -> String {
+    path.strip_prefix(root)
+        .map(|relative| relative.to_string_lossy().replace('\\', "/"))
+        .unwrap_or_else(|_| {
+            let root = file_identity(root);
+            let file = file_identity(path);
+            file.strip_prefix(&format!("{}/", root.trim_end_matches('/')))
+                .map(str::to_string)
+                .unwrap_or_else(|| path.to_string_lossy().replace('\\', "/"))
+        })
 }
 
 pub(super) fn file_title(path: &Path) -> SharedString {

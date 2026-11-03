@@ -379,6 +379,11 @@ pub struct AppSettings {
     // Process termination policy（只存储，长期驻留服务落地后才强制执行）
     /// Run services：`"ask"` 或 `"terminate"`。
     pub run_services_on_exit: String,
+    /// 选择「对此工作区始终继续」的项目根路径。
+    ///
+    /// 对齐 macOS `javaBuildFailurePolicy(.alwaysContinue)`：策略按工作区保存，
+    /// 重启应用后仍然生效；写入路径时统一使用 `/` 分隔并忽略大小写。
+    pub java_build_failure_always_continue: Vec<String>,
     /// 终端：`"ask"` 或 `"terminate"`。
     pub terminal_on_quit: String,
     /// Agent 任务：`"ask"`、`"keep"` 或 `"terminate"`。
@@ -477,6 +482,7 @@ impl Default for AppSettings {
             semantic_tokens: true,
             java_project_import_on_open: "automatic".to_string(),
             run_services_on_exit: DEFAULT_RUN_SERVICES_ON_EXIT.to_string(),
+            java_build_failure_always_continue: Vec::new(),
             terminal_on_quit: DEFAULT_TERMINAL_ON_QUIT.to_string(),
             agent_tasks: DEFAULT_AGENT_TASKS.to_string(),
             background_services: DEFAULT_BACKGROUND_SERVICES.to_string(),

@@ -691,16 +691,42 @@ impl Workbench {
         .detach();
 
         // 启动前保存：Run 面板不持有编辑器，只发一个无参请求，由工作台把
-        // 脏缓冲写盘。对齐 Tauri `run.store.ts` 在启动前强制
-        // `saveWorkspaceBeforeLaunch`，避免“改完直接运行”跑到旧 class/旧来源。
+        // 脏缓冲写盘并通知 Java 语言服务。对齐 macOS `saveJavaWorkspaceForLaunch`：
+        // 保存失败时中止启动，而不是带着旧内容去构建。
         {
             let owner = cx.weak_entity();
             workbench.run_panel.update(cx, |panel, _panel_cx| {
                 panel.on_before_launch(move |cx| {
-                    let _ = owner.update(cx, |this, cx| {
-                        this.save_all_before_launch(cx);
-                    });
+                    owner
+                        .update(cx, |this, cx| this.save_all_before_launch(cx))
+                        .unwrap_or_else(|_| Task::ready(Ok(None)))
                 });
+            });
+        }
+
+        // Java 构建失败策略按工作区持久化，对齐 macOS
+        // `settings.javaBuildFailurePolicy(for: workspaceURL)`。
+        {
+            let reader = cx.weak_entity();
+            let writer = cx.weak_entity();
+            workbench.run_panel.update(cx, |panel, _panel_cx| {
+                panel.on_java_build_policy(
+                    move |cx, root| {
+                        reader
+                            .upgrade()
+                            .map(|workbench| {
+                                workbench.read(cx).java_build_always_continue(root)
+                            })
+                            .unwrap_or(false)
+                    },
+                    move |cx, root, enabled| {
+                        if let Some(workbench) = writer.upgrade() {
+                            workbench.update(cx, |this, cx| {
+                                this.set_java_build_always_continue(root, enabled, cx);
+                            });
+                        }
+                    },
+                );
             });
         }
 

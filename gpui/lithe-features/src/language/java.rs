@@ -36,7 +36,27 @@ pub struct JavaLaunchTarget {
     pub class_paths: Vec<String>,
     pub module_paths: Vec<String>,
     /// JDT 报告了编译错误，但 classpath 已解析；Run 面板据此弹出决策横幅。
-    pub build_failure: Option<String>,
+    pub build_failure: Option<JavaBuildFailure>,
+}
+
+/// JDT 构建失败的证据，对齐 macOS `JavaLaunchBuildFailure` 与
+/// `JavaBuildReport`：宿主只负责展示，不据此单独阻止启动。
+#[derive(Clone, Debug)]
+pub struct JavaBuildFailure {
+    pub code: String,
+    pub message: String,
+    pub report: Option<JavaBuildReport>,
+}
+
+/// JDT 构建报告；字段与 Core `JavaBuildReport` 一一对应。
+#[derive(Clone, Debug, Default)]
+pub struct JavaBuildReport {
+    pub marker_scope: Option<String>,
+    pub elapsed_milliseconds: Option<u64>,
+    /// `rebuildJavaIndex` 表示构建器本身失效，重建索引才可能恢复。
+    pub recovery: Option<String>,
+    /// 本次失败之前构建器已经失效过，解释文案据此区分。
+    pub builder_failed_earlier: bool,
 }
 
 /// 语言服务线程收到的命令。所有 Core 轮询都由该线程独占，
@@ -46,6 +66,12 @@ enum JavaCommand {
         source_path: String,
         main_class: Option<String>,
         reply: Sender<Result<JavaLaunchTarget, String>>,
+    },
+    /// 保存后把最新文本同步给 JDT 并回报 didSave；macOS 在启动前对每个
+    /// 打开文档都做这一步，只有写盘成功并不足以让 JDT 的 working copy 更新。
+    NotifySaved {
+        path: PathBuf,
+        text: String,
     },
 }
 
@@ -65,7 +91,7 @@ struct JavaLanguageService {
     stop: Arc<AtomicBool>,
     receiver: Receiver<JavaServiceEvent>,
     commands: Sender<JavaCommand>,
-    _thread: JoinHandle<()>,
+    thread: Option<JoinHandle<()>>,
 }
 
 impl JavaLanguageService {
@@ -79,7 +105,7 @@ impl JavaLanguageService {
             stop,
             receiver,
             commands,
-            _thread: thread,
+            thread: Some(thread),
         }
     }
 
@@ -102,8 +128,15 @@ impl JavaLanguageService {
         receiver
     }
 
-    fn stop(&self) {
+    /// 把保存后的文档同步给 JDT 并回报 didSave。
+    fn notify_saved(&self, path: PathBuf, text: String) {
+        let _ = self.commands.send_blocking(JavaCommand::NotifySaved { path, text });
+    }
+
+    /// 通知会话退出，并交出线程句柄供调用方等待清理完成。
+    fn stop(&mut self) -> Option<JoinHandle<()>> {
         self.stop.store(true, Ordering::SeqCst);
+        self.thread.take()
     }
 }
 
@@ -150,7 +183,7 @@ impl JavaLanguageServiceModel {
         if normalized == self.root {
             return;
         }
-        self.stop_service();
+        let _ = self.stop_service();
         self.generation = self.generation.wrapping_add(1);
         self.root = normalized;
         self.preparation = None;
@@ -248,6 +281,70 @@ impl JavaLanguageServiceModel {
         })
     }
 
+    /// 保存后把文档同步给 JDT 并回报 didSave。
+    ///
+    /// 对齐 macOS `saveJavaWorkspaceForLaunch`：磁盘持久化不等于语言服务就绪，
+    /// 构建前必须让 JDT 的 working copy 看到同一份文本。
+    pub fn notify_document_saved(&mut self, path: PathBuf, text: String) {
+        if path.extension().and_then(|extension| extension.to_str()) != Some("java") {
+            return;
+        }
+        if let Some(service) = self.service.as_ref() {
+            service.notify_saved(path, text);
+        }
+    }
+
+    /// 清空并重建当前工作区的 Java 索引。
+    ///
+    /// 与 macOS `rebuildJavaIndex` 一致：停止会话、删除该工作区对应的 JDT
+    /// 状态目录，再重新启动服务；旧索引不会被增量构建继续沿用。
+    pub fn rebuild_index(&mut self, cx: &mut Context<Self>) {
+        let Some(root) = self.root.clone() else {
+            return;
+        };
+        let handle = self.stop_service();
+        self.generation = self.generation.wrapping_add(1);
+        self.preparation = Some(ProjectPreparation::starting());
+        self.seen.clear();
+        self.failure = None;
+        cx.notify();
+        self.emit(cx);
+
+        let client = self.client;
+        let root_text = path_text(&root);
+        cx.spawn(async move |this, cx| {
+            let directory = cx
+                .background_spawn(async move {
+                    // 等语言服务线程完成 shutdown，再删除状态目录；否则 JDT
+                    // 退出时还可能在写同一批文件。
+                    if let Some(handle) = handle {
+                        let _ = handle.join();
+                    }
+                    let cache = cache_directory()?;
+                    let key = client
+                        .execute_raw(
+                            "lsp.jdtWorkspaceKey",
+                            json!({ "workspaceRoot": root_text }),
+                        )
+                        .ok()?
+                        .get("workspaceKey")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)?;
+                    Some(cache.join(key))
+                })
+                .await;
+            if let Some(directory) = directory {
+                crate::logging::log_info(
+                    "language",
+                    format!("Rebuilding Java index: {}", directory.display()),
+                );
+                let _ = std::fs::remove_dir_all(directory);
+            }
+            let _ = this.update(cx, |this, cx| this.start_service(cx));
+        })
+        .detach();
+    }
+
     fn start_service(&mut self, cx: &mut Context<Self>) {
         let Some(root) = self.root.clone() else {
             return;
@@ -341,10 +438,8 @@ impl JavaLanguageServiceModel {
         }
     }
 
-    fn stop_service(&mut self) {
-        if let Some(service) = self.service.take() {
-            service.stop();
-        }
+    fn stop_service(&mut self) -> Option<JoinHandle<()>> {
+        self.service.take().and_then(|mut service| service.stop())
     }
 
     fn emit(&self, cx: &mut Context<Self>) {
@@ -443,6 +538,45 @@ fn run(
                         }
                     }
                 }
+                JavaCommand::NotifySaved { path, text } => {
+                    // JDT 的 didSave 会丢弃并重新加载 working copy；先同步完整
+                    // 文本，再回报保存，顺序与 macOS `notifyDocumentSaved` 一致。
+                    let uri = file_uri(&path);
+                    let sync = json!({
+                        "sessionId": session_id,
+                        "uri": uri.clone(),
+                        "languageId": "java",
+                        "text": text.clone(),
+                    });
+                    if let Err(error) = client.execute_raw("lsp.syncDocument", sync) {
+                        crate::logging::log_info(
+                            "language",
+                            format!(
+                                "Java document sync failed for {}: {} ({})",
+                                path.display(),
+                                error.message,
+                                error.code
+                            ),
+                        );
+                        continue;
+                    }
+                    let save = json!({
+                        "sessionId": session_id,
+                        "uri": uri,
+                        "text": text,
+                    });
+                    if let Err(error) = client.execute_raw("lsp.saveDocument", save) {
+                        crate::logging::log_info(
+                            "language",
+                            format!(
+                                "Java document didSave failed for {}: {} ({})",
+                                path.display(),
+                                error.message,
+                                error.code
+                            ),
+                        );
+                    }
+                }
             }
         }
 
@@ -521,19 +655,48 @@ fn complete_launch(
 
 /// 把 Core 的 `java.prepareLaunch` 结果转成启动目标。
 ///
-/// 编译错误仍然带回已解析的 target：Run 面板据此让用户决定是否仍然运行，
-/// 与 macOS 的 `JavaLaunchDecisionBanner` 一致。
+/// 编译错误仍然带回已解析的 target 和完整构建报告：Run 面板据此让用户决定
+/// 是否仍然运行，并展示与 macOS `JavaLaunchDecisionDialog` 相同的证据。
 fn launch_target(value: &Value) -> Result<JavaLaunchTarget, String> {
     let build_failure = match value.get("kind").and_then(Value::as_str) {
         Some("ready") => None,
-        Some("buildFailed") => Some(
-            value
-                .get("failure")
+        Some("buildFailed") => {
+            let failure = value.get("failure");
+            let code = failure
+                .and_then(|failure| failure.get("code"))
+                .and_then(Value::as_str)
+                .unwrap_or("javaBuildCompilationErrors")
+                .to_string();
+            let message = failure
                 .and_then(|failure| failure.get("message"))
                 .and_then(Value::as_str)
                 .unwrap_or("The Java project build reported compilation errors.")
-                .to_string(),
-        ),
+                .to_string();
+            let report = failure
+                .and_then(|failure| failure.get("report"))
+                .map(|report| JavaBuildReport {
+                    marker_scope: report
+                        .get("markerScope")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    elapsed_milliseconds: report
+                        .get("elapsedMilliseconds")
+                        .and_then(Value::as_u64),
+                    recovery: report
+                        .get("recovery")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    builder_failed_earlier: report
+                        .get("builderFailedEarlier")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                });
+            Some(JavaBuildFailure {
+                code,
+                message,
+                report,
+            })
+        }
         other => {
             return Err(format!(
                 "The Java language service returned an unexpected launch kind: {}",

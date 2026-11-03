@@ -680,6 +680,25 @@ impl EditorSurface {
         self.save(cx);
     }
 
+    /// 当前编辑器里的最新文本（包含尚未保存的修改）。
+    pub fn current_text(&self, cx: &Context<Self>) -> String {
+        self.editor_value(cx)
+    }
+
+    /// 启动前保存完成后同步编辑器状态，不触发“Saved”通知。
+    pub fn mark_saved(&mut self, path: &Path, text: String) {
+        let Some(document) = self.document.as_mut() else {
+            return;
+        };
+        if document.absolute_path.as_path() != path {
+            return;
+        }
+        document.dirty = false;
+        let id = document.id.clone();
+        self.dirty = false;
+        self.texts.insert(id, text);
+    }
+
     /// 另存为。
     pub fn save_as(&mut self, target: PathBuf, cx: &mut Context<Self>) {
         let text = self.editor_value(cx);

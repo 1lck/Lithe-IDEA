@@ -398,4 +398,31 @@ impl Workbench {
         };
         workspace_layout::save(root, &layout);
     }
+
+    /// 某个工作区是否选择过「对此工作区始终继续」。
+    pub(super) fn java_build_always_continue(&self, root: &Path) -> bool {
+        let key = super::tabs::file_identity(root);
+        self.settings
+            .java_build_failure_always_continue
+            .iter()
+            .any(|entry| super::tabs::file_identity(Path::new(entry)) == key)
+    }
+
+    /// 记录或清除工作区的 Java 构建失败策略。
+    pub(super) fn set_java_build_always_continue(
+        &mut self,
+        root: &Path,
+        enabled: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let key = super::tabs::file_identity(root);
+        self.settings
+            .java_build_failure_always_continue
+            .retain(|entry| super::tabs::file_identity(Path::new(entry)) != key);
+        if enabled {
+            self.settings.java_build_failure_always_continue.push(key);
+        }
+        self.save_settings(cx);
+        cx.notify();
+    }
 }

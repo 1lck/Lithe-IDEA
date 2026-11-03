@@ -58,14 +58,19 @@ pub fn start(
     client: CoreClient,
     root: PathBuf,
     configuration: RunConfiguration,
-    skip_build: bool,
     java_launch: Option<JavaLaunchTarget>,
+    current_file: Option<PathBuf>,
 ) -> Receiver<SessionEvent> {
     let (sender, receiver) = unbounded();
     thread::spawn(move || {
-        if let Err(message) =
-            launch(client, root, configuration, skip_build, java_launch, sender.clone())
-        {
+        if let Err(message) = launch(
+            client,
+            root,
+            configuration,
+            java_launch,
+            current_file,
+            sender.clone(),
+        ) {
             let _ = sender.send_blocking(SessionEvent::Failed(message));
         }
     });
@@ -77,6 +82,7 @@ fn launch_request(
     root: &Path,
     configuration: &RunConfiguration,
     java_launch: Option<&JavaLaunchTarget>,
+    current_file: Option<&Path>,
 ) -> Value {
     let root_text = root.to_string_lossy().to_string();
     let mut request = json!({
@@ -90,6 +96,11 @@ fn launch_request(
             "classPaths": target.class_paths,
             "modulePaths": target.module_paths,
         });
+    }
+    // Current File 由 Core 编译成指定输出目录再按类名启动；路径必须是工作区
+    // 相对路径，绝对路径只用于宿主解析源文件。
+    if let Some(current_file) = current_file.filter(|_| configuration.uses_current_editor_file()) {
+        request["currentFile"] = json!(workspace_relative(root, current_file));
     }
     // Maven-backed configurations carry Core's reactor ownership. Passing it
     // back keeps `-pl`/`-f` relative to the reactor root instead of the module
@@ -131,17 +142,13 @@ fn launch_request(
     request
 }
 
-/// 是否需要在启动前做一次 Java 项目构建检查。
-pub fn needs_build_check(configuration: &RunConfiguration) -> bool {
-    let provider = configuration.provider.as_str();
-    provider.starts_with("spring-boot")
-        || provider.starts_with("java")
-        || provider.starts_with("maven")
-        || configuration.toolchains.contains_key("maven")
-        || configuration.toolchains.contains_key("java")
-        || configuration.extensions.get("maven").is_some()
-        || configuration.extensions.get("java").is_some()
-        || configuration.language() == super::model::RunLanguage::Java
+/// Current File 交给 Core 的路径必须是工作区相对的 `/` 分隔形式。
+fn workspace_relative(root: &Path, path: &Path) -> String {
+    crate::run::config::workspace_relative_path(
+        &root.to_string_lossy(),
+        &path.to_string_lossy(),
+    )
+    .unwrap_or_else(|| path.to_string_lossy().replace('\\', "/"))
 }
 
 fn is_maven_launcher(executable: &Path) -> bool {
@@ -212,11 +219,16 @@ fn launch(
     client: CoreClient,
     root: PathBuf,
     configuration: RunConfiguration,
-    _skip_build: bool,
     java_launch: Option<JavaLaunchTarget>,
+    current_file: Option<PathBuf>,
     sender: Sender<SessionEvent>,
 ) -> Result<(), String> {
-    let request = launch_request(&root, &configuration, java_launch.as_ref());
+    let request = launch_request(
+        &root,
+        &configuration,
+        java_launch.as_ref(),
+        current_file.as_deref(),
+    );
     let plan = client
         .execute_raw("runConfig.createLaunchPlan", request)
         .map_err(|error| {

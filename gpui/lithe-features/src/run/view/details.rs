@@ -299,6 +299,13 @@ impl RunPanel {
         cx: &mut Context<Self>,
     ) -> Vec<AnyElement> {
         let mut banners = Vec::new();
+        if let Some(error) = &self.error {
+            banners.push(
+                Alert::error(SharedString::from("lithe-run:launch-error"), error.clone())
+                    .banner()
+                    .into_any_element(),
+            );
+        }
         if let Some(decision) = &self.launch_decision {
             banners.push(java_decision::render_java_launch_decision_banner(
                 decision, tokens, cx,

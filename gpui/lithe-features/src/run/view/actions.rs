@@ -15,15 +15,14 @@ use lithe_ui::i18n::tr;
 use crate::console::ConsoleScroll;
 
 use super::config::{self, LoadedRunConfigurations};
-use super::java_decision::JavaLaunchDecision;
-use super::model::{RunConfiguration, RunExecution, RunLanguage, RunScope};
+use super::model::{RunConfiguration, RunExecution, RunScope};
 use super::session::{self, RunMode, SessionEvent};
 use super::state::SessionState;
 use super::{
     CONFIGURATION_LIST_DEFAULT_WIDTH, CONSOLE_CONTEXT, CopySelection, OUTPUT_FLUSH_INTERVAL,
     RunPanel, RunPanelEvent,
 };
-use crate::language::{JavaLanguageServiceEvent, JavaLanguageServiceModel, JavaLaunchTarget};
+use crate::language::{JavaLanguageServiceEvent, JavaLanguageServiceModel};
 
 impl RunPanel {
     pub fn new(
@@ -84,19 +83,33 @@ impl RunPanel {
             pending_output: BTreeMap::new(),
             output_flush_scheduled: false,
             on_before_launch: None,
+            java_build_policy: None,
+            set_java_build_policy: None,
             on_open_settings: None,
             preparation_expanded: false,
             java_language,
             pending_java_launch: None,
             launch_decision: None,
             launch_decision_target: None,
-            skip_build_check: false,
         }
     }
 
     /// 注入启动前保存回调。工作台在构造期注册一次，面板每次启动前调用。
-    pub fn on_before_launch(&mut self, handler: impl Fn(&mut App) + 'static) {
+    pub fn on_before_launch(
+        &mut self,
+        handler: impl Fn(&mut App) -> Task<Result<Option<PathBuf>, String>> + 'static,
+    ) {
         self.on_before_launch = Some(Rc::new(handler));
+    }
+
+    /// 注入 Java 构建失败策略的读写回调（按工作区持久化）。
+    pub fn on_java_build_policy(
+        &mut self,
+        read: impl Fn(&mut App, &Path) -> bool + 'static,
+        write: impl Fn(&mut App, &Path, bool) + 'static,
+    ) {
+        self.java_build_policy = Some(Rc::new(read));
+        self.set_java_build_policy = Some(Rc::new(write));
     }
 
     /// 注入「编辑当前配置」回调：打开设置页的 Run Configurations 页。
@@ -372,19 +385,6 @@ impl RunPanel {
         .detach();
     }
 
-    /// 准备完成后继续被闸门拦下的启动。
-    pub(super) fn resume_pending_java_launch(&mut self, cx: &mut Context<Self>) {
-        let blocked = self.java_language.read(cx).blocks_run();
-        let Some(id) = self.pending_java_launch.take() else {
-            return;
-        };
-        if blocked {
-            self.pending_java_launch = Some(id);
-            return;
-        }
-        self.start_configuration(id, cx);
-    }
-
     fn apply_loaded(&mut self, loaded: LoadedRunConfigurations, cx: &mut Context<Self>) {
         self.configurations = loaded.configurations;
         self.default_id = loaded.default_id;
@@ -421,153 +421,7 @@ impl RunPanel {
         }
     }
 
-    pub(super) fn start_configuration(&mut self, id: String, cx: &mut Context<Self>) {
-        let Some(configuration) = self
-            .configurations
-            .iter()
-            .find(|configuration| configuration.id == id)
-            .filter(|configuration| configuration.execution != RunExecution::Group)
-            .cloned()
-        else {
-            return;
-        };
-        let Some(root) = self.root.clone() else {
-            return;
-        };
-        if self.sessions.get(&id).is_some_and(SessionState::is_active) {
-            self.selected_id = Some(id);
-            self.show_details = false;
-            self.emit(cx);
-            cx.notify();
-            return;
-        }
-
-        // Java 项目准备未完成时先排队：JDT 还没导入完时主类与 classpath
-        // 都没有可靠答案。完成或失败都会由模型事件放行。
-        if self.java_language.read(cx).blocks_run() {
-            self.pending_java_launch = Some(id.clone());
-            self.selected_id = Some(id);
-            self.show_details = false;
-            self.emit(cx);
-            cx.notify();
-            return;
-        }
-
-        self.selected_id = Some(id.clone());
-        self.show_details = false;
-        self.launch_decision = None;
-        self.pending_output.remove(&id);
-        self.emit(cx);
-        cx.notify();
-
-        // 先把脏缓冲写盘再启动：改完源码直接点 Run 时，编译/运行必须看到新内容。
-        // 保存是异步的（Monaco 逐个提交 save 请求），这里只发出请求，不阻塞启动。
-        if let Some(save) = self.on_before_launch.clone() {
-            save(cx);
-        }
-
-        let skip_build = self.skip_build_check || !session::needs_build_check(&configuration);
-        // 与 macOS 一致：Java / Spring Boot 先让 JDT 选择主类、构建并返回运行时
-        // classpath，再用项目 JDK 启动；宿主不自己跑 Maven。
-        if let Some(source) = java_launch_source(&configuration, &root) {
-            let main_class = configuration.main_class().map(str::to_string);
-            crate::logging::log_info(
-                "run",
-                format!(
-                    "Java launch source: {} (mainClass={})",
-                    source.display(),
-                    main_class.as_deref().unwrap_or("")
-                ),
-            );
-            let started = std::time::Instant::now();
-            let prepared = self
-                .java_language
-                .update(cx, |model, cx| model.prepare_launch(source, main_class, cx));
-            cx.spawn(async move |this, cx| {
-                let result = prepared.await;
-                let elapsed_ms = started.elapsed().as_millis();
-                let _ = this.update(cx, |this, cx| match result {
-                    Ok(target) => {
-                        // 编译错误但 classpath 已解析：与 macOS 一样让用户决定是否仍然运行。
-                        if let Some(failure) = target.build_failure.clone() {
-                            if !this.skip_build_check {
-                                crate::logging::log_info(
-                                    "run",
-                                    format!("Java launch build failed: {failure}"),
-                                );
-                                this.launch_decision = Some(JavaLaunchDecision {
-                                    configuration: configuration.clone(),
-                                    message: SharedString::from(failure),
-                                    elapsed_ms,
-                                    can_rebuild_index: true,
-                                });
-                                this.launch_decision_target = Some(target);
-                                this.emit(cx);
-                                cx.notify();
-                                return;
-                            }
-                        }
-                        this.launch_configuration(
-                            configuration,
-                            root,
-                            skip_build,
-                            Some(target),
-                            cx,
-                        );
-                    }
-                    Err(error) => {
-                        crate::logging::log_info(
-                            "run",
-                            format!("Java launch preparation failed: {error}"),
-                        );
-                        this.error = Some(SharedString::from(error));
-                        this.emit(cx);
-                        cx.notify();
-                    }
-                });
-            })
-            .detach();
-            return;
-        }
-        self.launch_configuration(configuration, root, skip_build, None, cx);
-    }
-
-    /// 真正启动一个配置。`skip_build` 为 true 时跳过启动前构建。
-    fn launch_configuration(
-        &mut self,
-        configuration: RunConfiguration,
-        root: PathBuf,
-        skip_build: bool,
-        java_launch: Option<JavaLaunchTarget>,
-        cx: &mut Context<Self>,
-    ) {
-        let id = configuration.id.clone();
-        crate::logging::log_info("run", format!("launching run configuration {id}"));
-        self.selected_id = Some(id.clone());
-        self.show_details = false;
-        self.sessions.insert(id.clone(), SessionState::starting());
-        self.pending_output.remove(&id);
-        self.console.reset();
-        self.console_follow_tail = true;
-        self.emit(cx);
-        cx.notify();
-
-        let client = self.client;
-        let session_id = id;
-        cx.spawn(async move |this, cx| {
-            let receiver = cx
-                .background_spawn(async move {
-                    session::start(client, root, configuration, skip_build, java_launch)
-                })
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                this.watch_session(session_id, receiver, cx);
-            });
-        })
-        .detach();
-    }
-
-    fn watch_session(
+    pub(super) fn watch_session(
         &mut self,
         id: String,
         receiver: Receiver<SessionEvent>,
@@ -758,39 +612,51 @@ impl RunPanel {
 
     /// 「仍然运行」/「对此工作区始终继续」：跳过本次构建失败继续启动。
     pub(crate) fn continue_java_launch(&mut self, always: bool, cx: &mut Context<Self>) {
+        let Some(root) = self.root.clone() else {
+            return;
+        };
         if always {
-            self.skip_build_check = true;
+            if let Some(write) = self.set_java_build_policy.as_ref() {
+                write(cx, &root, true);
+            }
         }
         let Some(decision) = self.launch_decision.take() else {
             return;
         };
-        let Some(root) = self.root.clone() else {
-            return;
-        };
         let target = self.launch_decision_target.take();
-        self.launch_configuration(decision.configuration, root, true, target, cx);
+        self.launch_configuration(
+            decision.configuration,
+            root,
+            decision.current_file,
+            target,
+            cx,
+        );
     }
 
-    /// 「重建 Java 索引」：对齐 Tauri actions.rebuildJavaIndex。
+    /// 「重建 Java 索引」：清空 JDT 工作区状态并重启语言服务，然后取消本次启动。
     pub(crate) fn rebuild_java_index(&mut self, cx: &mut Context<Self>) {
         self.launch_decision = None;
-        let id = self.selected_id.clone().or_else(|| self.default_id.clone());
-        if let Some(id) = id {
-            let session = self
-                .sessions
-                .entry(id)
-                .or_insert_with(SessionState::starting);
-            session.append_output(
-                "Java index cleared. Run the configuration again after project import finishes.\n",
-            );
-        }
+        self.launch_decision_target = None;
+        self.java_language
+            .update(cx, |model, cx| model.rebuild_index(cx));
+        self.emit(cx);
         cx.notify();
     }
 
-    /// 「打开日志」：切换到该配置查看日志。
-    pub(crate) fn open_decision_logs(&mut self, config_id: &str, cx: &mut Context<Self>) {
+    /// 「打开日志」：取消本次启动并打开诊断设置页。
+    pub(crate) fn open_decision_logs(
+        &mut self,
+        config_id: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.selected_id = Some(config_id.to_string());
         self.show_details = false;
+        self.launch_decision = None;
+        self.launch_decision_target = None;
+        if let Some(handler) = self.on_open_settings.as_ref() {
+            handler("logs", window, cx);
+        }
         self.emit(cx);
         cx.notify();
     }
@@ -809,38 +675,4 @@ fn normalize_relative(value: Option<&str>) -> &str {
         Some(value) if !value.trim().is_empty() && value != "." => value,
         _ => ".",
     }
-}
-
-/// 与 macOS `usesJavaProjectPreparation` 对齐：只有 Maven 反应堆里的
-/// Java / Spring Boot 配置才由 JDT 准备启动目标。
-///
-/// Core 把真正的 Java 源文件放在 `extensions.java.source`；顶层 `source`
-/// 可能是产生配置的 `pom.xml`，直接把它交给 JDT 会找不到启动目标。
-fn java_launch_source(configuration: &RunConfiguration, root: &Path) -> Option<PathBuf> {
-    if configuration.language() != RunLanguage::Java {
-        return None;
-    }
-    if !configuration.toolchains.contains_key("maven")
-        && configuration.extensions.get("maven").is_none()
-    {
-        return None;
-    }
-    let source = configuration
-        .extensions
-        .get("java")
-        .and_then(|java| java.get("source"))
-        .and_then(|source| source.as_str())
-        .map(str::to_string)
-        .or_else(|| {
-            configuration
-                .source
-                .clone()
-                .filter(|source| source.ends_with(".java"))
-        })?;
-    let path = Path::new(&source);
-    Some(if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        root.join(path)
-    })
 }

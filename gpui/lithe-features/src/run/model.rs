@@ -537,6 +537,39 @@ impl RunConfiguration {
             .and_then(Value::as_str)
     }
 
+    /// Current File 配置：启动目标取当前编辑器文件，而不是配置里记录的路径。
+    pub fn uses_current_editor_file(&self) -> bool {
+        self.provider == "java.current-file"
+    }
+
+    /// 工作区相对的 Java 源文件；对齐 macOS `RunConfiguration.sourcePath`。
+    pub fn source_path(&self) -> Option<&str> {
+        self.extensions
+            .get("java")
+            .and_then(|java| java.get("source"))
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+    }
+
+    /// 只有 JDT 项目里的 Java / Spring Boot 主类才等待项目准备。
+    ///
+    /// 对齐 macOS `usesJavaProjectPreparation`：`java.main` 或
+    /// `spring-boot.*` 且带 Maven 反应堆归属；Current File、Maven Module 与
+    /// 其它生态不能交给 JDT 选择启动目标。
+    pub fn uses_java_project_preparation(&self) -> bool {
+        (self.provider == "java.main" || self.provider.starts_with("spring-boot."))
+            && self.maven_reactor_path().is_some()
+    }
+
+    /// Maven 模块路径；`.` 表示反应堆根，与 macOS 一样视作 `None`。
+    pub fn module_path(&self) -> Option<&str> {
+        self.extensions
+            .get("maven")
+            .and_then(|maven| maven.get("module"))
+            .and_then(Value::as_str)
+            .filter(|module| !module.trim().is_empty() && *module != ".")
+    }
+
     pub fn module(&self) -> Option<&str> {
         self.extensions
             .get("maven")
