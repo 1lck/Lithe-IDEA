@@ -467,6 +467,17 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 
 ## 验证
 
+2026-11-03 的完整验证还修复两处既有测试夹具问题，不能靠跳过测试或放宽预算
+取得耗时收益。箭头测试的 1× 事件上下文复现与恢复边界见
+[Git 图谱决策](../feature/2026-09-13-macos-git-graph-intellij-layout.md)。本地历史
+容量测试原先直接比较 `Int64?` 与 `500 * 1024 * 1024`，Swift Testing 宏会在该
+形态下错误选择类型擦除比较，出现两边打印同值仍失败；单独复测稳定复现，
+显式 `Int64` 的普通比较和断言均通过。当前先 `#require` 返回值，再用显式
+`Int64` 请求值比较容量，保留 500 MiB 的原有要求。上游依据是
+[Swift #91221](https://github.com/swiftlang/swift/issues/91221)；这些修正均不改变
+产品实现、测试时限或失败门禁。
+
+
 - `actionlint .github/workflows/ci-macos.yml .github/workflows/ci-windows.yml .github/workflows/ci-plugins.yml .github/workflows/ci-remote.yml`
 - `./scripts/ci/common/test-classify-ci-changes.sh`：包含 Draft PR 关闭 runner lane、保留 Linux lane，以及 macOS Java 不触发 real-JDT、共享引擎和 Windows Java 仍触发的正反例。
 - `node --test scripts/ci/common/ci-workflow-gates.test.mjs scripts/ci/common/plan-ci-lane-reuse.test.mjs scripts/ci/common/verify-reused-ci-jobs.test.mjs`：从实际工作流执行 gate shell，验证取消条件、分类/测试失败、lane 覆盖及复用来源的失败传播。
