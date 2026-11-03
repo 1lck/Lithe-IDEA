@@ -88,8 +88,10 @@ pub(super) fn start(
     let executable =
         resolve_toolchain_with(root, &working_directory, "project-jdk", None, &toolchains)?;
     let mut arguments: Vec<String> = configuration.jvm_arguments.clone();
-    // 控制台按 UTF-8 解码日志；固定编码后中文日志不会因系统代码页变成乱码。
-    arguments.push("-Dfile.encoding=UTF-8".to_string());
+    arguments.extend(encoding_arguments(
+        &configuration.jvm_arguments,
+        &configuration.program_arguments,
+    ));
     arguments.push("-cp".to_string());
     arguments.push(entries.join(classpath_separator()));
     arguments.push(main_class);
@@ -119,6 +121,31 @@ pub(super) fn start(
         sender,
         temporary,
     )
+}
+
+// ---------------------------------------------------------------------------
+// JVM 编码参数
+// ---------------------------------------------------------------------------
+
+/// 控制台按 UTF-8 解码 JVM 输出所需的编码参数。
+///
+/// `file.encoding` 不控制 stdout/stderr，这两路在 JDK 18 之前跟随系统代码页，
+/// 中文 Windows 上中文日志会乱码，因此三路一起显式固定。Spring 的 ANSI 开关
+/// 只在 Windows 注入；运行配置里已声明该属性时保留用户设置，不重复覆盖。
+fn encoding_arguments(jvm_arguments: &[String], program_arguments: &[String]) -> Vec<String> {
+    let mut arguments = vec![
+        "-Dfile.encoding=UTF-8".to_string(),
+        "-Dstdout.encoding=UTF-8".to_string(),
+        "-Dstderr.encoding=UTF-8".to_string(),
+    ];
+    let ansi_configured = jvm_arguments
+        .iter()
+        .chain(program_arguments)
+        .any(|argument| argument.contains("spring.output.ansi.enabled"));
+    if cfg!(windows) && !ansi_configured {
+        arguments.push("-Dspring.output.ansi.enabled=always".to_string());
+    }
+    arguments
 }
 
 // ---------------------------------------------------------------------------
@@ -685,6 +712,33 @@ mod tests {
             classpath,
             "com.example.Main".to_string(),
         ]
+    }
+
+    #[test]
+    fn encoding_arguments_fix_all_three_streams() {
+        let arguments = encoding_arguments(&[], &[]);
+        assert!(arguments.contains(&"-Dfile.encoding=UTF-8".to_string()));
+        assert!(arguments.contains(&"-Dstdout.encoding=UTF-8".to_string()));
+        assert!(arguments.contains(&"-Dstderr.encoding=UTF-8".to_string()));
+        assert_eq!(
+            arguments.contains(&"-Dspring.output.ansi.enabled=always".to_string()),
+            cfg!(windows)
+        );
+    }
+
+    #[test]
+    fn an_explicit_ansi_setting_is_not_overridden() {
+        for existing in [
+            vec!["-Dspring.output.ansi.enabled=never".to_string()],
+            vec!["--spring.output.ansi.enabled=always".to_string()],
+        ] {
+            let from_jvm = encoding_arguments(&existing, &[]);
+            let from_program = encoding_arguments(&[], &existing);
+            for arguments in [from_jvm, from_program] {
+                assert!(!arguments.contains(&"-Dspring.output.ansi.enabled=always".to_string()));
+                assert!(arguments.contains(&"-Dstdout.encoding=UTF-8".to_string()));
+            }
+        }
     }
 
     #[test]
