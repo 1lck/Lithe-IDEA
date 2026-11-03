@@ -2148,6 +2148,22 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::LspSetDetailedDiagnostics => {
+            match serde_json::from_value::<crate::lsp::SetDetailedDiagnosticsRequest>(
+                parsed.payload,
+            )
+            .map_err(|_| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid detailed diagnostics request",
+                )
+            })
+            .and_then(crate::lsp::set_detailed_diagnostics)
+            {
+                Ok(()) => CoreResponse::success(id, json!({})),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::LspWaitEvents => {
             match serde_json::from_value::<crate::lsp::WaitEventsRequest>(parsed.payload)
                 .map_err(|error| {
@@ -3379,6 +3395,11 @@ fn execute(request: &str) -> CoreResponse {
                 ),
             }
         }
+        CoreCommand::DiagnosticsDrainCoreEvents => CoreResponse::success(
+            id,
+            serde_json::to_value(crate::diagnostics::core_events::drain())
+                .expect("Core logs encode"),
+        ),
         CoreCommand::DiagnosticsEncodeLogBatch => {
             match serde_json::from_value::<crate::diagnostics::record::EncodeLogBatchRequest>(
                 parsed.payload,
@@ -3433,6 +3454,24 @@ fn execute(request: &str) -> CoreResponse {
                 Err(_) => CoreResponse::failure(
                     id,
                     CoreError::new(ErrorCode::InvalidRequest, "Invalid log retention request"),
+                ),
+            }
+        }
+        CoreCommand::DiagnosticsResolveEngineLogSubject => {
+            match serde_json::from_value::<crate::lsp::ResolveEngineLogSubjectRequest>(
+                parsed.payload,
+            ) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(crate::lsp::resolve_engine_log_subject(request))
+                        .expect("Engine log subject should encode"),
+                ),
+                Err(_) => CoreResponse::failure(
+                    id,
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid engine log subject request",
+                    ),
                 ),
             }
         }

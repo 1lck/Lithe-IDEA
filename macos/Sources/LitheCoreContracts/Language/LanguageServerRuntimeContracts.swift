@@ -283,6 +283,10 @@ package enum JavaLaunchPreparation: Equatable, Sendable {
 }
 
 package struct LanguageServerRuntimeEvent: Equatable, Sendable {
+    /// Optional structured fact on any runtime event, including stateChanged; independent of type.
+    package let coreLog: CoreLogRecord?
+    package let pluginID: String?
+    package let role: String?
     package let mavenProfileTask: String?
     package let mavenProfileProject: MavenProfileProjectResult?
     package let type: String
@@ -315,8 +319,10 @@ package struct LanguageServerRuntimeEvent: Equatable, Sendable {
         detail: String? = nil,
         mavenProfileTask: String? = nil,
         mavenProfileProject: MavenProfileProjectResult? = nil,
-        method: String? = nil
+        method: String? = nil,
+        coreLog: CoreLogRecord? = nil, pluginID: String? = nil, role: String? = nil
     ) {
+        self.coreLog = coreLog; self.pluginID = pluginID; self.role = role
         self.method = method
         self.mavenProfileTask = mavenProfileTask
         self.mavenProfileProject = mavenProfileProject
@@ -359,7 +365,13 @@ package struct JavaLanguageImportConfiguration: Equatable, Sendable {
     }
 }
 
+/// Explicit process ownership supplied by each launcher, never inferred from IDs.
+package enum LanguageServerLogRole: String, Sendable { case languageServer = "language_server", vcs, build, toolchain, backend }
+
 package protocol LanguageServerRuntimeCore: Sendable {
+    func loggingRuntime(role: LanguageServerLogRole, logSubject: String?, pluginID: String?) -> any LanguageServerRuntimeCore
+    func emitCoreLog(_ record: CoreLogRecord)
+
     /// Network-backed startup must run off the main actor. This is resolved
     /// from the workspace owner, before any process is created.
     func requiresBackgroundLanguageServerStart(rootURL: URL) -> Bool
@@ -611,6 +623,9 @@ package protocol LanguageServerRuntimeCore: Sendable {
 }
 
 package extension LanguageServerRuntimeCore {
+    func loggingRuntime(role: LanguageServerLogRole, logSubject: String?, pluginID: String?) -> any LanguageServerRuntimeCore { self }
+    func emitCoreLog(_ record: CoreLogRecord) {}
+
     func saveLanguageServerDocument(sessionID _: String, fileURL _: URL, text _: String) -> Result<Bool, LanguageServerRuntimeFailure> {
         .success(false)
     }

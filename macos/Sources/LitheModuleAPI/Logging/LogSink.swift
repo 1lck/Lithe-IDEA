@@ -4,6 +4,7 @@ import Foundation
 /// encoding, disk I/O or subscribers; overload is reported by the store.
 public protocol LogSink: Sendable {
     func emit(_ event: any LogEvent)
+    func emit(_ record: CoreLogRecord)
 }
 
 /// One operation's trusted channel identities and correlation. Supply `segments`
@@ -20,6 +21,8 @@ public struct LogScope: LogSink, Sendable {
     }
 
     public func emit(_ event: any LogEvent) { forward(event) }
+
+    public func emit(_ record: CoreLogRecord) { sink.emit(record) }
 
     private func forward<E: LogEvent>(_ event: E) {
         sink.emit(ScopedLogEvent(value: event, operationID: event.operationID ?? operationID))

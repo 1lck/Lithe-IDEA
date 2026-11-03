@@ -67,6 +67,234 @@
       "span": {
         "failureLevel": "error"
       }
+    },
+    {
+      "id": "vcs.stderr.received",
+      "channel": "vcs/{provider}",
+      "level": "warn",
+      "message": "Engine stderr received for server {provider}",
+      "fields": {
+        "diagnostic": {
+          "type": "text",
+          "required": true,
+          "description": "Original language server stderr diagnostic, redacted and capped at 1024 UTF-8 bytes",
+          "reason": "Language servers emit implementation-specific failure explanations only on stderr, so retain the original diagnostic wording for diagnosis after redaction and truncation rather than attempting an unstable parser."
+        },
+        "truncated": {
+          "type": "bool",
+          "required": false,
+          "description": "Whether the upstream stderr line exceeded the 4096 byte reader limit"
+        },
+        "provider": {
+          "type": "id",
+          "required": true,
+          "description": "Validated provider identity assigned by Core to this engine session"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "vcs.stderr.read_failed",
+      "channel": "vcs/{provider}",
+      "level": "warn",
+      "message": "Engine stderr read failed for server {provider}",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "I/O error returned by the language server stderr reader"
+        },
+        "provider": {
+          "type": "id",
+          "required": true,
+          "description": "Validated provider identity assigned by Core to this engine session"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "vcs.message.logged",
+      "channel": "vcs/{provider}",
+      "level": "info",
+      "message": "Engine log message received for server {provider} with severity {severity}",
+      "fields": {
+        "diagnostic": {
+          "type": "text",
+          "required": true,
+          "description": "Original message from the window/logMessage params, redacted and capped at 1024 UTF-8 bytes",
+          "reason": "The language server owns the unstructured window/logMessage explanation and exposes no stable error code for it, so preserve its original wording after redaction and truncation."
+        },
+        "severity": {
+          "type": "token",
+          "required": true,
+          "description": "LSP MessageType mapped to a controlled severity word, e.g. error, warn, info or log"
+        },
+        "provider": {
+          "type": "id",
+          "required": true,
+          "description": "Validated provider identity assigned by Core to this engine session"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "vcs.message.shown",
+      "channel": "vcs/{provider}",
+      "level": "info",
+      "message": "Engine show message received for server {provider} with severity {severity}",
+      "fields": {
+        "diagnostic": {
+          "type": "text",
+          "required": true,
+          "description": "Original message from the window/showMessage params, redacted and capped at 1024 UTF-8 bytes",
+          "reason": "The language server owns the window/showMessage explanation shown to the user; retain its original wording after redaction and truncation to correlate a reported message with the server session."
+        },
+        "severity": {
+          "type": "token",
+          "required": true,
+          "description": "LSP MessageType mapped to a controlled severity word, e.g. error, warn, info or log"
+        },
+        "provider": {
+          "type": "id",
+          "required": true,
+          "description": "Validated provider identity assigned by Core to this engine session"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "vcs.trace.received",
+      "channel": "vcs/{provider}",
+      "level": "debug",
+      "message": "Engine trace received for server {provider}",
+      "fields": {
+        "diagnostic": {
+          "type": "text",
+          "required": true,
+          "description": "Upstream trace summary only, redacted and capped at 1024 UTF-8 bytes; verbose RPC payloads are excluded",
+          "reason": "Upstream trace messages describe internal protocol decisions without structured equivalents; retain their wording only during explicitly enabled detailed diagnostics."
+        },
+        "provider": {
+          "type": "id",
+          "required": true,
+          "description": "Validated provider identity assigned by Core to this engine session"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "vcs.notification.received",
+      "channel": "vcs/{provider}",
+      "level": "info",
+      "message": "Engine {provider} notification {method} received",
+      "fields": {
+        "method": {
+          "type": "token",
+          "required": true,
+          "description": "LSP notification method name, e.g. language/status; never the notification payload"
+        },
+        "provider": {
+          "type": "id",
+          "required": true,
+          "description": "Validated provider identity assigned by Core to this engine session"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "vcs.process.started",
+      "channel": "vcs/{provider}",
+      "level": "info",
+      "message": "Engine process started for server {provider}",
+      "fields": {
+        "runtime_version": {
+          "type": "version",
+          "required": false,
+          "description": "Java runtime version used to launch the language server, when available"
+        },
+        "provider": {
+          "type": "id",
+          "required": true,
+          "description": "Validated provider identity assigned by Core to this engine session"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "vcs.protocol.initialized",
+      "channel": "vcs/{provider}",
+      "level": "info",
+      "message": "Engine protocol initialized for server {provider}",
+      "fields": {
+        "provider": {
+          "type": "id",
+          "required": true,
+          "description": "Validated provider identity assigned by Core to this engine session"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "vcs.response.skipped",
+      "channel": "vcs/{provider}",
+      "level": "info",
+      "message": "Late language-server response ignored for server {provider}",
+      "fields": {
+        "request": {
+          "type": "token",
+          "required": false,
+          "description": "JSON-RPC response id of the late reply; absent when the response has no id"
+        },
+        "provider": {
+          "type": "id",
+          "required": true,
+          "description": "Validated provider identity assigned by Core to this engine session"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "vcs.shutdown.timed_out",
+      "channel": "vcs/{provider}",
+      "level": "warn",
+      "message": "Engine shutdown timed out for server {provider}",
+      "fields": {
+        "provider": {
+          "type": "id",
+          "required": true,
+          "description": "Validated provider identity assigned by Core to this engine session"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "vcs.session.updated",
+      "channel": "vcs/{provider}",
+      "level": "debug",
+      "owner": "lithe-core",
+      "message": "Engine session state changed",
+      "fields": {
+        "state": {
+          "type": "token",
+          "required": true,
+          "description": "Core session lifecycle state emitted by the managed engine (for example ready or stopped)."
+        },
+        "provider": {
+          "type": "id",
+          "required": true,
+          "description": "Validated provider identity assigned by Core to this engine session"
+        }
+      }
     }
   ]
 }

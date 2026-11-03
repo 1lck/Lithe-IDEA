@@ -296,6 +296,7 @@ contains a machine path, and the host decides where state lives.
 | `${pluginDir}` | Root of the installed, read-only package. It must be used at most once per value and be followed by a `/`-rooted path inside the package; that path may vary only by `${arch}`. |
 | `${stateDir}` | Writable directory the host keeps for this plugin's server and removes when the plugin is uninstalled. Not available in `validationArguments`. |
 | `${workspaceStateDir}` | Writable directory for the server's state of the current workspace. Not available in `validationArguments`, nor in a [plugin backend](#plugin-backend), which belongs to no workspace. |
+| `${logDir}` | Absolute current-session `plugins/<id>/files/` directory, explicitly supplied by the host as `logDirectory`. Available for language servers and plugin backends, never in `validationArguments`. The host creates it in writable log storage, outside the installed package; Core does not derive it from package resources. |
 | `${arch}` | Host CPU architecture: `arm64` or `x86_64`. |
 | `${setting:<id>}` | Current value of a declared [plugin setting](#plugin-settings-api-2). Not available in `validationArguments`, and never inside a package path. |
 
@@ -303,10 +304,10 @@ contains a machine path, and the host decides where state lives.
 host selects the process with exactly one of `languageID` (a language server),
 `buildSystemID` (a build provider), `vcsProviderID` (a VCS provider), and
 `backend: true` (the [plugin backend](#plugin-backend)), passes `{pluginDirectory,
-stateDirectory, workspaceStateDirectory?, architecture, settings?}`, and
+stateDirectory, workspaceStateDirectory?, logDirectory?, architecture, settings?}`, and
 receives. `workspaceStateDirectory` may be omitted only when the selected
 process does not use `${workspaceStateDir}`; otherwise the request is
-`plugin.launch.invalidRequest`.
+`plugin.launch.invalidRequest`. The same error applies when a template uses `${logDir}` but `logDirectory` is absent, empty, or not absolute.
 
 | Field | Meaning |
 | --- | --- |
@@ -315,7 +316,7 @@ process does not use `${workspaceStateDir}`; otherwise the request is
 | `validationArguments` | Expanded probe arguments. |
 | `runtimeRequirements` | `{tool, minimumVersion?}` for every runtime the host must discover, a discovered launch tool included, sorted by tool. A packaged runtime is not listed. Only the launch tool can carry a minimum version. |
 | `initializationOptions` | Expanded options; absent when the server declares none. |
-| `requiredDirectories` | `state` and/or `workspaceState`: the directories the host must create before starting the server. |
+| `requiredDirectories` | `state`, `workspaceState`, and/or `log`: the directories the host must create before starting the server. |
 | `requiredPackagePaths` | Sorted package-relative paths the launch points at. The host verifies each is inside the package and not a symbolic link before starting the server. |
 | `settings` | Effective value of every declared setting that produced this plan; absent when the plugin declares none. |
 | `buildProvider` | Present only for a `buildSystemID` selection: `{buildSystemID, executesProjectCode, mayUseNetwork, languageServer?}`. `languageServer` names the language whose server is the provider; the rest of the plan is then that server's plan, and the host reuses its running session instead of starting a second process. |

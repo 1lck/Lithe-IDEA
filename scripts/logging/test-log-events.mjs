@@ -66,6 +66,13 @@ test('rejects invalid catalogs before generation', { timeout: 1000 }, () => {
   assert.throws(() => validateCatalog(collision), /duplicate id/);
 });
 
+test('changed is a past-tense outcome; arbitrary stages remain invalid', { timeout: 1000 }, () => {
+  const e = event(); e.id = 'app.test.stage_changed';
+  assert.doesNotThrow(() => validateCatalog(catalog(e)));
+  e.id = 'app.test.stage_change';
+  assert.throws(() => validateCatalog(catalog(e)), /past tense/);
+});
+
 test('span expansion has debug starts and typed terminal metadata', { timeout: 1000 }, () => {
   const e = event(); e.id = 'app.test.operation'; e.span = { failureLevel: 'error' };
   const { events } = validateCatalog(catalog(e));

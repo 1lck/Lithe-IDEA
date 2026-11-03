@@ -100,7 +100,11 @@ final class MacServiceContainer {
         let gitLifecycleLog = MacGitLifecycleLog(sink: logSink)
         gitExecutionJournal.onLifecycleEvent = { gitLifecycleLog.receive($0) }
         let remoteWorkspaces = RemoteWorkspaceRegistry()
-        let rustCore = RustCoreBridge(gitPreferences: settings.gitExecutionPreferences,
+        let logStore = applicationLogging as? MacLogStore
+        let rustCore = RustCoreBridge(coreLogSink: logSink,
+                                      registerLogSession: { id, channel in logStore?.registerSession(id, channel: channel) },
+                                      releaseLogSession: { id in logStore?.releaseSession(id) },
+                                      gitPreferences: settings.gitExecutionPreferences,
                                       gitExecutionJournal: gitExecutionJournal,
                                       remoteWorkspaces: remoteWorkspaces)
         let mavenRepositoryURL = FileManager.default.homeDirectoryForCurrentUser
@@ -200,7 +204,12 @@ final class MacServiceContainer {
         let pluginLaunchResolver = MacPluginLanguageServerLaunchResolver(
             planner: declarativePluginOperations,
             directories: MacPluginStateDirectories(fileStorage: fileStorage),
-            settings: pluginSettings
+            settings: pluginSettings,
+            logDirectory: { pluginID in
+                // Missing storage omits logDirectory; a plugin using ${logDir}
+                // gets Core's existing plugin.launch.invalidRequest rejection.
+                try logStore?.pluginFilesDirectory(pluginID: pluginID)
+            }
         )
         let debugExecutableResolver = MacPluginDebugExecutableResolver(
             planner: declarativePluginOperations,
@@ -558,7 +567,7 @@ final class MacServiceContainer {
                                 executableURL: root, arguments: [], environment: [:], prepareProcess: { workspace in
                                     try await remotePluginLaunches.prepareLanguage(descriptor, workspaceURL: workspace,
                                         tools: providerTools, versionChecker: declarativePluginOperations)
-                                }, core: rustCore, processRegistry: processRegistry, pluginID: descriptor.launchSource?.pluginID)
+                                }, core: rustCore, processRegistry: processRegistry, pluginID: descriptor.launchSource?.pluginID, role: .languageServer)
                         },
                         processRegistry: processRegistry
                     )
@@ -575,6 +584,8 @@ final class MacServiceContainer {
                     )
                     let sessions = LanguageToolingSessionManager(
                         catalog: registry.catalog,
+                        logSink: logSink,
+                        resolveLogSubject: { try rustCore.resolveEngineLogSubject(providerID: $0) },
                         runtimes: registry.toolingRuntimes,
                         runtimeFactory: runtimeFactory,
                         builtinCore: rustCore,
@@ -607,30 +618,7 @@ final class MacServiceContainer {
                             )
                         }
                     )
-                    sessions.onLogIssue = { provider, operation, warning, stage, code, exitCode in
-                        guard let server = LogSegment(provider) else { return }
-                        if warning {
-                            logSink?.emit(LspSessionDegradationReceived(exitCode: exitCode.map(Int64.init), failureCode: code, server: server, stage: stage, operationID: operation))
-                        } else {
-                            logSink?.emit(LspSessionIssueFailed(exitCode: exitCode.map(Int64.init), failureCode: code, server: server, stage: stage, operationID: operation))
-                        }
-                    }
-                    sessions.onLogEvent = { provider, operation, level, message, detail in
-                        guard let server = LogSegment(provider) else { return }
-                        // PR3 replaces upstream message/detail with catalog identities at their source.
-                        // No arbitrary protocol detail enters a text or error field here.
-                        switch message {
-                        case "Language server cache cleanup succeeded":
-                            let removed = detail?.split(separator: "=").last.flatMap { Int64($0) } ?? 0
-                            logSink?.emit(LspConfigurationCleaned(removed: removed, server: server, operationID: operation))
-                        case "Language server ready", "Language server is ready":
-                            logSink?.emit(LspProtocolInitialized(server: server, operationID: operation))
-                        case "Language server start requested", "Resolving language server", "Language server session registered", "Stopping language server", "Language server terminated", "Language server start cancelled":
-                            let state = message == "Language server start requested" ? "requested" : message == "Resolving language server" ? "resolving" : message == "Language server session registered" ? "registered" : message == "Stopping language server" ? "stopping" : message == "Language server terminated" ? "terminated" : "cancelled"
-                            logSink?.emit(LspSessionUpdated(server: server, state: state, operationID: operation))
-                        default: break
-                        }
-                    }
+                    sessions.onLogEvent = { record in logSink?.emit(record) }
 
                     let graph = LanguageIntelligenceFeatureGraph(
                         sessions: sessions,

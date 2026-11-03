@@ -1,4 +1,5 @@
 import Foundation
+import LitheModuleAPI
 import LitheCoreContracts
 import LitheGitModule
 import LitheSearchModule
@@ -10,6 +11,12 @@ import LitheRustCore
 /// Windows Qt binding will consume. The bridge stays synchronous at this
 /// layer; callers move filesystem and Git work off the main actor.
 struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
+    var logRole: LanguageServerLogRole = .languageServer
+    var logSubject: String? = nil
+    var logPluginID: String? = nil
+    var coreLogSink: (any LogSink)? = nil
+    var registerLogSession: (@Sendable (String, String) -> Void)? = nil
+    var releaseLogSession: (@Sendable (String) -> Void)? = nil
     var gitPreferences: GitExecutionPreferences? = nil
     var gitExecutionJournal: GitExecutionJournal? = nil
     var remoteWorkspaces: RemoteWorkspaceRegistry? = nil
@@ -1894,6 +1901,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     // session ID, opaque operation IDs, and the events Rust chooses to publish.
 
     struct LspStartServerPayload: Decodable, Sendable {
+        let channel: String?
         let sessionId: String
         let state: String
         let processId: Int32?
@@ -1955,6 +1963,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     }
 
     private struct LspStartServerRequest: Encodable {
+        let role: String
+        let logSubject: String?
         let providerId: String
         /// The plugin that owns the process; nil for host-owned servers.
         let pluginId: String?
@@ -2180,6 +2190,12 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     }
 
     struct LspRuntimeEventPayload: Decodable, Sendable {
+        let channel: String?
+        let pluginId: String?
+        let role: String?
+        let event: String?
+        let fields: [String: CoreLogScalar]?
+        let catalogLevel: String?
         let type: String
         let sequence: UInt64
         let providerId: String
@@ -3895,11 +3911,12 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         requestTimeout: TimeInterval = 30,
         shutdownTimeout: TimeInterval = 2
     ) -> Result<LspStartServerPayload, CoreCallError> {
-        executeResult(
+        let result: Result<LspStartServerPayload, CoreCallError> = executeResult(
             command: "lsp.startServer",
             payload: LspStartServerRequest(
+                role: logRole.rawValue, logSubject: logSubject,
                 providerId: providerID,
-                pluginId: pluginID,
+                pluginId: pluginID ?? logPluginID,
                 executablePath: executableURL.standardizedFileURL.path,
                 arguments: arguments,
                 environment: environment,
@@ -3931,6 +3948,10 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 shutdownTimeoutMilliseconds: Self.milliseconds(shutdownTimeout)
             )
         )
+        if case .success(let started) = result, let channel = started.channel {
+            registerLogSession?(started.sessionId, channel)
+        }
+        return result
     }
 
     /// Asks the server to shut down. The session stays addressable until

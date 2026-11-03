@@ -1,4 +1,5 @@
 import Foundation
+import LitheCoreContracts
 import Testing
 import LitheModuleAPI
 @testable import Lithe
@@ -12,6 +13,61 @@ private final class LogTestClock: @unchecked Sendable {
 
 @Suite("macOS application log writer")
 struct MacLogStoreTests {
+    @Test
+    func coreFactsUseCatalogFieldsAndNativeFilesStayInsideTheSession() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let writer = MacLogStore(defaultDirectory: root)
+        let files = try writer.pluginFilesDirectory(pluginID: "dev.lithe.fixture")
+        #expect(files.path.hasPrefix(root.resolvingSymlinksInPath().path + "/sessions/"))
+        #expect(files.path.hasSuffix("/plugins/dev.lithe.fixture/files"))
+        #expect(FileManager.default.fileExists(atPath: files.path))
+        let mode = try FileManager.default.attributesOfItem(atPath: files.path)[.posixPermissions] as? NSNumber
+        #expect(mode?.intValue == 0o700)
+        let outside = root.appendingPathComponent("outside")
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        try FileManager.default.removeItem(at: files)
+        try FileManager.default.createSymbolicLink(at: files, withDestinationURL: outside)
+        #expect(throws: (any Error).self) { try writer.pluginFilesDirectory(pluginID: "dev.lithe.fixture") }
+        #expect(throws: (any Error).self) { try writer.pluginFilesDirectory(pluginID: "../escape") }
+        let stamp = "2026-11-03T00:00:00.000Z"
+        writer.emit(CoreLogRecord(event: "vcs.stderr.received", level: "WARN", channel: "vcs/git", op: "fixture-op",
+            fields: ["provider": .string("git"), "diagnostic": .string("fixture diagnostic"), "truncated": .bool(false)], ts: stamp))
+        writer.emit(CoreLogRecord(event: "plugins.host.message.logged", level: "INFO", channel: "plugins/dev.lithe.fixture/host",
+            fields: ["plugin": .string("dev.lithe.fixture"), "diagnostic": .string("backend diagnostic"), "severity": .string("info")]))
+        let collection = try await writer.collect(query: .init(session: "all"))
+        #expect(collection.content.contains(stamp + " WARN"))
+        #expect(collection.content.contains("op=fixture-op"))
+        #expect(collection.files.contains { $0.relativePath.hasSuffix("vcs/git.log") })
+        #expect(collection.files.contains { $0.relativePath.hasSuffix("plugins/dev.lithe.fixture/host.log") })
+        await writer.finishSession()
+    }
+
+    @Test
+    func flushDrainsRealWorkspaceFailureFromCoreOnlyOnce() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let workspace = root.appendingPathComponent("workspace")
+        let hidden = workspace.appendingPathComponent("inaccessible")
+        try FileManager.default.createDirectory(at: hidden, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: hidden.path)
+            try? FileManager.default.removeItem(at: root)
+        }
+        try Data("evidence".utf8).write(to: hidden.appendingPathComponent("file"))
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: hidden.path)
+        let writer = MacLogStore(defaultDirectory: root.appendingPathComponent("logs"))
+        _ = try RustCoreBridge().snapshot(at: workspace)
+        try await writer.flush()
+        let collection = try await writer.collect(query: .init(session: "all"))
+        #expect(collection.content.contains("event=app.workspace.directory_skipped"))
+        #expect(collection.content.contains("error_code=permission_denied"))
+        let count = collection.content.components(separatedBy: "event=app.workspace.directory_skipped").count
+        try await writer.flush()
+        let again = try await writer.collect(query: .init(session: "all"))
+        #expect(again.content.components(separatedBy: "event=app.workspace.directory_skipped").count == count)
+        await writer.finishSession()
+    }
+
     @Test
     func collectionAndCleanupPreserveUnrelatedLogFiles() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

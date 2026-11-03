@@ -2,25 +2,7 @@ import Foundation
 import LitheModuleAPI
 
 extension RustCoreBridge {
-    enum LogScalar: Codable, Hashable, Sendable {
-        case string(String), int(Int64), uint(UInt64), bool(Bool)
-        init(from decoder: any Decoder) throws {
-            let value = try decoder.singleValueContainer()
-            if let v = try? value.decode(Bool.self) { self = .bool(v) }
-            else if let v = try? value.decode(Int64.self) { self = .int(v) }
-            else if let v = try? value.decode(UInt64.self) { self = .uint(v) }
-            else { self = .string(try value.decode(String.self)) }
-        }
-        func encode(to encoder: any Encoder) throws {
-            var value = encoder.singleValueContainer()
-            switch self {
-            case .string(let v): try value.encode(v)
-            case .int(let v): try value.encode(v)
-            case .uint(let v): try value.encode(v)
-            case .bool(let v): try value.encode(v)
-            }
-        }
-    }
+    typealias LogScalar = CoreLogScalar
     struct LogInput: Encodable, Sendable {
         var ts: String
         var level: String
@@ -58,7 +40,7 @@ extension RustCoreBridge {
         }
     }
     struct LogChannelRequest: Encodable { let channel: String; let rotationIndex: Int; let existingChannels: [String] }
-    struct LogChannelResult: Decodable { let relativePath: String; let category: String }
+    struct LogChannelResult: Decodable { let relativePath: String; let category: String; let pluginFilesPath: String? }
     struct LogSourceV2: Encodable { let relativePath: String; let text: String; var startsMidLine = false }
     struct LogQueryV2: Encodable {
         let sources: [LogSourceV2]
@@ -119,14 +101,38 @@ extension RustCoreBridge {
             payload: LogChannelRequest(channel: channel, rotationIndex: 0, existingChannels: [])).get()
         return try response.get().category
     }
+    struct CoreLogDrain: Decodable { let events: [CoreLogRecord]; let dropped: UInt64 }
+    func drainCoreLogEvents() throws -> CoreLogDrain {
+        try executeResult(command: "diagnostics.drainCoreEvents", payload: [String: String]()).get()
+    }
 
     func encodeLogs(_ request: LogBatch) throws -> LogBatchResult {
         try executeResult(command: "diagnostics.encodeLogBatch", payload: request).get()
+    }
+    private struct EngineLogSubjectRequest: Encodable {
+        let role = "language_server"
+        let providerId: String
+    }
+    struct EngineLogSubject: Decodable { let channel: String; let segment: String }
+    func resolveEngineLogSubject(providerID: String) throws -> LogSegment? {
+        let response: EngineLogSubject = try executeResult(command: "diagnostics.resolveEngineLogSubject",
+            payload: EngineLogSubjectRequest(providerId: providerID)).get()
+        return LogSegment(response.segment)
     }
     func resolveLogChannel(_ channel: String, rotation: Int = 0, existing: [String]) throws -> String {
         let response: LogDomainResult<LogChannelResult> = try executeResult(command: "diagnostics.resolveLogChannel",
             payload: LogChannelRequest(channel: channel, rotationIndex: rotation, existingChannels: existing)).get()
         return try response.get().relativePath
+    }
+    func pluginLogFilesPath(pluginID: String) throws -> String {
+        let response: LogDomainResult<LogChannelResult> = try executeResult(command: "diagnostics.resolveLogChannel",
+            payload: LogChannelRequest(channel: "plugins/" + pluginID + "/host", rotationIndex: 0, existingChannels: [])).get()
+        guard let path = try response.get().pluginFilesPath else { throw CocoaError(.coderInvalidValue) }
+        return path
+    }
+    private struct TraceRequest: Encodable { let sessionId: String; let enabled: Bool }
+    func setLogSessionDiagnostics(sessionID: String, enabled: Bool) throws {
+        let _: [String: String] = try executeResult(command: "lsp.setDetailedDiagnostics", payload: TraceRequest(sessionId: sessionID, enabled: enabled)).get()
     }
     func queryLogsV2(_ request: LogQueryV2) throws -> LogQueryResult {
         let response: LogDomainResult<LogQueryResult> = try executeResult(command: "diagnostics.queryLogsV2", payload: request).get()

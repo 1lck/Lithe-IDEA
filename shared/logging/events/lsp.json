@@ -633,6 +633,11 @@
           "required": true,
           "description": "Original language server stderr diagnostic, redacted and capped at 1024 UTF-8 bytes",
           "reason": "Language servers emit implementation-specific failure explanations only on stderr, so retain the original diagnostic wording for diagnosis after redaction and truncation rather than attempting an unstable parser."
+        },
+        "truncated": {
+          "type": "bool",
+          "required": false,
+          "description": "Whether the upstream stderr line exceeded the 4096 byte reader limit"
         }
       },
       "rate": 120,
@@ -652,8 +657,8 @@
         "diagnostic": {
           "type": "text",
           "required": true,
-          "description": "Original $/logTrace message, excluding verbose payload, redacted and capped at 1024 UTF-8 bytes",
-          "reason": "The upstream $/logTrace message describes server-internal protocol decisions without structured equivalents, so retain that original message after redaction and truncation while excluding the verbose payload."
+          "description": "Upstream trace summary only, redacted and capped at 1024 UTF-8 bytes; verbose RPC payloads are excluded",
+          "reason": "Upstream trace messages describe internal protocol decisions without structured equivalents; retain their wording only during explicitly enabled detailed diagnostics."
         }
       },
       "rate": 120,
@@ -773,7 +778,7 @@
       "id": "lsp.session.updated",
       "channel": "lsp/{server}",
       "level": "debug",
-      "owner": "LanguageToolingSessionManager",
+      "owner": "lithe-core",
       "message": "Language server session state changed",
       "fields": {
         "server": {
@@ -784,7 +789,7 @@
         "state": {
           "type": "token",
           "required": true,
-          "description": "Closed host lifecycle stage observed by the language session owner."
+          "description": "Core session lifecycle state emitted by the managed engine (for example ready or stopped)."
         }
       }
     },
@@ -843,6 +848,63 @@
           "type": "int",
           "required": false,
           "description": "Native language server process exit status when supplied by the runtime."
+        }
+      }
+    },
+    {
+      "id": "lsp.maven.task_updated",
+      "channel": "lsp/{server}",
+      "level": "info",
+      "owner": "lithe-core",
+      "message": "Maven profile task state updated",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Validated server identity owning the Maven profile task"
+        },
+        "state": {
+          "type": "token",
+          "required": true,
+          "description": "Closed Maven profile task status supplied by the build coordinator"
+        }
+      }
+    },
+    {
+      "id": "lsp.session.stage_changed",
+      "channel": "lsp/{server}",
+      "level": "debug",
+      "owner": "LanguageToolingSessionManager",
+      "message": "Language server {server} host stage changed to {stage}",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Core-resolved language provider routing segment shared with engine session events."
+        },
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Closed host orchestration stage: requested, resolving, registered, stopping, or cancelled."
+        }
+      }
+    },
+    {
+      "id": "lsp.cache.cleaned",
+      "channel": "lsp/{server}",
+      "level": "debug",
+      "owner": "LanguageToolingSessionManager",
+      "message": "Language server {server} cache cleaned",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Core-resolved language provider routing segment whose workspace cache was pruned."
+        },
+        "removed": {
+          "type": "int",
+          "required": true,
+          "description": "Number of workspace cache entries removed by the host cache cleaner."
         }
       }
     }

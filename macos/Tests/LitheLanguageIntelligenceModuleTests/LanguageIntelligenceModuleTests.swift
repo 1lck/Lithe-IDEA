@@ -8,6 +8,91 @@ import Testing
 @MainActor
 struct LanguageIntelligenceModuleTests {
     @Test(arguments: [false, true])
+    func hostStagesAreTypedOnceAndReadyTerminationRemainLegacyOnly(cancelStartup: Bool) throws {
+        let root = URL(fileURLWithPath: "/workspace/stages")
+        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(for: root.appendingPathComponent("Main.java")))
+        let session = WorkspaceStateLanguageServerSession()
+        let recorder = TypedLogRecorder()
+        var resolutionCount = 0
+        let manager = LanguageToolingSessionManager(logSink: recorder, resolveLogSubject: { provider in
+            #expect(provider == "java")
+            resolutionCount += 1
+            return LogSegment("java")
+        }, runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)],
+           workspaceFingerprintProvider: { _, _ in "stage-fingerprint" },
+           workspaceStateCleaner: { _, _, _ in 2 })
+        defer { manager.stopAllLanguageServers() }
+        let operation = UUID()
+        try manager.startLanguageServer(providerID: "java", rootURL: root, operationID: operation)
+        if cancelStartup {
+            session.publish(.initializing)
+        } else {
+            let count = recorder.events.count
+            session.publish(.ready)
+            session.onLog?(.info, "Language server is ready", nil, nil)
+            session.onLog?(.info, "Language server terminated", nil, nil)
+            #expect(recorder.events.count == count)
+            #expect(manager.languageServerLogs.contains { $0.message == "Language server ready" })
+        }
+        manager.stopLanguageServer(providerID: "java")
+        let stages = recorder.events.compactMap { $0 as? LspSessionStageChanged }
+        #expect(stages.compactMap { if case .token(let value)? = $0.fields["stage"] { return value }; return nil } == ["requested", "resolving", "registered", cancelStartup ? "cancelled" : "stopping"])
+        #expect(stages.allSatisfy { $0.channel.rawValue == "lsp/java" && $0.operationID == operation.uuidString })
+        let cleaned = recorder.events.compactMap { $0 as? LspCacheCleaned }
+        #expect(cleaned.count == 1)
+        if case .int(let removed)? = cleaned.first?.fields["removed"] { #expect(removed == 2) }
+        else { Issue.record("Cache cleanup count is missing") }
+        #expect(cleaned.first?.operationID == operation.uuidString)
+        #expect(!recorder.events.contains { type(of: $0).id == "lsp.session.updated" || type(of: $0).id == "lsp.protocol.initialized" })
+        #expect(resolutionCount == 1)
+        let terminal = CoreLogRecord(event: "lsp.session.updated", level: "DEBUG", channel: "lsp/java",
+            fields: ["server": .string("java"), "state": .string("stopped")])
+        session.onCoreLog?(terminal)
+        #expect(recorder.coreRecords == [terminal])
+    }
+
+    @Test
+    func subjectResolutionFailureIsCachedAndDoesNotAffectStartupOrLegacyLogs() throws {
+        let root = URL(fileURLWithPath: "/workspace/log-subject-failure")
+        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(for: root.appendingPathComponent("Main.java")))
+        let session = WorkspaceStateLanguageServerSession()
+        let recorder = TypedLogRecorder()
+        var attempts = 0
+        let manager = LanguageToolingSessionManager(logSink: recorder, resolveLogSubject: { _ in
+            attempts += 1
+            throw WorkspaceStateSessionError.unexpectedOperation
+        }, runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)])
+        defer { manager.stopAllLanguageServers() }
+        try manager.startLanguageServer(providerID: "java", rootURL: root)
+        session.onLogIssue?(true, "startup", "requestCancelled", nil, nil)
+        manager.stopLanguageServer(providerID: "java")
+        #expect(attempts == 1)
+        #expect(recorder.events.isEmpty)
+        #expect(session.startCallCount == 1)
+        #expect(manager.languageServerLogs.contains { $0.message == "Language server session registered" })
+    }
+
+    @Test
+    func coreLogCallbackPreservesFieldsAndLegacyBufferRemainsBounded() throws {
+        let root = URL(fileURLWithPath: "/workspace/log-buffer")
+        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(for: root.appendingPathComponent("Main.java")))
+        let session = WorkspaceStateLanguageServerSession()
+        let manager = LanguageToolingSessionManager(runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)])
+        defer { manager.stopAllLanguageServers() }
+        var received: [CoreLogRecord] = []
+        manager.onLogEvent = { received.append($0) }
+        try manager.startLanguageServer(providerID: "java", rootURL: root)
+        let record = CoreLogRecord(event: "lsp.stderr.received", level: "WARN", channel: "lsp/java", op: "source-op",
+            fields: ["server": .string("java"), "diagnostic": .string("upstream line")])
+        session.onCoreLog?(record)
+        #expect(received == [record])
+        for index in 0..<105 { session.onLog?(.info, "v1 message", "projectCount=\(index)", nil) }
+        #expect(manager.languageServerLogs.count == 100)
+        #expect(manager.languageServerLogs.first?.detail == "projectCount=104")
+        #expect(received == [record])
+    }
+
+    @Test(arguments: [false, true])
     func savesFlushCurrentEditorTextAndPropagateNotificationFailures(fails: Bool) throws {
         let root = URL(fileURLWithPath: "/workspace/save")
         let file = root.appendingPathComponent("Main.java")
@@ -1750,6 +1835,7 @@ private final class WorkspaceStateLanguageServerSession: LanguageServerSession {
     var isRunning = false
     var javaTestRunnerURL: URL?
     var onDiagnostics: ((URL, [LanguageServerDiagnostic]) -> Void)?
+    var onCoreLog: ((CoreLogRecord) -> Void)?
     var onLog: ((LanguageServerLogLevel, String, String?, String?) -> Void)?
     var onLogIssue: ((Bool, String, String, Int?, String?) -> Void)?
     var onStateChange: ((LanguageServerSessionState) -> Void)?
@@ -2175,4 +2261,14 @@ private final class EmptyWorkspaceModule: LitheModule {
     func sleep() async {}
     func shutdown() async {}
     func exportedCapabilities() -> [ModuleCapabilityID: AnyObject] { [:] }
+}
+
+private final class TypedLogRecorder: LogSink, @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [any LogEvent] = []
+    var events: [any LogEvent] { lock.withLock { values } }
+    func emit(_ event: any LogEvent) { lock.withLock { values.append(event) } }
+    private var coreValues: [CoreLogRecord] = []
+    var coreRecords: [CoreLogRecord] { lock.withLock { coreValues } }
+    func emit(_ record: CoreLogRecord) { lock.withLock { coreValues.append(record) } }
 }
