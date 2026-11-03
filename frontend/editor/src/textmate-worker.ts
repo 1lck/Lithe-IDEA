@@ -1,4 +1,4 @@
-import { createJavaGrammar, INITIAL } from "./textmate-grammar";
+import { createTextMateGrammar, INITIAL } from "./textmate-grammar";
 import { tokenizeLineWithinLimit } from "./textmate-line-limit";
 import { TextmateDocument } from "./textmate-document";
 import { diffStateStacksRefEq } from "vscode-textmate";
@@ -46,7 +46,7 @@ self.onmessage = async ({ data }) => {
       return;
     }
     if (data.type === "init") {
-      grammar = (await createJavaGrammar(data.wasm, data.grammar)).grammar;
+      grammar = (await createTextMateGrammar(data.wasm, data.grammar, data.scopeName ?? "source.java")).grammar;
       // vscode-textmate/Oniguruma lazily compiles grammar patterns on the first
       // tokenization. Keep that one-time initialization outside the per-line
       // production budget; subsequent document lines still retain the line cap.

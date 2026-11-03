@@ -1,6 +1,6 @@
 import { MONACO_HIGHLIGHT_LANGUAGE_IDS } from "@lithe/editor/language";
 import { StandardKeyboardEvent } from "monaco-editor/esm/vs/base/browser/keyboardEvent.js";
-import { ensureMonacoLanguageTokenizer } from "@lithe/editor/language-contributions";
+import { configureBasicTextMateResources, ensureMonacoLanguageTokenizer } from "@lithe/editor/language-contributions";
 import { ContentHoverController } from "monaco-editor/esm/vs/editor/contrib/hover/browser/contentHoverController.js";
 import { encodeMonacoSemanticTokens, MONACO_SEMANTIC_TOKEN_MODIFIERS } from "@lithe/editor/semantic-tokens";
 import { deepClone } from "monaco-editor/esm/vs/base/common/objects.js";
@@ -29,6 +29,8 @@ import { installPluginGrammar } from "@lithe/editor/plugin-grammar-tokenizer";
 import { attachPluginEditorActions } from "@lithe/editor/plugin-editor-actions";
 import httpGrammarSource from "../../../shared/contracts/plugins/v1/fixtures/grammars/http.monarch.json" with { type: "text" };
 import { imeInputCases } from "./ime-input.integration";
+import basicHighlighting from "../../../shared/fixtures/editor/basic-file-highlighting-v1.json";
+import { toMonacoLanguageId } from "@lithe/editor/language";
 
 // Real WebKit integration, using the exact workbench bundle and the existing
 // bounded native probe host. No DOM-based imitation of Monaco input.
@@ -59,6 +61,174 @@ async function verify() {
     await operation();
     cases.push({ name, durationMs: performance.now() - started });
   }
+  await check("withdrawing a first-open same-ID plugin restores bundled syntax in the existing model", async () => {
+    const previous = initialEditor.getModel();
+    const text = "# comment\nall:";
+    try {
+      await window.lithe.setPluginLanguages({ languages: [{ id: "makefile", fileExtensions: ["mk"],
+        grammar: { kind: "monarch", source: '{"tokenizer":{"root":[[".*","string"]]}}' } }] });
+      await send({ type: "open", id: "plugin-first-make", text });
+      await window.lithe.activate({ id: "plugin-first-make", filename: "rules.mk", text, revision: 0, readonly: false });
+      const model = initialEditor.getModel()!;
+      await window.lithe.setPluginLanguages({ languages: [] });
+      assert(initialEditor.getModel() === model && model.getLanguageId() === "makefile", "withdrawal replaced the existing model");
+      (model as any).tokenization.forceTokenization(1);
+      assert((model as any).tokenization.getLineTokens(1).getStandardTokenType(0) === 1,
+        "withdrawal did not restore bundled Makefile comments");
+      assert(model.getValue() === text, "withdrawal changed source");
+    } finally {
+      await window.lithe.setPluginLanguages({ languages: [] });
+      await window.lithe.retain([]);
+      await send({ type: "closeFixtureDocument", documentID: "plugin-first-make" });
+      initialEditor.setModel(previous);
+    }
+  });
+  await check("a plugin enabled during worker startup wins and cancels the pending builtin", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const review = mountDiffReview(container);
+    const source = await (await fetch("textmate-worker.js")).text();
+    const workerURL = URL.createObjectURL(new Blob([source], { type: "text/javascript" }));
+    let reached!: () => void;
+    const ready = new Promise<void>(resolve => { reached = resolve; });
+    let held: unknown, released = false, terminations = 0, worker: Worker | undefined;
+    class ObservedWorker extends Worker {
+      terminate() { terminations++; super.terminate(); }
+    }
+    configureBasicTextMateResources(async language => ({ grammarURL: `${language}.tmLanguage.json`, createWorker: () => {
+      worker = new ObservedWorker(workerURL);
+      worker.addEventListener("message", event => {
+        if (event.data.type === "ready" && !released) {
+          event.stopImmediatePropagation(); held = event.data; reached();
+        }
+      }, { capture: true });
+      return worker;
+    } }));
+    const pending = review.update({ language: "groovy", rows: [{ id: "comment", oldLine: 1, newLine: 1,
+      left: "// before", right: "// after", kind: "changed" }] });
+    const release = () => {
+      released = true;
+      if (held) { worker!.dispatchEvent(new MessageEvent("message", { data: held })); held = undefined; }
+    };
+    try {
+      await withDeadline(ready, "real TextMate worker did not reach its ready event");
+      await window.lithe.setPluginLanguages({ languages: [{ id: "groovy", fileExtensions: ["groovy"],
+        grammar: { kind: "monarch", source: '{"tokenizer":{"root":[[".*","string"]]}}' } }] });
+      release();
+      await withDeadline(pending, "superseded diff initialization did not finish");
+      assert(terminations === 1, "superseded builtin worker was retained");
+      // Plugin tokenization is asynchronous; its foreground fallback remains plain.
+      // A late builtin registration would synchronously report a comment here.
+      assert(!monacoEditor.tokenize("// comment", "groovy")[0][0].type.startsWith("comment"),
+        "pending builtin replaced the enabled plugin grammar");
+      const model = review.editor.getModifiedEditor().getModel()!;
+      let listener: { dispose(): void } | undefined;
+      try {
+        const colored = new Promise<void>(resolve => {
+          const check = () => {
+            if ((model as any).tokenization.getLineTokens(1).getStandardTokenType(0) === 2) resolve();
+          };
+          listener = model.onDidChangeTokens(check); check();
+        });
+        await withDeadline(colored, "enabled plugin did not publish its string tokens into the diff model");
+      } finally { listener?.dispose(); }
+      await window.lithe.setPluginLanguages({ languages: [] });
+      configureBasicTextMateResources(undefined);
+      await ensureMonacoLanguageTokenizer("groovy");
+      assert(monacoEditor.tokenize("// comment", "groovy")[0][0].type.startsWith("comment"),
+        "cancelled installation poisoned subsequent builtin loading");
+    } finally {
+      release();
+      await withDeadline(pending, "pending diff did not clean up").catch(() => undefined);
+      configureBasicTextMateResources(undefined);
+      await window.lithe.setPluginLanguages({ languages: [] });
+      review.dispose(); container.remove(); worker?.terminate(); URL.revokeObjectURL(workerURL);
+    }
+  });
+  await check("a first-open diff uses the host's bundled grammar resources", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const review = mountDiffReview(container);
+    let requested = "";
+    configureBasicTextMateResources(async language => {
+      requested = language;
+      return { grammarURL: `${language}.tmLanguage.json` };
+    });
+    try {
+      await withDeadline(review.update({ language: "cmake", rows: [{ id: "comment", oldLine: 1, newLine: 1,
+        left: "# before", right: "# after", kind: "changed" }] }), "diff tokenizer did not load");
+      assert(requested === "cmake", "diff bypassed the host's grammar URL provider");
+      assert(monacoEditor.tokenize("# comment", "cmake")[0][0].type.startsWith("comment"), "diff opened without CMake syntax");
+    } finally {
+      configureBasicTextMateResources(undefined);
+      review.dispose(); container.remove();
+    }
+  });
+  await check("basic build and script files select bundled syntax without plugins", async () => {
+    const previous = initialEditor.getModel();
+    try {
+      for (const { filename, language } of basicHighlighting.associations) {
+        await send({ type: "open", id: "basic-syntax", text: "" });
+        await window.lithe.activate({ id: "basic-syntax", filename, text: "", revision: 0, readonly: false });
+        assert(initialEditor.getModel()!.getLanguageId() === toMonacoLanguageId(language), `wrong syntax: ${filename}`);
+      }
+      for (const example of basicHighlighting.syntax) {
+        const id = toMonacoLanguageId(example.language);
+        await ensureMonacoLanguageTokenizer(id);
+        await window.lithe.retain([]);
+        await send({ type: "open", id: "basic-syntax", text: example.text });
+        await window.lithe.activate({ id: "basic-syntax", filename: example.filename, text: example.text, revision: 0, readonly: false });
+        assert(initialEditor.getModel()!.getLanguageId() === id, `wrong model language: ${example.filename}`);
+        const lines = monacoEditor.tokenize(example.text, id);
+        for (const token of example.tokens) {
+          const column = example.text.split("\n")[token.line - 1].indexOf(token.text);
+          const actual = [...lines[token.line - 1]].reverse().find(value => value.offset <= column)?.type ?? "";
+          assert(actual.startsWith(token.role), `${example.filename}: ${token.text} has ${actual}, expected ${token.role}`);
+        }
+        const model = initialEditor.getModel()!;
+        model.pushStackElement();
+        initialEditor.executeEdits("basic-syntax", [{ range: new Range(1, 1, 1, 1), text: "# editable" }]);
+        model.pushStackElement();
+        assert(model.getValue().includes("editable"), "syntax activation prevented editing");
+        await model.undo();
+        assert(model.getValue() === example.text, "syntax activation corrupted undo");
+      }
+    } finally {
+      await window.lithe.retain([]);
+      await send({ type: "closeFixtureDocument", documentID: "basic-syntax" });
+      initialEditor.setModel(previous);
+    }
+  });
+  await check("bundled TextMate workers publish multiline comments after edits", async () => {
+    const previous = initialEditor.getModel();
+    try {
+      for (const [filename, source, edited] of [
+        ["rules.mk", "NAME = value\nall:", "# 中文 😀\nall:"],
+        ["toolchain.cmake", "set(NAME value)\nproject(Example)", "#[[ 中文 😀\ncomment\n]]"],
+        ["build.gradle", "def name = 'value'\nplugins {}", "/* 中文 😀\ncomment\n*/"],
+      ]) {
+        await window.lithe.retain([]);
+        await send({ type: "open", id: "basic-worker", text: source });
+        await window.lithe.activate({ id: "basic-worker", filename, text: source, revision: 0, readonly: false });
+        const model = initialEditor.getModel()!;
+        let listener: { dispose(): void } | undefined;
+        try {
+          const colored = new Promise<void>(resolve => {
+            listener = model.onDidChangeTokens(() => {
+              const token = (model as any).tokenization.getLineTokens(filename === "rules.mk" ? 1 : 2);
+              if (model.getValue() === edited && token.getStandardTokenType(0) === 1) resolve();
+            });
+          });
+          initialEditor.executeEdits("basic-worker", [{ range: model.getFullModelRange(), text: edited }]);
+          await withDeadline(colored, `worker did not publish comment state: ${filename}`);
+        } finally { listener?.dispose(); }
+      }
+    } finally {
+      await window.lithe.retain([]);
+      await send({ type: "closeFixtureDocument", documentID: "basic-worker" });
+      initialEditor.setModel(previous);
+    }
+  });
   await check("ordinary plugin grammar runs in a worker and preserves Monaco editing", async () => {
     if (!languages.getLanguages().some(language => language.id === "fixture-http")) languages.register({ id: "fixture-http" });
     const installation = installPluginGrammar("fixture-http", JSON.stringify({ tokenizer: { root: [["#.*$", "comment"]] } }));
@@ -1265,6 +1435,8 @@ async function verify() {
       json: '{"name":"hello"}', php: '<?php echo "hello";',
       diff: '+hello', gitignore: 'hello', gitattributes: 'hello text', lockfile: 'name: "hello"',
       markdown: '<a title="hello">a</a>',
+      makefile: 'NAME = $(subst a,b,hello)', cmake: 'set(NAME "hello")', groovy: 'def name = "hello"',
+      powershell: 'Write-Host "hello"', bat: 'echo "hello"',
     });
     assert(Object.keys(samples).length === MONACO_HIGHLIGHT_LANGUAGE_IDS.size
       && [...MONACO_HIGHLIGHT_LANGUAGE_IDS].every(id => id in samples), "language inventory changed without a highlighting sample");

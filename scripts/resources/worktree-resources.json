@@ -460,10 +460,12 @@
         ".artifacts/monaco-workbench/test-assets/",
         ".artifacts/monaco-probe/assets/",
         "<editor-memory>/plugin-grammar-workers-and-tokens",
-        "<editor-memory>/plugin-editor-action-leases"
+        "<editor-memory>/plugin-editor-action-leases",
+        "frontend/editor/vendor/",
+        "<editor-memory>/bundled-textmate-workers-and-tokens"
       ],
-      "identity": "Current source palettes, upstream pinned theme revisions, license/NOTICE files, Monaco and Bun versions; no validated build identity stamp",
-      "reason": "Rebuild JavaScript and bundled theme licenses together from this checkout. No copy stage or runtime writes; packaged assets remain read-only and preserve code signatures and Sparkle delta baselines. Plugin grammars compile only in terminable workers loaded from the same checkout-built textmate-worker.js. Decoded package resources, tokens and action leases stay in process memory; no reusable identity stamp or runtime bundle writes."
+      "identity": "Current source palettes, upstream pinned theme revisions, license/NOTICE files, Monaco and Bun versions; no validated build identity stamp; Git-owned Make/CMake/Groovy grammar bytes and pinned upstream commits in vendor/NOTICE.txt",
+      "reason": "Rebuild JavaScript and bundled theme licenses together from this checkout. No copy stage or runtime writes; packaged assets remain read-only and preserve code signatures and Sparkle delta baselines. Plugin grammars compile only in terminable workers loaded from the same checkout-built textmate-worker.js. Decoded package resources, tokens and action leases stay in process memory; no reusable identity stamp or runtime bundle writes. Basic TextMate grammars are copied by each checkout build; workers and token state remain memory-only. No grammar download, extracted cache or cross-worktree copy is allowed."
     },
     {
       "id": "plugin-host-runtime-state",

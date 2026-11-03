@@ -1,4 +1,5 @@
 import path from "node:path";
+import { readFileSync } from "node:fs";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { codeInspectorPlugin } from "code-inspector-plugin";
@@ -13,6 +14,15 @@ export default defineConfig({
     "import.meta.env.VITE_BUILD_TIMESTAMP": JSON.stringify(process.env.LITHE_BUILD_TIMESTAMP ?? ""),
   },
   plugins: [
+    {
+      name: "bundled-editor-grammar-notices",
+      generateBundle() {
+        for (const filename of ["NOTICE.txt", "LICENSE.vscode.txt", "LICENSE.make.txt", "LICENSE.cmake.txt"]) {
+          this.emitFile({ type: "asset", fileName: `licenses/editor/${filename}`,
+            source: readFileSync(path.resolve(__dirname, "../../frontend/editor/vendor", filename), "utf8") });
+        }
+      },
+    },
     enableCodeInspector
       ? codeInspectorPlugin({
           bundler: "vite",

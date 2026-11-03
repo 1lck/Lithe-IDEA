@@ -2,6 +2,8 @@ import { languages } from "monaco-editor/esm/vs/editor/editor.api.js";
 
 import { refineLanguageTokenRoles } from "./language-token-roles";
 import "monaco-editor/esm/vs/basic-languages/cpp/cpp.contribution.js";
+import "monaco-editor/esm/vs/basic-languages/bat/bat.contribution.js";
+import "monaco-editor/esm/vs/basic-languages/powershell/powershell.contribution.js";
 import "monaco-editor/esm/vs/basic-languages/css/css.contribution.js";
 import "monaco-editor/esm/vs/basic-languages/csharp/csharp.contribution.js";
 import "monaco-editor/esm/vs/basic-languages/dart/dart.contribution.js";
@@ -37,6 +39,9 @@ import "monaco-editor/esm/vs/basic-languages/xml/xml.contribution.js";
 import "monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution.js";
 import { zigMonarchLanguage } from "./zig-language";
 import { hasPluginGrammar } from "./plugin-languages";
+import { BASIC_FILE_ASSOCIATIONS } from "./basic-file-associations";
+import { toMonacoLanguageId } from "./language";
+import type { TextMateResources } from "./textmate";
 
 type MonarchLanguageModule = {
   conf: Parameters<typeof languages.setLanguageConfiguration>[1];
@@ -44,6 +49,8 @@ type MonarchLanguageModule = {
 };
 
 const monarchLanguageLoaders: Record<string, () => Promise<MonarchLanguageModule>> = {
+  bat: () => import("monaco-editor/esm/vs/basic-languages/bat/bat.js"),
+  powershell: () => import("monaco-editor/esm/vs/basic-languages/powershell/powershell.js"),
   dotenv: () => import("monaco-editor/esm/vs/basic-languages/shell/shell.js"),
   c: () => import("monaco-editor/esm/vs/basic-languages/cpp/cpp.js"),
   cpp: () => import("monaco-editor/esm/vs/basic-languages/cpp/cpp.js"),
@@ -83,10 +90,20 @@ const monarchLanguageLoaders: Record<string, () => Promise<MonarchLanguageModule
 };
 
 const monarchLanguagePromises = new Map<string, Promise<boolean>>();
+let basicTextMateResources: ((language: string) => Promise<TextMateResources>) | undefined;
+
+/** Hosts that fingerprint assets provide the same URLs to source and diff views. */
+export function configureBasicTextMateResources(provider: ((language: string) => Promise<TextMateResources>) | undefined): void {
+  basicTextMateResources = provider;
+}
 
 export function ensureMonacoLanguageTokenizer(languageId: string): Promise<boolean> {
   // A plugin grammar replaces the built-in one for its language.
   if (hasPluginGrammar(languageId)) return Promise.resolve(true);
+  if (["makefile", "cmake", "groovy"].includes(languageId)) {
+    return Promise.all([import("./basic-textmate"), basicTextMateResources?.(languageId)])
+      .then(([module, resources]) => module.ensureBasicTextMate(languageId, resources)!);
+  }
   if (languageId === "json") {
     const existing = monarchLanguagePromises.get(languageId);
     if (existing) return existing;
@@ -127,6 +144,19 @@ export function ensureMonacoLanguageTokenizer(languageId: string): Promise<boole
 function ensureLanguage(id: string, extensions: string[], aliases: string[], filenames?: string[]) {
   if (languages.getLanguages().some((language) => language.id === id)) return;
   languages.register({ id, extensions, aliases, filenames });
+}
+
+for (const association of BASIC_FILE_ASSOCIATIONS.filter(item => ["makefile", "cmake", "groovy"].includes(item.id))) {
+  const id = toMonacoLanguageId(association.id);
+  ensureLanguage(id, "extensions" in association ? [...association.extensions] : [], [id],
+    "filenames" in association ? [...association.filenames] : []);
+}
+for (const id of ["makefile", "cmake", "groovy"]) {
+  languages.setLanguageConfiguration(id, {
+    comments: id === "groovy" ? { lineComment: "//", blockComment: ["/*", "*/"] } : { lineComment: "#" },
+    brackets: [["{", "}"], ["[", "]"], ["(", ")"]],
+    autoClosingPairs: [{ open: "{", close: "}" }, { open: "[", close: "]" }, { open: "(", close: ")" }],
+  });
 }
 
 ensureLanguage("diff", [".diff", ".patch"], ["Diff", "diff", "patch"]);

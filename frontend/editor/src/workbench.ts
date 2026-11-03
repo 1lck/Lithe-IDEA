@@ -15,6 +15,7 @@ import "monaco-editor/esm/vs/editor/editor.all.js";
 import { language as javaLanguage } from "monaco-editor/esm/vs/basic-languages/java/java.js";
 import { ensureMonacoLanguageTokenizer } from "./language-contributions";
 import { toMonacoLanguageId } from "./language";
+import { basicLanguageForFilename } from "./basic-file-associations";
 import { SourceText } from "./source-text";
 import { toMonacoModelValue } from "./line-endings";
 import { acquireMonacoModel } from "./model-lifecycle";
@@ -64,6 +65,8 @@ function languageForFilename(filename: string | undefined): string {
   if (!filename) return "plaintext";
   const plugin = pluginLanguageForFilename(filename);
   if (plugin) return plugin;
+  const basic = basicLanguageForFilename(filename);
+  if (basic) return basic;
   const name = filename.toLowerCase();
   const registered = monaco.languages.getLanguages();
   const exact = registered.find(language => language.filenames?.some(file => file.toLowerCase() === name));
@@ -1087,9 +1090,12 @@ export function mountWorkbench(host: WorkbenchHost) {
         for (const [id, entry] of entries) {
           if (entry.filename === undefined || entry.model.isDisposed()) continue;
           const languageID = languageForFilename(entry.filename), language = editorLanguageID(languageID);
-          if (language === entry.model.getLanguageId() && languageID === entry.languageID || !(pluginIDs.has(language) || pluginIDs.has(entry.model.getLanguageId()))) continue;
+          if (!(pluginIDs.has(language) || pluginIDs.has(entry.model.getLanguageId()))) continue;
+          // A same-ID grammar can disappear before its builtin ever loaded.
+          // Restore the provider even when no model language transition is needed.
           await ensureMonacoLanguageTokenizer(language);
           if (entries.get(id) !== entry || entry.model.isDisposed()) continue;
+          if (language === entry.model.getLanguageId() && languageID === entry.languageID) continue;
           entry.contextGeneration++;
           entry.languageID = languageID;
           monaco.editor.setModelLanguage(entry.model, language);

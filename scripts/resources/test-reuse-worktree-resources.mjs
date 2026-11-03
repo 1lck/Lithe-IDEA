@@ -138,6 +138,8 @@ try {
     const resource = registry.excludedResources.find(item => item.id === "editor-theme-assets");
     assert.equal(resource.reusable, false);
     assert.ok(resource.locations.includes(".artifacts/editor/macos/"));
+    assert.ok(resource.locations.includes("frontend/editor/vendor/"));
+    assert.ok(resource.locations.includes("<editor-memory>/bundled-textmate-workers-and-tokens"));
     const refused = reuse(["--resource", resource.id]);
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /editor-theme-assets.*cannot be reused/);

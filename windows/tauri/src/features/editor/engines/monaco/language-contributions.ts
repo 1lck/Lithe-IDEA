@@ -25,10 +25,13 @@ typescript.javascriptDefaults.setCompilerOptions({
 });
 typescript.javascriptDefaults.setDiagnosticsOptions(lspOwnedDiagnosticsOptions);
 
-import { ensureMonacoLanguageTokenizer as ensureBasicTokenizer } from "@lithe/editor/language-contributions";
+import { configureBasicTextMateResources, ensureMonacoLanguageTokenizer as ensureBasicTokenizer } from "@lithe/editor/language-contributions";
 import { ensureJavaTextMate } from "./java-textmate";
 
 export { prewarmCommonLanguageTokenizers } from "@lithe/editor/language-contributions";
+
+configureBasicTextMateResources(async language =>
+  (await import("@lithe/editor/textmate-bundled")).basicTextMateResources(language));
 
 export async function ensureMonacoLanguageTokenizer(languageId: string): Promise<boolean> {
   const registered = await ensureBasicTokenizer(languageId);
