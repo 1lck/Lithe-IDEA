@@ -63,6 +63,26 @@ public struct AppFontRegistrationFailed: LogEvent {
     }
 }
 
+public struct AppLoggingDiagnosticsFailed: LogEvent {
+    public static let id = "app.logging.diagnostics_failed"
+    public static let level: LogLevel = .warn
+    public static let messageTemplate = "Runtime detailed diagnostics command failed"
+    public static let ratePerMinute = 60
+    public static let owner = "Lithe"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+
+    public init(`error`: any Error, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.app, segments: [])
+        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["error"] = .error(`error`)
+        self.fields = _logValues
+    }
+}
+
 public struct AppLoggingRedirectFailed: LogEvent {
     public static let id = "app.logging.redirect_failed"
     public static let level: LogLevel = .warn
@@ -749,6 +769,27 @@ public struct LspBuildWaiting: LogEvent {
     }
 }
 
+public struct LspCacheCleaned: LogEvent {
+    public static let id = "lsp.cache.cleaned"
+    public static let level: LogLevel = .debug
+    public static let messageTemplate = "Language server {server} cache cleaned"
+    public static let ratePerMinute = 60
+    public static let owner = "LanguageToolingSessionManager"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+
+    public init(`removed`: Int64, `server`: LogSegment, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.lsp, segments: [`server`])
+        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["removed"] = .int(`removed`)
+        _logValues["server"] = .id(`server`)
+        self.fields = _logValues
+    }
+}
+
 public struct LspConfigurationCleaned: LogEvent {
     public static let id = "lsp.configuration.cleaned"
     public static let level: LogLevel = .info
@@ -979,6 +1020,27 @@ public struct LspMavenStartFailed: LogEvent {
         var _logValues: [String: LogFieldValue] = [:]
         _logValues["error"] = .error(`error`)
         _logValues["server"] = .id(`server`)
+        self.fields = _logValues
+    }
+}
+
+public struct LspMavenTaskUpdated: LogEvent {
+    public static let id = "lsp.maven.task_updated"
+    public static let level: LogLevel = .info
+    public static let messageTemplate = "Maven profile task state updated"
+    public static let ratePerMinute = 60
+    public static let owner = "lithe-core"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+
+    public init(`server`: LogSegment, `state`: String, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.lsp, segments: [`server`])
+        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["server"] = .id(`server`)
+        _logValues["state"] = .token(`state`)
         self.fields = _logValues
     }
 }
@@ -1271,12 +1333,33 @@ public struct LspSessionIssueFailed: LogEvent {
     }
 }
 
+public struct LspSessionStageChanged: LogEvent {
+    public static let id = "lsp.session.stage_changed"
+    public static let level: LogLevel = .debug
+    public static let messageTemplate = "Language server {server} host stage changed to {stage}"
+    public static let ratePerMinute = 60
+    public static let owner = "LanguageToolingSessionManager"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+
+    public init(`server`: LogSegment, `stage`: String, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.lsp, segments: [`server`])
+        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["server"] = .id(`server`)
+        _logValues["stage"] = .token(`stage`)
+        self.fields = _logValues
+    }
+}
+
 public struct LspSessionUpdated: LogEvent {
     public static let id = "lsp.session.updated"
     public static let level: LogLevel = .debug
     public static let messageTemplate = "Language server session state changed"
     public static let ratePerMinute = 60
-    public static let owner = "LanguageToolingSessionManager"
+    public static let owner = "lithe-core"
     public static let debugOnly = false
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
@@ -1344,12 +1427,13 @@ public struct LspStderrReceived: LogEvent {
     public let fields: [String: LogFieldValue]
     public let operationID: String?
 
-    public init(`diagnostic`: String, `server`: LogSegment, operationID: String? = nil) {
+    public init(`diagnostic`: String, `server`: LogSegment, `truncated`: (Bool)? = nil, operationID: String? = nil) {
         self.operationID = operationID
         self.channel = LogChannel(.lsp, segments: [`server`])
         var _logValues: [String: LogFieldValue] = [:]
         _logValues["diagnostic"] = .text(`diagnostic`)
         _logValues["server"] = .id(`server`)
+        if let value = `truncated` { _logValues["truncated"] = .bool(value) }
         self.fields = _logValues
     }
 }
@@ -1835,6 +1919,238 @@ public struct PluginsGrammarRejected: LogEvent {
     }
 }
 
+public struct PluginsHostMessageLogged: LogEvent {
+    public static let id = "plugins.host.message.logged"
+    public static let level: LogLevel = .info
+    public static let messageTemplate = "Engine log message received for server {plugin} with severity {severity}"
+    public static let ratePerMinute = 120
+    public static let owner = "lithe-core"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+
+    public init(`diagnostic`: String, `plugin`: LogSegment, `severity`: String, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.plugins, segments: [`plugin`, LogSegment("host")!])
+        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["diagnostic"] = .text(`diagnostic`)
+        _logValues["plugin"] = .id(`plugin`)
+        _logValues["severity"] = .token(`severity`)
+        self.fields = _logValues
+    }
+}
+
+public struct PluginsHostMessageShown: LogEvent {
+    public static let id = "plugins.host.message.shown"
+    public static let level: LogLevel = .info
+    public static let messageTemplate = "Engine show message received for server {plugin} with severity {severity}"
+    public static let ratePerMinute = 120
+    public static let owner = "lithe-core"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+
+    public init(`diagnostic`: String, `plugin`: LogSegment, `severity`: String, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.plugins, segments: [`plugin`, LogSegment("host")!])
+        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["diagnostic"] = .text(`diagnostic`)
+        _logValues["plugin"] = .id(`plugin`)
+        _logValues["severity"] = .token(`severity`)
+        self.fields = _logValues
+    }
+}
+
+public struct PluginsHostNotificationReceived: LogEvent {
+    public static let id = "plugins.host.notification.received"
+    public static let level: LogLevel = .info
+    public static let messageTemplate = "Engine {plugin} notification {method} received"
+    public static let ratePerMinute = 120
+    public static let owner = "lithe-core"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+
+    public init(`method`: String, `plugin`: LogSegment, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.plugins, segments: [`plugin`, LogSegment("host")!])
+        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["method"] = .token(`method`)
+        _logValues["plugin"] = .id(`plugin`)
+        self.fields = _logValues
+    }
+}
+
+public struct PluginsHostProcessStarted: LogEvent {
+    public static let id = "plugins.host.process.started"
+    public static let level: LogLevel = .info
+    public static let messageTemplate = "Engine process started for server {plugin}"
+    public static let ratePerMinute = 120
+    public static let owner = "lithe-core"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+
+    public init(`plugin`: LogSegment, `runtimeVersion`: (String)? = nil, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.plugins, segments: [`plugin`, LogSegment("host")!])
+        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["plugin"] = .id(`plugin`)
+        if let value = `runtimeVersion` { _logValues["runtime_version"] = .version(value) }
+        self.fields = _logValues
+    }
+}
+
+public struct PluginsHostProtocolInitialized: LogEvent {
+    public static let id = "plugins.host.protocol.initialized"
+    public static let level: LogLevel = .info
+    public static let messageTemplate = "Engine protocol initialized for server {plugin}"
+    public static let ratePerMinute = 120
+    public static let owner = "lithe-core"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+
+    public init(`plugin`: LogSegment, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.plugins, segments: [`plugin`, LogSegment("host")!])
+        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["plugin"] = .id(`plugin`)
+        self.fields = _logValues
+    }
+}
+
+public struct PluginsHostResponseSkipped: LogEvent {
+    public static let id = "plugins.host.response.skipped"
+    public static let level: LogLevel = .info
+    public static let messageTemplate = "Late language-server response ignored for server {plugin}"
+    public static let ratePerMinute = 120
+    public static let owner = "lithe-core"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+
+    public init(`plugin`: LogSegment, `request`: (String)? = nil, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.plugins, segments: [`plugin`, LogSegment("host")!])
+        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["plugin"] = .id(`plugin`)
+        if let value = `request` { _logValues["request"] = .token(value) }
+        self.fields = _logValues
+    }
+}
+
+public struct PluginsHostSessionUpdated: LogEvent {
+    public static let id = "plugins.host.session.updated"
+    public static let level: LogLevel = .debug
+    public static let messageTemplate = "Engine session state changed"
+    public static let ratePerMinute = 60
+    public static let owner = "lithe-core"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+
+    public init(`plugin`: LogSegment, `state`: String, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.plugins, segments: [`plugin`, LogSegment("host")!])
+        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["plugin"] = .id(`plugin`)
+        _logValues["state"] = .token(`state`)
+        self.fields = _logValues
+    }
+}
+
+public struct PluginsHostShutdownTimedOut: LogEvent {
+    public static let id = "plugins.host.shutdown.timed_out"
+    public static let level: LogLevel = .warn
+    public static let messageTemplate = "Engine shutdown timed out for server {plugin}"
+    public static let ratePerMinute = 120
+    public static let owner = "lithe-core"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+
+    public init(`plugin`: LogSegment, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.plugins, segments: [`plugin`, LogSegment("host")!])
+        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["plugin"] = .id(`plugin`)
+        self.fields = _logValues
+    }
+}
+
+public struct PluginsHostStderrReadFailed: LogEvent {
+    public static let id = "plugins.host.stderr.read_failed"
+    public static let level: LogLevel = .warn
+    public static let messageTemplate = "Engine stderr read failed for server {plugin}"
+    public static let ratePerMinute = 120
+    public static let owner = "lithe-core"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+
+    public init(`error`: any Error, `plugin`: LogSegment, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.plugins, segments: [`plugin`, LogSegment("host")!])
+        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["error"] = .error(`error`)
+        _logValues["plugin"] = .id(`plugin`)
+        self.fields = _logValues
+    }
+}
+
+public struct PluginsHostStderrReceived: LogEvent {
+    public static let id = "plugins.host.stderr.received"
+    public static let level: LogLevel = .warn
+    public static let messageTemplate = "Engine stderr received for server {plugin}"
+    public static let ratePerMinute = 120
+    public static let owner = "lithe-core"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+
+    public init(`diagnostic`: String, `plugin`: LogSegment, `truncated`: (Bool)? = nil, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.plugins, segments: [`plugin`, LogSegment("host")!])
+        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["diagnostic"] = .text(`diagnostic`)
+        _logValues["plugin"] = .id(`plugin`)
+        if let value = `truncated` { _logValues["truncated"] = .bool(value) }
+        self.fields = _logValues
+    }
+}
+
+public struct PluginsHostTraceReceived: LogEvent {
+    public static let id = "plugins.host.trace.received"
+    public static let level: LogLevel = .debug
+    public static let messageTemplate = "Engine trace received for server {plugin}"
+    public static let ratePerMinute = 120
+    public static let owner = "lithe-core"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+
+    public init(`diagnostic`: String, `plugin`: LogSegment, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.plugins, segments: [`plugin`, LogSegment("host")!])
+        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["diagnostic"] = .text(`diagnostic`)
+        _logValues["plugin"] = .id(`plugin`)
+        self.fields = _logValues
+    }
+}
+
 public struct PluginsLifecycleFailed: LogEvent {
     public static let id = "plugins.lifecycle.failed"
     public static let level: LogLevel = .error
@@ -2045,7 +2361,7 @@ public struct RemotePluginsCleanupFailed: LogEvent {
 public struct RemoteProcessCleanupFailed: LogEvent {
     public static let id = "remote.process.cleanup_failed"
     public static let level: LogLevel = .warn
-    public static let messageTemplate = "Remote backend cleanup failed on connection {connection}"
+    public static let messageTemplate = "Remote backend cleanup failed"
     public static let ratePerMinute = 60
     public static let owner = "lithe-core"
     public static let debugOnly = false
@@ -2053,12 +2369,11 @@ public struct RemoteProcessCleanupFailed: LogEvent {
     public let fields: [String: LogFieldValue]
     public let operationID: String?
 
-    public init(`connection`: LogSegment, `error`: any Error, operationID: String? = nil) {
+    public init(`failureCode`: String, operationID: String? = nil) {
         self.operationID = operationID
-        self.channel = LogChannel(.remote, segments: [`connection`])
+        self.channel = LogChannel(.remote, segments: [])
         var _logValues: [String: LogFieldValue] = [:]
-        _logValues["connection"] = .id(`connection`)
-        _logValues["error"] = .error(`error`)
+        _logValues["failure_code"] = .token(`failureCode`)
         self.fields = _logValues
     }
 }
@@ -2066,7 +2381,7 @@ public struct RemoteProcessCleanupFailed: LogEvent {
 public struct RemoteUploadAbortFailed: LogEvent {
     public static let id = "remote.upload.abort_failed"
     public static let level: LogLevel = .warn
-    public static let messageTemplate = "Remote upload abort failed on connection {connection}"
+    public static let messageTemplate = "Remote upload abort failed"
     public static let ratePerMinute = 60
     public static let owner = "lithe-core"
     public static let debugOnly = false
@@ -2074,12 +2389,11 @@ public struct RemoteUploadAbortFailed: LogEvent {
     public let fields: [String: LogFieldValue]
     public let operationID: String?
 
-    public init(`connection`: LogSegment, `error`: (any Error)? = nil, operationID: String? = nil) {
+    public init(`failureCode`: String, operationID: String? = nil) {
         self.operationID = operationID
-        self.channel = LogChannel(.remote, segments: [`connection`])
+        self.channel = LogChannel(.remote, segments: [])
         var _logValues: [String: LogFieldValue] = [:]
-        _logValues["connection"] = .id(`connection`)
-        if let value = `error` { _logValues["error"] = .error(value) }
+        _logValues["failure_code"] = .token(`failureCode`)
         self.fields = _logValues
     }
 }
@@ -2437,6 +2751,238 @@ public struct VcsGitRequestStarted: LogEvent {
         _logValues["command"] = .token(`command`)
         if let value = `exitCode` { _logValues["exit_code"] = .int(value) }
         if let value = `failureCode` { _logValues["failure_code"] = .token(value) }
+        _logValues["provider"] = .id(`provider`)
+        self.fields = _logValues
+    }
+}
+
+public struct VcsMessageLogged: LogEvent {
+    public static let id = "vcs.message.logged"
+    public static let level: LogLevel = .info
+    public static let messageTemplate = "Engine log message received for server {provider} with severity {severity}"
+    public static let ratePerMinute = 120
+    public static let owner = "lithe-core"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+
+    public init(`diagnostic`: String, `provider`: LogSegment, `severity`: String, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.vcs, segments: [`provider`])
+        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["diagnostic"] = .text(`diagnostic`)
+        _logValues["provider"] = .id(`provider`)
+        _logValues["severity"] = .token(`severity`)
+        self.fields = _logValues
+    }
+}
+
+public struct VcsMessageShown: LogEvent {
+    public static let id = "vcs.message.shown"
+    public static let level: LogLevel = .info
+    public static let messageTemplate = "Engine show message received for server {provider} with severity {severity}"
+    public static let ratePerMinute = 120
+    public static let owner = "lithe-core"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+
+    public init(`diagnostic`: String, `provider`: LogSegment, `severity`: String, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.vcs, segments: [`provider`])
+        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["diagnostic"] = .text(`diagnostic`)
+        _logValues["provider"] = .id(`provider`)
+        _logValues["severity"] = .token(`severity`)
+        self.fields = _logValues
+    }
+}
+
+public struct VcsNotificationReceived: LogEvent {
+    public static let id = "vcs.notification.received"
+    public static let level: LogLevel = .info
+    public static let messageTemplate = "Engine {provider} notification {method} received"
+    public static let ratePerMinute = 120
+    public static let owner = "lithe-core"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+
+    public init(`method`: String, `provider`: LogSegment, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.vcs, segments: [`provider`])
+        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["method"] = .token(`method`)
+        _logValues["provider"] = .id(`provider`)
+        self.fields = _logValues
+    }
+}
+
+public struct VcsProcessStarted: LogEvent {
+    public static let id = "vcs.process.started"
+    public static let level: LogLevel = .info
+    public static let messageTemplate = "Engine process started for server {provider}"
+    public static let ratePerMinute = 120
+    public static let owner = "lithe-core"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+
+    public init(`provider`: LogSegment, `runtimeVersion`: (String)? = nil, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.vcs, segments: [`provider`])
+        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["provider"] = .id(`provider`)
+        if let value = `runtimeVersion` { _logValues["runtime_version"] = .version(value) }
+        self.fields = _logValues
+    }
+}
+
+public struct VcsProtocolInitialized: LogEvent {
+    public static let id = "vcs.protocol.initialized"
+    public static let level: LogLevel = .info
+    public static let messageTemplate = "Engine protocol initialized for server {provider}"
+    public static let ratePerMinute = 120
+    public static let owner = "lithe-core"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+
+    public init(`provider`: LogSegment, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.vcs, segments: [`provider`])
+        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["provider"] = .id(`provider`)
+        self.fields = _logValues
+    }
+}
+
+public struct VcsResponseSkipped: LogEvent {
+    public static let id = "vcs.response.skipped"
+    public static let level: LogLevel = .info
+    public static let messageTemplate = "Late language-server response ignored for server {provider}"
+    public static let ratePerMinute = 120
+    public static let owner = "lithe-core"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+
+    public init(`provider`: LogSegment, `request`: (String)? = nil, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.vcs, segments: [`provider`])
+        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["provider"] = .id(`provider`)
+        if let value = `request` { _logValues["request"] = .token(value) }
+        self.fields = _logValues
+    }
+}
+
+public struct VcsSessionUpdated: LogEvent {
+    public static let id = "vcs.session.updated"
+    public static let level: LogLevel = .debug
+    public static let messageTemplate = "Engine session state changed"
+    public static let ratePerMinute = 60
+    public static let owner = "lithe-core"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+
+    public init(`provider`: LogSegment, `state`: String, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.vcs, segments: [`provider`])
+        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["provider"] = .id(`provider`)
+        _logValues["state"] = .token(`state`)
+        self.fields = _logValues
+    }
+}
+
+public struct VcsShutdownTimedOut: LogEvent {
+    public static let id = "vcs.shutdown.timed_out"
+    public static let level: LogLevel = .warn
+    public static let messageTemplate = "Engine shutdown timed out for server {provider}"
+    public static let ratePerMinute = 120
+    public static let owner = "lithe-core"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+
+    public init(`provider`: LogSegment, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.vcs, segments: [`provider`])
+        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["provider"] = .id(`provider`)
+        self.fields = _logValues
+    }
+}
+
+public struct VcsStderrReadFailed: LogEvent {
+    public static let id = "vcs.stderr.read_failed"
+    public static let level: LogLevel = .warn
+    public static let messageTemplate = "Engine stderr read failed for server {provider}"
+    public static let ratePerMinute = 120
+    public static let owner = "lithe-core"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+
+    public init(`error`: any Error, `provider`: LogSegment, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.vcs, segments: [`provider`])
+        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["error"] = .error(`error`)
+        _logValues["provider"] = .id(`provider`)
+        self.fields = _logValues
+    }
+}
+
+public struct VcsStderrReceived: LogEvent {
+    public static let id = "vcs.stderr.received"
+    public static let level: LogLevel = .warn
+    public static let messageTemplate = "Engine stderr received for server {provider}"
+    public static let ratePerMinute = 120
+    public static let owner = "lithe-core"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+
+    public init(`diagnostic`: String, `provider`: LogSegment, `truncated`: (Bool)? = nil, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.vcs, segments: [`provider`])
+        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["diagnostic"] = .text(`diagnostic`)
+        _logValues["provider"] = .id(`provider`)
+        if let value = `truncated` { _logValues["truncated"] = .bool(value) }
+        self.fields = _logValues
+    }
+}
+
+public struct VcsTraceReceived: LogEvent {
+    public static let id = "vcs.trace.received"
+    public static let level: LogLevel = .debug
+    public static let messageTemplate = "Engine trace received for server {provider}"
+    public static let ratePerMinute = 120
+    public static let owner = "lithe-core"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+
+    public init(`diagnostic`: String, `provider`: LogSegment, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.vcs, segments: [`provider`])
+        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["diagnostic"] = .text(`diagnostic`)
         _logValues["provider"] = .id(`provider`)
         self.fields = _logValues
     }

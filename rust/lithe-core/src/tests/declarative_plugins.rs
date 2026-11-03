@@ -293,6 +293,9 @@ fn command_plan_fixtures_match_golden_expansions() {
             "manifest": fixture(case["plugin"].as_str().unwrap()),
             "request": case["request"],
         });
+        if let Some(arguments) = case.get("manifestArguments") {
+            payload["manifest"]["languageServers"][0]["arguments"] = arguments.clone();
+        }
         // A launch plan selects its process by language or by build system.
         for key in ["languageID", "buildSystemID"] {
             if let Some(value) = case.get(key) {
@@ -2130,4 +2133,57 @@ fn terminal_permission_grants_only_owned_terminal_methods_and_requires_backend_t
     let mut old = manifest;
     old["requires"]["backend"] = json!(1);
     assert_ne!(validate(old)["status"], "ok");
+}
+
+#[test]
+fn launch_log_directory_is_explicit_for_servers_and_backends() {
+    for (fixture_name, selection, process) in [
+        (
+            "language-host-integration.plugin.json",
+            json!({"languageID":"java"}),
+            "languageServers",
+        ),
+        ("backend.plugin.json", json!({"backend":true}), "backend"),
+    ] {
+        let mut manifest = fixture(fixture_name);
+        let declaration = if process == "backend" {
+            &mut manifest["backend"]
+        } else {
+            &mut manifest["languageServers"][0]
+        };
+        declaration["arguments"] = json!(["--log=${logDir}/native.log"]);
+        let mut payload = selection;
+        payload["manifest"] = manifest;
+        payload["request"] = json!({"pluginDirectory":"/plugins/example", "stateDirectory":"/state/example", "workspaceStateDirectory":"/state/example/workspace", "architecture":"arm64"});
+        let missing = language_server_launch_plan_command(payload.clone()).unwrap();
+        assert_eq!(
+            missing["error"]["code"], "plugin.launch.invalidRequest",
+            "{missing}"
+        );
+        payload["request"]["logDirectory"] = json!("relative/logs");
+        assert_eq!(
+            language_server_launch_plan_command(payload.clone()).unwrap()["error"]["code"],
+            "plugin.launch.invalidRequest"
+        );
+        payload["request"]["logDirectory"] =
+            json!("/logs/sessions/current/plugins/io.example/files/");
+        let expanded = language_server_launch_plan_command(payload.clone()).unwrap();
+        assert_eq!(expanded["status"], "ok", "{expanded}");
+        assert!(expanded["plan"]["arguments"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|a| a == "--log=/logs/sessions/current/plugins/io.example/files/native.log"));
+        assert!(expanded["plan"]["requiredDirectories"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("log")));
+        if process != "backend" {
+            payload["manifest"]["languageServers"][0]["validationArguments"] = json!(["${logDir}"]);
+            assert_eq!(
+                language_server_launch_plan_command(payload).unwrap()["status"],
+                "rejected"
+            );
+        }
+    }
 }

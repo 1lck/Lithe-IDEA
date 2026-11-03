@@ -265,6 +265,9 @@ pub struct ResolveLogChannelRequest {
 pub struct ResolvedLogChannel {
     /// Existing product category shared by filtering and verbose diagnostic admission.
     pub category: String,
+    /// Plugin-owned files sibling resolved by the same validated identity rule.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plugin_files_path: Option<String>,
     /// Session-relative file destination, possibly the overflow sink.
     pub relative_path: String,
 }
@@ -277,8 +280,13 @@ pub fn resolve_log_channel(
     for existing in &request.existing_channels {
         LogChannel::parse(existing)?;
     }
+    let plugin_files_path = match channel.as_str().split('/').collect::<Vec<_>>().as_slice() {
+        ["plugins", plugin, "host"] => Some(plugin_files_path(plugin)?),
+        _ => None,
+    };
     Ok(ResolvedLogChannel {
         category: log_category(channel.as_str()).into(),
+        plugin_files_path,
         relative_path: bounded_log_path(
             &channel,
             &request.existing_channels,

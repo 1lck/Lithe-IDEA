@@ -243,6 +243,21 @@
       },
       "rate": 60,
       "owner": "lithe-core"
+    },
+    {
+      "id": "app.logging.diagnostics_failed",
+      "channel": "app",
+      "level": "warn",
+      "message": "Runtime detailed diagnostics command failed",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Host command failure when changing a managed session trace gate; stable code only"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
     }
   ]
 }

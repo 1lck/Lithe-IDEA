@@ -649,7 +649,7 @@ fn batch_result(result: Result<String, LogError>, channel: Option<String>) -> En
     }
 }
 
-fn prepare_catalog_event(
+pub(crate) fn prepare_catalog_event(
     event: &mut StructuredLogEvent,
     input: &Value,
 ) -> Result<String, LogError> {

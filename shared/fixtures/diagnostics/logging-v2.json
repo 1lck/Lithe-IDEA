@@ -896,7 +896,8 @@
     "-32055": "invalidCatalogField",
     "-32056": "unknownCatalogField",
     "-32057": "catalogLevelMismatch",
-    "-32058": "invalidCollectionInventory"
+    "-32058": "invalidCollectionInventory",
+    "-32059": "coreEventOwnerMismatch"
   },
   "catalogBatch": [
     {
