@@ -108,7 +108,7 @@ struct ContextMenuCoverageTests {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         _ = RecentProjectsStore(store: store).record(root, in: [])
-        let settings = AppSettings(store: store)
+        let settings = AppSettings(store: store, logDirectoryProvider: MacServiceContainer.makeLogDirectoryProvider())
         let services = MacServiceContainer(store: store, settings: settings, moduleLaunchMode: .safeMode).services
         let model = AppModel(settings: settings, services: services)
         let sessions = ProjectSessionManager(settings: settings, modelFactory: { model })

@@ -67,6 +67,7 @@
 "%@ · %@ / %@ context used" = "%@ · %@ / %@ context used";
 "%@ · %@ used" = "%@ · %@ used";
 "%@ · %lld of %lld steps processed" = "%@ · %lld of %lld steps processed";
+"%@ — %@" = "%@ — %@";
 "%@ ↔ Working Tree" = "%@ ↔ Working Tree";
 "%@, %@" = "%@, %@";
 "%@, Line %lld, %@" = "%@, Line %lld, %@";
@@ -9952,6 +9953,7 @@
 "workspace.chooseApplication" = "Choose an Application";
 "workspace.defaultApplication" = "%1$@ (default)";
 "workspace.externalOpenFailed" = "Could not open %1$@: %2$@";
+"workspace.nativeMenuDescription" = "%1$@ — %2$@";
 "workspace.openWith" = "Open With";
 "workspace.openWithAppStore" = "App Store…";
 "workspace.openWithOther" = "Other…";

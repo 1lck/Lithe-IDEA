@@ -67,6 +67,7 @@
 "%@ · %@ / %@ context used" = "%@ · %@ / %@ 上下文已使用";
 "%@ · %@ used" = "%@ · 已用 %@";
 "%@ · %lld of %lld steps processed" = "%@ · 已处理 %lld / %lld 步";
+"%@ — %@" = "%@ — %@";
 "%@ ↔ Working Tree" = "%@ ↔ 工作区";
 "%@, %@" = "%@，%@";
 "%@, Line %lld, %@" = "%@，第 %lld 行，%@";
@@ -9952,6 +9953,7 @@
 "workspace.chooseApplication" = "选择应用程序";
 "workspace.defaultApplication" = "%1$@（默认）";
 "workspace.externalOpenFailed" = "无法打开 %1$@：%2$@";
+"workspace.nativeMenuDescription" = "%1$@ — %2$@";
 "workspace.openWith" = "打开方式";
 "workspace.openWithAppStore" = "App Store…";
 "workspace.openWithOther" = "其他…";

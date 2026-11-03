@@ -6,12 +6,6 @@ import LitheModuleAPI
 // Note: .agents/notes/implemented/feature/2026-11-03-macos-open-with.md
 @MainActor
 enum LitheSystemContextMenu {
-    static func show(items: [LitheContextMenuItem], at point: NSPoint, appearance: NSAppearance?) {
-        let menu = makeMenu(items: items)
-        menu.appearance = appearance
-        menu.popUp(positioning: nil, at: point, in: nil)
-    }
-
     static func makeMenu(items: [LitheContextMenuItem]) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
@@ -25,6 +19,15 @@ enum LitheSystemContextMenu {
             native.isEnabled = item.isEnabled
             native.state = item.isChecked ? .on : .off
             native.toolTip = item.description
+            if let description = item.description, !description.isEmpty {
+                // Session IDs distinguish conversations with identical titles.
+                // Preserve that visible context when the whole file menu uses AppKit.
+                if #available(macOS 14.4, *) {
+                    native.subtitle = description
+                } else {
+                    native.title = String(format: L10n.string("%@ — %@"), title, description)
+                }
+            }
             if let image = item.nativeImage {
                 native.image = image.copy() as? NSImage
                 native.image?.size = NSSize(width: 16, height: 16)

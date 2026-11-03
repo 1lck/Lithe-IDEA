@@ -9955,7 +9955,8 @@
     "workspace.externalOpenFailed": "Could not open {arg1}: {arg2}",
     "workspace.openWith": "Open With",
     "workspace.openWithAppStore": "App Store…",
-    "workspace.openWithOther": "Other…"
+    "workspace.openWithOther": "Other…",
+    "workspace.nativeMenuDescription": "{arg1} — {arg2}"
   },
   "overrides": {
     "windows": {

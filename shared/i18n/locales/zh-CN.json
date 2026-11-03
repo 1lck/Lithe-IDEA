@@ -9955,7 +9955,8 @@
     "workspace.externalOpenFailed": "无法打开 {arg1}：{arg2}",
     "workspace.openWith": "打开方式",
     "workspace.openWithAppStore": "App Store…",
-    "workspace.openWithOther": "其他…"
+    "workspace.openWithOther": "其他…",
+    "workspace.nativeMenuDescription": "{arg1} — {arg2}"
   },
   "overrides": {
     "macos": {

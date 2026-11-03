@@ -588,6 +588,7 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
     static let shared = LitheContextMenuPresenter()
 
     private var panel: LitheContextMenuPanel?
+    private var systemMenu: NSMenu?
     private var localEventMonitor: Any?
     private var globalEventMonitor: Any?
     private var parentKeyObserver: NSObjectProtocol?
@@ -634,8 +635,14 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
         dismiss()
         guard !items.isEmpty else { return }
         if items.contains(where: \.usesSystemMenu) {
-            LitheSystemContextMenu.show(items: items, at: screenPoint, appearance: appearance)
-            onDismiss?()
+            let menu = LitheSystemContextMenu.makeMenu(items: items)
+            menu.appearance = appearance
+            systemMenu = menu
+            contentDismissed = onDismiss
+            // AppKit runs a nested event loop here. A replacement menu may be
+            // presented before this call returns, so only clear our own session.
+            defer { if systemMenu === menu { dismiss() } }
+            menu.popUp(positioning: nil, at: screenPoint, in: nil)
             return
         }
 
@@ -1020,6 +1027,9 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
     }
 
     func dismiss() {
+        let trackingMenu = systemMenu
+        systemMenu = nil
+        trackingMenu?.cancelTrackingWithoutAnimation()
         contentAccepted = nil
         (customContentController as? LitheDropdownHostingController)?.sizeChanged = nil
         removeEventMonitors()

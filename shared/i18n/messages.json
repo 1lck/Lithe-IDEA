@@ -95806,6 +95806,24 @@
         "key": "Other…",
         "arguments": []
       }
+    },
+    {
+      "id": "workspace.nativeMenuDescription",
+      "description": "Visible title and description for native menu items on macOS 13/14.0–14.3",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ — %@",
+        "arguments": [
+          "arg1",
+          "arg2"
+        ]
+      },
+      "parameters": {
+        "arg1": "string",
+        "arg2": "string"
+      }
     }
   ]
 }

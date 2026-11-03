@@ -75,6 +75,52 @@ struct ExternalFileApplicationsTests {
         #expect(image.size == originalSize)
     }
 
+    @Test func systemRendererKeepsConversationIdentifiersVisible() throws {
+        let menu = LitheSystemContextMenu.makeMenu(items: [
+            .action("Conversation", localizesTitle: false, description: "1234abcd") {},
+            .action("Conversation", localizesTitle: false, description: "5678abcd") {}
+        ])
+        if #available(macOS 14.4, *) {
+            #expect(menu.items.map(\.subtitle) == ["1234abcd", "5678abcd"])
+        } else {
+            #expect(menu.items[0].title.contains("1234abcd"))
+            #expect(menu.items[1].title.contains("5678abcd"))
+        }
+    }
+
+    @Test func presenterDismissesTheTrackingSystemMenuExactlyOnce() throws {
+        let presenter = LitheContextMenuPresenter()
+        var item = LitheContextMenuItem.action("Open", action: {})
+        item.usesSystemMenu = true
+        let state = SystemMenuTrackingState(presenter: presenter)
+        // popUp owns a synchronous AppKit tracking loop; bound it locally even
+        // if the presenter regresses and no longer cancels the native menu.
+        let watchdog = Timer(timeInterval: 2, repeats: false) { _ in
+            MainActor.assumeIsolated {
+                state.timedOut = true
+                state.menu?.cancelTrackingWithoutAnimation()
+            }
+        }
+        RunLoop.main.add(watchdog, forMode: .eventTracking)
+        NotificationCenter.default.addObserver(state, selector: #selector(SystemMenuTrackingState.menuBegan(_:)),
+            name: NSMenu.didBeginTrackingNotification, object: nil)
+        defer {
+            watchdog.invalidate()
+            NotificationCenter.default.removeObserver(state)
+            presenter.dismiss()
+            state.menu?.cancelTrackingWithoutAnimation()
+        }
+        let screen = try #require(NSScreen.main)
+        presenter.show(items: [item], at: NSPoint(x: screen.visibleFrame.midX, y: screen.visibleFrame.midY),
+            appearance: nil, locale: Locale(identifier: "en"), onDismiss: { state.dismissals += 1 })
+        #expect(state.didTrack)
+        #expect(!state.timedOut)
+        #expect(state.dismissedDuringTracking)
+        #expect(state.dismissals == 1)
+        presenter.dismiss()
+        #expect(state.dismissals == 1)
+    }
+
     @Test func projectMenuUsesRealSystemApplicationsAndHidesAfterWorkspaceCloses() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -108,5 +154,31 @@ struct ExternalFileApplicationsTests {
         }
         #expect(try Data(contentsOf: file) == Data("Saved document".utf8))
         #expect(ProjectFileOpenWithMenu.items(model: model, url: file).isEmpty)
+    }
+}
+
+@MainActor
+private final class SystemMenuTrackingState: NSObject {
+    let presenter: LitheContextMenuPresenter
+    var menu: NSMenu?
+    var dismissals = 0
+    var didTrack = false
+    var dismissedDuringTracking = false
+    var timedOut = false
+
+    init(presenter: LitheContextMenuPresenter) { self.presenter = presenter }
+
+    // AppKit posts tracking notifications synchronously on its main-thread
+    // tracking loop. Keep their non-Sendable payload in this native callback.
+    @objc func menuBegan(_ notification: Notification) {
+        guard let menu = notification.object as? NSMenu else { return }
+        self.menu = menu
+        didTrack = true
+        RunLoop.main.perform(inModes: [.eventTracking]) { [self] in
+            MainActor.assumeIsolated {
+                presenter.dismiss()
+                dismissedDuringTracking = dismissals == 1
+            }
+        }
     }
 }
