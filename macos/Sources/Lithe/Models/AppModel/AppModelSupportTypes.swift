@@ -23,7 +23,6 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
     case updates = "Updates"
     case network = "Network"
     case processTermination = "Process Termination Policy"
-    case diagnostics = "Diagnostics"
     case plugins = "Plugins"
     case mcp = "MCP Configuration"
 
@@ -31,7 +30,6 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .project: "Project · JDK & Maven"
-        case .diagnostics: "Logs and Diagnostics"
         default: rawValue
         }
     }
@@ -67,7 +65,6 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .updates: "arrow.down.circle"
         case .network: "globe"
         case .processTermination: "power"
-        case .diagnostics: "stethoscope"
         case .plugins: "puzzlepiece.extension"
         case .mcp: "network"
         }
@@ -95,7 +92,7 @@ enum SettingsGroup: String, CaseIterable, Identifiable {
         case .versionControl: [.git]
         case .build: [.toolchainEnvironment, .toolchainSources, .project, .run]
         case .languages: [.lsp]
-        case .tools: [.terminal, .diagnostics]
+        case .tools: [.terminal]
         case .ai: [.providers, .agents] + SettingsSubgroup.library.categories + [.ai]
         }
     }

@@ -8,6 +8,9 @@
 //! Note: .agents/notes/implemented/architecture/2026-10-24-remote-workspace-routing.md
 
 #[cfg(feature = "client")]
+pub mod failure_log;
+
+#[cfg(feature = "client")]
 pub mod client;
 pub mod protocol;
 #[cfg(feature = "server")]

@@ -69,11 +69,11 @@ struct DiagnosticsWorkflowTests {
         let collection = try await writer.collect(query: .init())
         #expect(collection.content.contains("first evidence"))
         #expect(!collection.content.contains("synthetic-secret"))
-        await feature.setDiagnosticEnabled(true)
-        #expect(feature.diagnosticEnabled && feature.diagnosticCategory == nil)
+        await writer.configureDiagnostic(category: nil, enabled: true)
+        #expect(try await writer.status().diagnosticEnabled)
         clock.advance()
         await feature.refreshStatus()
-        #expect(!feature.diagnosticEnabled)
+        #expect(try await !writer.status().diagnosticEnabled)
         #expect(await feature.changeLogDirectory(to: root.appendingPathComponent("selected")))
         writer.emit(EditorDocumentOpenFailed(error: NSError(domain: "fixture", code: 1, userInfo: [NSLocalizedDescriptionKey: "confirmed evidence"]), reason: "unavailable"))
         await feature.refreshStatus()
@@ -81,7 +81,7 @@ struct DiagnosticsWorkflowTests {
         let ready = TestGate()
         let observation = workflow.$state.sink { if case .awaitingConfirmation = $0 { ready.open() } }
         defer { observation.cancel() }
-        feature.presentExport()
+        feature.presentExport(filter: .init())
         try #require(await ready.waitUntilOpen(), "Export state: \(String(describing: workflow.state))")
         writer.emit(EditorDocumentOpenFailed(error: NSError(domain: "fixture", code: 1, userInfo: [NSLocalizedDescriptionKey: "later evidence"]), reason: "unavailable"))
         #expect(feature.exportQuery.session == "current")
@@ -94,7 +94,7 @@ struct DiagnosticsWorkflowTests {
         let evidence = String(decoding: unpack.output, as: UTF8.self)
         #expect(evidence.contains("confirmed evidence") && !evidence.contains("later evidence"))
         await feature.clearLogs()
-        #expect(feature.logsCleared)
+        #expect(feature.logError == nil)
         #expect(FileManager.default.fileExists(atPath: destination.path))
         let blocked = root.appendingPathComponent("not-a-directory")
         try Data("fixture".utf8).write(to: blocked)
@@ -136,9 +136,14 @@ struct DiagnosticsWorkflowTests {
         let suite = "logging-probe-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
+        let previousLanguage = InterfaceLanguage.locale.identifier
+        defer { InterfaceLanguage.select(previousLanguage) }
+        // L10n text outside SwiftUI views follows the interface language, not the locale environment.
+        let settings = AppSettings(store: MacUserDefaultsStore(defaults: defaults))
+        settings.language = try #require(AppLanguage(rawValue: language))
         let host = NSHostingView(rootView: HStack(spacing: 0) {
-            LogWindowView(model: logModel, coordinator: LogWindowCoordinator())
-                .environmentObject(AppSettings(store: MacUserDefaultsStore(defaults: defaults)))
+            LogWindowView(model: logModel, coordinator: LogWindowCoordinator(), exportFeature: feature)
+                .environmentObject(settings)
                 .frame(width: 1000, height: 760)
             DiagnosticsExportSheet(feature: feature)
         }.background(LitheTheme.settingsSurface).environment(\.colorScheme, scheme)
@@ -152,8 +157,8 @@ struct DiagnosticsWorkflowTests {
         defer { feature.dismiss(); window.contentView = nil; window.close() }
         if let directory = ProcessInfo.processInfo.environment["LITHE_LOGGING_SCREENSHOTS"] {
             try #require(Bundle.main.localizations.contains(language), "Localized screenshots require a host packaged with the product string tables")
-            let title = AppLanguage(rawValue: language)?.localizedString("Logs and Diagnostics")
-            #expect(title == (language == "zh-Hans" ? "日志与诊断" : "Logs and Diagnostics"))
+            let title = AppLanguage(rawValue: language)?.localizedString("Logs and Diagnostics…")
+            #expect(title == (language == "zh-Hans" ? "日志与诊断…" : "Logs and Diagnostics…"))
             host.layoutSubtreeIfNeeded()
             let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
             host.cacheDisplay(in: host.bounds, to: bitmap)
@@ -161,5 +166,165 @@ struct DiagnosticsWorkflowTests {
             try png.write(to: URL(fileURLWithPath: directory).appendingPathComponent("logging-\(scheme)-\(language).png"))
         }
         await writer.finishSession()
+    }
+    /// Integration evidence uses catalog events through the real writer and Core redaction.
+    @Test(arguments: [ColorScheme.light, .dark], ["zh-Hans", "en"])
+    func logWindowMatchesMockup(scheme: ColorScheme, language: String) async throws {
+        if ProcessInfo.processInfo.environment["LITHE_LOGGING_SCREENSHOTS"] != nil {
+            // The packaged probe ships the product fonts; the app registers them the same way at launch.
+            MacBundledFontRegistry.registerFonts(bundle: .main)
+            try #require(NSFont(name: "JetBrainsMono-Regular", size: 12) != nil, "Run the packaged probe for product typography")
+        }
+        let previousLanguage = InterfaceLanguage.locale.identifier
+        defer { InterfaceLanguage.select(previousLanguage) }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let clock = WorkflowRenderClock()
+        let writer = MacLogStore(defaultDirectory: root.appendingPathComponent("logs"), diagnosticNow: { 0 }, now: clock.now)
+        do {
+            await writer.configureDiagnostic(category: nil, enabled: true)
+            // Core keeps DEBUG only while detailed diagnostics is active. No synthetic records or
+            // new production event definitions are used to match the prototype's channel labels.
+            for index in 0..<320 {
+                let op = "render-operation-\(index / 16)"
+                switch index % 10 {
+                case 0: writer.emit(AppSessionStarted(operationID: op))
+                case 1, 2: writer.emit(LspTraceReceived(diagnostic: "Received response", server: LogSegment("jdtls")!, operationID: op))
+                case 3: writer.emit(LspTraceReceived(diagnostic: "Sending request", server: LogSegment("rust-analyzer")!, operationID: op))
+                case 4: writer.emit(LspStderrReceived(diagnostic: "Building workspace", server: LogSegment("jdtls")!, truncated: false, operationID: op))
+                case 5: writer.emit(LspSessionDegradationReceived(failureCode: "unavailable", server: LogSegment("invalid-3f9a0c2e")!, stage: "index", operationID: op))
+                case 6: writer.emit(VcsGitCommandFinished(command: "fetch", duration: .milliseconds(487), exitCode: 0, provider: LogSegment("git")!, operationID: op))
+                case 7: writer.emit(PluginsHostMessageLogged(diagnostic: "Using mirror central", plugin: LogSegment("maven")!, severity: "info", operationID: op))
+                case 8: writer.emit(PluginsHostMessageLogged(diagnostic: "Process stopped", plugin: LogSegment("lldb")!, severity: "debug", operationID: op))
+                default: writer.emit(AppDiagnosticsExportFailed(error: LogFailure(domain: "render", code: "unavailable"), stage: "planning", operationID: op))
+                }
+            }
+            for offset in 0..<6 { writer.emit(VcsGitCommandFinished(command: "fetch", duration: .milliseconds(480 + offset), exitCode: 0, provider: LogSegment("git")!, operationID: "render-selected")) }
+            writer.emit(AppDiagnosticsExportFailed(error: NSError(domain: "render", code: 1, userInfo: [NSLocalizedDescriptionKey: "token=synthetic-render-secret"]), stage: "planning", operationID: "render-selected"))
+            writer.emit(LspMessageLogged(diagnostic: "Workspace initialized", server: LogSegment("jdtls")!, severity: "info", operationID: "render-selected"))
+            let model = LogWindowModel(logging: writer)
+            let loaded = TestGate(), traced = TestGate()
+            let observation = model.$state.sink { state in
+                if state.records.count >= 280 { loaded.open() }
+                if state.trace != nil { traced.open() }
+            }
+            defer { observation.cancel(); model.stop() }
+            model.refresh()
+            try #require(await loaded.waitUntilOpen(timeout: .seconds(5)), "Catalog render fixture did not load")
+            #expect(Set(model.state.records.map(\.channel)).isSuperset(of: ["app", "lsp/jdtls", "lsp/rust-analyzer", "lsp/invalid-3f9a0c2e", "vcs/git", "plugins/maven/host", "plugins/lldb/host"]))
+            #expect(Set(model.state.records.map(\.level)) == ["DEBUG", "INFO", "WARN", "ERROR"])
+            #expect(model.displayRows.contains { $0.isRun && $0.count >= 3 })
+            #expect(model.state.records.contains { $0.fields.values.contains { $0.contains("<redacted>") || $0.contains("‹redacted›") } })
+            let record = try #require(model.state.records.last { $0.op == "render-selected" && $0.level == "INFO" })
+            model.select([LogWindowModel.recordID(record)])
+            try #require(await traced.waitUntilOpen(), "Selected operation did not load its chain")
+            let formatted = try #require(await model.formatted(records: [record], format: "json", includeEnvironment: false))
+            #expect(formatted.contains("\"op\": \"render-selected\"") && !formatted.contains("\"environment\""))
+            #expect(!formatted.contains("synthetic-render-secret"))
+            #expect(!LogJSONHighlight.attributed(formatted, fields: record.fields).runs.isEmpty)
+            let feature = DiagnosticsFeatureModel(service: service(root: root, logging: writer), now: clock.now)
+            let ready = TestGate()
+            let confirmation = feature.$state.sink { if case .awaitingConfirmation = $0 { ready.open() } }
+            defer { confirmation.cancel(); feature.dismiss() }
+            feature.presentExport(filter: model.query)
+            try #require(await ready.waitUntilOpen(timeout: .seconds(5)), "Export manifest did not load")
+            let suite = "log-fidelity-\(UUID().uuidString)"
+            let defaults = try #require(UserDefaults(suiteName: suite))
+            defer { defaults.removePersistentDomain(forName: suite) }
+            let settings = AppSettings(store: MacUserDefaultsStore(defaults: defaults))
+            settings.language = try #require(AppLanguage(rawValue: language))
+            let coordinator = LogWindowCoordinator()
+            let application = NSApplication.shared
+            let enhanced = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+            let oldAccessibility = application.accessibilityAttributeValue(enhanced)
+            application.accessibilitySetValue(true, forAttribute: enhanced)
+            defer { application.accessibilitySetValue(oldAccessibility, forAttribute: enhanced) }
+            let mounted = TestGate()
+            let host = NSHostingView(rootView: LogWindowView(model: model, coordinator: coordinator, exportFeature: feature)
+                .environmentObject(settings).environment(\.colorScheme, scheme)
+                .environment(\.locale, Locale(identifier: language)).frame(width: 1340, height: 786)
+                .task { mounted.open() })
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1340, height: 786), styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
+            window.contentView = host; window.orderFront(nil)
+            defer { window.contentView = nil; window.close() }
+            try #require(await mounted.waitUntilOpen(), "Log view did not mount")
+            host.layoutSubtreeIfNeeded()
+            let table = try #require(renderDescendants(host).compactMap { $0 as? LogTableView }.first)
+            #expect(table.rowHeight == 22 && !table.usesAlternatingRowBackgroundColors)
+            #expect(table.headerView?.frame.height == 26)
+            #expect(table.numberOfRows > 100)
+            #expect(host.bounds.size == NSSize(width: 1340, height: 786))
+            if let directory = ProcessInfo.processInfo.environment["LITHE_LOGGING_SCREENSHOTS"] {
+                try #require(Bundle.main.localizations.contains(language), "Run the packaged probe for localized screenshots")
+                // Native accessibility is the observable boundary for the asynchronous JSON view.
+                let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+                while !renderAccessibilityText(host).contains("\"Workspace initialized\""), ContinuousClock.now < deadline {
+                    await Task.yield()
+                    host.layoutSubtreeIfNeeded()
+                }
+                // JSON field values become accessible links only after Core formatting reaches the detail pane.
+                try #require(renderAccessibilityText(host).contains("\"Workspace initialized\""), "Core JSON did not reach the detail text")
+                try renderPNG(host, directory: directory, name: "logwindow-\(scheme)-\(language).png")
+                if scheme == .light && language == "zh-Hans" {
+                    let button = try #require(renderAccessibilityElements(host).first { $0.accessibilityIdentifier?() == "logs.trace-tab" })
+                    try #require(button.accessibilityPerformPress?() == true, "Call chain tab did not activate")
+                    host.layoutSubtreeIfNeeded()
+                    try renderPNG(host, directory: directory, name: "logwindow-trace-light-zh-Hans.png")
+                }
+                let exportHost = NSHostingView(rootView: DiagnosticsExportSheet(feature: feature)
+                    .environment(\.colorScheme, scheme).environment(\.locale, Locale(identifier: language)))
+                window.contentView = exportHost
+                exportHost.frame = NSRect(origin: .zero, size: exportHost.fittingSize)
+                exportHost.layoutSubtreeIfNeeded()
+                try renderPNG(exportHost, directory: directory, name: "export-\(scheme)-\(language).png")
+            }
+            window.contentView = nil
+            model.stop(); feature.dismiss()
+        } catch {
+            await writer.finishSession()
+            throw error
+        }
+        await writer.finishSession()
+    }
+
+    private func renderDescendants(_ view: NSView) -> [NSView] {
+        [view] + view.subviews.flatMap(renderDescendants)
+    }
+    private func renderAccessibilityElements(_ element: AnyObject, depth: Int = 0) -> [AnyObject] {
+        guard depth < 20 else { return [] }
+        let children = element.accessibilityChildren?() ?? []
+        let descendants: [Any] = children.isEmpty ? ((element as? NSView)?.subviews ?? []) : children
+        return [element] + descendants.flatMap { renderAccessibilityElements($0 as AnyObject, depth: depth + 1) }
+    }
+    private func renderAccessibilityText(_ element: AnyObject) -> String {
+        renderAccessibilityElements(element).map {
+            ($0.accessibilityAttributeValue?(NSAccessibility.Attribute.value) as? String ?? "") + ($0.accessibilityLabel?() ?? "")
+        }.joined()
+    }
+    private func renderPNG(_ view: NSView, directory: String, name: String) throws {
+        view.layoutSubtreeIfNeeded()
+        let bitmap = try #require(NSBitmapImageRep(bitmapDataPlanes: nil,
+            pixelsWide: Int(view.bounds.width), pixelsHigh: Int(view.bounds.height), bitsPerSample: 8,
+            samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+            bytesPerRow: 0, bitsPerPixel: 0))
+        bitmap.size = view.bounds.size
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        let data = try #require(bitmap.representation(using: .png, properties: [:]))
+        try data.write(to: URL(fileURLWithPath: directory).appendingPathComponent(name))
+    }
+
+}
+
+/// The writer captures one deterministic timestamp per emitted event; diagnostic time is frozen.
+private final class WorkflowRenderClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var ticks: TimeInterval = 0
+    func now() -> Date {
+        lock.withLock {
+            defer { ticks += 0.137 }
+            return Date(timeIntervalSince1970: 1_793_664_000 + ticks)
+        }
     }
 }

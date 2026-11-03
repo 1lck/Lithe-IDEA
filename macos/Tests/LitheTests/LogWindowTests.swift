@@ -263,6 +263,43 @@ struct LogWindowTests {
         #expect(restored.bookmarks.first?.name == "startup")
         await writer.finishSession()
     }
+    @Test func exportOpenRequestKeepsWindowFilterAndPresentsOnce() {
+        let writer = MacLogStore()
+        var preferences = LogWindowPreferences()
+        preferences.query.expression = "level>=warn"
+        let model = LogWindowModel(logging: writer, preferences: preferences)
+        defer { model.stop() }
+        var presentations = 0
+        model.onOpenExport = { presentations += 1 }
+        model.apply(.init(presentsExport: true))
+        #expect(presentations == 1)
+        #expect(model.query.expression == "level>=warn")
+        model.apply(.init())
+        #expect(presentations == 1)
+    }
+    @Test func enablingDiagnosticsCoversAllChannelsAndRefreshesWindow() async throws {
+        let directory = root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let writer = MacLogStore(defaultDirectory: directory)
+        let model = LogWindowModel(logging: writer)
+        defer { model.stop() }
+        let enabled = TestGate()
+        let observation = model.$state.sink {
+            if $0.diagnosticRemaining > 0 { enabled.open() }
+        }
+        defer { observation.cancel() }
+        model.changeQuery { $0.levels = [] }
+        await model.startDiagnostics()
+        try #require(await enabled.waitUntilOpen())
+        #expect(model.state.diagnosticCategory == nil)
+        #expect(model.state.directory?.resolvingSymlinksInPath().path == directory.resolvingSymlinksInPath().path)
+        #expect(model.state.records.isEmpty)
+        let status = try await writer.status()
+        #expect(status.diagnosticEnabled && status.diagnosticCategory == nil)
+        await model.stopDiagnostics()
+        #expect(try await !writer.status().diagnosticEnabled)
+        await writer.finishSession()
+    }
     @Test func menusAndKeymapUseOneOpenRequest() throws {
         let binding = KeyboardShortcutBinding.keyPress(key: "l", modifiers: [.shift, .command])
         let owners = LitheCommandCatalog.commands.filter { $0.defaultBindings.contains(binding) }
@@ -270,7 +307,7 @@ struct LogWindowTests {
         let source = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Sources/Lithe/Views/Workbench/WorkbenchView.swift"), encoding: .utf8)
         let plugin = try #require(source.range(of: ".action(\"Plugins…\")"))
-        let logs = try #require(source.range(of: ".action(\"Logs…\")"))
+        let logs = try #require(source.range(of: ".action(\"Logs and Diagnostics…\")"))
         let theme = try #require(source.range(of: ".action(\"Theme…\")"))
         #expect(plugin.lowerBound < logs.lowerBound && logs.lowerBound < theme.lowerBound)
         let coordinator = LogWindowCoordinator()

@@ -14,14 +14,18 @@ struct LogWindowTable: NSViewRepresentable {
         let table = LogTableView()
         table.headerView = NSTableHeaderView()
         table.rowHeight = 22; table.usesAutomaticRowHeights = false
-        table.intercellSpacing = NSSize(width: 8, height: 1)
+        table.intercellSpacing = NSSize(width: 10, height: 0)
+        table.usesAlternatingRowBackgroundColors = false
+        table.selectionHighlightStyle = .regular
         table.allowsMultipleSelection = true; table.allowsColumnReordering = true
         table.columnAutoresizingStyle = .noColumnAutoresizing
-        table.backgroundColor = NSColor(LitheTheme.editor)
+        table.backgroundColor = LogWindowPalette.bg
         for (index, column) in Self.columns.enumerated() {
             let value = NSTableColumn(identifier: .init(column))
             value.title = L10n.string(key: Self.titles[index])
-            value.width = model.preferences.widths[column] ?? [55, 130, 90, 160, 210, 370, 330][index]
+            value.headerCell = LogHeaderCell(textCell: value.title)
+            value.headerCell.alignment = index == 0 ? .right : .left
+            value.width = model.preferences.widths[column] ?? [52, 96, 62, 170, 230, 160, 300][index]
             value.minWidth = 40
             value.isHidden = model.preferences.hidden.contains(column)
             table.addTableColumn(value)
@@ -30,6 +34,7 @@ struct LogWindowTable: NSViewRepresentable {
         table.owner = context.coordinator
         let header = LogTableHeaderView()
         header.owner = context.coordinator
+        header.frame.size.height = 26
         table.headerView = header
         scroll.documentView = table
         let chrome = LitheScrollViewChrome.ScrollViewProbe(hideHorizontal: false, alwaysShowVertical: false, usesCompactScrollers: true)
@@ -55,6 +60,7 @@ struct LogWindowTable: NSViewRepresentable {
             let fields: NSAttributedString
             let message: NSAttributedString
             let channelColor: NSColor
+            let channelWidth: CGFloat
         }
         typealias Row = LogWindowModel.DisplayRow
         let model: LogWindowModel
@@ -63,6 +69,7 @@ struct LogWindowTable: NSViewRepresentable {
         private var prepared: [String: Prepared] = [:]
         private(set) var rows: [Row] = []
         private var signature = ""
+        private var appearanceName: NSAppearance.Name?
         private var scrollRevision = -1
         private var updating = false
         private var selectedRecord: RustCoreBridge.LogQueryRecord?
@@ -74,10 +81,13 @@ struct LogWindowTable: NSViewRepresentable {
         func update() {
             guard let table, let scroll else { return }
             selectedRecord = model.selected
-            table.backgroundColor = NSColor(LitheTheme.editor)
+            if appearanceName != table.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) {
+                appearanceName = table.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]); prepared.removeAll(keepingCapacity: true)
+            }
+            table.backgroundColor = LogWindowPalette.bg
             let oldTop = max(0, table.row(at: scroll.contentView.bounds.origin))
             let anchor = rows.indices.contains(oldTop) ? rows[oldTop].id : nil
-            let offset = scroll.contentView.bounds.minY - CGFloat(oldTop) * 23
+            let offset = scroll.contentView.bounds.minY - CGFloat(oldTop) * 22
             let ids = Set(model.state.records.map(LogWindowModel.recordID))
             prepared = prepared.filter { ids.contains($0.key) }
             let newSignature = model.terms.filter { $0.kind == "text" && !$0.negate }.map(\.value).joined(separator: "\u{0}")
@@ -95,7 +105,7 @@ struct LogWindowTable: NSViewRepresentable {
             else if scrollRevision != model.state.scrollRevision, let target = model.state.scrollTarget,
                     let row = rows.firstIndex(where: { $0.id == target }) { table.scrollRowToVisible(row) }
             else if let anchor, let row = rows.firstIndex(where: { $0.id == anchor }) {
-                let point = NSPoint(x: scroll.contentView.bounds.minX, y: CGFloat(row) * 23 + offset)
+                let point = NSPoint(x: scroll.contentView.bounds.minX, y: CGFloat(row) * 22 + offset)
                 scroll.contentView.scroll(to: point); scroll.reflectScrolledClipView(scroll.contentView)
             }
             scrollRevision = model.state.scrollRevision
@@ -106,11 +116,14 @@ struct LogWindowTable: NSViewRepresentable {
             let fields = NSMutableAttributedString()
             for key in record.fields.keys.sorted() {
                 let value = record.fields[key]!
-                fields.append(NSAttributedString(string: key + "=", attributes: [.foregroundColor: NSColor.systemCyan]))
-                let color: NSColor = (value == "‹redacted›" || value == "<redacted>") ? .secondaryLabelColor : (value == "true" || value == "false") ? .systemPink : Double(value) != nil ? .systemBlue : .systemGreen
+                fields.append(NSAttributedString(string: key + "=", attributes: [.foregroundColor: LogWindowPalette.cyn]))
+                let color: NSColor = (value == "‹redacted›" || value == "<redacted>") ? LogWindowPalette.tx3 : (value == "true" || value == "false") ? LogWindowPalette.pnk : Double(value) != nil ? LogWindowPalette.blu : LogWindowPalette.grn
                 var attributes: [NSAttributedString.Key: Any] = [.foregroundColor: color]
                 if value != "‹redacted›" && value != "<redacted>" { attributes[.link] = key }
-                fields.append(NSAttributedString(string: value, attributes: attributes))
+                let redacted = value == "‹redacted›" || value == "<redacted>"
+                if redacted { attributes[.obliqueness] = 0.15 }
+                let shown = redacted || Double(value) != nil || value == "true" || value == "false" ? value : "\"" + value + "\""
+                fields.append(NSAttributedString(string: shown, attributes: attributes))
                 fields.append(NSAttributedString(string: " "))
             }
             let message = NSMutableAttributedString(string: record.msg)
@@ -120,44 +133,48 @@ struct LogWindowTable: NSViewRepresentable {
                 while search.length > 0 {
                     let match = text.range(of: term.value, options: .caseInsensitive, range: search)
                     guard match.location != NSNotFound else { break }
-                    message.addAttribute(.backgroundColor, value: NSColor.systemYellow.withAlphaComponent(0.3), range: match)
+                    message.addAttribute(.backgroundColor, value: LogWindowPalette.yel.withAlphaComponent(0.3), range: match)
                     search = NSRange(location: NSMaxRange(match), length: text.length - NSMaxRange(match))
                 }
             }
-            return Prepared(record: record, time: time, fields: fields, message: message, channelColor: Self.channelColor(record.channel))
+            return Prepared(record: record, time: time, fields: fields, message: message, channelColor: Self.channelColor(record.channel),
+                channelWidth: (record.channel as NSString).size(withAttributes: [.font: LitheTheme.editorFont(size: 11.5)]).width + 10)
         }
         static func channelColor(_ channel: String) -> NSColor {
-            let colors: [NSColor] = [.systemBlue, .systemPurple, .systemTeal, .systemOrange, .systemPink, .systemGreen]
-            let hash = channel.utf8.reduce(UInt64(14695981039346656037)) { ($0 ^ UInt64($1)) &* 1099511628211 }
-            return colors[Int(hash % UInt64(colors.count))]
+            LogWindowPalette.channel(channel)
         }
         func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
             guard rows.indices.contains(row), let column = tableColumn?.identifier,
                   let value = prepared[rows[row].id] else { return nil }
             let cell = tableView.makeView(withIdentifier: column, owner: self) as? LogCell ?? LogCell()
             cell.identifier = column
-            cell.field.font = LitheTheme.editorFont(size: 11)
-            cell.field.textColor = .labelColor; cell.field.toolTip = nil
+            cell.field.font = LitheTheme.editorFont(size: 12.5)
+            cell.field.textColor = LogWindowPalette.tx;
+            cell.field.alignment = column.rawValue == "seq" ? .right : .left
+            cell.tagColor = nil; cell.tagWidth = 0; cell.repeatText = nil; cell.field.toolTip = nil
             cell.wantsLayer = true; cell.layer?.backgroundColor = NSColor.clear.cgColor
             cell.layer?.cornerRadius = 3
             cell.onField = nil; cell.onFold = nil
             let record = value.record
             switch column.rawValue {
-            case "seq": cell.field.stringValue = String(record.seq)
+            case "seq": cell.field.stringValue = String(record.seq); cell.field.textColor = LogWindowPalette.tx3
             case "time":
+                cell.field.textColor = LogWindowPalette.tx3
                 let reference: Int64 = model.preferences.timeMode == 1 ? (row > 0 ? prepared[rows[row - 1].id]?.record.epochMs ?? record.epochMs : record.epochMs) : selectedRecord?.epochMs ?? record.epochMs
                 cell.field.stringValue = model.preferences.timeMode == 0 ? value.time : String(format: "%+.0f ms", Double(record.epochMs - reference))
             case "level":
-                cell.field.stringValue = (record.level == "ERROR" ? "● " : record.level == "WARN" ? "▲ " : "· ") + record.level
-                cell.field.textColor = record.level == "ERROR" ? .systemRed : record.level == "WARN" ? .systemOrange : record.level == "INFO" ? .systemBlue : .secondaryLabelColor
+                cell.field.stringValue = LogWindowPalette.symbol(record.level) + " " + record.level
+                cell.field.font = LitheTheme.editorFont(size: 11.5, weight: .semibold)
+                cell.field.textColor = LogWindowPalette.level(record.level)
             case "channel":
                 cell.field.stringValue = record.channel; cell.field.textColor = value.channelColor
-                cell.layer?.backgroundColor = value.channelColor.withAlphaComponent(0.10).cgColor
-            case "event": cell.field.stringValue = record.event; cell.field.textColor = .systemPurple
+                cell.tagColor = value.channelColor; cell.tagWidth = value.channelWidth
+                cell.field.font = LitheTheme.editorFont(size: 11.5)
+            case "event": cell.field.stringValue = record.event; cell.field.textColor = LogWindowPalette.pur
             case "message":
                 let text = NSMutableAttributedString()
                 if rows[row].isRun {
-                    text.append(NSAttributedString(string: "×\(rows[row].count) "))
+                    cell.repeatText = "×\(rows[row].count)"
                     cell.field.toolTip = String(format: L10n.string("Repeated %lld times · last %@"), Int64(rows[row].count), rows[row].last)
                     let id = rows[row].id
                     cell.onFold = { [weak self] in
@@ -180,7 +197,8 @@ struct LogWindowTable: NSViewRepresentable {
         func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
             let view = LogRowView()
             if let record = prepared[rows[row].id]?.record {
-                view.tint = record.level == "ERROR" ? NSColor.systemRed.withAlphaComponent(0.08) : (record.op != nil && record.op == selectedRecord?.op) ? NSColor.systemPurple.withAlphaComponent(0.08) : .clear
+                view.isError = record.level == "ERROR"
+                view.isOperation = record.op != nil && record.op == selectedRecord?.op
             }
             return view
         }
@@ -236,6 +254,9 @@ struct LogWindowTable: NSViewRepresentable {
 
 private final class LogCell: NSTableCellView {
     let field = NSTextField(labelWithString: "")
+    var tagColor: NSColor?
+    var tagWidth: CGFloat = 0
+    var repeatText: String?
     var onField: ((String) -> Void)?
     var onFold: (() -> Void)?
     override init(frame: NSRect) {
@@ -244,7 +265,27 @@ private final class LogCell: NSTableCellView {
         addSubview(field)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-    override func layout() { super.layout(); field.frame = bounds.insetBy(dx: 2, dy: 2) }
+    override func layout() {
+        super.layout()
+        let inset: CGFloat = tagColor == nil ? 0 : 5
+        let prefix: CGFloat = repeatText == nil ? 0 : 48
+        field.frame = NSRect(x: inset + prefix, y: 2, width: max(0, bounds.width - inset * 2 - prefix), height: 18)
+        needsDisplay = true
+    }
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        if let tagColor {
+            tagColor.withAlphaComponent(0.15).setFill()
+            let width = min(bounds.width, tagWidth)
+            NSBezierPath(roundedRect: NSRect(x: 0, y: 3, width: width, height: 16), xRadius: 3, yRadius: 3).fill()
+        }
+        if let repeatText {
+            let rect = NSRect(x: 0, y: 3, width: 43, height: 16)
+            LogWindowPalette.bg3.setFill(); NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8).fill()
+            LogWindowPalette.bd.setStroke(); NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8).stroke()
+            (repeatText as NSString).draw(at: NSPoint(x: 5, y: 3), withAttributes: [.font: LitheTheme.editorFont(size: 11), .foregroundColor: LogWindowPalette.tx2])
+        }
+    }
     override func hitTest(_ point: NSPoint) -> NSView? {
         bounds.contains(point) ? self : nil
     }
@@ -255,16 +296,37 @@ private final class LogCell: NSTableCellView {
             let storage = NSTextStorage(attributedString: field.attributedStringValue)
             let layout = NSLayoutManager(); let container = NSTextContainer(containerSize: field.bounds.size)
             container.lineFragmentPadding = 0; layout.addTextContainer(container); storage.addLayoutManager(layout)
-            let index = layout.characterIndex(for: NSPoint(x: point.x - 2, y: point.y - 2), in: container, fractionOfDistanceBetweenInsertionPoints: nil)
+            let index = layout.characterIndex(for: NSPoint(x: point.x - field.frame.minX, y: point.y - field.frame.minY), in: container, fractionOfDistanceBetweenInsertionPoints: nil)
             if index < storage.length, let key = storage.attribute(.link, at: index, effectiveRange: nil) as? String { onField(key); return }
         }
         super.mouseDown(with: event)
     }
 }
 private final class LogRowView: NSTableRowView {
-    var tint = NSColor.clear
-    override func drawBackground(in dirtyRect: NSRect) { tint.setFill(); dirtyRect.fill() }
+    var isError = false
+    var isOperation = false
+    override func drawBackground(in dirtyRect: NSRect) {
+        (isError ? LogWindowPalette.errrow : isOperation ? LogWindowPalette.oprow : LogWindowPalette.bg).setFill(); bounds.fill()
+        LogWindowPalette.line.setFill(); NSRect(x: 0, y: bounds.maxY - 1, width: bounds.width, height: 1).fill()
+        if isOperation { LogWindowPalette.pur.setFill(); NSRect(x: 0, y: 0, width: 2, height: bounds.height).fill() }
+    }
+    override func drawSelection(in dirtyRect: NSRect) {
+        (isError ? LogWindowPalette.errsel : LogWindowPalette.hl).setFill(); bounds.fill()
+        LogWindowPalette.blu.setFill(); NSRect(x: 0, y: 0, width: 2, height: bounds.height).fill()
+        LogWindowPalette.line.setFill(); NSRect(x: 0, y: bounds.maxY - 1, width: bounds.width, height: 1).fill()
+    }
+    override var interiorBackgroundStyle: NSView.BackgroundStyle { .normal }
 }
+private final class LogHeaderCell: NSTableHeaderCell {
+    override func draw(withFrame cellFrame: NSRect, in controlView: NSView) {
+        LogWindowPalette.bg2.setFill(); cellFrame.fill()
+        font = LitheTheme.editorFont(size: 11); textColor = LogWindowPalette.tx3
+        drawInterior(withFrame: cellFrame.insetBy(dx: 0, dy: 4), in: controlView)
+        LogWindowPalette.line.setFill(); NSRect(x: cellFrame.minX, y: cellFrame.maxY - 1, width: cellFrame.width, height: 1).fill()
+        LogWindowPalette.bd.setFill(); NSRect(x: cellFrame.maxX - 1, y: cellFrame.minY + 4, width: 1, height: cellFrame.height - 8).fill()
+    }
+}
+
 private final class LogScrollView: NSScrollView {
     var onUp: (() -> Void)?
     private var lastY: CGFloat = 0

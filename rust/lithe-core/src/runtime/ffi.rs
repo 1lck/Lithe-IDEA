@@ -187,6 +187,7 @@ pub unsafe extern "C" fn lithe_agent_open_json(
     callback: Option<unsafe extern "C" fn(*const c_char, *mut std::ffi::c_void)>,
     context: *mut std::ffi::c_void,
 ) -> *mut std::ffi::c_void {
+    crate::diagnostics::helper_failures::install();
     let Some(callback) = callback else {
         return std::ptr::null_mut();
     };

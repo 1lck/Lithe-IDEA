@@ -56,6 +56,106 @@
       },
       "rate": 60,
       "owner": "LitheAgentConversationModule"
+    },
+    {
+      "id": "agent.observation.start_failed",
+      "channel": "agent",
+      "level": "warn",
+      "message": "Agent model-call observation is unavailable",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Controlled agent.observation.start_failed operation stage; excludes paths and peer input"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Fixed summary and stable failure category from agent.observation.start_failed; never error display text"
+        }
+      },
+      "rate": 60,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "agent.history.prepare_failed",
+      "channel": "agent",
+      "level": "warn",
+      "message": "Codex history context reporting is unavailable",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Controlled agent.history.prepare_failed operation stage; excludes paths and peer input"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Fixed summary and stable failure category from agent.history.prepare_failed; never error display text"
+        }
+      },
+      "rate": 60,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "agent.skills.cleanup_failed",
+      "channel": "agent",
+      "level": "warn",
+      "message": "Agent skill staging cleanup failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Controlled agent.skills.cleanup_failed operation stage; excludes paths and peer input"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Fixed summary and stable failure category from agent.skills.cleanup_failed; never error display text"
+        }
+      },
+      "rate": 60,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "agent.retry.cleanup_failed",
+      "channel": "agent",
+      "level": "warn",
+      "message": "Codex retry launcher cleanup failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Controlled agent.retry.cleanup_failed operation stage; excludes paths and peer input"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Fixed summary and stable failure category from agent.retry.cleanup_failed; never error display text"
+        }
+      },
+      "rate": 60,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "agent.host.operation_failed",
+      "channel": "agent",
+      "level": "warn",
+      "message": "Agent host operation failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Controlled agent.host.operation_failed operation stage; excludes paths and peer input"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Fixed summary and stable failure category from agent.host.operation_failed; never error display text"
+        }
+      },
+      "rate": 60,
+      "owner": "lithe-core"
     }
   ]
 }

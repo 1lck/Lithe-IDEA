@@ -346,12 +346,6 @@ private struct ActiveSessionChrome: View {
                     })
                 }
             }.frame(width: 0, height: 0).allowsHitTesting(false))
-            .sheet(isPresented: Binding(
-                get: { session.diagnosticsFeature.isPresented },
-                set: { session.diagnosticsFeature.isPresented = $0 }
-            )) {
-                DiagnosticsExportSheet(feature: session.diagnosticsFeature)
-            }
             .sheet(item: scopedLocalHistoryRequest) { request in
                 LocalHistoryView(request: request, fontFamily: session.settings.editorFontFamily)
                     .environmentObject(session)

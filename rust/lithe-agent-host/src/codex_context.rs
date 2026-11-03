@@ -67,7 +67,10 @@ impl Recovery {
                             let connection = hyper::server::conn::http1::Builder::new()
                                 .keep_alive(false)
                                 .serve_connection(hyper_util::rt::TokioIo::new(stream), service);
-                            let _ = tokio::time::timeout(REQUEST_TIMEOUT, connection).await;
+                            // log-exempt: 预期的缺失：客户端未在连接期限内完成请求，超时关闭该连接，没有遗留进程或服务。
+                            if let Ok(result) = tokio::time::timeout(REQUEST_TIMEOUT, connection).await {
+                                crate::failure_log::connection("agent.host.operation_failed", "history_connection", result);
+                            }
                         });
                     }
                     _ = connections.join_next(), if !connections.is_empty() => {}
@@ -189,6 +192,7 @@ fn dispatch(loads: &Loads, action: &str, value: Value) -> Value {
                     .filter(|load| load.ticket == report.ticket && !load.upstream_reported)
                 {
                     if let Some(sender) = load.report.take() {
+                        // log-exempt: 用户取消：历史上下文请求方已结束本轮加载，放弃等待 usage 应答。
                         let _ = sender.send(json!({ "sessionUpdate": "usage_update", "used": report.used, "size": report.size,
                             "_meta": { "lithe": { "contextUsageSource": "history" } } }));
                     }

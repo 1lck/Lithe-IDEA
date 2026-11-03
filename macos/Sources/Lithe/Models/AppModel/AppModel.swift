@@ -213,7 +213,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     let debugPortAvailabilityChecker: any DebugPortAvailabilityChecking
     var workspaceFeature: WorkspaceFeatureModel { featureGraph.workspace }
     var githubFeature: GitHubFeatureModel { featureGraph.github }
-    var diagnosticsFeature: DiagnosticsFeatureModel { featureGraph.diagnostics }
     var editorTabOrderFeature: EditorTabOrderFeatureModel { featureGraph.editorTabOrder }
     var mediaFeature: MediaDocumentFeatureModel { featureGraph.media }
     var terminalPlacementFeature: TerminalPlacementFeatureModel {

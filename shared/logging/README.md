@@ -76,7 +76,9 @@ Rust 通过静态 `EVENTS`（按 ID 排序）和二分查找 `event_by_id` 暴�
 
 ## 用法门禁
 
-门禁分两类规则，都只扫描生产代码：词法遮蔽注释和字符串内容，排除 `Tests/`、`tests/`、`tests.rs`、文件名以 `_tests.rs` 结尾的 Rust 文件及明确 `#[cfg(test)]` 项；只检查列出的直接写法，不跨文件追踪别名或动态调用。
+门禁扫描 `macos/Sources`、`rust/lithe-core/src`、`rust/lithe-agent-host/src`、`rust/lithe-git-host/src`、`rust/lithe-ide-host/src` 和 `rust/lithe-remote/src`。排除 `rust/lithe-remote/src/server/`、`rust/lithe-remote/src/bin/` 和 `rust/lithe-ide-host/src/bin/`：它们在远端主机或独立进程运行，stderr 由宿主进程处理，后续单独迁移。
+
+门禁分两类规则，都只扫描生产代码：词法遮蔽注释和字符串内容，排除 `Tests/`、`tests/`、`tests.rs`、文件名以 `_tests.rs` 结尾的 Rust 文件及明确 `#[cfg(test)]` 或 `#[cfg(all(test, …))]` 项；只检查列出的直接写法，不跨文件追踪别名或动态调用。
 
 - 绕过日志：Swift 的 `NSLog`、stderr 写入、`os_log`、导入 `os.log` 后的 `Logger`、`.record(level:)`、`print`/`debugPrint`；Rust 的 `eprintln!`、`println!`、`dbg!`。这些写法不经过目录和脱敏，只能改成生成事件；确属机器协议时进 `log-usage-allowlist.json`。这类写法没有存量；Rust 的非 LSP 事实通过 256 条的 Core 队列交给宿主。
 - 吞掉失败：Swift 语句级 `try?`（含 `_ = try?`）、块体只有 `return`/`break`/`continue` 的 `catch`；Rust 语句级 `.ok();` 和 `let _ = …;`。失败要么处理并记录事件，要么在同一行或上一行写 `// log-exempt: <原因>`。原因至少 3 个非空白字符，必须属于日志参考页的四类封闭例外；空原因本身报错。标记只对这四条规则生效，不能豁免绕过日志的写法。
@@ -100,3 +102,7 @@ v1 detail/message/level 保持兼容原文，v2 字段通过独立 EngineLogInpu
 PR3 审查修补：Core 生命周期事实挂在原有 `type:stateChanged` 运行时事件上，复用日志事实的 `prepare_catalog_event` 校验，不额外增加 v1 log 行。Swift 在事件分支前转发任何携带 coreLog 的事件一次，语言服务、VCS、构建、工具链和后端均适用。`*.session.updated` 的 state 指 Core 会话生命周期，owner 仍是 lithe-core。
 
 宿主在实际调用点发 `lsp.session.stage_changed`，阶段闭集为 requested/resolving/registered/stopping/cancelled；缓存清理成功发 `lsp.cache.cleaned(removed)`，与 Core 配置键清理的 configuration.cleaned 是不同事实。两者选 DEBUG，因为它们解释内部启动编排和缓存维护，不需要常态落盘。ready/terminated 由 Core 的 protocol.initialized 和 session.updated 表达，宿主仅保留原 v1 缓冲行。阶段、缓存、degradation/issue 事件统一使用 Core 计算的段；manager 按 providerID 缓存成功或失败结果，最多 128 项，满时清空缓存，失败仅跳过对应宿主 v2 事件，不改变原行为。
+
+四个链接进 Core 的辅助库通过各自的 `failure_log` 注入函数指针交付失败事实，依赖方向保持不变；未注入时只增加原子计数，不写 stderr。Core 的 `diagnostics/helper_failures` 是唯一安装处，JSON dispatcher、独立 ACP FFI open、直接 IDE dispatcher 和 AskPass 入口在调用 helper 前统一经过该 `Once`。sink 仅转换标量字段，随后走相同目录校验、脱敏和 256 条 Core 队列。新增事件 owner 均为 `lithe-core`，错误只保留固定摘要和类别。转发 accept/bridge 失败的目录 rate 为每分钟 12 条。
+
+辅助库收尾只记录丢失数据、能力或清理结果的意外错误。已断开的连接、已退出进程和远程关闭/取消的 Disconnected 或 Timeout 在类型化 helper 中豁免；ACP Cancel 的 InternalError 无法区分正常断连与序列化失败，按预期缺失豁免。转发 accept/bridge 的 rate=12 只限制仍需记录的失败，正常断连不占日志配额；强制终止后进程仍未退出的最终超时保留 WARN。

@@ -453,7 +453,6 @@ struct SettingsView: View {
                     case .updates: updatesSettings
                     case .network: NetworkSettingsView(settings: settings)
                     case .processTermination: ProcessTerminationSettingsView(settings: settings)
-                    case .diagnostics: diagnosticsSettings
                     case .plugins: EmptyView()
                     }
                 }
@@ -1512,90 +1511,6 @@ struct SettingsView: View {
                     }
                 }
             }
-        }
-    }
-
-    private var diagnosticsSettings: some View {
-        ApplicationLogDiagnosticsPage(feature: model.diagnosticsFeature) {
-            logDirectoryControls
-        }
-    }
-
-    private var logDirectoryControls: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Log directory")
-                .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
-
-            HStack(spacing: 10) {
-                Text(settings.logDirectory.path)
-                    .font(LitheTheme.uiFont(size: 13, weight: .medium))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .textSelection(.enabled)
-                    .help(settings.logDirectory.path)
-
-                Spacer(minLength: 8)
-
-                Button {
-                    guard let directory = model.platformUI.chooseDirectory(
-                        title: "Choose Log Directory",
-                        prompt: "Choose"
-                    ) else { return }
-                    Task {
-                        if await model.diagnosticsFeature.changeLogDirectory(to: directory) {
-                            settings.setCustomLogDirectory(directory)
-                        }
-                    }
-                } label: {
-                    Image(systemName: "folder")
-                        .font(LitheTheme.uiFont(size: 16, weight: .regular))
-                        .frame(width: 26, height: 26)
-                }
-                .buttonStyle(.litheNoPress)
-                .foregroundStyle(LitheTheme.secondaryText)
-                .contentShape(Rectangle())
-                .lithePointer()
-                .help("Choose Directory")
-                .disabled(model.diagnosticsFeature.isBusy)
-            }
-            .padding(.horizontal, 12)
-            .frame(maxWidth: .infinity, minHeight: 46, maxHeight: 46)
-            .litheSettingsControlChrome(background: LitheTheme.settingsTextFieldBackground)
-
-            HStack(spacing: 6) {
-                Text("Default directory")
-                    .foregroundStyle(LitheTheme.secondaryText)
-                Text(settings.defaultLogDirectory.path)
-                    .foregroundStyle(LitheTheme.tertiaryText)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .textSelection(.enabled)
-                    .help(settings.defaultLogDirectory.path)
-
-                Spacer(minLength: 8)
-
-                if settings.customLogDirectory != nil {
-                    Button {
-                        Task {
-                            if await model.diagnosticsFeature.changeLogDirectory(to: settings.defaultLogDirectory) {
-                                settings.setCustomLogDirectory(nil)
-                            }
-                        }
-                    } label: {
-                        Text("Restore Default")
-                    }
-                    .buttonStyle(.litheNoPress)
-                    .foregroundStyle(LitheTheme.accent)
-                    .lithePointer()
-                    .disabled(model.diagnosticsFeature.isBusy)
-                }
-            }
-            .font(LitheTheme.smallFont)
-            HStack(spacing: LitheTheme.ActionButton.spacing) {
-                Button("Open Log Directory") { model.platformUI.open(settings.logDirectory) }
-                Button("Copy Path") { model.platformUI.copyToClipboard(settings.logDirectory.path) }
-            }
-            .buttonStyle(LitheActionButtonStyle())
         }
     }
 

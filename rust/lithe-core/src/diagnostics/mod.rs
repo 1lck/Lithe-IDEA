@@ -19,6 +19,8 @@ pub mod query_v2;
 pub mod record;
 pub mod retention;
 
+pub(crate) mod helper_failures;
+
 mod manifest;
 mod redaction;
 

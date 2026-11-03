@@ -6,6 +6,7 @@ struct LogWindowOpenRequest: Sendable, Equatable {
     var channelPrefixes: [String]? = nil
     var expression: String? = nil
     var reference: LogRecordReference? = nil
+    var presentsExport = false
 }
 struct LogWindowPreferences: Codable, Equatable {
     struct Bookmark: Codable, Identifiable, Equatable {
@@ -85,7 +86,7 @@ final class LogWindowModel: ObservableObject {
     private var needsRefresh = false
     private var running = false
     private var traceOperation: String?
-    /// B2 installs the export presentation here; B1 intentionally has no export dialog.
+    /// Installed while the log window owns export presentation.
     var onOpenExport: (() -> Void)?
     var environment = RustCoreBridge.LogEnvironment(appVersion: "", osVersion: "", architecture: "", plugins: [])
 
@@ -206,11 +207,6 @@ final class LogWindowModel: ObservableObject {
                 self.diagnostics = parsed.errors
                 guard parsed.errors.isEmpty else { self.queryPending = false; return }
                 self.terms = parsed.terms
-                if query.levels.isEmpty {
-                    self.activeQuery = query; self.queryPending = false
-                    self.state.records = []; self.state.histogram = nil; self.state.selection = []
-                    return
-                }
                 let collection = try await logging.queryWindow(query)
                 guard token == self.generation, !Task.isCancelled else { return }
                 self.activeQuery = query
@@ -292,6 +288,7 @@ final class LogWindowModel: ObservableObject {
             preferences.query.levels = ["DEBUG", "INFO", "WARN", "ERROR"]
         }
         persist(); refresh()
+        if request.presentsExport { openExport() }
     }
     private func locateReference(in next: inout Snapshot) {
         guard let reference = pendingReference,
@@ -352,8 +349,12 @@ final class LogWindowModel: ObservableObject {
             setExpression(expression)
         } catch { report(error) }
     }
-    func formatted(records: [RustCoreBridge.LogQueryRecord], format: String) async -> String? {
-        do { return try await logging.formatWindowRecords(.init(lines: records.map(\.line), format: format, environment: environment)) }
+    /// Copies carry the environment envelope; the detail pane shows the bare record.
+    func formatted(records: [RustCoreBridge.LogQueryRecord], format: String, includeEnvironment: Bool = true) async -> String? {
+        do {
+            return try await logging.formatWindowRecords(.init(lines: records.map(\.line), format: format,
+                environment: includeEnvironment ? environment : nil))
+        }
         catch { report(error); return nil }
     }
     func toggleCollapse() { preferences.collapse.toggle(); persist() }
@@ -368,6 +369,7 @@ final class LogWindowModel: ObservableObject {
     }
     func applyBookmark(_ bookmark: LogWindowPreferences.Bookmark) { preferences.query = bookmark.query; persist(); refresh() }
     func deleteBookmark(_ id: UUID) { preferences.bookmarks.removeAll { $0.id == id }; persist() }
+    func startDiagnostics() async { await logging.configureDiagnostic(category: nil, enabled: true); refresh() }
     func stopDiagnostics() async { await logging.configureDiagnostic(category: state.diagnosticCategory, enabled: false); refresh() }
     func openExport() { onOpenExport?() }
     private func persist() { save(preferences) }

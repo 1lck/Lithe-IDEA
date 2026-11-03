@@ -86,7 +86,7 @@ pub fn record(
     Ok(())
 }
 
-fn prepare(
+pub(super) fn prepare(
     event: &str,
     fields: BTreeMap<String, Value>,
     op: Option<String>,
@@ -166,7 +166,7 @@ pub(crate) fn directory_skipped(event: &str, path: &str, code: &crate::protocol:
     }
 }
 
-fn note_dropped() {
+pub(super) fn note_dropped() {
     let mut queue = QUEUE
         .get_or_init(Mutex::default)
         .lock()

@@ -6,6 +6,8 @@
 //! [`ProcessTree`] exposes the same process-tree ownership to long-lived
 //! processes whose output a host streams itself.
 
+pub mod failure_log;
+
 pub mod authentication;
 pub mod configuration;
 
@@ -223,7 +225,11 @@ impl OwnedChild {
                 Ok(None) => {
                     if !forced && began.elapsed() >= TERMINATION_GRACE {
                         self.group.terminate(true);
-                        let _ = self.child.kill();
+                        crate::failure_log::kill(
+                            "vcs.host.cleanup_failed",
+                            "process_kill",
+                            self.child.kill(),
+                        );
                         forced = true;
                     }
                     std::thread::sleep(POLL_INTERVAL);
@@ -244,7 +250,7 @@ impl Drop for OwnedChild {
 /// A prepared child the host could not take ownership of is still suspended
 /// on Windows; it is killed and reaped instead of being left behind.
 fn discard_unowned_child(child: &mut Child) -> io::Result<()> {
-    let _ = child.kill();
+    crate::failure_log::kill("vcs.host.cleanup_failed", "process_kill", child.kill());
     let deadline = Instant::now() + CLEANUP_TIMEOUT;
     while Instant::now() < deadline {
         if child.try_wait()?.is_some() {
@@ -362,7 +368,11 @@ impl InputFile {
 }
 impl Drop for InputFile {
     fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.path);
+        crate::failure_log::cleanup(
+            "vcs.host.cleanup_failed",
+            "input_cleanup",
+            std::fs::remove_file(&self.path),
+        );
     }
 }
 

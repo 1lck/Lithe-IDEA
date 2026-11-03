@@ -66,7 +66,7 @@ export function maskSource(source, language) {
 function maskRustTests(code) {
   const chars = code.split('');
   // Find the attributed item itself; attributes can be separated by comments or other attributes.
-  const attribute = /#\s*\[\s*cfg\s*\(\s*test\s*\)\s*\]/g;
+  const attribute = /#\s*\[\s*cfg\s*\(\s*(?:test|all\s*\(\s*test\s*,[^)]*\))\s*\)\s*\]/g;
   for (const match of code.matchAll(attribute)) {
     let at = match.index + match[0].length;
     while (at < code.length) {
@@ -163,8 +163,10 @@ async function files(directory, extension) {
   return results.flat().sort();
 }
 export async function scanRepository(root = ROOT) {
-  const groups = await Promise.all([files(path.join(root, 'macos/Sources'), '.swift'), files(path.join(root, 'rust/lithe-core/src'), '.rs')]);
-  return (await Promise.all(groups.flat().map(async file => scanSource(path.relative(root, file).split(path.sep).join('/'), await readFile(file, 'utf8'))))).flat();
+  const rustCrates = ['lithe-core', 'lithe-agent-host', 'lithe-git-host', 'lithe-ide-host', 'lithe-remote'];
+  const groups = await Promise.all([files(path.join(root, 'macos/Sources'), '.swift'), ...rustCrates.map(crate => files(path.join(root, `rust/${crate}/src`), '.rs'))]);
+  // Remote server and standalone binaries have stderr owned by their process host; migrate separately.
+  return (await Promise.all(groups.flat().filter(file => !/rust\/lithe-(?:remote\/src\/(?:server|bin)|ide-host\/src\/bin)\//.test(path.relative(root, file).split(path.sep).join('/'))).map(async file => scanSource(path.relative(root, file).split(path.sep).join('/'), await readFile(file, 'utf8'))))).flat();
 }
 // Only logging bypasses may be permanent exceptions; a discarded failure is
 // either recorded or carries a reasoned log-exempt marker at the site.
@@ -174,7 +176,7 @@ function validateAllowlist(allowlist) {
   const keys = new Set();
   for (const entry of allowlist.entries) {
     const key = `${entry.file}:${entry.rule}`;
-    if (typeof entry.file !== 'string' || !/^(macos\/Sources\/.*\.swift|rust\/lithe-core\/src\/.*\.rs)$/.test(entry.file) || entry.file.split('/').some(part => part === '..') || !ALLOWLIST_RULES.has(entry.rule) || !Number.isSafeInteger(entry.count) || entry.count <= 0 || keys.has(key) || !entry.reason?.trim()) throw new Error(`allowlist: invalid or duplicate entry ${key}`);
+    if (typeof entry.file !== 'string' || !/^(macos\/Sources\/.*\.swift|rust\/lithe-(?:core|agent-host|git-host|ide-host|remote)\/src\/.*\.rs)$/.test(entry.file) || entry.file.split('/').some(part => part === '..') || !ALLOWLIST_RULES.has(entry.rule) || !Number.isSafeInteger(entry.count) || entry.count <= 0 || keys.has(key) || !entry.reason?.trim()) throw new Error(`allowlist: invalid or duplicate entry ${key}`);
     keys.add(key);
   }
 }

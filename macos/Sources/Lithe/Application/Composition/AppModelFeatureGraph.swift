@@ -23,7 +23,6 @@ final class AppModelFeatureGraph {
     let languageTooling: LanguageToolingFeatureModel
     let workspace: WorkspaceFeatureModel
     let github: GitHubFeatureModel
-    let diagnostics: DiagnosticsFeatureModel
     let editorTabOrder: EditorTabOrderFeatureModel
     let media: MediaDocumentFeatureModel
     let terminalPlacement: TerminalPlacementFeatureModel
@@ -103,8 +102,6 @@ final class AppModelFeatureGraph {
             sessionsProvider: { nil }
         )
         github = GitHubFeatureModel(service: services.githubService)
-        diagnostics = services.sharedDiagnosticsFeature ?? DiagnosticsFeatureModel(service: services.diagnosticsExportService, sink: services.logSink)
-        diagnostics.openLogWindow = { [weak services] in services?.logWindowCoordinator?.open($0) }
         notification.openLogs = { [weak services] in services?.logWindowCoordinator?.open($0) }
         editorTabOrder = EditorTabOrderFeatureModel()
         media = MediaDocumentFeatureModel()

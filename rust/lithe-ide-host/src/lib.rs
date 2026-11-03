@@ -1,6 +1,8 @@
 //! Local IDE capability broker. Native applications own every product action;
 //! this adapter owns authentication, bounded delivery, connection files and shutdown.
 
+pub mod failure_log;
+
 pub mod catalog;
 
 use axum::{
@@ -56,6 +58,7 @@ fn prune_pending(pending: &mut BTreeMap<String, Pending>) {
         .collect();
     for id in expired {
         if let Some(p) = pending.remove(&id) {
+            // log-exempt: 用户取消：IDE 调用方已结束超时请求，放弃等待超时应答。
             let _ = p.reply.send(failure(
                 "TIMEOUT",
                 "The IDE request expired. Inspect operations before retrying a mutation.",
@@ -86,6 +89,7 @@ impl Drop for Host {
         self.task.abort();
         if let Ok(mut pending) = self.broker.pending.lock() {
             for (_, p) in std::mem::take(&mut *pending) {
+                // log-exempt: 用户取消：IDE 调用方随项目关闭而释放请求，放弃等待断连应答。
                 let _ = p.reply.send(failure(
                     "DISCONNECTED",
                     "IDE access was disabled or the project was closed",
@@ -93,8 +97,14 @@ impl Drop for Host {
             }
         }
         if let Err(error) = std::fs::remove_file(&self.connection) {
+            // log-exempt: 预期的缺失：连接文件可能已经被关闭流程删除。
             if error.kind() != std::io::ErrorKind::NotFound {
-                eprintln!("Could not remove IDE MCP connection: {error}");
+                failure_log::failed(
+                    "app.ide.connection_cleanup_failed",
+                    "connection_file",
+                    &format!("{:?}", error.kind()),
+                    "io",
+                );
             }
         }
     }
@@ -212,7 +222,12 @@ fn open(args: Value) -> Result<Value, String> {
         .map_err(|e| e.to_string())?;
     let task = runtime.spawn(async move {
         if let Err(error) = axum::serve(listener, router).await {
-            eprintln!("IDE MCP broker stopped: {error}");
+            failure_log::failed(
+                "app.ide.broker_failed",
+                "serve",
+                &format!("{:?}", error.kind()),
+                "io",
+            );
         }
     });
     let id = Uuid::new_v4().to_string();
@@ -280,6 +295,7 @@ fn deliver(broker: &Broker, dispatcher: &RequestDispatcher, id: String) {
         if let Ok(mut pending) = broker.pending.lock() {
             if pending.get(&id).is_some_and(|p| !p.claimed) {
                 if let Some(request) = pending.remove(&id) {
+                    // log-exempt: 用户取消：IDE 调用方已结束该请求，放弃等待 dispatcher 失败应答。
                     let _ = request.reply.send(failure(
                         "DISPATCHER_UNAVAILABLE",
                         "The project could not receive this request. Retry after the IDE responds.",

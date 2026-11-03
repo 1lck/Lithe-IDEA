@@ -658,6 +658,46 @@
       },
       "rate": 60,
       "owner": "Lithe"
+    },
+    {
+      "id": "app.ide.connection_cleanup_failed",
+      "channel": "app",
+      "level": "warn",
+      "message": "IDE MCP connection cleanup failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Controlled app.ide.connection_cleanup_failed operation stage; excludes paths and peer input"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Fixed summary and stable failure category from app.ide.connection_cleanup_failed; never error display text"
+        }
+      },
+      "rate": 60,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "app.ide.broker_failed",
+      "channel": "app",
+      "level": "error",
+      "message": "IDE MCP broker stopped unexpectedly",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Controlled app.ide.broker_failed operation stage; excludes paths and peer input"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Fixed summary and stable failure category from app.ide.broker_failed; never error display text"
+        }
+      },
+      "rate": 60,
+      "owner": "lithe-core"
     }
   ]
 }

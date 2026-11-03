@@ -43,6 +43,7 @@ use crate::protocol::{CoreError, ErrorCode};
 use serde_json::json;
 
 pub fn execute_json(request: &str) -> String {
+    crate::diagnostics::helper_failures::install();
     let response = execute(request);
     serde_json::to_string(&response).unwrap_or_else(|_| {
         serde_json::to_string(&CoreResponse::failure(

@@ -7,22 +7,18 @@ import LitheModuleAPI
 @Suite("Diagnostic export v2", .serialized)
 @MainActor
 struct DiagnosticsExportV2Tests {
-    @Test func selectionsMapToCoreRequestsAndSettingsHaveNoFilter() {
+    @Test func selectionsMapToCoreRequestsWithWindowFilter() {
         let date = Date(timeIntervalSince1970: 1_700_000_000)
         let service = DiagnosticsExportService(logDirectoryProviding: ExportV2Directory(),
             fileStorage: UnavailableFileStorage(), systemDiagnostics: ExportV2Environment(),
             archiver: ExportV2Archive(), core: RustCoreBridge())
         let feature = DiagnosticsFeatureModel(service: service, now: { date })
         #expect(feature.exportQuery.session == "current")
-        #expect(!feature.canUseCurrentFilter)
         feature.range = .recent
         #expect(feature.exportQuery.session == "all" && feature.exportQuery.recentSessions == 3)
         feature.range = .day
         #expect(feature.exportQuery.since == ISO8601DateFormatter().string(from: date.addingTimeInterval(-86400)))
-        var opened: LogWindowOpenRequest?
-        feature.openLogWindow = { opened = $0 }
-        feature.openLogs()
-        #expect(opened == .init())
+
     }
 
     @Test func freezeUsesCorePlanAndIncludesOnlyConfirmedFilteredEvidence() async throws {
@@ -41,7 +37,6 @@ struct DiagnosticsExportV2Tests {
         defer { observation.cancel(); feature.dismiss() }
         var filter = LogWindowQuery(); filter.channelPrefixes = ["app"]; filter.levels = ["WARN"]; filter.expression = "operation:fixture"
         feature.presentExport(filter: filter)
-        #expect(feature.canUseCurrentFilter)
         feature.currentFilterOnly = true
         feature.includeEnvironment = false
         try #require(await ready.waitUntilOpen())
@@ -66,7 +61,7 @@ struct DiagnosticsExportV2Tests {
         let service = DiagnosticsExportService(logDirectoryProviding: ExportV2Directory(), fileStorage: UnavailableFileStorage(),
             systemDiagnostics: ExportV2Environment(), archiver: ExportV2Archive(), core: RustCoreBridge(), applicationLogging: collector)
         let feature = DiagnosticsFeatureModel(service: service)
-        feature.presentExport()
+        feature.presentExport(filter: .init())
         defer { feature.dismiss(); collector.release.open() }
         try #require(await collector.entered.waitUntilOpen())
         feature.range = .recent
@@ -75,16 +70,26 @@ struct DiagnosticsExportV2Tests {
         #expect(feature.exportQuery.recentSessions == 3)
     }
 
-    @Test func settingsSurfaceContainsOnlyTheWindowEntryAndStatusControls() throws {
+    @Test func logWindowOwnsMaintenanceAndExportPresentation() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()
-        let view = try String(contentsOf: root.appendingPathComponent("Sources/Lithe/Views/Diagnostics/ApplicationLogSettingsView.swift"), encoding: .utf8)
-        let model = try String(contentsOf: root.appendingPathComponent("Sources/Lithe/Application/Features/DiagnosticsFeatureModel.swift"), encoding: .utf8)
-        #expect(view.contains("logs.open-window"))
-        #expect(!view.contains("logs.timeline") && !view.contains("logs.refresh"))
-        for retired in ["logContent", "logSearch", "logCategory", "logSession", "logLevel", "logSince", "logUntil", "refreshLogs"] {
-            #expect(!model.contains(retired))
+        func source(_ path: String) throws -> String {
+            try String(contentsOf: root.appendingPathComponent("Sources/Lithe/" + path), encoding: .utf8)
         }
+        let window = try source("Views/Diagnostics/LogWindowView.swift")
+        let settings = try source("Views/App/SettingsView.swift")
+        let main = try source("Views/App/RootView.swift")
+        let app = try source("LitheApp.swift")
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("Sources/Lithe/Views/Diagnostics/ApplicationLogSettingsView.swift").path))
+        #expect(!settings.contains("diagnosticsSettings") && !settings.contains("logDirectoryControls"))
+        #expect(!main.contains("DiagnosticsExportSheet"))
+        #expect(app.contains("model.openLogs(.init(presentsExport: true))"))
+        #expect(window.contains("DiagnosticsExportSheet(feature: exportFeature)"))
+        for control in ["logs.enable-diagnostics", "logs.maintenance-menu", "NSOpenPanel()", "changeLogDirectory(to:", "clearLogs()", "Detailed diagnostics cover all channels and expire after 15 minutes."] {
+            #expect(window.contains(control))
+        }
+        #expect(window.contains("if await exportFeature.changeLogDirectory(to: directory)"))
+        #expect(window.contains("ByteCountFormatter.string(fromByteCount:"))
     }
 
     @Test func nativeCrashReportsAreBoundedRedactedAndFailuresAreNonfatal() throws {

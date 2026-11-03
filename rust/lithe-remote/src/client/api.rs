@@ -308,7 +308,10 @@ impl RemoteSession {
                 let event = match receive(&events, deadline) {
                     Ok(event) => event,
                     Err(error) => {
-                        let _ = self.call_unit(methods::WALK_CANCEL, &WalkParams { walk_id });
+                        crate::failure_log::client(
+                            "walk_cancel",
+                            self.call_unit(methods::WALK_CANCEL, &WalkParams { walk_id }),
+                        );
                         return Err(error);
                     }
                 };

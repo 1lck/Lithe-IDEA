@@ -12,6 +12,7 @@
 "%@ (%lld)" = "%@（%lld）";
 "%@ (default)" = "%@（默认）";
 "%@ (not available for this Lithe or Mac)" = "%@（当前 Lithe 或这台 Mac 无法使用）";
+"%@ / %@ rows · line %@" = "%@ / %@ 条 · 第 %@ 行";
 "%@ already exists. Choose another name or location." = "%@ 已存在，请更换名称或位置。";
 "%@ answered with status %lld. %@" = "%1$@ 返回状态 %2$lld。%3$@";
 "%@ build files changed" = "%@ 构建文件已更改";
@@ -116,7 +117,6 @@
 "%lld results" = "%lld 个结果";
 "%lld routes" = "%lld 条路由";
 "%lld rows" = "%lld 行";
-"%lld rows · %lld selected" = "%lld 条 · 已选 %lld";
 "%lld running" = "%lld 个运行中";
 "%lld s" = "%lld 秒";
 "%lld selected" = "已勾选 %lld 项";
@@ -515,7 +515,6 @@
 "Breakpoints" = "断点";
 "Browse" = "浏览";
 "Browse…" = "浏览…";
-"Bug report" = "错误报告";
 "Build" = "构建";
 "Build %@ → %@" = "构建 %@ → %@";
 "Build Output" = "构建输出";
@@ -570,7 +569,8 @@
 "Cannot locate the Agent user directory." = "无法定位 Agent 的用户目录。";
 "Cannot use %@; using the project JDK instead." = "无法使用 %@，已改用项目 JDK。";
 "Category" = "分类";
-"Category: %@" = "类别：%@";
+"Category: %@" = "类别=%@";
+"Change Log Directory…" = "更改日志目录…";
 "Change the values stored in the selected scope. Choose Inherit to remove an override." = "修改所选范围中保存的值。选择“继承”即可移除覆盖。";
 "Change workbench background" = "更换工作台背景";
 "ChangeList" = "更改列表";
@@ -724,6 +724,7 @@
 "Clear Console" = "清空控制台";
 "Clear Git console" = "清空 Git 控制台";
 "Clear Logs" = "清空日志";
+"Clear Logs (used %@)…" = "清理日志（已用 %@）…";
 "Clear Override" = "清除覆盖";
 "Clear Project History…" = "清空项目历史…";
 "Clear View" = "清空视图";
@@ -828,7 +829,6 @@
 "Collapse section" = "折叠分组";
 "Collapse unchanged fragments" = "折叠未更改的片段";
 "Collapsed" = "已折叠";
-"Collected logs cleared." = "已清空收集的日志。";
 "Color theme" = "配色主题";
 "Colorize bracket pairs" = "彩色配对括号";
 "Column-based wrapping is not supported and was skipped." = "不支持按指定列数换行，已跳过。";
@@ -1258,7 +1258,6 @@
 "Detection connects to this server and lists tool metadata without calling any tool. Local commands may run code or download packages. Results describe this check, not the availability of an existing Agent session. Tool switches apply to the selected Agent's user configuration; project and managed policies can still restrict access. Start a new Agent session after changes." = "检测会连接服务器并读取工具信息，不会调用工具。本地命令可能执行代码或下载软件包。结果仅代表此次检测，不代表已有 Agent 会话的状态。工具开关作用于所选 Agent 的用户配置，项目或受管规则仍可能限制访问。修改后请新建 Agent 会话。";
 "Detection starts the configured executable and may download packages. Continue only if you trust this server. Lithe will list tools, then stop the probe process." = "检测会运行配置的程序，并可能下载软件包。请仅对信任的服务器继续。Lithe 会读取工具列表，然后停止检测进程。";
 "Developer Tools" = "开发者工具";
-"Diagnostic bundle" = "诊断包";
 "Diagnostics" = "诊断";
 "Diagnostics bundle" = "诊断包";
 "Diagnostics from JDT LS will appear here." = "JDT LS 的诊断信息会显示在这里。";
@@ -1283,6 +1282,7 @@
 "Disable MCP" = "关闭 MCP";
 "Disable automatic scrolling" = "禁用自动滚动";
 "Disable breakpoint" = "禁用断点";
+"Disable diagnostics" = "关闭";
 "Disable soft wraps" = "禁用自动换行";
 "Disabled" = "已禁用";
 "Disabled by color scheme" = "配色方案已关闭";
@@ -1430,6 +1430,7 @@
 "Enable MCP" = "开启 MCP";
 "Enable breakpoint" = "启用断点";
 "Enable breakpoints" = "启用断点";
+"Enable diagnostics" = "开启";
 "Enable for this project" = "在本项目启用";
 "Enable skill" = "启用技能";
 "Enabled" = "已启用";
@@ -1534,9 +1535,9 @@
 "Export Diagnostics Bundle" = "导出诊断包";
 "Export Diagnostics Bundle…" = "导出诊断包…";
 "Export as PDF…" = "导出为 PDF…";
+"Export bundle…" = "导出诊断包…";
 "Export conversations" = "导出会话";
 "Export diagnostic logs" = "导出诊断日志";
-"Export logs" = "导出日志";
 "Exported environment" = "导出环境变量";
 "Exporting conversations…" = "正在导出会话…";
 "Exports the index against HEAD." = "导出暂存区相对 HEAD 的更改。";
@@ -1616,7 +1617,6 @@
 "Filter by title, author, or label" = "按标题、作者或标签筛选";
 "Filter channel" = "只看此通道";
 "Filter error at %lld–%lld: %@" = "过滤错误，位置 %lld–%lld：%@";
-"Filter log messages" = "筛选日志内容";
 "Filter problems by severity" = "按严重级别筛选问题";
 "Filter results" = "筛选结果";
 "Filter route, controller, or method" = "筛选路由、控制器或方法";
@@ -1680,7 +1680,6 @@
 "Frames rendered per second" = "每秒渲染帧数";
 "Free space" = "剩余空间";
 "From %@" = "来自 %@";
-"From (UTC ISO 8601)" = "起始时间（UTC ISO 8601）";
 "Frontend and other non-Java roots keep the workspace editor and terminal settings. Java and Maven SDKs only apply to the backends listed on the left." = "前端和其他非 Java 根目录沿用工作区的编辑器和终端设置。Java 与 Maven SDK 只作用于左侧列出的后端项目。";
 "Full Program Declaration" = "完整程序声明";
 "Full access" = "完全访问";
@@ -2122,6 +2121,7 @@
 "Light" = "浅色";
 "Limit per project" = "每个项目上限";
 "Line" = "行";
+"Line %lld" = "第 %lld 行";
 "Line %lld is not a valid regular expression and is skipped." = "第 %lld 行不是有效的正则表达式，已跳过。";
 "Line Breakpoints" = "行断点";
 "Line breakpoint actions" = "行断点操作";
@@ -2176,6 +2176,7 @@
 "Lithe: fetch tags" = "Lithe：获取标签";
 "Lithe: prune stale branches" = "Lithe：清理失效的远程分支";
 "Little Endian" = "小端序";
+"Live follow" = "实时跟随";
 "Load" = "加载";
 "Load %lld more" = "再加载 %lld 项";
 "Load Disk Version" = "加载磁盘版本";
@@ -2250,18 +2251,15 @@
 "Locked in this working copy" = "已在此工作副本中锁定";
 "Log" = "日志";
 "Log directory" = "日志目录";
+"Log directory and cleanup" = "日志目录与清理";
 "Log filter" = "日志筛选";
 "Log level" = "日志级别";
-"Log locations" = "日志位置";
 "Log message" = "日志消息";
-"Log storage: %@" = "日志占用：%@";
-"Log timeline" = "日志时间线";
 "Log: %@" = "日志：%@";
 "Login shell" = "登录 Shell";
 "Logs" = "日志";
-"Logs and Diagnostics" = "日志与诊断";
+"Logs and Diagnostics…" = "日志与诊断…";
 "Logs are redacted by Core before they are written to disk, so exports are always redacted: paths, URLs, tokens and user content appear as ‹redacted›." = "日志在写入磁盘前已由 Core 脱敏，导出的内容同样是脱敏版：路径、URL、令牌和用户内容都显示为 ‹redacted›。";
-"Logs…" = "日志…";
 "Look Up Again" = "重新查询";
 "Look Up Location" = "查询地区";
 "Looked in: %@" = "已查找：%@";
@@ -2373,7 +2371,6 @@
 "Method Breakpoints" = "方法断点";
 "Microphone in use" = "麦克风使用中";
 "Minimap" = "代码缩略图";
-"Minimum level" = "最低级别";
 "Minimum version" = "最低版本";
 "Missing" = "缺失";
 "Mixed Reset (Keep Changes Unstaged)" = "混合重置（保留未暂存更改）";
@@ -2388,7 +2385,6 @@
 "Modified files: %lld" = "修改了 %lld 个文件";
 "Module" = "模块";
 "Module Root" = "模块根目录";
-"Module logs rotate at 10 MiB and expire after 30 days. The combined budget is 100 MiB; performance logs have a separate 20 MiB budget." = "模块日志达到 10 MiB 后轮转，保留 30 天。总预算为 100 MiB，性能日志另有限额 20 MiB。";
 "Module path" = "模块路径";
 "More" = "更多";
 "More Actions" = "更多操作";
@@ -2769,8 +2765,6 @@
 "Open GitHub" = "打开 GitHub";
 "Open GitHub profile" = "打开 GitHub 个人主页";
 "Open HTML in Browser" = "在系统浏览器中打开";
-"Open Log Directory" = "打开日志目录";
-"Open Log Window" = "打开日志窗口";
 "Open Marketplace" = "打开插件市场";
 "Open Patch…" = "打开补丁…";
 "Open Plugin Management" = "打开插件管理";
@@ -2810,7 +2804,6 @@
 "Open a text file instead of a folder." = "请选择文本文件，而不是文件夹。";
 "Open again" = "重新打开";
 "Open and manage its own native terminals, retaining bounded display history for reopening" = "打开并管理自己的原生终端，保留有限的显示历史用于重新打开";
-"Open export from the log window to use its current filter." = "从日志窗口打开导出可使用当前过滤条件。";
 "Open file" = "打开文件";
 "Open file in editor to see problems" = "在编辑器中打开文件以查看问题";
 "Open folder" = "打开文件夹";
@@ -2977,7 +2970,6 @@
 "Press shortcut…" = "请按下快捷键…";
 "Preview" = "预览";
 "Preview Update" = "预览版更新";
-"Preview and export the selected logs with environment information. Credentials and home-directory paths are redacted; source code, editor buffers and terminal history are excluded." = "预览并导出筛选后的日志和环境信息。凭据和用户目录路径均会脱敏，不包含源码、编辑缓冲区或终端历史。";
 "Preview background image" = "预览背景图片";
 "Preview first change" = "预览第一项更改";
 "Preview import" = "预览导入";
@@ -3388,6 +3380,7 @@
 "Restore" = "恢复";
 "Restore All Defaults" = "全部恢复默认";
 "Restore Default" = "恢复默认";
+"Restore Default Directory" = "恢复默认目录";
 "Restore Default Template" = "恢复默认模板";
 "Restore Default UI Layout" = "恢复默认 UI 布局";
 "Restore Defaults" = "恢复默认设置";
@@ -3399,7 +3392,6 @@
 "Resume" = "恢复执行";
 "Resume Thread" = "恢复线程";
 "Resume the paused debug session" = "继续已暂停的调试会话";
-"Retention and cleanup" = "保留与清理";
 "Retired official Go plugin. Go support is now the community plugin Go Support in Lithe Store." = "已退役的官方 Go 插件。Go 支持现在由 Lithe Store 中的社区插件 Go Support 提供。";
 "Retired official PHP plugin. PHP support is now the community plugin PHP Support in Lithe Store." = "已退役的官方 PHP 插件。PHP 支持现在由 Lithe Store 中的社区插件 PHP Support 提供。";
 "Retry" = "重试";
@@ -3416,6 +3408,7 @@
 "Return to Stable?" = "回到正式版？";
 "Return to the Welcome screen" = "返回 Welcome 页面";
 "Reveal Active File in Project Tree" = "在项目树中定位当前文件";
+"Reveal Log Directory in Finder" = "在访达中显示日志目录";
 "Reveal in Finder" = "在 Finder 中显示";
 "Revert" = "反向提交";
 "Revert Commit…" = "反向提交（保留历史）…";
@@ -4025,6 +4018,7 @@
 "Tag name" = "标签名称";
 "Tag or revision" = "标签或修订版本";
 "Tags" = "标签";
+"Tailing" = "跟随中";
 "Take ownership" = "接管所有权";
 "Takes effect after Lithe restarts" = "重启 Lithe 后生效";
 "Tasks" = "任务";
@@ -4675,7 +4669,6 @@
 "Unstaged" = "未暂存";
 "Unstaged changes" = "未暂存更改";
 "Unsupported content" = "不支持的内容";
-"Until (UTC ISO 8601)" = "结束时间（UTC ISO 8601）";
 "Untitled conversation" = "未命名对话";
 "Untracked" = "未跟踪";
 "Unused code" = "未使用的代码";
@@ -5122,9 +5115,7 @@
 "logs.exportV2.environment" = "附带环境信息";
 "logs.exportV2.environmentHint" = "应用版本、macOS 版本、架构、已启用插件";
 "logs.exportV2.exportFailed" = "无法导出诊断日志，请重试。";
-"logs.exportV2.filterUnavailable" = "从日志窗口打开导出可使用当前过滤条件。";
 "logs.exportV2.last24Hours" = "最近 24 小时";
-"logs.exportV2.openWindow" = "打开日志窗口";
 "logs.exportV2.packing" = "正在打包…";
 "logs.exportV2.prepareFailed" = "无法准备诊断日志，请重试。";
 "logs.exportV2.privacy" = "隐私";
@@ -5145,14 +5136,16 @@
 "logs.filter.regexTooLong" = "正则表达式过长";
 "logs.filter.unterminatedQuote" = "请补齐引号";
 "logs.filter.unterminatedRegex" = "请用 / 结束正则表达式";
-"logs.settings.storage" = "日志占用：%1$@";
 "logs.window.absoluteTime" = "绝对时间";
 "logs.window.allChannels" = "全部通道";
 "logs.window.autoOffIn" = "自动关闭倒计时 %1$@";
+"logs.window.bundle" = "导出诊断包…";
 "logs.window.callChain" = "调用链";
-"logs.window.category" = "类别：%1$@";
+"logs.window.category" = "类别=%1$@";
+"logs.window.changeDirectory" = "更改日志目录…";
 "logs.window.channel" = "通道";
 "logs.window.clearOnlyTheDisplayLogFilesAreKept" = "只清空显示，保留磁盘上的日志文件";
+"logs.window.clearStorage" = "清理日志（已用 %1$@）…";
 "logs.window.clearTimeRange" = "清除时间范围";
 "logs.window.clearView" = "清空显示";
 "logs.window.clickToJumpDragForTimeRange" = "点击跳转 · 拖动框选时间";
@@ -5166,7 +5159,9 @@
 "logs.window.copySelectionAsMarkdown" = "把选中行复制为 Markdown";
 "logs.window.couldNotLoadLogsTryAgain" = "无法读取日志，请重试。";
 "logs.window.detail" = "详情";
+"logs.window.disableDiagnostics" = "关闭";
 "logs.window.droppedLld" = "已丢弃 %1$lld";
+"logs.window.enableDiagnostics" = "开启";
 "logs.window.event" = "事件";
 "logs.window.eventsOverTime" = "事件分布";
 "logs.window.export" = "导出";
@@ -5179,9 +5174,10 @@
 "logs.window.hideThisEvent" = "隐藏这个事件";
 "logs.window.histogramTooltip" = "%1$@ · ERROR %2$lld · WARN %3$lld · 其它 %4$lld";
 "logs.window.level" = "级别";
+"logs.window.liveFollow" = "实时跟随";
 "logs.window.lldNewLogsJumpToLatest" = "↓ %1$lld 条新日志，回到最新";
-"logs.window.lldRowsLldSelected" = "%1$lld 条 · 已选 %2$lld";
-"logs.window.logs" = "日志…";
+"logs.window.logsAndDiagnostics" = "日志与诊断…";
+"logs.window.maintenance" = "日志目录与清理";
 "logs.window.message" = "消息";
 "logs.window.nameForThisFilter" = "给这个过滤起个名字";
 "logs.window.noMatchesTryAnotherLevelOrChannel" = "没有匹配的记录，换个级别或通道试试";
@@ -5192,6 +5188,8 @@
 "logs.window.previous" = "相对上一行";
 "logs.window.redactedValuesWereMaskedByCoreTheWindowAndExportsNeverShowTheOriginal" = "‹redacted› 的值已由 Core 脱敏，窗口和导出都不会显示原文";
 "logs.window.repeatedLldTimesLast" = "重复 %1$lld 次 · 末次 %2$@";
+"logs.window.restoreDirectory" = "恢复默认目录";
+"logs.window.revealDirectory" = "在访达中显示日志目录";
 "logs.window.saveCurrentFilter" = "保存当前过滤…";
 "logs.window.savedFilters" = "书签";
 "logs.window.selected" = "相对选中行";
@@ -5200,6 +5198,8 @@
 "logs.window.sessionPrevious" = "会话：上次";
 "logs.window.showOnlyThisChannel" = "只看这个通道";
 "logs.window.showOnlyThisEvent" = "只看这个事件";
+"logs.window.sourceLine" = "第 %1$lld 行";
+"logs.window.tailing" = "跟随中";
 "logs.window.thisRecordHasNoOpId" = "这条记录没有 op";
 "logs.window.time" = "时间";
 "logs.window.traceOperation" = "追踪此操作";
@@ -5207,6 +5207,7 @@
 "logs.window.unreadErrors" = "未查看的错误";
 "logs.window.verboseDiagnosticsOn" = "详细诊断已开启";
 "logs.window.viewClearedFilesOnDiskAreUntouchedNewRecordsWillAppearHere" = "已清空显示，磁盘上的日志文件不受影响；新记录会继续出现在这里";
+"logs.window.visibleCount" = "%1$@ / %2$@ 条 · 第 %3$@ 行";
 "logs.window.writeFailuresLld" = "写入失败 %1$lld";
 "lsp.completion.invalidTriggerKind" = "补全请求的触发类型无效";
 "lsp.completion.missingTriggerCharacter" = "补全请求缺少有效的触发字符";
@@ -5579,7 +5580,6 @@
 "native.breakpoints" = "断点";
 "native.browse" = "浏览…";
 "native.browse.variant2" = "浏览";
-"native.bugReport" = "错误报告";
 "native.build" = "构建";
 "native.build.variant2" = "构建 %1$@ → %2$@";
 "native.buildExecutionDeployment" = "构建、执行、部署";
@@ -5875,7 +5875,6 @@
 "native.collapseSection" = "折叠分组";
 "native.collapseUnchangedFragments" = "折叠未更改的片段";
 "native.collapsed" = "已折叠";
-"native.collectedLogsCleared" = "已清空收集的日志。";
 "native.colorTheme" = "配色主题";
 "native.combineTheMessagesWhenTheRebaseRunsIncludingChangesMadeAtEarlierEditStops" = "变基执行时合并消息，包含此前暂停修订时更新的消息";
 "native.combinedCommitMessage" = "合并后的提交消息";
@@ -6267,7 +6266,6 @@
 "native.detectionConnectsToThisServerAndListsToolMetadataWithoutCallingAnyToolLocalCommandsMayRunCodeOrDownloadPackagesResultsDescribeThisCheckNotTheAvailabilityOfAnExistingAgentSessionToolSwitchesApplyToTheSelectedAgentSUserConfigurationProjectAndManagedPoliciesCanStillRestrictAccessStartANewAgentSessionAfterChanges" = "检测会连接服务器并读取工具信息，不会调用工具。本地命令可能执行代码或下载软件包。结果仅代表此次检测，不代表已有 Agent 会话的状态。工具开关作用于所选 Agent 的用户配置，项目或受管规则仍可能限制访问。修改后请新建 Agent 会话。";
 "native.detectionStartsTheConfiguredExecutableAndMayDownloadPackagesContinueOnlyIfYouTrustThisServerLitheWillListToolsThenStopTheProbeProcess" = "检测会运行配置的程序，并可能下载软件包。请仅对信任的服务器继续。Lithe 会读取工具列表，然后停止检测进程。";
 "native.developerTools" = "开发者工具";
-"native.diagnosticBundle" = "诊断包";
 "native.diagnostics" = "诊断";
 "native.diagnosticsBundle" = "诊断包";
 "native.diagnosticsFromJDTLSWillAppearHere" = "JDT LS 的诊断信息会显示在这里。";
@@ -6561,7 +6559,6 @@
 "native.exportConversations" = "导出会话";
 "native.exportDiagnosticsBundle" = "导出诊断包";
 "native.exportDiagnosticsBundle.variant2" = "导出诊断包…";
-"native.exportLogs" = "导出日志";
 "native.exportingConversations" = "正在导出会话…";
 "native.exportsTheIndexAgainstHEAD" = "导出暂存区相对 HEAD 的更改。";
 "native.exportsTheWorkingTreeSNetChangesAgainstHEADIncludingSelectedUntrackedFiles" = "导出工作树相对 HEAD 的最终更改，包含所选的未跟踪文件。";
@@ -6635,7 +6632,6 @@
 "native.filesWillStayUnchangedNothingWillBeStagedOrCommittedAutomatically" = "文件内容保持不变，不会自动暂存或提交。";
 "native.filterByChangedPath" = "按更改路径筛选";
 "native.filterByTitleAuthorOrLabel" = "按标题、作者或标签筛选";
-"native.filterLogMessages" = "筛选日志内容";
 "native.filterProblemsBySeverity" = "按严重级别筛选问题";
 "native.filterResults" = "筛选结果";
 "native.filterRouteControllerOrMethod" = "筛选路由、控制器或方法";
@@ -6687,7 +6683,6 @@
 "native.freeOf" = "可用 %1$@，共 %2$@";
 "native.freeSpace" = "剩余空间";
 "native.fromJAVAHOME" = "来自 JAVA_HOME";
-"native.fromUTCISO8601" = "起始时间（UTC ISO 8601）";
 "native.frontendAndOtherNonJavaRootsKeepTheWorkspaceEditorAndTerminalSettingsJavaAndMa2434fd734d" = "前端和其他非 Java 根目录沿用工作区的编辑器和终端设置。Java 与 Maven SDK 只作用于左侧列出的后端项目。";
 "native.fullAccess" = "完全访问";
 "native.fullProgramDeclaration" = "完整程序声明";
@@ -7352,11 +7347,8 @@
 "native.logFilter" = "日志筛选";
 "native.logInfoLevel" = "信息";
 "native.logLevel" = "日志级别";
-"native.logLocations" = "日志位置";
 "native.logMessage" = "日志消息";
-"native.logTimeline" = "日志时间线";
 "native.logs" = "日志";
-"native.logsAndDiagnostics" = "日志与诊断";
 "native.lookUpAgain" = "重新查询";
 "native.lookUpLocation" = "查询地区";
 "native.lookedIn" = "已查找：%1$@";
@@ -7477,7 +7469,6 @@
 "native.methodBreakpoints" = "方法断点";
 "native.microphoneInUse" = "麦克风使用中";
 "native.minimap" = "代码缩略图";
-"native.minimumLevel" = "最低级别";
 "native.minimumVersion" = "最低版本";
 "native.missing" = "缺失";
 "native.mixedResetKeepChangesUnstaged" = "混合重置（保留未暂存更改）";
@@ -7491,7 +7482,6 @@
 "native.modified" = "修改";
 "native.modifiedFilesLld" = "修改了 %1$lld 个文件";
 "native.module" = "模块";
-"native.moduleLogsRotateAt10MiBAndExpireAfter30DaysTheCombinedBudgetIs100MiBPerformanc7c993f9014" = "模块日志达到 10 MiB 后轮转，保留 30 天。总预算为 100 MiB，性能日志另有限额 20 MiB。";
 "native.modulePath" = "模块路径";
 "native.moduleRoot" = "模块根目录";
 "native.more" = "… 更多";
@@ -7872,7 +7862,6 @@
 "native.openInNewWindow" = "在新窗口中打开";
 "native.openInRightSplit" = "在右侧分栏打开";
 "native.openLocalFolder" = "本地文件夹";
-"native.openLogDirectory" = "打开日志目录";
 "native.openMarketplace" = "打开插件市场";
 "native.openModulePomXml" = "打开所属模块的 pom.xml";
 "native.openNotificationHistory" = "打开通知历史";
@@ -8026,7 +8015,6 @@
 "native.preparingDownload" = "正在准备下载…";
 "native.preservesEveryCommitAndAddsAMergeCommitToTheBaseBranch" = "保留全部提交，并在目标分支中添加一个合并提交。";
 "native.pressShortcut" = "请按下快捷键…";
-"native.previewAndExportTheSelectedLogsWithEnvironmentInformationCredentialsAndHomeDir65f650979b" = "预览并导出筛选后的日志和环境信息。凭据和用户目录路径均会脱敏，不包含源码、编辑缓冲区或终端历史。";
 "native.previewBackgroundImage" = "预览背景图片";
 "native.previewFirstChange" = "预览第一项更改";
 "native.previewImport" = "预览导入";
@@ -8421,7 +8409,6 @@
 "native.resume" = "恢复执行";
 "native.resumeThePausedDebugSession" = "继续已暂停的调试会话";
 "native.resumeThread" = "恢复线程";
-"native.retentionAndCleanup" = "保留与清理";
 "native.retiredOfficialGoPluginGoSupportIsNowTheCommunityPluginGoSupportInLitheStore" = "已退役的官方 Go 插件。Go 支持现在由 Lithe Store 中的社区插件 Go Support 提供。";
 "native.retiredOfficialPHPPluginPHPSupportIsNowTheCommunityPluginPHPSupportInLitheStore" = "已退役的官方 PHP 插件。PHP 支持现在由 Lithe Store 中的社区插件 PHP Support 提供。";
 "native.retryDebug" = "重试调试";
@@ -9644,7 +9631,6 @@
 "native.unstaged" = "未暂存";
 "native.unstagedChanges" = "未暂存更改";
 "native.unsupportedContent" = "不支持的内容";
-"native.untilUTCISO8601" = "结束时间（UTC ISO 8601）";
 "native.untitledConversation" = "未命名对话";
 "native.untracked" = "未跟踪";
 "native.unusedCode" = "未使用的代码";

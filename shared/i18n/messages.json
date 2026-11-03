@@ -28849,17 +28849,6 @@
       }
     },
     {
-      "id": "native.bugReport",
-      "description": "Native UI: Bug report",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Bug report",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.build",
       "description": "Native UI: Build",
       "platforms": [
@@ -31430,17 +31419,6 @@
       ],
       "macos": {
         "key": "Collapsed",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.collectedLogsCleared",
-      "description": "Native UI: Collected logs cleared.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Collected logs cleared.",
         "arguments": []
       }
     },
@@ -35062,17 +35040,6 @@
       }
     },
     {
-      "id": "native.diagnosticBundle",
-      "description": "Native UI: Diagnostic bundle",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Diagnostic bundle",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.diagnostics",
       "description": "Native UI: Diagnostics",
       "platforms": [
@@ -37453,17 +37420,6 @@
       }
     },
     {
-      "id": "native.exportLogs",
-      "description": "Native UI: Export logs",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Export logs",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.exportingConversations",
       "description": "Native UI: Exporting conversations…",
       "platforms": [
@@ -38148,17 +38104,6 @@
       }
     },
     {
-      "id": "native.filterLogMessages",
-      "description": "Native UI: Filter log messages",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Filter log messages",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.filterProblemsBySeverity",
       "description": "Native UI: Filter problems by severity",
       "platforms": [
@@ -38567,17 +38512,6 @@
       ],
       "macos": {
         "key": "from JAVA_HOME",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.fromUTCISO8601",
-      "description": "Native UI: From (UTC ISO 8601)",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "From (UTC ISO 8601)",
         "arguments": []
       }
     },
@@ -44350,28 +44284,6 @@
       }
     },
     {
-      "id": "native.logLocations",
-      "description": "Native UI: Log locations",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Log locations",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.logTimeline",
-      "description": "Native UI: Log timeline",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Log timeline",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.logs",
       "description": "Native UI: Logs",
       "platforms": [
@@ -44379,17 +44291,6 @@
       ],
       "macos": {
         "key": "Logs",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.logsAndDiagnostics",
-      "description": "Native UI: Logs and Diagnostics",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Logs and Diagnostics",
         "arguments": []
       }
     },
@@ -45474,17 +45375,6 @@
       }
     },
     {
-      "id": "native.minimumLevel",
-      "description": "Native UI: Minimum level",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Minimum level",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.minimumVersion",
       "description": "Native UI: Minimum version",
       "platforms": [
@@ -45607,17 +45497,6 @@
       ],
       "macos": {
         "key": "Module",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.moduleLogsRotateAt10MiBAndExpireAfter30DaysTheCombinedBudgetIs100MiBPerformanc7c993f9014",
-      "description": "Native UI: Module logs rotate at 10 MiB and expire after 30 days. The combined budget is 100 MiB; performance logs have a separate 20 MiB budget.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Module logs rotate at 10 MiB and expire after 30 days. The combined budget is 100 MiB; performance logs have a separate 20 MiB budget.",
         "arguments": []
       }
     },
@@ -48985,17 +48864,6 @@
       }
     },
     {
-      "id": "native.openLogDirectory",
-      "description": "Native UI: Open Log Directory",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Open Log Directory",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.openModulePomXml",
       "description": "Native UI: Open module pom.xml",
       "platforms": [
@@ -50307,17 +50175,6 @@
       ],
       "macos": {
         "key": "Press shortcut…",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.previewAndExportTheSelectedLogsWithEnvironmentInformationCredentialsAndHomeDir65f650979b",
-      "description": "Native UI: Preview and export the selected logs with environment information. Credentials and home-directory paths are redacted; source code, editor buffers and terminal history are excluded.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Preview and export the selected logs with environment information. Credentials and home-directory paths are redacted; source code, editor buffers and terminal history are excluded.",
         "arguments": []
       }
     },
@@ -53964,17 +53821,6 @@
       ],
       "macos": {
         "key": "Resume the paused debug session",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.retentionAndCleanup",
-      "description": "Native UI: Retention and cleanup",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Retention and cleanup",
         "arguments": []
       }
     },
@@ -62359,17 +62205,6 @@
       ],
       "macos": {
         "key": "Unsupported content",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.untilUTCISO8601",
-      "description": "Native UI: Until (UTC ISO 8601)",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Until (UTC ISO 8601)",
         "arguments": []
       }
     },
@@ -95563,13 +95398,13 @@
       }
     },
     {
-      "id": "logs.window.logs",
-      "description": "macOS log window: Logs…",
+      "id": "logs.window.logsAndDiagnostics",
+      "description": "macOS settings menu: open the Logs and Diagnostics window",
       "platforms": [
         "macos"
       ],
       "macos": {
-        "key": "Logs…",
+        "key": "Logs and Diagnostics…",
         "arguments": []
       }
     },
@@ -96230,24 +96065,6 @@
       }
     },
     {
-      "id": "logs.window.lldRowsLldSelected",
-      "description": "macOS log window: {n} rows · {selected} selected",
-      "platforms": [
-        "macos"
-      ],
-      "parameters": {
-        "n": "integer",
-        "selected": "integer"
-      },
-      "macos": {
-        "key": "%lld rows · %lld selected",
-        "arguments": [
-          "n",
-          "selected"
-        ]
-      }
-    },
-    {
       "id": "logs.window.droppedLld",
       "description": "macOS log window: Dropped {n}",
       "platforms": [
@@ -96384,18 +96201,6 @@
       }
     },
     {
-      "id": "logs.exportV2.openWindow",
-      "description": "Diagnostic export and notification control",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Open Log Window",
-        "arguments": []
-      },
-      "parameters": {}
-    },
-    {
       "id": "logs.exportV2.recentSessions",
       "description": "Diagnostic export and notification control",
       "platforms": [
@@ -96487,18 +96292,6 @@
       ],
       "macos": {
         "key": "Only the current filter",
-        "arguments": []
-      },
-      "parameters": {}
-    },
-    {
-      "id": "logs.exportV2.filterUnavailable",
-      "description": "Diagnostic export and notification control",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Open export from the log window to use its current filter.",
         "arguments": []
       },
       "parameters": {}
@@ -96654,19 +96447,154 @@
       }
     },
     {
-      "id": "logs.settings.storage",
-      "description": "Current native log directory disk usage",
+      "id": "logs.window.liveFollow",
+      "description": "Log window prototype: Live follow",
       "platforms": [
         "macos"
       ],
-      "parameters": {
-        "size": "string"
-      },
       "macos": {
-        "key": "Log storage: %@",
+        "key": "Live follow",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.tailing",
+      "description": "Log window prototype: Tailing",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Tailing",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.bundle",
+      "description": "Log window prototype: Export bundle…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Export bundle…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.sourceLine",
+      "description": "Log window prototype: Line %lld",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Line %lld",
+        "arguments": [
+          "n"
+        ]
+      },
+      "parameters": {
+        "n": "integer"
+      }
+    },
+    {
+      "id": "logs.window.visibleCount",
+      "description": "Log window prototype: %@ / %@ rows · line %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ / %@ rows · line %@",
+        "arguments": [
+          "visible",
+          "total",
+          "line"
+        ]
+      },
+      "parameters": {
+        "visible": "string",
+        "total": "string",
+        "line": "string"
+      }
+    },
+    {
+      "id": "logs.window.disableDiagnostics",
+      "description": "Disable the active detailed diagnostics session",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Disable diagnostics",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.revealDirectory",
+      "description": "Log window: Reveal Log Directory in Finder",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Reveal Log Directory in Finder",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.changeDirectory",
+      "description": "Log window: Change Log Directory…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Change Log Directory…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.restoreDirectory",
+      "description": "Log window: Restore Default Directory",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Restore Default Directory",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.maintenance",
+      "description": "Log window: Log directory and cleanup",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Log directory and cleanup",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.clearStorage",
+      "description": "Log window: Clear Logs (used %@)…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Clear Logs (used %@)…",
         "arguments": [
           "size"
         ]
+      },
+      "parameters": {
+        "size": "string"
+      }
+    },
+    {
+      "id": "logs.window.enableDiagnostics",
+      "description": "Log window: enable detailed diagnostics",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Enable diagnostics",
+        "arguments": []
       }
     }
   ]

@@ -415,6 +415,46 @@
           "description": "Stable native cleanup failure category; excludes process arguments and paths"
         }
       }
+    },
+    {
+      "id": "vcs.authentication.response_failed",
+      "channel": "vcs/git",
+      "level": "warn",
+      "message": "Git authentication response failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Controlled vcs.authentication.response_failed operation stage; excludes paths and peer input"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Fixed summary and stable failure category from vcs.authentication.response_failed; never error display text"
+        }
+      },
+      "rate": 60,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "vcs.host.cleanup_failed",
+      "channel": "vcs/git",
+      "level": "warn",
+      "message": "Git host cleanup failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Controlled vcs.host.cleanup_failed operation stage; excludes paths and peer input"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Fixed summary and stable failure category from vcs.host.cleanup_failed; never error display text"
+        }
+      },
+      "rate": 60,
+      "owner": "lithe-core"
     }
   ]
 }

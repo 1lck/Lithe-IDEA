@@ -171,6 +171,66 @@
       },
       "rate": 60,
       "owner": "Lithe"
+    },
+    {
+      "id": "remote.forward.accept_failed",
+      "channel": "remote",
+      "level": "warn",
+      "message": "Port forward accept failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Controlled remote.forward.accept_failed operation stage; excludes paths and peer input"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Fixed summary and stable failure category from remote.forward.accept_failed; never error display text"
+        }
+      },
+      "rate": 12,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "remote.forward.connection_failed",
+      "channel": "remote",
+      "level": "warn",
+      "message": "Forwarded connection failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Controlled remote.forward.connection_failed operation stage; excludes paths and peer input"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Fixed summary and stable failure category from remote.forward.connection_failed; never error display text"
+        }
+      },
+      "rate": 12,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "remote.client.operation_failed",
+      "channel": "remote",
+      "level": "warn",
+      "message": "Remote client operation failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Controlled remote.client.operation_failed operation stage; excludes paths and peer input"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Fixed summary and stable failure category from remote.client.operation_failed; never error display text"
+        }
+      },
+      "rate": 60,
+      "owner": "lithe-core"
     }
   ]
 }

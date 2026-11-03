@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, cp, rm, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, cp, rm, readFile, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { ROOT, GENERIC_DESCRIPTIONS, generate, validateCatalog, loadCatalog, planGeneration } from './generate-log-events.mjs';
-import { scanSource, compareUsage, verify } from './verify-log-usage.mjs';
+import { scanSource, scanRepository, compareUsage, verify } from './verify-log-usage.mjs';
 
 const event = () => ({ id: 'app.test.finished', channel: 'app', level: 'info', message: 'Test finished', owner: 'lithe-core', fields: {} });
 const catalog = e => [{ version: 1, root: 'app', events: [e] }];
@@ -203,4 +203,30 @@ test('generated references use catalog channel, event identity and operation', {
   const source = await readFile(path.join(ROOT, 'macos/Sources/LitheModuleAPI/Logging/LogEvents.generated.swift'), 'utf8');
   assert.match(source, /public var reference: LogRecordReference/);
   assert.match(source, /LogRecordReference\(channel: channel.rawValue, event: Self.id, op: operationID\)/);
+});
+
+
+test('helper production roots are gated while remote server and standalone binaries are excluded', { timeout: 5000 }, async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'lithe-helper-log-usage-'));
+  try {
+    const roots = ['macos/Sources', ...['core', 'agent-host', 'git-host', 'ide-host', 'remote'].map(name => `rust/lithe-${name}/src`)];
+    await Promise.all(roots.map(directory => mkdir(path.join(root, directory), { recursive: true })));
+    const included = ['agent-host', 'git-host', 'ide-host', 'remote'].map(name => `rust/lithe-${name}/src/production.rs`);
+    const excluded = ['rust/lithe-remote/src/server/worker.rs', 'rust/lithe-remote/src/bin/server.rs', 'rust/lithe-ide-host/src/bin/mcp.rs'];
+    await Promise.all([...included, ...excluded].map(async file => {
+      await mkdir(path.dirname(path.join(root, file)), { recursive: true });
+      await writeFile(path.join(root, file), 'fn run() { eprintln!("failure"); let _ = operation(); }');
+    }));
+    const findings = await scanRepository(root);
+    assert.deepEqual([...new Set(findings.map(f => f.file))].sort(), included.sort());
+    for (const file of included) {
+      assert.deepEqual(findings.filter(f => f.file === file).map(f => f.rule), ['rust.eprintln', 'rust.let-underscore']);
+      const bypass = findings.find(f => f.file === file && f.rule === 'rust.eprintln');
+      assert.deepEqual(compareUsage([bypass], { version: 1, entries: [{ file, rule: bypass.rule, count: 1, reason: 'Test of helper path validation for a machine protocol exception' }] }), []);
+    }
+    assert.equal(scanSource(included[0], '#[cfg(all(test, unix))] mod tests { fn run() { let _ = operation(); eprintln!("test"); } }').length, 0);
+    assert.equal(scanSource(included[0], '#[cfg(all(unix, feature = "client"))] fn run() { let _ = operation(); }').length, 1);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

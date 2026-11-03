@@ -2,7 +2,7 @@ import Combine
 import Foundation
 import LitheModuleAPI
 
-/// Settings status and one immutable export confirmation shared by all entries.
+/// Log maintenance and the immutable export confirmation owned by the log window.
 @MainActor
 final class DiagnosticsFeatureModel: ObservableObject {
     enum Range: String, CaseIterable { case current, recent, day }
@@ -11,9 +11,8 @@ final class DiagnosticsFeatureModel: ObservableObject {
     private let sink: (any LogSink)?
     private var observation: AnyCancellable?
     private var planning: Task<Void, Never>?
-    private var filter: LogWindowQuery?
+    private var filter = LogWindowQuery()
     private var environment: RustCoreBridge.LogEnvironment?
-    var openLogWindow: (LogWindowOpenRequest) -> Void = { _ in }
     @Published private(set) var state: DiagnosticsExportService.ExportState
     @Published var isPresented = false
     @Published var choosingDestination = false
@@ -21,17 +20,12 @@ final class DiagnosticsFeatureModel: ObservableObject {
     @Published var currentFilterOnly = false { didSet { replan() } }
     @Published var includeEnvironment = true { didSet { replan() } }
     @Published private(set) var logError: String?
-    @Published private(set) var logsCleared = false
     @Published private(set) var diskBytes: UInt64 = 0
-    @Published private(set) var diagnosticEnabled = false
-    @Published private(set) var diagnosticCategory: String?
     @Published private(set) var isUpdatingLogs = false
     var manifest: RustCoreBridge.DiagnosticsManifestPayload? { service.confirmedManifest }
     func retry() { replan() }
     var estimatedBytes: UInt64 { service.estimatedBytes }
-    var canUseCurrentFilter: Bool { filter != nil }
-    var isFromLogWindow: Bool { filter != nil }
-    var selectedChannels: [String] { filter?.channelPrefixes ?? [] }
+    var selectedChannels: [String] { filter.channelPrefixes }
     var isBusy: Bool {
         if case .exporting = state { return true }
         return isUpdatingLogs || choosingDestination
@@ -46,7 +40,7 @@ final class DiagnosticsFeatureModel: ObservableObject {
             query.session = "all"
             query.since = ISO8601DateFormatter().string(from: now().addingTimeInterval(-24 * 60 * 60))
         }
-        if currentFilterOnly, let filter {
+        if currentFilterOnly {
             query.channelPrefixes = filter.channelPrefixes
             query.levels = filter.levels
             query.expression = filter.expression
@@ -63,8 +57,6 @@ final class DiagnosticsFeatureModel: ObservableObject {
         do {
             let status = try await service.applicationLogging?.status()
             diskBytes = status?.diskBytes ?? 0
-            diagnosticEnabled = status?.diagnosticEnabled ?? false
-            diagnosticCategory = status?.diagnosticCategory
             logError = nil
         } catch {
             guard !error.isCancellation else { return }
@@ -72,20 +64,13 @@ final class DiagnosticsFeatureModel: ObservableObject {
             logError = L10n.string("Could not load logs. Try again.")
         }
     }
-    func setDiagnosticEnabled(_ enabled: Bool) async {
-        guard !isBusy else { return }
-        isUpdatingLogs = true
-        await service.applicationLogging?.configureDiagnostic(category: nil, enabled: enabled)
-        isUpdatingLogs = false
-        await refreshStatus()
-    }
     func clearLogs() async {
         guard !isBusy else { return }
-        logsCleared = false; isUpdatingLogs = true
+        isUpdatingLogs = true
         defer { isUpdatingLogs = false }
         do {
             try await service.applicationLogging?.clear()
-            logsCleared = true; logError = nil
+            logError = nil
             await refreshStatus()
         } catch {
             sink?.emit(AppLoggingDiagnosticsFailed(error: error))
@@ -105,7 +90,7 @@ final class DiagnosticsFeatureModel: ObservableObject {
             return false
         }
     }
-    func presentExport(filter: LogWindowQuery? = nil, environment: RustCoreBridge.LogEnvironment? = nil) {
+    func presentExport(filter: LogWindowQuery, environment: RustCoreBridge.LogEnvironment? = nil) {
         guard !isBusy else { return }
         self.filter = filter; self.environment = environment
         isPresented = false
@@ -126,5 +111,4 @@ final class DiagnosticsFeatureModel: ObservableObject {
     }
     func dismiss() { choosingDestination = false; planning?.cancel(); planning = nil; service.cancel(); isPresented = false }
     func export(to destinationURL: URL) async { await service.export(to: destinationURL) }
-    func openLogs() { openLogWindow(.init()) }
 }

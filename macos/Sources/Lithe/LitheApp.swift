@@ -585,7 +585,6 @@ struct LitheApp: App {
                         networkSessionProvider: networkSessionProvider
                     ).services
                 services.logWindowCoordinator = logWindowCoordinator
-                services.sharedDiagnosticsFeature = logExportFeature
                 logWindowModel.environment = .init(appVersion: logWindowModel.environment.appVersion,
                     osVersion: logWindowModel.environment.osVersion, architecture: logWindowModel.environment.architecture,
                     plugins: services.pluginManager.snapshots.filter { $0.isEnabled }.map(\.id.rawValue))
@@ -755,7 +754,7 @@ struct LitheApp: App {
                 .disabled(updateChecker.isBusy)
 
                 Button("Export Diagnostics Bundle…") {
-                    model.diagnosticsFeature.presentExport()
+                    model.openLogs(.init(presentsExport: true))
                 }
             }
 
@@ -907,7 +906,7 @@ struct LitheApp: App {
                 .preferredColorScheme(settings.themePreference.preferredColorScheme)
                 .id(settings.language)
         }
-        .defaultSize(width: 1200, height: 760)
+        .defaultSize(width: 1340, height: 786)
         .windowResizability(.contentMinSize)
 
         Window(settingsWindowTitle(for: settings.language), id: LitheWindowID.settings) {
