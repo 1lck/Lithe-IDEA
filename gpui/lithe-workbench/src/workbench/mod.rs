@@ -20,7 +20,7 @@ use gpui_kit::{
 };
 use lithe_core_client::CoreClient;
 use lithe_features::editor::DiagnosticItem;
-use lithe_features::language::JavaLanguageServiceModel;
+use lithe_features::language::{JavaLanguageServiceEvent, JavaLanguageServiceModel};
 use lithe_features::local_history::Snapshot;
 use lithe_features::quick_open::QuickFile;
 use lithe_features::{
@@ -686,6 +686,17 @@ impl Workbench {
                 RunPanelEvent::HideRequested => {
                     this.set_dock_visible(DockAnchor::Bottom, false, cx);
                 }
+            },
+        )
+        .detach();
+
+        // Java 诊断接入 Problems 面板：JDT 按文件增量发布，模型内部已经按
+        // 文件替换/清除，这里直接整体同步这份快照。
+        cx.subscribe(
+            &workbench.java_language,
+            |this, java_language, _event: &JavaLanguageServiceEvent, cx| {
+                this.problems = java_language.read(cx).diagnostics().to_vec();
+                cx.notify();
             },
         )
         .detach();

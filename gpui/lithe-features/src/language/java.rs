@@ -21,7 +21,10 @@ use gpui_kit::{AppContext as _, Context, EventEmitter, Task};
 use lithe_core_client::CoreClient;
 use serde_json::{Value, json};
 
+use crate::editor::DiagnosticItem;
 use crate::run::model::{PreparationPhase, PreparationStatus, ProjectPreparation};
+
+use super::diagnostics::{diagnostics_event, SEVERITY_ERROR, SEVERITY_WARNING};
 
 /// Core 的轮询接口没有阻塞等待，空轮询也要有界，避免空转占满一个核心。
 const POLL_INTERVAL: Duration = Duration::from_millis(120);
@@ -84,6 +87,12 @@ enum JavaServiceEvent {
     Failed(String),
     /// 会话已经终止；界面据此区分“准备停止”和“准备完成”。
     Stopped,
+    /// 某个文件的诊断快照。JDT 按文件增量发布：`items` 为空表示清除该文件
+    /// 的旧诊断，因此必须带上 `path` 才能定位要替换的那一批。
+    Diagnostics {
+        path: PathBuf,
+        items: Vec<DiagnosticItem>,
+    },
 }
 
 /// 一个工作区的 Java 语言服务会话。
@@ -153,6 +162,8 @@ pub struct JavaLanguageServiceModel {
     seen: Vec<PreparationPhase>,
     expanded: bool,
     failure: Option<String>,
+    /// 当前工作区的 Java 诊断快照，按文件增量更新后供 Problems 面板消费。
+    diagnostics: Vec<DiagnosticItem>,
 }
 
 /// 语言服务状态变化；工作台与 Run 面板据此刷新。
@@ -174,6 +185,7 @@ impl JavaLanguageServiceModel {
             seen: Vec::new(),
             expanded: false,
             failure: None,
+            diagnostics: Vec::new(),
         }
     }
 
@@ -189,6 +201,7 @@ impl JavaLanguageServiceModel {
         self.preparation = None;
         self.seen.clear();
         self.failure = None;
+        self.diagnostics.clear();
         cx.notify();
         self.emit(cx);
 
@@ -260,6 +273,11 @@ impl JavaLanguageServiceModel {
         self.failure.as_deref()
     }
 
+    /// 当前工作区的 Java 诊断；Problems 面板直接展示这一份快照。
+    pub fn diagnostics(&self) -> &[DiagnosticItem] {
+        &self.diagnostics
+    }
+
     /// 让 JDT 为一次运行准备主类、构建与运行时 classpath。
     ///
     /// 与 macOS 一致：宿主只等待 Core 的操作结果，不自己跑 Maven。
@@ -307,6 +325,7 @@ impl JavaLanguageServiceModel {
         self.preparation = Some(ProjectPreparation::starting());
         self.seen.clear();
         self.failure = None;
+        self.diagnostics.clear();
         cx.notify();
         self.emit(cx);
 
@@ -370,6 +389,7 @@ impl JavaLanguageServiceModel {
         self.preparation = Some(ProjectPreparation::starting());
         self.seen.clear();
         self.failure = None;
+        self.diagnostics.clear();
         cx.notify();
         self.emit(cx);
 
@@ -433,8 +453,24 @@ impl JavaLanguageServiceModel {
                 cx.notify();
                 self.emit(cx);
             }
+            JavaServiceEvent::Diagnostics { path, items } => {
+                // JDT 的 `publishDiagnostics` 以文件为单位增量发布：先丢掉这个
+                // 文件的旧条目，再放入本批（空批次即清除该文件）。
+                self.diagnostics.retain(|item| item.path != path);
+                self.diagnostics.extend(items);
+                // 面板按相邻行判断文件分组，按 path/line/column 排序后才能稳定成组。
+                self.diagnostics.sort_by(|left, right| {
+                    left.path
+                        .cmp(&right.path)
+                        .then(left.line.cmp(&right.line))
+                        .then(left.column.cmp(&right.column))
+                });
+                cx.notify();
+                self.emit(cx);
+            }
             JavaServiceEvent::Stopped => {
                 self.service = None;
+                self.diagnostics.clear();
                 if let Some(preparation) = self.preparation.as_mut() {
                     if preparation.status != PreparationStatus::Failed
                         && preparation.status != PreparationStatus::Ready
@@ -783,36 +819,31 @@ fn handle_event(event: &Value, sender: &Sender<JavaServiceEvent>) -> bool {
             }
             _ => false,
         },
-        // 编译错误只写日志供诊断；决策横幅展示的是汇总报告，具体错误应由
-        // 编辑器诊断呈现。这里限制条数，避免整棵工作区的 marker 刷满日志。
+        // JDT 的编译错误在编辑器与 Problems 面板里呈现；这里只把整批事件
+        // 转给模型，日志按文件汇总一行，避免为每条诊断重复打印。
         Some("diagnostics") => {
-            let uri = event.get("uri").and_then(Value::as_str).unwrap_or("");
-            let errors: Vec<String> = event
-                .get("diagnostics")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .filter(|item| item.get("severity").and_then(Value::as_i64) == Some(1))
-                .take(5)
-                .map(|item| {
-                    let line = item
-                        .pointer("/range/start/line")
-                        .and_then(Value::as_u64)
-                        .map(|line| line + 1)
-                        .unwrap_or(0);
-                    let message = item
-                        .get("message")
-                        .and_then(Value::as_str)
-                        .unwrap_or("");
-                    format!("{uri}:{line}: {message}")
-                })
-                .collect();
-            if !errors.is_empty() {
+            let Some((path, items)) = diagnostics_event(event) else {
+                return false;
+            };
+            if !items.is_empty() {
+                let errors = items
+                    .iter()
+                    .filter(|item| item.severity & SEVERITY_ERROR != 0)
+                    .count();
+                let warnings = items
+                    .iter()
+                    .filter(|item| item.severity & SEVERITY_WARNING != 0)
+                    .count();
                 crate::logging::log_info(
                     "language",
-                    format!("Java diagnostics: {}", errors.join(" | ")),
+                    format!(
+                        "Java diagnostics for {}: {errors} error(s), {warnings} warning(s), {} total",
+                        path.display(),
+                        items.len()
+                    ),
                 );
             }
+            let _ = sender.send_blocking(JavaServiceEvent::Diagnostics { path, items });
             false
         }
         _ => false,
@@ -1050,6 +1081,22 @@ impl JdtlsInstallation {
                     .collect::<Vec<_>>()
             );
         }
+        // 与 macOS `startLanguageServer` 一致：把宿主发现的 JDK 传给 JDT，
+        // 第一个是项目 JDK。否则 JDT 只能用自身运行时的 JDK 编译项目，
+        // Java 8 + Lombok 这类组合会因此报出并不存在的编译错误。
+        let discovered = crate::run::toolchain::discover(Some(root));
+        let java_runtimes: Vec<Value> = discovered
+            .java
+            .iter()
+            .enumerate()
+            .map(|(index, runtime)| {
+                json!({
+                    "isDefault": index == 0,
+                    "homePath": runtime.home_path,
+                    "version": runtime.version,
+                })
+            })
+            .collect();
         Ok(json!({
             "providerId": "java",
             "arguments": [],
@@ -1060,10 +1107,10 @@ impl JdtlsInstallation {
             "environment": { "JAVA_HOME": path_text(&self.java_home) },
             "cacheDirectory": path_text(&cache_directory),
             "jdtlsLaunchResources": launch_resources,
-            "javaRuntimes": [],
+            "javaRuntimes": java_runtimes,
             // 与 macOS 的 `startLanguageServer` 默认值一致。
             "initializeTimeoutMilliseconds": 30_000,
-            "requestTimeoutMilliseconds": 30_000,
+            "requestTimeoutMilliseconds": 120_000,
             "shutdownTimeoutMilliseconds": 2_000,
         }))
     }

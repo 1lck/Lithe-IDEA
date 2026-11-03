@@ -6,6 +6,8 @@
 pub mod java;
 pub mod status;
 
+mod diagnostics;
+
 pub use java::{
     JavaBuildFailure, JavaBuildReport, JavaLanguageServiceEvent, JavaLanguageServiceModel,
     JavaLaunchTarget,
