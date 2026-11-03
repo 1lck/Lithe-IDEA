@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { ROOT, GENERIC_DESCRIPTIONS, generate, validateCatalog, loadCatalog, planGeneration } from './generate-log-events.mjs';
-import { scanSource, compareUsage, verify, STOCK_REASON } from './verify-log-usage.mjs';
+import { scanSource, compareUsage, verify } from './verify-log-usage.mjs';
 
 const event = () => ({ id: 'app.test.finished', channel: 'app', level: 'info', message: 'Test finished', owner: 'lithe-core', fields: {} });
 const catalog = e => [{ version: 1, root: 'app', events: [e] }];
@@ -123,17 +123,17 @@ test('usage scanner ignores comments, literal contents and bounded cfg(test) ite
   assert.equal(scanSource('rust/lithe-core/src/tests.rs', rust).length, 0);
 });
 
-test('usage baseline forbids growth and requires tightening after migration', { timeout: 1000 }, () => {
+test('usage gate has no stock quota and allowlist counts stay exact', { timeout: 1000 }, () => {
   const violation = { file: 'macos/Sources/Example.swift', rule: 'swift.nslog', line: 3 };
   const empty = { version: 1, entries: [] };
-  const baseline = { version: 1, entries: [{ file: violation.file, rule: violation.rule, count: 1, reason: STOCK_REASON }] };
-  assert.deepEqual(compareUsage([violation], empty, baseline), []);
-  assert.match(compareUsage([violation, violation], empty, baseline).join('\n'), /Example.swift:3.*emit a generated/);
-  assert.match(compareUsage([], empty, baseline).join('\n'), /tighten baseline/);
-  assert.match(compareUsage([violation], empty, empty).join('\n'), /exceed baseline 0/);
+  const allowlist = { version: 1, entries: [{ file: violation.file, rule: violation.rule, count: 1, reason: 'Machine-read protocol line consumed by the test runner' }] };
+  assert.match(compareUsage([violation], empty).join('\n'), /Example.swift:3.*emit a generated/);
+  assert.deepEqual(compareUsage([violation], allowlist), []);
+  assert.match(compareUsage([violation, violation], allowlist).join('\n'), /exceed allowlist 1/);
+  assert.match(compareUsage([], allowlist).join('\n'), /lower the allowlist count/);
 });
 
-test('checked-in catalog and baseline agree with current sources', { timeout: 15000 }, async () => {
+test('checked-in catalog and log usage agree with current sources', { timeout: 15000 }, async () => {
   const contract = await loadCatalog();
   assert.ok(contract.events.length > 0);
   await generate(ROOT, true);
@@ -190,35 +190,11 @@ test('line exemptions require an active comment and a nonempty concrete reason',
   assert.ok(scanSource('rust/lithe-core/src/example.rs', '// log-exempt: legacy\neprintln!("x");').some(v => v.rule === 'rust.eprintln'));
 });
 
-test('baseline updater writes only observed counts and reports increases and decreases', { timeout: 5000 }, async () => {
-  const { updateBaseline } = await import('./verify-log-usage.mjs');
-  const root = await mkdtemp(path.join(tmpdir(), 'lithe-log-baseline-'));
-  try {
-    const { mkdir } = await import('node:fs/promises');
-    await Promise.all(['macos/Sources', 'rust/lithe-core/src', 'scripts/logging'].map(p => mkdir(path.join(root, p), {recursive: true})));
-    for (const name of ['allowlist', 'baseline']) await writeFile(path.join(root, `scripts/logging/log-usage-${name}.json`), JSON.stringify({version:1,entries:[]}));
-    const file = path.join(root, 'macos/Sources/Example.swift');
-    await writeFile(file, 'try? work()');
-    assert.match((await updateBaseline(root)).join('\n'), /0 -> 1/);
-    await verify(root);
-    await writeFile(file, 'let x = try? work()');
-    await assert.rejects(verify(root), /tighten baseline/);
-    assert.match((await updateBaseline(root)).join('\n'), /1 -> 0/);
-    await verify(root);
-    await writeFile(file, 'try? work() // log-exempt:');
-    await assert.rejects(updateBaseline(root), /invalid log-exempt/);
-  } finally { await rm(root, {recursive:true, force:true}); }
-});
-
-
-test('every new rule rejects both baseline growth and stale counts', { timeout: 1000 }, () => {
-  for (const rule of ['swift.discarded-try', 'swift.catch-exit', 'swift.print', 'rust.discarded-ok', 'rust.let-underscore']) {
+test('discarded failures fail without a marker and cannot be allowlisted', { timeout: 1000 }, () => {
+  for (const rule of ['swift.discarded-try', 'swift.catch-exit', 'rust.discarded-ok', 'rust.let-underscore']) {
     const file = rule.startsWith('rust.') ? 'rust/lithe-core/src/example.rs' : 'macos/Sources/Example.swift';
     const violation = {file, rule, line: 1};
-    const empty = {version:1, entries:[]};
-    const baseline = {version:1, entries:[{file, rule, count:1, reason: STOCK_REASON}]};
-    assert.equal(compareUsage([violation], empty, baseline).length, 0);
-    assert.match(compareUsage([violation, violation], empty, baseline).join('\n'), /exceed baseline/);
-    assert.match(compareUsage([], empty, baseline).join('\n'), /tighten baseline/);
+    assert.match(compareUsage([violation], {version:1, entries:[]}).join('\n'), new RegExp(`${file.replace(/\./g, '\\.')}:1: ${rule.replace('.', '\\.')}`));
+    assert.throws(() => compareUsage([violation], {version:1, entries:[{file, rule, count:1, reason:'legacy code'}]}), /allowlist: invalid/);
   }
 });

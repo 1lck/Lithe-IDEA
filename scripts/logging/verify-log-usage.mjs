@@ -1,13 +1,11 @@
 #!/usr/bin/env node
 // A small source lexer keeps comments/string contents and test modules out of counts.
-import { readFile, readdir, writeFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ROOT } from './generate-log-events.mjs';
 
-// Stock entries shrink as touched functions are migrated; new entries never justify new code.
-export const STOCK_REASON = '存量：修改所在函数时补日志或写明豁免';
 export const RULES = {
   'swift.discarded-try': ['discarded try? failure', 'handle the failure or add a reasoned log-exempt marker'],
   'swift.catch-exit': ['catch exits without recording', 'record the handled failure before exiting'],
@@ -168,79 +166,50 @@ export async function scanRepository(root = ROOT) {
   const groups = await Promise.all([files(path.join(root, 'macos/Sources'), '.swift'), files(path.join(root, 'rust/lithe-core/src'), '.rs')]);
   return (await Promise.all(groups.flat().map(async file => scanSource(path.relative(root, file).split(path.sep).join('/'), await readFile(file, 'utf8'))))).flat();
 }
-function validatePolicy(policy, label, permanent) {
-  if (policy.version !== 1 || !Array.isArray(policy.entries)) throw new Error(`${label}: invalid format`);
+// Only logging bypasses may be permanent exceptions; a discarded failure is
+// either recorded or carries a reasoned log-exempt marker at the site.
+export const ALLOWLIST_RULES = new Set(['swift.nslog', 'swift.stderr', 'swift.os-log', 'swift.logger', 'swift.record', 'swift.print', 'rust.eprintln', 'rust.println', 'rust.dbg']);
+function validateAllowlist(allowlist) {
+  if (allowlist.version !== 1 || !Array.isArray(allowlist.entries)) throw new Error('allowlist: invalid format');
   const keys = new Set();
-  for (const entry of policy.entries) {
+  for (const entry of allowlist.entries) {
     const key = `${entry.file}:${entry.rule}`;
-    if (typeof entry.file !== 'string' || !/^(macos\/Sources\/.*\.swift|rust\/lithe-core\/src\/.*\.rs)$/.test(entry.file) || entry.file.split('/').some(part => part === '..') || !Object.hasOwn(RULES, entry.rule) || !Number.isSafeInteger(entry.count) || entry.count <= 0 || keys.has(key) || !entry.reason?.trim()) throw new Error(`${label}: invalid or duplicate entry ${key}`);
-    if (!permanent && entry.reason !== STOCK_REASON) throw new Error(`${label}: expected migration reason for ${key}`);
+    if (typeof entry.file !== 'string' || !/^(macos\/Sources\/.*\.swift|rust\/lithe-core\/src\/.*\.rs)$/.test(entry.file) || entry.file.split('/').some(part => part === '..') || !ALLOWLIST_RULES.has(entry.rule) || !Number.isSafeInteger(entry.count) || entry.count <= 0 || keys.has(key) || !entry.reason?.trim()) throw new Error(`allowlist: invalid or duplicate entry ${key}`);
     keys.add(key);
   }
 }
-export function compareUsage(violations, allowlist, baseline) {
-  validatePolicy(allowlist, 'allowlist', true); validatePolicy(baseline, 'baseline', false);
+// There is no stock quota: every violation outside the allowlist fails, and an
+// allowlist count must match the sources exactly so a freed slot cannot be reused.
+export function compareUsage(violations, allowlist) {
+  validateAllowlist(allowlist);
   const counts = new Map();
   for (const violation of violations) {
     const key = `${violation.file}:${violation.rule}`;
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }
-  const expected = new Map();
-  for (const entry of [...allowlist.entries, ...baseline.entries]) {
-    const key = `${entry.file}:${entry.rule}`;
-    if (expected.has(key)) throw new Error(`policy overlap: ${key}`);
-    expected.set(key, entry.count);
-  }
+  const expected = new Map(allowlist.entries.map(entry => [`${entry.file}:${entry.rule}`, entry.count]));
   const problems = violations.filter(v => v.rule === 'usage.invalid-exemption').map(v => `${v.file}:${v.line}: invalid log-exempt reason`);
   for (const key of new Set([...counts.keys(), ...expected.keys()])) {
+    if (key.endsWith(':usage.invalid-exemption')) continue;
     const actual = counts.get(key) ?? 0;
     const limit = expected.get(key) ?? 0;
     if (actual > limit) {
-      problems.push(`${key}: ${actual} violations exceed baseline ${limit}`);
       for (const item of violations.filter(item => `${item.file}:${item.rule}` === key)) problems.push(`${item.file}:${item.line}: ${item.rule}: ${RULES[item.rule][0]}; ${RULES[item.rule][1]}`);
-    } else if (actual < limit) problems.push(`${key}: baseline ${limit} exceeds actual ${actual}; tighten baseline/allowlist (收紧基线)`);
+      if (limit > 0) problems.push(`${key}: ${actual} violations exceed allowlist ${limit}`);
+    } else if (actual < limit) problems.push(`${key}: allowlist ${limit} exceeds actual ${actual}; lower the allowlist count`);
   }
   return problems;
 }
-export async function updateBaseline(root = ROOT) {
-  const [violations, allowlist, old] = await Promise.all([
-    scanRepository(root), readFile(path.join(root, 'scripts/logging/log-usage-allowlist.json'), 'utf8').then(JSON.parse),
-    readFile(path.join(root, 'scripts/logging/log-usage-baseline.json'), 'utf8').then(JSON.parse),
-  ]);
-  validatePolicy(allowlist, 'allowlist', true);
-  if (violations.some(v => v.rule === 'usage.invalid-exemption')) throw new Error('Fix invalid log-exempt reasons before updating baseline');
-  const permanent = new Set(allowlist.entries.map(e => `${e.file}:${e.rule}`));
-  const reasons = new Map(old.entries.map(e => [`${e.file}:${e.rule}`, e.reason]));
-  const counts = new Map();
-  for (const v of violations) {
-    const key = `${v.file}:${v.rule}`;
-    if (!permanent.has(key)) counts.set(key, (counts.get(key) ?? 0) + 1);
-  }
-  const entries = [...counts].sort(([a], [b]) => a.localeCompare(b)).map(([key, count]) => {
-    const at = key.lastIndexOf(':'); const file = key.slice(0, at), rule = key.slice(at + 1);
-    return {file, rule, count, reason: reasons.get(key) ?? STOCK_REASON};
-  });
-  const changes = [];
-  const previous = new Map(old.entries.map(e => [`${e.file}:${e.rule}`, e.count]));
-  for (const key of new Set([...previous.keys(), ...counts.keys()])) {
-    if ((previous.get(key) ?? 0) !== (counts.get(key) ?? 0)) changes.push(`${key}: ${previous.get(key) ?? 0} -> ${counts.get(key) ?? 0}`);
-  }
-  // A baseline update never edits source or invents allowances: it writes the exact observed counts.
-  await writeFile(path.join(root, 'scripts/logging/log-usage-baseline.json'), JSON.stringify({version: 1, entries}, null, 2) + '\n');
-  return changes;
-}
 export async function verify(root = ROOT) {
-  const [violations, allowlist, baseline] = await Promise.all([
+  const [violations, allowlist] = await Promise.all([
     scanRepository(root),
     readFile(path.join(root, 'scripts/logging/log-usage-allowlist.json'), 'utf8').then(JSON.parse),
-    readFile(path.join(root, 'scripts/logging/log-usage-baseline.json'), 'utf8').then(JSON.parse),
   ]);
-  const problems = compareUsage(violations, allowlist, baseline);
+  const problems = compareUsage(violations, allowlist);
   if (problems.length) throw new Error(problems.join('\n'));
-  return { violations, allowlist, baseline };
+  return { violations, allowlist };
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(path.resolve(process.argv[1]))).href) {
-  if (process.argv.length === 3 && process.argv[2] === '--update-baseline') updateBaseline().then(changes => console.log(changes.join('\n') || 'Baseline unchanged')).catch(error => { console.error(error.message); process.exitCode = 1; });
-  else if (process.argv.length > 2) { console.error('usage: node scripts/logging/verify-log-usage.mjs [--update-baseline]'); process.exitCode = 1; }
-  else verify().then(({ violations, allowlist }) => console.log(`Log usage verified: ${violations.length - allowlist.entries.reduce((sum, entry) => sum + entry.count, 0)} migration violations; ${allowlist.entries.reduce((sum, entry) => sum + entry.count, 0)} permanent exceptions`)).catch(error => { console.error(error.message); process.exitCode = 1; });
+  if (process.argv.length > 2) { console.error('usage: node scripts/logging/verify-log-usage.mjs'); process.exitCode = 1; }
+  else verify().then(({ allowlist }) => console.log(`Log usage verified: 0 violations; ${allowlist.entries.reduce((sum, entry) => sum + entry.count, 0)} permanent exceptions`)).catch(error => { console.error(error.message); process.exitCode = 1; });
 }

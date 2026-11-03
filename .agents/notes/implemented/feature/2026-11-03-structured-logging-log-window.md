@@ -80,11 +80,30 @@ Swift 只负责读日志文件尾部、订阅 `MacLogStore` 的实时批次、�
 
 ### 警告和错误必须进日志
 
-日志窗口只有在“出了问题就一定有记录”时才有用。所以显示给用户的警告和错误、功能降级、回退、自动恢复、重试耗尽和被丢弃的错误，都必须在处理边界记录一条目录事件。具体规则写在 `develop-lithe` Skill 的日志参考页里。
+日志窗口只有在“出了问题就一定有记录”时才有用。所以显示给用户的警告和错误、功能降级、回退、自动恢复、重试耗尽和被丢弃的错误，都必须在处理边界记录一条目录事件。怎样设计一条合理的日志，写在 `develop-lithe` Skill 的日志参考页里。
 
-`scripts/logging/verify-log-usage.mjs` 把其中能静态发现的部分变成门禁：丢弃结果的 `try?`、只退出不记录的 `catch`、生产代码里的 `print`、Rust 里丢弃结果的 `.ok();` 和 `let _ =`。确属例外时在同一行或上一行写 `// log-exempt: <原因>`，原因必须属于封闭的四类例外。存量写在 `scripts/logging/log-usage-baseline.json`，数量只能减少：超过基线失败，低于基线也失败并要求更新基线，防止基线变成新违规的额度。
+`scripts/logging/verify-log-usage.mjs` 把其中能静态发现的部分变成门禁：丢弃结果的 `try?`、只退出不记录的 `catch`、生产代码里的 `print`、Rust 里丢弃结果的 `.ok();` 和 `let _ =`。门禁没有存量额度，任何违规都直接失败。确属例外时在同一行或上一行写 `// log-exempt: <类别>：<原因>`，类别只能是四类封闭例外之一（用户取消、预期的缺失、随输入实时重算的校验提示、同一次失败已经记录过）。`scripts/logging/log-usage-allowlist.json` 只接受绕过写入器的规则（例如写入器自身的 `NSLog` 兜底），计数必须与实际完全一致；丢弃错误的规则不能进入允许名单。允许名单当前为空。
 
-只在界面显示、没有日志的警告无法静态发现，靠 Skill 规则和评审清单把关。
+门禁看不到两类问题，靠 Skill 规则和评审清单把关：只在界面显示、没有日志的警告；以及默认值为 `nil`、生产构造处从未传入的 `logSink` 参数。sink 只从依赖注入的入口取得（`MacServiceContainer` 的构造参数、`AppServices.logSink`、`ModuleContext.logSink`、SwiftUI 环境值 `applicationLogSink`、`RustCoreBridge.coreLogSink`），不使用全局单例；默认值 `nil` 只留给测试替身。写入器还没有注入前发生的失败进有界缓冲，注入后补记。
+
+写入器自己的失败（打开、写入、关闭句柄失败）不能再写日志，否则会递归。`MacLogStore` 把这些失败计入计数器，导出时写进 `collection-status.txt` 的 `write_failures`。
+
+### 存量迁移
+
+切换到 v2 时，Rust Core 和 macOS Swift 里所有被门禁标出的旧写法都迁移完毕，基线文件随之删除。迁移遵守以下取舍：
+
+- 只补诊断，不改用户流程。原来失败后静默继续的路径（历史快照写入、过期图片清理、凭据清理、远程主机元数据保存）现在会记录失败，但成功提示和后续流程不变。`LanguageWorkspaceEditService` 回滚写入失败会导致已写文件无法恢复，现在汇总记录这次失败，回滚策略本身不变。这些行为缺陷单独修复，不混在日志迁移里。
+- 批量操作汇总记录。Rust 的 `StorageCleanup` 只累计失败次数和第一个 `io::ErrorKind`，结束时发一条 WARN，不逐个文件刷屏。临时文件尚未创建或已被删除时的 `NotFound` 属于预期的缺失。
+- 事件进入有身份的通道。LSP 原生进程句柄不直接写全局事件，而是把至多一个原生错误交回拥有角色身份的 engine，由 engine 选择 `lsp`、`vcs` 或 `plugins.host` 下的目录事件。
+- 只记稳定字段。Git 历史和远程 SSH 清理的错误只保留固定消息、稳定的 code/domain 和受控阶段，不复制 stderr、对端正文、路径或地址。
+- 接收端已离开的发送失败视为取消。通道发送失败只会因为唯一接收端随游标关闭或连接取消而发生，按用户取消处理；已关闭游标后的 EOF 或读取失败通知没有消费者，不再重复记录。
+
+### 窗口实现细节
+
+- 日志窗口是独立的 `Window` 场景，由进程拥有的 `LogWindowCoordinator` 管理；系统菜单入口放在 `CommandGroup(after: .windowList)`。
+- 旧的 `LanguageServerLogsView`、`LanguageServerLogsModel`、`.languageLogs` 标签页、`LanguageServerLogEntry` 和 100 条 `languageServerLogs` 缓冲已经删除。Java 失败处理改为记录 v2 目录事件，不再另写一份 v1 内存日志。
+- 显示缓存和逐像素滚动锚点由 `NSTableView` 的 coordinator 持有；详情面板高度用共享分隔条；关闭窗口时取消查询、调用链和订阅。
+- Core 的脱敏占位符是 `<redacted>`，窗口灰色显示、不可点击。
 
 ## 考虑过的备选方案
 
@@ -99,7 +118,7 @@ Swift 只负责读日志文件尾部、订阅 `MacLogStore` 的实时批次、�
 
 收益：用户只有一个查看入口，看到的、复制的和导出的是同一份脱敏证据；错误提示可以一键跳到对应记录；过滤和折叠在 Core 里，有 fixture 覆盖，Windows 可以复用。
 
-代价：Core 的诊断 API 变大，每个新字段都要同步契约、fixture 和 Swift 桥接。实时跟随每个批次都要调用一次 Core 查询。日志用法门禁的基线需要随修改持续减少，修改一个函数时要顺手处理它里面被标记的旧写法。
+代价：Core 的诊断 API 变大，每个新字段都要同步契约、fixture 和 Swift 桥接。实时跟随每个批次都要调用一次 Core 查询，事件分布也由 Core 对有界窗口重新计算；高吞吐下的成本还需要整机测量，如果不可接受，应扩展 Core 的增量摘要接口，而不是在 Swift 里复制统计规则。门禁零额度意味着每个新的 `try?`、空 `catch` 或丢弃结果都必须当场记录或写明例外类别。
 
 ## 验证
 
@@ -109,7 +128,7 @@ Swift 只负责读日志文件尾部、订阅 `MacLogStore` 的实时批次、�
 - `node scripts/logging/verify-log-usage.mjs`
 - `node --test --test-timeout=60000 scripts/logging/test-log-events.mjs`
 - `cargo test --manifest-path rust/lithe-core/Cargo.toml diagnostics`
-- `./scripts/macos/test/test-macos.sh --filter DiagnosticsWorkflowTests`
+- `./scripts/macos/test/test-macos.sh --filter 'LitheTests.(DiagnosticsWorkflowTests|LogWindowTests)'`
 - `./scripts/macos/probe/probe-macos-logging-ui.sh --skip-build`
 - `./scripts/architecture/verify-service-boundaries.sh`
 - `./scripts/architecture/verify-shared-contracts.sh`
@@ -123,7 +142,9 @@ Swift 只负责读日志文件尾部、订阅 `MacLogStore` 的实时批次、�
 - `shared/contracts/rust-core-api.md`
 - `shared/fixtures/diagnostics/logging-v2.json`
 - `scripts/logging/`
+- `shared/logging/`
 - `macos/Sources/Lithe/Views/Diagnostics/`
 - `macos/Sources/Lithe/Services/Diagnostics/`
 - `macos/Sources/Lithe/Platform/MacOS/Logging/`
 - `macos/Sources/LitheModuleAPI/Logging/`
+- 存量迁移涉及的 Rust Core 与 macOS Swift 处理边界（日志门禁扫描的全部生产代码）
