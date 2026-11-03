@@ -1159,7 +1159,8 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `git.configureIdentity` | Save or clear one local/global `user.name` or `user.email` override |
 | `git.status` | Resolve the repository, current branch, and working-tree changes |
 | `git.rollbackPlan` | Plan whole-file rollback from explicit Git status identities without reading or changing a repository |
-| `git.rollbackPrepare` | Recheck selected tracked identities against the repository and return rollback steps |
+| `git.rollbackPrepare` | Recheck selected identities against the repository and return rollback steps |
+| `git.prepareCommitSelection` | Prepare and verify the real indexes for explicitly selected changes |
 | `git.untrackedDirectory` | List one level of a summarized untracked directory: its files and subdirectory summaries |
 | `git.commitState` | Read exact HEAD, symbolic branch and index preconditions for a workspace commit |
 | `git.watchContext` | Resolve the repository and absolute Git metadata roots needed by native file watchers |
@@ -1668,6 +1669,25 @@ execute steps in order, stopping on failure and refreshing after any attempted
 write. This status check cannot detect content changes that preserve the same
 status or lock out external Git clients between preparation and writes; it is
 not a content snapshot or an atomic transaction.
+
+`git.prepareCommitSelection` accepts `repositories`, a nonempty list of up to
+128 distinct repository roots and each root's selected identities (`path`,
+optional `originalPath`, and two-character Git `status`). At least one selected
+identity is required across all roots and the selection is limited to 10,000
+identities. Hosts supply every repository whose index should be prepared,
+including those with an empty selection, and check their own ChangeList ownership
+before and after the call. Core checks every repository and selected identity
+before writing, rechecks HEAD and index under the existing repository lease,
+unstages other paths, stages selected paths only when not already staged, and
+verifies the exact staged path set and previously staged selected object IDs
+afterward. Selected untracked directories are expanded into observed files;
+untracked embedded repositories and overlapping directory selections are
+rejected, while tracked submodule gitlinks remain selectable. Paths are literal, including for ordinary `git.write`
+staging. The call prepares indexes; it does not create a commit or replace the
+subsequent workspace commit review. On cancellation or failure earlier writes
+may already have succeeded, so hosts must refresh affected repositories. Git
+clients outside Lithe do not share the lease; content changes that preserve the
+same status and races after the last check are not an atomic snapshot guarantee.
 
 `git.write` accepts a typed mutation request. Its required `operation` values are
 `stage`, `unstage`, `discard`, `discardAll`, `stageAll`, `commit`, `ignore`, `exclude`, `cherryPick`, `revert`,

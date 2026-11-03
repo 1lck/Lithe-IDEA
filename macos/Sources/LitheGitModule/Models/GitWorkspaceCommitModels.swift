@@ -216,3 +216,27 @@ package struct GitSubmoduleCommitPlan: Identifiable, Sendable {
         }
     }
 }
+
+/// Explicit selected identities for Core's real-index preparation.
+package struct GitCommitSelectionRequest: Encodable, Sendable {
+    package struct Repository: Encodable, Sendable {
+        package struct Selection: Encodable, Sendable {
+            let path: String
+            let originalPath: String?
+            let status: String
+            init(_ change: GitChange) {
+                path = change.path
+                originalPath = change.originalPath
+                status = String(change.indexStatus) + String(change.workTreeStatus)
+            }
+        }
+        let root: String
+        let selected: [Selection]
+        package init(root: URL, selected: [GitChange]) {
+            self.root = root.standardizedFileURL.path
+            self.selected = selected.map(Selection.init)
+        }
+    }
+    package let repositories: [Repository]
+    package init(repositories: [Repository]) { self.repositories = repositories }
+}

@@ -401,6 +401,18 @@ fn discovered_repository_keeps_host_identity(symlink: bool) {
         json!({"root": root, "repositoryRoots": [root]}),
     );
     assert_eq!(status["changes"][0]["path"], "remote.txt", "{status}");
+    let prepared = routed(
+        "git.prepareCommitSelection",
+        json!({"repositories": [
+            {"root":root, "selected":[{"path":"remote.txt", "status":"??"}]}
+        ]}),
+    );
+    assert_eq!(prepared["prepared"], true, "{prepared}");
+    assert_eq!(
+        host.git(&["diff", "--cached", "--name-only"])["stdout"],
+        "remote.txt\n"
+    );
+    assert_eq!(std::fs::read(expected.join(".git/index")).unwrap(), index);
     let context = routed("git.watchContext", json!({"root": root}));
     assert_eq!(context["repositoryRoot"], json!(expected));
     assert_eq!(context["gitCommonDirectory"], json!(expected.join(".git")));

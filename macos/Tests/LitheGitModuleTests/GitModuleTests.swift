@@ -2916,6 +2916,30 @@ struct GitModuleTests {
     }
 
     @Test
+    func commitSelectionForwardsSharedFixtureIdentities() throws {
+        struct WireSelection: Codable, Equatable { let path: String; let originalPath: String?; let status: String }
+        struct Sample: Decodable { let selected: [WireSelection] }
+        struct Fixture: Decodable { let cases: [Sample] }
+        struct Repository: Decodable { let root: String; let selected: [WireSelection] }
+        struct Request: Decodable { let repositories: [Repository] }
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("shared/fixtures/git/commit-selection-plan-v1.json")
+        let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: url))
+        let root = URL(fileURLWithPath: "/workspace")
+        for sample in fixture.cases {
+            let changes = sample.selected.map { item in
+                let status = Array(item.status)
+                return GitChange(repositoryRoot: root, path: item.path, originalPath: item.originalPath,
+                    indexStatus: status[0], workTreeStatus: status[1])
+            }
+            let request = GitCommitSelectionRequest(repositories: [.init(root: root, selected: changes)])
+            let decoded = try JSONDecoder().decode(Request.self, from: JSONEncoder().encode(request))
+            #expect(decoded.repositories.count == 1 && decoded.repositories[0].root == root.path)
+            #expect(decoded.repositories[0].selected == sample.selected)
+        }
+    }
+
+    @Test
     func commitFilesPreparesExactlyTheRequestedIndexAndRejectsMixedChangelists() async throws {
         let root = URL(fileURLWithPath: "/workspace")
         let changes = [
@@ -2925,7 +2949,10 @@ struct GitModuleTests {
         let probe = WorktreeChangesProbe(root: URL(fileURLWithPath: "/unused"), changes: changes)
         let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
             snapshotHandler: { probe.snapshot($0) }, repositoryRoots: [root],
-            stageHandler: { probe.mutate($0, action: "stage") }, unstageHandler: { probe.mutate($0, action: "unstage") })))
+            commitSelectionHandler: { _ in
+                _ = probe.mutate(changes[1], action: "unstage")
+                return probe.mutate(changes[0], action: "stage")
+            })))
         feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
         defer { feature.reset() }
         await feature.refreshGit()
@@ -2948,8 +2975,7 @@ struct GitModuleTests {
         let probe = WorktreeChangesProbe(root: URL(fileURLWithPath: "/unused"), changes: [selected, excluded])
         let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
             snapshotHandler: { probe.snapshot($0) }, repositoryRoots: [root],
-            stageHandler: { probe.mutate($0, action: "stage") },
-            unstageHandler: { probe.mutate($0, action: "unstage", succeeds: false) })))
+            commitSelectionHandler: { _ in probe.mutate(excluded, action: "unstage", succeeds: false) })))
         feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
         defer { feature.reset() }
         await feature.refreshGit()
@@ -2958,7 +2984,7 @@ struct GitModuleTests {
 
         let stale = GitFeatureModel(service: GitService(operations: TestGitOperations(
             snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: [selected]),
-            stageResult: GitProcessResult(arguments: ["stage"], output: "", exitCode: 0))))
+            commitSelectionHandler: { _ in GitProcessResult(arguments: ["stage"], output: "", exitCode: 0) })))
         stale.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
         defer { stale.reset() }
         await stale.refreshGit()
@@ -2975,9 +3001,11 @@ struct GitModuleTests {
         let gate = TestGitRunGate()
         let probe = WorktreeChangesProbe(root: URL(fileURLWithPath: "/unused"), changes: changes)
         let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
-            snapshotHandler: { probe.snapshot($0) }, repositoryRoots: [root], stageHandler: {
+            snapshotHandler: { probe.snapshot($0) }, repositoryRoots: [root], commitSelectionHandler: { _ in
                 gate.blockFirstRun()
-                return probe.mutate($0, action: "stage")
+                let first = probe.mutate(changes[0], action: "stage")
+                if GitExecutionContext.current?.isCancellationRequested != true { _ = probe.mutate(changes[1], action: "stage") }
+                return first
             })))
         feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
         await feature.refreshGit()
@@ -2993,6 +3021,31 @@ struct GitModuleTests {
         try #require(await waitForGitTaskCompletion(task))
         #expect(!result && !feature.isPreparingCommitFiles && !gate.didTimeOut)
         #expect(probe.calls.count == 1)
+    }
+
+    @Test
+    func commitFilesRejectsNewRepositoryDiscoveredDuringPreparation() async throws {
+        let root = URL(fileURLWithPath: "/workspace"), sibling = root.appendingPathComponent("sibling")
+        let change = GitChange(repositoryRoot: root, path: "target.txt", originalPath: nil, indexStatus: " ", workTreeStatus: "M")
+        let roots = CleanedPaths(); roots.append(root.path)
+        let probe = WorktreeChangesProbe(root: URL(fileURLWithPath: "/unused"), changes: [change])
+        let gate = TestGitRunGate()
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotHandler: { probe.snapshot($0) }, commitSelectionHandler: { _ in
+                gate.blockFirstRun()
+                return probe.mutate(change, action: "stage")
+            })), repositoryRootsProvider: { _ in roots.paths.map { URL(fileURLWithPath: $0) } })
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
+        await feature.refreshGit()
+        var result = true
+        let task = Task { result = await feature.prepareCommitFiles([change]) }
+        defer { gate.releaseFirstRun(); task.cancel(); feature.reset() }
+        try #require(await gate.waitUntilFirstRunStarts())
+        roots.append(sibling.path)
+        await feature.refreshGit()
+        gate.releaseFirstRun()
+        try #require(await waitForGitTaskCompletion(task))
+        #expect(!result && !gate.didTimeOut && !feature.isPreparingCommitFiles)
     }
 
     @Test(arguments: ["stage", "unstage", "discard", "rollback"])
@@ -6379,6 +6432,7 @@ private struct TestGitOperations: GitOperations {
     private let snapshotGate: GitModuleTestGate?
     private let discardHandler: (@Sendable (GitChange) -> GitProcessResult?)?
     private let discardAllHandler: (@Sendable (GitChange) -> GitProcessResult?)?
+    private let commitSelectionHandler: (@Sendable (GitCommitSelectionRequest) -> GitProcessResult?)?
     private let rollbackPrepareHandler: (@Sendable (URL, [GitChange]) -> Result<GitRollbackPlan, GitRollbackFailure>)?
     private let diffPatchHandler: (@Sendable ([String], Bool) -> String?)?
     private let applyPatchHandler: (@Sendable (String, URL, String) -> GitProcessResult?)?
@@ -6440,6 +6494,7 @@ private struct TestGitOperations: GitOperations {
         snapshotGate: GitModuleTestGate? = nil,
         discardHandler: (@Sendable (GitChange) -> GitProcessResult?)? = nil,
         discardAllHandler: (@Sendable (GitChange) -> GitProcessResult?)? = nil,
+        commitSelectionHandler: (@Sendable (GitCommitSelectionRequest) -> GitProcessResult?)? = nil,
         rollbackPrepareHandler: (@Sendable (URL, [GitChange]) -> Result<GitRollbackPlan, GitRollbackFailure>)? = nil,
         diffPatchHandler: (@Sendable ([String], Bool) -> String?)? = nil,
         applyPatchHandler: (@Sendable (String, URL, String) -> GitProcessResult?)? = nil,
@@ -6500,6 +6555,7 @@ private struct TestGitOperations: GitOperations {
         self.snapshotGate = snapshotGate
         self.discardHandler = discardHandler
         self.discardAllHandler = discardAllHandler
+        self.commitSelectionHandler = commitSelectionHandler
         self.rollbackPrepareHandler = rollbackPrepareHandler
         self.diffPatchHandler = diffPatchHandler
         self.applyPatchHandler = applyPatchHandler
@@ -6677,6 +6733,7 @@ private struct TestGitOperations: GitOperations {
     func unstage(_ change: GitChange) -> GitProcessResult? { unstageHandler?(change) }
     func discard(_ change: GitChange) -> GitProcessResult? { discardHandler?(change) }
     func discardAll(_ change: GitChange) -> GitProcessResult? { discardAllHandler?(change) }
+    func prepareCommitSelection(_ request: GitCommitSelectionRequest) -> GitProcessResult? { commitSelectionHandler?(request) }
     // These module lifecycle tests use modified tracked rows and controlled
     // one-step responses; real planning is covered through RustGitOperations.
     func prepareRollback(at root: URL, changes: [GitChange], deleteAddedFiles: Bool) -> Result<GitRollbackPlan, GitRollbackFailure> {

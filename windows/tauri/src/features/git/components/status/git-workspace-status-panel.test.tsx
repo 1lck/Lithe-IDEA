@@ -29,11 +29,19 @@ let virtualizer: ReturnType<typeof spyOn<typeof virtual, "useVirtualizer">>;
 const actGlobal = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
 let previousAct: boolean | undefined;
 let previousGetAnimations: PropertyDescriptor | undefined;
+let previousResizeObserver: unknown;
 let previousBuffers: Pick<ReturnType<typeof useBufferStore.getState>, "buffers" | "activeBufferId">;
 let scrollRequests: Array<{ index: number; align?: string }>;
 let previousFolderView: boolean;
 beforeEach(() => {
   restoreDom = installHappyDom();
+  const globals = globalThis as { ResizeObserver?: unknown };
+  previousResizeObserver = globals.ResizeObserver;
+  globals.ResizeObserver ??= class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
   // Base UI measures scroll geometry after animations. This DOM fixture has
   // no animations; provide the browser API that happy-dom does not implement.
   previousGetAnimations = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "getAnimations");
@@ -81,6 +89,7 @@ afterEach(async () => {
     if (previousGetAnimations) {
       Object.defineProperty(HTMLElement.prototype, "getAnimations", previousGetAnimations);
     } else Reflect.deleteProperty(HTMLElement.prototype, "getAnimations");
+    (globalThis as { ResizeObserver?: unknown }).ResizeObserver = previousResizeObserver;
     restoreDom();
     if (previousAct === undefined) delete actGlobal.IS_REACT_ACT_ENVIRONMENT;
     else actGlobal.IS_REACT_ACT_ENVIRONMENT = previousAct;
@@ -96,6 +105,13 @@ const render = async (
     repositoryPaths?: string[];
     showChangelistGroups?: boolean;
     collapsedSections?: ReadonlySet<string>;
+    repoPath?: string;
+    commitWorkspaceKey?: string;
+    commitChangelists?: LocalChangelists;
+    onActivateCommitChangelist?: (id: string, files: GitFile[], roots: string[]) => boolean;
+    isCommitChangelistCurrent?: (id: string, files: GitFile[], roots: string[]) => boolean;
+    onCommitSelection?: (paths: string[]) => void;
+    onStagingRefresh?: () => Promise<void>;
   } = {},
 ) => {
   await act(async () =>
@@ -579,6 +595,135 @@ test("hiding ChangeList groups keeps the repository row and nests files under it
   expect(container.textContent).toContain("one.ts");
   expect(container.textContent).toContain("two.ts");
 });
+
+test("commit menu prepares all repositories through Core and preserves the selected partial index", async () => {
+  const selected = { ...file("B", "partial.ts"), rawStatus: "MM", staged: true, worktree: true };
+  const other = { ...file("A", "other.ts"), rawStatus: "M ", staged: true };
+  const prepare = spyOn(statusApi, "prepareCommitSelection").mockResolvedValue(undefined);
+  const focused = mock((_paths: string[]) => {});
+  const activate = mock((_id: string) => true);
+  const refresh = mock(async () => {});
+  try {
+    await render([selected, other], undefined, {
+      repositoryPaths: ["C:/workspace/A", "C:/workspace/B"],
+      commitChangelists: EMPTY_CHANGELISTS,
+      onActivateCommitChangelist: activate,
+      onCommitSelection: focused,
+      onStagingRefresh: refresh,
+    });
+    const label = container.querySelector('[aria-label="Exclude partial.ts from commit"]');
+    expect(label).not.toBeNull();
+    const row = label!.closest("[data-git-status-row-index]")!.querySelector('[role="treeitem"]')!;
+    await act(async () =>
+      row.dispatchEvent(new window.MouseEvent("contextmenu", { bubbles: true })),
+    );
+    const item = Array.from(document.querySelectorAll<HTMLElement>("[role=menuitem]")).find(
+      (el) => el.textContent?.trim() === "Commit",
+    );
+    expect(item).toBeDefined();
+    await act(async () => {
+      item!.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(activate).toHaveBeenCalledTimes(1);
+    expect(prepare).toHaveBeenCalledWith(
+      [
+        { root: "C:/workspace/A", selected: [] },
+        {
+          root: "C:/workspace/B",
+          selected: [{ path: "src/partial.ts", originalPath: undefined, status: "MM" }],
+        },
+      ],
+      expect.any(String),
+      expect.any(AbortSignal),
+    );
+    expect(staging).not.toHaveBeenCalled();
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(focused).toHaveBeenCalledWith(["B/src/partial.ts"]);
+  } finally {
+    prepare.mockRestore();
+  }
+}, 1000);
+
+test.each(["before", "after"] as const)(
+  "a %s ChangeList change cannot focus the commit editor",
+  async (phase) => {
+    const selected = { ...file("A", "list.ts"), rawStatus: " M" };
+    const prepare = spyOn(statusApi, "prepareCommitSelection").mockResolvedValue(undefined);
+    const focused = mock((_paths: string[]) => {});
+    try {
+      await render([selected], undefined, {
+        commitChangelists: EMPTY_CHANGELISTS,
+        onActivateCommitChangelist: () => phase !== "before",
+        isCommitChangelistCurrent: () => phase !== "after",
+        onCommitSelection: focused,
+      });
+      const label = container.querySelector('[aria-label="Include list.ts in commit"]');
+      expect(label).not.toBeNull();
+      const row = label!
+        .closest("[data-git-status-row-index]")!
+        .querySelector('[role="treeitem"]')!;
+      await act(async () =>
+        row.dispatchEvent(new window.MouseEvent("contextmenu", { bubbles: true })),
+      );
+      const item = Array.from(document.querySelectorAll<HTMLElement>("[role=menuitem]")).find(
+        (el) => el.textContent?.trim() === "Commit",
+      );
+      expect(item).toBeDefined();
+      await act(async () => {
+        item!.click();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(prepare).toHaveBeenCalledTimes(phase === "before" ? 0 : 1);
+      expect(focused).not.toHaveBeenCalled();
+    } finally {
+      prepare.mockRestore();
+    }
+  },
+  1000,
+);
+
+test("changing workspace cancels pending commit preparation and ignores its completion", async () => {
+  const selected = { ...file("A", "pending.ts"), rawStatus: " M" };
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const prepare = spyOn(statusApi, "prepareCommitSelection").mockReturnValue(pending);
+  const focused = mock((_paths: string[]) => {});
+  try {
+    await render([selected], undefined, { commitWorkspaceKey: "old", onCommitSelection: focused });
+    const label = container.querySelector('[aria-label="Include pending.ts in commit"]');
+    expect(label).not.toBeNull();
+    const row = label!.closest("[data-git-status-row-index]")!.querySelector('[role="treeitem"]')!;
+    await act(async () =>
+      row.dispatchEvent(new window.MouseEvent("contextmenu", { bubbles: true })),
+    );
+    const item = Array.from(document.querySelectorAll<HTMLElement>("[role=menuitem]")).find(
+      (el) => el.textContent?.trim() === "Commit",
+    );
+    expect(item).toBeDefined();
+    await act(async () => {
+      item!.click();
+      await Promise.resolve();
+    });
+    const signal = prepare.mock.calls[0]?.[2];
+    expect(signal?.aborted).toBe(false);
+    await render([selected], undefined, { commitWorkspaceKey: "new", onCommitSelection: focused });
+    expect(signal?.aborted).toBe(true);
+    await act(async () => {
+      release();
+      await pending;
+    });
+    expect(focused).not.toHaveBeenCalled();
+  } finally {
+    release();
+    await pending;
+    prepare.mockRestore();
+  }
+}, 1000);
 
 test("rollback sends the owning repository and both rename identities from the selected row", async () => {
   const globals = globalThis as { ResizeObserver?: unknown };
