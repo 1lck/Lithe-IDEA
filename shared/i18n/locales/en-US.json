@@ -9948,7 +9948,8 @@
     "mac.editorImport.customTheme": "Imported editor theme",
     "mac.editorImport.customThemeHelp": "Imported editor colors override the built-in palette. Remove the imported theme to use the built-in colors again.",
     "mac.editorImport.customThemeScope": "Imported theme colors are applied to source editors. Unmapped effects and language-specific rules are skipped; built-in base colors are approximate.",
-    "mac.editor.tabWidthStatus": "Tab width: {arg1}"
+    "mac.editor.tabWidthStatus": "Tab width: {arg1}",
+    "editor.workspaceEditStale": "The document changed while preparing edits. Request the action again."
   },
   "overrides": {
     "windows": {

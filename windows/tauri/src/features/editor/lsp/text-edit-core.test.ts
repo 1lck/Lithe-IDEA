@@ -31,3 +31,13 @@ describe("Core text edit adapter", () => {
     } finally { invoke.mockRestore(); }
   });
 });
+
+test("structured Core range errors show the selected shared translation", async () => {
+ const invoke = spyOn(native, "invoke").mockResolvedValue({editError:{code:"invalid_request",details:"overlappingEdits",message:"English implementation detail"}});
+ try {
+  const { useSettingsStore } = await import("@/features/settings/stores/settings.store");
+  const { createTranslator } = await import("@/i18n/locale");
+  const t = createTranslator(useSettingsStore.getState().settings.displayLanguage);
+  await expect(applyTextEditsToContent("abc", [])).rejects.toThrow(t("native.languageServerReturnedOverlappingTextEdits"));
+ } finally {invoke.mockRestore();}
+});
