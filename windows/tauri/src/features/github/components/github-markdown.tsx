@@ -3,7 +3,7 @@ import "../styles/github-markdown.css";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { memo, startTransition, useCallback, useEffect, useMemo, useState } from "react";
 import { highlightMarkdownCodeBlocks } from "@/features/editor/markdown/code-highlight";
-import { renderMarkdown } from "@/features/editor/markdown/render";
+import { renderMarkdownWhenReady } from "@/features/editor/markdown/render";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useTranslation } from "@/i18n/locale-provider";
 import { isGitHubEntityLinkForRepository, parseGitHubEntityLink } from "../utils/github-link-utils";
@@ -33,7 +33,7 @@ async function getCachedRenderedMarkdown(content: string, signal?: AbortSignal):
   const cached = getRenderedMarkdownSnapshot(content);
   if (cached) return cached;
 
-  const parsed = await renderMarkdown(content, signal);
+  const parsed = await renderMarkdownWhenReady(content, signal);
   const rendered = await highlightMarkdownCodeBlocks(parsed).catch(() => parsed);
   markdownRenderCache.set(content, rendered);
 
@@ -101,6 +101,7 @@ const GitHubMarkdown = memo(
       const timeoutId = window.setTimeout(() => void render(), 0);
       return () => {
         cancelled = true;
+        controller.abort();
         window.clearTimeout(timeoutId);
       };
     }, [normalizedContent]);

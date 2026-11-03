@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "@/i18n/locale-provider";
 import { highlightMarkdownCodeBlocks } from "./code-highlight";
-import { renderMarkdown } from "./render";
+import { renderMarkdownWhenReady } from "./render";
 
 export function useHighlightedMarkdown(
   content: string | null | undefined,
   highlight: (html: string) => Promise<string> = highlightMarkdownCodeBlocks,
-  render: (source: string, signal?: AbortSignal) => Promise<string> = renderMarkdown,
+  render: (source: string, signal?: AbortSignal) => Promise<string> = renderMarkdownWhenReady,
 ) {
   const { t } = useTranslation();
   const [html, setHtml] = useState("");
