@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use gpui_kit::component::TitleBar;
 use gpui_kit::{
@@ -15,6 +16,10 @@ use super::{MEMORY_REFRESH_INTERVAL, Workbench, theme_kind_for};
 use crate::layout;
 use crate::workspace_layout;
 
+/// 布局/会话落盘的去抖窗口，对齐 macOS `scheduleWorkspaceSessionPersistence`
+/// 的 150ms 节流：连续切标签只在最后一次之后写一次盘。
+const LAYOUT_PERSIST_DELAY: Duration = Duration::from_millis(150);
+
 impl Workbench {
     pub fn open_project(&mut self, root: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
         if !root.is_dir() {
@@ -28,13 +33,20 @@ impl Workbench {
             .as_ref()
             .filter(|previous| *previous != &root)
         {
-            self.persist_layout_for(previous);
+            // 切走之前把旧工作区的锚点布局和标签会话一起落盘，并取消还在
+            // 排队的节流任务，避免旧快照在新状态之后才写入磁盘。
+            let previous = previous.clone();
+            self.persist_layout_now(&previous);
         }
+
+        // 会话与锚点布局同一次读取：旧文件没有会话字段时就是空列表。
+        let stored = workspace_layout::load(&root);
+        let (open_paths, active_path) = (stored.open_paths.clone(), stored.active_path.clone());
 
         self.project_root = Some(root.clone());
         self.java_language
             .update(cx, |model, cx| model.set_root(Some(root.clone()), cx));
-        self.apply_layout(workspace_layout::load(&root), cx);
+        self.apply_layout(stored, cx);
         self.layout_root = Some(root.clone());
         self.layout_restored = true;
         self.platform.remember_project(&root);
@@ -76,6 +88,9 @@ impl Workbench {
         self.quick_files.clear();
         self.refresh_quick_index(window, cx);
         self.refresh_branch(window, cx);
+        // 标签、编辑器文档和打开代次都已就绪，最后按顺序恢复上次的编辑器
+        // 会话；恢复异步读盘，失败的文件由它自己汇总提示。
+        self.restore_session_tabs(open_paths, active_path, window, cx);
         if self.settings_visible {
             self.sync_settings_context(cx);
         }
@@ -148,7 +163,7 @@ impl Workbench {
         };
         self.java_language
             .update(cx, |model, cx| model.stop(cx));
-        self.persist_layout_for(&root);
+        self.persist_layout_now(&root);
         self.layout_root = None;
         // 关项目必须与 `open_project` 对称：标签、编辑器文档、右分栏、Markdown
         // 预览和导航历史都属于上一个工作区。留下任何一项，新项目都会看到旧
@@ -386,8 +401,12 @@ impl Workbench {
         self.horizontal_state.update(cx, |state, _| state.clear());
     }
 
-    pub(super) fn persist_layout_for(&self, root: &Path) {
-        let layout = workspace_layout::WorkspaceLayout {
+    /// 当前工作区要写盘的完整快照：锚点布局 + 编辑器标签会话。
+    ///
+    /// `root` 必须是被持久化的工作区根：切项目时调用点的 `project_root` 可能
+    /// 已经改成了新项目，标签相对路径必须相对旧根计算。
+    fn workspace_layout_snapshot(&self, root: &Path) -> workspace_layout::WorkspaceLayout {
+        workspace_layout::WorkspaceLayout {
             active_left: self.active_left.id().to_string(),
             active_bottom: self.active_bottom.map(|t| t.id().to_string()),
             active_right: self.active_right.map(|t| t.id().to_string()),
@@ -397,8 +416,90 @@ impl Workbench {
             left_width: self.left_width,
             right_width: self.right_width,
             bottom_height: self.bottom_height,
+            open_paths: self.session_open_paths(root),
+            active_path: self.session_active_path(root),
+        }
+    }
+
+    /// 会话里记录的标签路径（工作区相对、`/` 分隔、按标签顺序）。
+    ///
+    /// 未命名标签没有磁盘路径，直接跳过；工作区外的文件也不记录，恢复时
+    /// 不会被带回来。
+    fn session_open_paths(&self, root: &Path) -> Vec<String> {
+        let mut paths: Vec<String> = Vec::new();
+        let mut seen: Vec<String> = Vec::new();
+        for tab in &self.tabs {
+            if tab.id.starts_with("untitled:") {
+                continue;
+            }
+            let Some(relative) = super::tabs::workspace_relative_option(root, &tab.absolute_path)
+            else {
+                continue;
+            };
+            // Windows 上同一文件可能因为大小写不同产生两个 id，恢复前先去重。
+            let identity = super::tabs::file_identity(&tab.absolute_path);
+            if seen.contains(&identity) {
+                continue;
+            }
+            seen.push(identity);
+            paths.push(relative);
+        }
+        paths
+    }
+
+    /// 上次的活动标签；未命名标签或空工作区记 `None`，恢复时退回最后一个标签。
+    fn session_active_path(&self, root: &Path) -> Option<String> {
+        if self.is_active_tab_untitled() {
+            return None;
+        }
+        let absolute = self.active_tab_path()?;
+        super::tabs::workspace_relative_option(root, &absolute)
+    }
+
+    /// 立即把某个工作区的完整状态写盘，并取消还在排队的节流任务。
+    ///
+    /// 切项目、关闭项目、退出这类「马上就不会再有当前状态」的时机必须走这里，
+    /// 不能等去抖窗口。
+    pub(super) fn persist_layout_now(&mut self, root: &Path) {
+        self.pending_layout = None;
+        self.layout_persist_pending = false;
+        self._layout_persist_task = Task::ready(());
+        workspace_layout::save(root, &self.workspace_layout_snapshot(root));
+    }
+
+    /// 当前工作区的即时写盘，用于退出入口。
+    pub(super) fn flush_layout_persist(&mut self) {
+        let Some(root) = self.layout_root.clone() else {
+            return;
         };
-        workspace_layout::save(root, &layout);
+        self.persist_layout_now(&root);
+    }
+
+    /// 标签变化后的排队写盘：150ms 内的连续操作只写最后一次。
+    ///
+    /// 快照在调用线程上同步取好（GPUI 状态只能在主线程读取），去抖窗口结束
+    /// 后在主线程用现有的原子写落盘：文件很小，一次写入只有几毫秒，换来的是
+    /// 不会和即时写盘并发覆盖同一个 store。已有排队任务时不重复派生，它醒来
+    /// 时取的是最新快照。
+    pub(super) fn schedule_layout_persist(&mut self, cx: &mut Context<Self>) {
+        let Some(root) = self.layout_root.clone() else {
+            return;
+        };
+        let layout = self.workspace_layout_snapshot(&root);
+        self.pending_layout = Some((root, layout));
+        if self.layout_persist_pending {
+            return;
+        }
+        self.layout_persist_pending = true;
+        self._layout_persist_task = cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(LAYOUT_PERSIST_DELAY).await;
+            let _ = this.update(cx, |this, _cx| {
+                this.layout_persist_pending = false;
+                if let Some((root, layout)) = this.pending_layout.take() {
+                    workspace_layout::save(&root, &layout);
+                }
+            });
+        });
     }
 
     /// 某个工作区是否选择过「对此工作区始终继续」。

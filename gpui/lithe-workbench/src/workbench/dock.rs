@@ -17,7 +17,7 @@ use lithe_ui::{LitheMetrics, current_tokens};
 use super::Workbench;
 use crate::layout;
 use crate::top_bar::{TOOL_WINDOW_HEADER_BUTTON_RADIUS, TOOL_WINDOW_HEADER_BUTTON_SIZE};
-use crate::workspace_layout::{self, WorkspaceLayout};
+use crate::workspace_layout;
 
 /// 底部工具窗高度拖动的载荷。
 ///
@@ -529,30 +529,27 @@ impl Workbench {
             .into_any_element()
     }
 
-    pub(super) fn persist_layout(&self) {
-        let Some(root) = self.layout_root.as_deref() else {
+    pub(super) fn persist_layout(&mut self) {
+        // 锚点变化同样要带上当前标签会话，否则一次拖动就会把上次的会话
+        // 写成空表。走统一入口顺带取消还在排队的节流任务。
+        let Some(root) = self.layout_root.clone() else {
             return;
         };
-        let layout = WorkspaceLayout {
-            active_left: self.active_left.id().to_string(),
-            active_bottom: self.active_bottom.map(|t| t.id().to_string()),
-            active_right: self.active_right.map(|t| t.id().to_string()),
-            left_visible: self.left_visible,
-            bottom_visible: self.bottom_visible,
-            right_visible: self.right_visible,
-            left_width: self.left_width,
-            right_width: self.right_width,
-            bottom_height: self.bottom_height,
-        };
-        workspace_layout::save(root, &layout);
+        self.persist_layout_now(&root);
     }
 
-    pub(super) fn restore_layout(&mut self, cx: &mut Context<Self>) {
-        let Some(root) = self.layout_root.as_deref() else {
+    pub(super) fn restore_layout(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // 启动时自动打开的最近项目只填了 `project_root`，没有经过
+        // `open_project`：这里补上工作区根，锚点布局和标签会话才会被恢复，
+        // 之后的标签变化也才能继续写盘。
+        if self.layout_root.is_none() {
+            self.layout_root = self.project_root.clone();
+        }
+        let Some(root) = self.layout_root.clone() else {
             self.layout_restored = true;
             return;
         };
-        let layout = workspace_layout::load(root);
+        let layout = workspace_layout::load(&root);
         if let Some(tool) = ToolWindow::from_id(&layout.active_left) {
             self.active_left = tool;
         }
@@ -569,6 +566,8 @@ impl Workbench {
         self.bottom_height = layout.bottom_height;
         self.horizontal_state = cx.new(|_| ResizableState::default());
         self.layout_restored = true;
+        // 会话和锚点布局来自同一份读取结果，恢复顺序统一交给工作台。
+        self.restore_session_tabs(layout.open_paths, layout.active_path, window, cx);
         cx.notify();
     }
 

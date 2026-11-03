@@ -707,7 +707,12 @@ impl Workbench {
             // Tauri `setFullscreen(!isFullscreen)`。
             "window.zoom" => window.zoom_window(),
             "window.fullscreen" => window.toggle_fullscreen(),
-            "window.close" => window.remove_window(),
+            // 关闭窗口等于退出这个工作区实例：先把布局和标签会话落盘，
+            // 否则节流窗口里的最后一次变化会丢。
+            "window.close" => {
+                self.flush_layout_persist();
+                window.remove_window();
+            }
             // Help 菜单 URL 统一走 `lithe_ui::links` 常量（真源为
             // `git remote -v` 的 origin `1lck/Lithe-IDEA`，与 Tauri
             // services.json 一致），不再出现裸 URL 字符串。

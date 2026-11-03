@@ -136,6 +136,8 @@ impl Workbench {
     /// File > Quit 的退出入口：有未保存标签时先弹确认，否则直接退出
     /// （对齐 Tauri `requestApplicationQuit` 先走 close guard 再退出的语义）。
     pub(crate) fn request_quit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // 退出前先把布局和标签会话落盘：节流窗口里最后一次标签变化不能丢。
+        self.flush_layout_persist();
         if self.tabs.iter().any(|tab| tab.modified) {
             self.pending_quit = true;
             self.overlay_focus.focus(window, cx);

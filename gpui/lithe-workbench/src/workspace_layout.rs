@@ -8,15 +8,19 @@
 //!   `$HOME/.config/lithe/workspace-layout.json`
 //!
 //! 结构是一个按项目根路径索引的对象；每个工作区记录三个锚点的活动工具窗、
-//! 可见性以及尺寸。读取失败、JSON 损坏或版本不符时整体退回默认布局，不向
+//! 可见性以及尺寸，外加上次打开的编辑器标签（`openPaths`）和活动标签
+//! （`activePath`）。读取失败、JSON 损坏或版本不符时整体退回默认布局，不向
 //! 上抛错；写入使用临时文件 + rename，避免进程中断留下半个 JSON。
 //!
-//! 当前编辑器标签和活动标签暂不持久化：恢复它们需要重新读盘，超出了本次
-//! 锚点布局重构的范围。
+//! 会话字段是增量追加的可选字段：旧文件没有它们时按「没有打开过的标签」
+//! 处理，因此不需要升级版本号，也不会丢掉用户已有的锚点布局。
+//!
+//! 这里只保存数据，不负责重新打开文件：恢复顺序（读盘、容错、激活活动
+//! 标签）由工作台的开文件链路负责。
 
 use std::env;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use gpui_kit::private::serde_json::{self, Value, json};
 
@@ -26,7 +30,7 @@ const DEFAULT_LEFT_WIDTH: f32 = 300.0;
 const DEFAULT_RIGHT_WIDTH: f32 = 320.0;
 const DEFAULT_BOTTOM_HEIGHT: f32 = 260.0;
 
-/// 一个工作区的锚点布局偏好。
+/// 一个工作区的持久化偏好：锚点布局与上次的编辑器标签会话。
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct WorkspaceLayout {
     /// 左侧活动工具窗 id。
@@ -41,6 +45,11 @@ pub(crate) struct WorkspaceLayout {
     pub left_width: f32,
     pub right_width: f32,
     pub bottom_height: f32,
+    /// 上次打开的真实文件标签，按标签顺序记录工作区相对路径（`/` 分隔）。
+    /// 未命名标签和 Settings、提交差异等临时页不在其中。
+    pub open_paths: Vec<String>,
+    /// 上次的活动标签（同样是工作区相对路径）；`None` 表示没有活动文件。
+    pub active_path: Option<String>,
 }
 
 impl Default for WorkspaceLayout {
@@ -55,6 +64,8 @@ impl Default for WorkspaceLayout {
             left_width: DEFAULT_LEFT_WIDTH,
             right_width: DEFAULT_RIGHT_WIDTH,
             bottom_height: DEFAULT_BOTTOM_HEIGHT,
+            open_paths: Vec::new(),
+            active_path: None,
         }
     }
 }
@@ -147,6 +158,8 @@ fn layout_from_value(value: &Value) -> WorkspaceLayout {
         left_width: number_field(value, "leftWidth").unwrap_or(defaults.left_width),
         right_width: number_field(value, "rightWidth").unwrap_or(defaults.right_width),
         bottom_height: number_field(value, "bottomHeight").unwrap_or(defaults.bottom_height),
+        open_paths: relative_path_list(value, "openPaths"),
+        active_path: relative_path(value, "activePath"),
     }
 }
 
@@ -161,6 +174,8 @@ fn layout_to_value(layout: &WorkspaceLayout) -> Value {
         "leftWidth": layout.left_width,
         "rightWidth": layout.right_width,
         "bottomHeight": layout.bottom_height,
+        "openPaths": layout.open_paths,
+        "activePath": layout.active_path,
     })
 }
 
@@ -183,6 +198,67 @@ fn number_field(value: &Value, key: &str) -> Option<f32> {
         .and_then(Value::as_f64)
         .filter(|number| number.is_finite())
         .map(|number| number as f32)
+}
+
+/// 解析会话里的标签路径列表。
+///
+/// 旧版本记录没有 `openPaths` 时返回空表（旧文件照常可用）。单项无法归一化
+/// 成工作区相对路径时直接丢弃，避免恢复时打开工作区以外的文件；重复项也
+/// 在这里去掉，恢复链路只需要处理唯一的真实文件。
+fn relative_path_list(value: &Value, key: &str) -> Vec<String> {
+    let Some(items) = value.get(key).and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    let mut paths: Vec<String> = Vec::new();
+    for item in items {
+        let Some(path) = item.as_str().and_then(relative_path_text) else {
+            continue;
+        };
+        if paths.iter().any(|existing| existing == &path) {
+            continue;
+        }
+        paths.push(path);
+    }
+    paths
+}
+
+fn relative_path(value: &Value, key: &str) -> Option<String> {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .and_then(relative_path_text)
+}
+
+/// 把持久化路径归一化成 `/` 分隔的工作区相对路径。
+///
+/// 绝对路径、盘符前缀和 `..` 都可能在恢复时跳出工作区，一律拒绝；`./`
+/// 之类的前缀直接折叠，保证与 `file.read` 使用的相对路径写法一致。
+fn relative_path_text(text: &str) -> Option<String> {
+    let text = text.trim().replace('\\', "/");
+    let path = Path::new(&text);
+    if path.is_absolute() {
+        return None;
+    }
+    let mut parts: Vec<String> = Vec::new();
+    for component in path.components() {
+        match component {
+            Component::Normal(part) => {
+                let part = part.to_string_lossy();
+                // Windows 盘符（`C:`）出现在相对路径里同样表示越界。
+                if part.ends_with(':') {
+                    return None;
+                }
+                parts.push(part.into_owned());
+            }
+            Component::CurDir => {}
+            // 根目录、盘符前缀和 `..` 都可能跳出工作区。
+            _ => return None,
+        }
+    }
+    if parts.is_empty() {
+        return None;
+    }
+    Some(parts.join("/"))
 }
 
 fn read_store() -> Option<Value> {
@@ -246,4 +322,53 @@ fn xdg_config_lithe() -> Option<PathBuf> {
         .filter(|path| !path.as_os_str().is_empty())
         .or_else(|| env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")));
     base.map(|directory| directory.join("lithe"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn old_record_without_session_reads_as_empty_session() {
+        // 旧版本 JSON 没有 openPaths / activePath：仍要能读出锚点布局。
+        let layout = layout_from_value(&json!({
+            "activeLeft": "search",
+            "leftWidth": 280.0,
+        }));
+        assert_eq!(layout.active_left, "search");
+        assert_eq!(layout.left_width, 280.0);
+        assert!(layout.open_paths.is_empty());
+        assert_eq!(layout.active_path, None);
+    }
+
+    #[test]
+    fn session_paths_accept_only_workspace_relative_paths() {
+        let layout = layout_from_value(&json!({
+            "openPaths": [
+                "src/main.rs",
+                "src\\lib.rs",
+                "../secret.txt",
+                "/etc/passwd",
+                "./README.md",
+                "src/main.rs",
+                ""
+            ],
+            "activePath": "../outside.txt",
+        }));
+        assert_eq!(
+            layout.open_paths,
+            vec!["src/main.rs", "src/lib.rs", "README.md"]
+        );
+        assert_eq!(layout.active_path, None);
+    }
+
+    #[test]
+    fn layout_and_session_round_trip() {
+        let mut layout = WorkspaceLayout::default();
+        layout.open_paths = vec!["a/b.rs".to_string()];
+        layout.active_path = Some("a/b.rs".to_string());
+        let restored = layout_from_value(&layout_to_value(&layout));
+        assert_eq!(restored.open_paths, layout.open_paths);
+        assert_eq!(restored.active_path, layout.active_path);
+    }
 }

@@ -55,6 +55,7 @@ pub(crate) use terminal::TerminalSplitAxis;
 
 use crate::commit_header::CommitTab;
 use crate::layout;
+use crate::workspace_layout;
 
 gpui_kit::actions!(
     lithe_workbench,
@@ -165,6 +166,11 @@ pub struct Workbench {
     horizontal_state: Entity<ResizableState>,
     layout_root: Option<PathBuf>,
     layout_restored: bool,
+    /// 等待节流写入的布局/会话快照。
+    pending_layout: Option<(PathBuf, workspace_layout::WorkspaceLayout)>,
+    /// 已有一个节流任务在等 150ms 窗口，不再重复派生。
+    layout_persist_pending: bool,
+    _layout_persist_task: Task<()>,
     project_root: Option<PathBuf>,
     tabs: Vec<OpenTab>,
     active_tab: Option<SharedString>,
@@ -628,6 +634,9 @@ impl Workbench {
             horizontal_state,
             layout_root: None,
             layout_restored: false,
+            pending_layout: None,
+            layout_persist_pending: false,
+            _layout_persist_task: Task::ready(()),
             project_root: initial_root,
             tabs: Vec::new(),
             active_tab: None,
@@ -1067,8 +1076,8 @@ impl Render for Workbench {
         }
 
         if !self.layout_restored {
-            cx.defer_in(window, |this, _window, cx| {
-                this.restore_layout(cx);
+            cx.defer_in(window, |this, window, cx| {
+                this.restore_layout(window, cx);
             });
         }
 

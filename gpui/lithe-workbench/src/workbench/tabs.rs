@@ -227,6 +227,158 @@ impl Workbench {
         self.sync_editor_secondary(window, cx);
         self.sync_preview_with_active_tab(cx);
         self.apply_pending_reveal(&reveal_path, window, cx);
+        // 打开标签要立即进入待写盘的会话，下次打开项目才能恢复它。
+        self.schedule_layout_persist(cx);
+        cx.notify();
+    }
+
+    /// 恢复上次工作区会话里打开的标签。
+    ///
+    /// 只恢复真实文件标签：`open_paths` 是相对项目根的路径，逐条经
+    /// [`resolve_project_file`] 归一化（与项目树点击同一条路径解析），读盘
+    /// 沿用 `CoreClient::read_file`。整批在一次任务里顺序读完再统一建标签：
+    /// `_read_task` 被下一次打开覆盖时会取消上一个任务，逐个文件调用
+    /// `load_file` 只会剩下最后一个。读取失败的文件跳过并汇总提示一次。
+    pub(super) fn restore_session_tabs(
+        &mut self,
+        open_paths: Vec<String>,
+        active_path: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if open_paths.is_empty() {
+            return;
+        }
+        let Some(root) = self.project_root.clone() else {
+            return;
+        };
+
+        // 越界或重复的条目在这里就丢掉，避免恢复出一个工作区外的标签。
+        let mut targets: Vec<(PathBuf, String)> = Vec::new();
+        let mut seen: Vec<String> = Vec::new();
+        for relative in open_paths {
+            let Ok((absolute, normalised)) = resolve_project_file(&root, Path::new(&relative))
+            else {
+                continue;
+            };
+            let identity = file_identity(&absolute);
+            if seen.contains(&identity) {
+                continue;
+            }
+            seen.push(identity);
+            targets.push((absolute, normalised));
+        }
+        if targets.is_empty() {
+            return;
+        }
+
+        let active_identity = active_path.and_then(|path| {
+            resolve_project_file(&root, Path::new(&path))
+                .ok()
+                .map(|(absolute, _)| file_identity(&absolute))
+        });
+
+        let generation = self.open_generation;
+        let client = self.client;
+        self._read_task = cx.spawn_in(window, async move |this, cx| {
+            let mut restored: Vec<(PathBuf, String, FileReadResult)> = Vec::new();
+            let mut missing: Vec<String> = Vec::new();
+            for (absolute, relative) in targets {
+                let read_root = root.clone();
+                let relative_for_read = relative.clone();
+                let result = cx
+                    .background_spawn(
+                        async move { client.read_file(&read_root, &relative_for_read) },
+                    )
+                    .await;
+                match result {
+                    Ok(file) => restored.push((absolute, relative, file)),
+                    // 已删除、已重命名或读取失败：跳过并汇总，不中断恢复。
+                    Err(_) => missing.push(relative),
+                }
+            }
+            let _ = this.update_in(cx, move |this, window, cx| {
+                // 工作区已经切换：这批结果属于上一个项目，直接丢弃。
+                if this.open_generation != generation {
+                    return;
+                }
+                this.install_restored_tabs(restored, active_identity, missing, window, cx);
+            });
+        });
+    }
+
+    /// 把读好的文件装上标签，并激活上次的活动标签。
+    ///
+    /// 恢复期间用户可能已经手动打开了同一个文件：按标签 id 去重，不重复建
+    /// 标签，也不改动编辑区里已有的内容；`modified` 一律为 `false`，恢复
+    /// 本身不会产生脏文档或「外部修改」。
+    fn install_restored_tabs(
+        &mut self,
+        restored: Vec<(PathBuf, String, FileReadResult)>,
+        active_identity: Option<String>,
+        missing: Vec<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        for (absolute, relative, file) in restored {
+            let tab_id: SharedString = file_identity(&absolute).into();
+            if self.tabs.iter().any(|tab| tab.id == tab_id) {
+                continue;
+            }
+            let display_path: SharedString = if file.path.is_empty() {
+                relative.into()
+            } else {
+                SharedString::from(file.path)
+            };
+            self.tabs.push(OpenTab {
+                id: tab_id,
+                title: file_title(&absolute),
+                display_path,
+                absolute_path: absolute.clone(),
+                text: file.text,
+                icon: file_icon(&absolute),
+                modified: false,
+            });
+        }
+
+        if !self.tabs.is_empty() {
+            // 活动标签缺失（已删除或读取失败）时退回最后一个标签，对齐
+            // macOS `restoreDocuments` 的 `?? openDocuments.last?.id`。
+            let index = active_identity
+                .and_then(|identity| {
+                    self.tabs
+                        .iter()
+                        .position(|tab| tab.id.as_ref() == identity.as_str())
+                })
+                .unwrap_or(self.tabs.len() - 1);
+            self.activate_index(index, window, cx);
+        }
+
+        if !missing.is_empty() {
+            // 一次汇总提示：恢复不中断，只告诉用户哪些文件被跳过。
+            let shown = missing
+                .iter()
+                .take(3)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", ");
+            let description = if missing.len() > 3 {
+                format!(
+                    "{shown}; {}",
+                    tr("and {count} more files")
+                        .replace("{count}", &(missing.len() - 3).to_string())
+                )
+            } else {
+                shown
+            };
+            self.status_message =
+                Some(format!("{}: {description}", tr("Could not open file")).into());
+            self.push_notification(
+                tr("Could not open file"),
+                Some(SharedString::from(description)),
+                NotificationKind::Error,
+            );
+        }
         cx.notify();
     }
 
@@ -251,6 +403,8 @@ impl Workbench {
         });
         self.sync_preview_with_active_tab(cx);
         self.sync_editor_secondary(window, cx);
+        // 活动标签是会话的一部分（下次打开项目要回到这里）。
+        self.schedule_layout_persist(cx);
         cx.notify();
     }
 
@@ -331,6 +485,9 @@ impl Workbench {
         }
 
         if !active_was_closed {
+            // 关闭非活动标签也要立即更新持久化会话，否则下次打开项目会
+            // 复活用户已经手动关掉的标签。
+            self.schedule_layout_persist(cx);
             cx.notify();
             return;
         }
@@ -345,6 +502,7 @@ impl Workbench {
             let next = index.min(self.tabs.len() - 1);
             self.activate_index(next, window, cx);
         }
+        self.schedule_layout_persist(cx);
         cx.notify();
     }
 
@@ -1129,6 +1287,35 @@ fn workspace_relative(root: &Path, path: &Path) -> String {
                 .map(str::to_string)
                 .unwrap_or_else(|| path.to_string_lossy().replace('\\', "/"))
         })
+}
+
+/// 工作区相对路径（`/` 分隔）；不在工作区内时返回 `None`。
+///
+/// 持久化会话只接受工作区内的真实文件：绝对路径写进 JSON 后换目录、换机器
+/// 都会失效，越界路径也不该在恢复时被打开。Windows 上项目根的写法可能和
+/// 规范化后的标签路径大小写不同，这里补一次不区分大小写的切分。
+pub(super) fn workspace_relative_option(root: &Path, path: &Path) -> Option<String> {
+    if let Ok(relative) = path.strip_prefix(root) {
+        let text = relative.to_string_lossy().replace('\\', "/");
+        return (!text.is_empty()).then_some(text);
+    }
+
+    let root_text = root.to_string_lossy().replace('\\', "/");
+    let root_text = root_text.trim_end_matches('/');
+    let path_text = path.to_string_lossy().replace('\\', "/");
+    if root_text.is_empty()
+        || path_text.len() <= root_text.len()
+        || !path_text.is_char_boundary(root_text.len())
+    {
+        return None;
+    }
+    let (prefix, rest) = path_text.split_at(root_text.len());
+    let matches = prefix == root_text || (cfg!(windows) && prefix.eq_ignore_ascii_case(root_text));
+    if !matches || !rest.starts_with('/') {
+        return None;
+    }
+    let rest = rest.trim_start_matches('/');
+    (!rest.is_empty()).then(|| rest.to_string())
 }
 
 pub(super) fn file_title(path: &Path) -> SharedString {
