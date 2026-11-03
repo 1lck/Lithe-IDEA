@@ -47,6 +47,7 @@ struct GitLogView: View {
     @State private var showCommitDecorations = true
     @State private var showLongGraphEdges = false
     @State private var graphNavigationRequest: GraphNavigationRequest?
+    @State private var historyActionMenuSession: UUID?
     @State private var selectedGitToolTab = GitToolTab.log
     @State private var selectedGitLogAuthor: GitLogAuthorSelection?
     @State private var selectedGitLogDatePreset = GitLogDatePreset.anyTime
@@ -195,6 +196,9 @@ struct GitLogView: View {
             await feature.applyGitLogFilter(gitLogQuery(now: Date()))
         }
         .onChange(of: feature.gitRepositoryRoot) { _ in
+            if let session = historyActionMenuSession {
+                LitheContextMenuPresenter.shared.dismissActionMenu(session: session)
+            }
             if feature.gitRepositoryRoot == nil { selectedGitToolTab = .log }
             headSelected = false
             graphPresentation = .empty
@@ -221,6 +225,10 @@ struct GitLogView: View {
         }
         .onDisappear {
             gitCommitFileLoadTask?.cancel()
+            if let session = historyActionMenuSession {
+                LitheContextMenuPresenter.shared.dismissActionMenu(session: session)
+            }
+            feature.historyEditing.cancelActionCapabilities()
         }
         .sheet(item: $branchDialogRequest) { request in
             GitBranchNameDialog(request: request) { name, checkout in
@@ -1438,6 +1446,21 @@ struct GitLogView: View {
                 scheduleGitCommitFileLoad(for: commit)
                 // A new request also scrolls when the endpoint is already selected.
                 graphNavigationRequest = GraphNavigationRequest(hash: hash)
+            },
+            contextCapabilities: { _ in
+                guard let root = feature.gitRepositoryRoot else { return nil }
+                return feature.historyEditing.capabilities(at: root)
+            },
+            onContextMenuPresented: { _, session, makeItems in
+                guard let root = feature.gitRepositoryRoot else { return }
+                historyActionMenuSession = session
+                feature.historyEditing.loadActionCapabilities(at: root) {
+                    LitheContextMenuPresenter.shared.refreshEnabledStates(session: session, items: makeItems())
+                }
+            },
+            onContextMenuDismissed: {
+                historyActionMenuSession = nil
+                feature.historyEditing.cancelActionCapabilities()
             }
         )
     }

@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "request": {
+    "root": ".",
+    "revisions": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
+  },
+  "headResponse": {
+    "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "canCherryPick": false,
+    "canUndo": true,
+    "canSquash": false
+  },
+  "otherResponse": {
+    "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "canCherryPick": true,
+    "canUndo": false,
+    "canSquash": false
+  }
+}

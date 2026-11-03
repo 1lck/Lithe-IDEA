@@ -9,6 +9,35 @@ import Testing
 @MainActor
 struct GitModuleTests {
     @Test
+    func historyActionCapabilityDropsCancelledSelectionResult() async throws {
+        let started = GitModuleTestGate(), release = GitModuleTestGate()
+        let operations = TestGitOperations(actionCapabilitiesHandler: { revisions in
+            if revisions == ["old"] {
+                started.open()
+                guard release.waitSynchronously() else { return .failure(GitHistoryActionFailure()) }
+            }
+            return .success(GitHistoryActionCapabilities(head: revisions.first, canCherryPick: true, canUndo: false, canSquash: false))
+        })
+        let editor = GitHistoryEditingFeatureModel(service: GitService(operations: operations), execute: { _, _, _ in nil })
+        let root = URL(fileURLWithPath: "/workspace")
+        defer { release.open(); editor.reset() }
+        editor.select("old", visibleHashes: ["old", "new"], additive: false, range: false)
+        var oldCallbacks = 0
+        let pending = try #require(editor.loadActionCapabilities(at: root) { oldCallbacks += 1 })
+        try #require(await started.waitUntilOpen())
+        editor.select("new", visibleHashes: ["old", "new"], additive: false, range: false)
+        #expect(oldCallbacks == 1) // The open menu is invalidated immediately.
+        let ready = GitModuleTestGate()
+        editor.loadActionCapabilities(at: root) { ready.open() }
+        try #require(await ready.waitUntilOpen())
+        #expect(editor.capabilities(at: root)?.head == "new")
+        release.open()
+        try #require(await waitForGitTaskCompletion(pending))
+        #expect(oldCallbacks == 1) // The cancelled read did not publish again.
+        #expect(editor.capabilities(at: root)?.head == "new")
+    }
+
+    @Test
     func independentDiffSessionsKeepBuffersAndRejectClosedReads() async throws {
         let root = URL(fileURLWithPath: "/workspace")
         let firstChange = GitChange(repositoryRoot: root, path: "first.txt", originalPath: nil,
@@ -6310,6 +6339,7 @@ private struct TestGitOperations: GitOperations {
     private let typedComparisonDiffDocumentValue: DiffDocument?
     private let historyValue: GitHistorySnapshot?
     private let historyDateHandler: (@Sendable (GitHistoryDateQuery) -> [String]?)?
+    private let actionCapabilitiesHandler: (@Sendable ([String]) -> Result<GitHistoryActionCapabilities, GitHistoryActionFailure>)?
     private let referencesValue: GitReferenceSnapshot?
     private let referencesByRoot: [String: GitReferenceSnapshot]?
     private let referencesProbe: GitReferencesLoadProbe?
@@ -6365,6 +6395,7 @@ private struct TestGitOperations: GitOperations {
         comparisonRowsRead: (@Sendable () -> DiffDocument?)? = nil,
         historyValue: GitHistorySnapshot? = nil,
         historyDateHandler: (@Sendable (GitHistoryDateQuery) -> [String]?)? = nil,
+        actionCapabilitiesHandler: (@Sendable ([String]) -> Result<GitHistoryActionCapabilities, GitHistoryActionFailure>)? = nil,
         referencesValue: GitReferenceSnapshot? = nil,
         referencesByRoot: [String: GitReferenceSnapshot]? = nil,
         referencesProbe: GitReferencesLoadProbe? = nil,
@@ -6423,6 +6454,7 @@ private struct TestGitOperations: GitOperations {
         self.comparisonRowsRead = comparisonRowsRead
         self.historyValue = historyValue
         self.historyDateHandler = historyDateHandler
+        self.actionCapabilitiesHandler = actionCapabilitiesHandler
         self.referencesValue = referencesValue
         self.referencesByRoot = referencesByRoot
         self.referencesProbe = referencesProbe
@@ -6528,6 +6560,9 @@ private struct TestGitOperations: GitOperations {
         applyPatchHandler?(patch, rootURL, mode)
     }
     func historyDateMatches(_ query: GitHistoryDateQuery) -> [String]? { historyDateHandler?(query) }
+    func historyActionCapabilities(at rootURL: URL, revisions: [String], operationID: String) -> Result<GitHistoryActionCapabilities, GitHistoryActionFailure> {
+        actionCapabilitiesHandler?(revisions) ?? .failure(GitHistoryActionFailure())
+    }
     func history(at rootURL: URL, reference: GitReference?, limit: Int) -> GitHistorySnapshot? {
         if let historyController {
             return historyController.history(at: rootURL, reference: reference, limit: limit)

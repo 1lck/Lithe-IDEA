@@ -48,6 +48,47 @@ struct GitStatusObservationTests {
         #expect(!feature.isFilteringGitLog)
     }
 
+    @Test @MainActor
+    func historyMenuCapabilitiesUseCoreAndInvalidateOnSelectionChange() async throws {
+        let fixture = try GitObservationFixture(label: "history-action-capabilities")
+        let root = fixture.url.appendingPathComponent("repository", isDirectory: true)
+        try await fixture.initializeRepository(at: root)
+        let first = try await fixture.git(["rev-parse", "HEAD"], at: root)
+        try await fixture.git(["commit", "--allow-empty", "-qm", "second"], at: root)
+        let head = try await fixture.git(["rev-parse", "HEAD"], at: root)
+        let operations = RustGitOperations(core: RustCoreBridge())
+        let service = GitService(operations: operations)
+        let editor = GitHistoryEditingFeatureModel(service: service, execute: { _, _, _ in nil })
+        defer { editor.reset() }
+        editor.select(head, visibleHashes: [head, first], additive: false, range: false)
+        let ready = TestGate(), refreshed = TestGate()
+        var changes = 0
+        editor.loadActionCapabilities(at: root) {
+            changes += 1
+            if changes == 1 { ready.open() }
+            if changes == 3 { refreshed.open() }
+        }
+        try #require(await ready.waitUntilOpen())
+        let headActions = try #require(editor.capabilities(at: root))
+        #expect(headActions.head == head)
+        #expect(headActions.canUndo)
+        #expect(!headActions.canCherryPick)
+        let history = try #require(operations.history(at: root, reference: nil, limit: 10))
+        editor.retainSelection(in: history.commits, fallback: head)
+        #expect(editor.capabilities(at: root) == nil)
+        try #require(await refreshed.waitUntilOpen())
+        #expect(editor.capabilities(at: root)?.canUndo == true)
+        editor.select(first, visibleHashes: [head, first], additive: false, range: false)
+        #expect(changes == 4)
+        #expect(editor.capabilities(at: root) == nil)
+        let next = TestGate()
+        editor.loadActionCapabilities(at: root) { next.open() }
+        try #require(await next.waitUntilOpen())
+        #expect(editor.capabilities(at: root)?.canCherryPick == true)
+        editor.selectForContextMenu(first)
+        #expect(editor.capabilities(at: root) == nil)
+    }
+
     @Test
     func savedStashSnapshotUsesCoreSectionsForTrackedUntrackedAndBinaryFiles() async throws {
         let fixture = try GitObservationFixture(label: "saved-stash-core")

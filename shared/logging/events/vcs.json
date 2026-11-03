@@ -470,6 +470,21 @@
       },
       "rate": 60,
       "owner": "lithe-core"
+    },
+    {
+      "id": "vcs.history_action_capabilities.failed",
+      "channel": "vcs",
+      "level": "warn",
+      "message": "Git history action eligibility could not be read",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Stable failure category for the history action eligibility request"
+        }
+      },
+      "rate": 60,
+      "owner": "LitheGitModule"
     }
   ]
 }

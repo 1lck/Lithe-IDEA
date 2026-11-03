@@ -2807,6 +2807,11 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::GitHistoryActionCapabilities => plugin_response(
+            id,
+            parsed.payload,
+            crate::git::history_action_capabilities_command,
+        ),
         CoreCommand::GitRollbackPrepare => {
             plugin_response(id, parsed.payload, crate::git::rollback_prepare_command)
         }

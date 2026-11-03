@@ -172,6 +172,11 @@ struct RustGitOperations: GitOperations, Sendable {
         write(at: rootURL, operation: "reset", revision: hash, mode: mode)
     }
 
+    func historyActionCapabilities(at rootURL: URL, revisions: [String], operationID: String) -> Result<GitHistoryActionCapabilities, GitHistoryActionFailure> {
+        core.gitHistoryActionCapabilities(at: rootURL, revisions: revisions, operationID: operationID)
+            .mapError { _ in GitHistoryActionFailure() }
+    }
+
     func historyRewritePreview(at rootURL: URL, operation: GitHistoryRewriteOperation, revisions: [String]) -> GitHistoryRewritePreview? {
         switch core.gitHistoryRewritePreview(at: rootURL, operation: operation, revisions: revisions) {
         case .success(let preview): return preview

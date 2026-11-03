@@ -42,18 +42,18 @@ import type { GitCommit, GitReference } from "../../types/git.types";
 import { layoutGitGraph } from "../../utils/git-graph-layout";
 import { matchesGitLogCommit } from "../../utils/git-log-filter";
 import {
-  isContiguousGitHistorySelection,
   selectedCommitsInHistoryOrder,
 } from "../../utils/git-history-selection";
 import { GitGraphCanvas, GitGraphRow, gitGraphWidth } from "./git-graph-row";
 import { GitLogBranchFilter } from "./git-log-branch-filter";
 import { GitLogColumnResizeHandle } from "./git-log-column-resize-handle";
 import { GitLogDateCell } from "./git-log-date-cell";
-import { isGitHeadCommit } from "../../utils/git-history-message";
+import { historyActionKey, useGitHistoryActionCapabilities, type GitHistoryActionRequest } from "../../hooks/use-git-history-action-capabilities";
 
 export function GitCommitTable({
   commits,
   repositoryCommits,
+  repoPath = null,
   references,
   selectedReference,
   emptyState,
@@ -85,6 +85,7 @@ export function GitCommitTable({
 }: {
   commits: GitCommit[];
   repositoryCommits?: readonly GitCommit[];
+  repoPath?: string | null;
   references?: readonly GitReference[];
   selectedReference?: GitReference | null;
   emptyState?: import("react").ReactNode;
@@ -121,6 +122,8 @@ export function GitCommitTable({
   onSelectReference: (reference: GitReference | null) => void;
 }) {
   const { t } = useTranslation();
+  const [actionRequest, setActionRequest] = useState<GitHistoryActionRequest | null>(null);
+  const capabilities = useGitHistoryActionCapabilities(repoPath, actionRequest);
   const query = useGitLogPreferencesStore.use.filterQuery();
   const scope = useGitLogPreferencesStore.use.filterScope();
   const showDecorations = useGitLogPreferencesStore.use.showDecorations();
@@ -166,6 +169,21 @@ export function GitCommitTable({
   const visibleCommitHashes = useMemo(
     () => visibleRows.map((row) => row.commit.hash),
     [visibleRows],
+  );
+  // Reuse the selected identities for every visible row, including when a
+  // large multi-selection crosses pages or the viewport scrolls.
+  const selectedForMenu = useMemo(
+    () => selectedCommitsInHistoryOrder(commits, selectedCommitHashes),
+    [commits, selectedCommitHashes],
+  );
+  const selectedRevisions = useMemo(() => selectedForMenu.map((commit) => commit.hash), [selectedForMenu]);
+  const selectedActionKey = useMemo(
+    () => repoPath ? historyActionKey(repoPath, selectedRevisions) : null,
+    [repoPath, selectedRevisions],
+  );
+  const requestedActionKey = useMemo(
+    () => repoPath && actionRequest ? historyActionKey(repoPath, actionRequest.revisions) : null,
+    [repoPath, actionRequest],
   );
   const pendingFocusRef = useRef<{
     commit: GitCommit;
@@ -513,17 +531,20 @@ export function GitCommitTable({
               {virtualRows.map((virtualRow) => {
                 const row = visibleRows[virtualRow.index];
                 const isSelected = selectedCommitHashes.has(row.commit.hash);
-                const contextSelection = selectedCommitsInHistoryOrder(
-                  commits,
-                  isSelected ? selectedCommitHashes : new Set([row.commit.hash]),
-                );
+                const contextSelection = isSelected ? selectedForMenu : [row.commit];
                 const hasMultipleContextCommits = contextSelection.length > 1;
-                const canSquash = isContiguousGitHistorySelection(
-                  commits,
-                  new Set(contextSelection.map((commit) => commit.hash)),
-                );
+                const revisions = isSelected ? selectedRevisions : [row.commit.hash];
+                const contextKey = isSelected ? selectedActionKey :
+                  repoPath ? historyActionKey(repoPath, revisions) : null;
+                const capabilityMatches = Boolean(capabilities && contextKey && contextKey === requestedActionKey);
+                const canSquash = Boolean(capabilityMatches && capabilities?.canSquash);
+                const canUndo = Boolean(capabilityMatches && capabilities?.canUndo);
+                const canCherryPick = Boolean(capabilityMatches && capabilities?.canCherryPick);
                 return (
-                  <ContextMenu key={row.commit.hash}>
+                  <ContextMenu key={row.commit.hash} onOpenChange={(open) => {
+                    if (open && repoPath) setActionRequest({owner: row.commit.hash, root: repoPath, session: crypto.randomUUID(), revisions});
+                    else setActionRequest((current) => current?.owner === row.commit.hash ? null : current);
+                  }}>
                     <ContextMenuTrigger
                       role="button"
                       tabIndex={-1}
@@ -579,9 +600,6 @@ export function GitCommitTable({
                         <>
                           <ContextMenuItem
                             disabled={isMutatingHistory || !canSquash}
-                            title={
-                              !canSquash ? t("git.historyReview.contiguousRequired") : undefined
-                            }
                             onClick={() => onSquash(contextSelection)}
                           >
                             <Squash />
@@ -611,9 +629,9 @@ export function GitCommitTable({
                           </ContextMenuItem>
                           <ContextMenuSeparator />
                           <ContextMenuItem
-                            disabled={isMutatingHistory || !isGitHeadCommit(row.commit)}
+                            disabled={isMutatingHistory || !canUndo}
                             title={
-                              !isGitHeadCommit(row.commit)
+                              capabilityMatches && capabilities?.head !== row.commit.hash
                                 ? t("git.historyReview.headRequired")
                                 : undefined
                             }
@@ -652,7 +670,7 @@ export function GitCommitTable({
                             {t("git.resetToCommit")}
                           </ContextMenuItem>
                           <ContextMenuItem
-                            disabled={isMutatingHistory || isGitHeadCommit(row.commit)}
+                            disabled={isMutatingHistory || !canCherryPick}
                             onClick={() => onCherryPick(row.commit)}
                           >
                             <CherryPick />

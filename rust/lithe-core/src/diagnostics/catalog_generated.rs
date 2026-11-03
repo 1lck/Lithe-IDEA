@@ -2537,6 +2537,18 @@ pub static EVENTS: &[EventMetadata] = &[
         owner: "lithe-core",
     },
     EventMetadata {
+        id: "vcs.history_action_capabilities.failed",
+        channel: "vcs",
+        level: LogLevel::Warn,
+        message: "Git history action eligibility could not be read",
+        fields: &[
+            FieldMetadata { name: "error", field_type: FieldType::Error, required: true, description: "Stable failure category for the history action eligibility request", reason: None },
+        ],
+        span: None,
+        rate: 60,
+        owner: "LitheGitModule",
+    },
+    EventMetadata {
         id: "vcs.history_date_query.failed",
         channel: "vcs",
         level: LogLevel::Error,

@@ -1181,6 +1181,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `remote.disconnect` | Close an open connection and its OpenSSH process tree |
 | `remote.closeAll` | Close every open connection; the host calls it at application exit |
 | `git.historyRewritePreview` | Review undo, message edit, squash, or drop with complete messages, eligibility, and an immutable checkout expectation |
+| `git.historyActionCapabilities` | Read history menu hints from actual HEAD and the bounded first-parent chain |
 | `git.rebasePreview` | Resolve the complete local linear range strictly after a selected unchanged base |
 | `git.rebaseStart` | Start a reviewed native interactive rebase with persisted messages and recovery identity |
 | `git.rebaseSession` | Read the latest owned rebase session and distinguish edit/conflict pauses from completion |
@@ -1881,6 +1882,19 @@ because it moves a ref without reconstructing or modifying that commit object.
 Native interactive rebases use the dedicated preview/start/session/control
 contract in [git-rebase-session.md](git-rebase-session.md). The base selected
 for “Rebase from Here” remains unchanged; only its successors are rewritten.
+
+`git.historyActionCapabilities` accepts `{root, revisions}` with at most 1,000
+full SHA-1 or SHA-256 commit identities and returns `head`, `canCherryPick`,
+`canUndo`, and `canSquash`. It resolves actual checkout HEAD rather than a
+visible or paginated row. Undo requires a checked-out branch and a HEAD with
+exactly one parent; squash requires a distinct contiguous selection on that
+branch's first-parent history within the latest 1,000 commits. Cherry-pick is
+only offered for a different existing commit. These are structural menu hints,
+not permission to mutate: `git.historyRewritePreview` still checks worktree,
+operation state, unsupported commits, published history, and the reviewed
+snapshot. Clients cancel and discard stale results when the menu closes,
+selection or repository changes, or the history is refreshed. See
+`shared/fixtures/git/history-action-capabilities-v1.json`.
 
 `git.historyRewritePreview` accepts `{ "root": string, "operation": string,
 "revisions": string[] }` for those four operations. It returns `operation`,

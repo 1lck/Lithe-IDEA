@@ -30,6 +30,10 @@ package final class GitHistoryEditingFeatureModel: ObservableObject {
     private var revisions: [String] = []
     private var generation: UInt64 = 0
     private var previewTask: Task<Void, Never>?
+    private var actionCapabilitiesTask: Task<Void, Never>?
+    private var actionCapabilitiesGeneration: UInt64 = 0
+    private var actionCapabilities: (root: URL, hashes: Set<String>, value: GitHistoryActionCapabilities)?
+    private var actionCapabilitiesContext: (root: URL, onChange: @MainActor () -> Void)?
 
     package init(
         service: GitService,
@@ -50,15 +54,64 @@ package final class GitHistoryEditingFeatureModel: ObservableObject {
     }
 
     package func select(_ hash: String, visibleHashes: [String], additive: Bool, range: Bool) {
+        let before = selection.hashes
         selection.select(hash, visibleHashes: visibleHashes, additive: additive, range: range)
+        if before != selection.hashes {
+            let onChange = actionCapabilitiesContext?.onChange
+            cancelActionCapabilities()
+            onChange?()
+        }
     }
 
     package func selectForContextMenu(_ hash: String) {
+        // A new menu must never briefly reuse the preceding menu's HEAD result.
+        let onChange = actionCapabilitiesContext?.onChange
+        cancelActionCapabilities()
         selection.selectForContextMenu(hash)
+        onChange?()
     }
 
     package func retainSelection(in commits: [GitCommit], fallback: String?) {
+        let context = actionCapabilitiesContext
+        cancelActionCapabilities()
         selection.retain(Set(commits.map(\.hash)), fallback: fallback)
+        if let context {
+            context.onChange()
+            loadActionCapabilities(at: context.root, onReady: context.onChange)
+        }
+    }
+
+    package func capabilities(at root: URL) -> GitHistoryActionCapabilities? {
+        guard let actionCapabilities, actionCapabilities.root == root,
+              actionCapabilities.hashes == selection.hashes else { return nil }
+        return actionCapabilities.value
+    }
+
+    @discardableResult
+    package func loadActionCapabilities(at root: URL, onReady: @escaping @MainActor () -> Void) -> Task<Void, Never>? {
+        cancelActionCapabilities()
+        let hashes = selection.hashes
+        guard !hashes.isEmpty else { return nil }
+        actionCapabilitiesContext = (root, onReady)
+        let requestGeneration = actionCapabilitiesGeneration
+        let operationID = UUID().uuidString
+        actionCapabilitiesTask = Task { [weak self, service] in
+            let value = await service.historyActionCapabilities(at: root, revisions: hashes.sorted(), operationID: operationID)
+            guard let self, !Task.isCancelled, self.actionCapabilitiesGeneration == requestGeneration,
+                  self.selection.hashes == hashes else { return }
+            self.actionCapabilitiesTask = nil
+            if let value { self.actionCapabilities = (root, hashes, value) }
+            onReady()
+        }
+        return actionCapabilitiesTask
+    }
+
+    package func cancelActionCapabilities() {
+        actionCapabilitiesGeneration &+= 1
+        actionCapabilitiesTask?.cancel()
+        actionCapabilitiesTask = nil
+        actionCapabilities = nil
+        actionCapabilitiesContext = nil
     }
 
     package func begin(_ operation: GitHistoryRewriteOperation, at root: URL, clickedHash: String) {
@@ -147,6 +200,7 @@ package final class GitHistoryEditingFeatureModel: ObservableObject {
     }
 
     package func reset() {
+        cancelActionCapabilities()
         generation &+= 1
         previewTask?.cancel()
         previewTask = nil

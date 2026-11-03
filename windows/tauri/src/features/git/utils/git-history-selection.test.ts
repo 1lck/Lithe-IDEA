@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  isContiguousGitHistorySelection,
   resolveGitHistoryContextSelection,
   selectedCommitsInHistoryOrder,
   updateGitHistorySelection,
@@ -38,17 +37,10 @@ describe("Git history selection", () => {
     expect(resolveGitHistoryContextSelection(selected, "a")).toEqual(new Set(["a"]));
   });
 
-  test("orders selected commits and detects gaps in the complete history", () => {
-    const commits = hashes.map((hash, index) => ({
-      hash,
-      parentHashes: hashes[index + 1] ? [hashes[index + 1]] : [],
-      decorations: index === 0 ? "HEAD -> main" : "",
-    }));
+  test("orders selected commits by the displayed history", () => {
+    const commits = hashes.map((hash) => ({ hash }));
     expect(selectedCommitsInHistoryOrder(commits, new Set(["b", "d"]))).toEqual([
-      commits[0],
-      commits[2],
+      commits[0], commits[2],
     ]);
-    expect(isContiguousGitHistorySelection(commits, new Set(["c", "b"]))).toBe(true);
-    expect(isContiguousGitHistorySelection(commits, new Set(["d", "b"]))).toBe(false);
   });
 });
