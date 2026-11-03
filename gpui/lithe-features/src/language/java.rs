@@ -139,7 +139,7 @@ impl JavaLanguageServiceModel {
                 }
                 Ok(false) => {}
                 Err(message) => {
-                    let _ = this.update(cx, |this, cx| {
+                    let _ = this.update(cx, |this, _cx| {
                         if this.generation != generation {
                             return;
                         }

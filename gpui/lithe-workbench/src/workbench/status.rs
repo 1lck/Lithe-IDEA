@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::{
-    AnyElement, AppContext as _, Context, FontWeight, Hsla, InteractiveElement as _, IntoElement,
+    AnyElement, Context, FontWeight, Hsla, InteractiveElement as _, IntoElement,
     ParentElement as _, RenderOnce as _, SharedString, StatefulInteractiveElement as _,
     Styled as _, WeakEntity, Window, div, px,
 };
