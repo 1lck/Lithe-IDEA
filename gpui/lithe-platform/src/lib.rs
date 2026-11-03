@@ -70,11 +70,34 @@ pub trait PlatformServices: Send + Sync + 'static {
     /// 在系统文件管理器中定位并选中指定路径；无法启动时为 `false`。
     fn reveal_path(&self, path: &Path) -> bool;
 
+    /// 把路径移到系统回收站（Windows 回收站 / macOS 废纸篓 / Linux Trash）；
+    /// 失败时返回可直接展示给用户的原因。
+    ///
+    /// 与 `reveal_path` 不同，这里不能只报告“是否启动成功”：移到回收站可能
+    /// 因为路径不存在、权限不足、目标卷没有回收站而失败，调用方要把失败原因
+    /// 显示出来，并且**不能**在失败后静默永久删除。
+    fn move_to_trash(&self, path: &Path) -> Result<(), String>;
+
     /// 最近打开过的项目，最近使用的排在最前面。
     fn recent_projects(&self) -> Vec<PathBuf>;
 
     /// 记录一次项目打开，并同步更新持久化列表。
     fn remember_project(&self, path: &Path);
+}
+
+/// 三端共用的“移到回收站”实现。
+///
+/// `trash` crate 已经覆盖 Windows（`IFileOperation` + `FOF_ALLOWUNDO`）、
+/// macOS（`NSFileManager.trashItem`）和 Linux（Freedesktop Trash 规范），
+/// 因此平台实现只做转调，避免每个平台各写一套回收站定位逻辑。
+///
+/// # 失败风险
+///
+/// Windows 上目标卷不支持回收站时，系统可能直接永久删除；本函数只把 crate
+/// 返回的错误透出，无法保证“一定进了回收站”。界面层因此仍保留一次显式的
+/// 永久删除确认，作为回收站不可用时的回退。
+pub(crate) fn trash_path(path: &Path) -> Result<(), String> {
+    trash::delete(path).map_err(|error| error.to_string())
 }
 
 /// 返回当前平台的服务实现。
@@ -141,6 +164,12 @@ impl PlatformServices for UnsupportedPlatform {
 
     fn reveal_path(&self, _path: &Path) -> bool {
         false
+    }
+
+    /// 未知平台没有约定的回收站位置，直接报告失败；调用方据此决定是否
+    /// 让用户显式确认永久删除。
+    fn move_to_trash(&self, _path: &Path) -> Result<(), String> {
+        Err("Moving items to the trash is not supported on this platform.".to_string())
     }
 
     fn recent_projects(&self) -> Vec<PathBuf> {

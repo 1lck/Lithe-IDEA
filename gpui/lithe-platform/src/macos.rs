@@ -49,6 +49,10 @@ impl PlatformServices for MacPlatform {
         Command::new("open").arg("-R").arg(path).spawn().is_ok()
     }
 
+    fn move_to_trash(&self, path: &Path) -> Result<(), String> {
+        crate::trash_path(path)
+    }
+
     fn recent_projects(&self) -> Vec<PathBuf> {
         recent_projects::load()
     }

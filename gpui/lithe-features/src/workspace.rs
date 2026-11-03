@@ -20,11 +20,13 @@
 //!
 //! # 文件操作
 //!
-//! 右键目录/文件行打开自绘上下文菜单；新建、重命名使用面板内的模态输入
-//! 覆盖层，删除先弹确认覆盖层。所有磁盘 I/O（含路径安全校验里的
-//! `canonicalize`）都在 `cx.background_spawn` 里执行，结果回到视图线程后
-//! 才修改状态。构造期不创建 `InputState`、不 spawn；输入框和首帧初始化都
-//! 通过 `Render` 里的 `defer_in` 排到当前借用释放之后。
+//! 右键目录/文件行打开自绘上下文菜单（新建、复制路径、在文件管理器中显示、
+//! 重命名、移到回收站、刷新）；新建和重命名使用面板内的模态输入覆盖层，
+//! 删除先弹确认覆盖层并**移到系统回收站**，只有回收站失败后才提供一次显式
+//! 的永久删除。所有磁盘 I/O（含路径安全校验里的 `canonicalize`）都在
+//! `cx.background_spawn` 里执行，结果回到视图线程后才修改状态。构造期不创建
+//! `InputState`、不 spawn；输入框和首帧初始化都通过 `Render` 里的 `defer_in`
+//! 排到当前借用释放之后。
 //!
 //! 目标路径统一按 `root.join(relative)` 计算，并对**父目录**做
 //! `canonicalize`，要求它仍在规范化后的工作区根内；空名称、绝对路径和
@@ -70,13 +72,34 @@ fn absolute_from_relative(root: &Path, relative: &str) -> PathBuf {
     root.join(relative)
 }
 
+/// 「Copy Path」写进剪贴板的文本。
+fn absolute_copy_text(root: &Path, relative: &str) -> String {
+    absolute_from_relative(root, relative).display().to_string()
+}
+
+/// 「Copy Relative Path」写进剪贴板的文本。
+///
+/// 树节点的相对路径本身就是 `/` 分隔；工作区根没有相对路径，按 macOS
+/// `copyProjectItemPath` 的约定写成 `.`，避免复制出空字符串。
+fn relative_copy_text(relative: &str) -> String {
+    if relative.is_empty() {
+        ".".to_string()
+    } else {
+        relative.to_string()
+    }
+}
+
 /// 右键菜单里的一项。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum MenuAction {
     NewFile,
     NewFolder,
+    CopyPath,
+    CopyRelativePath,
+    Reveal,
     Rename,
-    Delete,
+    MoveToTrash,
+    Refresh,
 }
 
 impl MenuAction {
@@ -85,9 +108,25 @@ impl MenuAction {
         match self {
             MenuAction::NewFile => "new-file",
             MenuAction::NewFolder => "new-folder",
+            MenuAction::CopyPath => "copy-path",
+            MenuAction::CopyRelativePath => "copy-relative-path",
+            MenuAction::Reveal => "reveal",
             MenuAction::Rename => "rename",
-            MenuAction::Delete => "delete",
+            MenuAction::MoveToTrash => "move-to-trash",
+            MenuAction::Refresh => "refresh",
         }
+    }
+}
+
+/// 「在文件管理器中显示」的平台文案：macOS 对齐 Finder，其余平台对齐资源管理器。
+fn reveal_label() -> &'static str {
+    #[cfg(target_os = "macos")]
+    {
+        tr("Show in Finder")
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        tr("Reveal in File Explorer")
     }
 }
 
@@ -149,14 +188,19 @@ struct NameDialog {
     pending_focus: bool,
 }
 
-/// 删除确认覆盖层状态。
+/// 删除（移到回收站）确认覆盖层状态。
 #[derive(Clone)]
-struct DeleteRequest {
+struct TrashRequest {
     /// 要删除的工作区相对路径；根目录不允许删除。
     path: String,
     is_directory: bool,
-    /// 上一次删除失败的原因；成功前覆盖层保持打开。
+    /// 上一次移到回收站失败的原因；成功前覆盖层保持打开。
     error: Option<SharedString>,
+    /// 回收站不可用时是否允许用户显式永久删除。
+    ///
+    /// 只有一次真实的“移到回收站”失败后才会置位：永久删除必须由用户在
+    /// 详情里再点一次，绝不能在回收站失败后自动执行。
+    permanent_delete_available: bool,
 }
 
 /// 一次实际执行的磁盘操作。只携带所有权数据，便于移动到后台执行器。
@@ -171,7 +215,12 @@ enum FileOperation {
         from: String,
         to: String,
     },
-    Delete {
+    /// 移到系统回收站；失败时上层显示原因，并让用户显式决定是否永久删除。
+    MoveToTrash {
+        relative: String,
+    },
+    /// 永久删除。只作为回收站不可用时的显式回退，不能由菜单直接触发。
+    DeletePermanently {
         relative: String,
         is_directory: bool,
     },
@@ -211,7 +260,15 @@ impl FileOperation {
                 }
                 std::fs::rename(&source, &target).map_err(|error| error.to_string())
             }
-            FileOperation::Delete {
+            FileOperation::MoveToTrash { relative } => {
+                let target = checked_target(&canonical_root, &relative)?;
+                if !target.exists() {
+                    return Err(tr("File no longer exists").to_string());
+                }
+                // 三端回收站逻辑收敛在平台层；这里只透出失败原因。
+                lithe_platform::current().move_to_trash(&target)
+            }
+            FileOperation::DeletePermanently {
                 relative,
                 is_directory,
             } => {
@@ -265,8 +322,8 @@ pub struct ProjectTree {
     menu: Option<ContextMenu>,
     /// 当前打开的新建 / 重命名覆盖层。
     dialog: Option<NameDialog>,
-    /// 当前打开的删除确认覆盖层。
-    pending_delete: Option<DeleteRequest>,
+    /// 当前打开的删除（移到回收站）确认覆盖层。
+    pending_delete: Option<TrashRequest>,
     /// 文件操作进行中；阻止菜单项和确认按钮重复触发。
     busy: bool,
     /// 菜单与删除确认的键盘焦点；Escape 关闭。构造期创建不需要 Window。
@@ -748,6 +805,8 @@ impl ProjectTree {
     }
 
     /// 执行菜单项。菜单本身先关闭，再打开覆盖层。
+    ///
+    /// 复制路径、在文件管理器中显示、刷新都是即时动作，不打开任何覆盖层。
     fn activate_menu_entry(
         &mut self,
         action: MenuAction,
@@ -772,6 +831,24 @@ impl ProjectTree {
                 };
                 self.begin_name_dialog(kind, directory, None, String::new(), false, cx);
             }
+            MenuAction::CopyPath => {
+                self.copy_path_text(&menu, false, cx);
+            }
+            MenuAction::CopyRelativePath => {
+                self.copy_path_text(&menu, true, cx);
+            }
+            MenuAction::Reveal => {
+                if let Some(root) = self.root.clone() {
+                    let absolute = absolute_from_relative(&root, &menu.path);
+                    // 系统文件管理器启动失败时把原因留在状态栏，不静默忽略。
+                    if lithe_platform::current().reveal_path(&absolute) {
+                        self.error = None;
+                    } else {
+                        self.error = Some(SharedString::from(tr("File operation failed")));
+                    }
+                }
+                cx.notify();
+            }
             MenuAction::Rename => {
                 if menu.path.is_empty() {
                     // 工作区根不能被重命名。
@@ -787,20 +864,56 @@ impl ProjectTree {
                     cx,
                 );
             }
-            MenuAction::Delete => {
+            MenuAction::MoveToTrash => {
                 if menu.path.is_empty() {
                     // 工作区根不能被删除。
                     return;
                 }
-                self.pending_delete = Some(DeleteRequest {
+                self.pending_delete = Some(TrashRequest {
                     path: menu.path,
                     is_directory: menu.is_directory,
                     error: None,
+                    permanent_delete_available: false,
                 });
                 self.overlay_focus.focus(window, cx);
                 cx.notify();
             }
+            MenuAction::Refresh => {
+                if menu.path.is_empty() {
+                    // 根节点：整棵树重载，对齐 macOS 的 refreshWorkspace。
+                    self.refresh(window, cx);
+                    return;
+                }
+                // 目录刷新自己；文件刷新所在目录。
+                let directory = if menu.is_directory {
+                    menu.path
+                } else {
+                    parent_of(&menu.path)
+                };
+                self.refresh_directory(directory, cx);
+                cx.notify();
+            }
         }
+    }
+
+    /// 把绝对路径或工作区相对路径写进剪贴板。
+    ///
+    /// 相对路径沿用树节点的 `/` 分隔；根目录的相对路径按 macOS 的约定写成
+    /// `.`，避免复制出空字符串。
+    fn copy_path_text(&mut self, menu: &ContextMenu, relative: bool, cx: &mut Context<Self>) {
+        let Some(root) = self.root.clone() else {
+            self.error = Some(SharedString::from(tr("No project open")));
+            cx.notify();
+            return;
+        };
+        let text = if relative {
+            relative_copy_text(&menu.path)
+        } else {
+            absolute_copy_text(&root, &menu.path)
+        };
+        cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(text));
+        self.error = None;
+        cx.notify();
     }
 
     /// 打开新建 / 重命名输入覆盖层。
@@ -950,8 +1063,8 @@ impl ProjectTree {
         self.run_operation(operation, vec![directory], forget, reselect, cx);
     }
 
-    /// 确认删除覆盖层。破坏性操作必须经过这里，不能从菜单直接删除。
-    fn confirm_delete(&mut self, cx: &mut Context<Self>) {
+    /// 确认把目标移到回收站。破坏性操作必须经过覆盖层，不能从菜单直接执行。
+    fn confirm_move_to_trash(&mut self, cx: &mut Context<Self>) {
         if self.busy {
             return;
         }
@@ -966,7 +1079,39 @@ impl ProjectTree {
 
         let directory = parent_of(&request.path);
         self.run_operation(
-            FileOperation::Delete {
+            FileOperation::MoveToTrash {
+                relative: request.path.clone(),
+            },
+            vec![directory],
+            Some(request.path),
+            None,
+            cx,
+        );
+    }
+
+    /// 回收站不可用时的显式回退：永久删除。
+    ///
+    /// 只有 `permanent_delete_available` 为真（上一次移到回收站确实失败）时才
+    /// 允许进入，避免把永久删除做成任何一次误触就能到达的默认行为。
+    fn confirm_permanent_delete(&mut self, cx: &mut Context<Self>) {
+        if self.busy {
+            return;
+        }
+        let Some(request) = self.pending_delete.clone() else {
+            return;
+        };
+        if !request.permanent_delete_available {
+            return;
+        }
+        if request.path.is_empty() || !is_safe_relative(&request.path) {
+            self.error = Some(SharedString::from(tr("Invalid name")));
+            cx.notify();
+            return;
+        }
+
+        let directory = parent_of(&request.path);
+        self.run_operation(
+            FileOperation::DeletePermanently {
                 relative: request.path.clone(),
                 is_directory: request.is_directory,
             },
@@ -1005,6 +1150,8 @@ impl ProjectTree {
         };
 
         let generation = self.generation;
+        // 只有“移到回收站”失败才允许把永久删除作为显式回退暴露出来。
+        let trash_attempt = matches!(operation, FileOperation::MoveToTrash { .. });
         self.busy = true;
         self.error = None;
         cx.notify();
@@ -1046,6 +1193,11 @@ impl ProjectTree {
                         }
                         if let Some(delete) = this.pending_delete.as_mut() {
                             delete.error = Some(SharedString::from(detail));
+                            // 回收站失败后不自动永久删除：只把回退按钮显示出来，
+                            // 由用户在下一次点击里显式确认。
+                            if trash_attempt {
+                                delete.permanent_delete_available = true;
+                            }
                         }
                     }
                 }
@@ -1205,24 +1357,60 @@ impl ProjectTree {
                 tokens,
                 cx,
             ));
+            items = items.child(render_menu_separator(tokens));
         }
-        // 工作区根只能作为新建的目标，不能重命名或删除。
-        if !menu.path.is_empty() {
-            items = items.child(render_menu_item(
-                MenuAction::Rename,
-                tr("Rename"),
+        // 复制与定位对目录、文件和根节点都适用，对齐 macOS 的
+        // Copy Path / Copy Relative Path / Show in Finder。
+        items = items
+            .child(render_menu_item(
+                MenuAction::CopyPath,
+                tr("Copy Path"),
+                false,
+                tokens,
+                cx,
+            ))
+            .child(render_menu_item(
+                MenuAction::CopyRelativePath,
+                tr("Copy Relative Path"),
+                false,
+                tokens,
+                cx,
+            ))
+            .child(render_menu_item(
+                MenuAction::Reveal,
+                reveal_label(),
                 false,
                 tokens,
                 cx,
             ));
-            items = items.child(render_menu_item(
-                MenuAction::Delete,
-                tr("Delete"),
-                true,
+        // 工作区根只能作为新建、复制和定位的目标，不能重命名或删除。
+        if !menu.path.is_empty() {
+            items = items
+                .child(render_menu_separator(tokens))
+                .child(render_menu_item(
+                    MenuAction::Rename,
+                    tr("Rename"),
+                    false,
+                    tokens,
+                    cx,
+                ))
+                .child(render_menu_item(
+                    MenuAction::MoveToTrash,
+                    tr("Move to Trash"),
+                    true,
+                    tokens,
+                    cx,
+                ));
+        }
+        items = items
+            .child(render_menu_separator(tokens))
+            .child(render_menu_item(
+                MenuAction::Refresh,
+                tr("Refresh"),
+                false,
                 tokens,
                 cx,
             ));
-        }
 
         deferred(
             anchored().position(menu.position).snap_to_window().child(
@@ -1362,14 +1550,25 @@ impl ProjectTree {
             .into_any_element()
     }
 
-    /// 删除二次确认覆盖层：显示完整路径并明确不可撤销。
+    /// 删除二次确认覆盖层：默认动作是「移到回收站」。
+    ///
+    /// 回收站失败后，同一覆盖层会显示失败原因和一个额外的显式「删除」（永久）
+    /// 按钮；它只在 `permanent_delete_available` 为真时出现，保证永久删除
+    /// 永远需要用户多一次点击。
     fn render_delete_dialog(
         &self,
-        request: &DeleteRequest,
+        request: &TrashRequest,
         tokens: LitheTokens,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let busy = self.busy;
+        let permanent = request.permanent_delete_available;
+        // 回退状态标题换成过去的「删除？」：此时动作确实不可撤销。
+        let title = if permanent {
+            tr("Delete?")
+        } else {
+            tr("Move to Trash")
+        };
         let display = self
             .root
             .as_ref()
@@ -1387,6 +1586,38 @@ impl ProjectTree {
                     .text_color(tokens.error)
                     .child(error),
             );
+        }
+
+        // 只在回收站确实失败后出现：永久删除是不可撤销的回退，必须多一次点击。
+        let mut warning_line = None;
+        if permanent {
+            warning_line = Some(
+                div()
+                    .w_full()
+                    .text_size(px(LitheMetrics::SETTINGS_FONT_SIZE))
+                    .text_color(tokens.secondary_text)
+                    .child(tr("This action cannot be undone by Lithe.")),
+            );
+        }
+
+        // 主按钮随状态切换：默认移到回收站，回收站失败后才换成永久删除。
+        let mut primary = Button::new("lithe-project-tree:delete-confirm")
+            .danger()
+            .small()
+            .label(tr("Move to Trash"))
+            .disabled(busy)
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.confirm_move_to_trash(cx);
+            }));
+        if permanent {
+            primary = Button::new("lithe-project-tree:delete-permanent")
+                .danger()
+                .small()
+                .label(tr("Delete"))
+                .disabled(busy)
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.confirm_permanent_delete(cx);
+                }));
         }
 
         div()
@@ -1429,14 +1660,7 @@ impl ProjectTree {
                             .text_size(px(14.0))
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(tokens.primary_text)
-                            .child(tr("Delete?")),
-                    )
-                    .child(
-                        div()
-                            .w_full()
-                            .text_size(px(LitheMetrics::SETTINGS_FONT_SIZE))
-                            .text_color(tokens.secondary_text)
-                            .child(tr("This action cannot be undone by Lithe.")),
+                            .child(title),
                     )
                     .child(
                         div()
@@ -1448,6 +1672,7 @@ impl ProjectTree {
                             .child(display),
                     )
                     .when_some(error_line, |this, error| this.child(error))
+                    .when_some(warning_line, |this, warning| this.child(warning))
                     .child(
                         div()
                             .w_full()
@@ -1465,16 +1690,7 @@ impl ProjectTree {
                                         cx.notify();
                                     })),
                             )
-                            .child(
-                                Button::new("lithe-project-tree:delete-confirm")
-                                    .danger()
-                                    .small()
-                                    .label(tr("Delete"))
-                                    .disabled(busy)
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.confirm_delete(cx);
-                                    })),
-                            ),
+                            .child(primary),
                     ),
             )
             .into_any_element()
@@ -1504,6 +1720,17 @@ impl ProjectTree {
         }
         root.into_any_element()
     }
+}
+
+/// 菜单分组之间的细分隔线；与菜单同宽、不可点击。
+fn render_menu_separator(tokens: LitheTokens) -> AnyElement {
+    div()
+        .w_full()
+        .h(px(1.0))
+        .my(px(4.0))
+        .flex_shrink_0()
+        .bg(tokens.panel_border)
+        .into_any_element()
 }
 
 /// 单个菜单项。`cx.listener` 需要视图上下文，因此作为自由函数接收 `cx`。
@@ -1815,5 +2042,14 @@ mod tests {
         let joined = absolute_from_relative(root, "a/b/c.txt");
         assert_eq!(joined, PathBuf::from("/work/project/a/b/c.txt"));
         assert_eq!(joined.components().count(), 6);
+    }
+
+    /// 「Copy Relative Path」必须复制 `/` 分隔的工作区相对路径；工作区根没有
+    /// 相对路径，对齐 macOS `copyProjectItemPath` 复制 `.`，不能复制空字符串。
+    #[test]
+    fn copy_relative_text_uses_workspace_relative_path() {
+        assert_eq!(relative_copy_text("src/main.rs"), "src/main.rs");
+        assert_eq!(relative_copy_text("a/b/c.txt"), "a/b/c.txt");
+        assert_eq!(relative_copy_text(""), ".");
     }
 }

@@ -50,6 +50,12 @@ impl PlatformServices for LinuxPlatform {
         Command::new("xdg-open").arg(target).spawn().is_ok()
     }
 
+    fn move_to_trash(&self, path: &Path) -> Result<(), String> {
+        // Freedesktop Trash 规范：没有可写的回收站目录时 crate 会返回错误，
+        // 界面层会把原因显示出来，再让用户显式确认是否永久删除。
+        crate::trash_path(path)
+    }
+
     fn recent_projects(&self) -> Vec<PathBuf> {
         recent_projects::load()
     }
