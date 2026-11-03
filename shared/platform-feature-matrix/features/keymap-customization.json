@@ -17,7 +17,7 @@
       "windows/tauri/src/features/settings/components/settings-panels.tsx",
       "windows/tauri/src/features/settings/components/tabs/keyboard-settings.tsx",
       "windows/tauri/src/features/settings/components/keyboard-settings-routing.test.tsx",
-      "rust/lithe-core/src/keymap.rs",
+      "rust/lithe-core/src/keymap/mod.rs",
       "shared/fixtures/keymap/context-v1.json",
       "windows/tauri/src/features/keymaps/utils/context.native.integration.test.ts"
     ],
