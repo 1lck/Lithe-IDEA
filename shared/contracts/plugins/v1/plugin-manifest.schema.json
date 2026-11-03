@@ -1296,7 +1296,7 @@
             }
           ]
         },
-        "arguments": { "type": "array", "items": { "type": "string" } },
+        "arguments": { "description": "API 2 launch templates include ${logDir}, supplied explicitly as absolute logDirectory by the host for the current session plugin files directory; never inferred from installation paths.", "type": "array", "items": { "type": "string" } },
         "validationArguments": { "type": "array", "items": { "type": "string" } },
         "runtimeDependencies": {
           "type": "array",

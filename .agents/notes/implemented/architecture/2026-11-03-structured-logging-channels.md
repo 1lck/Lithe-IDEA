@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-日志接入以共享事件目录声明事实，由生成的类型约束字段；Core 负责通道、单行格式、查询和保留计划，平台负责实际文件操作。PR2 已把 macOS 生产写入器（负责排队和写盘的组件）与宿主调用点接到 v2；Windows 继续使用 v1。macOS 升级前的 v1 文件不显示、不解析，只参与保留计划并按 30 天自然过期。后续接入必须使用已校验的身份生成通道，不能把显示名称或用户输入变成目录。
+日志接入以共享事件目录声明事实，由生成的类型约束字段；Core 负责通道、单行格式、查询和保留计划，平台负责实际文件操作。PR2 已把 macOS 生产写入器（负责排队和写盘的组件）与宿主调用点接到 v2；Windows 继续使用 v1。macOS 升级前的 v1 文件不显示、不解析，只参与保留计划并按 30 天自然过期。PR3 已在 Core 实现角色通道、上游诊断、有界日志队列与插件目录，并接入 macOS 统一写入器和诊断开关。后续接入必须使用已校验的身份生成通道，不能把显示名称或用户输入变成目录。
 
 ## 问题
 
@@ -83,6 +83,30 @@ macOS 的宿主调用点、类型化写入与诊断收集已落地。引擎身�
 
 用法门禁按文件和规则核对旧调用的精确计数。基线只减不增，迁移后必须删除对应存量计数，不能换位置藏违规；永久例外另有明确架构理由与精确计数。该检查覆盖已列出的直接写法，不是跨文件别名分析，也不能代替人工审查。目录中的 rate 只是元数据，PR1 不执行运行时限流。
 
+### PR3：由引擎声明身份，macOS 接入统一写入器
+
+同一个引擎承载语言服务、版本控制、构建、工具链和插件后端，provider ID（提供者身份）可能含冒号，不能直接成为目录段。宿主显式传 `role` 和 VCS 的 `logSubject`，Core 校验身份并选择目录事件族：语言服务用 `lsp.*`，VCS 用 `vcs.*`，其他插件进程用 `plugins.host.*`。目录模板和必填身份字段仍唯一决定通道，不扩大 schema 允许任意 channel。旧宿主不传 role 时继续按语言服务处理。macOS 各启动者显式传角色和插件 ID，VCS 传真实 target.vcs；远程语言会话仍属于 language_server。启动响应返回 Core 生成的 channel，宿主用它登记详细诊断 I/O。
+
+合法语言 ID 不等于合法路径段。遇到非法段或缺少身份时，Core 用原始身份的 SHA-256 前 32 位小写十六进制加 `invalid-` 前缀；缺值时哈希完整 provider ID。这样不会阻断进程启动或静默丢日志，也不把原文泄漏成目录。正确做法是 VCS 宿主从已注册目录传 `role:vcs, logSubject:git`；不要拆 `vcsProvider:<plugin>:<vcs>` 猜身份。
+
+引擎在日志源头选择封闭的事实类型，既有英文 message/detail/error 留作 v1 兼容；v2 使用目录 ID 和标量字段，经过同一个 Core 目录规范化、脱敏与通道推导边界。stderr 的读取状态最多保留 4 KiB 半行，按 LF 切分、去末尾 CR、忽略空行并冲刷 EOF 残余；每单调秒接纳 200 行，后续读取跨窗或结束时汇总丢弃计数。测试直接传毫秒值，不装计时器、不等真实一秒。text 落盘前仍执行 1 KiB 规范化。
+
+`window/logMessage` 与 `window/showMessage` 复用结果词为过去时的 `*.message.logged/shown`；其他通知只记录方法，不把协议正文变成 text。trace 默认关闭，显式开关与发往上游的 `$/setTrace` 共用有序写锁，成功写入后才改变采集状态；只接纳限长并脱敏的 message 摘要，排除可能含 RPC 原始载荷和源码的 verbose。凭据脱敏和截断无法把源码转换为可落盘诊断；旧内存 detail 的兼容不代表允许把它写入 v2。macOS 已删除消息字符串匹配和重复 session 状态事实，按目录元数据取 v2 级别。带 Core 记录的 log 不再触发重复 onLogIssue，宿主自身启动/发现/请求失败仍走既有错误边界。
+
+详细诊断已开启时，新会话注册可能早于初始化响应。Core 此时只保存最新开关值，等握手完成后把 `$/setTrace` 排在 `initialized` 后；初始化前关闭会撤销待发送的启用。不要在注册时立即写通知，否则严格遵循 LSP 的服务器会丢弃它，宿主却以为已经开启。
+
+Core 拥有会话生命周期状态。`*.session.updated` 直接附到已有 `type:stateChanged` 事件，复用 `enqueue_runtime_event` 内同一个 `prepare_catalog_event` 校验，不额外推送 v1 log 行，也不改 type/state/message 等兼容字段。Swift 在 switch 前对任何带 coreLog 的事件转发一次，manager 清除 UI 身份后仍把退休会话的最终 Core 事实交给 sink，不套用 UI 过期回调检查；VCS、构建、工具链和后端会话同样收到生命周期事实。不要通过新增 log 行补证据，否则 Windows frontendTrace 与 macOS 100 条缓冲都会改变。
+
+宿主只拥有启动编排阶段，在实际调用点发 `lsp.session.stage_changed`（requested/resolving/registered/stopping/cancelled）和 `lsp.cache.cleaned`（removed 计数），由 manager 的注入 LogSink 接收。两者选 DEBUG，因为描述内部阶段和维护信息；缓存清理不是 Core 配置键清理，不能复用 configuration.cleaned。ready/terminated 已由 Core protocol.initialized 与 session.updated 表达，宿主继续保留原 v1 行但不重复发 v2。
+
+启动前的宿主事实也必须落到同一通道。正确做法是调用纯命令 `diagnostics.resolveEngineLogSubject`，Core 直接复用启动的 SessionLogIdentity；不要让 Swift 再实现哈希或自行用 providerID 构造段。manager 按 providerID 缓存成功或失败（最多 128 项，满时清空），阶段、缓存、degradation/issue 都使用该段；解析失败仅不发该宿主 v2 事件，保留既有启动与缓冲行为。参数错误沿用 invalid_request。
+
+六处非 LSP 直接打印改为进程级 Core 队列：只接纳 owner 为 lithe-core 的目录事实，入队前规范化，最多 256 条，重复待取事实与超额计数，由宿主一次 drain 取走并重置。队列没有文件 writer、后台任务或独立持久化；遍历只记相对路径和稳定错误类别，远程清理只记类别，不记录地址、scratch 名称或输出。现有请求事件流只覆盖单个请求，无法覆盖析构和后台清理，因此选择独立有界 handoff（交给宿主写入的内存队列）。
+
+`${logDir}` 从启动上下文的绝对 `logDirectory` 展开，共用语言服务与后端启动路径；宿主创建当前应用会话的插件 files 目录。Core 只拼接文本，不创建目录，不从插件安装位置推导可写位置。这些文件属于运行状态，不跨 worktree 复用，不改变签名或 Sparkle delta 源基线。macOS 当前日志会话目录由统一存储器提供，Core plugin_files_path 决定相对部分。平台以 mkdirat/openat/O_NOFOLLOW 逐段创建 0700 目录并拒绝符号链接，避免检查与创建之间被换成越界链接。存储不可用时省略路径；使用变量的模板由 Core 按既有 invalidRequest 拒绝。远程进程无法写本机日志目录，同样省略并拒绝该变量。安装阶段只用未创建的占位目录校验展开。静态只读边界验证与组件测试不等于真实应用 bundle hash smoke。
+
+目录适配器抛出的真实 I/O 错误也按存储不可用处理，由 Core 检查模板是否依赖 `${logDir}`。不使用该变量的插件继续启动；不能把可选日志目录变成全部语言服务、构建、VCS、后端和调试器的前置条件。
+
 ### 保留以完整会话为主，Core 只计算删除计划
 
 年龄和总量策略按完整会话删除，先过期再从最老会话释放空间。当前会话及其所有文件始终受保护，预算可能暂时无法满足。单通道轮转以 10 MiB 为阈值，共保留三段（含活动文件）；Core 用 `~N.log` 生成轮转名，例如 `vcs/git~1.log`、`vcs/git~2.log`，活动文件仍为 `vcs/git.log`。`~` 不属于任何合法通道段，因此 `lsp/foo.1.log` 永远是 `lsp/foo.1` 的活动文件；查询和性能保留分类同时使用新命名，不能再剥掉点号数字后缀。实际轮转由平台执行。
@@ -90,6 +114,18 @@ macOS 的宿主调用点、类型化写入与诊断收集已落地。引擎身�
 保留计划的默认值是 30 天、总量 100 MiB、性能 20 MiB、每插件每会话 files 20 MiB。性能预算可删除非活动会话内的性能文件；插件超额返回告警，只有启动清理允许删除非活动会话中最老的插件文件。这两项是完整会话删除之外的明确例外；告警去重由后续宿主负责。
 
 旧 `<category>/lithe.*.log` 不迁移、不改写。共享查询 API 保留 v1 只读能力，但 macOS 不向它提供 v1 输入；旧文件计入总量但仅按年龄删除，不因总量压力提前清理。Core 接收平台采集的文件清单和显式时间，返回相对路径计划；平台执行并报告真实 I/O 结果，不能把计划当成删除成功。
+
+### PR3 的兼容输入与 macOS I/O
+
+v1 的 detail/message/level 是兼容边界，必须保持原字节：例如 projectCount=N、navigation 的 format 文本和通知的原 JSON。EngineLogInput 另外携带源头字段，fact 不再解析 detail。stderr 是唯一明确行为变化：按 LF 切行、去尾部 CR，v1 detail 保留该行文本及空格；v2 再脱敏与限长。新增 dropped 只用 count=N，不以 JSON 冒充旧结构化 detail。
+
+Core 的目录遍历和 scratch 清理复用 PR1 已声明的 app.search.directory_skipped、app.workspace.directory_skipped 和 app.workspace.scratch_cleanup_failed；error 只含固定消息、稳定类别与固定 domain，不含绝对路径、scratch 名或远程地址。删除重复 app.project.directory_skipped、remote.scratch.cleanup_failed。remote process/upload 按 ClientError 变体映射 timeout、closed、transport、spawn、protocol 或 remote_<协议码>，不保留正文。
+
+CoreLogRecord 只接受标量，保留 event、目录 level、channel、op 和源 ts。LogSink 的 MacLogStore、LogScope 和测试 TypedLogRecorder 三个实现均支持它。MacLogStore 在原 drain/flush/finishSession 节奏批量调用一次 drainCoreEvents，由同一个 writer 分配 seq 并 validateCatalog:true；丢弃汇总转为 app 的 log.dropped，不增加空闲轮询或独立 writer。
+
+详细诊断不在宿主另写分类：会话通道根按 Core `diagnostics.resolveLogChannel` 返回的 category 归入当前开关（lsp→language、vcs→git、plugins→plugins），与持久化 DEBUG 的准入共用 `diagnosticRoots`。当前类别开关、新会话注册和 15 分钟单次到期向活动会话发送 setDetailedDiagnostics，退出时关闭。相同失败状态只记录一次 app.logging.diagnostics_failed，避免 drain→失败日志→drain 循环；改变目标状态允许重试。
+
+LanguageToolingSessionManager.languageServerLogs 保留 100 条 v1 message/detail 内存缓冲，继续供 LanguageServerLogsModel 与旧视图订阅，到 PR4 再删除。Core 记录直接进入磁盘通道，缓冲不写 v1 文件，也不复制为第二条目录日志。
 
 ## 考虑过的备选方案
 
@@ -105,6 +141,8 @@ macOS 的宿主调用点、类型化写入与诊断收集已落地。引擎身�
 收益是路径、格式、查询和删除选择可独立验证，事件身份与字段可以在生成阶段审查；新能力为批量跨语言调用与统一证据源提供基础。代价是需要维护生成器、专用语法和迁移基线，macOS 通过提前过滤、批量调用与句柄复用减少边界和磁盘开销；真实应用性能仍需要独立工作流证据。平台仍需承担有界队列、时间和序号、文件句柄、真实 I/O 失败、告警去重以及导出冻结的责任。
 
 ## 验证
+
+阶段 C 的 Rust 回归用例 `lifecycle_catalog_identity_preserves_v1_event_without_extra_log` 在修复前因额外 log 行失败，修复后覆盖五角色身份与 v1 wire 字段不变；`diagnostics_resolve_engine_subject_matches_startup_and_rejects_invalid_arguments` 覆盖非法段与通用参数错误。Swift 用 TypedLogRecorder 验证阶段各一次、不重复 ready/terminated、失败缓存和真实 Core 的 c++ 通道；本轮按任务要求只编译生产与测试目标，测试执行交由沙箱外。
 
 以下是复验入口，不是整机验收通过的声明：
 

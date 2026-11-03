@@ -4584,6 +4584,7 @@
 "Undo Commit…" = "Undo Last Commit (Keep Changes)…";
 "Undo last import" = "Undo last import";
 "Unhandled" = "Unhandled";
+"Unhide" = "Unhide";
 "Unified view" = "Unified view";
 "Uninstall" = "Uninstall";
 "Uninstall %@ from the Installed tab and restart Lithe first. It is the retired official version of this plugin and supports the same language." = "Uninstall %@ from the Installed tab and restart Lithe first. It is the retired official version of this plugin and supports the same language.";
@@ -5071,6 +5072,7 @@
 "mac.editorImport.extended6" = "Keyboard shortcut conflicts with %1$@. Adjust your keymap before importing.";
 "mac.editorImport.extended7" = "Appearance defaults are labeled separately. Workspace and language overrides, formatters, extensions and account data are skipped.";
 "mac.editorImport.inheritedKeymapScope" = "Supported keyboard commands are mapped; unknown keymaps, mouse shortcuts and chords are skipped.";
+"mac.workbench.unhide" = "Unhide";
 "macOS could not prepare the update disk image. Download the release manually and try again." = "macOS could not prepare the update disk image. Download the release manually and try again.";
 "macOS could not prepare the update disk image. Open the Release page and install it manually." = "macOS could not prepare the update disk image. Open the Release page and install it manually.";
 "main Java" = "main Java";

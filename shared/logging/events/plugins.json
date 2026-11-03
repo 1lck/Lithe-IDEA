@@ -275,6 +275,234 @@
       },
       "rate": 60,
       "owner": "Lithe"
+    },
+    {
+      "id": "plugins.host.stderr.received",
+      "channel": "plugins/{plugin}/host",
+      "level": "warn",
+      "message": "Engine stderr received for server {plugin}",
+      "fields": {
+        "diagnostic": {
+          "type": "text",
+          "required": true,
+          "description": "Original language server stderr diagnostic, redacted and capped at 1024 UTF-8 bytes",
+          "reason": "Language servers emit implementation-specific failure explanations only on stderr, so retain the original diagnostic wording for diagnosis after redaction and truncation rather than attempting an unstable parser."
+        },
+        "truncated": {
+          "type": "bool",
+          "required": false,
+          "description": "Whether the upstream stderr line exceeded the 4096 byte reader limit"
+        },
+        "plugin": {
+          "type": "id",
+          "required": true,
+          "description": "Validated plugin identity assigned by Core to this engine session"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "plugins.host.stderr.read_failed",
+      "channel": "plugins/{plugin}/host",
+      "level": "warn",
+      "message": "Engine stderr read failed for server {plugin}",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "I/O error returned by the language server stderr reader"
+        },
+        "plugin": {
+          "type": "id",
+          "required": true,
+          "description": "Validated plugin identity assigned by Core to this engine session"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "plugins.host.message.logged",
+      "channel": "plugins/{plugin}/host",
+      "level": "info",
+      "message": "Engine log message received for server {plugin} with severity {severity}",
+      "fields": {
+        "diagnostic": {
+          "type": "text",
+          "required": true,
+          "description": "Original message from the window/logMessage params, redacted and capped at 1024 UTF-8 bytes",
+          "reason": "The language server owns the unstructured window/logMessage explanation and exposes no stable error code for it, so preserve its original wording after redaction and truncation."
+        },
+        "severity": {
+          "type": "token",
+          "required": true,
+          "description": "LSP MessageType mapped to a controlled severity word, e.g. error, warn, info or log"
+        },
+        "plugin": {
+          "type": "id",
+          "required": true,
+          "description": "Validated plugin identity assigned by Core to this engine session"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "plugins.host.message.shown",
+      "channel": "plugins/{plugin}/host",
+      "level": "info",
+      "message": "Engine show message received for server {plugin} with severity {severity}",
+      "fields": {
+        "diagnostic": {
+          "type": "text",
+          "required": true,
+          "description": "Original message from the window/showMessage params, redacted and capped at 1024 UTF-8 bytes",
+          "reason": "The language server owns the window/showMessage explanation shown to the user; retain its original wording after redaction and truncation to correlate a reported message with the server session."
+        },
+        "severity": {
+          "type": "token",
+          "required": true,
+          "description": "LSP MessageType mapped to a controlled severity word, e.g. error, warn, info or log"
+        },
+        "plugin": {
+          "type": "id",
+          "required": true,
+          "description": "Validated plugin identity assigned by Core to this engine session"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "plugins.host.trace.received",
+      "channel": "plugins/{plugin}/host",
+      "level": "debug",
+      "message": "Engine trace received for server {plugin}",
+      "fields": {
+        "diagnostic": {
+          "type": "text",
+          "required": true,
+          "description": "Upstream trace summary only, redacted and capped at 1024 UTF-8 bytes; verbose RPC payloads are excluded",
+          "reason": "Upstream trace messages describe internal protocol decisions without structured equivalents; retain their wording only during explicitly enabled detailed diagnostics."
+        },
+        "plugin": {
+          "type": "id",
+          "required": true,
+          "description": "Validated plugin identity assigned by Core to this engine session"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "plugins.host.notification.received",
+      "channel": "plugins/{plugin}/host",
+      "level": "info",
+      "message": "Engine {plugin} notification {method} received",
+      "fields": {
+        "method": {
+          "type": "token",
+          "required": true,
+          "description": "LSP notification method name, e.g. language/status; never the notification payload"
+        },
+        "plugin": {
+          "type": "id",
+          "required": true,
+          "description": "Validated plugin identity assigned by Core to this engine session"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "plugins.host.process.started",
+      "channel": "plugins/{plugin}/host",
+      "level": "info",
+      "message": "Engine process started for server {plugin}",
+      "fields": {
+        "runtime_version": {
+          "type": "version",
+          "required": false,
+          "description": "Java runtime version used to launch the language server, when available"
+        },
+        "plugin": {
+          "type": "id",
+          "required": true,
+          "description": "Validated plugin identity assigned by Core to this engine session"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "plugins.host.protocol.initialized",
+      "channel": "plugins/{plugin}/host",
+      "level": "info",
+      "message": "Engine protocol initialized for server {plugin}",
+      "fields": {
+        "plugin": {
+          "type": "id",
+          "required": true,
+          "description": "Validated plugin identity assigned by Core to this engine session"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "plugins.host.response.skipped",
+      "channel": "plugins/{plugin}/host",
+      "level": "info",
+      "message": "Late language-server response ignored for server {plugin}",
+      "fields": {
+        "request": {
+          "type": "token",
+          "required": false,
+          "description": "JSON-RPC response id of the late reply; absent when the response has no id"
+        },
+        "plugin": {
+          "type": "id",
+          "required": true,
+          "description": "Validated plugin identity assigned by Core to this engine session"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "plugins.host.shutdown.timed_out",
+      "channel": "plugins/{plugin}/host",
+      "level": "warn",
+      "message": "Engine shutdown timed out for server {plugin}",
+      "fields": {
+        "plugin": {
+          "type": "id",
+          "required": true,
+          "description": "Validated plugin identity assigned by Core to this engine session"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "plugins.host.session.updated",
+      "channel": "plugins/{plugin}/host",
+      "level": "debug",
+      "owner": "lithe-core",
+      "message": "Engine session state changed",
+      "fields": {
+        "state": {
+          "type": "token",
+          "required": true,
+          "description": "Core session lifecycle state emitted by the managed engine (for example ready or stopped)."
+        },
+        "plugin": {
+          "type": "id",
+          "required": true,
+          "description": "Validated plugin identity assigned by Core to this engine session"
+        }
+      }
     }
   ]
 }

@@ -6,7 +6,7 @@
 
 固定根为 `app`、`editor`、`perf`、`lsp`、`vcs`、`run`、`debug`、`terminal`、`remote`、`agent`、`update`、`plugins`。每个根恰有一个 JSON 文件，没有实际调用的根保持空数组，不预造事件。事件 ID 是小写点分的稳定标识，如 `editor.document.save_failed`；结果词使用过去时。`owner` 标明维护模块。
 
-通道由固定根和可选段组成。动态段只能来自插件、provider、server 或内部连接等已校验的 ID，格式为 `^[a-z0-9][a-z0-9._-]{0,63}$`，同时拒绝末尾点号和 Windows 设备名（如 `con`、`nul.txt`、`com1`）；禁止显示名称、任意目录、用户输入和命令行。占位符必须引用本事件必填的 `id` 字段。固定段也是目录声明的一部分。Core 与生成器都只接受根、非插件根/段及插件宿主三种形状。插件宿主通道统一为 `plugins/{plugin}/host`。活动文件使用 `<channel>.log`，轮转使用 `<channel>~1.log`；`~` 不在通道字符集中，因此 `vcs/git.1` 不会与 `vcs/git` 的轮转文件冲突。`_overflow` 使用同样的文件头和轮转规则。Swift 的 `LogSegment` 失败返回 `nil`，不得用未知输入强制解包。
+通道由固定根和可选段组成。动态段只能来自插件、provider、server 或内部连接等已校验的 ID，格式为 `^[a-z0-9][a-z0-9._-]{0,63}$`，同时拒绝末尾点号和 Windows 设备名（如 `con`、`nul.txt`、`com1`）；禁止显示名称、任意目录、用户输入和命令行。占位符必须引用本事件必填的 `id` 字段。固定段也是目录声明的一部分。Core 与生成器都只接受根、非插件根/段及插件宿主三种形状。插件宿主通道统一为 `plugins/{plugin}/host`。活动文件使用 `<channel>.log`，轮转使用 `<channel>~1.log`；`~` 不在通道字符集中，因此 `vcs/git.1` 不会与 `vcs/git` 的轮转文件冲突。`_overflow` 使用同样的文件头和轮转规则。Swift 的 `LogSegment` 失败返回 `nil`，不得用未知输入强制解包。 引擎宿主的段通过 `diagnostics.resolveEngineLogSubject` 取得，与启动复用 `SessionLogIdentity::new`；宿主不得实现另一份哈希或身份规则。
 
 `message` 是英文单行模板，只能引用本事件声明的必填字段，例如 `Operation {command} finished`；可选字段不参与模板。生成器拒绝未知属性、跨文件重名、生成类型名冲突、保留键和编码后的字段名冲突。JSON Schema 描述静态形状；生成器还执行通道、引用、span 和磁盘键展开等跨字段语义校验。
 
@@ -78,6 +78,22 @@ Rust 通过静态 `EVENTS`（按 ID 排序）和二分查找 `event_by_id` 暴�
 
 扫描生产 Swift 的 `NSLog`、stderr 写入、`os_log`、导入 `os.log` 后的 `Logger` 和 `.record(level:)`；扫描 Rust 的 `eprintln!`、`println!`、`dbg!`。词法遮蔽注释和字符串内容，排除 `Tests/`、`tests/`、`tests.rs` 及明确 `#[cfg(test)]` 项。此门禁检查已列出的直接写法，不试图跨文件追踪别名或动态调用。
 
-`log-usage-baseline.json` 按文件、规则精确计数，剩余 Rust 条目原因固定为“PR3：经运行时事件流交给宿主”。`log-usage-allowlist.json` 是永久例外，必须有具体的协议/架构理由和精确计数；当前为空，macOS Swift 基线已清零。禁止把新违规追加到基线来通过检查。机器性能标记迁移时需同步其消费者，不能直接删除测试依赖的协议输出。
+`log-usage-baseline.json` 按文件、规则精确计数，PR3 Core 已清零 Rust 存量；非 LSP 事实通过 256 条的 Core 队列交给宿主。`log-usage-allowlist.json` 是永久例外，必须有具体的协议/架构理由和精确计数；当前为空，macOS Swift 基线已清零。禁止把新违规追加到基线来通过检查。机器性能标记迁移时需同步其消费者，不能直接删除测试依赖的协议输出。
 
 CI 的 Draft PR 只跑 Linux，ready PR 和 preview push 跑三平台。输入和已提交生成物均由 Git 持有，每个 worktree 本地重建、检查；没有跨工作树可复用 identity stamp，不复制其他工作树的生成物。这些类型无运行时 I/O、不写 app bundle、插件资源或安装目录，不影响签名与 Sparkle delta。
+
+PR3 引擎采用按角色事件族：`lsp.*` 使用 `lsp/{server}`，`vcs.*` 使用 `vcs/{provider}`，`plugins.host.*` 使用 `plugins/{plugin}/host`。Core 从显式 role 与 catalog 身份字段选事件，目录模板仍是通道唯一来源；不允许任意输入 channel 改写普通事件。非法段使用稳定的 SHA-256 前缀身份，不丢弃日志或影响插件启动。stderr 的 reader 限制为每行 4 KiB、每秒 200 行，再走目录 text 的 1 KiB 脱敏规范化。trace 默认关闭，宿主通过 `lsp.setDetailedDiagnostics` 显式启用；`lsp.session.updated` 的 owner 已转交 Core，宿主不再重复发同一状态事实。
+
+详细诊断只接纳 `$/logTrace.message` 摘要；`verbose` 可能包含原始 RPC 载荷和文档源码，禁止进入 v2 text。凭据脱敏和 1 KiB 限长不代表源码可以落盘。初始化完成前的开关只保存目标状态，Core 在 `initialized` 之后发送通知。
+
+PR3 macOS 将 CoreLogRecord 原样交给统一 LogSink/MacLogStore，按现有 drain、flush 和退出节奏一次排空 Core 队列，保留 ts/op、分配 seq，并继续 validateCatalog:true；不新增空闲轮询或独立 writer。启动者显式声明 role、真实 pluginId 与 VCS logSubject；宿主不解析 providerID。详细诊断类别沿用 lsp→language、vcs→git、plugins→plugins，对活动和新会话发送 lsp.setDetailedDiagnostics，15 分钟单次到期关闭，失败以 app.logging.diagnostics_failed 记录一次。
+
+v1 detail/message/level 保持兼容原文，v2 字段通过独立 EngineLogInput 传递，禁止从 detail 反解。stderr 唯一兼容变化是从任意 trim 的读取块改为逐行文本；保留行内空格、移除 LF/末尾 CR，并应用已声明的有界长度和限流。原始通知 JSON、projectCount=N 和 navigation 格式不变。LanguageToolingSessionManager 的 100 条 v1 内存缓冲继续供旧日志视图使用，到 PR4 再删除，不写 v1 文件。
+
+本地启动前由 MacLogStore 用 Core plugin_files_path 创建当前 sessions/<session>/plugins/<id>/files/，目录 0700，描述符相对 no-follow 遍历防止符号链接越界；只属于当前日志会话，不注册为跨工作树可复用构建资源，不写 bundle 或安装目录。存储不可用时不传 logDirectory，使用 ${logDir} 的模板按现有 invalidRequest 失败。远程进程不能写本机日志目录，因此同样不传并拒绝该变量。安装验证只使用未创建的占位目录校验展开，不启动或写入。
+
+目录遍历与 scratch 清理复用 PR1 预留 app.search.directory_skipped、app.workspace.directory_skipped、app.workspace.scratch_cleanup_failed，error 仅固定消息和稳定类别；删除重复 app.project.directory_skipped、remote.scratch.cleanup_failed。远程 cleanup 仅记录 ClientError 稳定分类，不复制错误正文。
+
+PR3 审查修补：Core 生命周期事实挂在原有 `type:stateChanged` 运行时事件上，复用日志事实的 `prepare_catalog_event` 校验，不额外增加 v1 log 行。Swift 在事件分支前转发任何携带 coreLog 的事件一次，语言服务、VCS、构建、工具链和后端均适用。`*.session.updated` 的 state 指 Core 会话生命周期，owner 仍是 lithe-core。
+
+宿主在实际调用点发 `lsp.session.stage_changed`，阶段闭集为 requested/resolving/registered/stopping/cancelled；缓存清理成功发 `lsp.cache.cleaned(removed)`，与 Core 配置键清理的 configuration.cleaned 是不同事实。两者选 DEBUG，因为它们解释内部启动编排和缓存维护，不需要常态落盘。ready/terminated 由 Core 的 protocol.initialized 和 session.updated 表达，宿主仅保留原 v1 缓冲行。阶段、缓存、degradation/issue 事件统一使用 Core 计算的段；manager 按 providerID 缓存成功或失败结果，最多 128 项，满时清空缓存，失败仅跳过对应宿主 v2 事件，不改变原行为。

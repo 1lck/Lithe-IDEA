@@ -3,6 +3,13 @@ import LitheCoreContracts
 import LitheModuleAPI
 
 extension RustCoreBridge: LanguageServerRuntimeCore {
+    func loggingRuntime(role: LanguageServerLogRole, logSubject: String?, pluginID: String?) -> any LanguageServerRuntimeCore {
+        var runtime = self
+        runtime.logRole = role; runtime.logSubject = logSubject; runtime.logPluginID = pluginID
+        return runtime
+    }
+    func emitCoreLog(_ record: CoreLogRecord) { coreLogSink?.emit(record) }
+
     func requiresBackgroundLanguageServerStart(rootURL: URL) -> Bool {
         remoteWorkspaces?.resolve(rootURL) != nil
     }
@@ -492,13 +499,18 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
                 mavenProfileProject: event.mavenProfileProject.map {
                     MavenProfileProjectResult(projectURI: $0.projectUri, status: $0.status, errorDetails: $0.errorDetails)
                 },
-                method: event.method
+                method: event.method,
+                coreLog: event.event.flatMap { id in
+                    guard let level = event.catalogLevel, let channel = event.channel, let fields = event.fields else { return nil }
+                    return CoreLogRecord(event: id, level: level, channel: channel, op: event.operationId, fields: fields)
+                }, pluginID: event.pluginId, role: event.role
             )
         }
     }
 
     func destroyLanguageServer(sessionID: String) {
         lspDestroyServer(sessionID: sessionID)
+        releaseLogSession?(sessionID)
     }
 
     private static func runtimeFailure(_ error: CoreCallError) -> LanguageServerRuntimeFailure {

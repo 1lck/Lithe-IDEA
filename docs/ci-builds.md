@@ -524,6 +524,7 @@ macOS 的 Application Support 临时快照 `.lithe-dev-profile-import-<transacti
 同一发行身份的多个源码工作树仍会使用同一用户域；本地测试应注入临时目录与独立偏好域。
 
 模块日志和诊断包暂存目录登记为 `application-log-state`，不允许跨工作树复用。
+PR3 macOS 的 `sessions/<session>/plugins/<id>/files/` 也属于该项：由当前日志会话通过 Core 路径规则创建，权限 0700，以描述符相对 no-follow 操作防符号链接越界，按日志保留规则结束生命周期；不属于下载或构建资源，没有任何可跨版本、平台、架构或工具链复用的身份，也没有允许复制的时机。v2 的 `sessions/<session>/` 通道文件和旧版
 日志根目录下的 `application`、`language`、`run`、`git`、`plugins`、`performance`
 子目录、旧版 `lithe.log`、macOS 缓存中的 `Lithe/diagnostics-export/<snapshot>/`
 以及导出目标旁的临时 ZIP（macOS 的 `.lithe-diagnostics-<snapshot>.zip`

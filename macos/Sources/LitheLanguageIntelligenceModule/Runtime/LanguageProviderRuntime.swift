@@ -164,7 +164,7 @@ package final class StdioLanguageProviderRuntime: LanguageProviderRuntime {
             core: languageServerCore,
             processRegistry: processRegistry,
             moduleID: moduleID,
-            pluginID: languageServerLaunch.launchSource?.pluginID
+            pluginID: languageServerLaunch.launchSource?.pluginID, role: .languageServer
         )
     }
 

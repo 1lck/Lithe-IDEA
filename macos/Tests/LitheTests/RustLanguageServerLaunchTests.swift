@@ -1,5 +1,7 @@
 import Foundation
+import LitheModuleAPI
 import LitheCoreContracts
+import LitheLanguageIntelligenceModule
 import Testing
 @testable import Lithe
 
@@ -107,9 +109,110 @@ struct RustLanguageServerLaunchTests {
         #expect(try FileManager.default.contentsOfDirectory(atPath: configuration.path) == ["config.ini"])
     }
 
+    @Test(arguments: [LanguageServerLogRole.languageServer, .vcs, .build, .toolchain, .backend])
+    func explicitRolesRouteCoreFactsAndDiagnosticCommands(role: LanguageServerLogRole) async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let executable = root.appendingPathComponent("server.py")
+        try Self.server.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        let clock = LogRoleClock()
+        let store = MacLogStore(defaultDirectory: root.appendingPathComponent("logs"), diagnosticNow: clock.now)
+        let bridge = RustCoreBridge(coreLogSink: store,
+            registerLogSession: { id, channel in store.registerSession(id, channel: channel) },
+            releaseLogSession: { id in store.releaseSession(id) })
+        let core = bridge.loggingRuntime(role: role, logSubject: "git", pluginID: "dev.lithe.fixture")
+        let resolvedSubject = try bridge.resolveEngineLogSubject(providerID: "c++")
+        let subject = try #require(resolvedSubject)
+        let channel = role == .languageServer ? "lsp/" + subject.rawValue : role == .vcs ? "vcs/git" : "plugins/dev.lithe.fixture/host"
+        // New sessions inherit the already active category. Unmatched categories
+        // stay off; changing and expiring it writes the corresponding trace gate.
+        await store.configureDiagnostic(category: "git", enabled: true)
+        let start = try core.startPluginLanguageServer(pluginID: "dev.lithe.fixture", providerID: "c++",
+            executableURL: executable, arguments: [], environment: [:], rootURL: root, initializationOptions: nil,
+            initializeTimeout: 5, requestTimeout: 5, shutdownTimeout: 0.1).get()
+        defer { core.stopLanguageServer(sessionID: start.sessionID); core.destroyLanguageServer(sessionID: start.sessionID) }
+        var logs: [CoreLogRecord] = []
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while ContinuousClock.now < deadline {
+            let events = core.pollLanguageServerEvents(sessionID: start.sessionID)
+            for event in events { if let log = event.coreLog { logs.append(log); core.emitCoreLog(log) } }
+            if logs.contains(where: { $0.event.hasSuffix("message.logged") }) { break }
+            await Task.yield()
+        }
+        #expect(logs.contains { $0.channel == channel && $0.event.hasSuffix("message.logged") })
+        #expect(logs.contains { $0.channel == channel && $0.event.hasSuffix("session.updated") })
+        await store.configureDiagnostic(category: "git", enabled: true)
+        if role == .vcs { #expect(await waitForTrace("verbose", root: root)) }
+        else { #expect(read("trace", root) == nil) }
+        await store.configureDiagnostic(category: nil, enabled: true)
+        #expect(await waitForTrace("verbose", root: root))
+        clock.advance(901)
+        try await store.flush()
+        #expect(await waitForTrace("off", root: root))
+        let collection = try await store.collect(query: .init(session: "all"))
+        #expect(collection.files.contains { $0.relativePath.hasSuffix(channel + ".log") })
+        #expect(collection.content.contains("event=" + (role == .languageServer ? "lsp" : role == .vcs ? "vcs" : "plugins.host") + ".message.logged"))
+        core.stopLanguageServer(sessionID: start.sessionID)
+        core.destroyLanguageServer(sessionID: start.sessionID)
+        await store.finishSession()
+    }
+
+    @Test
+    func hostFactsForUnsafeProviderUseTheCoreSessionChannel() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let executable = root.appendingPathComponent("server.py")
+        try Self.server.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        let recorder = TypedLogRecorder()
+        let bridge = RustCoreBridge(coreLogSink: recorder)
+        let descriptor = LanguageProviderDescriptor(id: "c++", displayName: "Fixture", fileExtensions: ["cpp"],
+            capabilities: [.languageServer], activationPolicy: .onDemand)
+        let session = LanguageServerRuntimeSession(providerID: descriptor.id, executableURL: executable,
+            arguments: [], environment: [:], initializeTimeout: 5, shutdownTimeout: 0.1, core: bridge)
+        let manager = LanguageToolingSessionManager(catalog: .init(descriptors: [descriptor]), logSink: recorder,
+            resolveLogSubject: { try bridge.resolveEngineLogSubject(providerID: $0) },
+            runtimes: [LogChannelRuntime(descriptor: descriptor, session: session)],
+            workspaceFingerprintProvider: { _, _ in "channel-fingerprint" },
+            workspaceStateCleaner: { _, _, _ in 0 })
+        defer { manager.stopAllLanguageServers() }
+        manager.onLogEvent = { recorder.emit($0) }
+        let ready = TestGate()
+        manager.onLanguageServerStateChange = { _, state, _ in if state == .ready { ready.open() } }
+        try manager.startLanguageServer(providerID: descriptor.id, rootURL: root)
+        try #require(await ready.waitUntilOpen(timeout: .seconds(5)))
+        // Exercise the existing host-owned issue callback at its typed boundary.
+        session.onLogIssue?(true, "discovery", "tool_not_found", nil, nil)
+        session.onLogIssue?(false, "processStart", "start_failed", 17, nil)
+        let resolvedSubject = try bridge.resolveEngineLogSubject(providerID: descriptor.id)
+        let channel = "lsp/" + (try #require(resolvedSubject)).rawValue
+        #expect(channel.hasPrefix("lsp/invalid-"))
+        #expect(recorder.coreRecords.contains { $0.event == "lsp.session.updated" && $0.channel == channel })
+        #expect(recorder.coreRecords.contains { $0.event == "lsp.protocol.initialized" && $0.channel == channel })
+        #expect(recorder.events.compactMap { $0 as? LspSessionStageChanged }.count == 3)
+        #expect(recorder.events.contains { $0 is LspCacheCleaned })
+        #expect(recorder.events.contains { $0 is LspSessionDegradationReceived })
+        #expect(recorder.events.contains { $0 is LspSessionIssueFailed })
+        #expect(recorder.events.allSatisfy { $0.channel.rawValue == channel })
+        manager.stopAllLanguageServers()
+        #expect(await session.stopAndWait())
+    }
+
+    private func waitForTrace(_ value: String, root: URL) async -> Bool {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while ContinuousClock.now < deadline {
+            if read("trace", root) as? String == value { return true }
+            await Task.yield()
+        }
+        return false
+    }
+
     private func read(_ name: String, _ root: URL) -> Any? {
         guard let data = try? Data(contentsOf: root.appendingPathComponent(name + ".json")) else { return nil }
-        return try? JSONSerialization.jsonObject(with: data)
+        return try? JSONSerialization.jsonObject(with: data, options: .fragmentsAllowed)
     }
 
     // macOS developer tools already provide Python; this explicit integration
@@ -143,7 +246,10 @@ while True:
     if method == 'initialize':
         record('initialize', message)
         send({'jsonrpc':'2.0','id':message['id'],'result':{'capabilities':{'experimental':{'litheFunctions':{'version':2,'functions':[{'id':'snapshot.refresh'}]}}}}})
+    elif method == '$/setTrace':
+        record('trace', message['params']['value'])
     elif method == 'initialized':
+        send({'jsonrpc':'2.0','method':'window/logMessage','params':{'type':3,'message':'fixture diagnostic'}})
         send({'jsonrpc':'2.0','method':'language/status','params':{'type':'ServiceReady'}})
         send({'jsonrpc':'2.0','id':'configuration','method':'workspace/configuration','params':{'items':[{'section':'fixture'}]}})
         send({'jsonrpc':'2.0','id':'credential','method':'lithe/host/credentials/get','params':{'key':'fixture'}})
@@ -154,4 +260,22 @@ while True:
     elif message.get('id') in ('configuration','credential'):
         record(message['id'], message)
 """#
+}
+
+private final class LogRoleClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: TimeInterval = 0
+    func now() -> TimeInterval { lock.withLock { value } }
+    func advance(_ seconds: TimeInterval) { lock.withLock { value += seconds } }
+}
+
+@MainActor
+private final class LogChannelRuntime: LanguageProviderRuntime {
+    init(descriptor: LanguageProviderDescriptor, session: LanguageServerRuntimeSession) {
+        self.descriptor = descriptor; self.session = session
+    }
+    let descriptor: LanguageProviderDescriptor
+    let session: LanguageServerRuntimeSession
+    var supportsLanguageServerSession: Bool { true }
+    func makeLanguageServerSession() -> (any LanguageServerSession)? { session }
 }
