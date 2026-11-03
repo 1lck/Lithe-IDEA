@@ -18,6 +18,21 @@
       "owner": "Lithe"
     },
     {
+      "id": "remote.connections.save_failed",
+      "channel": "remote",
+      "level": "warn",
+      "message": "Remote connection metadata save failed",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying failure at this operation boundary, preserving stable domain and code"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
       "id": "remote.directory.watch_failed",
       "channel": "remote",
       "level": "warn",
@@ -141,6 +156,21 @@
       },
       "rate": 60,
       "owner": "lithe-core"
+    },
+    {
+      "id": "remote.workspace.write_failed",
+      "channel": "remote",
+      "level": "error",
+      "message": "Remote workspace write failed",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying failure at this operation boundary, preserving stable domain and code"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
     }
   ]
 }

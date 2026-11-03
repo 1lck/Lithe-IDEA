@@ -1417,6 +1417,7 @@ package final class GitFeatureModel: ObservableObject {
         let pump = Task { @MainActor in
             while !Task.isCancelled {
                 do { try await Task.sleep(for: .milliseconds(100)) }
+                // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
                 catch { break }
                 publish()
             }

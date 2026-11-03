@@ -239,6 +239,7 @@ private struct RunServiceDependencySidebarContent: View {
                 try Task.checkCancellation()
                 guard revision == feature.dependencyRevision else { return }
                 presentation.finish(service.id, generation: generation, graph: graph, error: nil)
+            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
             } catch is CancellationError { return } catch {
                 presentation.finish(service.id, generation: generation, graph: nil, error: error.localizedDescription)
             }
@@ -773,6 +774,7 @@ private struct DependencyFolderBrowser: View {
                 }.value
                 try Task.checkCancellation()
                 entries = loaded
+            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
             } catch is CancellationError {
                 return
             } catch {

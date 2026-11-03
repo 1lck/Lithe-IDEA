@@ -627,7 +627,7 @@ private final class ProjectTreeActions: @unchecked Sendable {
         await WorkspaceFileIconResolver.resolve(
             for: url,
             suggested: suggested,
-            storage: model.services.fileStorage
+            storage: model.services.fileStorage, logSink: model.services.logSink
         )
     }
 }

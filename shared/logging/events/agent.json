@@ -1,5 +1,61 @@
 {
   "version": 1,
   "root": "agent",
-  "events": []
+  "events": [
+    {
+      "id": "agent.images.cleanup_failed",
+      "channel": "agent",
+      "level": "warn",
+      "message": "Expired pasted image cleanup failed",
+      "fields": {
+        "count": {
+          "type": "int",
+          "required": true,
+          "description": "Number of expired image removals that failed"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying failure at this operation boundary, preserving stable domain and code"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "agent.skills.discovery_failed",
+      "channel": "agent",
+      "level": "warn",
+      "message": "Agent skill discovery failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Skill discovery step that failed, listing or directories"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying failure at this operation boundary, preserving stable domain and code"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "agent.statistics.decode_failed",
+      "channel": "agent",
+      "level": "warn",
+      "message": "Agent statistics used defaults",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying failure at this operation boundary, preserving stable domain and code"
+        }
+      },
+      "rate": 60,
+      "owner": "LitheAgentConversationModule"
+    }
+  ]
 }

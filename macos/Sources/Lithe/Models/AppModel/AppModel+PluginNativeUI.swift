@@ -24,7 +24,13 @@ extension AppModel {
         let store = services.pluginWebPages.stateStore
         let bridge = PluginWebBridge(context: context, host: self, stateStore: store)
         let saved = store.state(pluginID: context.pluginID, windowID: context.windowID, workspaceURL: workspace)
-        let state = saved.flatMap { $0.count <= PluginWebBridge.stateLimit ? $0 : nil }.flatMap { try? JSONDecoder().decode(PluginNativeUIFeature.State.self, from: $0) } ?? .init()
+        let state = saved.flatMap { $0.count <= PluginWebBridge.stateLimit ? $0 : nil }.flatMap { data in
+            do { return try JSONDecoder().decode(PluginNativeUIFeature.State.self, from: data) }
+            catch {
+                services.logSink?.emit(AppSettingsDecodeFailed(error: error, stage: "plugin-native-ui"))
+                return nil
+            }
+        } ?? .init()
         let feature = PluginNativeUIFeature(declaration: declaration, state: state, validateNodes: validateNodes, request: { [weak self] method, params in
             guard let self, self.workspaceURL?.standardizedFileURL == workspace,
                   self.workbenchContributions.contains(contribution),

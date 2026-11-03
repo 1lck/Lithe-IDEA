@@ -207,7 +207,7 @@ extension AppModel {
                 // A successful sync is the plugin LSP's latest activity. The
                 // idle policy can stop it after the user leaves the document
                 // untouched, while subsequent edits refresh this timestamp.
-                try? services.moduleRuntime.markIdle(moduleID)
+                do { try services.moduleRuntime.markIdle(moduleID) } catch { services.logSink?.emit(AppModuleTransitionFailed(error: error, module: moduleID.rawValue, stage: "idle")) }
             }
             return languageToolingSessions.activeLanguageServerIDs.contains(descriptor.id)
         } catch {

@@ -18,7 +18,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     lazy var debugPerformanceFeature = DebugPerformanceFeatureModel(sampler: services.debugPerformanceSampler)
     lazy var testPerformanceFeature = TestJVMPerformanceFeatureModel(
         sampler: services.debugPerformanceSampler, provider: services.testJVMPerformance)
-    lazy var ideCapabilities = IdeCapabilitiesFeatureModel(model: self)
+    lazy var ideCapabilities = IdeCapabilitiesFeatureModel(model: self, logSink: services.logSink)
     /// Settings › MCP: servers registered with Codex and Claude Code, created
     /// when the page is first shown.
     lazy var mcpServerLibrary = McpServerLibraryFeatureModel(model: self)
@@ -104,12 +104,12 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     )
     lazy var agentInstructionsFeature = AgentInstructionsFeatureModel(service: services.agentInstructions)
     lazy var agentHooksFeature = AgentHooksFeatureModel(service: services.agentHooks)
-    lazy var agentSkillsFeature = AgentSkillsFeatureModel(service: services.agentManagement)
+    lazy var agentSkillsFeature = AgentSkillsFeatureModel(service: services.agentManagement, logSink: services.logSink)
     /// Settings › Plugins marketplace and plugin repositories, created when
     /// the page is first shown.
     lazy var pluginMarketplaceFeature = PluginMarketplaceFeatureModel(
         service: services.pluginMarketplace,
-        pluginManager: services.pluginManager
+        pluginManager: services.pluginManager, logSink: services.logSink
     )
     var commitDraftFeature: CommitDraftFeatureModel { featureGraph.commitDraft }
     lazy var commitWorkflow = CommitWorkflowComposition.make(model: self)
@@ -254,7 +254,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     lazy var terminalModuleCoordinator = TerminalModuleCoordinator(
         runtime: services.moduleRuntime,
         store: moduleCapabilityStore,
-        onChange: { [weak self] in self?.scheduleObjectWillChangeRelay(affectsSettings: false) }
+        onChange: { [weak self] in self?.scheduleObjectWillChangeRelay(affectsSettings: false) },
+        logSink: services.logSink
     )
     lazy var gitModuleCoordinator = GitModuleCoordinator(
         runtime: services.moduleRuntime,
@@ -630,11 +631,11 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         }
         if let configuration = (needsConfigurationImport ? configurationToImport : nil) ?? (shouldImportCodex ? codexConfiguration : nil) {
             let provider = settings.importAIConfiguration(configuration)
-            try? services.secureStore.delete(key: provider.apiKeyIdentifier)
+            do { try services.secureStore.delete(key: provider.apiKeyIdentifier) } catch { services.logSink?.emit(AppCredentialsCleanupFailed(error: error)) }
         } else if settings.commitMessageAI.providers.isEmpty,
                   let configuration = detectedAIConfigurations.first {
             let provider = settings.importAIConfiguration(configuration)
-            try? services.secureStore.delete(key: provider.apiKeyIdentifier)
+            do { try services.secureStore.delete(key: provider.apiKeyIdentifier) } catch { services.logSink?.emit(AppCredentialsCleanupFailed(error: error)) }
         }
         languageServerToolsIfActive?.onCandidatesChanged = { [weak self] providerID in
             guard let self,
@@ -1149,7 +1150,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     }
 
     func javaIconKind(for url: URL) async -> LitheIconKind? {
-        await JavaFileIconResolver.resolve(for: url, storage: services.fileStorage)
+        await JavaFileIconResolver.resolve(for: url, storage: services.fileStorage, logSink: services.logSink)
     }
 
     func refreshWorkspace() async {
@@ -1418,7 +1419,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
                 capability: .aiPullRequestDescription
             )
         }
-        defer { try? services.moduleRuntime.markIdle(.aiAssistance) }
+        defer { do { try services.moduleRuntime.markIdle(.aiAssistance) } catch { services.logSink?.emit(AppModuleTransitionFailed(error: error, module: "ai-assistance", stage: "idle")) } }
         return try await capability.generatePullRequestDescription(
             input: input,
             settings: settings.commitMessageAI

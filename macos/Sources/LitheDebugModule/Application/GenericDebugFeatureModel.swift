@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 import LitheCoreContracts
 
@@ -464,13 +465,17 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     private static let rootVariablePageID = "__lithe_debug_root_variables__"
     private var debuggeeOutputNormalizer = GenericDebugOutputNormalizer()
 
+    private let logSink: (any LogSink)?
+
     public init(
+        logSink: (any LogSink)? = nil,
         sessions: DebugAdapterSessionManager,
         breakpointPersistence: (any DebugBreakpointPersisting)? = nil,
         breakpointRelocator: (any DebugBreakpointRelocating)? = nil,
         steppingFilterResolver: (any DebugSteppingFilterResolving)? = nil,
         steppingFilterPersistence: (any DebugSteppingFilterPersisting)? = nil
     ) {
+        self.logSink = logSink
         self.sessions = sessions
         self.breakpointPersistence = breakpointPersistence
         self.breakpointRelocator = breakpointRelocator
@@ -860,7 +865,8 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         outputPresentation.flush()
         if let activeFileURL {
             dataBreakpoints.removeAll { !$0.canPersist }
-            try? sessions.setDataBreakpoints(coreDataBreakpoints, for: activeFileURL, adapterProviderID: providerID)
+            do { try sessions.setDataBreakpoints(coreDataBreakpoints, for: activeFileURL, adapterProviderID: providerID) }
+            catch { logSink?.emit(DebugSessionCleanupFailed(error: error, stage: "breakpoints")) }
         }
         if let activeSessionID {
             let children = sessions.childSessionIDs(of: activeSessionID)
@@ -1696,7 +1702,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         let frameID = selectedFrameID
         let scopeID = selectedScopeID
         let partial = !(variablePageStates[Self.rootVariablePageID]?.segments.isEmpty ?? true)
-        let loader = DebugVariableJSONSnapshot { reference, count in
+        let loader = DebugVariableJSONSnapshot(logSink: logSink) { reference, count in
             try await DebugVariableJSONRequest.read(session: session, reference: reference, count: count)
         }
         let result = try await loader.render(presentedVariables, rootsArePartial: partial)

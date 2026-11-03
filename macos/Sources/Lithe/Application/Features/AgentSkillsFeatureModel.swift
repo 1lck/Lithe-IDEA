@@ -1,9 +1,11 @@
+import LitheModuleAPI
 import Foundation
 import LitheCoreContracts
 
 /// Settings-only state. Discovery and file management never start a conversation.
 @MainActor
 final class AgentSkillsFeatureModel: ObservableObject {
+    private let logSink: (any LogSink)?
     struct Context: Equatable { let workspace: URL? }
     struct Item: Identifiable, Equatable {
         let agentID: String
@@ -37,7 +39,10 @@ final class AgentSkillsFeatureModel: ObservableObject {
     private var writeTask: Task<Void, Never>?
     private var refreshTask: Task<Void, Never>?
 
-    init(service: any AgentManagementService) { self.service = service }
+    init(service: any AgentManagementService, logSink: (any LogSink)? = nil) {
+        self.logSink = logSink
+        self.service = service
+    }
 
     private var matchingItems: [Item] {
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -99,10 +104,10 @@ final class AgentSkillsFeatureModel: ObservableObject {
         error = nil; phase = .loading
         let service = service
         // A missing Codex CLI must not suppress the independently available Claude inventory.
-        async let codex = Self.load(service, agentID: "codex-acp", workspace: next.workspace)
-        async let claude = Self.load(service, agentID: "claude-acp", workspace: next.workspace)
-        async let codexDirectories = Self.loadDirectories(service, agentID: "codex-acp", workspace: next.workspace)
-        async let claudeDirectories = Self.loadDirectories(service, agentID: "claude-acp", workspace: next.workspace)
+        async let codex = Self.load(service, agentID: "codex-acp", workspace: next.workspace, logSink: logSink)
+        async let claude = Self.load(service, agentID: "claude-acp", workspace: next.workspace, logSink: logSink)
+        async let codexDirectories = Self.loadDirectories(service, agentID: "codex-acp", workspace: next.workspace, logSink: logSink)
+        async let claudeDirectories = Self.loadDirectories(service, agentID: "claude-acp", workspace: next.workspace, logSink: logSink)
         let results = await [codex, claude]
         let paths = await [codexDirectories, claudeDirectories]
         guard !Task.isCancelled, revision == token else { return }
@@ -122,16 +127,22 @@ final class AgentSkillsFeatureModel: ObservableObject {
         phase = discoveryErrors.count == Self.agents.count ? .failed : .ready
     }
 
-    private nonisolated static func loadDirectories(_ service: any AgentManagementService, agentID: String, workspace: URL?) async -> Result<[String: String], Failure> {
+    private nonisolated static func loadDirectories(_ service: any AgentManagementService, agentID: String, workspace: URL?, logSink: (any LogSink)?) async -> Result<[String: String], Failure> {
         // Destination lookup creates no files and needs no CLI.
         do { return .success(try await service.skillDirectories(agentID: agentID, workspace: workspace)) }
-        catch { return .failure(Failure(message: error.localizedDescription)) }
+        catch {
+            logSink?.emit(AgentSkillsDiscoveryFailed(error: error, stage: "directories"))
+            return .failure(Failure(message: error.localizedDescription))
+        }
     }
 
     private struct Failure: Error { let message: String }
-    private nonisolated static func load(_ service: any AgentManagementService, agentID: String, workspace: URL?) async -> Result<AgentSkillListing, Failure> {
+    private nonisolated static func load(_ service: any AgentManagementService, agentID: String, workspace: URL?, logSink: (any LogSink)?) async -> Result<AgentSkillListing, Failure> {
         do { return .success(try await service.listSkills(agentID: agentID, workspace: workspace)) }
-        catch { return .failure(Failure(message: error.localizedDescription)) }
+        catch {
+            logSink?.emit(AgentSkillsDiscoveryFailed(error: error, stage: "listing"))
+            return .failure(Failure(message: error.localizedDescription))
+        }
     }
 
     /// Capture the project before awaiting; switching projects invalidates delayed results.

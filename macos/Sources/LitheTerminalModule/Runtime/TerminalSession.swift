@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Combine
 import Foundation
 import LitheCoreContracts
@@ -26,6 +27,7 @@ public final class TerminalSession: ObservableObject, Identifiable {
     /// continues to use onEnded). No output or input access is implied.
     public var onStopped: (() -> Void)?
 
+    private let logSink: (any LogSink)?
     private let transport: any TerminalTransport
     private var workspaceURL: URL?
     private var selectedShellPath: String?
@@ -33,7 +35,8 @@ public final class TerminalSession: ObservableObject, Identifiable {
     private var launchTask: Task<Void, Never>?
     private var launchGeneration = UUID()
 
-    public init(transport: any TerminalTransport, preferredToolTabTitle: String? = nil) {
+    public init(transport: any TerminalTransport, preferredToolTabTitle: String? = nil, logSink: (any LogSink)? = nil) {
+        self.logSink = logSink
         self.transport = transport
         self.preferredToolTabTitle = preferredToolTabTitle
         transport.onTermination = { [weak self] exitCode in
@@ -184,9 +187,10 @@ public final class TerminalSession: ObservableObject, Identifiable {
     public func send(_ command: String) { sendInput(command + "\n") }
     public func sendInput(_ input: String) {
         guard isRunning, isReady, let data = input.data(using: .utf8) else { return }
-        try? transport.send(data)
+        do { try transport.send(data) }
+        catch { logSink?.emit(TerminalInputFailed(error: error, stage: "send", operationID: id.uuidString)) }
     }
-    public func interrupt() { if isRunning { try? transport.interrupt() } }
+    public func interrupt() { if isRunning { do { try transport.interrupt() } catch { logSink?.emit(TerminalInputFailed(error: error, stage: "interrupt", operationID: id.uuidString)) } } }
     public func clear() { transport.clear() }
     public func displayText(maximumBytes: Int) -> String { transport.displayText(maximumBytes: maximumBytes) }
     public func focus() { transport.focus() }

@@ -29,6 +29,7 @@ extension AppModel {
             settings.updateNetworkProxyCredential(nil)
             return nil
         } catch {
+            services.logSink?.emit(AppCredentialsWriteFailed(error: error))
             return error.localizedDescription
         }
     }

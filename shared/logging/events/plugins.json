@@ -486,6 +486,26 @@
       "owner": "lithe-core"
     },
     {
+      "id": "plugins.host.request_failed",
+      "channel": "plugins/{plugin}/host",
+      "level": "error",
+      "message": "Plugin host request failed",
+      "fields": {
+        "plugin": {
+          "type": "id",
+          "required": true,
+          "description": "Validated plugin identity that owns this failed host request"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Native host service error or stable host request failure code"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
       "id": "plugins.host.session.updated",
       "channel": "plugins/{plugin}/host",
       "level": "debug",

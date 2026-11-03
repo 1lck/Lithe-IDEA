@@ -112,7 +112,10 @@ package final class WorkspaceFeatureModel: ObservableObject {
     private var updateSearchIndex: (@MainActor (URL, [String], FileVisibilityRules) async -> Void)?
     private var invalidateSearchIndex: (@MainActor (URL, FileVisibilityRules) -> Void)?
 
+    private let logSink: (any LogSink)?
+
     package init(
+        logSink: (any LogSink)? = nil,
         operations: any WorkspaceOperations,
         fileOperations: any WorkspaceFileOperations,
         gitWatchContextProvider: any GitWatchContextProviding,
@@ -121,6 +124,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         directoryMarkStore: any WorkspaceDirectoryMarkStoring = EmptyWorkspaceDirectoryMarkStore(),
         observationDelay: (@Sendable (Duration) async throws -> Void)? = nil
     ) {
+        self.logSink = logSink
         self.operations = operations
         self.fileOperations = fileOperations
         self.gitWatchContextProvider = gitWatchContextProvider
@@ -415,7 +419,10 @@ package final class WorkspaceFeatureModel: ObservableObject {
         let id = UUID()
         let ownerID = indexingOwnerID
         let task = Task { @MainActor in
-            _ = try? await previous?.value
+            do { _ = try await previous?.value }
+            catch {
+                if !(error is CancellationError) { self.logSink?.emit(AppWorkspaceRollbackFailed(error: error)) }
+            }
             guard isCurrent(), self.indexingOwnerID == ownerID else { throw CancellationError() }
             let status = try await Task.detached(priority: .userInitiated) {
                 try operations.configureIndexing(at: root, policy: policy, refresh: refresh, ownerID: ownerID)
@@ -691,7 +698,8 @@ package final class WorkspaceFeatureModel: ObservableObject {
             }
             if ownsSettings {
                 indexingSettings = previousSettings
-                try? directoryMarkStore.saveIndexingSettings(previousSettings, for: workspaceURL)
+                do { try directoryMarkStore.saveIndexingSettings(previousSettings, for: workspaceURL) }
+                catch { logSink?.emit(AppWorkspaceRollbackFailed(error: error)) }
             }
             recordIndexingFailure(WorkspaceIndexingFailure.writeFailed)
             notify?(indexingError ?? "")
@@ -755,6 +763,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         visibilityRulesRefreshTask = Task { @MainActor [weak self] in
             guard let self else { return }
             while self.isLoadingWorkspace, !Task.isCancelled {
+                // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
                 try? await Task.sleep(for: .milliseconds(50))
             }
             guard !Task.isCancelled, self.workspaceURL == workspaceURL, self.workspaceGeneration == generation else { return }
@@ -795,6 +804,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
     package func scheduleWorkspaceSessionPersistence() {
         workspaceSessionPersistenceTask?.cancel()
         workspaceSessionPersistenceTask = Task { @MainActor [weak self] in
+            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
             try? await Task.sleep(for: .milliseconds(150))
             guard !Task.isCancelled else { return }
             self?.persistWorkspaceSession()
@@ -846,7 +856,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
             await recordHistory?(request.targetURL, .beforeRename)
         }
 
-        let fileOperations = self.fileOperations
+        let fileOperations = self.fileOperations, logSink = self.logSink
         var movedByVersionControl = false
         if request.kind == .rename, let moveTrackedItem {
             let exists = await Task.detached(priority: .userInitiated) { fileOperations.fileExists(at: destination) }.value
@@ -867,6 +877,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
                 }
                 return nil
             } catch {
+                logSink?.emit(AppWorkspaceFileOperationFailed(error: error, stage: "file-operation"))
                 return error.localizedDescription
             }
         }.value
@@ -931,7 +942,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
             // A switched workspace may already own a different operation.
             if workspaceGeneration == generation { isPerformingProjectItemOperation = false }
         }
-        let fileOperations = self.fileOperations
+        let fileOperations = self.fileOperations, logSink = self.logSink
         let validationError = await Task.detached(priority: .userInitiated) {
             Self.projectMoveError(sources, to: target, workspace: workspace, files: fileOperations)
         }.value
@@ -970,7 +981,10 @@ package final class WorkspaceFeatureModel: ObservableObject {
                     }
                     try fileOperations.moveItem(at: source, to: destination)
                     return nil
-                } catch { return error.localizedDescription }
+                } catch {
+                    logSink?.emit(AppWorkspaceFileOperationFailed(error: error, stage: "move"))
+                    return error.localizedDescription
+                }
             }.value
             if let error { failure = error; break }
             moved += 1
@@ -1038,9 +1052,9 @@ package final class WorkspaceFeatureModel: ObservableObject {
               let operationWorkspaceURL = workspaceURL else { return false }
         let generation = workspaceGeneration
         guard let sources = validatedCopySources(urls, in: directory, workspace: operationWorkspaceURL) else { return false }
-        let fileOperations = self.fileOperations
+        let fileOperations = self.fileOperations, logSink = self.logSink
         let result = await Task.detached(priority: .userInitiated) {
-            Self.copyProjectItems(sources, in: directory, fileOperations: fileOperations)
+            Self.copyProjectItems(sources, in: directory, fileOperations: fileOperations, logSink: logSink)
         }.value
         guard workspaceURL == operationWorkspaceURL, workspaceGeneration == generation else { return false }
         if let error = result.1 { notify?(error) } else { notify?("Pasted files") }
@@ -1072,7 +1086,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
     }
 
     private nonisolated static func copyProjectItems(
-        _ sources: [URL], in directory: URL, fileOperations: any WorkspaceFileOperations
+        _ sources: [URL], in directory: URL, fileOperations: any WorkspaceFileOperations, logSink: (any LogSink)?
     ) -> (Int, String?) {
         var copied = 0
         do {
@@ -1090,7 +1104,10 @@ package final class WorkspaceFeatureModel: ObservableObject {
                 copied += 1
             }
             return (copied, nil)
-        } catch { return (copied, error.localizedDescription) }
+        } catch {
+            logSink?.emit(AppWorkspaceFileOperationFailed(error: error, stage: "copy"))
+            return (copied, error.localizedDescription)
+        }
     }
 
     package func duplicateProjectItem(at sourceURL: URL) async {
@@ -1099,12 +1116,13 @@ package final class WorkspaceFeatureModel: ObservableObject {
               sourceURL.standardizedFileURL != workspaceURL?.standardizedFileURL else { return }
         isPerformingProjectItemOperation = true
         let destination = availableDuplicateURL(for: sourceURL)
-        let fileOperations = self.fileOperations
+        let fileOperations = self.fileOperations, logSink = self.logSink
         let errorMessage = await Task.detached(priority: .userInitiated) { () -> String? in
             do {
                 try fileOperations.copyItem(at: sourceURL, to: destination)
                 return nil
             } catch {
+                logSink?.emit(AppWorkspaceFileOperationFailed(error: error, stage: "file-operation"))
                 return error.localizedDescription
             }
         }.value
@@ -1438,6 +1456,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         recoveryTask?.cancel()
         recoveryTask = Task { @MainActor [weak self, observationDelay] in
             do { try await observationDelay(.milliseconds(350)) }
+            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
             catch { return }
             guard !Task.isCancelled, let self, let workspaceURL = self.workspaceURL else { return }
             await self.applyPendingRecovery(at: workspaceURL)
@@ -1504,6 +1523,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         refreshTask?.cancel()
         refreshTask = Task { @MainActor [weak self, observationDelay] in
             do { try await observationDelay(.milliseconds(350)) }
+            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
             catch { return }
             guard !Task.isCancelled,
                   let self,
@@ -1523,6 +1543,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         gitRefreshTask?.cancel()
         gitRefreshTask = Task { @MainActor [weak self, observationDelay] in
             do { try await observationDelay(.milliseconds(350)) }
+            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
             catch { return }
             guard !Task.isCancelled,
                   let self,

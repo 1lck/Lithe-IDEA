@@ -389,6 +389,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
                             ended = core.pollLanguageServerEvents(sessionID: payload.sessionID).contains {
                                 $0.type == "stateChanged" && ($0.state == "stopped" || $0.state == "failed")
                             }
+                            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
                             if !ended { try? await Task.sleep(for: .milliseconds(10)) }
                         }
                         // Fail closed: retaining the in-flight marker prevents
@@ -1321,6 +1322,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         while sessionID != nil || startsInFlight > 0 || releaseTask != nil {
             guard ContinuousClock.now < deadline else { return false }
             do { try await Task.sleep(for: .milliseconds(10)) }
+            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
             catch { return false }
         }
         return true
@@ -1442,6 +1444,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
                     try await Task.sleep(
                         nanoseconds: isIdle ? Self.idlePollNanoseconds : Self.activePollNanoseconds
                     )
+                // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
                 } catch {
                     return
                 }
@@ -1792,11 +1795,9 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         guard let result = event.result else {
             return .failure(LanguageServerRuntimeSessionError.missingResult)
         }
-        do {
+        return Result {
             let data = try JSONSerialization.data(withJSONObject: result.foundationObject)
-            return .success(try JSONDecoder().decode(Payload.self, from: data))
-        } catch {
-            return .failure(error)
+            return try JSONDecoder().decode(Payload.self, from: data)
         }
     }
 

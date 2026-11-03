@@ -6,11 +6,13 @@ import LitheTerminalModule
 /// Owns activation and observation of the integrated terminal module.
 @MainActor
 final class TerminalModuleCoordinator {
+    private let logSink: (any LogSink)?
     private let runtime: ModuleRuntime
     private let store: ModuleCapabilityStore
     private let onChange: () -> Void
 
-    init(runtime: ModuleRuntime, store: ModuleCapabilityStore, onChange: @escaping () -> Void) {
+    init(runtime: ModuleRuntime, store: ModuleCapabilityStore, onChange: @escaping () -> Void, logSink: (any LogSink)? = nil) {
+        self.logSink = logSink
         self.runtime = runtime
         self.store = store
         self.onChange = onChange
@@ -29,6 +31,7 @@ final class TerminalModuleCoordinator {
             })
             return true
         } catch {
+            logSink?.emit(AppModuleTransitionFailed(error: error, module: "terminal", stage: "activate"))
             return false
         }
     }

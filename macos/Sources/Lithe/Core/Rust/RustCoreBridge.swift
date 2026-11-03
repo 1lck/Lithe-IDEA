@@ -2895,7 +2895,11 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     }
 
     func scanMaven(at rootURL: URL, paths: [String] = []) -> MavenScanPayload? {
-        try? scanMavenResult(at: rootURL, paths: paths).get()
+        do { return try scanMavenResult(at: rootURL, paths: paths).get() }
+        catch {
+            coreLogSink?.emit(AppCoreFallbackSelected(error: LitheModuleAPI.LogFailure(domain: "RustCore", code: error.code), stage: "maven-scan"))
+            return nil
+        }
     }
 
     func scanMavenResult(
@@ -4461,11 +4465,12 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         payload: Payload,
         operationID: String? = nil
     ) -> Data? {
-        try? executeResult(
-            command: command,
-            payload: payload,
-            operationID: operationID
-        ).get()
+        do {
+            return try executeResult(command: command, payload: payload, operationID: operationID).get()
+        } catch {
+            coreLogSink?.emit(AppCoreFallbackSelected(error: LitheModuleAPI.LogFailure(domain: "RustCore", code: error.code), stage: command, operationID: operationID))
+            return nil
+        }
     }
 
     /// Runs a command whose success carries no data. The core encodes those as a
@@ -4544,12 +4549,10 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         gitOptions.interactive = execution != nil
         gitOptions.source = execution?.source ?? GitExecutionSource.current
         let remoteWorkspace: RemoteWorkspace?
-        do {
-            remoteWorkspace = try self.remoteWorkspace(for: command, payload: payload)
-        } catch let failure as CoreCallError {
-            return .failure(failure)
-        } catch {
-            return .failure(CoreCallError(code: "invalid_request", message: "Invalid workspace request", details: nil))
+        switch Result(catching: { try self.remoteWorkspace(for: command, payload: payload) }) {
+        case .success(let value): remoteWorkspace = value
+        case .failure(let error):
+            return .failure((error as? CoreCallError) ?? CoreCallError(code: "invalid_request", message: "Invalid workspace request", details: nil))
         }
         guard let requestData = try? JSONEncoder().encode(
             Request(

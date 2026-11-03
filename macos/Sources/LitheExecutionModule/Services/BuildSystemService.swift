@@ -93,6 +93,7 @@ package struct BuildSystemEntry: Equatable, Identifiable, Sendable {
 /// first sync still shows its progress.
 @MainActor
 package final class BuildSystemService: ObservableObject {
+    private let logSink: (any LogSink)?
     package static let modelTimeout: Duration = .seconds(15 * 60)
     private static let visibleOutputLimit = 1_000_000
     /// Rust Core refuses larger output.
@@ -201,6 +202,7 @@ package final class BuildSystemService: ObservableObject {
     private var outputByteCount = 0
 
     package init(
+        logSink: (any LogSink)? = nil,
         planner: any BuildSystemPlanning,
         tools: any BuildToolResolving,
         optionsStore: any BuildOptionsStoring,
@@ -214,6 +216,7 @@ package final class BuildSystemService: ObservableObject {
         },
         sources: @escaping @MainActor () -> [BuildSystemPluginSource]
     ) {
+        self.logSink = logSink
         self.planner = planner
         self.tools = tools
         self.optionsStore = optionsStore
@@ -480,6 +483,7 @@ package final class BuildSystemService: ObservableObject {
         redetectTask?.cancel()
         let waitForRedetection = waitForRedetection
         redetectTask = Task { [weak self] in
+            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
             do { try await waitForRedetection() } catch { return }
             guard !Task.isCancelled, let self else { return }
             self.redetectTask = nil
@@ -501,6 +505,7 @@ package final class BuildSystemService: ObservableObject {
             return try await withCheckedThrowingContinuation { continuation in
                 importWaiters[id] = continuation
                 importTimeouts[id] = Task { @MainActor [weak self] in
+                    // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
                     try? await Task.sleep(for: .seconds(30))
                     guard !Task.isCancelled else { return }
                     self?.finishImportWaiter(id, result: .failure(BuildSystemServiceError(
@@ -713,6 +718,7 @@ package final class BuildSystemService: ObservableObject {
             return loaded
             })
         } catch {
+            if !(error is CancellationError) { logSink?.emit(RunPreparationFailed(error: error)) }
             return .failure(error)
         }
     }
@@ -1208,6 +1214,7 @@ package final class BuildSystemService: ObservableObject {
             return loaded
             })
         } catch {
+            if !(error is CancellationError) { logSink?.emit(RunPreparationFailed(error: error)) }
             return .failure(error)
         }
     }

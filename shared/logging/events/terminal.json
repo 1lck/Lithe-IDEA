@@ -3,6 +3,26 @@
   "root": "terminal",
   "events": [
     {
+      "id": "terminal.input.failed",
+      "channel": "terminal",
+      "level": "debug",
+      "message": "Terminal input operation failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Terminal input action that failed, send or interrupt"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying failure at this operation boundary, preserving stable domain and code"
+        }
+      },
+      "rate": 30,
+      "owner": "LitheTerminalModule"
+    },
+    {
       "id": "terminal.renderer.fallback_selected",
       "channel": "terminal",
       "level": "warn",

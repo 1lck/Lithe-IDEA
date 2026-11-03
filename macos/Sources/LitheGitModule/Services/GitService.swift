@@ -1293,7 +1293,8 @@ package struct GitService: Sendable {
     }
 
     func savedChangesSnapshot(stash: GitStash?, shelf: GitShelfEntry?, at root: URL) async -> Result<GitSavedChangesSnapshot, GitPatchFailure> {
-        await read { operations in
+        let performanceLogger = performanceLogger
+        return await read { operations in
             do {
                 var patches: [(String, String, String)] = []
                 let identity: String
@@ -1327,6 +1328,9 @@ package struct GitService: Sendable {
                 }
                 return .success(GitSavedChangesSnapshot(id: identity, repositoryRoot: root, files: files))
             } catch {
+                if !(error is CancellationError) {
+                    performanceLogger.emit(VcsShelfOperationFailed(error: LogFailure(domain: "GitSavedChanges", code: "load_failed"), stage: "load"))
+                }
                 return .failure(GitPatchFailure(error.localizedDescription))
             }
         } ?? .failure(GitPatchFailure("Could not load saved changes"))

@@ -23,6 +23,56 @@
       "owner": "Lithe"
     },
     {
+      "id": "run.configuration.operation_failed",
+      "channel": "run",
+      "level": "warn",
+      "message": "Execution configuration operation failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Execution configuration phase that failed, load, plan, fingerprint or save"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying failure at this operation boundary, preserving stable domain and code"
+        }
+      },
+      "rate": 60,
+      "owner": "LitheExecutionModule"
+    },
+    {
+      "id": "run.configuration.write_failed",
+      "channel": "run",
+      "level": "error",
+      "message": "Execution configuration write failed",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying failure that prevented completing the requested operation"
+        }
+      },
+      "rate": 60,
+      "owner": "LitheExecutionModule"
+    },
+    {
+      "id": "run.preparation.failed",
+      "channel": "run",
+      "level": "error",
+      "message": "Execution preparation failed",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying failure that prevented completing the requested operation"
+        }
+      },
+      "rate": 60,
+      "owner": "LitheExecutionModule"
+    },
+    {
       "id": "run.process.execution",
       "channel": "run",
       "level": "info",

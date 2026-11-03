@@ -69,6 +69,46 @@
       }
     },
     {
+      "id": "vcs.roots.fallback_selected",
+      "channel": "vcs",
+      "level": "warn",
+      "message": "Version control root planning failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Root planning action that failed, ownership or detection"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying failure at this operation boundary, preserving stable domain and code"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "vcs.shelf.operation_failed",
+      "channel": "vcs",
+      "level": "error",
+      "message": "Saved changes operation failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Saved changes action that failed, load, save or delete"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying failure at this operation boundary, preserving stable domain and code"
+        }
+      },
+      "rate": 60,
+      "owner": "LitheGitModule"
+    },
+    {
       "id": "vcs.stderr.received",
       "channel": "vcs/{provider}",
       "level": "warn",
