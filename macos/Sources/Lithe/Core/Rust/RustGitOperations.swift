@@ -500,9 +500,15 @@ struct RustGitOperations: GitOperations, Sendable {
     }
 
     func repositories(in workspaceURL: URL) -> [URL] {
-        core.workspaceRepositories(at: workspaceURL)?.repositories.map {
+        (try? repositories(GitRepositoryDiscoveryRequest(root: workspaceURL))) ?? []
+    }
+
+    func repositories(_ request: GitRepositoryDiscoveryRequest) throws -> [URL] {
+        try core.workspaceRepositories(at: request.root,
+            manualExcludedDirectories: request.manualExcludedDirectories,
+            workspaceRoots: request.workspaceRoots).repositories.map {
             URL(fileURLWithPath: $0.path).standardizedFileURL
-        } ?? []
+        }
     }
 
     func watchContext(at rootURL: URL) -> GitWatchContext? {

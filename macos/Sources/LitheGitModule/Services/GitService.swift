@@ -37,6 +37,7 @@ package protocol GitOperations: Sendable {
     /// Immediate files and subdirectory summaries of an untracked directory summary.
     func untrackedDirectoryChildren(of directory: GitChange, repositoryRoots: [URL]) -> [GitChange]?
     func repositories(in workspaceURL: URL) -> [URL]
+    func repositories(_ request: GitRepositoryDiscoveryRequest) throws -> [URL]
     func watchContext(at rootURL: URL) -> GitWatchContext?
     func worktrees(at rootURL: URL) -> [GitWorktree]?
 
@@ -288,6 +289,10 @@ package extension GitOperations {
         snapshot(at: workspaceURL).map { [$0.repositoryRoot] } ?? []
     }
 
+    func repositories(_ request: GitRepositoryDiscoveryRequest) throws -> [URL] {
+        repositories(in: request.root)
+    }
+
     func references(at rootURL: URL, operationID: String) -> GitReferenceSnapshot? {
         guard let snapshot = history(at: rootURL, reference: nil, limit: 1) else { return nil }
         return GitReferenceSnapshot(
@@ -440,6 +445,15 @@ package struct GitService: Sendable {
 
     func repositories(in workspace: URL) async -> [URL] {
         await read(priority: .utility) { $0.repositories(in: workspace) } ?? []
+    }
+
+    func repositories(_ request: GitRepositoryDiscoveryRequest) async throws -> [URL] {
+        let result: Result<[URL], any Error>? = await read(priority: .utility) { operations in
+            Result { try operations.repositories(request) }
+        }
+        guard let result else { throw CancellationError() }
+        try Task.checkCancellation()
+        return try result.get()
     }
 
     func prepareWorkspaceCommit(_ request: GitWorkspaceCommitRequest) async -> Result<GitWorkspaceCommitPreparation, GitWorkspaceCommitFailure> {

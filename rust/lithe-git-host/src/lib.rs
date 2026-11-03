@@ -54,6 +54,19 @@ pub enum Failure {
 pub fn run(
     command: &mut Command,
     input: Option<&[u8]>,
+    cancelled: impl FnMut() -> bool,
+    started: impl FnMut(),
+    output: impl FnMut(Stream, &[u8]),
+) -> Outcome {
+    run_with_stdout_capture(command, input, true, cancelled, started, output)
+}
+
+/// Uses the same process ownership while optionally leaving stdout exclusively
+/// to the streaming callback. Stderr retains the ordinary bounded capture.
+pub fn run_with_stdout_capture(
+    command: &mut Command,
+    input: Option<&[u8]>,
+    capture_stdout: bool,
     mut cancelled: impl FnMut() -> bool,
     mut started: impl FnMut(),
     mut output: impl FnMut(Stream, &[u8]),
@@ -105,21 +118,27 @@ pub fn run(
             &mut stdout_eof,
             &mut result.stdout,
             Stream::Stdout,
+            capture_stdout,
             &mut output,
         )
-        .and_then(|_| {
+        .and_then(|stdout_progress| {
             drain(
                 &mut stderr,
                 &mut stderr_eof,
                 &mut result.stderr,
                 Stream::Stderr,
+                true,
                 &mut output,
             )
+            .map(|stderr_progress| stdout_progress || stderr_progress)
         });
-        if let Err(error) = reads {
-            result.failure = Some(error);
-            break;
-        }
+        let made_progress = match reads {
+            Ok(progress) => progress,
+            Err(error) => {
+                result.failure = Some(error);
+                break;
+            }
+        };
         if result.status.is_none() {
             match child.child.try_wait() {
                 Ok(Some(status)) => {
@@ -140,7 +159,13 @@ pub fn run(
             result.failure = Some(Failure::Cleanup);
             break;
         }
-        std::thread::sleep(POLL_INTERVAL);
+        if !made_progress {
+            if let Err(error) = platform::wait_for_output(&stdout, stdout_eof, &stderr, stderr_eof)
+            {
+                result.failure = Some(Failure::Io(error));
+                break;
+            }
+        }
     }
     // This also cleans up helpers that inherited pipes after their parent exited.
     if !child.cleanup() {
@@ -157,31 +182,36 @@ fn drain<R: Read + platform::Pipe>(
     eof: &mut bool,
     captured: &mut Vec<u8>,
     stream: Stream,
+    capture: bool,
     output: &mut impl FnMut(Stream, &[u8]),
-) -> Result<(), Failure> {
+) -> Result<bool, Failure> {
     if *eof {
-        return Ok(());
+        return Ok(false);
     }
     let mut buffer = [0u8; 8192];
+    let mut progress = false;
     // A noisy stream cannot starve the other stream or cancellation checks.
     for _ in 0..8 {
         let count = match platform::read(reader, &mut buffer) {
             Ok(0) => {
                 *eof = true;
-                return Ok(());
+                return Ok(progress);
             }
             Ok(count) => count,
-            Err(error) if error.kind() == io::ErrorKind::WouldBlock => return Ok(()),
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => return Ok(progress),
             Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
             Err(error) => return Err(Failure::Io(error)),
         };
+        progress = true;
         output(stream, &buffer[..count]);
-        if captured.len() + count > MAX_CAPTURE_BYTES {
-            return Err(Failure::OutputLimit);
+        if capture {
+            if captured.len() + count > MAX_CAPTURE_BYTES {
+                return Err(Failure::OutputLimit);
+            }
+            captured.extend_from_slice(&buffer[..count]);
         }
-        captured.extend_from_slice(&buffer[..count]);
     }
-    Ok(())
+    Ok(progress)
 }
 
 struct OwnedChild {
@@ -391,6 +421,44 @@ mod platform {
     pub fn read<R: Read + Pipe>(reader: &mut R, buffer: &mut [u8]) -> io::Result<usize> {
         reader.read(buffer)
     }
+    pub fn wait_for_output(
+        stdout: &impl Pipe,
+        stdout_eof: bool,
+        stderr: &impl Pipe,
+        stderr_eof: bool,
+    ) -> io::Result<()> {
+        let mut pipes = [
+            libc::pollfd {
+                fd: if stdout_eof { -1 } else { stdout.as_raw_fd() },
+                events: libc::POLLIN,
+                revents: 0,
+            },
+            libc::pollfd {
+                fd: if stderr_eof { -1 } else { stderr.as_raw_fd() },
+                events: libc::POLLIN,
+                revents: 0,
+            },
+        ];
+        // A temporarily empty pipe must wake as soon as the producer writes.
+        // Ignoring EOF descriptors avoids a hangup-driven busy loop; the finite
+        // timeout preserves cancellation and child-exit checks even without data.
+        // SAFETY: both descriptors remain borrowed for the duration of poll, and
+        // pipes is a valid writable array of the stated length.
+        let ready = unsafe {
+            libc::poll(
+                pipes.as_mut_ptr(),
+                pipes.len() as libc::nfds_t,
+                POLL_INTERVAL.as_millis() as libc::c_int,
+            )
+        };
+        if ready < 0 {
+            let error = io::Error::last_os_error();
+            if error.kind() != io::ErrorKind::Interrupted {
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
     pub struct Group(i32);
     impl Group {
         /// A process that starts its own session leaves the group on its own,
@@ -441,6 +509,17 @@ mod platform {
     };
     pub trait Pipe: AsRawHandle {}
     impl<T: AsRawHandle> Pipe for T {}
+    pub fn wait_for_output(
+        _stdout: &impl Pipe,
+        _stdout_eof: bool,
+        _stderr: &impl Pipe,
+        _stderr_eof: bool,
+    ) -> io::Result<()> {
+        // Anonymous Windows pipes use PeekNamedPipe in read; they do not expose
+        // the Unix readiness notification used above.
+        std::thread::sleep(POLL_INTERVAL);
+        Ok(())
+    }
     pub fn prepare(command: &mut Command) {
         // Assign the job before the first thread can spawn credential/SSH helpers.
         command.creation_flags(CREATE_NO_WINDOW | CREATE_SUSPENDED);

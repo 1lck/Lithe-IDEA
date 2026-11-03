@@ -14,6 +14,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 pub struct IndexingPolicy {
     pub manual_excluded_directories: Vec<String>,
     pub included_directories: Vec<String>,
+    #[serde(default)]
     pub git_ignore_enabled: bool,
 }
 
@@ -37,9 +38,151 @@ pub struct ConfigureIndexingRequest {
 #[serde(rename_all = "camelCase")]
 /// Effective directory reasons and Git availability, never a claim about third-party scans.
 pub struct IndexingStatus {
+    /// Effective value resolved by Core; omission of the preference means disabled.
+    pub effective_git_ignore_enabled: bool,
     pub revision: u64,
     pub excluded_directories: BTreeMap<String, String>,
     pub git_ignore_failed: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// Reads exclusion suggestions for an already configured workspace, without changing its policy.
+pub struct IgnoredDirectorySuggestionsRequest {
+    pub root: String,
+    /// Explicit root membership; nested roots are inspected with their own policy.
+    #[serde(default)]
+    pub workspace_roots: Vec<String>,
+    /// The same effective visibility overrides supplied to workspace snapshots.
+    #[serde(default)]
+    pub hidden_directory_names: Vec<String>,
+    #[serde(default)]
+    pub hidden_file_patterns: Vec<String>,
+}
+
+#[derive(Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// A bounded directory-only inventory. Partial results never establish absence.
+pub struct IgnoredDirectorySuggestions {
+    pub directories: Vec<String>,
+    pub incomplete: bool,
+    pub git_ignore_failed: bool,
+}
+
+/// Finds Git-ignored directory roots still eligible for workspace analysis.
+/// Native Git retains ownership of ignore syntax and tracked-file protection.
+pub fn ignored_directory_suggestions(
+    request: IgnoredDirectorySuggestionsRequest,
+) -> Result<IgnoredDirectorySuggestions, CoreError> {
+    scan_ignored_directories(request, 10_000, 32, 100_000)
+}
+
+/// Bounds both descended directories and entries read from wide, file-heavy parents.
+fn scan_ignored_directories(
+    request: IgnoredDirectorySuggestionsRequest,
+    max_directories: usize,
+    max_depth: usize,
+    max_entries: usize,
+) -> Result<IgnoredDirectorySuggestions, CoreError> {
+    let root = existing_root(&request.root)?;
+    let boundaries = super::files::VisibilityRules::new(
+        request.hidden_directory_names,
+        request.hidden_file_patterns,
+    )
+    .with_workspace_roots(&root, &request.workspace_roots);
+    let context = active_provider_context(&root).ok_or_else(|| {
+        CoreError::new(ErrorCode::Cancelled, "Workspace indexing is not configured")
+    })?;
+    let mut result = IgnoredDirectorySuggestions::default();
+    let mut queue = std::collections::VecDeque::from([(root.clone(), 0usize)]);
+    let mut visited = 0;
+    let mut entries_read = 0;
+    while let Some((directory, depth)) = queue.pop_front() {
+        context.check()?;
+        if visited == max_directories {
+            result.incomplete = true;
+            break;
+        }
+        visited += 1;
+        if boundaries.is_delegated(&directory) {
+            continue;
+        }
+        let relative = relative_path(&directory, &root);
+        if context.reason(&relative, true)?.is_some() {
+            continue;
+        }
+        if directory != root {
+            context.prepare_parent(directory.parent().unwrap_or(&root), &relative)?;
+            let ignored = context
+                .decisions
+                .lock()
+                .map_err(|_| {
+                    CoreError::new(ErrorCode::Unknown, "Indexing decision lock was poisoned")
+                })?
+                .get(&relative)
+                == Some(&true);
+            if ignored {
+                result.directories.push(relative);
+                continue;
+            }
+        }
+        if entries_read == max_entries {
+            result.incomplete = true;
+            continue;
+        }
+        let entries = match std::fs::read_dir(&directory) {
+            Ok(entries) => entries,
+            Err(_) => {
+                result.incomplete = true;
+                continue;
+            }
+        };
+        let mut children = std::collections::BTreeSet::new();
+        for entry in entries {
+            context.check()?;
+            if entries_read == max_entries {
+                result.incomplete = true;
+                break;
+            }
+            entries_read += 1;
+            match entry {
+                Ok(entry) if entry.file_name() != ".git" => match entry.file_type() {
+                    Ok(kind) if kind.is_dir() => {
+                        let path = entry.path();
+                        if boundaries.is_delegated(&path)
+                            || boundaries.is_hidden(&relative_path(&path, &root), true)
+                            || super::files::is_nested_linked_worktree(&path)
+                        {
+                            continue;
+                        }
+                        children.insert(entry.path());
+                        if children.len() + queue.len() + visited > max_directories {
+                            children.pop_last();
+                            result.incomplete = true;
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(_) => result.incomplete = true,
+                },
+                Ok(_) => {}
+                Err(_) => result.incomplete = true,
+            }
+        }
+        if depth == max_depth {
+            result.incomplete |= !children.is_empty();
+            continue;
+        }
+        let names = children
+            .iter()
+            .filter_map(|path| path.file_name()?.to_str().map(str::to_owned))
+            .collect::<Vec<_>>();
+        context.prepare_candidates(&directory, &names)?;
+        queue.extend(children.into_iter().map(|path| (path, depth + 1)));
+    }
+    context.check()?;
+    result.directories.sort();
+    result.git_ignore_failed = context.git_failed.load(Ordering::Acquire);
+    Ok(result)
 }
 
 /// Immutable policy generation with lazily cached Git directory decisions.
@@ -219,7 +362,10 @@ fn configure_with_provider_update(
         }
         if let Ok(decisions) = context.decisions.lock() {
             for (path, excluded) in decisions.iter() {
-                if *excluded
+                // Suggestion inspection may fill this cache even while automatic
+                // exclusion is disabled; status reports only effective decisions.
+                if context.policy.git_ignore_enabled
+                    && *excluded
                     && !context
                         .policy
                         .included_directories
@@ -261,6 +407,7 @@ fn configure_with_provider_update(
             context.published.store(true, Ordering::Release);
         }
         Ok(IndexingStatus {
+            effective_git_ignore_enabled: context.policy.git_ignore_enabled,
             revision: lease_revision,
             excluded_directories,
             git_ignore_failed: context.git_failed.load(Ordering::Acquire),
@@ -406,7 +553,8 @@ pub fn refresh_indexing(request: RefreshIndexingRequest) -> Result<IndexingStatu
         .lock()
         .map_err(|_| CoreError::new(ErrorCode::Unknown, "Indexing decisions lock was poisoned"))?;
     for (path, excluded) in decisions.iter() {
-        if *excluded
+        if next.policy.git_ignore_enabled
+            && *excluded
             && !next
                 .policy
                 .included_directories
@@ -419,6 +567,7 @@ pub fn refresh_indexing(request: RefreshIndexingRequest) -> Result<IndexingStatu
         }
     }
     Ok(IndexingStatus {
+        effective_git_ignore_enabled: next.policy.git_ignore_enabled,
         revision: request.revision,
         excluded_directories,
         git_ignore_failed: next.git_failed.load(Ordering::Acquire),
@@ -645,49 +794,65 @@ impl IndexingContext {
         {
             return Ok(());
         }
-        let Ok(entries) = std::fs::read_dir(parent) else {
-            return Ok(());
-        };
-        let candidates = entries
+        // Bound sibling lookahead. Inventory queries prime their own bounded batch;
+        // ordinary path queries always include the requested directory as well.
+        let mut candidates = std::fs::read_dir(parent)
+            .into_iter()
+            .flatten()
+            .take(256)
             .filter_map(Result::ok)
             .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
             .filter_map(|entry| entry.file_name().into_string().ok())
             .collect::<Vec<_>>();
+        if let Some(name) = Path::new(requested)
+            .file_name()
+            .and_then(|name| name.to_str())
+        {
+            if !candidates.iter().any(|candidate| candidate == name) {
+                candidates.push(name.to_owned());
+            }
+        }
+        self.prepare_candidates(parent, &candidates)
+    }
+
+    /// Resolves one caller-bounded sibling batch using native ignore and index queries.
+    fn prepare_candidates(&self, parent: &Path, candidates: &[String]) -> Result<(), CoreError> {
+        self.check()?;
+        let cache = self.decisions.lock().map_err(|_| {
+            CoreError::new(ErrorCode::Unknown, "Indexing decision lock was poisoned")
+        })?;
+        let candidates = candidates
+            .iter()
+            .filter(|name| !cache.contains_key(&relative_path(&parent.join(name), &self.root)))
+            .cloned()
+            .collect::<Vec<_>>();
+        drop(cache);
+        if candidates.is_empty() {
+            return Ok(());
+        }
         let ignored = crate::git::ignored_paths(parent, &candidates)?;
         let mut decisions = HashMap::new();
         if let Some(ignored) = ignored {
-            // The index is authoritative for tracked descendants; check-ignore on a directory
-            // alone does not protect tracked files below an otherwise ignored directory.
-            for name in candidates {
-                let excluded = if parent.join(&name).join(".git").exists() {
-                    // A nested repository owns its ignore rules and tracked content.
-                    false
-                } else if ignored.contains(&name) {
-                    let response = crate::git::execute_git_readonly(
-                        &parent.to_string_lossy(),
-                        &[
-                            "--literal-pathspecs".into(),
-                            "ls-files".into(),
-                            "-z".into(),
-                            "--".into(),
-                            name.clone(),
-                        ],
-                        None,
-                    );
-                    self.check()?;
-                    let Ok(response) = response else {
-                        self.git_failed.store(true, Ordering::Release);
-                        continue;
-                    };
-                    if response.exit_code != 0 {
-                        self.git_failed.store(true, Ordering::Release);
-                        false
-                    } else {
-                        response.stdout.is_empty()
+            let ignored = ignored.into_iter().collect::<Vec<_>>();
+            // The containing repository's index protects tracked descendants and
+            // submodule gitlinks; an independent ignored checkout is not exempt.
+            let untracked =
+                match crate::git::untracked_directory_candidates_checked(parent, &ignored) {
+                    Ok(paths) => Some(paths),
+                    Err(error)
+                        if matches!(error.code, ErrorCode::Cancelled | ErrorCode::TimedOut) =>
+                    {
+                        return Err(error)
                     }
-                } else {
-                    false
+                    Err(_) => None,
                 };
+            if untracked.is_none() {
+                self.git_failed.store(true, Ordering::Release);
+            }
+            for name in candidates {
+                let excluded = untracked
+                    .as_ref()
+                    .is_some_and(|paths| paths.contains(&name));
                 decisions.insert(relative_path(&parent.join(name), &self.root), excluded);
             }
         } else {
@@ -720,7 +885,12 @@ pub(crate) fn excluded_roots(root: &Path) -> Vec<String> {
         return Vec::new();
     };
     let mut roots = context.policy.manual_excluded_directories.clone();
-    if let Ok(decisions) = context.decisions.lock() {
+    if let Some(decisions) = context
+        .decisions
+        .lock()
+        .ok()
+        .filter(|_| context.policy.git_ignore_enabled)
+    {
         roots.extend(
             decisions
                 .iter()
@@ -799,6 +969,174 @@ mod tests {
     use super::*;
     use serde_json::json;
     use std::fs;
+
+    #[test]
+    fn suggestions_use_the_inventory_visibility_rules_and_disabled_built_ins() {
+        let workspace = Workspace::new();
+        workspace.git(&["init", "--quiet"]);
+        for name in ["node_modules", "archive"] {
+            fs::create_dir_all(workspace.0.join(name)).unwrap();
+            fs::write(workspace.0.join(name).join("file.js"), "content").unwrap();
+        }
+        fs::write(workspace.0.join(".gitignore"), "node_modules/\narchive/\n").unwrap();
+        workspace.configure(&[], &[], false);
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../shared/fixtures/workspace/ignored-directory-suggestions-v1.json"
+        ))
+        .unwrap();
+        for case in fixture["visibilityCases"].as_array().unwrap() {
+            let response = ignored_directory_suggestions(
+                serde_json::from_value(json!({
+                    "root":workspace.0,
+                    "hiddenDirectoryNames":case["hiddenDirectoryNames"],
+                    "hiddenFilePatterns":case["hiddenFilePatterns"]
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(
+                serde_json::to_value(response.directories).unwrap(),
+                case["expectedSuggestions"]
+            );
+            assert!(!response.incomplete);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn tracked_directory_query_fixture() {
+        use std::io::{Read, Write};
+        let Some(socket) = std::env::var_os("LITHE_TRACKED_QUERY_SOCKET") else {
+            return;
+        };
+        if !Path::new(&socket).exists() {
+            return;
+        }
+        let mut stream = std::os::unix::net::UnixStream::connect(socket).unwrap();
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_secs(3)))
+            .unwrap();
+        stream.write_all(b"ready").unwrap();
+        let _ = stream.read(&mut [0]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn tracked_directory_query_reclaims_the_process_on_cancel_and_timeout() {
+        use std::io::Read;
+        use std::os::unix::{fs::PermissionsExt, net::UnixListener};
+        use std::time::{Duration, Instant};
+        for cancel in [false, true] {
+            let workspace = Workspace::new();
+            // Unix socket paths have a short platform limit; use the existing short fixture root.
+            let socket = std::env::temp_dir().join(format!("lq-{}-{cancel}", std::process::id()));
+            struct SocketPath(PathBuf);
+            impl Drop for SocketPath {
+                fn drop(&mut self) {
+                    let _ = fs::remove_file(&self.0);
+                }
+            }
+            let _cleanup = SocketPath(socket.clone());
+            let listener = UnixListener::bind(&socket).unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let executable = workspace.0.join("fake-git");
+            let test_executable = std::env::current_exe()
+                .unwrap()
+                .to_string_lossy()
+                .replace('\'', "'\\''");
+            fs::write(&executable, format!("#!/bin/sh\ncase \"$*\" in *--version*) echo 'git version 2.40.0';; *) LITHE_TRACKED_QUERY_SOCKET='{}' exec '{test_executable}' --exact project::indexing::tests::tracked_directory_query_fixture --nocapture;; esac\n", socket.display())).unwrap();
+            fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+            let root = workspace.0.clone();
+            let operation = format!("query-{}-{cancel}", root.display());
+            let worker_operation = operation.clone();
+            let (finished, completion) = std::sync::mpsc::sync_channel(1);
+            let worker = std::thread::spawn(move || {
+                let _request =
+                    crate::protocol::cancellation::Scope::begin(Some(worker_operation), Some(1000));
+                let _git = crate::git::execution_policy::Scope::begin(Some(
+                    crate::git::execution_policy::GitExecutionOptions {
+                        executable: Some(executable.to_string_lossy().into_owned()),
+                        ..Default::default()
+                    },
+                ))
+                .unwrap();
+                let result =
+                    crate::git::untracked_directory_candidates_checked(&root, &["ignored".into()]);
+                let _ = finished.send(
+                    result
+                        .map(|_| ())
+                        .map_err(|error| format!("{:?}", error.code)),
+                );
+            });
+            let deadline = Instant::now() + Duration::from_secs(2);
+            let mut connection = loop {
+                match listener.accept() {
+                    Ok((stream, _)) => break Some(stream),
+                    Err(error)
+                        if error.kind() == std::io::ErrorKind::WouldBlock
+                            && Instant::now() < deadline =>
+                    {
+                        std::thread::yield_now()
+                    }
+                    _ => break None,
+                }
+            };
+            let ready = connection.as_mut().is_some_and(|stream| {
+                stream.set_nonblocking(false).unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(2)))
+                    .unwrap();
+                let mut bytes = [0; 5];
+                stream.read_exact(&mut bytes).is_ok() && bytes == *b"ready"
+            });
+            if cancel {
+                crate::protocol::cancellation::cancel(&operation);
+            }
+            let outcome = completion.recv_timeout(Duration::from_secs(2));
+            // Release a broken fixture before asserting, so failures still reclaim its worker.
+            if outcome.is_err() {
+                drop(connection.take());
+            }
+            if outcome.is_ok() {
+                worker.join().unwrap();
+            }
+            assert!(
+                ready,
+                "selected Git process never reached its gate: {outcome:?}"
+            );
+            assert_eq!(
+                outcome.unwrap(),
+                Err(if cancel { "Cancelled" } else { "TimedOut" }.to_string())
+            );
+            assert_eq!(
+                connection.as_mut().unwrap().read(&mut [0]).unwrap(),
+                0,
+                "owned child survived the query"
+            );
+        }
+    }
+
+    #[test]
+    fn omitted_git_preference_is_disabled_and_explicit_preferences_survive() {
+        let workspace = Workspace::new();
+        for preference in [None, Some(true), Some(false)] {
+            let mut payload = json!({
+                "root": workspace.0, "manualExcludedDirectories": [], "includedDirectories": []
+            });
+            if let Some(value) = preference {
+                payload["gitIgnoreEnabled"] = json!(value);
+            }
+            let response: serde_json::Value = serde_json::from_str(&crate::execute_json(
+                &json!({"command":"workspace.configureIndexing", "payload":payload}).to_string(),
+            ))
+            .unwrap();
+            assert_eq!(response["ok"], true, "{response}");
+            assert_eq!(
+                response["data"]["effectiveGitIgnoreEnabled"],
+                preference.unwrap_or(false)
+            );
+        }
+    }
 
     #[test]
     fn owned_refresh_rechecks_git_without_replacing_any_release_token() {
@@ -1306,6 +1644,39 @@ mod tests {
             .files()
             .contains(&"ignored/deep/Excluded.java".into()));
     }
+
+    /// Visible row decoration remains a Git fact when analysis exclusions change.
+    #[test]
+    fn directory_listing_keeps_git_ignored_names_independent_of_indexing_policy() {
+        let workspace = Workspace::new();
+        workspace.git(&["init", "--quiet"]);
+        fs::write(workspace.0.join(".gitignore"), "ignored/\n*.log\n").unwrap();
+        fs::write(workspace.0.join("ignored.log"), "ignored").unwrap();
+        fs::write(workspace.0.join("tracked.log"), "tracked").unwrap();
+        workspace.git(&["add", "-f", "tracked.log"]);
+        for enabled in [false, true] {
+            workspace.configure(&[], &[], enabled);
+            let listing = files::list_directories(
+                serde_json::from_value(json!({
+                    "root": workspace.0, "paths": ["", "ignored"]
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(
+                listing.directories[0].ignored_paths.as_ref().unwrap(),
+                &["ignored", "ignored.log"]
+            );
+            assert!(listing.directories[0]
+                .children
+                .iter()
+                .any(|node| node.path == "ignored"));
+            assert_eq!(
+                listing.directories[1].ignored_paths.as_ref().unwrap(),
+                &["ignored/deep"]
+            );
+        }
+    }
     #[test]
     fn watcher_refresh_preserves_host_release_and_rejects_both_stale_and_closed_readers() {
         let workspace = Workspace::new();
@@ -1655,6 +2026,205 @@ mod tests {
     }
 
     #[test]
+    fn analysis_includes_do_not_register_ignored_nested_repositories() {
+        let workspace = Workspace::new();
+        workspace.git(&["init", "--quiet"]);
+        workspace.git(&["-C", "ignored", "init", "--quiet"]);
+        workspace.git(&["-C", "ignored", "add", "deep/Excluded.java"]);
+        fs::write(workspace.0.join(".gitignore"), "ignored\n").unwrap();
+        workspace.configure(&[], &[], true);
+        assert!(!workspace
+            .files()
+            .iter()
+            .any(|path| path.starts_with("ignored/")));
+        let repositories = crate::git::workspace_repositories(
+            serde_json::from_value(json!({"root": workspace.0})).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(repositories.repositories.len(), 1);
+        assert!(
+            ignored_directory_suggestions(IgnoredDirectorySuggestionsRequest {
+                root: workspace.0.to_string_lossy().into_owned(),
+                workspace_roots: Vec::new(),
+                hidden_directory_names: Vec::new(),
+                hidden_file_patterns: Vec::new(),
+            })
+            .unwrap()
+            .directories
+            .is_empty()
+        );
+
+        workspace.configure(&[], &["ignored"], true);
+        assert!(workspace
+            .files()
+            .contains(&"ignored/deep/Excluded.java".into()));
+        assert_eq!(
+            crate::git::workspace_repositories(
+                serde_json::from_value(json!({"root": workspace.0})).unwrap(),
+            )
+            .unwrap()
+            .repositories
+            .len(),
+            1
+        );
+        let suggestions = ignored_directory_suggestions(IgnoredDirectorySuggestionsRequest {
+            root: workspace.0.to_string_lossy().into_owned(),
+            workspace_roots: Vec::new(),
+            hidden_directory_names: Vec::new(),
+            hidden_file_patterns: Vec::new(),
+        })
+        .unwrap();
+        assert_eq!(suggestions.directories, ["ignored"]);
+        assert!(!suggestions.incomplete && !suggestions.git_ignore_failed);
+
+        workspace.configure(&["ignored"], &["ignored/deep"], false);
+        assert_eq!(
+            crate::git::workspace_repositories(
+                serde_json::from_value(json!({"root": workspace.0})).unwrap(),
+            )
+            .unwrap()
+            .repositories
+            .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn ignored_suggestions_are_read_only_and_keep_tracked_files_and_manual_exclusions() {
+        let workspace = Workspace::new();
+        workspace.git(&["init", "--quiet"]);
+        workspace.git(&["add", "src/Included.java"]);
+        fs::write(workspace.0.join(".gitignore"), "ignored/\nsrc/\n").unwrap();
+        let original = workspace.configure(&[], &[], false);
+        let files = workspace.files();
+        let suggestions = ignored_directory_suggestions(IgnoredDirectorySuggestionsRequest {
+            root: workspace.0.to_string_lossy().into_owned(),
+            workspace_roots: Vec::new(),
+            hidden_directory_names: Vec::new(),
+            hidden_file_patterns: Vec::new(),
+        })
+        .unwrap();
+        assert_eq!(suggestions.directories, ["ignored"]);
+        let status = configure(
+            serde_json::from_value(json!({
+                "root": workspace.0, "manualExcludedDirectories": [],
+                "includedDirectories": [], "gitIgnoreEnabled": false,
+                "paths": ["ignored"]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(
+            status.excluded_directories.is_empty(),
+            "Suggestion caches must not label included directories as excluded"
+        );
+        assert_eq!(status.revision, original.revision);
+        assert_eq!(workspace.files(), files);
+        assert!(
+            excluded_roots(&workspace.0).is_empty(),
+            "Inspecting suggestions must not change provider exclusions"
+        );
+        assert_eq!(
+            context(&workspace.0).unwrap().owner_revision,
+            original.revision
+        );
+        assert_eq!(
+            fs::read_to_string(workspace.0.join(".gitignore")).unwrap(),
+            "ignored/\nsrc/\n"
+        );
+        workspace.configure(&["ignored"], &[], false);
+        assert!(
+            ignored_directory_suggestions(IgnoredDirectorySuggestionsRequest {
+                root: workspace.0.to_string_lossy().into_owned(),
+                workspace_roots: Vec::new(),
+                hidden_directory_names: Vec::new(),
+                hidden_file_patterns: Vec::new(),
+            })
+            .unwrap()
+            .directories
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn ignored_directory_fixture_handles_gitfiles_and_explicit_root_boundaries() {
+        let workspace = Workspace::new();
+        let metadata = Workspace::new();
+        workspace.git(&["init", "--quiet"]);
+        workspace.git(&[
+            "init",
+            "--quiet",
+            "--separate-git-dir",
+            metadata.0.join("metadata").to_str().unwrap(),
+            "ignored",
+        ]);
+        assert!(workspace.0.join("ignored/.git").is_file());
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../shared/fixtures/workspace/ignored-directory-suggestions-v1.json"
+        ))
+        .unwrap();
+        fs::write(
+            workspace.0.join(".gitignore"),
+            fixture["gitignore"].as_str().unwrap(),
+        )
+        .unwrap();
+        for scenario in fixture["cases"].as_array().unwrap() {
+            let mut policy = scenario.clone();
+            policy["root"] = json!(workspace.0);
+            policy["refresh"] = json!(true);
+            configure(serde_json::from_value(policy).unwrap()).unwrap();
+            let repositories = crate::git::workspace_repositories(
+                serde_json::from_value(json!({"root": workspace.0})).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(
+                repositories.repositories.len(),
+                scenario["expectedRepositoryCount"].as_u64().unwrap() as usize
+            );
+            let result = ignored_directory_suggestions(
+                serde_json::from_value(json!({"root": workspace.0})).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(json!(result.directories), scenario["expectedSuggestions"]);
+        }
+        workspace.configure(&[], &[], false);
+        let result = ignored_directory_suggestions(
+            serde_json::from_value(json!({
+                "root": workspace.0, "workspaceRoots": [workspace.0, workspace.0.join("ignored")]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(result.directories.is_empty());
+    }
+
+    #[test]
+    fn manual_exclusion_preserves_untracked_and_tracked_git_candidates() {
+        let workspace = Workspace::new();
+        workspace.git(&["init", "--quiet"]);
+        workspace.git(&["add", "ignored/deep/Excluded.java"]);
+        fs::write(workspace.0.join("ignored/deep/new.txt"), "new").unwrap();
+        workspace.configure(&["ignored"], &[], false);
+        for summarized in [false, true] {
+            let status = crate::git::status(
+                serde_json::from_value(json!({
+                    "root": workspace.0, "summarizeUntrackedDirectories": summarized
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+            assert!(status
+                .changes
+                .iter()
+                .any(|change| change.path == "ignored/deep/Excluded.java"));
+            assert!(status
+                .changes
+                .iter()
+                .any(|change| change.path == "ignored/deep/new.txt"));
+        }
+    }
+
+    #[test]
     fn git_failure_does_not_drop_manual_exclusions() {
         let workspace = Workspace::new();
         workspace.configure(&["ignored"], &[], true);
@@ -1682,6 +2252,144 @@ mod tests {
         workspace.configure(&["src"], &[], false);
         assert!(search().matches.is_empty());
     }
+    #[test]
+    fn indexing_exclusions_do_not_change_git_summaries_or_expansion() {
+        let workspace = Workspace::new();
+        let repo = workspace.0.join("repo");
+        fs::create_dir_all(repo.join("parent/excluded")).unwrap();
+        fs::create_dir_all(repo.join("parent/visible")).unwrap();
+        workspace.git(&["init", "--quiet", "repo"]);
+        fs::write(repo.join("parent/excluded/private.txt"), "hidden").unwrap();
+        for index in 0..101 {
+            fs::write(repo.join(format!("parent/visible/{index}.txt")), "visible").unwrap();
+        }
+        workspace.configure(&["repo/parent/excluded"], &[], false);
+        let status = crate::git::status(
+            serde_json::from_value(json!({
+                "root": repo, "summarizeUntrackedDirectories": true
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(status.changes.len(), 1);
+        assert_eq!(status.changes[0].path, "parent/");
+        assert_eq!(status.changes[0].untracked_file_count, Some(102));
+        let expanded = crate::git::untracked_directory(
+            serde_json::from_value(json!({
+                "root": repo, "directory": "parent/"
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(expanded.changes.len(), 2);
+        assert_eq!(expanded.changes[0].path, "parent/excluded/");
+        assert_eq!(expanded.changes[0].untracked_file_count, Some(1));
+        assert_eq!(expanded.changes[1].path, "parent/visible/");
+        assert_eq!(expanded.changes[1].untracked_file_count, Some(101));
+        // Installing a separate analysis policy cannot change Git's projection.
+        let _repo_cleanup = Workspace(repo.clone());
+        configure(
+            serde_json::from_value(json!({"root": repo, "gitIgnoreEnabled": false, "manualExcludedDirectories": [], "includedDirectories": []})).unwrap(),
+        )
+        .unwrap();
+        let own = crate::git::status(
+            serde_json::from_value(json!({
+                "root": repo, "summarizeUntrackedDirectories": true
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(own.changes[0].path, "parent/");
+        assert_eq!(own.changes[0].untracked_file_count, Some(102));
+        release(ReleaseIndexingRequest {
+            root: repo.to_string_lossy().into_owned(),
+            revision: context(&repo).unwrap().owner_revision,
+            owner_id: None,
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn git_status_is_independent_of_subdirectory_indexing_policy() {
+        let workspace = Workspace::new();
+        workspace.git(&["init", "--quiet"]);
+        let project = workspace.0.join("project");
+        fs::create_dir_all(project.join("cache")).unwrap();
+        fs::write(project.join("cache/hidden.txt"), "hidden").unwrap();
+        fs::write(project.join("visible.txt"), "visible").unwrap();
+        let policy = configure(
+            serde_json::from_value(json!({"root": project, "gitIgnoreEnabled": false,
+            "manualExcludedDirectories": ["cache"], "includedDirectories": []}))
+            .unwrap(),
+        )
+        .unwrap();
+        let result = crate::git::status(
+            serde_json::from_value(json!({"root": workspace.0,
+            "summarizeUntrackedDirectories": true}))
+            .unwrap(),
+        );
+        release(ReleaseIndexingRequest {
+            root: project.to_string_lossy().into_owned(),
+            revision: policy.revision,
+            owner_id: None,
+        })
+        .unwrap();
+        let result = result.unwrap();
+        assert!(result
+            .changes
+            .iter()
+            .any(|change| change.path == "project/visible.txt"));
+        assert!(result
+            .changes
+            .iter()
+            .any(|change| change.path == "project/cache/hidden.txt"));
+    }
+
+    #[test]
+    fn excluded_ancestor_keeps_all_nested_git_candidates() {
+        let workspace = Workspace::new();
+        workspace.git(&["init", "--quiet"]);
+        let nested = Workspace(workspace.0.join("parent/nested"));
+        fs::create_dir_all(&nested.0).unwrap();
+        fs::write(nested.0.join("visible.txt"), "visible").unwrap();
+        fs::write(workspace.0.join("parent/hidden.txt"), "hidden").unwrap();
+        workspace.configure(&["parent"], &[], false);
+        nested.configure(&[], &[], false);
+        let result = crate::git::status(
+            serde_json::from_value(json!({"root": workspace.0,
+            "summarizeUntrackedDirectories": true}))
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(result
+            .changes
+            .iter()
+            .any(|change| change.path == "parent/nested/visible.txt"));
+        assert!(result
+            .changes
+            .iter()
+            .any(|change| change.path == "parent/hidden.txt"));
+    }
+
+    #[test]
+    fn suggestion_entry_budget_reports_file_heavy_directories_as_incomplete() {
+        let workspace = Workspace::new();
+        workspace.git(&["init", "--quiet"]);
+        for index in 0..12 {
+            fs::write(workspace.0.join(format!("plain{index}.txt")), "text").unwrap();
+        }
+        workspace.configure(&[], &[], false);
+        let result = scan_ignored_directories(
+            serde_json::from_value(json!({"root": workspace.0})).unwrap(),
+            100,
+            32,
+            5,
+        )
+        .unwrap();
+        assert!(result.incomplete);
+        assert!(result.directories.is_empty());
+    }
+
     #[test]
     fn repository_archive_fixture_reduces_visits_and_resident_index_files() {
         let workspace = Workspace::new();

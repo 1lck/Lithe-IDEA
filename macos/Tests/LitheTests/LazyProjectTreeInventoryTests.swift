@@ -1,13 +1,215 @@
+import AppKit
 import Combine
 import Foundation
 import LitheCoreContracts
 import LitheModuleAPI
 import LitheWorkspaceModule
 import Testing
+import SwiftUI
+@testable import Lithe
 
 @Suite("Lazy project tree inventory")
 @MainActor
 struct LazyProjectTreeInventoryTests {
+    @Test
+    func mountedEmptyIgnoredNoticeStartsInspection() async throws {
+        let root = URL(fileURLWithPath: "/in-memory/mounted-ignored-notice")
+        let fixture = InventoryFixture(root: root, files: [], rows: [root.path: []])
+        defer { fixture.close() }
+        fixture.disk.setConfigurationRevision(1)
+        await fixture.load()
+        #expect(fixture.model.indexingStatus.revision == 1)
+        fixture.disk.setSuggestions(["archive"])
+        let host = NSHostingView(rootView: IgnoredDirectoryNotice(
+            feature: fixture.model, fileURL: root.appendingPathComponent(".gitignore")))
+        host.sizingOptions = []
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 700, height: 80),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer { window.contentView = nil; window.close() }
+        window.orderFront(nil)
+        host.layoutSubtreeIfNeeded()
+        #expect(await fixture.disk.suggestionsRequested.waitUntilOpen())
+        #expect(fixture.model.directoryMarks.isEmpty)
+    }
+
+    @Test
+    func metadataRefreshRequeriesMountedIgnoredNoticeWithoutRescanning() async throws {
+        let root = URL(fileURLWithPath: "/in-memory/ignored-notice-metadata")
+        let fixture = InventoryFixture(root: root, files: [], rows: [root.path: []])
+        defer { fixture.close() }
+        fixture.disk.setConfigurationRevision(1)
+        await fixture.load()
+        await fixture.model.setGitIgnoreIndexing(false)
+        fixture.disk.setSuggestions(["archive"])
+        let host = NSHostingView(rootView: IgnoredDirectoryNotice(
+            feature: fixture.model, fileURL: root.appendingPathComponent(".gitignore")))
+        host.sizingOptions = []
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 700, height: 80),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer { window.contentView = nil; window.close() }
+        window.orderFront(nil)
+        host.layoutSubtreeIfNeeded()
+        #expect(await fixture.disk.suggestionsRequested.waitUntilOpen())
+        let scans = fixture.disk.snapshotCount, publications = fixture.publishedFiles.count
+        let snapshotID = fixture.model.appliedSnapshot?.id
+        fixture.disk.setConfigurationRevision(2)
+        fixture.disk.setSuggestions([])
+        let queried = fixture.disk.expectSuggestions()
+        let source = try #require(fixture.watcher.source)
+        source.emit(DirectoryChangeBatch(gitStateMayHaveChanged: true, gitMetadataMayHaveChanged: true))
+        #expect(await queried.waitUntilOpen())
+        #expect(fixture.model.indexingStatus.revision == 2)
+        #expect(fixture.disk.configurationRefreshes.last == true)
+        #expect(fixture.disk.snapshotCount == scans)
+        #expect(fixture.publishedFiles.count == publications)
+        #expect(fixture.model.appliedSnapshot?.id == snapshotID)
+    }
+
+    @Test
+    func unchangedInventoryStillRefreshesGitIgnoredDecorations() async throws {
+        let root = URL(fileURLWithPath: "/in-memory/ignored-color-rules")
+        let file = root.appendingPathComponent("output.log")
+        let fixture = InventoryFixture(root: root, files: [file], rows: [
+            root.path: [FileNode(url: file, isDirectory: false, children: nil)],
+        ])
+        defer { fixture.close() }
+        await fixture.load()
+        await fixture.model.setGitIgnoreIndexing(false)
+        let snapshotID = fixture.model.appliedSnapshot?.id
+        let publications = fixture.publishedFiles.count
+        for ignored in [true, false] {
+            fixture.disk.set(files: [file], rows: [
+                root.path: [FileNode(url: file, isDirectory: false, children: nil, isGitIgnored: ignored)],
+            ])
+            let refreshed = fixture.expectRefresh(for: root.appendingPathComponent(".gitignore"))
+            try fixture.emit([root.appendingPathComponent(".gitignore")])
+            #expect(await refreshed.waitUntilOpen())
+            #expect(fixture.model.rootNode?.node(exactlyAt: file)?.isGitIgnored == ignored)
+            #expect(fixture.model.appliedSnapshot?.root.node(exactlyAt: file)?.isGitIgnored == ignored)
+            #expect(fixture.model.appliedSnapshot?.id == snapshotID)
+            #expect(fixture.publishedFiles.count == publications)
+        }
+    }
+
+    @Test
+    func gitMetadataRefreshesColorsWithAutomaticIndexExclusionDisabled() async throws {
+        let root = URL(fileURLWithPath: "/in-memory/ignored-color-metadata")
+        let file = root.appendingPathComponent("output.log")
+        let fixture = InventoryFixture(root: root, files: [file], rows: [
+            root.path: [FileNode(url: file, isDirectory: false, children: nil)],
+        ])
+        defer { fixture.close() }
+        await fixture.load()
+        await fixture.model.setGitIgnoreIndexing(false)
+        let scans = fixture.disk.snapshotCount, publications = fixture.publishedFiles.count
+        let snapshotID = fixture.model.appliedSnapshot?.id
+        fixture.disk.set(files: [file], rows: [
+            root.path: [FileNode(url: file, isDirectory: false, children: nil, isGitIgnored: true)],
+        ])
+        let colored = fixture.expectIgnoredDecoration(for: file)
+        let source = try #require(fixture.watcher.source)
+        source.emit(DirectoryChangeBatch(gitStateMayHaveChanged: true, gitMetadataMayHaveChanged: true))
+        #expect(await colored.waitUntilOpen())
+        #expect(fixture.disk.snapshotCount == scans)
+        #expect(fixture.publishedFiles.count == publications)
+        #expect(fixture.model.appliedSnapshot?.id == snapshotID)
+    }
+
+    @Test(arguments: [false, true])
+    func metadataColorRefreshRetriesConcurrentFileEventsAndExpansion(expand: Bool) async throws {
+        let root = URL(fileURLWithPath: "/in-memory/ignored-color-overlap")
+        let file = root.appendingPathComponent("output.log")
+        let docs = root.appendingPathComponent("docs"), child = docs.appendingPathComponent("readme.txt")
+        let fixture = InventoryFixture(root: root, files: [file, child], rows: [
+            root.path: [FileNode(url: docs, isDirectory: true, children: nil),
+                        FileNode(url: file, isDirectory: false, children: nil)],
+            docs.path: [FileNode(url: child, isDirectory: false, children: nil)],
+        ])
+        defer { fixture.close() }
+        await fixture.load()
+        await fixture.model.setGitIgnoreIndexing(false)
+        let scans = fixture.disk.snapshotCount
+        fixture.disk.set(files: [file, child], rows: [
+            root.path: [FileNode(url: docs, isDirectory: true, children: nil),
+                        FileNode(url: file, isDirectory: false, children: nil, isGitIgnored: true)],
+            docs.path: [FileNode(url: child, isDirectory: false, children: nil)],
+        ])
+        fixture.disk.blockNextListing()
+        let colored = fixture.expectIgnoredDecoration(for: file)
+        let source = try #require(fixture.watcher.source)
+        source.emit(DirectoryChangeBatch(gitStateMayHaveChanged: true, gitMetadataMayHaveChanged: true))
+        #expect(await fixture.disk.listingStarted.waitUntilOpen())
+        if expand {
+            await fixture.model.loadExpandedDirectories([root.path, docs.path])
+            #expect(fixture.model.rootNode?.node(exactlyAt: child) != nil)
+        } else {
+            let refreshed = fixture.expectRefresh(for: file)
+            try fixture.emit([file])
+            #expect(await refreshed.waitUntilOpen())
+        }
+        fixture.disk.releaseListing.open()
+        #expect(await colored.waitUntilOpen())
+        #expect(!fixture.disk.listingTimedOut)
+        if expand { #expect(fixture.model.rootNode?.node(exactlyAt: child) != nil) }
+        #expect(fixture.disk.snapshotCount == scans)
+    }
+
+    @Test
+    func newIgnoredFilesReceiveColorsWithoutRescanningOrLosingConcurrentCreations() async throws {
+        let root = URL(fileURLWithPath: "/in-memory/ignored-color-creation")
+        let first = root.appendingPathComponent("first.log"), second = root.appendingPathComponent("second.log")
+        let fixture = InventoryFixture(root: root, files: [], rows: [root.path: []])
+        defer { fixture.close() }
+        await fixture.load()
+        await fixture.model.setGitIgnoreIndexing(false)
+        let scans = fixture.disk.snapshotCount
+        fixture.disk.set(files: [first], rows: [
+            root.path: [FileNode(url: first, isDirectory: false, children: nil, isGitIgnored: true)],
+        ])
+        fixture.disk.blockNextListing()
+        let firstColored = fixture.expectIgnoredDecoration(for: first)
+        try fixture.emit([first])
+        #expect(await fixture.disk.listingStarted.waitUntilOpen())
+        #expect(fixture.model.projectFiles == [first])
+        fixture.disk.set(files: [first, second], rows: [
+            root.path: [first, second].map { FileNode(url: $0, isDirectory: false, children: nil, isGitIgnored: true) },
+        ])
+        let refreshed = fixture.expectRefresh(for: second)
+        try fixture.emit([second])
+        #expect(await refreshed.waitUntilOpen())
+        fixture.disk.releaseListing.open()
+        #expect(await firstColored.waitUntilOpen())
+        #expect(!fixture.disk.listingTimedOut)
+        #expect(Set(fixture.model.projectFiles) == Set([first, second]))
+        #expect(fixture.model.rootNode?.node(exactlyAt: second)?.isGitIgnored == true)
+        #expect(fixture.disk.snapshotCount == scans)
+    }
+
+    @Test
+    func ignoredDirectoryInspectionIsReadOnlyAndSelectedExclusionsRefreshOnce() async throws {
+        let root = URL(fileURLWithPath: "/in-memory/ignored-notice")
+        let fixture = InventoryFixture(root: root, files: [], rows: [root.path: []])
+        defer { fixture.close() }
+        await fixture.load()
+        fixture.disk.setSuggestions(["archive", "cache", "keep"])
+        let scans = fixture.disk.snapshotCount
+        let settings = fixture.model.indexingSettings
+        #expect(try await fixture.model.ignoredDirectorySuggestions().directories == ["archive", "cache", "keep"])
+        #expect(fixture.model.directoryMarks.isEmpty)
+        #expect(fixture.model.indexingSettings == settings)
+        #expect(fixture.disk.snapshotCount == scans)
+        try await fixture.model.excludeIgnoredDirectories(["archive", "cache", "not-in-suggestions"])
+        #expect(fixture.model.directoryMarks == ["archive": .excluded, "cache": .excluded])
+        #expect(fixture.disk.snapshotCount == scans + 1)
+        #expect(try await fixture.model.ignoredDirectorySuggestions().directories == ["keep"])
+        fixture.model.dismissIgnoredDirectoryNotice()
+        #expect(fixture.model.indexingSettings.ignoredDirectoryNoticeDismissed == true)
+        #expect(fixture.disk.snapshotCount == scans + 1)
+    }
     @Test
     func sharedDirectoryActionsPreserveRolesAndIncludeOverrides() async throws {
         struct Fixture: Decodable {
@@ -44,7 +246,8 @@ struct LazyProjectTreeInventoryTests {
                 #expect((fixture.model.directoryMarks["archive"] ?? .plain).rawValue == step.role, "\(scenario.id)")
                 #expect(fixture.model.indexingSettings.includedDirectories == (step.included ? ["archive"] : []))
             }
-            let saved = fixture.model.indexingSettings
+            var saved = fixture.model.indexingSettings
+            saved.gitIgnoreEnabled = true
             await fixture.model.setGitIgnoreIndexing(false)
             await fixture.model.setGitIgnoreIndexing(true)
             #expect(fixture.model.indexingSettings == saved)
@@ -237,7 +440,7 @@ struct LazyProjectTreeInventoryTests {
             #expect(fixture.model.directoryMarks["b"] == .sources)
             #expect(fixture.model.directoryMarks == store.marks)
         } else {
-            #expect(!fixture.model.indexingSettings.gitIgnoreEnabled)
+            #expect(fixture.model.indexingSettings.gitIgnoreEnabled == false)
             #expect(fixture.model.directoryMarks["a"] == nil)
         }
     }
@@ -427,7 +630,7 @@ struct LazyProjectTreeInventoryTests {
         await fixture.load()
         await fixture.model.setGitIgnoreIndexing(false)
         await fixture.model.markDirectory(root.appendingPathComponent("src"), action: .exclude)
-        #expect(fixture.model.indexingSettings.gitIgnoreEnabled)
+        #expect(fixture.model.indexingSettings.gitIgnoreEnabled == nil)
         #expect(fixture.model.directoryMarks.isEmpty)
         #expect(fixture.model.projectFiles == [file])
         #expect(fixture.disk.snapshotCount == 1)
@@ -440,7 +643,7 @@ struct LazyProjectTreeInventoryTests {
         let file = directory.appendingPathComponent("Candidate.java")
         let fixture = InventoryFixture(root: root, files: [file], rows: [
             root.path: [FileNode(url: directory, isDirectory: true, children: nil)], directory.path: [],
-        ])
+        ], directoryMarkStore: InitiallyEnabledInventoryMarks())
         defer { fixture.close() }
         fixture.disk.blockNextListing()
         let loading = Task { await fixture.load() }
@@ -805,6 +1008,13 @@ private final class InventoryFixture {
         return gate
     }
 
+    func expectIgnoredDecoration(for url: URL) -> TestGate {
+        let gate = TestGate()
+        model.$rootNode.filter { $0?.node(exactlyAt: url)?.isGitIgnored == true }
+            .sink { _ in gate.open() }.store(in: &refreshObservations)
+        return gate
+    }
+
     func expectGitRefresh() -> TestGate {
         let gate = TestGate()
         gitRefreshGate = gate
@@ -845,6 +1055,27 @@ private final class InventoryDisk: WorkspaceOperations, WorkspaceFileOperations,
     private var incompleteDirectories: [String] = []
     func setIncompleteDirectories(_ paths: [String]) { lock.withLock { incompleteDirectories = paths } }
     private var policy: WorkspaceIndexingPolicy?
+    private var suggestedPaths: [String] = []
+    let suggestionsRequested = TestGate()
+    private var nextSuggestionsRequested: TestGate?
+    func expectSuggestions() -> TestGate {
+        let gate = TestGate()
+        lock.withLock { nextSuggestionsRequested = gate }
+        return gate
+    }
+    func setSuggestions(_ paths: [String]) { lock.withLock { suggestedPaths = paths } }
+    func ignoredDirectorySuggestions(at rootURL: URL, visibilityRules: FileVisibilityRules) throws -> WorkspaceIgnoredDirectorySuggestions {
+        suggestionsRequested.open()
+        let (result, gate) = lock.withLock {
+            var result = WorkspaceIgnoredDirectorySuggestions()
+            result.directories = suggestedPaths.filter { !(policy?.manualExcludedDirectories.contains($0) ?? false) }
+            let gate = nextSuggestionsRequested
+            nextSuggestionsRequested = nil
+            return (result, gate)
+        }
+        gate?.open()
+        return result
+    }
     var supportsExclusions = true
     private var blockConfiguration = false
     private var failConfiguration = false
@@ -928,9 +1159,10 @@ private final class InventoryDisk: WorkspaceOperations, WorkspaceFileOperations,
             self.policy = policy
             var status = WorkspaceIndexingStatus()
             status.supportsExclusions = supportsExclusions
+            status.effectiveGitIgnoreEnabled = policy.gitIgnoreEnabled ?? false
             status.revision = blocks ? 1 : configurationRevision
             status.excludedDirectories = Dictionary(uniqueKeysWithValues: policy.manualExcludedDirectories.map { ($0, "manual") })
-            if policy.gitIgnoreEnabled { status.excludedDirectories["ignored"] = "git" }
+            if policy.gitIgnoreEnabled == true { status.excludedDirectories["ignored"] = "git" }
             return status
         }
         completion?.open()
@@ -1056,4 +1288,14 @@ private final class FailingInventoryMarks: WorkspaceDirectoryMarkStoring, @unche
         }
         lock.withLock { savedMarks = marks }
     }
+}
+
+private struct InitiallyEnabledInventoryMarks: WorkspaceDirectoryMarkStoring {
+    func loadIndexingSettings(for workspaceURL: URL) throws -> WorkspaceIndexingSettings {
+        var settings = WorkspaceIndexingSettings()
+        settings.gitIgnoreEnabled = true
+        return settings
+    }
+    func loadDirectoryMarks(for workspaceURL: URL) throws -> [String: WorkspaceDirectoryMark] { [:] }
+    func saveDirectoryMarks(_ marks: [String: WorkspaceDirectoryMark], for workspaceURL: URL) throws {}
 }

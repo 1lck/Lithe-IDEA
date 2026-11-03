@@ -8,6 +8,76 @@ import Testing
 @MainActor
 struct GitModuleTests {
     @Test
+    func repositoryDiscoveryFailureKeepsPublishedRootsAndChanges() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let probe = GitRepositoryDiscoveryProbe()
+        let change = GitChange(repositoryRoot: root, path: "tracked.txt", originalPath: nil,
+            indexStatus: " ", workTreeStatus: "M")
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations()),
+            snapshotProvider: { url in GitSnapshot(repositoryRoot: url, branch: "main", changes: url == root ? [change] : []) },
+            repositoryDiscoveryProvider: { try await probe.read($0) })
+        let context = GitRepositoryDiscoveryTestContext()
+        feature.repositoryDiscoveryRequestProvider = { root in
+            if context.unavailable { throw GitRepositoryDiscoveryTestFailure.failed }
+            return GitRepositoryDiscoveryRequest(root: root)
+        }
+        var notifications: [String] = []
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+            notify: { notifications.append($0) }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        let roots = feature.availableRepositoryRoots
+        await probe.setFailure(true)
+        await feature.refreshGit()
+        #expect(feature.availableRepositoryRoots == roots)
+        #expect(feature.gitChanges == [change])
+        #expect(feature.repositoryDiscoveryError as? GitRepositoryDiscoveryTestFailure == .failed)
+        #expect(!notifications.isEmpty)
+        await probe.setFailure(false)
+        let reads = await probe.requests.count
+        context.unavailable = true
+        await feature.refreshGit()
+        #expect(await probe.requests.count == reads)
+        #expect(feature.availableRepositoryRoots == roots && feature.gitChanges == [change])
+        #expect(feature.repositoryDiscoveryError as? GitRepositoryDiscoveryTestFailure == .failed)
+        context.unavailable = false
+        await feature.refreshGit()
+        #expect(feature.repositoryDiscoveryError == nil)
+    }
+
+    @Test
+    func repositoryDiscoveryRejectsOldExclusionsAndRemovesAutomaticRootSelection() async throws {
+        let root = URL(fileURLWithPath: "/workspace")
+        let nested = root.appendingPathComponent("nested")
+        let probe = GitRepositoryDiscoveryProbe()
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations()),
+            snapshotProvider: { GitSnapshot(repositoryRoot: $0, branch: "main", changes: []) },
+            repositoryDiscoveryProvider: { try await probe.read($0) })
+        let context = GitRepositoryDiscoveryTestContext()
+        feature.repositoryDiscoveryRequestProvider = {
+            GitRepositoryDiscoveryRequest(root: $0, manualExcludedDirectories: context.excluded, workspaceRoots: [root])
+        }
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+            notify: { _ in }, onStateRefreshed: {})
+        await feature.refreshGit()
+        await feature.selectRepository(nested)
+        await probe.blockNext()
+        let oldRefresh = Task { await feature.refreshGit() }
+        defer { probe.release.open(); oldRefresh.cancel(); feature.reset() }
+        try #require(await probe.started.waitUntilOpen())
+        context.excluded = ["nested"]
+        let releaseTask = Task { probe.release.open() }
+        defer { releaseTask.cancel() }
+        await feature.refreshGit()
+        try #require(await waitForGitTaskCompletion(oldRefresh))
+        await releaseTask.value
+        #expect(feature.availableRepositoryRoots == [root])
+        #expect(feature.gitRepositoryRoot == root)
+        #expect(await probe.requests.last?.manualExcludedDirectories == ["nested"])
+        #expect(await probe.requests.last?.workspaceRoots == [root])
+    }
+
+    @Test
     func independentDiffSessionsKeepBuffersAndRejectClosedReads() async throws {
         let root = URL(fileURLWithPath: "/workspace")
         let firstChange = GitChange(repositoryRoot: root, path: "first.txt", originalPath: nil,
@@ -5470,6 +5540,36 @@ private actor RepositoryDiffDocumentProbe {
         let text = blocked ? "stale" : "fresh"
         return DiffDocument(patch: text,
             rows: [DiffRow(oldLine: 1, newLine: 1, left: "old", right: text, kind: .changed)], hunks: [])
+    }
+}
+
+@MainActor
+private final class GitRepositoryDiscoveryTestContext {
+    var excluded: [String] = []
+    var unavailable = false
+}
+
+private enum GitRepositoryDiscoveryTestFailure: Error, Equatable { case failed }
+
+private actor GitRepositoryDiscoveryProbe {
+    nonisolated let started = GitModuleTestGate()
+    nonisolated let release = GitModuleTestGate()
+    private(set) var requests: [GitRepositoryDiscoveryRequest] = []
+    private var fails = false
+    private var blocks = false
+    func setFailure(_ value: Bool) { fails = value }
+    func blockNext() { blocks = true }
+    func read(_ request: GitRepositoryDiscoveryRequest) async throws -> [URL] {
+        requests.append(request)
+        if fails { throw GitRepositoryDiscoveryTestFailure.failed }
+        let roots = request.manualExcludedDirectories.contains("nested")
+            ? [request.root] : [request.root, request.root.appendingPathComponent("nested")]
+        if blocks {
+            blocks = false
+            started.open()
+            guard await release.waitUntilOpen() else { throw GitRepositoryDiscoveryTestFailure.failed }
+        }
+        return roots
     }
 }
 

@@ -34,6 +34,12 @@ struct RustWorkspaceOperations: WorkspaceOperations, Sendable {
         }
     }
 
+    func ignoredDirectorySuggestions(at rootURL: URL, visibilityRules: FileVisibilityRules) throws -> WorkspaceIgnoredDirectorySuggestions {
+        do { return try core.ignoredDirectorySuggestions(at: rootURL, visibilityRules: visibilityRules) }
+        catch let error as RustCoreBridge.CoreCallError { throw indexingFailure(error) }
+        catch { throw WorkspaceIndexingFailure.configureFailed }
+    }
+
     func snapshot(
         at rootURL: URL,
         visibilityRules: FileVisibilityRules
@@ -92,10 +98,13 @@ struct RustWorkspaceOperations: WorkspaceOperations, Sendable {
         }
         return Dictionary(
             payload.directories.map { directory in
-                (
+                let ignoredPaths = Set(directory.ignoredPaths ?? [])
+                return (
                     url(for: directory.path).standardizedFileURL.path,
                     directory.children.map {
-                        ProjectDirectoryEntry(url: url(for: $0.path), isDirectory: $0.isDirectory, isEmptyDirectory: $0.isDirectory && $0.children?.isEmpty == true)
+                        ProjectDirectoryEntry(url: url(for: $0.path), isDirectory: $0.isDirectory,
+                            isEmptyDirectory: $0.isDirectory && $0.children?.isEmpty == true,
+                            isGitIgnored: ignoredPaths.contains($0.path))
                     }
                 )
             },

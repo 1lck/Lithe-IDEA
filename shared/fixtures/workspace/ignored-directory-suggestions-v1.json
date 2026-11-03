@@ -1,0 +1,88 @@
+{
+  "schemaVersion": 1,
+  "command": "workspace.ignoredDirectorySuggestions",
+  "request": {
+    "root": "/workspace",
+    "workspaceRoots": [
+      "/workspace"
+    ],
+    "hiddenDirectoryNames": [],
+    "hiddenFilePatterns": []
+  },
+  "gitignore": "ignored\n",
+  "nestedRepository": "ignored",
+  "cases": [
+    {
+      "gitIgnoreEnabled": true,
+      "manualExcludedDirectories": [],
+      "includedDirectories": [],
+      "expectedRepositoryCount": 1,
+      "expectedSuggestions": []
+    },
+    {
+      "gitIgnoreEnabled": false,
+      "manualExcludedDirectories": [],
+      "includedDirectories": [],
+      "expectedRepositoryCount": 1,
+      "expectedSuggestions": [
+        "ignored"
+      ]
+    },
+    {
+      "gitIgnoreEnabled": true,
+      "manualExcludedDirectories": [],
+      "includedDirectories": [
+        "ignored"
+      ],
+      "expectedRepositoryCount": 1,
+      "expectedSuggestions": [
+        "ignored"
+      ]
+    },
+    {
+      "gitIgnoreEnabled": false,
+      "manualExcludedDirectories": [
+        "ignored"
+      ],
+      "includedDirectories": [],
+      "expectedRepositoryCount": 1,
+      "expectedSuggestions": []
+    }
+  ],
+  "visibilityCases": [
+    {
+      "hiddenDirectoryNames": [],
+      "hiddenFilePatterns": [],
+      "expectedSuggestions": [
+        "archive"
+      ]
+    },
+    {
+      "hiddenDirectoryNames": [],
+      "hiddenFilePatterns": [
+        "!node_modules"
+      ],
+      "expectedSuggestions": [
+        "archive",
+        "node_modules"
+      ]
+    },
+    {
+      "hiddenDirectoryNames": [
+        "archive"
+      ],
+      "hiddenFilePatterns": [],
+      "expectedSuggestions": []
+    },
+    {
+      "hiddenDirectoryNames": [],
+      "hiddenFilePatterns": [
+        "!node_modules",
+        "archive/"
+      ],
+      "expectedSuggestions": [
+        "node_modules"
+      ]
+    }
+  ]
+}

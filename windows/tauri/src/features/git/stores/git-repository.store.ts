@@ -1,11 +1,12 @@
 import { createStore } from "zustand/vanilla";
 import { createWorkspaceScopedStore } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { createSelectors } from "@/utils/zustand-selectors";
-import { discoverWorkspaceRepositories, normalizeRepositoryPath } from "../api/git-repo-api";
+import { discoverWorkspaceRepositories, invalidateWorkspaceRepositoryDiscovery, normalizeRepositoryPath, workspaceRepositoryDiscoveryPolicyKey } from "../api/git-repo-api";
 
 interface RepositoryState {
   workspaceRootPath: string | null;
   workspaceDiscoveryKey: string | null;
+  workspaceDiscoveryPolicyKey: string | null;
   workspaceRepoPaths: string[];
   manualRepoPath: string | null;
   manualRepoPaths: string[];
@@ -22,6 +23,7 @@ interface RepositoryState {
       options?: { force?: boolean },
     ) => Promise<void>;
     refreshWorkspaceRepositories: () => Promise<void>;
+    invalidateWorkspaceRepositories: () => void;
     selectRepository: (repoPath: string | null) => void;
     setManualRepository: (repoPath: string) => void;
     clearManualRepository: () => void;
@@ -55,6 +57,7 @@ const getWorkspaceDefaultRepo = (workspaceRepos: string[]): string | null => {
 const initialState = {
   workspaceRootPath: null,
   workspaceDiscoveryKey: null,
+  workspaceDiscoveryPolicyKey: null,
   workspaceRepoPaths: [],
   manualRepoPath: null,
   manualRepoPaths: [],
@@ -88,6 +91,7 @@ export const createGitRepositoryStore = () =>
             return {
               workspaceRootPath: null,
               workspaceDiscoveryKey: null,
+              workspaceDiscoveryPolicyKey: null,
               workspaceRepoPaths: [],
               availableRepoPaths,
               activeRepoPath,
@@ -100,73 +104,68 @@ export const createGitRepositoryStore = () =>
           return;
         }
 
-        const current = get();
-        if (
-          !force &&
-          current.workspaceDiscoveryKey === workspaceDiscoveryKey &&
-          (current.hasDiscoveredWorkspace || current.isDiscovering)
-        ) {
-          return;
-        }
-
-        const requestId = current.discoveryRequestId + 1;
-        set({
-          workspaceRootPath: normalizedRoot,
-          workspaceDiscoveryKey,
-          isDiscovering: true,
-          discoveryRequestId: requestId,
-          error: null,
-        });
-
+        const requestId = get().discoveryRequestId + 1;
+        let started = false;
         try {
+          const policyKey = workspaceRepositoryDiscoveryPolicyKey(normalizedRoots);
+          const current = get();
+          if (!force && current.workspaceDiscoveryKey === workspaceDiscoveryKey &&
+              current.workspaceDiscoveryPolicyKey === policyKey &&
+              (current.hasDiscoveredWorkspace || current.isDiscovering)) return;
+          set({ workspaceRootPath: normalizedRoot, workspaceDiscoveryKey,
+            workspaceDiscoveryPolicyKey: policyKey, isDiscovering: true,
+            discoveryRequestId: requestId, error: null });
+          started = true;
           const discoveredRepos = await discoverWorkspaceRepositories(normalizedRoots, { force });
-
+          if (get().discoveryRequestId !== requestId) return;
+          if (workspaceRepositoryDiscoveryPolicyKey(normalizedRoots) !== policyKey) {
+            set({ isDiscovering: false, hasDiscoveredWorkspace: false });
+            await get().actions.syncWorkspaceRepositories(normalizedRoots, { force: true });
+            return;
+          }
           set((state) => {
-            if (
-              state.discoveryRequestId !== requestId ||
-              state.workspaceDiscoveryKey !== workspaceDiscoveryKey
-            ) {
-              return state;
-            }
-
+            if (state.discoveryRequestId !== requestId || state.workspaceDiscoveryKey !== workspaceDiscoveryKey) return state;
             const availableRepoPaths = mergeRepositoryPaths(discoveredRepos, state.manualRepoPaths);
             const availableRepoPathSet = new Set(availableRepoPaths);
             const previousActive = state.activeRepoPath;
-            const hasPreviousActive = !!previousActive && availableRepoPathSet.has(previousActive);
-            const nextActiveRepoPath = hasPreviousActive
+            const nextActiveRepoPath = previousActive && availableRepoPathSet.has(previousActive)
               ? previousActive
               : state.manualRepoPath && availableRepoPathSet.has(state.manualRepoPath)
-                ? state.manualRepoPath
-                : getWorkspaceDefaultRepo(discoveredRepos);
-
+                ? state.manualRepoPath : getWorkspaceDefaultRepo(discoveredRepos);
             return {
-              workspaceRootPath: normalizedRoot,
-              workspaceDiscoveryKey,
               workspaceRepoPaths: reuseRepositoryPaths(state.workspaceRepoPaths, discoveredRepos),
               availableRepoPaths: reuseRepositoryPaths(state.availableRepoPaths, availableRepoPaths),
-              activeRepoPath: nextActiveRepoPath,
-              isDiscovering: false,
-              hasDiscoveredWorkspace: true,
-              error: null,
+              activeRepoPath: nextActiveRepoPath, isDiscovering: false,
+              hasDiscoveredWorkspace: true, error: null,
             };
           });
         } catch (error) {
-          set((state) =>
-            state.discoveryRequestId === requestId &&
-            state.workspaceDiscoveryKey === workspaceDiscoveryKey
-              ? {
-                  isDiscovering: false,
-                  hasDiscoveredWorkspace: true,
-                  error: error instanceof Error ? error.message : String(error),
-                }
-              : state,
-          );
+          // A failed preference read must also supersede an older scan. Keep
+          // every successfully published binding until a new discovery succeeds.
+          set((state) => (started
+            ? state.discoveryRequestId !== requestId || state.workspaceDiscoveryKey !== workspaceDiscoveryKey
+            : state.discoveryRequestId >= requestId) ? state : {
+            workspaceRootPath: normalizedRoot, workspaceDiscoveryKey,
+            discoveryRequestId: requestId, isDiscovering: false,
+            hasDiscoveredWorkspace: false,
+            error: error instanceof Error ? error.message : String(error),
+          });
         }
       },
 
       refreshWorkspaceRepositories: async () => {
         const { workspaceDiscoveryKey, actions } = get();
         await actions.syncWorkspaceRepositories(workspaceDiscoveryKey?.split("\0"), { force: true });
+      },
+
+      invalidateWorkspaceRepositories: () => {
+        invalidateWorkspaceRepositoryDiscovery(get().workspaceDiscoveryKey?.split("\0") ?? []);
+        set((state) => ({
+          discoveryRequestId: state.discoveryRequestId + 1,
+          workspaceDiscoveryPolicyKey: null,
+          hasDiscoveredWorkspace: false,
+          isDiscovering: true,
+        }));
       },
 
       selectRepository: (repoPath) => {
@@ -193,7 +192,6 @@ export const createGitRepositoryStore = () =>
             manualRepoPaths: nextManualRepoPaths,
             activeRepoPath: normalizedRepoPath,
             availableRepoPaths,
-            error: null,
           };
         });
       },
@@ -214,7 +212,6 @@ export const createGitRepositoryStore = () =>
             manualRepoPaths,
             activeRepoPath: normalizedRepoPath,
             availableRepoPaths,
-            error: null,
           };
         });
       },
@@ -237,7 +234,6 @@ export const createGitRepositoryStore = () =>
             manualRepoPaths: [],
             activeRepoPath: nextActiveRepoPath,
             availableRepoPaths,
-            error: null,
           };
         });
       },

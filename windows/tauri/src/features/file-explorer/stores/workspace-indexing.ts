@@ -10,11 +10,13 @@ import { IndexingSettingsError } from "./indexing-settings-error";
 export { IndexingSettingsError, type IndexingErrorCode } from "./indexing-settings-error";
 
 export interface IndexingSettings {
-  gitIgnoreEnabled: boolean;
+  gitIgnoreEnabled?: boolean;
   includedDirectories: string[];
   previousRoles: Record<string, string>;
+  ignoredDirectoryNoticeDismissed?: boolean;
 }
 export interface IndexingStatus {
+  effectiveGitIgnoreEnabled?: boolean;
   revision: number;
   excludedDirectories: Record<string, string>;
   gitIgnoreFailed: boolean;
@@ -34,7 +36,7 @@ function readStoredValue(key: string): string | null {
 
 export function readIndexingSettings(root: string): IndexingSettings {
   const raw = readStoredValue(indexingSettingsStorageKey(root));
-  if (raw === null) return { gitIgnoreEnabled: true, includedDirectories: [], previousRoles: {} };
+  if (raw === null) return { includedDirectories: [], previousRoles: {} };
   let value: unknown;
   try {
     value = JSON.parse(raw);
@@ -45,9 +47,10 @@ export function readIndexingSettings(root: string): IndexingSettings {
     throw new IndexingSettingsError("invalidSettings");
   const settings = value as Record<string, unknown>;
   if (
-    typeof settings.gitIgnoreEnabled !== "boolean" ||
+    (settings.gitIgnoreEnabled !== undefined && typeof settings.gitIgnoreEnabled !== "boolean") ||
     !Array.isArray(settings.includedDirectories) ||
     !settings.includedDirectories.every((path: unknown) => typeof path === "string") ||
+    (settings.ignoredDirectoryNoticeDismissed !== undefined && typeof settings.ignoredDirectoryNoticeDismissed !== "boolean") ||
     (settings.previousRoles !== undefined &&
       (!settings.previousRoles ||
         typeof settings.previousRoles !== "object" ||
@@ -56,9 +59,11 @@ export function readIndexingSettings(root: string): IndexingSettings {
   )
     throw new IndexingSettingsError("invalidSettings");
   return {
-    gitIgnoreEnabled: settings.gitIgnoreEnabled,
+    ...(settings.gitIgnoreEnabled !== undefined ? {gitIgnoreEnabled: settings.gitIgnoreEnabled as boolean} : {}),
     includedDirectories: settings.includedDirectories,
     previousRoles: (settings.previousRoles ?? {}) as Record<string, string>,
+    ...(settings.ignoredDirectoryNoticeDismissed !== undefined
+      ? { ignoredDirectoryNoticeDismissed: settings.ignoredDirectoryNoticeDismissed as boolean } : {}),
   };
 }
 export function writeIndexingSettings(root: string, settings: IndexingSettings) {
@@ -269,4 +274,21 @@ export function useIndexingVersion(roots?: readonly string[]): number {
   const rootsKey = roots === undefined ? undefined : JSON.stringify(roots);
   useEffect(() => subscribeToIndexingChanges(rootsKey === undefined ? undefined : JSON.parse(rootsKey), () => setVersion((value) => value + 1)), [rootsKey]);
   return version;
+}
+
+export interface IgnoredDirectorySuggestions {
+  directories: string[];
+  incomplete: boolean;
+  gitIgnoreFailed: boolean;
+}
+
+export async function queryIgnoredDirectorySuggestions(root: string, workspaceId: string, workspaceRoots: readonly string[] = [root]): Promise<IgnoredDirectorySuggestions> {
+  await configureWorkspaceIndexing(root, [], false, workspaceId);
+  const response = await executeCore<IgnoredDirectorySuggestions>({
+    id: crypto.randomUUID(), command: "workspace.ignoredDirectorySuggestions", timeoutMilliseconds: 10000,
+    // Windows flat inventory currently uses Core defaults for both visibility lists.
+    payload: { root, workspaceRoots, hiddenDirectoryNames: [], hiddenFilePatterns: [] },
+  });
+  if (!response.ok) throw new IndexingSettingsError("configureFailed", response.error);
+  return response.data;
 }

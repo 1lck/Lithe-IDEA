@@ -1,5 +1,5 @@
 //! Native integration fixtures execute only this test binary, never installed tools.
-use lithe_git_host::{run, Failure, ProcessTree};
+use lithe_git_host::{run, run_with_stdout_capture, Failure, ProcessTree, Stream};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -18,6 +18,16 @@ fn process_fixture() {
         eprintln!("fixture error");
         std::process::exit(23);
     }
+    if mode == "large-output" {
+        let block = [b'x'; 8192];
+        for _ in 0..(33 * 128) {
+            if std::io::stdout().write_all(&block).is_err() {
+                return;
+            }
+        }
+        eprintln!("stderr retained");
+        return;
+    }
     if mode == "tree-parent" || mode == "tree-child" {
         run_tree_fixture(&mode);
         return;
@@ -30,6 +40,69 @@ fn process_fixture() {
             break;
         }
     }
+}
+
+#[test]
+fn streaming_stdout_keeps_bounded_process_ownership_without_capturing_the_index() {
+    // Keep the 33 MiB fixture and original deadline: temporarily empty pipes
+    // must not impose a fixed sleep on every producer/consumer handoff.
+    let deadline = Instant::now() + Duration::from_secs(12);
+    let mut command = Command::new(std::env::current_exe().expect("test executable"));
+    command
+        .args(["--exact", "process_fixture", "--nocapture"])
+        .env("LITHE_GIT_PROCESS_FIXTURE", "large-output");
+    let mut received = 0;
+    let outcome = run_with_stdout_capture(
+        &mut command,
+        None,
+        false,
+        || Instant::now() > deadline,
+        || {},
+        |stream, bytes| {
+            if matches!(stream, Stream::Stdout) {
+                received += bytes.len();
+            }
+        },
+    );
+    assert!(outcome.failure.is_none(), "{:?}", outcome.failure);
+    assert_eq!(outcome.status.and_then(|status| status.code()), Some(0));
+    assert!(received > 32 * 1024 * 1024);
+    assert!(outcome.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&outcome.stderr).contains("stderr retained"));
+}
+
+#[test]
+fn streaming_large_stdout_still_observes_cancellation_and_reclaims_the_child() {
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let cancelled = AtomicBool::new(false);
+    let mut command = Command::new(std::env::current_exe().expect("test executable"));
+    command
+        .args(["--exact", "process_fixture", "--nocapture"])
+        .env("LITHE_GIT_PROCESS_FIXTURE", "large-output");
+    let mut received = 0;
+    let outcome = run_with_stdout_capture(
+        &mut command,
+        None,
+        false,
+        || cancelled.load(Ordering::Acquire) || Instant::now() > deadline,
+        || {},
+        |stream, bytes| {
+            if matches!(stream, Stream::Stdout) {
+                received += bytes.len();
+                if received >= 1024 * 1024 {
+                    cancelled.store(true, Ordering::Release);
+                }
+            }
+        },
+    );
+    assert!(
+        cancelled.load(Ordering::Acquire),
+        "fixture did not reach the cancellation gate"
+    );
+    assert!(matches!(outcome.failure, Some(Failure::Cancelled)));
+    assert!(outcome.stdout.is_empty());
+    assert!(outcome.status.is_some(), "cancelled child was not reaped");
+    assert!(received < 33 * 1024 * 1024);
 }
 
 #[test]

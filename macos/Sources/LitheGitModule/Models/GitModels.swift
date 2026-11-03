@@ -3,6 +3,19 @@ import LitheCoreContracts
 
 package typealias GitWatchContext = LitheCoreContracts.GitWatchContext
 
+/// Immutable project membership and manual marks captured before repository discovery.
+package struct GitRepositoryDiscoveryRequest: Equatable, Sendable {
+    package let root: URL
+    package let manualExcludedDirectories: [String]
+    package let workspaceRoots: [URL]
+
+    package init(root: URL, manualExcludedDirectories: [String] = [], workspaceRoots: [URL] = []) {
+        self.root = root.standardizedFileURL
+        self.manualExcludedDirectories = manualExcludedDirectories.sorted()
+        self.workspaceRoots = workspaceRoots.map(\.standardizedFileURL)
+    }
+}
+
 /// Mirrors the shared Rust refname checks used by tag mutations so the macOS
 /// dialog can reject the same invalid names before crossing the Core boundary.
 public enum GitTagNameValidator {

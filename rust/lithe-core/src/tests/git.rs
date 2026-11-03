@@ -61,37 +61,42 @@ fn workspace_repositories_discovers_multiple_child_repositories() {
     // and beyond the former depth limit, even below an existing repository.
     let nested = (0..40).fold(first.join("vendor"), |path, _| path.join("d"));
     fs::create_dir_all(&nested).expect("nested worktree directory should be creatable");
-    // The gitdir must really exist: discovery opens the gitfile pointer instead of
-    // trusting the marker alone, so the worktree fixture needs a gitdir with HEAD.
-    let nested_gitdir = root
-        .join("fixture")
-        .join("git")
-        .join("worktrees")
-        .join("nested");
-    fs::create_dir_all(&nested_gitdir).expect("worktree gitdir should be creatable");
-    fs::write(nested_gitdir.join("HEAD"), "ref: refs/heads/main\n")
-        .expect("worktree HEAD should be writable");
-    fs::write(
-        nested.join(".git"),
-        format!("gitdir: {}\n", nested_gitdir.display()),
-    )
-    .expect("worktree marker should be writable");
-    fs::create_dir_all(&first).expect("first repository directory should be creatable");
-    fs::create_dir_all(&second).expect("second repository directory should be creatable");
-    assert!(Command::new("git")
-        .args(["init", "-q"])
-        .current_dir(&first)
-        .output()
-        .expect("git should be available")
-        .status
-        .success());
-    assert!(Command::new("git")
-        .args(["init", "-q"])
-        .current_dir(&second)
-        .output()
-        .expect("git should be available")
-        .status
-        .success());
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    let git = |directory: &Path, arguments: &[&str]| {
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "command": "git.command", "timeoutMilliseconds": 5000,
+                "payload": {"root": directory, "arguments": arguments}
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(response["ok"], true, "{response}");
+        assert_eq!(response["data"]["exitCode"], 0, "{response}");
+    };
+    // Queries now inspect real Git rules/index data, so a HEAD-only fake gitdir
+    // cannot stand in for an openable linked checkout.
+    fs::create_dir_all(&first).unwrap();
+    fs::create_dir_all(&second).unwrap();
+    git(&first, &["init", "--template=", "-q"]);
+    git(&second, &["init", "--template=", "-q"]);
+    let nested_gitdir = root.join(".fixture-gitdir");
+    git(
+        &nested,
+        &[
+            "init",
+            "--template=",
+            "-q",
+            "--separate-git-dir",
+            nested_gitdir.to_str().unwrap(),
+        ],
+    );
 
     let request = serde_json::json!({
         "id": "workspace-repositories",

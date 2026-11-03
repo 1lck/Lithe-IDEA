@@ -122,6 +122,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         struct Directory: Decodable, Sendable {
             let path: String
             let children: [WorkspaceNodePayload]
+            let ignoredPaths: [String]?
         }
     }
 
@@ -2365,6 +2366,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
 
     private struct WorkspaceRepositoriesRequest: Encodable {
         let root: String
+        let manualExcludedDirectories: [String]
+        let workspaceRoots: [String]
     }
 
     private struct GitWatchContextRequest: Encodable {
@@ -2528,13 +2531,18 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let _: Response? = execute(command: "workspace.releaseIndexing", payload: Payload(root: rootURL.path, revision: revision, ownerId: ownerID))
     }
 
+    func ignoredDirectorySuggestions(at rootURL: URL, visibilityRules: FileVisibilityRules) throws -> WorkspaceIgnoredDirectorySuggestions {
+        struct Request: Encodable { let root: String; let hiddenDirectoryNames: [String]; let hiddenFilePatterns: [String] }
+        return try executeResult(command: "workspace.ignoredDirectorySuggestions", payload: Request(root: rootURL.path, hiddenDirectoryNames: visibilityRules.hiddenDirectoryNames, hiddenFilePatterns: visibilityRules.hiddenFilePatterns), timeoutMilliseconds: 10_000).get()
+    }
+
     func configureIndexing(at rootURL: URL, policy: WorkspaceIndexingPolicy, refresh: Bool, ownerID: String? = nil) throws -> WorkspaceIndexingStatus {
         struct Request: Encodable {
             let root: String
             let ownerId: String?
             let manualExcludedDirectories: [String]
             let includedDirectories: [String]
-            let gitIgnoreEnabled: Bool
+            let gitIgnoreEnabled: Bool?
             let refresh: Bool
         }
         return try executeResult(command: "workspace.configureIndexing", payload: Request(
@@ -3282,11 +3290,13 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         )
     }
 
-    func workspaceRepositories(at rootURL: URL) -> WorkspaceRepositoriesPayload? {
-        execute(
+    func workspaceRepositories(at rootURL: URL, manualExcludedDirectories: [String] = [], workspaceRoots: [URL] = []) throws -> WorkspaceRepositoriesPayload {
+        try executeResult(
             command: "workspace.repositories",
-            payload: WorkspaceRepositoriesRequest(root: rootURL.standardizedFileURL.path)
-        )
+            payload: WorkspaceRepositoriesRequest(root: rootURL.standardizedFileURL.path,
+                manualExcludedDirectories: manualExcludedDirectories,
+                workspaceRoots: workspaceRoots.map { $0.standardizedFileURL.path })
+        ).get()
     }
 
     func gitWatchContext(at rootURL: URL) -> GitWatchContextPayload? {

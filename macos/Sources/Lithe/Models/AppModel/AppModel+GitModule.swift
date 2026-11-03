@@ -37,6 +37,14 @@ extension AppModel {
                 }
             )
         )
+        feature.repositoryDiscoveryRequestProvider = { [weak self] root in
+            guard let self, self.workspaceURL?.standardizedFileURL == root.standardizedFileURL else {
+                return GitRepositoryDiscoveryRequest(root: root)
+            }
+            return GitRepositoryDiscoveryRequest(root: root,
+                manualExcludedDirectories: try self.workspaceFeature.manualDirectoryExclusions(),
+                workspaceRoots: [root])
+        }
         feature.fetchOptionsProvider = { [weak self] in self?.settings.gitFetchOptions ?? GitFetchOptions() }
         return feature
     }

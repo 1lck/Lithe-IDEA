@@ -1,4 +1,6 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { installHappyDom } from "@/test-utils/happy-dom";
+import { directoryMarksStorageKey } from "@/features/file-explorer/stores/directory-marks-storage";
 
 import pathCases from "../../../../../../shared/fixtures/git/windows-paths.json";
 
@@ -19,9 +21,12 @@ mock.module("@/features/file-system/controllers/platform", () => ({
 const {
   clearRepositoryDiscoveryCache,
   discoverWorkspaceRepositories,
+  invalidateWorkspaceRepositoryDiscovery,
   normalizeRepositoryPath,
   resolveRepositoryForFile,
 } = await import("./git-repo-api");
+let restoreDom: (() => void) | undefined;
+afterEach(() => { restoreDom?.(); restoreDom = undefined; });
 
 beforeEach(() => {
   invoke.mockReset();
@@ -62,6 +67,7 @@ describe("discoverWorkspaceRepositories", () => {
 
     expect(invoke).toHaveBeenCalledWith("git_discover_workspace_repos", {
       workspacePath: "D:/work",
+      manualExcludedDirectories: [], workspaceRoots: ["D:/work"],
     });
     expect(readDirectory).not.toHaveBeenCalled();
     expect(result).toEqual(["D:/work/service-b", "D:/work/service-a"]);
@@ -96,12 +102,58 @@ describe("discoverWorkspaceRepositories", () => {
 
     expect(invoke).toHaveBeenNthCalledWith(1, "git_discover_workspace_repos", {
       workspacePath: "D:/work-a",
+      manualExcludedDirectories: [], workspaceRoots: ["D:/work-a", "D:/work-b"],
     });
     expect(invoke).toHaveBeenNthCalledWith(2, "git_discover_workspace_repos", {
       workspacePath: "D:/work-b",
+      manualExcludedDirectories: [], workspaceRoots: ["D:/work-a", "D:/work-b"],
     });
     expect(result).toEqual(["D:/work-a/repo-a", "D:/work-b/repo-b"]);
   });
+});
+
+test("discovery binds each root's manual exclusions and changes cache identity with preferences", async () => {
+  restoreDom = installHappyDom();
+  const roots = ["D:/parent", "D:/parent/nested"];
+  const mark = (root: string, marks: Record<string, string>) => window.localStorage.setItem(
+    directoryMarksStorageKey(root), JSON.stringify({version: 1, marks}));
+  mark(roots[0], {nested: "excluded", source: "sources"});
+  mark(roots[1], {cache: "excluded"});
+  invoke.mockResolvedValue({repositories: [{path: roots[0]}]});
+  await discoverWorkspaceRepositories(roots);
+  expect(invoke.mock.calls.map(([, args]) => args)).toEqual([
+    {workspacePath: roots[0], manualExcludedDirectories: ["nested"], workspaceRoots: roots},
+    {workspacePath: roots[1], manualExcludedDirectories: ["cache"], workspaceRoots: roots},
+  ]);
+  await discoverWorkspaceRepositories(roots);
+  expect(invoke).toHaveBeenCalledTimes(2);
+  mark(roots[1], {});
+  await discoverWorkspaceRepositories(roots);
+  expect(invoke).toHaveBeenCalledTimes(4);
+  await discoverWorkspaceRepositories([roots[1]]);
+  expect(invoke).toHaveBeenCalledTimes(5);
+});
+
+test("failed forced discovery cannot turn a stale cached snapshot into a successful retry", async () => {
+  invoke.mockResolvedValue({repositories: [{path: "D:/root"}]});
+  expect(await discoverWorkspaceRepositories("D:/root")).toEqual(["D:/root"]);
+  invoke.mockRejectedValue(new Error("query failed"));
+  await expect(discoverWorkspaceRepositories("D:/root", {force: true})).rejects.toThrow("query failed");
+  invoke.mockResolvedValue({repositories: [{path: "D:/root/new"}]});
+  expect(await discoverWorkspaceRepositories("D:/root")).toEqual(["D:/root/new"]);
+  expect(invoke).toHaveBeenCalledTimes(3);
+});
+
+test("rule invalidation retires only the affected workspace discovery cache", async () => {
+  invoke.mockResolvedValue({repositories: [{path: "D:/root"}]});
+  await discoverWorkspaceRepositories("D:/root");
+  invoke.mockResolvedValue({repositories: [{path: "D:/other"}]});
+  await discoverWorkspaceRepositories("D:/other");
+  invalidateWorkspaceRepositoryDiscovery(["D:/root"]);
+  invoke.mockResolvedValue({repositories: [{path: "D:/root/new"}]});
+  expect(await discoverWorkspaceRepositories("D:/root")).toEqual(["D:/root/new"]);
+  expect(await discoverWorkspaceRepositories("D:/other")).toEqual(["D:/other"]);
+  expect(invoke).toHaveBeenCalledTimes(3);
 });
 
 describe("normalizeRepositoryPath", () => {

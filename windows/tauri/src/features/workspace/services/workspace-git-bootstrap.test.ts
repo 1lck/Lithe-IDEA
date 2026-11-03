@@ -2,6 +2,8 @@ import { afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
 import * as tauriCore from "@/platform/tauri-core";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { clearRepositoryDiscoveryCache } from "@/features/git/api/git-repo-api";
+import { installHappyDom } from "@/test-utils/happy-dom";
+import { directoryMarksStorageKey } from "@/features/file-explorer/stores/directory-marks-storage";
 import { useGitStore } from "@/features/git/stores/git.store";
 import { createFileTreeGitStatusLookup, getFileTreeEntryGitStatusDecoration } from "@/features/file-explorer/lib/file-tree-git-status";
 import { resolveEditorLspLaunch } from "@/features/editor/lsp/resolve-editor-lsp-launch";
@@ -39,6 +41,7 @@ const dependencies = {
   resolveDeclarativePluginLaunch: async () => null,
 };
 let invokeSpy: ReturnType<typeof spyOn<typeof tauriCore, "invoke">>;
+let restoreDom: (() => void) | undefined;
 
 function openRuntime() {
   workspaceRuntimeRegistry.ensureWorkspace({ id: scope.workspaceId, name: "Test", path: scope.root });
@@ -70,7 +73,27 @@ afterEach(() => {
   invokeSpy.mockRestore();
   clearRepositoryDiscoveryCache();
   workspaceRuntimeRegistry.resetForTests();
+  restoreDom?.(); restoreDom = undefined;
 });
+
+test("changed manual exclusions supersede bootstrap results before publication", async () => {
+  restoreDom = installHappyDom();
+  const started = deferred();
+  const release = deferred();
+  interceptStatus = async (path) => {
+    if (path === childRepo) { started.resolve(); await release.promise; }
+  };
+  const older = ensureWorkspaceGitBootstrap(scope);
+  try {
+    await started.promise;
+    window.localStorage.setItem(directoryMarksStorageKey(scope.root), JSON.stringify({version: 1, marks: {nested: "excluded"}}));
+  } finally { release.resolve(); }
+  expect(await older).toBe("superseded");
+  expect(useGitStore.getStore(scope.workspaceId).getState().workspaceGitStatus).toBeNull();
+  discoveredRepos = [scope.root];
+  expect(await ensureWorkspaceGitBootstrap(scope)).toBe("published");
+  expect(invoke.mock.calls.filter(([command]) => command === "git_discover_workspace_repos")).toHaveLength(2);
+}, 1000);
 
 test("restored Java documents and background startup share Git readiness and root decorations", async () => {
   const childStarted = deferred();

@@ -344,6 +344,62 @@ fn remote_parent_repository_discovery_keeps_identity_for_status_and_stage() {
 }
 
 #[test]
+fn remote_discovery_keeps_excluded_gitlink_dependencies_on_their_host() {
+    let host = HostFixture::new();
+    host.git(&["init", "--template=", "-q", "-b", "main"]);
+    let repository = host.root.join("host");
+    let module = repository.join("excluded/module:one");
+    std::fs::create_dir_all(&module).unwrap();
+    host.git(&[
+        "-C",
+        module.to_str().unwrap(),
+        "init",
+        "--template=",
+        "-q",
+        "-b",
+        "main",
+    ]);
+    host.git(&[
+        "-C",
+        module.to_str().unwrap(),
+        "-c",
+        "user.name=Fixture",
+        "-c",
+        "user.email=fixture@example.invalid",
+        "-c",
+        "commit.gpgsign=false",
+        "commit",
+        "--allow-empty",
+        "-qm",
+        "initial",
+    ]);
+    let revision = host.git(&["-C", module.to_str().unwrap(), "rev-parse", "HEAD"]);
+    let entry = format!(
+        "160000,{},excluded/module:one",
+        revision["stdout"].as_str().unwrap().trim()
+    );
+    host.git(&["update-index", "--add", "--cacheinfo", &entry]);
+    let result = host.call(
+        "workspace.repositories",
+        json!({"manualExcludedDirectories": ["excluded"]}),
+    );
+    let root = result["repositories"][0]["path"].as_str().unwrap();
+    assert_eq!(
+        result["repositories"].as_array().unwrap().len(),
+        2,
+        "{result}"
+    );
+    assert_eq!(
+        result["repositories"][1]["path"],
+        format!("{root}/excluded/module:one")
+    );
+    assert!(
+        !std::path::Path::new(result["repositories"][1]["path"].as_str().unwrap()).exists(),
+        "The returned identity must not accidentally resolve on the client"
+    );
+}
+
+#[test]
 fn remote_symlink_repository_discovery_keeps_identity_for_status_and_stage() {
     discovered_repository_keeps_host_identity(true);
 }

@@ -2,12 +2,12 @@
   "id": "git-repository-discovery",
   "area": "版本控制",
   "group": "Git",
-  "capability": "仓库自动发现排除隐藏目录与构建缓存",
+  "capability": "仓库自动发现遵循 Git 忽略、手动排除及显式根边界",
   "macos": {
     "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
-      "rust/lithe-core/src/git/mod.rs",
+      "rust/lithe-core/src/git/repository_discovery.rs",
       "rust/lithe-core/src/tests/git_repository_discovery.rs",
       "macos/Sources/Lithe/Core/Rust/RustGitOperations.swift"
     ]
@@ -16,13 +16,13 @@
     "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
-      "rust/lithe-core/src/git/mod.rs",
+      "rust/lithe-core/src/git/repository_discovery.rs",
       "rust/lithe-core/src/tests/git_repository_discovery.rs",
       "windows/tauri/src-tauri/src/platform.rs",
       "windows/tauri/src/features/git/api/git-repo-api.ts"
     ]
   },
   "owner": "Git",
-  "verification": "打开含 .build/checkouts、macos/.build/checkouts、.cache、node_modules 与可见嵌套仓库的项目，确认 Git 状态和引用只包含主仓库及可见源码仓库；.worktrees 和 .worktree 中的真实工作树仍可发现，其构建缓存仍被排除。直接打开隐藏仓库及其源码子目录应能使用 Git。",
-  "notes": "两端复用共享扫描规则和 fixture；Linux Core 集成验证不能代替 macOS、Windows 原生界面验收。"
+  "verification": "打开含 Git 忽略、手动排除、构建缓存和普通可见子仓库的项目，确认提交、分支和日志只自动纳入合格仓库；改变规则后更新且旧请求不回填。显式打开被排除根仍可管理，多根各用自己的标记，真实 gitlink 保留。验证父仓库已跟踪及普通未跟踪文件不被过滤，失败保留快照，覆盖 linked-worktree、失效 gitfile 和取消。Windows 比较覆盖普通路径、扩展前缀、UNC、大小写及组件边界；候选覆盖默认隐藏、取消内置隐藏和自定义规则。Git Host 在 Unix 暂时读空后使用可读通知，最长等待仍10ms，保留逐轮取消和双流64KiB预算。",
+  "notes": "两端已实现，最终原生界面验收仍为 pending。2026-11-03 本地 Core1596项逐项计时、Git Host10项、Swift318项、前端88项、TypeScript及完整Rust/Swift桥接和静态门禁通过。新head的Windows原生CI已通过路径、嵌套根、可见性与取消回归及真实JDT；固定Swift工具链和Unix通知补修按最终CI确认。Unix33MiB样本由无进展时固定等待的3539ms降至30ms，取消19ms；1000目录/10000文件/20子仓库发现658/269/309ms，Git进程20/19/19，均保留6个预期仓库，均为组件数据。隔离macOS QA已验收提交、分支、日志及显式根，手动标记通过隔离偏好预置；本轮Git面板复验因自动化超时未完成，Windows原生UI尚未验收。分析开关和包含例外不注册Git根。"
 }

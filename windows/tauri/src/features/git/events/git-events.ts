@@ -15,6 +15,8 @@ export interface GitChange {
   filePath?: string;
   scopes?: GitChangeScope[];
   source?: string;
+  /** Ignore rules, gitlinks or checkout metadata can change automatic root membership. */
+  repositoryRootsMayHaveChanged?: boolean;
 }
 
 const PASSIVE_GIT_CHANGE_SOURCES = new Set(["save", "auto-save", "external-file-change", "external-git-change"]);

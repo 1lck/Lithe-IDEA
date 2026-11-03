@@ -1,15 +1,61 @@
 import { afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
 import * as repoApi from "../api/git-repo-api";
+import { installHappyDom } from "@/test-utils/happy-dom";
+import { directoryMarksStorageKey } from "@/features/file-explorer/stores/directory-marks-storage";
 
 const discoverWorkspaceRepositories = mock(async (): Promise<string[]> => ["C:/repo"]);
 const realDiscoverWorkspaceRepositories = repoApi.discoverWorkspaceRepositories;
 const { createGitRepositoryStore } = await import("./git-repository.store");
 let discoverySpy: ReturnType<typeof spyOn<typeof repoApi, "discoverWorkspaceRepositories">>;
+let restoreDom: (() => void) | undefined;
 beforeEach(() => {
   discoverWorkspaceRepositories.mockReset().mockImplementation(async () => ["C:/repo"]);
   discoverySpy = spyOn(repoApi, "discoverWorkspaceRepositories").mockImplementation(discoverWorkspaceRepositories);
 });
-afterEach(() => discoverySpy.mockRestore());
+afterEach(() => { discoverySpy.mockRestore(); restoreDom?.(); restoreDom = undefined; });
+
+test("manual exclusions supersede an in-flight scan and remove its automatic active root", async () => {
+  restoreDom = installHappyDom();
+  const store = createGitRepositoryStore();
+  const child = "C:/repo/child";
+  discoverWorkspaceRepositories.mockResolvedValue(["C:/repo", child]);
+  await store.getState().actions.syncWorkspaceRepositories("C:/repo");
+  store.getState().actions.selectRepository(child);
+  let release!: (roots: string[]) => void;
+  const olderResult = new Promise<string[]>((resolve) => { release = resolve; });
+  discoverWorkspaceRepositories.mockImplementationOnce(() => olderResult);
+  const older = store.getState().actions.refreshWorkspaceRepositories();
+  try {
+    window.localStorage.setItem(directoryMarksStorageKey("C:/repo"), JSON.stringify({version: 1, marks: {child: "excluded"}}));
+    discoverWorkspaceRepositories.mockResolvedValue(["C:/repo"]);
+    await store.getState().actions.syncWorkspaceRepositories("C:/repo");
+  } finally { release(["C:/repo", child]); await older; }
+  expect(store.getState().availableRepoPaths).toEqual(["C:/repo"]);
+  expect(store.getState().activeRepoPath).toBe("C:/repo");
+});
+
+test("discovery or preference failures retain published repository bindings", async () => {
+  restoreDom = installHappyDom();
+  const store = createGitRepositoryStore();
+  await store.getState().actions.syncWorkspaceRepositories("C:/repo");
+  const previous = store.getState().availableRepoPaths;
+  discoverWorkspaceRepositories.mockRejectedValue(new Error("Git failed"));
+  await store.getState().actions.refreshWorkspaceRepositories();
+  expect(store.getState().availableRepoPaths).toBe(previous);
+  expect(store.getState().error).toBe("Git failed");
+  store.getState().actions.selectRepository("C:/repo");
+  expect(store.getState().error).toBe("Git failed");
+  store.getState().actions.setManualRepository("C:/manual");
+  expect(store.getState().error).toBe("Git failed");
+  store.getState().actions.clearManualRepository();
+  expect(store.getState().error).toBe("Git failed");
+  const afterSelection = store.getState().availableRepoPaths;
+  window.localStorage.setItem(directoryMarksStorageKey("C:/repo"), "{");
+  await store.getState().actions.refreshWorkspaceRepositories();
+  expect(store.getState().availableRepoPaths).toBe(afterSelection);
+  expect(store.getState().error).not.toBeNull();
+  expect(store.getState().isDiscovering).toBe(false);
+});
 
 test("unsupported Windows roots report discovery errors without breaking repository state", async () => {
   discoverySpy.mockImplementation(realDiscoverWorkspaceRepositories);

@@ -18,6 +18,7 @@ pub(super) fn capture(
     disable_optional_locks: bool,
     environment: &[(String, String)],
     visible: bool,
+    mut stdout_consumer: Option<&mut dyn FnMut(&[u8]) -> Result<(), CoreError>>,
 ) -> Option<Result<GitProcessOutput, CoreError>> {
     workspace::current().map(|host| {
         let session = &host.connection.session;
@@ -59,18 +60,22 @@ pub(super) fn capture(
                             )
                             .with_details(error.to_string())
                         })?;
-                        let target = if event.stream == OutputStream::Stdout {
-                            &mut stdout
+                        if event.stream == OutputStream::Stdout && stdout_consumer.is_some() {
+                            stdout_consumer.as_deref_mut().unwrap()(&bytes)?;
                         } else {
-                            &mut stderr
-                        };
-                        if target.len() + bytes.len() > MAX_CAPTURE_BYTES {
-                            return Err(CoreError::new(
-                                ErrorCode::ProcessFailed,
-                                "Git output exceeded the capture limit",
-                            ));
+                            let target = if event.stream == OutputStream::Stdout {
+                                &mut stdout
+                            } else {
+                                &mut stderr
+                            };
+                            if target.len() + bytes.len() > MAX_CAPTURE_BYTES {
+                                return Err(CoreError::new(
+                                    ErrorCode::ProcessFailed,
+                                    "Git output exceeded the capture limit",
+                                ));
+                            }
+                            target.extend_from_slice(&bytes);
                         }
-                        target.extend_from_slice(&bytes);
                         if let Some(invocation) = &mut invocation {
                             invocation.output(
                                 if event.stream == OutputStream::Stdout {

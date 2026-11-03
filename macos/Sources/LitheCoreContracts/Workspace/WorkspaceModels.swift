@@ -11,19 +11,23 @@ package struct FileNode: Identifiable, Hashable, Sendable {
     package let collapsedAncestorPaths: [String]
     /// 该目录是否位于源码根之下，决定用包图标还是普通文件夹图标。
     package let isInsideSourceRoot: Bool
+    /// Native Git decoration for this visible path, independent of analysis policy.
+    package let isGitIgnored: Bool
 
     package init(
         url: URL,
         isDirectory: Bool,
         children: [FileNode]?,
         collapsedAncestorPaths: [String] = [],
-        isInsideSourceRoot: Bool = false
+        isInsideSourceRoot: Bool = false,
+        isGitIgnored: Bool = false
     ) {
         self.url = url
         self.isDirectory = isDirectory
         self.children = children
         self.collapsedAncestorPaths = collapsedAncestorPaths
         self.isInsideSourceRoot = isInsideSourceRoot
+        self.isGitIgnored = isGitIgnored
     }
 
     package var id: String { url.path }

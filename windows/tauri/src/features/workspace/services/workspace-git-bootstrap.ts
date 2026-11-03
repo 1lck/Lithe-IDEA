@@ -1,5 +1,5 @@
 import { normalizeWorkspaceFolders } from "@/features/file-system/controllers/workspace-session";
-import { discoverWorkspaceRepositories } from "@/features/git/api/git-repo-api";
+import { discoverWorkspaceRepositories, workspaceRepositoryDiscoveryPolicyKey } from "@/features/git/api/git-repo-api";
 import { getRepositoryGitStatuses } from "@/features/git/api/git-status-api";
 import { useGitStore } from "@/features/git/stores/git.store";
 import { frontendTrace } from "@/utils/frontend-trace";
@@ -41,7 +41,12 @@ export async function ensureWorkspaceGitBootstrap(
   if (!workspaceScopeMatchesRoot(scope, state.rootFolderPath)) return "superseded";
   const rootPaths = normalizeWorkspaceFolders(state.rootFolderPath, state.workspaceFolders)
     .map((folder) => folder.path);
-  const rootsKey = JSON.stringify(rootPaths);
+  let rootsKey: string;
+  try { rootsKey = workspaceRepositoryDiscoveryPolicyKey(rootPaths); }
+  catch (error) {
+    console.error("Failed to read workspace Git discovery preferences:", error);
+    return "failed";
+  }
   const existing = bootstraps.get(runtime);
   if (existing?.rootsKey === rootsKey && (!options.refresh || !existing.settled)) {
     return existing.task;
@@ -58,11 +63,14 @@ export async function ensureWorkspaceGitBootstrap(
   };
   const isCurrent = () => {
     const current = fileSystemStore.getState();
+    let currentPolicyKey: string;
+    try { currentPolicyKey = workspaceRepositoryDiscoveryPolicyKey(
+      normalizeWorkspaceFolders(current.rootFolderPath, current.workspaceFolders).map((folder) => folder.path)); }
+    catch { return false; }
     return workspaceRuntimeRegistry.getWorkspace(scope.workspaceId) === runtime &&
       bootstraps.get(runtime) === bootstrap &&
       workspaceScopeMatchesRoot(scope, current.rootFolderPath) &&
-      JSON.stringify(normalizeWorkspaceFolders(current.rootFolderPath, current.workspaceFolders)
-        .map((folder) => folder.path)) === rootsKey;
+      currentPolicyKey === rootsKey;
   };
   bootstraps.set(runtime, bootstrap);
   const startedAt = performance.now();
@@ -70,7 +78,7 @@ export async function ensureWorkspaceGitBootstrap(
   frontendTrace("info", "workspace-open", "gitBootstrap:start", traceContext);
   bootstrap.task = bootstrapWorkspaceGit({
     workspaceRootPaths: rootPaths,
-    discoverRepositories: discoverWorkspaceRepositories,
+    discoverRepositories: (roots) => discoverWorkspaceRepositories(roots, { force: options.refresh }),
     loadStatus: (repoPaths) => {
       repositoryPaths = repoPaths;
       return getRepositoryGitStatuses([...repoPaths, scope.root], "background", repoPaths);

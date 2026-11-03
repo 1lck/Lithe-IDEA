@@ -644,7 +644,7 @@ jobs:
           # Keep DOM setup, native spies and store mocks isolated between suites.
           node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-settings-hierarchy.json -- src/features/settings/components/settings-hierarchy.test.tsx
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          node $runner --suite-timeout-ms 30000 --report .artifacts/test-stability/windows-git-indexing-settings.json -- src/features/settings/components/git-indexing-settings.test.tsx src/features/settings/lib/run-settings-search.test.ts
+          node $runner --suite-timeout-ms 30000 --report .artifacts/test-stability/windows-git-indexing-settings.json -- src/features/settings/components/git-indexing-settings.test.tsx src/features/settings/lib/run-settings-search.test.ts src/features/editor/components/ignored-directory-notice.test.tsx
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-settings-theme-sync.json -- src/features/settings/lib/settings-theme-sync.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -870,6 +870,7 @@ jobs:
             --test-budget tests::git_patch_exchange::patch_metadata_can_list_an_oversized_export_before_selecting_a_small_subset=30000 `
             --build-timeout-ms 600000 `
             --suite-timeout-ms 1200000 `
+            --test-prefix lsp::interface::engine::real_jdt_tests:: `
             --report .artifacts/test-stability/windows-real-jdt.json
 
       - name: Upload real JDT test report

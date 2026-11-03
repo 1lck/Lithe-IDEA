@@ -9,8 +9,25 @@
     "build/package",
     "DerivedData/package",
     "visible",
+    "vendor/source",
+    "test/test2",
+    "manual/project"
+  ],
+  "expectedRepositoryPaths": [
+    ".",
+    "visible",
     "vendor/source"
   ],
-  "expectedRepositoryPaths": [".", "visible", "vendor/source"],
-  "explicitRepositoryPaths": [".build/checkouts/SwiftTerm", ".cache/package"]
+  "explicitRepositoryPaths": [
+    ".build/checkouts/SwiftTerm",
+    ".cache/package"
+  ],
+  "gitIgnorePatterns": [
+    ".build/",
+    "macos/.build/",
+    "test/"
+  ],
+  "manualExcludedDirectories": [
+    "manual"
+  ]
 }
