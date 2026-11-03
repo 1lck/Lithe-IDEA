@@ -243,6 +243,11 @@ fn en(key: &'static str) -> &'static str {
         // 状态栏 Git 变更计数；数字与词条在调用处拼接。
         "changes" => "changes",
         "This action cannot be undone by Lithe." => "This action cannot be undone by Lithe.",
+        // 项目树文件操作与右键菜单。
+        "Move to Trash" => "Move to Trash",
+        "File no longer exists" => "File no longer exists",
+        "Copy Relative Path" => "Copy Relative Path",
+        "Reveal in File Explorer" => "Reveal in File Explorer",
         "Cancel" => "Cancel",
         // 预览展示磁盘内容；有未保存修改时用它提示，避免把编辑器里的
         // 未保存文本误认为已经出现在预览里。
@@ -924,6 +929,10 @@ fn en(key: &'static str) -> &'static str {
         "Rename to…" => "Rename to…",
         "Staged Diff" => "Staged Diff",
         "Staged {count} files" => "Staged {count} files",
+        "Stage" => "Stage",
+        "Unstage" => "Unstage",
+        "Stage failed" => "Stage failed",
+        "Unstage failed" => "Unstage failed",
         "Start rebase" => "Start rebase",
         "Stash…" => "Stash…",
         "Unlock" => "Unlock",

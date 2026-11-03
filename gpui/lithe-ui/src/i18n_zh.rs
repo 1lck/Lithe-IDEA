@@ -633,6 +633,7 @@ pub(crate) fn zh_translate(key: &str) -> Option<&'static str> {
         "Move Line Up" => "上移行",
         "Move to Changelist" => "移动到 Changelist",
         "Move to Changelist…" => "移动到 Changelist…",
+        "Move to Trash" => "移到回收站",
         "Multiple rows" => "多行",
         "Name" => "名称",
         "Name and URL are required" => "需要填写名称和 URL",

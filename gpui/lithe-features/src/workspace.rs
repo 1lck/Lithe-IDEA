@@ -196,10 +196,11 @@ struct TrashRequest {
     is_directory: bool,
     /// 上一次移到回收站失败的原因；成功前覆盖层保持打开。
     error: Option<SharedString>,
-    /// 回收站不可用时是否允许用户显式永久删除。
+    /// 回收站不可用（平台不支持 / 权限失败等）时是否允许用户显式永久删除。
     ///
-    /// 只有一次真实的“移到回收站”失败后才会置位：永久删除必须由用户在
-    /// 详情里再点一次，绝不能在回收站失败后自动执行。
+    /// 只有一次真实的“移到回收站”失败后才会置位；「文件已不存在」这类非破坏
+    /// 性失败不置位。永久删除必须由用户在详情里再点一次，绝不能在回收站失败
+    /// 后自动执行。
     permanent_delete_available: bool,
 }
 
@@ -1192,10 +1193,13 @@ impl ProjectTree {
                             dialog.error = Some(SharedString::from(detail.clone()));
                         }
                         if let Some(delete) = this.pending_delete.as_mut() {
+                            // 「文件已不存在」只是目标已经消失，回收站本身可用，
+                            // 属于非破坏性失败：不把永久删除作为回退暴露出来。
+                            let missing_target = detail.as_str() == tr("File no longer exists");
                             delete.error = Some(SharedString::from(detail));
                             // 回收站失败后不自动永久删除：只把回退按钮显示出来，
                             // 由用户在下一次点击里显式确认。
-                            if trash_attempt {
+                            if trash_attempt && !missing_target {
                                 delete.permanent_delete_available = true;
                             }
                         }
@@ -1562,13 +1566,10 @@ impl ProjectTree {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let busy = self.busy;
+        // 永久删除只是回收站不可用时的次要回退：标题与主按钮始终是「移到回收站」，
+        // 用户可以随时重试，不会因为一次失败就失去可撤销的默认路径。
         let permanent = request.permanent_delete_available;
-        // 回退状态标题换成过去的「删除？」：此时动作确实不可撤销。
-        let title = if permanent {
-            tr("Delete?")
-        } else {
-            tr("Move to Trash")
-        };
+        let title = tr("Move to Trash");
         let display = self
             .root
             .as_ref()
@@ -1600,8 +1601,8 @@ impl ProjectTree {
             );
         }
 
-        // 主按钮随状态切换：默认移到回收站，回收站失败后才换成永久删除。
-        let mut primary = Button::new("lithe-project-tree:delete-confirm")
+        // 主按钮固定为「移到回收站」：失败后仍是可重试的默认动作。
+        let primary = Button::new("lithe-project-tree:delete-confirm")
             .danger()
             .small()
             .label(tr("Move to Trash"))
@@ -1609,16 +1610,17 @@ impl ProjectTree {
             .on_click(cx.listener(|this, _, _, cx| {
                 this.confirm_move_to_trash(cx);
             }));
-        if permanent {
-            primary = Button::new("lithe-project-tree:delete-permanent")
+        // 回收站确实不可用时才出现的次要危险按钮；它不替换主按钮。
+        let permanent_fallback = permanent.then(|| {
+            Button::new("lithe-project-tree:delete-permanent")
                 .danger()
                 .small()
                 .label(tr("Delete"))
                 .disabled(busy)
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.confirm_permanent_delete(cx);
-                }));
-        }
+                }))
+        });
 
         div()
             .id("lithe-project-tree:delete-backdrop")
@@ -1690,6 +1692,7 @@ impl ProjectTree {
                                         cx.notify();
                                     })),
                             )
+                            .when_some(permanent_fallback, |this, button| this.child(button))
                             .child(primary),
                     ),
             )

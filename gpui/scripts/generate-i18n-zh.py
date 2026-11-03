@@ -89,7 +89,6 @@ MANUAL = {
     "Commit failed": "提交失败",
     "Could not open file": "无法打开文件",
     "Could not read run configuration": "无法读取运行配置",
-    "Delete?": "删除？",
     "Detected": "检测到",
     "Discard changes?": "丢弃更改？",
     "Discard failed": "丢弃失败",
@@ -795,6 +794,9 @@ def main():
         "Provider": "提供者",
         "Pin configuration": "固定配置",
         "Unpin configuration": "取消固定配置",
+        # shared 的 native.moveToTrash 是 macOS 语义（移到废纸篓）；GPUI 三端统一
+        # 用「回收站」，覆盖优先于 shared 词条，也不放进 MANUAL（否则会被判为过期）。
+        "Move to Trash": "移到回收站",
     }
 
     keys = literal_keys() | declared_keys()
