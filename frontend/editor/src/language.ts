@@ -33,7 +33,7 @@ export const MONACO_LANGUAGE_BY_LITHE_ID: Record<string, string> = {
   objc: "objective-c",
   ocaml: "ocaml",
   php: "php",
-  protobuf: "protobuf",
+  protobuf: "proto",
   python: "python",
   r: "r",
   rmarkdown: "markdown",

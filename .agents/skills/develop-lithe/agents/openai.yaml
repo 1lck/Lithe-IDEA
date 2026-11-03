@@ -1,4 +1,4 @@
 interface:
   display_name: "Lithe 开发规范"
-  short_description: "遵循 Lithe 架构、跨平台契约、界面规范与验证流程完成仓库改动"
+  short_description: "按 Lithe 核心要求（性能与内存、逻辑放进 Rust Core、缺陷防回归）及架构、界面和验证规范完成仓库改动"
   default_prompt: "使用 $develop-lithe，遵循仓库规范完成本次 Lithe 改动并执行相关验证。"

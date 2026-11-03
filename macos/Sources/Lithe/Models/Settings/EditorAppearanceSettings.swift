@@ -41,6 +41,10 @@ struct EditorAppearanceSettings: Equatable {
         }
     }
 
+    var customTheme: String
+    var tabSize: Int
+    var insertSpaces: Bool
+    var detectIndentation: Bool
     /// Zero keeps Monaco's platform default; otherwise this is a font-size multiplier.
     var lineHeight: Double
     var colorScheme: ColorScheme
@@ -57,6 +61,11 @@ struct EditorAppearanceSettings: Equatable {
     var highlightCurrentLine: Bool
 
     init(values: [String: Any] = [:]) {
+        let imported = values["customTheme"] as? String ?? ""
+        customTheme = ImportedEditorTheme.decode(imported) == nil ? "" : imported
+        tabSize = min(max(values["tabSize"] as? Int ?? 4, 1), 16)
+        insertSpaces = values["insertSpaces"] as? Bool ?? true
+        detectIndentation = values["detectIndentation"] as? Bool ?? true
         let height = values["lineHeight"] as? Double ?? 0
         lineHeight = height.isFinite && height > 0 ? min(max(height, 1), 3) : 0
         colorScheme = ColorScheme(rawValue: values["colorScheme"] as? String ?? "") ?? .lithe
@@ -74,7 +83,8 @@ struct EditorAppearanceSettings: Equatable {
     }
 
     var storedValues: [String: Any] {
-        ["lineHeight": lineHeight, "colorScheme": colorScheme.rawValue,
+        ["customTheme": customTheme, "tabSize": tabSize, "insertSpaces": insertSpaces, "detectIndentation": detectIndentation,
+         "lineHeight": lineHeight, "colorScheme": colorScheme.rawValue,
          "lineNumbers": lineNumbers.rawValue, "whitespace": whitespace.rawValue,
          "cursorStyle": cursorStyle.rawValue, "cursorBlinking": cursorBlinking.rawValue,
          "indentGuides": indentGuides, "fontLigatures": fontLigatures,
@@ -83,9 +93,10 @@ struct EditorAppearanceSettings: Equatable {
          "scrollBeyondLastLine": scrollBeyondLastLine, "highlightCurrentLine": highlightCurrentLine]
     }
 
-    /// Only display options cross this boundary; read-only/model lifecycle stays host-owned.
+    /// Global editor options; indentation is applied to source models by the workbench.
     var monacoOptions: [String: Any] {
-        ["lineHeight": lineHeight, "lineNumbers": lineNumbers.rawValue,
+        ["customTheme": customTheme, "tabSize": tabSize, "insertSpaces": insertSpaces, "detectIndentation": detectIndentation,
+         "lineHeight": lineHeight, "lineNumbers": lineNumbers.rawValue,
          "renderWhitespace": whitespace.rawValue, "cursorStyle": cursorStyle.rawValue,
          "cursorBlinking": cursorBlinking.rawValue, "fontLigatures": fontLigatures,
          "guides": ["indentation": indentGuides, "highlightActiveIndentation": indentGuides],

@@ -13,6 +13,7 @@ import LitheCoreContracts
 @MainActor
 final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     let id = UUID()
+    lazy var editorSettingsImport = services.makeEditorSettingsImport(settings: settings)
     var hasSuggestedJavaPlugin = false
     lazy var debugPerformanceFeature = DebugPerformanceFeatureModel(sampler: services.debugPerformanceSampler)
     lazy var testPerformanceFeature = TestJVMPerformanceFeatureModel(

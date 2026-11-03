@@ -49,6 +49,62 @@
   并核对了本机 Islands Dark 配置。共享语义编码保留 declaration/static（在既有修饰符末尾
   追加，保留原 bit 位置）；词法 `function.java` 在 IDEA 中先用正文色，由语义信息细分。
   不能把所有方法都改成蓝色，也不能为了截图把其他方案的 function 颜色一并改掉。
+- IDEA 的 YAML 不能直接复用通用 `type/string/number` 颜色。按同一固定上游提交的
+  `plugins/yaml/src/YAMLHighlighter.java` 与 `YAMLSyntaxHighlighter.java`，键名映射关键字色，
+  普通标量、数字、布尔值和块文本映射正文色，单/双引号字符串保留字符串色，注释映射文档注释色。
+  Light 的 `YAML_ANCHOR` 显式覆盖为 `#0000e6`，不得只读 fallback 而遗漏方案覆盖。
+  复用 Monaco 0.55.1 的 YAML 状态机并复制规则，只细分普通字符串 token；新增的
+  `string.yaml.plain` 继承原 `string.yaml`，因此其他方案（包括内置浅色特例）保持原样。
+  插件提供的 grammar 仍优先；不修改 node_modules，不引入自研 YAML 解析器。
+  这次适配不等于复刻 IDEA 的完整 YAML 词法器：上游 Monaco 对多行引号、复杂块缩进等
+  边界的能力仍须逐项验收，也不包含 IDEA 的语义检查、链接、注入语言和其他语言的完整规则。
+- SQL 必须覆盖 Monaco 自带的 `string.sql`、`operator.sql` 和 `predefined.sql` 特例，
+  否则 IDEA 通用色表会被红色字符串、灰色逻辑运算词、紫色预定义词覆盖。
+  复用 Monaco 0.55.1 状态机，逻辑运算词细分为 `operator.sql.word`；`COLLATE`
+  同时出现在上游关键字与内置函数列表中，细分为 `predefined.sql.keyword`。
+  IDEA 中这些词使用关键字色，普通运算符、括号与未分类内置函数使用正文色。
+  其他方案继续继承原 token 样式。通用细分入口为 `language-token-roles.ts`，
+  不复制整份 SQL/YAML grammar，不根据截图重新绘制文字，不宣称等价于 IDEA 数据库插件的方言语义分析。
+  工作台收到显式高亮方案时同步设置括号着色，避免遗留 appearance 值或新视图默认值
+  在 IDEA 方案中重新打开彩色括号。
+- IDEA 词法规则不能继续继承 VS 专属前景色。保留 Monaco 界面默认值，在主题生成入口将
+  `vs/vs-dark` 的每条前景色规则按最近的 IDEA 父 token 重新解析；仍保留 Monaco 的 invalid
+  错误标识。这样统一覆盖 JS/TS 流程关键字、CSS/SCSS 数值单位、Swift 运算符等差异，
+  不逐个复制上游默认主题，也不改变其他四套方案。
+- 在同一固定 Community revision 的 `XmlHighlighterColors.java`、`PyHighlighter.java`、
+  `MarkdownHighlighterColors.java`、`TomlColors.kt`、`DefaultLanguageHighlighterColors.java`
+  与 `DefaultColorSchemesManager.xml` 中核对父属性后，将语言特有颜色放入已有 `idea.json`
+  的 syntax 表，来源链接保存在该文件。XML/HTML 标签名、标签边界、属性与实体不能共用
+  通用注解颜色；Light 标签名继承关键字，而标签边界继承正文。
+  Python 引号在 Monaco 中误用 string.escape 角色，显示时恢复字符串色；真实反斜杠转义
+  在不重写状态机的前提下增加子角色。Markdown 标题正文与标记、链接文字与目标、
+  代码与普通字符串分别映射；TOML 使用独立 token 后缀，键与布尔值分别继承 KEYWORD
+  和 PREDEFINED_SYMBOL。Java TextMate 显式保留文档注释、字符转义和注解角色。
+- Protocol Buffers 使用 Monaco 已注册的 `proto` ID，Lithe 的 `protobuf` 经过语言映射转换。
+  不再向不存在的 `protobuf` 注册项设置配置。这个修复属于共享映射，两个宿主均受益，
+  当前仅在 macOS WebKit 实测。
+- 全语言清单以 `MONACO_HIGHLIGHT_LANGUAGE_IDS` 为准，当前 47 个基础语言均有实际模型的
+  深浅色字符串验收样例；清单增加时测试要求同步补样例。该检查证明 tokenizer 能加载、
+  基础着色可用，不证明所有语法构造和 IDEA 语义规则相同。JSON/JSONC 的键、字符串、
+  常量已有对应角色，本次复核并回归；Shell、Go、Rust、C/C++、Kotlin 等继续使用成熟
+  Monaco 状态机与共享角色，未另造语言分析器。
+
+### 当前语言兼容边界
+
+- Java 的方法声明/调用依赖语言服务，其他语言的同名标识符也不能靠颜色表推断语义。
+  IDEA 专有插件的 SQL 方言、JS/TS/CSS 语义能力不属于开源色表，不能宣称已复制其实现。
+- Vue、Svelte、Angular 当前沿用 HTML，TSX 沿用 TypeScript，ReScript 沿用 JavaScript；
+  模板、JSX 与嵌入语言仍受对应上游 tokenizer 限制。`.properties` 当前沿用 INI、
+  `.env` 沿用 Shell，复杂转义、续行、插值不能因为基础样例着色成功而算完整适配。
+- TOML、Git ignore/attributes、Nix、Elm、OCaml、Elisp、lockfile 仍使用已有轻量规则，
+  没有伪称存在一套官方 IDEA 标准方案；插件可通过既有 grammar 扩展点替换。
+  TLA/SystemRDL 当前明确映射 plaintext，不计入 47 个已有着色语言。
+- 不把以上解析缺口用更多关键词正则掩盖；将来需要完整语法时优先接入成熟公开 grammar
+  或语言插件，保留本次颜色角色边界。字体、字重、注释斜体偏好、语义 token 和完整产品
+  视觉效果需分别验收，基础色表一致不等于像素一致。
+
+### 排版与应用范围
+
 - 字体枚举和字体缺失回退继续遵循现有
   [编程字体决策](2026-10-07-macos-editor-programming-font-family.md)。
 - 作用范围是主源码编辑器、分栏、独立文件窗口与完整源码预览。原生 Git Diff、SQL

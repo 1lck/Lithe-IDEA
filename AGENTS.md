@@ -76,9 +76,9 @@
 
 ## 脚本放置与分类
 
-新增、移动脚本前，先阅读 `develop-lithe` Skill 的“脚本放置与分类”一节。脚本必须放在 `scripts/` 下，
+新增、移动脚本前，先阅读 `develop-lithe` Skill 的参考页 `.agents/skills/develop-lithe/references/scripts.md`（脚本放置与分类）。脚本必须放在 `scripts/` 下，
 并按作用语义放进对应子目录（CI 脚本在 `scripts/ci/<工作流名>/` 下），不得直接放在 `scripts/` 根目录。
-入口文件只保留这条提醒，目录表和同步清单以 Skill 为准。
+入口文件只保留这条提醒，目录表和同步清单以该参考页为准。
 
 ## 工作树资源复用与文档维护
 
