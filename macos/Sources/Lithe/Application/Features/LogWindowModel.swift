@@ -117,6 +117,34 @@ final class LogWindowModel: ObservableObject {
         // seq is session-local; source path disambiguates historical sessions.
         record.relativePath + ":" + String(record.seq) + ":" + record.ts
     }
+    /// One table row. A run head carries the run length; expanded or unfolded members count 1.
+    struct DisplayRow: Equatable { let id: String; let count: Int; let last: String; let isRun: Bool }
+    /// The rows the table shows. The status bar counts the same projection, so folded runs are
+    /// counted once there too.
+    var displayRows: [DisplayRow] {
+        Self.project(state.records, collapse: preferences.collapse, minimumRun: state.foldMinimumRun, expanded: expandedRuns)
+    }
+    /// Groups adjacent records that share Core's fold key. Core owns the key and the minimum run;
+    /// the host only applies the user's collapse and expansion choices to them.
+    static func project(
+        _ records: [RustCoreBridge.LogQueryRecord], collapse: Bool, minimumRun: Int, expanded: Set<String>
+    ) -> [DisplayRow] {
+        var rows: [DisplayRow] = []
+        rows.reserveCapacity(records.count)
+        var index = 0
+        while index < records.count {
+            var end = index + 1
+            while end < records.count && records[end].foldKey == records[index].foldKey { end += 1 }
+            let count = end - index, id = recordID(records[index])
+            let isRun = collapse && count >= minimumRun
+            rows.append(.init(id: id, count: count, last: records[end - 1].ts, isRun: isRun))
+            if !isRun || expanded.contains(id) {
+                for child in (index + 1)..<end { rows.append(.init(id: recordID(records[child]), count: 1, last: "", isRun: false)) }
+            }
+            index = end
+        }
+        return rows
+    }
     private static func bounded(_ value: String) -> String {
         var result = value
         while result.utf8.count > maximumExpressionBytes { result.removeLast() }

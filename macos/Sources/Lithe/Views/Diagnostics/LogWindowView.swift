@@ -238,7 +238,7 @@ struct LogWindowView: View {
     private var status: some View {
         HStack(spacing: 14) {
             Text(LocalizedStringKey(model.state.follows ? "Following" : model.state.scrolledUp ? "Paused (scrolled up)" : "Paused"))
-            Text(String(format: L10n.string("%lld rows · %lld selected"), Int64(model.state.records.count), Int64(model.state.selection.count)))
+            Text(String(format: L10n.string("%lld rows · %lld selected"), Int64(model.displayRows.count), Int64(model.state.selection.count)))
             Spacer()
             Text(String(format: L10n.string("Dropped %lld"), Int64(model.state.discarded + model.state.dropped)))
             Text(String(format: L10n.string("Write failures %lld"), Int64(model.state.writeFailures)))

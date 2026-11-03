@@ -202,12 +202,16 @@ struct LogWindowTests {
         coordinator.table = table; coordinator.scroll = scroll
         coordinator.update()
         #expect(coordinator.rows.count == 2)
+        #expect(model.displayRows.count == coordinator.rows.count)
         model.append(last); coordinator.update()
         #expect(coordinator.rows.count == 1)
         #expect(coordinator.rows.first?.count == 4)
+        // The status bar counts the folded run once, matching the table.
+        #expect(model.displayRows.count == 1)
         model.expandedRuns.insert(LogWindowModel.recordID(model.state.records[0]))
         coordinator.update()
         #expect(coordinator.rows.count == 4)
+        #expect(model.displayRows.count == 4)
         await writer.finishSession()
     }
     @Test func stageAFixtureQueryShapeDecodesAndReencodes() throws {

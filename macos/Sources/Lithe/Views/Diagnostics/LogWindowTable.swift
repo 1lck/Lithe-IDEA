@@ -56,7 +56,7 @@ struct LogWindowTable: NSViewRepresentable {
             let message: NSAttributedString
             let channelColor: NSColor
         }
-        struct Row { let id: String; let count: Int; let last: String; let isRun: Bool }
+        typealias Row = LogWindowModel.DisplayRow
         let model: LogWindowModel
         weak var table: LogTableView?
         weak var scroll: NSScrollView?
@@ -86,21 +86,7 @@ struct LogWindowTable: NSViewRepresentable {
                 let id = LogWindowModel.recordID(record)
                 if prepared[id] == nil { prepared[id] = prepare(record) }
             }
-            var projected: [Row] = []
-            var index = 0
-            let records = model.state.records
-            while index < records.count {
-                var end = index + 1
-                while end < records.count && records[end].foldKey == records[index].foldKey { end += 1 }
-                let count = end - index, id = LogWindowModel.recordID(records[index])
-                let collapse = model.preferences.collapse && count >= model.state.foldMinimumRun
-                projected.append(.init(id: id, count: count, last: records[end - 1].ts, isRun: collapse))
-                if !collapse || model.expandedRuns.contains(id) {
-                    for child in (index + 1)..<end { projected.append(.init(id: LogWindowModel.recordID(records[child]), count: 1, last: "", isRun: false)) }
-                }
-                index = end
-            }
-            rows = projected
+            rows = model.displayRows
             updating = true
             for column in table.tableColumns { column.isHidden = model.preferences.hidden.contains(column.identifier.rawValue) }
             table.reloadData()
