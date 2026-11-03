@@ -62,7 +62,11 @@ Windows 平面库存目前使用 Core 默认规则，候选请求也显式使用
 前端树呈现的隐藏设置冒充已生效的库存规则。Core 回归覆盖内置隐藏、取消内置隐藏和自定义规则。
 
 Git Host 保留每轮两条流各 64 KiB 的读取预算；任一流取得进展后立即进入下一轮，
-每轮仍检查取消和另一条流，只有没有进展时才按原间隔等待。不提高捕获、取消或清理预算。
+每轮仍检查取消和另一条流。Unix 管道暂时读空时用可读通知等待，数据到达立即唤醒，
+最长仍为原来的 10 ms；已经读到结尾的管道不参与等待，避免结束通知导致空转。
+Windows 保留 PeekNamedPipe 和无进展时的原间隔等待。不提高捕获、取消或清理预算。
+只取消有进展时的 sleep 不够：Unix 生产者尚未得到调度时仍会不断读空，固定等待
+会限制吞吐，macOS CI 的 33 MiB 回归仍在 12 秒截止处取消。不得以扩大期限掩盖它。
 Windows 旧任务的 check-run 注解确认超过 45 分钟上限；共享 Core 步骤先失败，但详细
 日志已不可取，不能把后续取消单独归因于路径问题，也不因此扩大 job 时间预算。
 
@@ -101,20 +105,22 @@ Windows 旧任务的 check-run 注解确认超过 45 分钟上限；共享 Core 
   子仓库根，父仓库已跟踪修改保留，显式打开被忽略子仓库仍可管理。手动标记通过隔离
   偏好域预置，未完成菜单操作的自动化验收。QA 实例已关闭，原有应用实例保持；
   bundle 的 1,434 项文件／链接及 Git 索引未变化。
-- 本地 Swift 使用 6.4.2／Xcode 27.2，固定 6.3.3／Xcode 26.6 及 Windows 原生验收
-  尚未完成；macOS 上 Windows Rust 检查仍只有基线已有的平台 API 编译错误。
+- 本地 Swift 使用 6.4.2／Xcode 27.2，固定 6.3.3／Xcode 26.6 由 CI 确认；
+  macOS 上 Windows Rust 检查仍只有基线已有的平台 API 编译错误。
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`
 - `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
 - `./scripts/architecture/verify-shared-contracts.sh`
 - `./scripts/agent-notes/verify-agent-notes.sh`
 
 本轮最终 Core 1596 项全量逐项计时、Git Host 10 项、Swift 318 项、前端 88 项及
-TypeScript、Rust↔Swift 桥接通过。33 MiB 输出用例的原预算下，从修复前 6248 ms
-降至最终 3539 ms；新增取消回归 179 ms，都是组件样本，不冒充界面流畅度。
+TypeScript、Rust↔Swift 桥接通过。33 MiB 输出用例保留原数据和期限；Unix 可读通知
+使本机样本从无进展时固定等待的 3539 ms 降至 30 ms，大输出取消回归为 19 ms。
+这些都是组件样本，不冒充界面流畅度。
 1000 个数据目录、10000 个文件及 20 个嵌套仓库的合成项目，三次发现为
 658/269/309 ms，Git 进程数 20/19/19，均保留预期的 6 个仓库。
-Windows 路径原生回归仍由新 head CI 核验；macOS 的 Windows host 检查只出现
-未修改基线的两个平台 API 错误，不能算 Windows 构建通过。
+Windows 原生 CI 已通过路径大小写、嵌套根、子模块相对路径、可见性和取消回归，
+真实 JDT 筛选任务也已通过；Windows 界面验收仍为 pending。Unix 可读通知补修
+仍须在新 head 的 macOS CI 中确认。
 
 ## 适用范围
 

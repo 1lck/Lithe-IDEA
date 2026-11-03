@@ -160,7 +160,11 @@ pub fn run_with_stdout_capture(
             break;
         }
         if !made_progress {
-            std::thread::sleep(POLL_INTERVAL);
+            if let Err(error) = platform::wait_for_output(&stdout, stdout_eof, &stderr, stderr_eof)
+            {
+                result.failure = Some(Failure::Io(error));
+                break;
+            }
         }
     }
     // This also cleans up helpers that inherited pipes after their parent exited.
@@ -417,6 +421,44 @@ mod platform {
     pub fn read<R: Read + Pipe>(reader: &mut R, buffer: &mut [u8]) -> io::Result<usize> {
         reader.read(buffer)
     }
+    pub fn wait_for_output(
+        stdout: &impl Pipe,
+        stdout_eof: bool,
+        stderr: &impl Pipe,
+        stderr_eof: bool,
+    ) -> io::Result<()> {
+        let mut pipes = [
+            libc::pollfd {
+                fd: if stdout_eof { -1 } else { stdout.as_raw_fd() },
+                events: libc::POLLIN,
+                revents: 0,
+            },
+            libc::pollfd {
+                fd: if stderr_eof { -1 } else { stderr.as_raw_fd() },
+                events: libc::POLLIN,
+                revents: 0,
+            },
+        ];
+        // A temporarily empty pipe must wake as soon as the producer writes.
+        // Ignoring EOF descriptors avoids a hangup-driven busy loop; the finite
+        // timeout preserves cancellation and child-exit checks even without data.
+        // SAFETY: both descriptors remain borrowed for the duration of poll, and
+        // pipes is a valid writable array of the stated length.
+        let ready = unsafe {
+            libc::poll(
+                pipes.as_mut_ptr(),
+                pipes.len() as libc::nfds_t,
+                POLL_INTERVAL.as_millis() as libc::c_int,
+            )
+        };
+        if ready < 0 {
+            let error = io::Error::last_os_error();
+            if error.kind() != io::ErrorKind::Interrupted {
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
     pub struct Group(i32);
     impl Group {
         /// A process that starts its own session leaves the group on its own,
@@ -467,6 +509,17 @@ mod platform {
     };
     pub trait Pipe: AsRawHandle {}
     impl<T: AsRawHandle> Pipe for T {}
+    pub fn wait_for_output(
+        _stdout: &impl Pipe,
+        _stdout_eof: bool,
+        _stderr: &impl Pipe,
+        _stderr_eof: bool,
+    ) -> io::Result<()> {
+        // Anonymous Windows pipes use PeekNamedPipe in read; they do not expose
+        // the Unix readiness notification used above.
+        std::thread::sleep(POLL_INTERVAL);
+        Ok(())
+    }
     pub fn prepare(command: &mut Command) {
         // Assign the job before the first thread can spawn credential/SSH helpers.
         command.creation_flags(CREATE_NO_WINDOW | CREATE_SUSPENDED);

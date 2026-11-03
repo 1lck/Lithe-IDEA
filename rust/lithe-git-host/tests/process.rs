@@ -44,8 +44,8 @@ fn process_fixture() {
 
 #[test]
 fn streaming_stdout_keeps_bounded_process_ownership_without_capturing_the_index() {
-    // The adapter drains 64 KiB per poll; 33 MiB takes over five seconds even
-    // without contention. This deadline stays below the 15-second case budget.
+    // Keep the 33 MiB fixture and original deadline: temporarily empty pipes
+    // must not impose a fixed sleep on every producer/consumer handoff.
     let deadline = Instant::now() + Duration::from_secs(12);
     let mut command = Command::new(std::env::current_exe().expect("test executable"));
     command
