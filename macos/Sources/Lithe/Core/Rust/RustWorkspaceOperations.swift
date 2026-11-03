@@ -34,8 +34,8 @@ struct RustWorkspaceOperations: WorkspaceOperations, Sendable {
         }
     }
 
-    func ignoredDirectorySuggestions(at rootURL: URL) throws -> WorkspaceIgnoredDirectorySuggestions {
-        do { return try core.ignoredDirectorySuggestions(at: rootURL) }
+    func ignoredDirectorySuggestions(at rootURL: URL, visibilityRules: FileVisibilityRules) throws -> WorkspaceIgnoredDirectorySuggestions {
+        do { return try core.ignoredDirectorySuggestions(at: rootURL, visibilityRules: visibilityRules) }
         catch let error as RustCoreBridge.CoreCallError { throw indexingFailure(error) }
         catch { throw WorkspaceIndexingFailure.configureFailed }
     }

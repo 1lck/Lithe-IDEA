@@ -71,7 +71,7 @@ package protocol WorkspaceSessionStoring: AnyObject {
 package protocol WorkspaceOperations: Sendable {
     func releaseIndexing(at rootURL: URL, revision: UInt64, ownerID: String?)
     func configureIndexing(at rootURL: URL, policy: WorkspaceIndexingPolicy, refresh: Bool, ownerID: String?) throws -> WorkspaceIndexingStatus
-    func ignoredDirectorySuggestions(at rootURL: URL) throws -> WorkspaceIgnoredDirectorySuggestions
+    func ignoredDirectorySuggestions(at rootURL: URL, visibilityRules: FileVisibilityRules) throws -> WorkspaceIgnoredDirectorySuggestions
 
     /// Drops package-compaction lookahead after workspace or filesystem changes.
     func invalidateDirectoryListings()
@@ -100,7 +100,7 @@ extension WorkspaceOperations {
     }
     package func releaseIndexing(at rootURL: URL, revision: UInt64, ownerID: String?) {}
     package func configureIndexing(at rootURL: URL, policy: WorkspaceIndexingPolicy, refresh: Bool, ownerID: String?) throws -> WorkspaceIndexingStatus { WorkspaceIndexingStatus() }
-    package func ignoredDirectorySuggestions(at rootURL: URL) throws -> WorkspaceIgnoredDirectorySuggestions {
+    package func ignoredDirectorySuggestions(at rootURL: URL, visibilityRules: FileVisibilityRules) throws -> WorkspaceIgnoredDirectorySuggestions {
         throw WorkspaceIndexingFailure.configureFailed
     }
     package func invalidateDirectoryListings() {}

@@ -4641,10 +4641,11 @@ Manual directory exclusions also constrain automatic Git root discovery when sup
 `workspace.repositories`; they never filter an included repository's status or commit candidates.
 Automatic analysis exclusions and include exceptions do not configure Git root membership.
 
-`workspace.ignoredDirectorySuggestions` accepts `{ root, workspaceRoots? }` and requires
+`workspace.ignoredDirectorySuggestions` accepts `{ root, workspaceRoots?, hiddenDirectoryNames?, hiddenFilePatterns? }` and requires
 an installed indexing policy. It returns `{ directories, incomplete, gitIgnoreFailed }`:
 sorted relative directory roots ignored by native Git but still eligible for analysis.
-It skips manual/automatic exclusions and roots explicitly delegated to another workspace,
+It applies the same effective visibility overrides and nested linked-worktree filtering as the
+workspace inventory, then skips manual/automatic exclusions and roots explicitly delegated to another workspace,
 protects tracked descendants, does not follow symlinks, and prunes beneath each candidate.
 Scanning is bounded to 10,000 directories, 100,000 entries and 32 levels; partial/error flags never establish
 absence. Ignore checks and tracked-directory protection are batched, and retired generations

@@ -266,6 +266,60 @@ fn discovery_delegates_nested_workspace_roots_to_their_own_policy() {
     assert_eq!(discover(&root).len(), 3);
 }
 
+#[cfg(windows)]
+#[test]
+fn discovery_gitlinks_keep_their_identity_after_a_case_only_workspace_rename() {
+    let fixture = Workspace::new();
+    let root = fixture.initialize(".");
+    let module = fixture.initialize("foo/sub");
+    git(
+        &module,
+        &[
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "--allow-empty",
+            "-qm",
+            "initial",
+        ],
+    );
+    let revision = data(
+        "git.command",
+        json!({"root":module,"arguments":["rev-parse","HEAD"]}),
+    );
+    let entry = format!(
+        "160000,{},foo/sub",
+        revision["stdout"].as_str().unwrap().trim()
+    );
+    git(&root, &["update-index", "--add", "--cacheinfo", &entry]);
+    fs::rename(root.join("foo"), root.join("temporary-name")).unwrap();
+    fs::rename(root.join("temporary-name"), root.join("Foo")).unwrap();
+    let opened = root.join("Foo");
+    assert_eq!(
+        discover(&opened),
+        vec![canonical(&root), canonical(&opened.join("sub"))]
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn discovery_manual_exclusions_survive_case_only_directory_renames() {
+    let workspace = Workspace::new();
+    let root = workspace.initialize(".");
+    workspace.initialize("cache/child");
+    let sibling = workspace.initialize("cache-old/child");
+    fs::rename(root.join("cache"), root.join("temporary-name")).unwrap();
+    fs::rename(root.join("temporary-name"), root.join("Cache")).unwrap();
+    assert_eq!(
+        discover_with(&root, &["cache"], &[]),
+        vec![canonical(&root), canonical(&sibling)]
+    );
+}
+
 #[test]
 fn discovery_keeps_index_registered_submodules_inside_excluded_containers() {
     let workspace = Workspace::new();

@@ -177,9 +177,9 @@ struct RemoteRoutingWorkspaceOperations: WorkspaceOperations {
         local.releaseIndexing(at: rootURL, revision: revision, ownerID: ownerID)
     }
 
-    func ignoredDirectorySuggestions(at rootURL: URL) throws -> WorkspaceIgnoredDirectorySuggestions {
+    func ignoredDirectorySuggestions(at rootURL: URL, visibilityRules: FileVisibilityRules) throws -> WorkspaceIgnoredDirectorySuggestions {
         guard registry.binding(forRoot: rootURL) == nil else { throw WorkspaceIndexingFailure.configureFailed }
-        return try local.ignoredDirectorySuggestions(at: rootURL)
+        return try local.ignoredDirectorySuggestions(at: rootURL, visibilityRules: visibilityRules)
     }
 
     func snapshot(at rootURL: URL, visibilityRules: FileVisibilityRules) throws -> WorkspaceSnapshot? {

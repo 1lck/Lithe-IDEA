@@ -286,7 +286,8 @@ export async function queryIgnoredDirectorySuggestions(root: string, workspaceId
   await configureWorkspaceIndexing(root, [], false, workspaceId);
   const response = await executeCore<IgnoredDirectorySuggestions>({
     id: crypto.randomUUID(), command: "workspace.ignoredDirectorySuggestions", timeoutMilliseconds: 10000,
-    payload: { root, workspaceRoots },
+    // Windows flat inventory currently uses Core defaults for both visibility lists.
+    payload: { root, workspaceRoots, hiddenDirectoryNames: [], hiddenFilePatterns: [] },
   });
   if (!response.ok) throw new IndexingSettingsError("configureFailed", response.error);
   return response.data;

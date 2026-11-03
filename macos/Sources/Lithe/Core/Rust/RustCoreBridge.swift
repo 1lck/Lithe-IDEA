@@ -2531,9 +2531,9 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let _: Response? = execute(command: "workspace.releaseIndexing", payload: Payload(root: rootURL.path, revision: revision, ownerId: ownerID))
     }
 
-    func ignoredDirectorySuggestions(at rootURL: URL) throws -> WorkspaceIgnoredDirectorySuggestions {
-        struct Request: Encodable { let root: String }
-        return try executeResult(command: "workspace.ignoredDirectorySuggestions", payload: Request(root: rootURL.path), timeoutMilliseconds: 10_000).get()
+    func ignoredDirectorySuggestions(at rootURL: URL, visibilityRules: FileVisibilityRules) throws -> WorkspaceIgnoredDirectorySuggestions {
+        struct Request: Encodable { let root: String; let hiddenDirectoryNames: [String]; let hiddenFilePatterns: [String] }
+        return try executeResult(command: "workspace.ignoredDirectorySuggestions", payload: Request(root: rootURL.path, hiddenDirectoryNames: visibilityRules.hiddenDirectoryNames, hiddenFilePatterns: visibilityRules.hiddenFilePatterns), timeoutMilliseconds: 10_000).get()
     }
 
     func configureIndexing(at rootURL: URL, policy: WorkspaceIndexingPolicy, refresh: Bool, ownerID: String? = nil) throws -> WorkspaceIndexingStatus {

@@ -1140,7 +1140,9 @@ impl VisibilityRules {
             // Missing descendants still retain their boundary until the host removes the root.
             let candidate = search_index::canonicalize_with_missing_components(Path::new(value))
                 .unwrap_or_else(|| PathBuf::from(value));
-            if candidate != root && candidate.starts_with(root) {
+            if !super::path_identity::same(&candidate, root)
+                && super::path_identity::contains(root, &candidate)
+            {
                 self.delegated_roots.push(candidate);
             }
         }
@@ -1152,7 +1154,7 @@ impl VisibilityRules {
     pub(crate) fn is_delegated(&self, path: &Path) -> bool {
         self.delegated_roots
             .iter()
-            .any(|root| path.starts_with(root))
+            .any(|root| super::path_identity::contains(root, path))
     }
 
     pub(crate) fn is_hidden(&self, path: &str, is_directory: bool) -> bool {

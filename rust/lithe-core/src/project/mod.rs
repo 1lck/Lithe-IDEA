@@ -10,6 +10,7 @@ mod maven;
 mod maven_dependency_tree;
 mod maven_test_reports;
 mod name_matching;
+pub(crate) mod path_identity;
 mod search_index;
 mod search_paging;
 pub(crate) use search_paging::{search_page, SearchPageRequest};

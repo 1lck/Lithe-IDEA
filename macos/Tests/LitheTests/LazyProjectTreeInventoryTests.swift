@@ -1064,7 +1064,7 @@ private final class InventoryDisk: WorkspaceOperations, WorkspaceFileOperations,
         return gate
     }
     func setSuggestions(_ paths: [String]) { lock.withLock { suggestedPaths = paths } }
-    func ignoredDirectorySuggestions(at rootURL: URL) throws -> WorkspaceIgnoredDirectorySuggestions {
+    func ignoredDirectorySuggestions(at rootURL: URL, visibilityRules: FileVisibilityRules) throws -> WorkspaceIgnoredDirectorySuggestions {
         suggestionsRequested.open()
         let (result, gate) = lock.withLock {
             var result = WorkspaceIgnoredDirectorySuggestions()

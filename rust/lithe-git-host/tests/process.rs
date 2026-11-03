@@ -72,6 +72,40 @@ fn streaming_stdout_keeps_bounded_process_ownership_without_capturing_the_index(
 }
 
 #[test]
+fn streaming_large_stdout_still_observes_cancellation_and_reclaims_the_child() {
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let cancelled = AtomicBool::new(false);
+    let mut command = Command::new(std::env::current_exe().expect("test executable"));
+    command
+        .args(["--exact", "process_fixture", "--nocapture"])
+        .env("LITHE_GIT_PROCESS_FIXTURE", "large-output");
+    let mut received = 0;
+    let outcome = run_with_stdout_capture(
+        &mut command,
+        None,
+        false,
+        || cancelled.load(Ordering::Acquire) || Instant::now() > deadline,
+        || {},
+        |stream, bytes| {
+            if matches!(stream, Stream::Stdout) {
+                received += bytes.len();
+                if received >= 1024 * 1024 {
+                    cancelled.store(true, Ordering::Release);
+                }
+            }
+        },
+    );
+    assert!(
+        cancelled.load(Ordering::Acquire),
+        "fixture did not reach the cancellation gate"
+    );
+    assert!(matches!(outcome.failure, Some(Failure::Cancelled)));
+    assert!(outcome.stdout.is_empty());
+    assert!(outcome.status.is_some(), "cancelled child was not reaped");
+    assert!(received < 33 * 1024 * 1024);
+}
+
+#[test]
 fn incremental_output_can_cancel_before_the_child_exits() {
     let began = Instant::now();
     let started = AtomicBool::new(false);

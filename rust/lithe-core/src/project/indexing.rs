@@ -53,6 +53,11 @@ pub struct IgnoredDirectorySuggestionsRequest {
     /// Explicit root membership; nested roots are inspected with their own policy.
     #[serde(default)]
     pub workspace_roots: Vec<String>,
+    /// The same effective visibility overrides supplied to workspace snapshots.
+    #[serde(default)]
+    pub hidden_directory_names: Vec<String>,
+    #[serde(default)]
+    pub hidden_file_patterns: Vec<String>,
 }
 
 #[derive(Default, Serialize)]
@@ -80,8 +85,11 @@ fn scan_ignored_directories(
     max_entries: usize,
 ) -> Result<IgnoredDirectorySuggestions, CoreError> {
     let root = existing_root(&request.root)?;
-    let boundaries = super::files::VisibilityRules::new(Vec::new(), Vec::new())
-        .with_workspace_roots(&root, &request.workspace_roots);
+    let boundaries = super::files::VisibilityRules::new(
+        request.hidden_directory_names,
+        request.hidden_file_patterns,
+    )
+    .with_workspace_roots(&root, &request.workspace_roots);
     let context = active_provider_context(&root).ok_or_else(|| {
         CoreError::new(ErrorCode::Cancelled, "Workspace indexing is not configured")
     })?;
@@ -140,6 +148,13 @@ fn scan_ignored_directories(
             match entry {
                 Ok(entry) if entry.file_name() != ".git" => match entry.file_type() {
                     Ok(kind) if kind.is_dir() => {
+                        let path = entry.path();
+                        if boundaries.is_delegated(&path)
+                            || boundaries.is_hidden(&relative_path(&path, &root), true)
+                            || super::files::is_nested_linked_worktree(&path)
+                        {
+                            continue;
+                        }
                         children.insert(entry.path());
                         if children.len() + queue.len() + visited > max_directories {
                             children.pop_last();
@@ -954,6 +969,38 @@ mod tests {
     use super::*;
     use serde_json::json;
     use std::fs;
+
+    #[test]
+    fn suggestions_use_the_inventory_visibility_rules_and_disabled_built_ins() {
+        let workspace = Workspace::new();
+        workspace.git(&["init", "--quiet"]);
+        for name in ["node_modules", "archive"] {
+            fs::create_dir_all(workspace.0.join(name)).unwrap();
+            fs::write(workspace.0.join(name).join("file.js"), "content").unwrap();
+        }
+        fs::write(workspace.0.join(".gitignore"), "node_modules/\narchive/\n").unwrap();
+        workspace.configure(&[], &[], false);
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../shared/fixtures/workspace/ignored-directory-suggestions-v1.json"
+        ))
+        .unwrap();
+        for case in fixture["visibilityCases"].as_array().unwrap() {
+            let response = ignored_directory_suggestions(
+                serde_json::from_value(json!({
+                    "root":workspace.0,
+                    "hiddenDirectoryNames":case["hiddenDirectoryNames"],
+                    "hiddenFilePatterns":case["hiddenFilePatterns"]
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(
+                serde_json::to_value(response.directories).unwrap(),
+                case["expectedSuggestions"]
+            );
+            assert!(!response.incomplete);
+        }
+    }
 
     #[cfg(unix)]
     #[test]
@@ -1999,6 +2046,8 @@ mod tests {
             ignored_directory_suggestions(IgnoredDirectorySuggestionsRequest {
                 root: workspace.0.to_string_lossy().into_owned(),
                 workspace_roots: Vec::new(),
+                hidden_directory_names: Vec::new(),
+                hidden_file_patterns: Vec::new(),
             })
             .unwrap()
             .directories
@@ -2021,6 +2070,8 @@ mod tests {
         let suggestions = ignored_directory_suggestions(IgnoredDirectorySuggestionsRequest {
             root: workspace.0.to_string_lossy().into_owned(),
             workspace_roots: Vec::new(),
+            hidden_directory_names: Vec::new(),
+            hidden_file_patterns: Vec::new(),
         })
         .unwrap();
         assert_eq!(suggestions.directories, ["ignored"]);
@@ -2049,6 +2100,8 @@ mod tests {
         let suggestions = ignored_directory_suggestions(IgnoredDirectorySuggestionsRequest {
             root: workspace.0.to_string_lossy().into_owned(),
             workspace_roots: Vec::new(),
+            hidden_directory_names: Vec::new(),
+            hidden_file_patterns: Vec::new(),
         })
         .unwrap();
         assert_eq!(suggestions.directories, ["ignored"]);
@@ -2084,6 +2137,8 @@ mod tests {
             ignored_directory_suggestions(IgnoredDirectorySuggestionsRequest {
                 root: workspace.0.to_string_lossy().into_owned(),
                 workspace_roots: Vec::new(),
+                hidden_directory_names: Vec::new(),
+                hidden_file_patterns: Vec::new(),
             })
             .unwrap()
             .directories

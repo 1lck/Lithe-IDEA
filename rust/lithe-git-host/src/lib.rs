@@ -121,7 +121,7 @@ pub fn run_with_stdout_capture(
             capture_stdout,
             &mut output,
         )
-        .and_then(|_| {
+        .and_then(|stdout_progress| {
             drain(
                 &mut stderr,
                 &mut stderr_eof,
@@ -130,11 +130,15 @@ pub fn run_with_stdout_capture(
                 true,
                 &mut output,
             )
+            .map(|stderr_progress| stdout_progress || stderr_progress)
         });
-        if let Err(error) = reads {
-            result.failure = Some(error);
-            break;
-        }
+        let made_progress = match reads {
+            Ok(progress) => progress,
+            Err(error) => {
+                result.failure = Some(error);
+                break;
+            }
+        };
         if result.status.is_none() {
             match child.child.try_wait() {
                 Ok(Some(status)) => {
@@ -155,7 +159,9 @@ pub fn run_with_stdout_capture(
             result.failure = Some(Failure::Cleanup);
             break;
         }
-        std::thread::sleep(POLL_INTERVAL);
+        if !made_progress {
+            std::thread::sleep(POLL_INTERVAL);
+        }
     }
     // This also cleans up helpers that inherited pipes after their parent exited.
     if !child.cleanup() {
@@ -174,23 +180,25 @@ fn drain<R: Read + platform::Pipe>(
     stream: Stream,
     capture: bool,
     output: &mut impl FnMut(Stream, &[u8]),
-) -> Result<(), Failure> {
+) -> Result<bool, Failure> {
     if *eof {
-        return Ok(());
+        return Ok(false);
     }
     let mut buffer = [0u8; 8192];
+    let mut progress = false;
     // A noisy stream cannot starve the other stream or cancellation checks.
     for _ in 0..8 {
         let count = match platform::read(reader, &mut buffer) {
             Ok(0) => {
                 *eof = true;
-                return Ok(());
+                return Ok(progress);
             }
             Ok(count) => count,
-            Err(error) if error.kind() == io::ErrorKind::WouldBlock => return Ok(()),
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => return Ok(progress),
             Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
             Err(error) => return Err(Failure::Io(error)),
         };
+        progress = true;
         output(stream, &buffer[..count]);
         if capture {
             if captured.len() + count > MAX_CAPTURE_BYTES {
@@ -199,7 +207,7 @@ fn drain<R: Read + platform::Pipe>(
             captured.extend_from_slice(&buffer[..count]);
         }
     }
-    Ok(())
+    Ok(progress)
 }
 
 struct OwnedChild {

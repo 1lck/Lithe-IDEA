@@ -7,6 +7,7 @@ use super::{
     WorkspaceRepositoriesRequest,
 };
 use crate::project::files::VisibilityRules;
+use crate::project::path_identity;
 use crate::protocol::{
     CoreError, ErrorCode, WorkspaceRepositoriesResponse, WorkspaceRepositoryResponse,
 };
@@ -42,7 +43,7 @@ pub fn workspace_repositories(
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
             Err(error) => return Err(repository_scan_error(error)),
         };
-        if !directory.starts_with(&workspace)
+        if !path_identity::contains(&workspace, &directory)
             || boundaries.is_delegated(&directory)
             || !visited.insert(directory.clone())
         {
@@ -62,7 +63,9 @@ pub fn workspace_repositories(
             } else if directory_is_visible(&name)
                 && entry.file_type().map_err(repository_scan_error)?.is_dir()
                 && !boundaries.is_delegated(&entry.path())
-                && !excluded.iter().any(|path| entry.path().starts_with(path))
+                && !excluded
+                    .iter()
+                    .any(|path| path_identity::contains(path, &entry.path()))
             {
                 children.push(name);
             }
@@ -76,13 +79,15 @@ pub fn workspace_repositories(
         {
             for path in submodule_paths(root)? {
                 let candidate = root.join(path);
-                if !candidate.starts_with(&workspace) || boundaries.is_delegated(&candidate) {
+                if boundaries.is_delegated(&candidate) {
                     continue;
                 }
-                let relative = candidate.strip_prefix(&workspace).unwrap();
+                let Some(relative) = path_identity::relative_to(&workspace, &candidate) else {
+                    continue;
+                };
                 let dependency_depth = relative.components().count();
                 if dependency_depth <= request.max_depth
-                    && !has_symlink_component(&workspace, relative)?
+                    && !has_symlink_component(&workspace, &relative)?
                     && git_entry_opens_as_repository(&candidate.join(".git"))
                 {
                     queue.push_back((candidate, dependency_depth, Some(root.clone())));

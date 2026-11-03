@@ -742,11 +742,12 @@ package final class WorkspaceFeatureModel: ObservableObject {
             throw WorkspaceIndexingFailure.configureFailed
         }
         let generation = workspaceGeneration
+        let rules = visibilityRules
         let result = try await Task.detached(priority: .utility) { [operations] in
-            try operations.ignoredDirectorySuggestions(at: workspaceURL)
+            try operations.ignoredDirectorySuggestions(at: workspaceURL, visibilityRules: rules)
         }.value
         guard !Task.isCancelled, self.workspaceURL == workspaceURL,
-              self.workspaceGeneration == generation else { throw CancellationError() }
+              self.workspaceGeneration == generation, self.visibilityRules == rules else { throw CancellationError() }
         return result
     }
 
