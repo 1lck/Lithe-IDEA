@@ -10,6 +10,7 @@
 "%@ %lld" = "%@ %lld";
 "%@ (%@ failed)" = "%@（失败 %@）";
 "%@ (%lld)" = "%@（%lld）";
+"%@ (default)" = "%@（默认）";
 "%@ (not available for this Lithe or Mac)" = "%@（当前 Lithe 或这台 Mac 无法使用）";
 "%@ already exists. Choose another name or location." = "%@ 已存在，请更换名称或位置。";
 "%@ answered with status %lld. %@" = "%1$@ 返回状态 %2$lld。%3$@";
@@ -66,6 +67,7 @@
 "%@ · %@ / %@ context used" = "%@ · %@ / %@ 上下文已使用";
 "%@ · %@ used" = "%@ · 已用 %@";
 "%@ · %lld of %lld steps processed" = "%@ · 已处理 %lld / %lld 步";
+"%@ — %@" = "%@ — %@";
 "%@ ↔ Working Tree" = "%@ ↔ 工作区";
 "%@, %@" = "%@，%@";
 "%@, Line %lld, %@" = "%@，第 %lld 行，%@";
@@ -358,6 +360,8 @@
 "Another instruction save is running. Try again." = "另一项指令保存正在进行，请重试。";
 "Answered in %lld ms" = "%lld 毫秒内已回答";
 "Any Time" = "不限时间";
+"App Store" = "App Store";
+"App Store…" = "App Store…";
 "Appearance" = "外观";
 "Appearance & Behavior" = "外观与行为";
 "Appearance defaults are labeled separately. Workspace and language overrides, formatters, extensions and account data are skipped." = "外观默认值已单独标注。跳过工作区与语言覆盖、格式化器、扩展和账号数据。";
@@ -668,6 +672,7 @@
 "Choose an AI provider below so the Agent can sign in." = "请在下方选择 AI 服务商，Agent 才能登录。";
 "Choose an Agent" = "选择 Agent";
 "Choose an Agent to start" = "选择一个 Agent 开始";
+"Choose an Application" = "选择应用程序";
 "Choose another JDK in Settings → Project or clear the invalid path." = "请在“设置 → 项目”中选择其他 JDK，或清除无效路径。";
 "Choose at least one Agent." = "请至少选择一个 Agent。";
 "Choose database" = "选择数据库";
@@ -1032,6 +1037,7 @@
 "Could not load the changed files." = "无法加载更改的文件。";
 "Could not load this image" = "无法加载此图片";
 "Could not move the editor tab. Its content could not be synchronized." = "无法移动编辑标签，未能同步其内容。";
+"Could not open %@: %@" = "无法打开 %@：%@";
 "Could not open %@: %@ %@" = "无法打开 %@：%@ %@";
 "Could not open HTML in browser" = "无法在浏览器中打开 HTML";
 "Could not open the remote folder: %@" = "无法打开远程文件夹：%@";
@@ -2740,6 +2746,7 @@
 "Open Run Configuration" = "打开运行配置";
 "Open SKILL.md" = "打开 SKILL.md";
 "Open Stable Downloads" = "打开正式版下载页";
+"Open With" = "打开方式";
 "Open a Git project before using pull requests" = "请先打开 Git 项目，再使用拉取请求功能";
 "Open a Java file" = "打开 Java 文件";
 "Open a Java file before starting Debug" = "开始调试前请先打开 Java 文件";
@@ -2805,6 +2812,7 @@
 "Other ChangeLists have staged files. Unstage them before committing the current ChangeList." = "其他更改列表有已暂存文件。请先取消这些文件的暂存，再提交当前更改列表。";
 "Other reference changes: %lld added, %lld updated, %lld deleted" = "其余引用变化：新增 %lld、更新 %lld、删除 %lld";
 "Other run configurations" = "其他运行配置";
+"Other…" = "其他…";
 "Output" = "输出";
 "Output language" = "输出语言";
 "Output speed (TPS)" = "输出速度（TPS）";
@@ -9941,6 +9949,14 @@
 "vcs.commitFiles.trashWarning" = "这些文件将移到 macOS 废纸篓。";
 "vcs.commitFiles.vcsDeleteWarning" = "版本控制插件将删除这些文件并记录删除操作，文件可能不会移入废纸篓。";
 "version managed from %@" = "依赖管理前版本为 %@";
+"workspace.appStore" = "App Store";
+"workspace.chooseApplication" = "选择应用程序";
+"workspace.defaultApplication" = "%1$@（默认）";
+"workspace.externalOpenFailed" = "无法打开 %1$@：%2$@";
+"workspace.nativeMenuDescription" = "%1$@ — %2$@";
+"workspace.openWith" = "打开方式";
+"workspace.openWithAppStore" = "App Store…";
+"workspace.openWithOther" = "其他…";
 "— Click the Run icon in the editor gutter" = "— 点击编辑器行号栏中的运行图标";
 "— Launch a" = "— 启动";
 "— Select \"Debug...\" in the editor context menu" = "— 在编辑器右键菜单中选择“调试...”";
