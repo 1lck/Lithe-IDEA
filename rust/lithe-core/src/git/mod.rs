@@ -2824,7 +2824,14 @@ fn commit_selected_paths(
         &environment,
     )?;
     if committed_head.exit_code != 0 {
-        let _ = temporary_context.cleanup_reference(root);
+        if let Err(error) = temporary_context.cleanup_reference(root) {
+            // Preserve the commit result; WARN reports a separate leaked reference.
+            crate::diagnostics::core_events::core_failed(
+                "vcs.commit.cleanup_failed",
+                "reference",
+                &error,
+            );
+        }
         return Ok(committed_head);
     }
     let committed_head = committed_head.stdout.trim().to_string();
@@ -2834,7 +2841,14 @@ fn commit_selected_paths(
         .cloned()
         .collect::<Vec<_>>();
     if !unexpected_paths.is_empty() {
-        let _ = temporary_context.cleanup_reference(root);
+        if let Err(error) = temporary_context.cleanup_reference(root) {
+            // Preserve the commit result; WARN reports a separate leaked reference.
+            crate::diagnostics::core_events::core_failed(
+                "vcs.commit.cleanup_failed",
+                "reference",
+                &error,
+            );
+        }
         return Err(CoreError::new(
             ErrorCode::InvalidRequest,
             "A Git hook added files outside the selected commit",
@@ -2863,7 +2877,14 @@ fn commit_selected_paths(
         None,
     )?;
     if updated.exit_code != 0 {
-        let _ = temporary_context.cleanup_reference(root);
+        if let Err(error) = temporary_context.cleanup_reference(root) {
+            // Preserve the commit result; WARN reports a separate leaked reference.
+            crate::diagnostics::core_events::core_failed(
+                "vcs.commit.cleanup_failed",
+                "reference",
+                &error,
+            );
+        }
         return Ok(updated);
     }
 

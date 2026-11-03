@@ -81,6 +81,66 @@
       },
       "rate": 60,
       "owner": "lithe-core"
+    },
+    {
+      "id": "remote.resource.cleanup_failed",
+      "channel": "remote",
+      "level": "warn",
+      "message": "Remote workspace resource cleanup failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Remote resource family being closed: terminal, watch, or process"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Remote protocol category returned when releasing a workspace-owned terminal, watch, or process"
+        }
+      },
+      "rate": 60,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "remote.session.cleanup_failed",
+      "channel": "remote",
+      "level": "warn",
+      "message": "Remote session cleanup failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "SSH connection cleanup stage, e.g. shutdown, tree-kill, wait, or closer"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Stable native, thread, or remote category from ending an owned SSH connection"
+        }
+      },
+      "rate": 60,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "remote.session.diagnostics_failed",
+      "channel": "remote",
+      "level": "warn",
+      "message": "Remote session diagnostic reader failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "SSH diagnostic collection stage: reader join or stderr read"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Stable I/O or thread category explaining incomplete SSH connection diagnostic evidence"
+        }
+      },
+      "rate": 60,
+      "owner": "lithe-core"
     }
   ]
 }

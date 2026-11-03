@@ -7,6 +7,19 @@ use super::{EventMetadata, FieldMetadata, FieldType, LogLevel, SpanPhase};
 #[rustfmt::skip]
 pub static EVENTS: &[EventMetadata] = &[
     EventMetadata {
+        id: "app.cache.write_failed",
+        channel: "app",
+        level: LogLevel::Warn,
+        message: "Generated execution cache write failed",
+        fields: &[
+            FieldMetadata { name: "error", field_type: FieldType::Error, required: true, description: "I/O category from persisting a generated execution document for the next session", reason: None },
+            FieldMetadata { name: "stage", field_type: FieldType::Token, required: true, description: "Generated execution cache persistence stage; currently generated-cache", reason: None },
+        ],
+        span: None,
+        rate: 60,
+        owner: "lithe-core",
+    },
+    EventMetadata {
         id: "app.demo.failed",
         channel: "app",
         level: LogLevel::Warn,
@@ -43,6 +56,19 @@ pub static EVENTS: &[EventMetadata] = &[
         span: None,
         rate: 60,
         owner: "Lithe",
+    },
+    EventMetadata {
+        id: "app.indexing.rollback_failed",
+        channel: "app",
+        level: LogLevel::Warn,
+        message: "Indexing policy rollback failed",
+        fields: &[
+            FieldMetadata { name: "error", field_type: FieldType::Error, required: true, description: "Core error category returned while restoring a failed indexing policy installation", reason: None },
+            FieldMetadata { name: "stage", field_type: FieldType::Token, required: true, description: "Index policy rollback component that failed: lease or provider", reason: None },
+        ],
+        span: None,
+        rate: 60,
+        owner: "lithe-core",
     },
     EventMetadata {
         id: "app.logging.diagnostics_failed",
@@ -165,6 +191,20 @@ pub static EVENTS: &[EventMetadata] = &[
         span: Some(SpanPhase::Started),
         rate: 60,
         owner: "Lithe",
+    },
+    EventMetadata {
+        id: "app.storage.cleanup_failed",
+        channel: "app",
+        level: LogLevel::Warn,
+        message: "Core storage cleanup failed",
+        fields: &[
+            FieldMetadata { name: "count", field_type: FieldType::Int, required: true, description: "Number of failed storage removals summarized by this cleanup operation", reason: None },
+            FieldMetadata { name: "error", field_type: FieldType::Error, required: true, description: "First filesystem failure category observed while removing owned temporary or history files", reason: None },
+            FieldMetadata { name: "stage", field_type: FieldType::Token, required: true, description: "Storage cleanup owner, e.g. snapshot-rollback, history-pruning, or jdt-settings", reason: None },
+        ],
+        span: None,
+        rate: 60,
+        owner: "lithe-core",
     },
     EventMetadata {
         id: "app.window.session_missing",
@@ -791,6 +831,19 @@ pub static EVENTS: &[EventMetadata] = &[
         owner: "lithe-core",
     },
     EventMetadata {
+        id: "lsp.process.cleanup_failed",
+        channel: "lsp/{server}",
+        level: LogLevel::Warn,
+        message: "Engine process cleanup failed",
+        fields: &[
+            FieldMetadata { name: "error", field_type: FieldType::Error, required: true, description: "Stable native cleanup failure category; excludes process arguments and paths", reason: None },
+            FieldMetadata { name: "server", field_type: FieldType::Id, required: true, description: "Validated session identity selected from the explicit engine role", reason: None },
+        ],
+        span: None,
+        rate: 60,
+        owner: "lithe-core",
+    },
+    EventMetadata {
         id: "lsp.process.started",
         channel: "lsp/{server}",
         level: LogLevel::Info,
@@ -1270,6 +1323,19 @@ pub static EVENTS: &[EventMetadata] = &[
         owner: "lithe-core",
     },
     EventMetadata {
+        id: "plugins.host.process.cleanup_failed",
+        channel: "plugins/{plugin}/host",
+        level: LogLevel::Warn,
+        message: "Engine process cleanup failed",
+        fields: &[
+            FieldMetadata { name: "error", field_type: FieldType::Error, required: true, description: "Stable native cleanup failure category; excludes process arguments and paths", reason: None },
+            FieldMetadata { name: "plugin", field_type: FieldType::Id, required: true, description: "Validated session identity selected from the explicit engine role", reason: None },
+        ],
+        span: None,
+        rate: 60,
+        owner: "lithe-core",
+    },
+    EventMetadata {
         id: "plugins.host.process.started",
         channel: "plugins/{plugin}/host",
         level: LogLevel::Info,
@@ -1512,6 +1578,45 @@ pub static EVENTS: &[EventMetadata] = &[
         owner: "lithe-core",
     },
     EventMetadata {
+        id: "remote.resource.cleanup_failed",
+        channel: "remote",
+        level: LogLevel::Warn,
+        message: "Remote workspace resource cleanup failed",
+        fields: &[
+            FieldMetadata { name: "error", field_type: FieldType::Error, required: true, description: "Remote protocol category returned when releasing a workspace-owned terminal, watch, or process", reason: None },
+            FieldMetadata { name: "stage", field_type: FieldType::Token, required: true, description: "Remote resource family being closed: terminal, watch, or process", reason: None },
+        ],
+        span: None,
+        rate: 60,
+        owner: "lithe-core",
+    },
+    EventMetadata {
+        id: "remote.session.cleanup_failed",
+        channel: "remote",
+        level: LogLevel::Warn,
+        message: "Remote session cleanup failed",
+        fields: &[
+            FieldMetadata { name: "error", field_type: FieldType::Error, required: true, description: "Stable native, thread, or remote category from ending an owned SSH connection", reason: None },
+            FieldMetadata { name: "stage", field_type: FieldType::Token, required: true, description: "SSH connection cleanup stage, e.g. shutdown, tree-kill, wait, or closer", reason: None },
+        ],
+        span: None,
+        rate: 60,
+        owner: "lithe-core",
+    },
+    EventMetadata {
+        id: "remote.session.diagnostics_failed",
+        channel: "remote",
+        level: LogLevel::Warn,
+        message: "Remote session diagnostic reader failed",
+        fields: &[
+            FieldMetadata { name: "error", field_type: FieldType::Error, required: true, description: "Stable I/O or thread category explaining incomplete SSH connection diagnostic evidence", reason: None },
+            FieldMetadata { name: "stage", field_type: FieldType::Token, required: true, description: "SSH diagnostic collection stage: reader join or stderr read", reason: None },
+        ],
+        span: None,
+        rate: 60,
+        owner: "lithe-core",
+    },
+    EventMetadata {
         id: "remote.upload.abort_failed",
         channel: "remote",
         level: LogLevel::Warn,
@@ -1658,6 +1763,19 @@ pub static EVENTS: &[EventMetadata] = &[
         owner: "Lithe",
     },
     EventMetadata {
+        id: "vcs.commit.cleanup_failed",
+        channel: "vcs",
+        level: LogLevel::Warn,
+        message: "Temporary Git commit reference cleanup failed",
+        fields: &[
+            FieldMetadata { name: "error", field_type: FieldType::Error, required: true, description: "Core failure category returned while deleting a temporary selected-files commit reference", reason: None },
+            FieldMetadata { name: "stage", field_type: FieldType::Token, required: true, description: "Temporary commit cleanup target; currently reference", reason: None },
+        ],
+        span: None,
+        rate: 60,
+        owner: "lithe-core",
+    },
+    EventMetadata {
         id: "vcs.git.command.failed",
         channel: "vcs/{provider}",
         level: LogLevel::Error,
@@ -1754,6 +1872,32 @@ pub static EVENTS: &[EventMetadata] = &[
         owner: "LitheGitModule",
     },
     EventMetadata {
+        id: "vcs.history.cleanup_failed",
+        channel: "vcs",
+        level: LogLevel::Warn,
+        message: "Git history cleanup failed",
+        fields: &[
+            FieldMetadata { name: "error", field_type: FieldType::Error, required: true, description: "Stable Core, I/O, thread, or remote category from closing an owned Git history stream", reason: None },
+            FieldMetadata { name: "stage", field_type: FieldType::Token, required: true, description: "Cursor cleanup stage, e.g. cursor, kill, wait, or stdout-reader", reason: None },
+        ],
+        span: None,
+        rate: 60,
+        owner: "lithe-core",
+    },
+    EventMetadata {
+        id: "vcs.history.read_failed",
+        channel: "vcs",
+        level: LogLevel::Warn,
+        message: "Git history diagnostic read failed",
+        fields: &[
+            FieldMetadata { name: "error", field_type: FieldType::Error, required: true, description: "I/O category returned when collecting the Git history process diagnostic stream", reason: None },
+            FieldMetadata { name: "stage", field_type: FieldType::Token, required: true, description: "Git history diagnostic stream that ended early; currently stderr", reason: None },
+        ],
+        span: None,
+        rate: 60,
+        owner: "lithe-core",
+    },
+    EventMetadata {
         id: "vcs.message.logged",
         channel: "vcs/{provider}",
         level: LogLevel::Info,
@@ -1792,6 +1936,19 @@ pub static EVENTS: &[EventMetadata] = &[
         ],
         span: None,
         rate: 120,
+        owner: "lithe-core",
+    },
+    EventMetadata {
+        id: "vcs.process.cleanup_failed",
+        channel: "vcs/{provider}",
+        level: LogLevel::Warn,
+        message: "Engine process cleanup failed",
+        fields: &[
+            FieldMetadata { name: "error", field_type: FieldType::Error, required: true, description: "Stable native cleanup failure category; excludes process arguments and paths", reason: None },
+            FieldMetadata { name: "provider", field_type: FieldType::Id, required: true, description: "Validated session identity selected from the explicit engine role", reason: None },
+        ],
+        span: None,
+        rate: 60,
         owner: "lithe-core",
     },
     EventMetadata {

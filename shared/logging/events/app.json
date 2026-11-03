@@ -258,6 +258,71 @@
       },
       "rate": 60,
       "owner": "Lithe"
+    },
+    {
+      "id": "app.cache.write_failed",
+      "channel": "app",
+      "level": "warn",
+      "message": "Generated execution cache write failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Generated execution cache persistence stage; currently generated-cache"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "I/O category from persisting a generated execution document for the next session"
+        }
+      },
+      "rate": 60,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "app.indexing.rollback_failed",
+      "channel": "app",
+      "level": "warn",
+      "message": "Indexing policy rollback failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Index policy rollback component that failed: lease or provider"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Core error category returned while restoring a failed indexing policy installation"
+        }
+      },
+      "rate": 60,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "app.storage.cleanup_failed",
+      "channel": "app",
+      "level": "warn",
+      "message": "Core storage cleanup failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Storage cleanup owner, e.g. snapshot-rollback, history-pruning, or jdt-settings"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "First filesystem failure category observed while removing owned temporary or history files"
+        },
+        "count": {
+          "type": "int",
+          "required": true,
+          "description": "Number of failed storage removals summarized by this cleanup operation"
+        }
+      },
+      "rate": 60,
+      "owner": "lithe-core"
     }
   ]
 }
