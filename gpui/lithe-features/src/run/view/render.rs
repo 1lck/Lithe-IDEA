@@ -169,7 +169,6 @@ impl Render for RunPanel {
         self.ensure_loaded(window, cx);
         // 输出行数变化在这里统一入账：列表只排版可视行，追加只改行数。
         self.sync_console_lines();
-        self.console.sync_display();
         let tokens = current_tokens(cx);
 
         let mut panel = v_flex()

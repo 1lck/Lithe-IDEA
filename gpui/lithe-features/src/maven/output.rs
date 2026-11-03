@@ -509,7 +509,6 @@ impl Render for MavenOutputPanel {
             self.console
                 .scroll_to_item(line_count - 1, ScrollStrategy::Bottom);
         }
-        self.console.sync_display();
         let has_output = line_count > 0;
         let text_style = self.console_text_style(tokens);
 

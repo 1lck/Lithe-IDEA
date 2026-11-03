@@ -7,7 +7,6 @@
 
 use std::ops::Range;
 use std::rc::Rc;
-use std::time::Instant;
 
 use gpui_kit::base::{
     TextSelection, TextSelectionHandle, TextSelectionRegistration, TextSelectionRun,
@@ -24,9 +23,6 @@ use gpui_kit::{
 use lithe_ui::LitheTokens;
 
 const ESC: char = '\u{1b}';
-
-/// 平滑滚动的时间常数（秒）。按帧间隔插值，滚动速度不随刷新率忽快忽慢。
-const SCROLL_TIME_CONSTANT: f32 = 0.03;
 
 /// ANSI 16 色前景调色板。取值与 macOS 控制台（IDEA 配色）保持一致。
 #[derive(Clone, Copy, Debug)]
@@ -662,13 +658,6 @@ pub struct ConsoleScroll {
     pub item_sizes: Rc<Vec<Size<Pixels>>>,
     /// 已同步到列表的行数。
     pub line_count: usize,
-    /// 平滑滚动目标偏移；为 `None` 时没有进行中的动画。
-    target: Option<Pixels>,
-    /// 当前实际落盘的滚动偏移，动画从它出发逐帧逼近目标。
-    display: Pixels,
-    /// 上一帧的推进时间，用于按帧间隔计算插值比例。
-    last_step: Instant,
-    animating: bool,
     /// 插入符位置：行号与行内字节偏移。
     caret: Option<(usize, usize)>,
     /// 跨虚拟化视口稳定的逻辑选区，不随滚轮滚动丢失。
@@ -682,10 +671,6 @@ impl ConsoleScroll {
             handle: VirtualListScrollHandle::new(),
             item_sizes: Rc::new(Vec::new()),
             line_count: 0,
-            target: None,
-            display: px(0.0),
-            last_step: Instant::now(),
-            animating: false,
             caret: None,
             selection: None,
             is_selecting: false,
@@ -696,33 +681,37 @@ impl ConsoleScroll {
     pub fn reset(&mut self) {
         self.line_count = 0;
         self.item_sizes = Rc::new(Vec::new());
-        self.target = None;
-        self.animating = false;
         self.caret = None;
         self.selection = None;
         self.is_selecting = false;
-        self.display = px(0.0);
         self.handle.set_offset(point(px(0.0), px(0.0)));
     }
 
-    /// 同步行数；返回行数是否变化。行尺寸只随行数重建。
+    /// 同步行数；返回行数是否变化。
+    ///
+    /// 行尺寸只随行数变化。追加输出时只在尾部扩展，避免每次都对整个
+    /// 行高表做一次 O(n) 重建：大输出持续追加时，重建本身会成为帧耗时。
     pub fn sync_line_count(&mut self, line_count: usize, line_height: f32) -> bool {
         if line_count == self.line_count {
             return false;
         }
-        self.line_count = line_count;
-        self.item_sizes = Rc::new(vec![size(px(0.0), px(line_height)); line_count]);
-        // 行数变化时放弃进行中的平滑滚动，避免与新内容打架。
-        self.target = None;
-        self.animating = false;
-        true
-    }
-
-    /// 无动画时把显示偏移同步为列表实际偏移。
-    pub fn sync_display(&mut self) {
-        if !self.animating {
-            self.display = self.handle.offset().y;
+        let item = size(px(0.0), px(line_height));
+        if line_count > self.line_count {
+            let extra = line_count - self.line_count;
+            if let Some(sizes) = Rc::get_mut(&mut self.item_sizes) {
+                sizes.extend(std::iter::repeat_n(item, extra));
+            } else {
+                let mut sizes = (*self.item_sizes).clone();
+                sizes.extend(std::iter::repeat_n(item, extra));
+                self.item_sizes = Rc::new(sizes);
+            }
+        } else {
+            let mut sizes = (*self.item_sizes).clone();
+            sizes.truncate(line_count);
+            self.item_sizes = Rc::new(sizes);
         }
+        self.line_count = line_count;
+        true
     }
 
     pub fn scroll_to_item(&self, index: usize, strategy: ScrollStrategy) {
@@ -777,77 +766,20 @@ impl ConsoleScroll {
         }
     }
 
-    /// 鼠标滚轮滚动时由控制台插值，避免一次滚轮直接跳变。
+    /// 鼠标滚轮滚动时同步显示偏移。
     ///
-    /// GPUI 的鼠标监听按注册逆序派发：虚拟列表内部监听已经把 delta 写进偏移，
-    /// 这里读回目标位置，再把实际偏移拉回上一帧的显示值，交给帧循环逐帧逼近。
-    /// 触控板等精确增量本身连续，保持原生滚动；拖选到边缘时框架合成的
-    /// 自动滚动也是精确增量，但它逐帧成块跳进，必须一并插值才不顿。
+    /// 虚拟列表内部的监听已经把 delta 写进滚动偏移，这里只需同步快照并请求
+    /// 一次重绘。**不做逐帧插值**：插值会在每个动画帧重渲染整个面板，
+    /// 大输出下反而让滚动明显卡顿；触控板等精确增量本身连续，原生滚动已经
+    /// 足够平滑。
     pub fn on_scroll<T: ConsoleHost>(
         &mut self,
-        event: &ScrollEvent,
-        window: &mut Window,
+        _event: &ScrollEvent,
+        _window: &mut Window,
         cx: &mut Context<T>,
     ) {
-        let dragging_selection = TextSelection::has_selection(window, cx);
-        if event.delta.precise() && !dragging_selection {
-            self.target = None;
-            self.animating = false;
-            self.display = self.handle.offset().y;
-            return;
-        }
-        let max_offset = self.handle.max_offset().y;
-        let current = self.handle.offset();
-        let target = current.y.clamp(-max_offset, px(0.0));
-        let display = self.display.clamp(-max_offset, px(0.0));
-        self.display = display;
-        self.handle.set_offset(point(current.x, display));
-        self.target = Some(target);
-        if !self.animating {
-            self.animating = true;
-            self.last_step = Instant::now();
-            cx.on_next_frame(window, |this, window, cx| {
-                this.console().step_scroll(window, cx);
-            });
-        }
+        // 只请求一次重绘：偏移已由虚拟列表写入，不需要再同步额外状态。
         cx.notify();
-    }
-
-    /// 逐帧逼近目标偏移；足够接近时直接落位并结束动画。
-    fn step_scroll<T: ConsoleHost>(&mut self, window: &mut Window, cx: &mut Context<T>) {
-        let Some(target) = self.target else {
-            self.animating = false;
-            return;
-        };
-        let remaining = target - self.display;
-        if remaining.abs() <= px(0.5) {
-            self.set_offset(target);
-            self.target = None;
-            self.animating = false;
-            cx.notify();
-            return;
-        }
-        // 按真实帧间隔求插值比例：高刷新率屏上不会在两次滚动事件之间
-        // 快速追平目标再停住（那会表现成一跳一跳）。
-        let now = Instant::now();
-        let elapsed = now
-            .saturating_duration_since(self.last_step)
-            .as_secs_f32()
-            .clamp(0.008, 0.05);
-        self.last_step = now;
-        let progress = 1.0 - (-elapsed / SCROLL_TIME_CONSTANT).exp();
-        let next = self.display + remaining * progress;
-        self.set_offset(next);
-        cx.notify();
-        cx.on_next_frame(window, |this, window, cx| {
-            this.console().step_scroll(window, cx);
-        });
-    }
-
-    fn set_offset(&mut self, y: Pixels) {
-        self.display = y;
-        let horizontal = self.handle.offset().x;
-        self.handle.set_offset(point(horizontal, y));
     }
 }
 

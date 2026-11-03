@@ -115,13 +115,19 @@ impl SessionState {
         self.lines.get(index).is_some_and(|line| line.system)
     }
 
-    /// 超出上限时从头部整行淘汰。每次只丢头部，避免整段搬运。
+    /// 超出上限时从头部整行淘汰。
+    ///
+    /// 不能用「超一行丢一行」的方式：那样每批新输出都要搬运整个 Vec，
+    /// 在达到上限后的高频日志下会持续产生 O(n) 开销。这里留一段松弛量，
+    /// 攒够一批再一次性回收到上限，把搬运次数降低两个数量级。
     fn trim_lines(&mut self) {
-        let excess = self.lines.len().saturating_sub(MAX_OUTPUT_LINES);
-        if excess > 0 {
-            self.lines.drain(..excess);
-            self.truncated = true;
+        const TRIM_SLACK: usize = 256;
+        let len = self.lines.len();
+        if len <= MAX_OUTPUT_LINES + TRIM_SLACK {
+            return;
         }
+        self.lines.drain(..len - MAX_OUTPUT_LINES);
+        self.truncated = true;
     }
 
     /// 当前用于展示的行数（含未换行的半行）。
