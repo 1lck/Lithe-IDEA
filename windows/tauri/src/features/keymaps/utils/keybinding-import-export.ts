@@ -3,7 +3,7 @@ import {
   type KeybindingPreset,
 } from "@/features/keymaps/defaults/keybinding-presets";
 import type { Keybinding } from "@/features/keymaps/types/keymaps.types";
-import { prepareWhenClause } from "./context";
+import { prepareImportedContexts } from "./context";
 
 const KEYBINDINGS_EXPORT_FORMAT = "lithe.keybindings";
 const KEYBINDINGS_EXPORT_VERSION = 1;
@@ -117,7 +117,7 @@ export async function parseKeybindingsImportJson(
     .map((keybinding) => normalizeUserKeybinding(keybinding))
     .filter((keybinding): keybinding is Keybinding => keybinding !== null);
   // Validate the entire import before the caller changes the preset or store.
-  for (const binding of keybindings) await prepareWhenClause(binding.when);
+  await prepareImportedContexts(keybindings);
   return {
     keybindingPreset: candidate.keybindingPreset,
     keybindings,

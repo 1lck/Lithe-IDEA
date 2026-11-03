@@ -103,6 +103,27 @@ test("valid import retains preset, disabled state and arguments after Core valid
   }
 });
 
+test("failed imports do not consume the active context cache", async () => {
+  const invoke = spyOn(native, "invoke").mockImplementation(async <T>(_command: string, args?: unknown): Promise<T> => {
+    const expression = (args as { expression: string }).expression;
+    return (expression === "@"
+      ? { parsed: null, error: { code: "invalid_character", byteOffset: 0 } }
+      : { parsed: focused, error: null }) as T;
+  });
+  try {
+    await prepareWhenClause("active");
+    const oversized = Array.from({ length: 257 }, (_, index) => binding(`key${index}`));
+    await expect(parseKeybindingsImportJson(JSON.stringify(oversized))).rejects.toMatchObject({ code: "too_many_conditions" });
+    await expect(parseKeybindingsImportJson(JSON.stringify([binding("candidate"), binding("@")]))).rejects.toMatchObject({ code: "invalid_character" });
+    expect(evaluateWhenClause("active", { editorFocus: true })).toBe(true);
+    expect(evaluateWhenClause("candidate", { editorFocus: true })).toBe(false);
+    await expect(parseKeybindingsImportJson(JSON.stringify([binding("newCondition")]))).resolves.not.toBeNull();
+    expect(evaluateWhenClause("newCondition", { editorFocus: true })).toBe(true);
+  } finally {
+    invoke.mockRestore();
+  }
+});
+
 test("add and update reject invalid conditions without replacing a saved binding", async () => {
   await useKeymapStore.getState().actions.addKeybinding(binding());
   const before = useKeymapStore.getState().keybindings;

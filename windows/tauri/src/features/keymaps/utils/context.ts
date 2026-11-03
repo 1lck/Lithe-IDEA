@@ -32,6 +32,44 @@ export class KeymapContextError extends Error {
   }
 }
 
+async function compileContext(expression: string): Promise<ParsedContext> {
+  if (inFlight >= MAX_IN_FLIGHT_CONTEXTS) throw new KeymapContextError("preparation_busy");
+  inFlight++;
+  try {
+    const result = await invoke<ParseResult>("keymap.parseContext", { expression });
+    if (result.error) throw new KeymapContextError(result.error.code, result.error.byteOffset);
+    if (!result.parsed) throw new KeymapContextError("invalid_plan");
+    return result.parsed;
+  } finally {
+    inFlight--;
+  }
+}
+
+/** Validate an import privately, then publish its plans together if they fit. */
+export async function prepareImportedContexts(bindings: Keybinding[]): Promise<void> {
+  const expressions = new Set(bindings.map((binding) => binding.when).filter((value): value is string => !!value));
+  if (new Set([...prepared.keys(), ...expressions]).size > MAX_PREPARED_CONTEXTS) {
+    throw new KeymapContextError("too_many_conditions");
+  }
+  const staged = new Map<string, ParsedContext>();
+  for (const expression of expressions) {
+    const existing = prepared.get(expression);
+    if (existing) {
+      await existing.promise;
+      if (existing.parsed) staged.set(expression, existing.parsed);
+    } else {
+      staged.set(expression, await compileContext(expression));
+    }
+  }
+  // Other consumers can change the cache while the import is validating.
+  if (new Set([...prepared.keys(), ...expressions]).size > MAX_PREPARED_CONTEXTS) {
+    throw new KeymapContextError("too_many_conditions");
+  }
+  for (const [expression, parsed] of staged) {
+    if (!prepared.has(expression)) prepared.set(expression, { parsed, promise: Promise.resolve() });
+  }
+}
+
 /** Validate before publishing or persisting a binding; concurrent callers share one request. */
 export async function prepareWhenClause(expression: string | undefined): Promise<void> {
   if (!expression) return;
@@ -40,22 +78,15 @@ export async function prepareWhenClause(expression: string | undefined): Promise
   if (prepared.size >= MAX_PREPARED_CONTEXTS) {
     throw new KeymapContextError("too_many_conditions");
   }
-  if (inFlight >= MAX_IN_FLIGHT_CONTEXTS) throw new KeymapContextError("preparation_busy");
-  inFlight++;
   const entry: PreparedContext = { promise: Promise.resolve() };
   prepared.set(expression, entry);
-  entry.promise = invoke<ParseResult>("keymap.parseContext", { expression })
-    .then((result) => {
-      if (result.error) throw new KeymapContextError(result.error.code, result.error.byteOffset);
-      if (!result.parsed) throw new KeymapContextError("invalid_plan");
-      entry.parsed = result.parsed;
+  entry.promise = compileContext(expression)
+    .then((parsed) => {
+      entry.parsed = parsed;
     })
     .catch((error) => {
       if (prepared.get(expression) === entry) prepared.delete(expression);
       throw error;
-    })
-    .finally(() => {
-      inFlight--;
     });
   return entry.promise;
 }

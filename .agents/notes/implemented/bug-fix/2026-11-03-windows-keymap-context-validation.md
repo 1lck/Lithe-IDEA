@@ -33,7 +33,8 @@ Core 接受有界的条件源码，检查字符、引号、括号、操作数和
 Windows 每个窗口最多缓存 256 条条件，最多同时保留 16 个原生编译请求；没有后台轮询。
 绑定和预设变化时刷新，旧任务在后续请求前检查取消，窗口键盘所有者销毁时释放缓存和订阅。
 
-导入先验证全部条件，再修改预设或添加绑定；新增、修改绑定在持久化前验证。
+导入先在独立的有界暂存中验证全部条件，成功且缓存容量仍足够时才一起发布，
+失败不占用生效缓存；新增、修改绑定在持久化前验证。
 验证期间发生其他编辑或重置时拒绝提交旧快照，不能用旧结果复活已重置的绑定。
 默认、扩展和旧持久化绑定在编译完成前保持不生效；失败只在配置准备路径记录诊断，
 按键路径不解析、不发请求，也不会因为一条坏条件而卡死。
@@ -67,7 +68,7 @@ Windows 每个窗口最多缓存 256 条条件，最多同时保留 16 个原生
 
 ## 适用范围
 
-- `rust/lithe-core/src/keymap.rs`
+- `rust/lithe-core/src/keymap/mod.rs`
 - `shared/fixtures/keymap/context-v1.json`
 - `windows/tauri/src/features/keymaps/utils/context.ts`
 - `windows/tauri/src/features/keymaps/utils/keybinding-import-export.ts`
