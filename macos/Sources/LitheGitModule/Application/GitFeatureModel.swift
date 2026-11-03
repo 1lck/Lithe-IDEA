@@ -2408,6 +2408,7 @@ package final class GitFeatureModel: ObservableObject {
             fullName: "HEAD",
             shortName: "HEAD",
             kind: .local,
+            peelsToCommit: false,
             isCurrent: true,
             upstreamShortName: nil
         )
@@ -3095,6 +3096,7 @@ package final class GitFeatureModel: ObservableObject {
                     fullName: branch,
                     shortName: worktree.branchName ?? branch,
                     kind: .local,
+                    peelsToCommit: false,
                     isCurrent: worktree.isCurrent,
                     upstreamShortName: nil
                 )
@@ -3106,6 +3108,7 @@ package final class GitFeatureModel: ObservableObject {
             fullName: "HEAD",
             shortName: "HEAD",
             kind: .local,
+            peelsToCommit: false,
             isCurrent: worktree.isCurrent,
             upstreamShortName: nil
         )
@@ -3719,6 +3722,7 @@ package final class GitFeatureModel: ObservableObject {
                     fullName: deletion.deletedTarget,
                     shortName: deletion.deletedTarget,
                     kind: .local,
+                    peelsToCommit: false,
                     isCurrent: false,
                     upstreamShortName: nil
                 ),
@@ -4215,6 +4219,7 @@ package final class GitFeatureModel: ObservableObject {
                 fullName: commit.hash,
                 shortName: commit.shortHash,
                 kind: .local,
+                peelsToCommit: false,
                 isCurrent: false,
                 upstreamShortName: nil
             )

@@ -944,8 +944,10 @@ struct EditorTabOrderFeatureModelTests {
             await feature.refreshGit()
             let change = try #require(feature.gitChanges.first)
             let reference = GitReference(fullName: "refs/heads/main", shortName: "main", kind: .local,
+                peelsToCommit: true,
                 isCurrent: true, upstreamShortName: nil)
             let target = GitReference(fullName: "refs/heads/topic", shortName: "topic", kind: .local,
+                peelsToCommit: true,
                 isCurrent: false, upstreamShortName: nil)
             switch kind {
             case "working": model.selectChange(change)

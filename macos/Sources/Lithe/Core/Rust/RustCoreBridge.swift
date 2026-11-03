@@ -1338,6 +1338,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 fullName: reference.fullName,
                 shortName: reference.shortName,
                 kind: kind,
+                peelsToCommit: reference.peelsToCommit,
                 isCurrent: reference.isCurrent,
                 upstreamShortName: reference.upstreamShortName,
                 ahead: reference.ahead ?? 0, behind: reference.behind ?? 0

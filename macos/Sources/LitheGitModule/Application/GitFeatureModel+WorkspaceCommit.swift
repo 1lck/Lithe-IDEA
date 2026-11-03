@@ -168,6 +168,7 @@ extension GitFeatureModel {
             let prefix = "refs/heads/"
             let shortName = branch.hasPrefix(prefix) ? String(branch.dropFirst(prefix.count)) : branch
             let reference = GitReference(fullName: prefix + shortName, shortName: shortName, kind: .local,
+                peelsToCommit: false,
                 isCurrent: true, upstreamShortName: nil)
             if case .success(let preview) = await service.pushPreview(reference, pushTarget: nil, at: root) {
                 destinations[root] = preview
