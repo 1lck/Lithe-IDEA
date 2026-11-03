@@ -38,11 +38,14 @@ enum DocumentFeatureComposition {
             supportsHints: { [weak java] in java?.handles(fileURL: $0.url) == true },
             refreshHints: { [weak model] in await model?.refreshCodeVision(for: $0) }
         )
+        graph.languageTooling.logSink = model.services.logSink
+        graph.languageTooling.notifyLog = { [weak notification] in notification?.show($0, logReference: $1) }
         graph.languageTooling.configure(
             documentsProvider: { [weak document] in document?.openDocuments ?? [] },
             activateDocument: { [weak model] in model?.activateLanguageServerIfAvailable(for: $0) ?? false },
             notify: { [weak notification] in notification?.show($0) }
         )
+        document.notifyWithLog = { [weak notification] in notification?.show($0, logReference: $1) }
         document.configure(
             workspaceURLProvider: { [weak session] in session?.workspaceURL },
             autoSaveEnabledProvider: { [weak settings] in settings?.autoSave ?? false },
@@ -58,7 +61,7 @@ enum DocumentFeatureComposition {
                     try model.languageToolingSessionsIfActive?.notifyDocumentSaved(
                         document.url, text: document.savedText, currentText: document.text)
                 } catch {
-                    model.showNotification(error.localizedDescription)
+                    model.showNotification(error.localizedDescription, logReference: model.notificationFailure(error, operation: "document_saved_notification"))
                 }
             },
             onRecordDiscard: { [weak model] in model?.recordDiscardedEditorText($0) },

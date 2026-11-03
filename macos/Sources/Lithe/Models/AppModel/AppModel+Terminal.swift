@@ -222,7 +222,7 @@ extension AppModel {
     @discardableResult
     func sendDebugStandardInput(_ input: String) -> Bool {
         guard !input.isEmpty, let terminalFeature, let sessionID = debugStandardInputSessionID else {
-            showNotification("No running debug process accepts standard input")
+            showNotification("No running debug process accepts standard input", logReference: notificationRejection(operation: "terminal", reason: "unavailable_0"))
             return false
         }
         let payload = input.hasSuffix("\n") ? input : input + "\n"

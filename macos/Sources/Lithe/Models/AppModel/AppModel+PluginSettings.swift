@@ -35,7 +35,7 @@ extension AppModel {
         do {
             try manager.setSetting(value, id: settingID, for: pluginID, layer: layer)
         } catch {
-            showNotification(error.localizedDescription)
+            showNotification(error.localizedDescription, logReference: notificationFailure(error, operation: "plugin_settings"))
             return nil
         }
         objectWillChange.send()
@@ -67,7 +67,7 @@ extension AppModel {
                     case .applied, .superseded:
                         continue
                     case .failed:
-                        self?.showNotification(L10n.string("The language server could not apply this setting. Restart it to use the new value."))
+                        self?.showNotification(L10n.string("The language server could not apply this setting. Restart it to use the new value."), logReference: self?.notificationRejection(operation: "plugin_settings", reason: "apply_failed"))
                         return
                     }
                 }
@@ -102,7 +102,7 @@ extension AppModel {
         } catch is CancellationError {
             return
         } catch {
-            showNotification(error.localizedDescription)
+            showNotification(error.localizedDescription, logReference: notificationFailure(error, operation: "plugin_settings"))
             return
         }
         guard self.workspaceURL?.standardizedFileURL == workspaceURL.standardizedFileURL else { return }
@@ -125,7 +125,7 @@ extension AppModel {
         } catch is CancellationError {
             return
         } catch {
-            showNotification(error.localizedDescription)
+            showNotification(error.localizedDescription, logReference: notificationFailure(error, operation: "plugin_settings"))
         }
     }
 }

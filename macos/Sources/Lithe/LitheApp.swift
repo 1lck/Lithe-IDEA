@@ -491,6 +491,7 @@ struct LitheApp: App {
     @StateObject private var updateChecker: UpdateChecker
     @StateObject private var logWindowCoordinator: LogWindowCoordinator
     @StateObject private var logWindowModel: LogWindowModel
+    @StateObject private var logExportFeature: DiagnosticsFeatureModel
     private let applicationLogWriter: MacLogStore
 
     init() {
@@ -548,6 +549,14 @@ struct LitheApp: App {
             osVersion: ProcessInfo.processInfo.operatingSystemVersionString, architecture: architecture, plugins: [])
         _logWindowModel = StateObject(wrappedValue: logWindowModel)
         migrationLogs.forEach { applicationLogWriter.emit($0) }
+        let exportService = MacServiceContainer.makeDiagnosticsExportService(fileStorage: MacFileStorage(),
+            processRunner: MacProcessRunner(logging: applicationLogWriter), core: RustCoreBridge(),
+            applicationLogging: applicationLogWriter, sink: applicationLogWriter)
+        exportService.environmentProvider = { [weak logWindowModel] in
+            logWindowModel?.environment ?? .init(appVersion: "", osVersion: "", architecture: architecture, plugins: [])
+        }
+        let logExportFeature = DiagnosticsFeatureModel(service: exportService, sink: applicationLogWriter)
+        _logExportFeature = StateObject(wrappedValue: logExportFeature)
         applicationLogWriter.emit(AppSessionStarted())
         if let error = SyntaxHighlightingRegistry.loadError { applicationLogWriter.emit(EditorSyntaxConfigurationFailed(error: error, kind: "formats")) }
         if let error = SyntaxHighlightingColorConfiguration.loadError { applicationLogWriter.emit(EditorSyntaxConfigurationFailed(error: error, kind: "colors")) }
@@ -576,6 +585,7 @@ struct LitheApp: App {
                         networkSessionProvider: networkSessionProvider
                     ).services
                 services.logWindowCoordinator = logWindowCoordinator
+                services.sharedDiagnosticsFeature = logExportFeature
                 logWindowModel.environment = .init(appVersion: logWindowModel.environment.appVersion,
                     osVersion: logWindowModel.environment.osVersion, architecture: logWindowModel.environment.architecture,
                     plugins: services.pluginManager.snapshots.filter { $0.isEnabled }.map(\.id.rawValue))
@@ -891,7 +901,7 @@ struct LitheApp: App {
         .windowStyle(.hiddenTitleBar)
 
         Window(L10n.string("Logs"), id: LitheWindowID.logs) {
-            LogWindowView(model: logWindowModel, coordinator: logWindowCoordinator)
+            LogWindowView(model: logWindowModel, coordinator: logWindowCoordinator, exportFeature: logExportFeature)
                 .environmentObject(settings)
                 .environment(\.locale, settings.language.locale)
                 .preferredColorScheme(settings.themePreference.preferredColorScheme)

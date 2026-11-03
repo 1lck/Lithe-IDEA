@@ -11,6 +11,9 @@ public struct AgentImagesCleanupFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`count`: Int64, `error`: any Error, operationID: String? = nil) {
         self.operationID = operationID
@@ -32,6 +35,9 @@ public struct AgentSkillsDiscoveryFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `stage`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -53,6 +59,9 @@ public struct AgentStatisticsDecodeFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, operationID: String? = nil) {
         self.operationID = operationID
@@ -73,6 +82,9 @@ public struct AppCacheWriteFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `stage`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -94,6 +106,9 @@ public struct AppCoreFallbackSelected: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `stage`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -115,6 +130,9 @@ public struct AppCredentialsCleanupFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, operationID: String? = nil) {
         self.operationID = operationID
@@ -135,6 +153,9 @@ public struct AppCredentialsWriteFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, operationID: String? = nil) {
         self.operationID = operationID
@@ -155,6 +176,9 @@ public struct AppDemoFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `stage`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -176,6 +200,32 @@ public struct AppDiagnosticsCleanupFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
+
+    public init(`error`: any Error, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.app, segments: [])
+        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["error"] = .error(`error`)
+        self.fields = _logValues
+    }
+}
+
+public struct AppDiagnosticsCrashSkipped: LogEvent {
+    public static let id = "app.diagnostics.crash_skipped"
+    public static let level: LogLevel = .warn
+    public static let messageTemplate = "Crash report collection skipped evidence"
+    public static let ratePerMinute = 60
+    public static let owner = "Lithe"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, operationID: String? = nil) {
         self.operationID = operationID
@@ -196,6 +246,9 @@ public struct AppDiagnosticsExportFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `stage`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -217,6 +270,9 @@ public struct AppFontMissing: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`font`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -237,6 +293,9 @@ public struct AppFontRegistrationFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `font`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -258,6 +317,9 @@ public struct AppHistoryOperationFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`count`: (Int64)? = nil, `error`: any Error, `stage`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -280,6 +342,9 @@ public struct AppHistoryRestoreFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, operationID: String? = nil) {
         self.operationID = operationID
@@ -300,6 +365,9 @@ public struct AppIdeRequestFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `stage`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -321,6 +389,9 @@ public struct AppIndexingRollbackFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `stage`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -342,6 +413,9 @@ public struct AppLoggingDiagnosticsFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, operationID: String? = nil) {
         self.operationID = operationID
@@ -362,6 +436,9 @@ public struct AppLoggingRedirectFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`directory`: URL, `error`: any Error, operationID: String? = nil) {
         self.operationID = operationID
@@ -383,6 +460,9 @@ public struct AppModuleTransitionFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `module`: String, `stage`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -405,6 +485,9 @@ public struct AppNativeOperationFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `stage`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -412,6 +495,54 @@ public struct AppNativeOperationFailed: LogEvent {
         var _logValues: [String: LogFieldValue] = [:]
         _logValues["error"] = .error(`error`)
         _logValues["stage"] = .token(`stage`)
+        self.fields = _logValues
+    }
+}
+
+public struct AppNotificationOperationFailed: LogEvent {
+    public static let id = "app.notification.operation_failed"
+    public static let level: LogLevel = .error
+    public static let messageTemplate = "User operation {operation} failed"
+    public static let ratePerMinute = 60
+    public static let owner = "Lithe"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
+
+    public init(`error`: any Error, `operation`: String, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.app, segments: [])
+        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["error"] = .error(`error`)
+        _logValues["operation"] = .token(`operation`)
+        self.fields = _logValues
+    }
+}
+
+public struct AppNotificationOperationRejected: LogEvent {
+    public static let id = "app.notification.operation_rejected"
+    public static let level: LogLevel = .warn
+    public static let messageTemplate = "User operation {operation} was rejected"
+    public static let ratePerMinute = 60
+    public static let owner = "Lithe"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
+
+    public init(`operation`: String, `reason`: String, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.app, segments: [])
+        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["operation"] = .token(`operation`)
+        _logValues["reason"] = .token(`reason`)
         self.fields = _logValues
     }
 }
@@ -426,6 +557,9 @@ public struct AppProcessJournalFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `stage`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -447,6 +581,9 @@ public struct AppProcessWatchFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `pid`: (Int64)? = nil, `stage`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -469,6 +606,9 @@ public struct AppSearchDirectorySkipped: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `path`: URL, operationID: String? = nil) {
         self.operationID = operationID
@@ -490,6 +630,9 @@ public struct AppSessionStarted: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(operationID: String? = nil) {
         self.operationID = operationID
@@ -510,6 +653,9 @@ public struct AppSettingsDecodeFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `stage`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -531,6 +677,9 @@ public struct AppShellEnvironmentFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`duration`: Duration, `error`: any Error, `shell`: String, `source`: String, `variables`: (Int64)? = nil, operationID: String? = nil) {
         self.operationID = operationID
@@ -555,6 +704,9 @@ public struct AppShellEnvironmentFinished: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`duration`: Duration, `shell`: String, `source`: String, `variables`: (Int64)? = nil, operationID: String? = nil) {
         self.operationID = operationID
@@ -578,6 +730,9 @@ public struct AppShellEnvironmentStarted: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`shell`: String, `source`: String, `variables`: (Int64)? = nil, operationID: String? = nil) {
         self.operationID = operationID
@@ -600,6 +755,9 @@ public struct AppStorageCleanupFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`count`: Int64, `error`: any Error, `stage`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -622,6 +780,9 @@ public struct AppStorageMaintenanceFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `stage`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -643,6 +804,9 @@ public struct AppWindowSessionMissing: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`window`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -663,6 +827,9 @@ public struct AppWorkbenchRegistrationFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, operationID: String? = nil) {
         self.operationID = operationID
@@ -683,6 +850,9 @@ public struct AppWorkspaceDirectorySkipped: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `path`: URL, operationID: String? = nil) {
         self.operationID = operationID
@@ -704,6 +874,9 @@ public struct AppWorkspaceFileOperationFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `stage`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -725,6 +898,9 @@ public struct AppWorkspaceRollbackFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, operationID: String? = nil) {
         self.operationID = operationID
@@ -745,6 +921,9 @@ public struct AppWorkspaceScratchCleanupFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, operationID: String? = nil) {
         self.operationID = operationID
@@ -765,6 +944,9 @@ public struct DebugInspectionFallbackSelected: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`count`: (Int64)? = nil, `error`: any Error, `stage`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -787,6 +969,9 @@ public struct DebugSessionCleanupFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `stage`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -808,6 +993,9 @@ public struct EditorDocumentHeaderFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, operationID: String? = nil) {
         self.operationID = operationID
@@ -828,6 +1016,9 @@ public struct EditorDocumentOpenFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `reason`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -849,6 +1040,9 @@ public struct EditorDocumentRecoveryFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`document`: LogSegment, `error`: any Error, operationID: String? = nil) {
         self.operationID = operationID
@@ -870,6 +1064,9 @@ public struct EditorDocumentSaveFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`document`: LogSegment, `error`: any Error, `revision`: Int64, `stage`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -893,6 +1090,9 @@ public struct EditorDocumentSaveSuperseded: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`document`: LogSegment, `revision`: Int64, operationID: String? = nil) {
         self.operationID = operationID
@@ -914,6 +1114,9 @@ public struct EditorDocumentStagingCleanupFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, operationID: String? = nil) {
         self.operationID = operationID
@@ -934,6 +1137,9 @@ public struct EditorDocumentWatchFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`stage`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -954,6 +1160,9 @@ public struct EditorIconFallbackSelected: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `stage`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -975,6 +1184,9 @@ public struct EditorPreviewUpdateFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `stage`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -996,6 +1208,9 @@ public struct EditorShortcutsUpdateFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, operationID: String? = nil) {
         self.operationID = operationID
@@ -1016,6 +1231,9 @@ public struct EditorSyncEditReceived: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`baseRevision`: Int64, `changeCount`: Int64, `document`: LogSegment, `insertedUtf16Length`: Int64, `nativeRevision`: Int64, `replacedUtf16Length`: Int64, operationID: String? = nil) {
         self.operationID = operationID
@@ -1041,6 +1259,9 @@ public struct EditorSyncFreezeFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`barrierDrained`: (Bool)? = nil, `browserRevision`: (Int64)? = nil, `document`: LogSegment, `duration`: Duration, `error`: any Error, `inputPasses`: (Int64)? = nil, `modelVersion`: (Int64)? = nil, `nativeRevision`: (Int64)? = nil, `nativeUtf16Length`: (Int64)? = nil, `pendingEdits`: (Int64)? = nil, `revision`: Int64, `snapshotRevision`: (Int64)? = nil, `snapshotUtf16Length`: (Int64)? = nil, `status`: (String)? = nil, operationID: String? = nil) {
         self.operationID = operationID
@@ -1074,6 +1295,9 @@ public struct EditorSyncFreezeFinished: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`barrierDrained`: (Bool)? = nil, `browserRevision`: (Int64)? = nil, `document`: LogSegment, `duration`: Duration, `inputPasses`: (Int64)? = nil, `modelVersion`: (Int64)? = nil, `nativeRevision`: (Int64)? = nil, `nativeUtf16Length`: (Int64)? = nil, `pendingEdits`: (Int64)? = nil, `revision`: Int64, `snapshotRevision`: (Int64)? = nil, `snapshotUtf16Length`: (Int64)? = nil, `status`: (String)? = nil, operationID: String? = nil) {
         self.operationID = operationID
@@ -1106,6 +1330,9 @@ public struct EditorSyncFreezeStarted: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`barrierDrained`: (Bool)? = nil, `browserRevision`: (Int64)? = nil, `document`: LogSegment, `inputPasses`: (Int64)? = nil, `modelVersion`: (Int64)? = nil, `nativeRevision`: (Int64)? = nil, `nativeUtf16Length`: (Int64)? = nil, `pendingEdits`: (Int64)? = nil, `revision`: Int64, `snapshotRevision`: (Int64)? = nil, `snapshotUtf16Length`: (Int64)? = nil, `status`: (String)? = nil, operationID: String? = nil) {
         self.operationID = operationID
@@ -1137,6 +1364,9 @@ public struct EditorSyncUnlockFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`document`: LogSegment, `error`: any Error, operationID: String? = nil) {
         self.operationID = operationID
@@ -1158,6 +1388,9 @@ public struct EditorSyncUnlockFinished: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`document`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -1178,6 +1411,9 @@ public struct EditorSyntaxConfigurationFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `kind`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -1199,6 +1435,9 @@ public struct EditorTextClassificationFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(operationID: String? = nil) {
         self.operationID = operationID
@@ -1219,6 +1458,9 @@ public struct EditorWorkspaceEditRollbackFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`count`: Int64, `error`: any Error, operationID: String? = nil) {
         self.operationID = operationID
@@ -1240,6 +1482,9 @@ public struct LspBuildExecutionFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`builderFailedEarlier`: (Bool)? = nil, `duration`: Duration, `error`: any Error, `markerScope`: (String)? = nil, `outcome`: (String)? = nil, `recovery`: (Bool)? = nil, `server`: LogSegment, `waited`: (Duration)? = nil, `waiters`: Int64, operationID: String? = nil) {
         self.operationID = operationID
@@ -1268,6 +1513,9 @@ public struct LspBuildExecutionFinished: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`builderFailedEarlier`: (Bool)? = nil, `duration`: Duration, `markerScope`: (String)? = nil, `outcome`: (String)? = nil, `recovery`: (Bool)? = nil, `server`: LogSegment, `waited`: (Duration)? = nil, `waiters`: Int64, operationID: String? = nil) {
         self.operationID = operationID
@@ -1295,6 +1543,9 @@ public struct LspBuildExecutionStarted: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`builderFailedEarlier`: (Bool)? = nil, `markerScope`: (String)? = nil, `outcome`: (String)? = nil, `recovery`: (Bool)? = nil, `server`: LogSegment, `waited`: (Duration)? = nil, `waiters`: Int64, operationID: String? = nil) {
         self.operationID = operationID
@@ -1321,6 +1572,9 @@ public struct LspBuildWaiting: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`reason`: String, `server`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -1342,6 +1596,9 @@ public struct LspCacheCleaned: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`removed`: Int64, `server`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -1363,6 +1620,9 @@ public struct LspConfigurationCleaned: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`removed`: Int64, `server`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -1384,6 +1644,9 @@ public struct LspConfigurationCleanupFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `server`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -1405,6 +1668,9 @@ public struct LspHostOperationFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `server`: LogSegment, `stage`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -1427,6 +1693,9 @@ public struct LspMavenApplicationStarted: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`projects`: (Int64)? = nil, `server`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -1448,6 +1717,9 @@ public struct LspMavenApplied: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`server`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -1468,6 +1740,9 @@ public struct LspMavenCancelled: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`server`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -1488,6 +1763,9 @@ public struct LspMavenConfigurationUpdated: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`profilesUpdating`: Bool, `projectsReloaded`: Bool, `server`: LogSegment, `settingsChanged`: Bool, operationID: String? = nil) {
         self.operationID = operationID
@@ -1511,6 +1789,9 @@ public struct LspMavenPartiallyApplied: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`server`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -1531,6 +1812,9 @@ public struct LspMavenProjectFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `outcome`: String, `project`: URL, `server`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -1554,6 +1838,9 @@ public struct LspMavenProjectFinished: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`duration`: (Duration)? = nil, `outcome`: String, `project`: URL, `server`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -1577,6 +1864,9 @@ public struct LspMavenSettingsForwarded: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`reason`: String, `server`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -1598,6 +1888,9 @@ public struct LspMavenStartFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `server`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -1619,6 +1912,9 @@ public struct LspMavenTaskUpdated: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`server`: LogSegment, `state`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -1640,6 +1936,9 @@ public struct LspMavenTimedOut: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`server`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -1660,6 +1959,9 @@ public struct LspMessageLogged: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`diagnostic`: String, `server`: LogSegment, `severity`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -1682,6 +1984,9 @@ public struct LspMessageShown: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`diagnostic`: String, `server`: LogSegment, `severity`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -1704,6 +2009,9 @@ public struct LspNavigationCacheHit: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`document`: URL, `documentVersion`: Int64, `markers`: Int64, `server`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -1727,6 +2035,9 @@ public struct LspNavigationLimited: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`document`: URL, `limit`: Int64, `server`: LogSegment, `tasks`: Int64, operationID: String? = nil) {
         self.operationID = operationID
@@ -1750,6 +2061,9 @@ public struct LspNavigationMarkerFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`document`: URL, `documentVersion`: Int64, `error`: any Error, `server`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -1773,6 +2087,9 @@ public struct LspNavigationResolved: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`codeLenses`: Int64, `document`: URL, `documentVersion`: Int64, `duration`: Duration, `markers`: Int64, `server`: LogSegment, `tasks`: Int64, operationID: String? = nil) {
         self.operationID = operationID
@@ -1799,6 +2116,9 @@ public struct LspNotificationReceived: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`method`: String, `server`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -1820,6 +2140,9 @@ public struct LspProcessCleanupFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `server`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -1841,6 +2164,9 @@ public struct LspProcessStarted: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`runtimeVersion`: (String)? = nil, `server`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -1862,6 +2188,9 @@ public struct LspProtocolInitialized: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`server`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -1882,6 +2211,9 @@ public struct LspResponseSkipped: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`request`: (String)? = nil, `server`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -1903,6 +2235,9 @@ public struct LspSessionDegradationReceived: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`exitCode`: (Int64)? = nil, `failureCode`: String, `server`: LogSegment, `stage`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -1926,6 +2261,9 @@ public struct LspSessionIssueFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`exitCode`: (Int64)? = nil, `failureCode`: String, `server`: LogSegment, `stage`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -1949,6 +2287,9 @@ public struct LspSessionStageChanged: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`server`: LogSegment, `stage`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -1970,6 +2311,9 @@ public struct LspSessionUpdated: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`server`: LogSegment, `state`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -1991,6 +2335,9 @@ public struct LspShutdownTimedOut: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`server`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -2011,6 +2358,9 @@ public struct LspStderrReadFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `server`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -2032,6 +2382,9 @@ public struct LspStderrReceived: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`diagnostic`: String, `server`: LogSegment, `truncated`: (Bool)? = nil, operationID: String? = nil) {
         self.operationID = operationID
@@ -2054,6 +2407,9 @@ public struct LspTraceReceived: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`diagnostic`: String, `server`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -2075,6 +2431,9 @@ public struct LspWorkspaceImportFinished: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`duration`: (Duration)? = nil, `server`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -2096,6 +2455,9 @@ public struct LspWorkspaceLegacyRemoved: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`removedFiles`: Int64, `server`: LogSegment, `stateReset`: Bool, operationID: String? = nil) {
         self.operationID = operationID
@@ -2118,6 +2480,9 @@ public struct LspWorkspaceProgressReceived: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`completed`: (Int64)? = nil, `phase`: String, `server`: LogSegment, `total`: (Int64)? = nil, operationID: String? = nil) {
         self.operationID = operationID
@@ -2141,6 +2506,9 @@ public struct LspWorkspaceStalled: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`duration`: Duration, `server`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -2162,6 +2530,9 @@ public struct LspWorkspaceWaiting: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`server`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -2182,6 +2553,9 @@ public struct PerfAppSampled: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`duration`: (Duration)? = nil, `phase`: String, `rss`: (UInt64)? = nil, operationID: String? = nil) {
         self.operationID = operationID
@@ -2204,6 +2578,9 @@ public struct PerfAppSignpostMeasured: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`duration`: Duration, `name`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -2225,6 +2602,9 @@ public struct PerfEditorOpenMeasured: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`attach`: (Duration)? = nil, `firstFrame`: (Duration)? = nil, `frames`: (Int64)? = nil, `lines`: (Int64)? = nil, `maxFrameGap`: (Duration)? = nil, `model`: (Duration)? = nil, `reused`: (Bool)? = nil, `settled`: (Duration)? = nil, `utf16Length`: (Int64)? = nil, operationID: String? = nil) {
         self.operationID = operationID
@@ -2253,6 +2633,9 @@ public struct PerfEditorSemanticMeasured: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`revision`: (Int64)? = nil, `tokens`: Int64, operationID: String? = nil) {
         self.operationID = operationID
@@ -2274,6 +2657,9 @@ public struct PerfGitCacheHit: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`duration`: Duration, `operation`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -2295,6 +2681,9 @@ public struct PerfGitCommandFinished: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`duration`: Duration, `operation`: String, `succeeded`: Bool, operationID: String? = nil) {
         self.operationID = operationID
@@ -2317,6 +2706,9 @@ public struct PerfGitReadFinished: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`duration`: Duration, `operation`: String, `succeeded`: Bool, operationID: String? = nil) {
         self.operationID = operationID
@@ -2339,6 +2731,9 @@ public struct PerfGitWorktreeInspected: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`duration`: Duration, `phase`: String, `worktree`: URL, operationID: String? = nil) {
         self.operationID = operationID
@@ -2361,6 +2756,9 @@ public struct PerfSettingsLatencyMeasured: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`category`: String, `eventId`: Int64, `inputNs`: Int64, `phase`: String, `receivedNs`: Int64, `selectedNs`: Int64, `timeNs`: Int64, operationID: String? = nil) {
         self.operationID = operationID
@@ -2387,6 +2785,9 @@ public struct PluginsBackendActivationFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `plugin`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -2408,6 +2809,9 @@ public struct PluginsCatalogRejected: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, operationID: String? = nil) {
         self.operationID = operationID
@@ -2428,6 +2832,9 @@ public struct PluginsEditorActionFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `plugin`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -2449,6 +2856,9 @@ public struct PluginsEditorActionsFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `plugin`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -2470,6 +2880,9 @@ public struct PluginsEditorRefreshFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, operationID: String? = nil) {
         self.operationID = operationID
@@ -2490,6 +2903,9 @@ public struct PluginsGrammarLoadFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: (any Error)? = nil, `language`: (String)? = nil, `plugin`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -2512,6 +2928,9 @@ public struct PluginsGrammarRejected: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: (any Error)? = nil, `language`: (String)? = nil, `plugin`: LogSegment, `reason`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -2535,6 +2954,9 @@ public struct PluginsHostMessageLogged: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`diagnostic`: String, `plugin`: LogSegment, `severity`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -2557,6 +2979,9 @@ public struct PluginsHostMessageShown: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`diagnostic`: String, `plugin`: LogSegment, `severity`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -2579,6 +3004,9 @@ public struct PluginsHostNotificationReceived: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`method`: String, `plugin`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -2600,6 +3028,9 @@ public struct PluginsHostProcessCleanupFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `plugin`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -2621,6 +3052,9 @@ public struct PluginsHostProcessStarted: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`plugin`: LogSegment, `runtimeVersion`: (String)? = nil, operationID: String? = nil) {
         self.operationID = operationID
@@ -2642,6 +3076,9 @@ public struct PluginsHostProtocolInitialized: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`plugin`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -2662,6 +3099,9 @@ public struct PluginsHostRequestFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `plugin`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -2683,6 +3123,9 @@ public struct PluginsHostResponseSkipped: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`plugin`: LogSegment, `request`: (String)? = nil, operationID: String? = nil) {
         self.operationID = operationID
@@ -2704,6 +3147,9 @@ public struct PluginsHostSessionUpdated: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`plugin`: LogSegment, `state`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -2725,6 +3171,9 @@ public struct PluginsHostShutdownTimedOut: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`plugin`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -2745,6 +3194,9 @@ public struct PluginsHostStderrReadFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `plugin`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -2766,6 +3218,9 @@ public struct PluginsHostStderrReceived: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`diagnostic`: String, `plugin`: LogSegment, `truncated`: (Bool)? = nil, operationID: String? = nil) {
         self.operationID = operationID
@@ -2788,6 +3243,9 @@ public struct PluginsHostTraceReceived: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`diagnostic`: String, `plugin`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -2809,6 +3267,9 @@ public struct PluginsLifecycleFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, operationID: String? = nil) {
         self.operationID = operationID
@@ -2829,6 +3290,9 @@ public struct PluginsLifecycleStarted: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(operationID: String? = nil) {
         self.operationID = operationID
@@ -2849,6 +3313,9 @@ public struct PluginsMigrationFinished: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`passwords`: Int64, `plugin`: LogSegment, `profiles`: Int64, operationID: String? = nil) {
         self.operationID = operationID
@@ -2871,6 +3338,9 @@ public struct PluginsMigrationPasswordFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`connection`: LogSegment, `error`: any Error, `plugin`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -2893,6 +3363,9 @@ public struct PluginsMigrationStateFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `plugin`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -2914,6 +3387,9 @@ public struct PluginsResourcesMaintenanceFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `stage`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -2935,6 +3411,9 @@ public struct PluginsScanFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, operationID: String? = nil) {
         self.operationID = operationID
@@ -2955,6 +3434,9 @@ public struct PluginsStartupRejected: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `plugin`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -2976,6 +3458,9 @@ public struct RemoteBuildCleanupFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, operationID: String? = nil) {
         self.operationID = operationID
@@ -2996,6 +3481,9 @@ public struct RemoteConnectionsSaveFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, operationID: String? = nil) {
         self.operationID = operationID
@@ -3016,6 +3504,9 @@ public struct RemoteDirectoryWatchFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, operationID: String? = nil) {
         self.operationID = operationID
@@ -3036,6 +3527,9 @@ public struct RemotePluginsCleanupFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `stage`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -3057,6 +3551,9 @@ public struct RemoteProcessCleanupFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`failureCode`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -3077,6 +3574,9 @@ public struct RemoteResourceCleanupFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `stage`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -3098,6 +3598,9 @@ public struct RemoteSessionCleanupFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `stage`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -3119,6 +3622,9 @@ public struct RemoteSessionDiagnosticsFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `stage`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -3140,6 +3646,9 @@ public struct RemoteUploadAbortFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`failureCode`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -3160,6 +3669,9 @@ public struct RemoteWorkspaceWriteFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, operationID: String? = nil) {
         self.operationID = operationID
@@ -3180,6 +3692,9 @@ public struct RunBuildScratchCleanupFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `stage`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -3201,6 +3716,9 @@ public struct RunConfigurationOperationFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `stage`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -3222,6 +3740,9 @@ public struct RunConfigurationWriteFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, operationID: String? = nil) {
         self.operationID = operationID
@@ -3242,6 +3763,9 @@ public struct RunPreparationFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, operationID: String? = nil) {
         self.operationID = operationID
@@ -3262,6 +3786,9 @@ public struct RunProcessExecutionFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`duration`: Duration, `error`: any Error, `executable`: URL, `exitCode`: (Int64)? = nil, `outcome`: (String)? = nil, operationID: String? = nil) {
         self.operationID = operationID
@@ -3286,6 +3813,9 @@ public struct RunProcessExecutionFinished: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`duration`: Duration, `executable`: URL, `exitCode`: (Int64)? = nil, `outcome`: (String)? = nil, operationID: String? = nil) {
         self.operationID = operationID
@@ -3309,6 +3839,9 @@ public struct RunProcessExecutionStarted: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`executable`: URL, `exitCode`: (Int64)? = nil, `outcome`: (String)? = nil, operationID: String? = nil) {
         self.operationID = operationID
@@ -3331,6 +3864,9 @@ public struct RunProcessIoFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `stage`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -3352,6 +3888,9 @@ public struct TerminalInputFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `stage`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -3373,6 +3912,9 @@ public struct TerminalRendererFallbackSelected: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, operationID: String? = nil) {
         self.operationID = operationID
@@ -3393,6 +3935,9 @@ public struct TerminalShellDiscoveryFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, operationID: String? = nil) {
         self.operationID = operationID
@@ -3413,6 +3958,9 @@ public struct UpdateDownloadInterrupted: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`httpStatus`: (Int64)? = nil, `reason`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -3434,6 +3982,9 @@ public struct UpdateRelayStartFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, operationID: String? = nil) {
         self.operationID = operationID
@@ -3454,6 +4005,9 @@ public struct UpdateRollbackCleanupFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `stage`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -3475,6 +4029,9 @@ public struct UpdateRollbackPreparationFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `exitCode`: (Int64)? = nil, `stage`: (String)? = nil, operationID: String? = nil) {
         self.operationID = operationID
@@ -3497,6 +4054,9 @@ public struct UpdateSourceProbeFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, operationID: String? = nil) {
         self.operationID = operationID
@@ -3517,6 +4077,9 @@ public struct VcsCommitCleanupFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `stage`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -3538,6 +4101,9 @@ public struct VcsGitCommandFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`command`: String, `duration`: Duration, `error`: any Error, `exitCode`: (Int64)? = nil, `failureCode`: (String)? = nil, `provider`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -3563,6 +4129,9 @@ public struct VcsGitCommandFinished: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`command`: String, `duration`: Duration, `exitCode`: (Int64)? = nil, `failureCode`: (String)? = nil, `provider`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -3587,6 +4156,9 @@ public struct VcsGitCommandStarted: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`command`: String, `exitCode`: (Int64)? = nil, `failureCode`: (String)? = nil, `provider`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -3610,6 +4182,9 @@ public struct VcsGitRequestFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`command`: String, `duration`: Duration, `error`: any Error, `exitCode`: (Int64)? = nil, `failureCode`: (String)? = nil, `provider`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -3635,6 +4210,9 @@ public struct VcsGitRequestFinished: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`command`: String, `duration`: Duration, `exitCode`: (Int64)? = nil, `failureCode`: (String)? = nil, `provider`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -3659,6 +4237,9 @@ public struct VcsGitRequestStarted: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`command`: String, `exitCode`: (Int64)? = nil, `failureCode`: (String)? = nil, `provider`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -3682,6 +4263,9 @@ public struct VcsHistoryCleanupFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `stage`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -3703,6 +4287,9 @@ public struct VcsHistoryReadFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `stage`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -3724,6 +4311,9 @@ public struct VcsMessageLogged: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`diagnostic`: String, `provider`: LogSegment, `severity`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -3746,6 +4336,9 @@ public struct VcsMessageShown: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`diagnostic`: String, `provider`: LogSegment, `severity`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -3768,6 +4361,9 @@ public struct VcsNotificationReceived: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`method`: String, `provider`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -3789,6 +4385,9 @@ public struct VcsProcessCleanupFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `provider`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -3810,6 +4409,9 @@ public struct VcsProcessStarted: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`provider`: LogSegment, `runtimeVersion`: (String)? = nil, operationID: String? = nil) {
         self.operationID = operationID
@@ -3831,6 +4433,9 @@ public struct VcsProtocolInitialized: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`provider`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -3851,6 +4456,9 @@ public struct VcsResponseSkipped: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`provider`: LogSegment, `request`: (String)? = nil, operationID: String? = nil) {
         self.operationID = operationID
@@ -3872,6 +4480,9 @@ public struct VcsRootsFallbackSelected: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `stage`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -3893,6 +4504,9 @@ public struct VcsSessionUpdated: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`provider`: LogSegment, `state`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -3914,6 +4528,9 @@ public struct VcsShelfOperationFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `stage`: String, operationID: String? = nil) {
         self.operationID = operationID
@@ -3935,6 +4552,9 @@ public struct VcsShutdownTimedOut: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`provider`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -3955,6 +4575,9 @@ public struct VcsStderrReadFailed: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`error`: any Error, `provider`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -3976,6 +4599,9 @@ public struct VcsStderrReceived: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`diagnostic`: String, `provider`: LogSegment, `truncated`: (Bool)? = nil, operationID: String? = nil) {
         self.operationID = operationID
@@ -3998,6 +4624,9 @@ public struct VcsTraceReceived: LogEvent {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(`diagnostic`: String, `provider`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
@@ -4034,9 +4663,12 @@ public struct AppShellEnvironmentSpan: Sendable {
         emit(AppShellEnvironmentFinished(duration: `duration`, shell: `shell`, source: `source`, variables: `variables`, operationID: state.operationID))
     }
 
-    public mutating func fail(_ error: any Error, `variables`: (Int64)? = nil) {
-        guard let duration = state.end() else { return }
-        emit(AppShellEnvironmentFailed(duration: `duration`, error: `error`, shell: `shell`, source: `source`, variables: `variables`, operationID: state.operationID))
+    @discardableResult
+    public mutating func fail(_ error: any Error, `variables`: (Int64)? = nil) -> LogRecordReference? {
+        guard let duration = state.end() else { return nil }
+        let event = AppShellEnvironmentFailed(duration: `duration`, error: `error`, shell: `shell`, source: `source`, variables: `variables`, operationID: state.operationID)
+        emit(event)
+        return event.reference
     }
 }
 
@@ -4065,9 +4697,12 @@ public struct EditorSyncFreezeSpan: Sendable {
         emit(EditorSyncFreezeFinished(barrierDrained: `barrierDrained`, browserRevision: `browserRevision`, document: `document`, duration: `duration`, inputPasses: `inputPasses`, modelVersion: `modelVersion`, nativeRevision: `nativeRevision`, nativeUtf16Length: `nativeUtf16Length`, pendingEdits: `pendingEdits`, revision: `revision`, snapshotRevision: `snapshotRevision`, snapshotUtf16Length: `snapshotUtf16Length`, status: `status`, operationID: state.operationID))
     }
 
-    public mutating func fail(_ error: any Error, `barrierDrained`: (Bool)? = nil, `browserRevision`: (Int64)? = nil, `inputPasses`: (Int64)? = nil, `modelVersion`: (Int64)? = nil, `nativeRevision`: (Int64)? = nil, `nativeUtf16Length`: (Int64)? = nil, `pendingEdits`: (Int64)? = nil, `snapshotRevision`: (Int64)? = nil, `snapshotUtf16Length`: (Int64)? = nil, `status`: (String)? = nil) {
-        guard let duration = state.end() else { return }
-        emit(EditorSyncFreezeFailed(barrierDrained: `barrierDrained`, browserRevision: `browserRevision`, document: `document`, duration: `duration`, error: `error`, inputPasses: `inputPasses`, modelVersion: `modelVersion`, nativeRevision: `nativeRevision`, nativeUtf16Length: `nativeUtf16Length`, pendingEdits: `pendingEdits`, revision: `revision`, snapshotRevision: `snapshotRevision`, snapshotUtf16Length: `snapshotUtf16Length`, status: `status`, operationID: state.operationID))
+    @discardableResult
+    public mutating func fail(_ error: any Error, `barrierDrained`: (Bool)? = nil, `browserRevision`: (Int64)? = nil, `inputPasses`: (Int64)? = nil, `modelVersion`: (Int64)? = nil, `nativeRevision`: (Int64)? = nil, `nativeUtf16Length`: (Int64)? = nil, `pendingEdits`: (Int64)? = nil, `snapshotRevision`: (Int64)? = nil, `snapshotUtf16Length`: (Int64)? = nil, `status`: (String)? = nil) -> LogRecordReference? {
+        guard let duration = state.end() else { return nil }
+        let event = EditorSyncFreezeFailed(barrierDrained: `barrierDrained`, browserRevision: `browserRevision`, document: `document`, duration: `duration`, error: `error`, inputPasses: `inputPasses`, modelVersion: `modelVersion`, nativeRevision: `nativeRevision`, nativeUtf16Length: `nativeUtf16Length`, pendingEdits: `pendingEdits`, revision: `revision`, snapshotRevision: `snapshotRevision`, snapshotUtf16Length: `snapshotUtf16Length`, status: `status`, operationID: state.operationID)
+        emit(event)
+        return event.reference
     }
 }
 
@@ -4096,9 +4731,12 @@ public struct LspBuildExecutionSpan: Sendable {
         emit(LspBuildExecutionFinished(builderFailedEarlier: `builderFailedEarlier`, duration: `duration`, markerScope: `markerScope`, outcome: `outcome`, recovery: `recovery`, server: `server`, waited: `waited`, waiters: `waiters`, operationID: state.operationID))
     }
 
-    public mutating func fail(_ error: any Error, `builderFailedEarlier`: (Bool)? = nil, `markerScope`: (String)? = nil, `outcome`: (String)? = nil, `recovery`: (Bool)? = nil, `waited`: (Duration)? = nil) {
-        guard let duration = state.end() else { return }
-        emit(LspBuildExecutionFailed(builderFailedEarlier: `builderFailedEarlier`, duration: `duration`, error: `error`, markerScope: `markerScope`, outcome: `outcome`, recovery: `recovery`, server: `server`, waited: `waited`, waiters: `waiters`, operationID: state.operationID))
+    @discardableResult
+    public mutating func fail(_ error: any Error, `builderFailedEarlier`: (Bool)? = nil, `markerScope`: (String)? = nil, `outcome`: (String)? = nil, `recovery`: (Bool)? = nil, `waited`: (Duration)? = nil) -> LogRecordReference? {
+        guard let duration = state.end() else { return nil }
+        let event = LspBuildExecutionFailed(builderFailedEarlier: `builderFailedEarlier`, duration: `duration`, error: `error`, markerScope: `markerScope`, outcome: `outcome`, recovery: `recovery`, server: `server`, waited: `waited`, waiters: `waiters`, operationID: state.operationID)
+        emit(event)
+        return event.reference
     }
 }
 
@@ -4125,9 +4763,12 @@ public struct RunProcessExecutionSpan: Sendable {
         emit(RunProcessExecutionFinished(duration: `duration`, executable: `executable`, exitCode: `exitCode`, outcome: `outcome`, operationID: state.operationID))
     }
 
-    public mutating func fail(_ error: any Error, `exitCode`: (Int64)? = nil, `outcome`: (String)? = nil) {
-        guard let duration = state.end() else { return }
-        emit(RunProcessExecutionFailed(duration: `duration`, error: `error`, executable: `executable`, exitCode: `exitCode`, outcome: `outcome`, operationID: state.operationID))
+    @discardableResult
+    public mutating func fail(_ error: any Error, `exitCode`: (Int64)? = nil, `outcome`: (String)? = nil) -> LogRecordReference? {
+        guard let duration = state.end() else { return nil }
+        let event = RunProcessExecutionFailed(duration: `duration`, error: `error`, executable: `executable`, exitCode: `exitCode`, outcome: `outcome`, operationID: state.operationID)
+        emit(event)
+        return event.reference
     }
 }
 
@@ -4156,9 +4797,12 @@ public struct VcsGitCommandSpan: Sendable {
         emit(VcsGitCommandFinished(command: `command`, duration: `duration`, exitCode: `exitCode`, failureCode: `failureCode`, provider: `provider`, operationID: state.operationID))
     }
 
-    public mutating func fail(_ error: any Error, `exitCode`: (Int64)? = nil, `failureCode`: (String)? = nil) {
-        guard let duration = state.end() else { return }
-        emit(VcsGitCommandFailed(command: `command`, duration: `duration`, error: `error`, exitCode: `exitCode`, failureCode: `failureCode`, provider: `provider`, operationID: state.operationID))
+    @discardableResult
+    public mutating func fail(_ error: any Error, `exitCode`: (Int64)? = nil, `failureCode`: (String)? = nil) -> LogRecordReference? {
+        guard let duration = state.end() else { return nil }
+        let event = VcsGitCommandFailed(command: `command`, duration: `duration`, error: `error`, exitCode: `exitCode`, failureCode: `failureCode`, provider: `provider`, operationID: state.operationID)
+        emit(event)
+        return event.reference
     }
 }
 
@@ -4187,8 +4831,11 @@ public struct VcsGitRequestSpan: Sendable {
         emit(VcsGitRequestFinished(command: `command`, duration: `duration`, exitCode: `exitCode`, failureCode: `failureCode`, provider: `provider`, operationID: state.operationID))
     }
 
-    public mutating func fail(_ error: any Error, `exitCode`: (Int64)? = nil, `failureCode`: (String)? = nil) {
-        guard let duration = state.end() else { return }
-        emit(VcsGitRequestFailed(command: `command`, duration: `duration`, error: `error`, exitCode: `exitCode`, failureCode: `failureCode`, provider: `provider`, operationID: state.operationID))
+    @discardableResult
+    public mutating func fail(_ error: any Error, `exitCode`: (Int64)? = nil, `failureCode`: (String)? = nil) -> LogRecordReference? {
+        guard let duration = state.end() else { return nil }
+        let event = VcsGitRequestFailed(command: `command`, duration: `duration`, error: `error`, exitCode: `exitCode`, failureCode: `failureCode`, provider: `provider`, operationID: state.operationID)
+        emit(event)
+        return event.reference
     }
 }

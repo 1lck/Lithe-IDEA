@@ -1,67 +1,16 @@
 import LitheModuleAPI
 import SwiftUI
 
-private func logCategoryTitle(_ category: String) -> String {
-    ["all": "All modules", "application": "Application", "language": "Editor and language services",
-     "run": "Build, run and debug", "git": "Git", "plugins": "Plugins", "performance": "Performance"][category] ?? category
-}
-
-/// A bounded preview over the same module/session selection used for export.
 struct ApplicationLogSettingsView: View {
     @ObservedObject var feature: DiagnosticsFeatureModel
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                LitheSettingsSelect(selection: $feature.logCategory, options: ["all", "application", "language", "run", "git", "plugins", "performance"], width: 150, accessibilityLabel: "Module", title: logCategoryTitle)
-                LitheSettingsSelect(selection: $feature.logSession, options: ["current", "previous", "all"], width: 150, accessibilityLabel: "Session", title: {
-                    ["current": "Current session", "previous": "Previous session", "all": "All sessions"][$0] ?? $0
-                })
-                LitheSettingsSelect(selection: $feature.logLevel, options: ["debug", "info", "warn", "error"], width: 90, accessibilityLabel: "Minimum level", title: { $0.uppercased() })
-            }
-            LitheSearchField("Filter log messages", text: $feature.logSearch)
-                .onSubmit { Task { await feature.refreshLogs() } }
-            HStack {
-                LitheTextField("From (UTC ISO 8601)", text: $feature.logSince)
-                LitheTextField("Until (UTC ISO 8601)", text: $feature.logUntil)
-            }
-            Button("Refresh Logs") { Task { await feature.refreshLogs() } }
-                .buttonStyle(LitheActionButtonStyle())
-                .disabled(feature.isBusy)
-                .accessibilityIdentifier("logs.refresh")
-            if feature.isLoadingLogs { ProgressView().controlSize(.small) }
-            if feature.logTruncated {
-                Text("Earlier evidence was omitted by collection limits.")
-                    .foregroundStyle(LitheTheme.warning)
-            }
-            if let error = feature.logError {
-                Text(error).foregroundStyle(LitheTheme.error)
-                    .accessibilityIdentifier("logs.error")
-            }
-            Text("Dropped: \(feature.droppedEvents); write failures: \(feature.writeFailures)")
-                .font(LitheTheme.smallFont)
-                .foregroundStyle(LitheTheme.secondaryText)
-            GeometryReader { geometry in
-                ScrollView([.horizontal, .vertical]) {
-                    Group {
-                        if feature.logContent.isEmpty { Text("No matching logs") }
-                        else { Text(verbatim: feature.logContent) }
-                    }
-                    .font(LitheTheme.uiFont(size: 11, design: .monospaced))
-                    .textSelection(.enabled)
-                    .frame(minWidth: geometry.size.width, minHeight: geometry.size.height, alignment: .topLeading)
-                }
-                .litheScrollViewChrome()
-            }
-            .frame(height: 180)
-            .accessibilityIdentifier("logs.timeline")
-        }
-        .task { await feature.refreshLogs() }
+        Button("Open Log Window") { feature.openLogs() }
+            .buttonStyle(LitheActionButtonStyle())
+            .accessibilityIdentifier("logs.open-window")
     }
 }
 
 struct ApplicationLogDiagnosticsView: View {
-    @Environment(\.locale) private var locale
     @ObservedObject var feature: DiagnosticsFeatureModel
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -72,13 +21,7 @@ struct ApplicationLogDiagnosticsView: View {
                 ))
                 .disabled(feature.isBusy)
                 .accessibilityIdentifier("logs.diagnostic-toggle")
-                LitheInfoTip("Detailed diagnostics cover the selected module and expire after 15 minutes. Refresh to see the current status.")
-            }
-            if feature.diagnosticEnabled {
-                let module = L10n.string(String.LocalizationValue(logCategoryTitle(feature.diagnosticCategory ?? "all")), locale: locale)
-                Text("Detailed diagnostics: On (\(module))")
-            } else {
-                Text("Detailed diagnostics: Off")
+                LitheInfoTip("Detailed diagnostics cover all channels and expire after 15 minutes.")
             }
         }
     }
@@ -89,6 +32,8 @@ struct ApplicationLogCleanupView: View {
     @State private var confirmsClear = false
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            Text("Log storage: \(ByteCountFormatter.string(fromByteCount: Int64(clamping: feature.diskBytes), countStyle: .file))")
+                .font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
             Button("Clear Logs") { confirmsClear = true }
                 .buttonStyle(LitheActionButtonStyle())
                 .disabled(feature.isBusy)
@@ -112,9 +57,7 @@ struct ApplicationLogDiagnosticsPage<Locations: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            LitheSettingsSection(title: "Log timeline", accessory: {
-                LitheInfoTip("Choose a module, enable detailed diagnostics, reproduce the problem, then preview and export a diagnostic bundle.")
-            }) { ApplicationLogSettingsView(feature: feature) }
+            ApplicationLogSettingsView(feature: feature)
             LitheSettingsSection("Diagnostics") { ApplicationLogDiagnosticsView(feature: feature) }
             LitheSettingsSection("Log locations", content: locations)
             LitheSettingsSection(title: "Retention and cleanup", accessory: {
@@ -123,12 +66,13 @@ struct ApplicationLogDiagnosticsPage<Locations: View>: View {
             LitheSettingsSection(title: "Diagnostic bundle", accessory: {
                 LitheInfoTip("Preview and export the selected logs with environment information. Credentials and home-directory paths are redacted; source code, editor buffers and terminal history are excluded.")
             }) {
-                Button("Preview and Export…") { feature.presentExport() }
+                Button("Export diagnostic logs") { feature.presentExport() }
                     .buttonStyle(LitheActionButtonStyle()).disabled(feature.isBusy)
                     .accessibilityIdentifier("logs.export")
             }
         }
-        .sheet(isPresented: Binding(get: { feature.isPresented }, set: { if !$0 { feature.dismiss() } })) {
+        .task { await feature.refreshStatus() }
+        .sheet(isPresented: Binding(get: { feature.isPresented && !feature.isFromLogWindow }, set: { if !$0 { feature.dismiss() } })) {
             DiagnosticsExportSheet(feature: feature)
         }
     }

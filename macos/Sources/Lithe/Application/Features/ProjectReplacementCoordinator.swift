@@ -16,6 +16,7 @@ final class ProjectReplacementCoordinator {
     private let refreshWorkspace: () async -> Void
     private let markIdle: () -> Void
     private let notify: (String) -> Void
+    var notifyFailure: ((String) -> Void)?
 
     init(
         session: SearchSessionFeatureModel,
@@ -74,7 +75,7 @@ final class ProjectReplacementCoordinator {
         session.selectedReplacementPaths = []
         await refreshWorkspace()
         if !result.failedFiles.isEmpty {
-            notify("Could not replace in \(result.failedFiles.count) file(s)")
+            (notifyFailure ?? notify)("Could not replace in \(result.failedFiles.count) file(s)")
         } else if result.changedFiles > 0 {
             notify("Replaced text in \(result.changedFiles) file(s)")
         }

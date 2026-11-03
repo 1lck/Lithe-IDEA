@@ -22,6 +22,13 @@ public struct LogScope: LogSink, Sendable {
 
     public func emit(_ event: any LogEvent) { forward(event) }
 
+    /// Emits once with this scope's correlation and returns that same location.
+    public func emitReferenced<E: LogEvent>(_ event: E) -> LogRecordReference {
+        let scoped = ScopedLogEvent(value: event, operationID: event.operationID ?? operationID)
+        sink.emit(scoped)
+        return scoped.reference
+    }
+
     public func emit(_ record: CoreLogRecord) { sink.emit(record) }
 
     private func forward<E: LogEvent>(_ event: E) {

@@ -29,7 +29,7 @@ enum CommitWorkflowComposition {
         let workspace = model.workspaceFeature
         let notification = model.notificationFeature
         let logSink = model.services.logSink
-        return CommitWorkflowCoordinator(
+        let coordinator = CommitWorkflowCoordinator(
             draft: draft,
             activateGit: activateGit,
             workspaceGeneration: { workspace.workspaceGeneration },
@@ -48,5 +48,9 @@ enum CommitWorkflowComposition {
             },
             notify: { notification.show($0) }
         )
+        coordinator.notifyFailure = { [weak model] in
+            model?.showNotification($0, logReference: model?.notificationRejection(operation: "commit_message", reason: "generation_failed"))
+        }
+        return coordinator
     }
 }

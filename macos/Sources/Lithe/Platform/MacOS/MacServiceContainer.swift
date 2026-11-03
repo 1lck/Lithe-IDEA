@@ -64,7 +64,8 @@ final class MacServiceContainer {
         fileStorage: any FileStorage,
         processRunner: any ProcessRunner,
         core: RustCoreBridge,
-        applicationLogging: (any ApplicationLogging)? = nil
+        applicationLogging: (any ApplicationLogging)? = nil,
+        sink: (any LogSink)? = nil
     ) -> DiagnosticsExportService {
         DiagnosticsExportService(
             logDirectoryProviding: makeLogDirectoryProvider(),
@@ -72,7 +73,8 @@ final class MacServiceContainer {
             systemDiagnostics: MacSystemDiagnosticsProvider(),
             archiver: MacDittoArchiver(processRunner: processRunner, logSink: applicationLogging as? any LogSink),
             core: core,
-            applicationLogging: applicationLogging
+            applicationLogging: applicationLogging,
+            crashReports: MacCrashReportCollector(sink: sink), sink: sink
         )
     }
 
@@ -169,7 +171,7 @@ final class MacServiceContainer {
             fileStorage: fileStorage,
             processRunner: processRunner,
             core: rustCore,
-            applicationLogging: applicationLogging
+            applicationLogging: applicationLogging, sink: logSink
         )
         let codexConfigurationSource = MacCodexConfigurationSource()
         let claudeConfigurationSource = MacClaudeConfigurationSource()
@@ -1167,6 +1169,16 @@ final class MacServiceContainer {
             testJVMPerformance: MacTestJVMPerformance(processRegistry: processRegistry, logSink: logSink)
         )
         services.logWindowLogging = applicationLogging as? any LogWindowLogging
+        diagnosticsExportService.environmentProvider = { [weak pluginManager] in
+            #if arch(arm64)
+            let architecture = "arm64"
+            #else
+            let architecture = "x86_64"
+            #endif
+            return .init(appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "",
+                osVersion: ProcessInfo.processInfo.operatingSystemVersionString, architecture: architecture,
+                plugins: pluginManager?.snapshots.filter { $0.isEnabled }.map(\.id.rawValue) ?? [])
+        }
         services.logSink = applicationLogging as? any LogSink
         services.editorSettingsImportScan = { try await MacEditorSettingsImportReader.scan(directory: $0, logSink: logSink) }
         services.ideCapabilityRegistry = ideCapabilityRegistry

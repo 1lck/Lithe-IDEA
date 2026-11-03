@@ -322,12 +322,10 @@
 "All conflicts resolved. Continue to finish, or abort to undo." = "All conflicts resolved. Continue to finish, or abort to undo.";
 "All conversations" = "All conversations";
 "All messages" = "All messages";
-"All modules" = "All modules";
 "All projects" = "All projects";
 "All projects · project can override" = "All projects · project can override";
 "All providers" = "All providers";
 "All servers" = "All servers";
-"All sessions" = "All sessions";
 "All severities" = "All severities";
 "All sources" = "All sources";
 "All tasks completed" = "All tasks completed";
@@ -362,6 +360,7 @@
 "Another instruction save is running. Try again." = "Another instruction save is running. Try again.";
 "Answered in %lld ms" = "Answered in %lld ms";
 "Any Time" = "Any Time";
+"App version, macOS version, architecture, enabled plugins" = "App version, macOS version, architecture, enabled plugins";
 "Appearance" = "Appearance";
 "Appearance & Behavior" = "Appearance & Behavior";
 "Appearance defaults are labeled separately. Workspace and language overrides, formatters, extensions and account data are skipped." = "Appearance defaults are labeled separately. Workspace and language overrides, formatters, extensions and account data are skipped.";
@@ -524,7 +523,6 @@
 "Build provider" = "Build provider";
 "Build system" = "Build system";
 "Build, Execution, Deployment" = "Build, Execution, Deployment";
-"Build, run and debug" = "Build, run and debug";
 "Build-system language import is still preparing. Retry when project loading completes." = "Build-system language import is still preparing. Retry when project loading completes.";
 "Build-system language import preparation timed out. Retry project loading." = "Build-system language import preparation timed out. Retry project loading.";
 "Builds %@ projects" = "Builds %@ projects";
@@ -588,6 +586,7 @@
 "Changing channels requires a full installation and may install an older version. On its first launch, Lithe-Dev copies Stable settings and workspaces if it has no user data. The apps then save settings and caches separately. Some accounts may need sign-in again. Your project files stay in their current locations." = "Changing channels requires a full installation and may install an older version. On its first launch, Lithe-Dev copies Stable settings and workspaces if it has no user data. The apps then save settings and caches separately. Some accounts may need sign-in again. Your project files stay in their current locations.";
 "Changing channels requires a full installation and may install an older version. Open the selected release page to download its installer. Your channel selection is saved for future updates." = "Changing channels requires a full installation and may install an older version. Open the selected release page to download its installer. Your channel selection is saved for future updates.";
 "Channel" = "Channel";
+"Channels" = "Channels";
 "Chapter: %@" = "Chapter: %@";
 "Chat Completions" = "Chat Completions";
 "Chat History" = "Chat History";
@@ -667,7 +666,6 @@
 "Choose a language-server executable." = "Choose a language-server executable.";
 "Choose a local or custom provider in the Agent panel settings." = "Choose a local or custom provider in Settings > AI > Agents.";
 "Choose a local or custom provider so the Agent can sign in." = "Choose a local or custom provider so the Agent can sign in.";
-"Choose a module, enable detailed diagnostics, reproduce the problem, then preview and export a diagnostic bundle." = "Choose a module, enable detailed diagnostics, reproduce the problem, then preview and export a diagnostic bundle.";
 "Choose a private key file." = "Choose a private key file.";
 "Choose a pull request to review its context, files, and conversation." = "Choose a pull request to review its context, files, and conversation.";
 "Choose a table from the sidebar to browse and edit data." = "Choose a table from the sidebar to browse and edit data.";
@@ -949,6 +947,7 @@
 "Consumers" = "Consumers";
 "Content" = "Content";
 "Content SHA-256" = "Content SHA-256";
+"Contents" = "Contents";
 "Context" = "Context";
 "Context length" = "Context length";
 "Context tokens" = "Context tokens";
@@ -1024,8 +1023,10 @@
 "Copy worktree path" = "Copy worktree path";
 "Could not apply project indexing exclusions. Try reopening the project." = "Could not apply project indexing exclusions. Try reopening the project.";
 "Could not be determined" = "Could not be determined";
+"Could not change the log directory. Try again." = "Could not change the log directory. Try again.";
 "Could not check for updates" = "Could not check for updates";
 "Could not check for updates." = "Could not check for updates.";
+"Could not clear logs. Try again." = "Could not clear logs. Try again.";
 "Could not clear this project's local history. Check storage permissions and try again." = "Could not clear this project's local history. Check storage permissions and try again.";
 "Could not compare the local adapter with the verified version." = "Could not compare the local adapter with the verified version.";
 "Could not confirm" = "Could not confirm";
@@ -1034,6 +1035,7 @@
 "Could not decode this file" = "Could not decode this file";
 "Could not discover runtimes on the remote host. Check the connection and refresh." = "Could not discover runtimes on the remote host. Check the connection and refresh.";
 "Could not discover shells on the remote host. Check the connection and try again." = "Could not discover shells on the remote host. Check the connection and try again.";
+"Could not export diagnostic logs. Try again." = "Could not export diagnostic logs. Try again.";
 "Could not find the Java source for %@" = "Could not find the Java source for %@";
 "Could not import MCP JSON. Check the mcpServers object and try again." = "Could not import MCP JSON. Check the mcpServers object and try again.";
 "Could not inspect saved file" = "Could not inspect saved file";
@@ -1054,6 +1056,7 @@
 "Could not open %@: %@ %@" = "Could not open %@: %@ %@";
 "Could not open HTML in browser" = "Could not open HTML in browser";
 "Could not open the remote folder: %@" = "Could not open the remote folder: %@";
+"Could not prepare diagnostic logs. Try again." = "Could not prepare diagnostic logs. Try again.";
 "Could not prepare the run configuration: %@" = "Could not prepare the run configuration: %@";
 "Could not read %@." = "Could not read %@.";
 "Could not read %@: %@" = "Could not read %@: %@";
@@ -1111,7 +1114,6 @@
 "Created worktree for %@" = "Created worktree for %@";
 "Creates %@ projects" = "Creates %@ projects";
 "Creates a new branch on %@" = "Creates a new branch on %@";
-"Creating archive…" = "Creating archive…";
 "Creating project…" = "Creating project…";
 "Creating pull request…" = "Creating pull request…";
 "Creating this project downloads files from the internet." = "Creating this project downloads files from the internet.";
@@ -1229,10 +1231,8 @@
 "Detail" = "Detail";
 "Detailed" = "Detailed";
 "Detailed diagnostics" = "Detailed diagnostics";
-"Detailed diagnostics cover the selected module and expire after 15 minutes. Refresh to see the current status." = "Detailed diagnostics cover the selected module and expire after 15 minutes. Refresh to see the current status.";
+"Detailed diagnostics cover all channels and expire after 15 minutes." = "Detailed diagnostics cover all channels and expire after 15 minutes.";
 "Detailed diagnostics for 15 minutes" = "Detailed diagnostics for 15 minutes";
-"Detailed diagnostics: Off" = "Detailed diagnostics: Off";
-"Detailed diagnostics: On (%@)" = "Detailed diagnostics: On (%@)";
 "Detailed subject + body" = "Detailed subject + body";
 "Detect Again" = "Detect Again";
 "Detect Installed Shells" = "Detect Installed Shells";
@@ -1348,7 +1348,6 @@
 "Drop files here" = "Drop files here";
 "Drop this shelf?" = "Drop this shelf?";
 "Dropped %lld" = "Dropped %lld";
-"Dropped: %lld; write failures: %lld" = "Dropped: %lld; write failures: %lld";
 "Duplicate" = "Duplicate";
 "Duration: %lld ms" = "Duration: %lld ms";
 "Each Agent keeps its own configuration file. Turning an Agent off removes only the entry Lithe wrote; an entry created outside Lithe is never removed without taking ownership first." = "Each Agent keeps its own configuration file. Turning an Agent off removes only the entry Lithe wrote; an entry created outside Lithe is never removed without taking ownership first.";
@@ -1361,7 +1360,6 @@
 "Earlier" = "Earlier";
 "Earlier Git commands were truncated to limit memory use." = "Earlier Git commands were truncated to limit memory use.";
 "Earlier Git output was omitted to limit memory use." = "Earlier Git output was omitted to limit memory use.";
-"Earlier evidence was omitted by collection limits." = "Earlier evidence was omitted by collection limits.";
 "Earlier log content omitted" = "Earlier log content omitted";
 "Edit" = "Edit";
 "Edit %@ exception breakpoint" = "Edit %@ exception breakpoint";
@@ -1392,7 +1390,6 @@
 "Edited %lld file" = "Edited %lld file";
 "Edited %lld files" = "Edited %lld files";
 "Editor" = "Editor";
-"Editor and language services" = "Editor and language services";
 "Editor color scheme" = "Editor color scheme";
 "Editor colors follow light and dark appearance independently of the interface theme." = "Editor colors follow light and dark appearance independently of the interface theme.";
 "Editor display" = "Editor display";
@@ -1681,7 +1678,6 @@
 "Frontend and other non-Java roots keep the workspace editor and terminal settings. Java and Maven SDKs only apply to the backends listed on the left." = "Frontend and other non-Java roots keep the workspace editor and terminal settings. Java and Maven SDKs only apply to the backends listed on the left.";
 "Full Program Declaration" = "Full Program Declaration";
 "Full access" = "Full access";
-"Gathering diagnostics…" = "Gathering diagnostics…";
 "General" = "General";
 "Generate Preview" = "Generate Preview";
 "Generate a commit message from staged diffs" = "Generate a commit message from staged diffs";
@@ -1896,10 +1892,12 @@
 "In effect: " = "In effect: ";
 "Include" = "Include";
 "Include a short body when useful" = "Include a short body when useful";
+"Include environment summary" = "Include environment summary";
 "Include in commit" = "Include in commit";
 "Include in rollback" = "Include in rollback";
 "Include non-project items" = "Include non-project items";
 "Include the URL path when Git looks up HTTP credentials." = "Include the URL path when Git looks up HTTP credentials.";
+"Includes the previous run, useful after a crash" = "Includes the previous run, useful after a crash";
 "Increase Font Size" = "Increase Font Size";
 "Indent guides" = "Indent guides";
 "Indentation" = "Indentation";
@@ -2088,6 +2086,8 @@
 "Language servers" = "Language servers";
 "Language service for this project" = "Language service for this project";
 "Languages & Frameworks" = "Languages & Frameworks";
+"Last 24 hours" = "Last 24 hours";
+"Last 3 sessions" = "Last 3 sessions";
 "Last 30 Days" = "Last 30 Days";
 "Last 7 Days" = "Last 7 Days";
 "Later" = "Later";
@@ -2248,11 +2248,13 @@
 "Log level" = "Log level";
 "Log locations" = "Log locations";
 "Log message" = "Log message";
+"Log storage: %@" = "Log storage: %@";
 "Log timeline" = "Log timeline";
 "Log: %@" = "Log: %@";
 "Login shell" = "Login shell";
 "Logs" = "Logs";
 "Logs and Diagnostics" = "Logs and Diagnostics";
+"Logs are redacted by Core before they are written to disk, so exports are always redacted: paths, URLs, tokens and user content appear as ‹redacted›." = "Logs are redacted by Core before they are written to disk, so exports are always redacted: paths, URLs, tokens and user content appear as ‹redacted›.";
 "Logs…" = "Logs…";
 "Look Up Again" = "Look Up Again";
 "Look Up Location" = "Look Up Location";
@@ -2382,7 +2384,6 @@
 "Module Root" = "Module Root";
 "Module logs rotate at 10 MiB and expire after 30 days. The combined budget is 100 MiB; performance logs have a separate 20 MiB budget." = "Module logs rotate at 10 MiB and expire after 30 days. The combined budget is 100 MiB; performance logs have a separate 20 MiB budget.";
 "Module path" = "Module path";
-"Module: %@ · Session: %@ · Minimum level: %@" = "Module: %@ · Session: %@ · Minimum level: %@";
 "More" = "More";
 "More Actions" = "More Actions";
 "More Agents…" = "More Agents…";
@@ -2585,7 +2586,6 @@
 "No matching commits in the loaded history." = "No matching commits in the loaded history.";
 "No matching conversations" = "No matching conversations";
 "No matching items" = "No matching items";
-"No matching logs" = "No matching logs";
 "No matching messages" = "No matching messages";
 "No matching plugins" = "No matching plugins";
 "No matching skills." = "No matching skills.";
@@ -2736,7 +2736,7 @@
 "Only the API URL, model and API key are saved. Other CLI options continue to use your local configuration. The key is stored separately from settings. Editing shows a template of these saved fields." = "Only the API URL, model and API key are saved. Other CLI options continue to use your local configuration. The key is stored separately from settings. Editing shows a template of these saved fields.";
 "Only the commit message changes. %lld commits will receive new identities. Staged files are not included." = "Only the commit message changes. %lld commits will receive new identities. Staged files are not included.";
 "Only the current branch can be updated" = "Only the current branch can be updated";
-"Only the files below are collected. Credentials, tokens, and home-directory paths are redacted automatically; workspace source, editor buffers, and terminal history are never included." = "Only the files below are collected. Credentials, tokens, and home-directory paths are redacted automatically; workspace source, editor buffers, and terminal history are never included.";
+"Only the current filter" = "Only the current filter";
 "Only the first %lld directories are shown." = "Only the first %lld directories are shown.";
 "Only the first %lld directories were queried." = "Only the first %lld directories were queried.";
 "Only the first %lld discovered entries were checked." = "Only the first %lld discovered entries were checked.";
@@ -2764,6 +2764,7 @@
 "Open GitHub profile" = "Open GitHub profile";
 "Open HTML in Browser" = "Open HTML in Browser";
 "Open Log Directory" = "Open Log Directory";
+"Open Log Window" = "Open Log Window";
 "Open Marketplace" = "Open Marketplace";
 "Open Patch…" = "Open Patch…";
 "Open Plugin Management" = "Open Plugin Management";
@@ -2802,6 +2803,7 @@
 "Open a text file instead of a folder." = "Open a text file instead of a folder.";
 "Open again" = "Open again";
 "Open and manage its own native terminals, retaining bounded display history for reopening" = "Open and manage its own native terminals, retaining bounded display history for reopening";
+"Open export from the log window to use its current filter." = "Open export from the log window to use its current filter.";
 "Open file" = "Open file";
 "Open file in editor to see problems" = "Open file in editor to see problems";
 "Open folder" = "Open folder";
@@ -2858,6 +2860,8 @@
 "Package name" = "Package name";
 "Package the redacted application log with an environment and performance snapshot into a zip you can attach to a bug report. Credentials, tokens, and home-directory paths are removed automatically, and you can review the file list before anything is written." = "Package the redacted application log with an environment and performance snapshot into a zip you can attach to a bug report. Credentials, tokens, and home-directory paths are removed automatically, and you can review the file list before anything is written.";
 "Packaging" = "Packaging";
+"Packing…" = "Packing…";
+"Packs recent logs into a zip you can attach to an issue. Nothing is uploaded." = "Packs recent logs into a zip you can attach to an issue. Nothing is uploaded.";
 "Page Zoom" = "Page Zoom";
 "Parent folder" = "Parent folder";
 "Parent version" = "Parent version";
@@ -2965,7 +2969,6 @@
 "Press shortcut…" = "Press shortcut…";
 "Preview" = "Preview";
 "Preview Update" = "Preview Update";
-"Preview and Export…" = "Preview and Export…";
 "Preview and export the selected logs with environment information. Credentials and home-directory paths are redacted; source code, editor buffers and terminal history are excluded." = "Preview and export the selected logs with environment information. Credentials and home-directory paths are redacted; source code, editor buffers and terminal history are excluded.";
 "Preview background image" = "Preview background image";
 "Preview first change" = "Preview first change";
@@ -2986,12 +2989,12 @@
 "Previous match" = "Previous match";
 "Previous match (Shift+Return)" = "Previous match (Shift+Return)";
 "Previous page" = "Previous page";
-"Previous session" = "Previous session";
 "Primary" = "Primary";
 "Primary configuration" = "Primary configuration";
 "Primary worktree" = "Primary worktree";
 "Print…" = "Print…";
 "Prisma Support" = "Prisma Support";
+"Privacy" = "Privacy";
 "Private Key" = "Private Key";
 "Private key" = "Private key";
 "Private network" = "Private network";
@@ -3119,6 +3122,7 @@
 "R Support" = "R Support";
 "Ran %lld command" = "Ran %lld command";
 "Ran %lld commands" = "Ran %lld commands";
+"Range" = "Range";
 "Read" = "Read";
 "Read %lld file" = "Read %lld file";
 "Read %lld files" = "Read %lld files";
@@ -3173,7 +3177,6 @@
 "Refresh Files" = "Refresh Files";
 "Refresh Git log" = "Refresh Git log";
 "Refresh Log" = "Refresh Log";
-"Refresh Logs" = "Refresh Logs";
 "Refresh Plugin Repositories" = "Refresh Plugin Repositories";
 "Refresh Preview" = "Refresh Preview";
 "Refresh changes" = "Refresh changes";
@@ -3748,6 +3751,7 @@
 "Show indexed Spring MVC routes" = "Show indexed Spring MVC routes";
 "Show its own page in a tool window" = "Show its own page in a tool window";
 "Show less" = "Show less";
+"Show log" = "Show log";
 "Show long graph edges" = "Show long graph edges";
 "Show minimap" = "Show minimap";
 "Show more" = "Show more";
@@ -5100,6 +5104,28 @@
 "java.launch.error.unsupported" = "Java launch preparation is not supported by this runtime.";
 "just now" = "just now";
 "local commit(s)" = "local commit(s)";
+"logs.exportV2.channels" = "Channels";
+"logs.exportV2.clearFailed" = "Could not clear logs. Try again.";
+"logs.exportV2.contents" = "Contents";
+"logs.exportV2.currentFilter" = "Only the current filter";
+"logs.exportV2.diagnosticHint" = "Detailed diagnostics cover all channels and expire after 15 minutes.";
+"logs.exportV2.directoryFailed" = "Could not change the log directory. Try again.";
+"logs.exportV2.environment" = "Include environment summary";
+"logs.exportV2.environmentHint" = "App version, macOS version, architecture, enabled plugins";
+"logs.exportV2.exportFailed" = "Could not export diagnostic logs. Try again.";
+"logs.exportV2.filterUnavailable" = "Open export from the log window to use its current filter.";
+"logs.exportV2.last24Hours" = "Last 24 hours";
+"logs.exportV2.openWindow" = "Open Log Window";
+"logs.exportV2.packing" = "Packing…";
+"logs.exportV2.prepareFailed" = "Could not prepare diagnostic logs. Try again.";
+"logs.exportV2.privacy" = "Privacy";
+"logs.exportV2.range" = "Range";
+"logs.exportV2.recentSessions" = "Last 3 sessions";
+"logs.exportV2.recentSessionsHint" = "Includes the previous run, useful after a crash";
+"logs.exportV2.redactionNote" = "Logs are redacted by Core before they are written to disk, so exports are always redacted: paths, URLs, tokens and user content appear as ‹redacted›.";
+"logs.exportV2.showLog" = "Show log";
+"logs.exportV2.size" = "≈ %1$@ · %2$lld files";
+"logs.exportV2.subtitle" = "Packs recent logs into a zip you can attach to an issue. Nothing is uploaded.";
 "logs.filter.emptyValue" = "A value is required";
 "logs.filter.expressionTooLong" = "Filter is longer than 1024 bytes";
 "logs.filter.invalidEscape" = "Unsupported escape";
@@ -5110,6 +5136,7 @@
 "logs.filter.regexTooLong" = "Regular expression is too long";
 "logs.filter.unterminatedQuote" = "Close the quoted value";
 "logs.filter.unterminatedRegex" = "Close the regular expression with /";
+"logs.settings.storage" = "Log storage: %1$@";
 "logs.window.absoluteTime" = "Absolute time";
 "logs.window.allChannels" = "All channels";
 "logs.window.autoOffIn" = "Auto-off in %1$@";
@@ -5350,13 +5377,11 @@
 "native.allConflictsResolvedContinueToFinishOrAbortToUndo" = "All conflicts resolved. Continue to finish, or abort to undo.";
 "native.allConversations" = "All conversations";
 "native.allMessages" = "All messages";
-"native.allModules" = "All modules";
 "native.allProjects" = "All projects";
 "native.allProjectsProjectCanOverride" = "All projects · project can override";
 "native.allReferences" = "All References";
 "native.allRepositories" = "All Repositories";
 "native.allServers" = "All servers";
-"native.allSessions" = "All sessions";
 "native.allSeverities" = "All severities";
 "native.allSources" = "All sources";
 "native.allTasksCompleted" = "All tasks completed";
@@ -5555,7 +5580,6 @@
 "native.buildOutput.variant2" = "Build output";
 "native.buildOutputs" = "Build Outputs";
 "native.buildProvider" = "Build provider";
-"native.buildRunAndDebug" = "Build, run and debug";
 "native.buildSystem" = "Build System";
 "native.buildSystemLanguageImportIsStillPreparingRetry" = "Build-system language import is still preparing. Retry when project loading completes.";
 "native.buildSystemLanguageImportPreparationTimedOutRetry" = "Build-system language import preparation timed out. Retry project loading.";
@@ -5670,7 +5694,6 @@
 "native.chooseALanguageServerExecutable" = "Choose a language-server executable.";
 "native.chooseALocalOrCustomProviderInTheAgentPanelSettings" = "Choose a local or custom provider in Settings > AI > Agents.";
 "native.chooseALocalOrCustomProviderSoTheAgentCanSignIn" = "Choose a local or custom provider so the Agent can sign in.";
-"native.chooseAModuleEnableDetailedDiagnosticsReproduceTheProblemThenPreviewAndExportADiagnosticBundle" = "Choose a module, enable detailed diagnostics, reproduce the problem, then preview and export a diagnostic bundle.";
 "native.chooseAPrivateKeyFile" = "Choose a private key file.";
 "native.chooseAPullRequestToReviewItsContextFilesAndConversation" = "Choose a pull request to review its context, files, and conversation.";
 "native.chooseARunConfigurationBeforeStartingDebug" = "Choose a Run configuration before starting Debug";
@@ -6101,7 +6124,6 @@
 "native.createdWorktreeFor" = "Created worktree for %1$@";
 "native.createsANewBranchOn" = "Creates a new branch on %1$@";
 "native.createsProjects" = "Creates %1$@ projects";
-"native.creatingArchive" = "Creating archive…";
 "native.creatingProject" = "Creating project…";
 "native.creatingPullRequest" = "Creating pull request…";
 "native.creatingThisProjectDownloadsFilesFromTheInternet" = "Creating this project downloads files from the internet.";
@@ -6215,10 +6237,7 @@
 "native.detachedHEAD" = "Detached HEAD";
 "native.detailed" = "Detailed";
 "native.detailedDiagnostics" = "Detailed diagnostics";
-"native.detailedDiagnosticsCoverTheSelectedModuleAndExpireAfter15MinutesRefreshToSeeTheCurrentStatus" = "Detailed diagnostics cover the selected module and expire after 15 minutes. Refresh to see the current status.";
 "native.detailedDiagnosticsFor15Minutes" = "Detailed diagnostics for 15 minutes";
-"native.detailedDiagnosticsOff" = "Detailed diagnostics: Off";
-"native.detailedDiagnosticsOn" = "Detailed diagnostics: On (%1$@)";
 "native.detailedSubjectBody" = "Detailed subject + body";
 "native.detectAgain" = "Detect again";
 "native.detectAgain2" = "Detect Again";
@@ -6336,7 +6355,6 @@
 "native.dropShelf" = "Drop Shelf";
 "native.dropStash" = "Drop Stash";
 "native.dropThisShelf" = "Drop this shelf?";
-"native.droppedLldWriteFailuresLld" = "Dropped: %1$lld; write failures: %2$lld";
 "native.duplicate" = "Duplicate";
 "native.duplicateOmitted" = "duplicate omitted";
 "native.durationLldMs" = "Duration: %1$lld ms";
@@ -6346,7 +6364,6 @@
 "native.eachRowExplainsTheSettingTheValueGitIsActuallyUsingAndWhereThatValueComesFrom" = "Each row explains the setting, the value Git is actually using, and where that value comes from.";
 "native.eachSubmoduleIsPushedBeforeItsParent" = "Each submodule is pushed before its parent.";
 "native.earlier" = "Earlier";
-"native.earlierEvidenceWasOmittedByCollectionLimits" = "Earlier evidence was omitted by collection limits.";
 "native.earlierGitCommandsWereTruncatedToLimitMemoryUse" = "Earlier Git commands were truncated to limit memory use.";
 "native.earlierGitOutputWasOmittedToLimitMemoryUse" = "Earlier Git output was omitted to limit memory use.";
 "native.earlierLogContentOmitted" = "Earlier log content omitted";
@@ -6379,7 +6396,6 @@
 "native.editedLldFile" = "Edited %1$lld file";
 "native.editedLldFiles" = "Edited %1$lld files";
 "native.editor" = "Editor";
-"native.editorAndLanguageServices" = "Editor and language services";
 "native.editorAppearanceAbsolute" = "Absolute";
 "native.editorAppearanceAppliesImmediatelyToSourceEditorsInAllProjects" = "Applies immediately to source editors in all projects.";
 "native.editorAppearanceBlink" = "Blink";
@@ -6665,7 +6681,6 @@
 "native.frontendAndOtherNonJavaRootsKeepTheWorkspaceEditorAndTerminalSettingsJavaAndMa2434fd734d" = "Frontend and other non-Java roots keep the workspace editor and terminal settings. Java and Maven SDKs only apply to the backends listed on the left.";
 "native.fullAccess" = "Full access";
 "native.fullProgramDeclaration" = "Full Program Declaration";
-"native.gatheringDiagnostics" = "Gathering diagnostics…";
 "native.general" = "General";
 "native.generateACommitMessageFromStagedDiffs" = "Generate a commit message from staged diffs";
 "native.generateACommitMessageFromTheSelectedDiff" = "Generate a commit message from the selected diff";
@@ -7469,7 +7484,6 @@
 "native.moduleLogsRotateAt10MiBAndExpireAfter30DaysTheCombinedBudgetIs100MiBPerformanc7c993f9014" = "Module logs rotate at 10 MiB and expire after 30 days. The combined budget is 100 MiB; performance logs have a separate 20 MiB budget.";
 "native.modulePath" = "Module path";
 "native.moduleRoot" = "Module Root";
-"native.moduleSessionMinimumLevel" = "Module: %1$@ · Session: %2$@ · Minimum level: %3$@";
 "native.more" = "… more";
 "native.moreActions" = "More actions";
 "native.moreActions2" = "More Actions";
@@ -7653,7 +7667,6 @@
 "native.noMatchingConversations" = "No matching conversations";
 "native.noMatchingHooks" = "No matching Hooks.";
 "native.noMatchingItems" = "No matching items";
-"native.noMatchingLogs" = "No matching logs";
 "native.noMatchingMcpServers" = "No matching MCP servers";
 "native.noMatchingMessages" = "No matching messages";
 "native.noMatchingPlugins" = "No matching plugins";
@@ -7797,7 +7810,6 @@
 "native.onlyTheAPIURLModelAndAPIKeyAreSavedOtherCLIOptionsContinueToUseYourLocalConfig36d9d4cdfd" = "Only the API URL, model and API key are saved. Other CLI options continue to use your local configuration. The key is stored separately from settings. Editing shows a template of these saved fields.";
 "native.onlyTheCommitMessageChangesLldCommitsWillReceiveNewIdentitiesStagedFilesAreNotIncluded" = "Only the commit message changes. %1$lld commits will receive new identities. Staged files are not included.";
 "native.onlyTheCurrentBranchCanBeUpdated" = "Only the current branch can be updated";
-"native.onlyTheFilesBelowAreCollectedCredentialsTokensAndHomeDirectoryPathsAreRedacted1a2820206c" = "Only the files below are collected. Credentials, tokens, and home-directory paths are redacted automatically; workspace source, editor buffers, and terminal history are never included.";
 "native.onlyTheMostRecentArchivedConversationsAreShown" = "Only the most recent archived conversations are shown.";
 "native.onlyTheReportedAgentEditsWillBeReversedConflictingChangesAndUnsavedEditorChangesWillBePreserved" = "Only the reported Agent edits will be reversed. Conflicting changes and unsaved editor changes will be preserved.";
 "native.open" = "Open %1$@";
@@ -8004,7 +8016,6 @@
 "native.preparingDownload" = "Preparing download…";
 "native.preservesEveryCommitAndAddsAMergeCommitToTheBaseBranch" = "Preserves every commit and adds a merge commit to the base branch.";
 "native.pressShortcut" = "Press shortcut…";
-"native.previewAndExport" = "Preview and Export…";
 "native.previewAndExportTheSelectedLogsWithEnvironmentInformationCredentialsAndHomeDir65f650979b" = "Preview and export the selected logs with environment information. Credentials and home-directory paths are redacted; source code, editor buffers and terminal history are excluded.";
 "native.previewBackgroundImage" = "Preview background image";
 "native.previewFirstChange" = "Preview first change";
@@ -8024,7 +8035,6 @@
 "native.previousMatch" = "Previous Match";
 "native.previousMatch.variant2" = "Previous match";
 "native.previousMatchShiftReturn" = "Previous match (Shift+Return)";
-"native.previousSession" = "Previous session";
 "native.previousVersion" = "Previous Version";
 "native.primary" = "Primary";
 "native.primaryConfiguration" = "Primary configuration";
@@ -8202,7 +8212,6 @@
 "native.refreshHistory" = "Refresh history";
 "native.refreshLocalHistory" = "Refresh local history";
 "native.refreshLog" = "Refresh Log";
-"native.refreshLogs" = "Refresh Logs";
 "native.refreshPluginRepositories" = "Refresh Plugin Repositories";
 "native.refreshPreview" = "Refresh Preview";
 "native.refreshProjectHistory" = "Refresh project history";
@@ -10078,5 +10087,6 @@
 "↑↓ Select · Tab Fill · Enter Run · Esc Close" = "↑↓ Select · Tab Fill · Enter Run · Esc Close";
 "→ %@" = "→ %@";
 "↓ %lld new logs, jump to latest" = "↓ %lld new logs, jump to latest";
+"≈ %@ · %lld files" = "≈ %@ · %lld files";
 "⌘-click to select several" = "⌘-click to select several";
 /* END GENERATED SHARED I18N */

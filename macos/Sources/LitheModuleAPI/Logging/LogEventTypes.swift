@@ -110,3 +110,19 @@ public struct LogSpanState: Sendable {
         return max(.zero, clock.now() - started)
     }
 }
+
+/// Catalog-derived location for opening the actual event in the log window.
+public struct LogRecordReference: Sendable, Equatable {
+    public let channel: String
+    public let event: String
+    public var op: String?
+    public init(channel: String, event: String, op: String? = nil) {
+        self.channel = channel; self.event = event; self.op = op
+    }
+}
+
+public extension LogEvent {
+    var reference: LogRecordReference {
+        .init(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
+}

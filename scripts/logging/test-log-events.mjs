@@ -198,3 +198,9 @@ test('discarded failures fail without a marker and cannot be allowlisted', { tim
     assert.throws(() => compareUsage([violation], {version:1, entries:[{file, rule, count:1, reason:'legacy code'}]}), /allowlist: invalid/);
   }
 });
+
+test('generated references use catalog channel, event identity and operation', { timeout: 1000 }, async () => {
+  const source = await readFile(path.join(ROOT, 'macos/Sources/LitheModuleAPI/Logging/LogEvents.generated.swift'), 'utf8');
+  assert.match(source, /public var reference: LogRecordReference/);
+  assert.match(source, /LogRecordReference\(channel: channel.rawValue, event: Self.id, op: operationID\)/);
+});

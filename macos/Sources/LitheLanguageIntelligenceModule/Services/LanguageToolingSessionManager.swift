@@ -1057,15 +1057,18 @@ package final class LanguageToolingSessionManager: ObservableObject,
     }
 
 
-    package func recordHostFailure(providerID: String, stage: String, error: Error) {
-        guard !(error is CancellationError) else { return }
+    @discardableResult
+    package func recordHostFailure(providerID: String, stage: String, error: Error) -> LogRecordReference? {
+        guard !(error is CancellationError) else { return nil }
         let operationID = languageServerOperationIDs[providerID]?.uuidString
         onLogIssue?(providerID, operationID, true, stage, (error as NSError).domain, nil)
-        guard let logSink, let server = logSubject(for: providerID) else { return }
+        guard let logSink, let server = logSubject(for: providerID) else { return nil }
         let failure: any Error = (error as? LanguageServerRuntimeFailure).map {
             LogFailure(domain: "LanguageRuntime", code: $0.code) as any Error
         } ?? error
-        logSink.emit(LspHostOperationFailed(error: failure, server: server, stage: stage, operationID: operationID))
+        let event = LspHostOperationFailed(error: failure, server: server, stage: stage, operationID: operationID)
+        logSink.emit(event)
+        return event.reference
     }
 
     private func logSubject(for providerID: String) -> LogSegment? {
@@ -1085,16 +1088,21 @@ package final class LanguageToolingSessionManager: ObservableObject,
         logSink.emit(LspSessionStageChanged(server: server, stage: stage.rawValue, operationID: operationID))
     }
 
+    @discardableResult
     private func recordLogIssue(_ providerID: String, _ operationID: String?, _ warning: Bool,
-                                _ stage: String, _ code: String, _ exitCode: Int?) {
+                                _ stage: String, _ code: String, _ exitCode: Int?) -> LogRecordReference? {
         onLogIssue?(providerID, operationID, warning, stage, code, exitCode)
-        guard let logSink, let server = logSubject(for: providerID) else { return }
+        guard let logSink, let server = logSubject(for: providerID) else { return nil }
         if warning {
-            logSink.emit(LspSessionDegradationReceived(exitCode: exitCode.map(Int64.init),
-                failureCode: code, server: server, stage: stage, operationID: operationID))
+            let event = LspSessionDegradationReceived(exitCode: exitCode.map(Int64.init),
+                failureCode: code, server: server, stage: stage, operationID: operationID)
+            logSink.emit(event)
+            return event.reference
         } else {
-            logSink.emit(LspSessionIssueFailed(exitCode: exitCode.map(Int64.init),
-                failureCode: code, server: server, stage: stage, operationID: operationID))
+            let event = LspSessionIssueFailed(exitCode: exitCode.map(Int64.init),
+                failureCode: code, server: server, stage: stage, operationID: operationID)
+            logSink.emit(event)
+            return event.reference
         }
     }
 

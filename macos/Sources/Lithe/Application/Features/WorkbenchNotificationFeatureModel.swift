@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import LitheModuleAPI
 
 private enum WorkbenchNotificationTiming {
     // NotificationsManagerImpl's ordinary balloon timeout (Community New UI).
@@ -35,18 +36,16 @@ final class WorkbenchNotificationFeatureModel: ObservableObject {
         dismissalTasks.values.forEach { $0.cancel() }
     }
 
-    func show(_ message: String) { show(message, arguments: []) }
+    var openLogs: (LogWindowOpenRequest) -> Void = { _ in }
 
-    func show(_ message: String, arguments: [String]) {
-        show(message, arguments: arguments, action: nil)
-    }
-
-    func show(_ message: String, arguments: [String], action: WorkbenchNotification.Action?) {
+    func show(_ message: String, arguments: [String] = [], action: WorkbenchNotification.Action? = nil,
+              logReference: LogRecordReference? = nil) {
         // Only an identical key and its arguments merge into the row they own: the entry
         // stays in place, only its occurrence count grows. Without this, a
         // message repeated by a background workflow floods the center.
         if let index = notifications.firstIndex(where: { $0.message == message && $0.arguments == arguments }) {
             notifications[index].occurrenceCount += 1
+            if let logReference { notifications[index].logReference = logReference }
             notifications[index].updatedAt = Date()
             notifications[index].isRead = false
             let notification = notifications.remove(at: index)
@@ -55,7 +54,7 @@ final class WorkbenchNotificationFeatureModel: ObservableObject {
             return
         }
 
-        let notification = WorkbenchNotification(message: message, arguments: arguments, action: action)
+        let notification = WorkbenchNotification(message: message, arguments: arguments, action: action, logReference: logReference)
         notifications.insert(notification, at: 0)
         if notifications.count > WorkbenchNotificationTiming.maximumHistoryCount {
             notifications.removeLast(
@@ -140,6 +139,14 @@ final class WorkbenchNotificationFeatureModel: ObservableObject {
         if let index = notifications.firstIndex(where: { $0.id == id }) { notifications[index].isRead = true }
         dismiss(id)
         action.perform()
+    }
+
+    func showLog(_ id: UUID) {
+        guard let index = notifications.firstIndex(where: { $0.id == id }),
+              let reference = notifications[index].logReference else { return }
+        notifications[index].isRead = true
+        dismiss(id)
+        openLogs(.init(reference: reference))
     }
 
     func dismiss(_ id: UUID) {

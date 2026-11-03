@@ -5,6 +5,7 @@ import LitheModuleAPI
 struct LogWindowView: View {
     @ObservedObject var model: LogWindowModel
     @ObservedObject var coordinator: LogWindowCoordinator
+    var exportFeature: DiagnosticsFeatureModel? = nil
     @EnvironmentObject private var settings: AppSettings
     @FocusState private var filterFocused: Bool
     @State private var tab = 0
@@ -49,10 +50,17 @@ struct LogWindowView: View {
         .background(LitheTheme.editor)
         .frame(minWidth: 900, minHeight: 500)
         .onAppear {
+            model.onOpenExport = { [weak model, weak exportFeature] in
+                guard let model else { return }
+                exportFeature?.presentExport(filter: model.query, environment: model.environment)
+            }
             model.start()
             applyRequest()
         }
-        .onDisappear { model.stop() }
+        .onDisappear { model.onOpenExport = nil; model.stop(); exportFeature?.dismiss() }
+        .sheet(isPresented: Binding(get: { (exportFeature?.isPresented ?? false) && (exportFeature?.isFromLogWindow ?? false) }, set: { if !$0 { exportFeature?.dismiss() } })) {
+            if let exportFeature { DiagnosticsExportSheet(feature: exportFeature) }
+        }
         .onReceive(coordinator.$request) { request in
             guard appliedRevision != coordinator.revision, let request else { return }
             appliedRevision = coordinator.revision; model.apply(request)

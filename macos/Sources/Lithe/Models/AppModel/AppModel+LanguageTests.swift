@@ -60,7 +60,7 @@ extension AppModel {
                 return
             } catch {
                 guard isCurrentLanguageTestDiscovery(operationID) else { return }
-                showNotification(error.localizedDescription)
+                showNotification(error.localizedDescription, logReference: notificationFailure(error, operation: "language_tests"))
             }
         }
     }
@@ -104,7 +104,7 @@ extension AppModel {
         activeTestTarget = ActiveTestTarget(providerID: providerID, scope: scope)
         switch javaTestWorkflowState.resolveDebugRequest(providerID: providerID, scope: scope) {
         case .rejected(let message):
-            showNotification(message)
+            showNotification(message, logReference: notificationRejection(operation: "test_debug", reason: "request_rejected"))
             return
         case .resolved(let request):
             startJavaTestDebug(request: request, workspaceURL: workspaceURL)

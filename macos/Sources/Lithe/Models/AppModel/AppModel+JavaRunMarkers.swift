@@ -95,7 +95,8 @@ extension AppModel {
         }
         guard let configuration else {
             showNotification(
-                "No run configuration exists for \(mainClass) yet. Wait for the Java project to finish importing, then try again."
+                "No run configuration exists for \(mainClass) yet. Wait for the Java project to finish importing, then try again.",
+                logReference: notificationRejection(operation: "run_marker", reason: "configuration_missing")
             )
             return
         }

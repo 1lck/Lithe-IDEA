@@ -65,3 +65,15 @@ struct MacGitLifecycleLogTests {
     }
 
 }
+
+extension MacGitLifecycleLogTests {
+    @Test func emittedFailureReferenceIsReturnedToTheNotificationOwner() throws {
+        let sink = TypedLogRecorder()
+        let adapter = MacGitLifecycleLog(sink: sink)
+        #expect(adapter.receive(try event("requestStarted")) == nil)
+        let reference = try #require(adapter.receive(try event("requestFinished", failed: true)))
+        #expect(reference == sink.events.last?.reference)
+        #expect(reference.op == "operation-1")
+        #expect(adapter.receive(try event("requestFinished", failed: true)) == nil)
+    }
+}

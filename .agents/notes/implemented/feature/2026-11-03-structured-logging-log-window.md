@@ -31,7 +31,7 @@ macOS 只保留一个看日志的地方：用 ⌘⇧L 打开的独立日志窗�
 
 记录引用 `LogRecordReference` 由通道、事件名和可选的 op（操作 ID）组成，不用 seq（写入器分配的序号）。原因是显示提示时这条记录可能还在写入队列里，seq 还没分配。窗口按引用定位到匹配的最新一条记录。
 
-正确做法：提示和日志在同一个处理边界产生，提示携带由生成事件类型给出的引用。
+正确做法：提示和日志在同一个处理边界产生，提示携带由生成事件类型给出的引用。`LogRecordReference` 定义在 `LitheModuleAPI/Logging`，由生成事件的 id、通道和 operationID 构造；`LogScope.emitReferenced` 和 span 的失败终态返回实际发出那条事件的引用。`AppModel.notificationFailure(_:operation:)` 和 `notificationRejection(operation:reason:)` 在决定显示失败提示的地方记录事件并返回引用，`operation` 是稳定的蛇形标识，日志里不复制本地化的提示正文。Git 生命周期适配器在实际发出事件时返回引用，经执行日志按 operationID 带回命令结果，最多缓存 256 个。同一条提示合并时保留最近的非空引用。
 
 不要这样做：为某个插件写专门的打开方法；在提示里手写事件名或通道字符串；在提示里保存 seq。
 
@@ -73,6 +73,12 @@ Swift 只负责读日志文件尾部、订阅 `MacLogStore` 的实时批次、�
 磁盘上只存 Core 脱敏后的日志，所以窗口和导出都不可能显示原文，导出对话框也没有“包含原文”的选项。`manifest.json` 记录 `redaction: core-v2`，让读包的人知道用的是哪一版脱敏规则。
 
 导出范围包含多个会话时，附带本应用在所选时间内的崩溃报告。崩溃报告不经过日志写入器，所以导出前逐份经过 Core `diagnostics.redactText` 脱敏，并限制份数和大小。导出只写到用户在保存面板里选的位置，从不自动上传。
+
+导出对话框打开时冻结日志窗口当前的通道前缀、级别集合和过滤表达式；范围另外映射到 Core `planLogCollection` 的当前会话、最近三次会话或起始时间。所有文件在用户确认之前就完成收集和脱敏，确认后不再读取日志源，所以确认的内容就是写进压缩包的内容。
+
+暂存目录是平台缓存目录下的 `Lithe/diagnostics-export/<UUID>/`：一次确认拥有一个目录，替换、取消或导出完成后删除；不跨工作树复用，不写发行包，不影响代码签名和 Sparkle delta。
+
+崩溃报告由 macOS 原生适配器从 `~/Library/Logs/DiagnosticReports` 只读读取：文件名必须以当前进程名或 bundle ID 加 `_` 或 `-` 开头，按修改时间筛选，最多 5 份、每份最多 1 MiB，以 `O_NOFOLLOW` 打开，脱敏后写成 `crash/report-<n>` 这类不透明文件名，不泄露原文件名。目录不存在属于预期的缺失；读取失败和限额截断写进 `collection-status.txt`，读取失败另记一条 WARN。已知局限：崩溃时间用的是文件修改时间，不是 `.ips` 里的 captureTime；“最近三次会话”的时间下界用的是会话目录的创建时间，日志目录被复制或恢复后可能偏离。这两点要由 Core 契约提供明确的起始时间后再修。
 
 ### 快捷键选 ⌘⇧L
 
@@ -146,5 +152,6 @@ Swift 只负责读日志文件尾部、订阅 `MacLogStore` 的实时批次、�
 - `macos/Sources/Lithe/Views/Diagnostics/`
 - `macos/Sources/Lithe/Services/Diagnostics/`
 - `macos/Sources/Lithe/Platform/MacOS/Logging/`
+- `macos/Sources/Lithe/Platform/MacOS/Diagnostics/`
 - `macos/Sources/LitheModuleAPI/Logging/`
 - 存量迁移涉及的 Rust Core 与 macOS Swift 处理边界（日志门禁扫描的全部生产代码）

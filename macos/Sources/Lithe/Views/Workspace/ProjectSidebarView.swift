@@ -101,7 +101,7 @@ struct ProjectSidebarView: View {
             guard !Task.isCancelled, expandAllRequestID == requestID, model.rootNode?.url == workspace else { return }
             expandAllRequestID = nil
             guard let paths, let root = model.rootNode else {
-                model.showNotification("Could not expand all project directories")
+                model.showNotification("Could not expand all project directories", logReference: model.notificationRejection(operation: "project_tree", reason: "expansion_failed"))
                 return
             }
             treeState.updateExpandedPaths(paths, in: root)

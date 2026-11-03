@@ -26,6 +26,7 @@ final class CommitWorkflowCoordinator {
     private let workspaceGeneration: () -> Int
     private let generate: (CommitMessageInput) async throws -> String
     private let notify: (String) -> Void
+    var notifyFailure: ((String) -> Void)?
     private var isSubmitting = false
 
     init(
@@ -91,14 +92,14 @@ final class CommitWorkflowCoordinator {
                 let input = await git.stagedCommitMessageInput()
                 guard generation == workspaceGeneration(), !Task.isCancelled else { return nil }
                 guard git.commitMessageSelectionID == selectionID, git.stagedChangeIDs == stagedIDs else {
-                    notify("Selected ChangeList or staged files changed before generation finished")
+                    (notifyFailure ?? notify)("Selected ChangeList or staged files changed before generation finished")
                     return nil
                 }
                 guard let input else { throw CommitMessageGenerationError.emptyDiff }
                 let message = try await generate(input)
                 guard generation == workspaceGeneration(), !Task.isCancelled else { return nil }
                 guard git.commitMessageSelectionID == selectionID, git.stagedChangeIDs == stagedIDs else {
-                    notify("Selected ChangeList or staged files changed before generation finished")
+                    (notifyFailure ?? notify)("Selected ChangeList or staged files changed before generation finished")
                     return nil
                 }
                 return message
@@ -106,7 +107,7 @@ final class CommitWorkflowCoordinator {
             if outcome == .filledDraft { notify("Commit message generated") }
         } catch {
             guard generation == workspaceGeneration(), !Task.isCancelled else { return }
-            notify(error.localizedDescription)
+            (notifyFailure ?? notify)(error.localizedDescription)
         }
     }
 

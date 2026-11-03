@@ -46,7 +46,7 @@ extension AppModel {
                     throw PluginWebBridgeFailure.invalidRequest("The native panel state exceeds 64 KiB.")
                 }
                 try store.setState(data, pluginID: context.pluginID, windowID: context.windowID, workspaceURL: workspace)
-            } catch { self.showNotification(error.localizedDescription) }
+            } catch { self.showNotification(error.localizedDescription, logReference: self.notificationFailure(error, operation: "plugin_native_ui")) }
         })
         guard services.pluginWebPages.registerNative(feature, windowID: contribution.id, pluginID: context.pluginID) else {
             feature.close()

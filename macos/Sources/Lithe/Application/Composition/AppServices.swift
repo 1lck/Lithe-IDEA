@@ -11,6 +11,7 @@ import LitheLanguageIntelligenceModule
 @MainActor
 final class AppServices {
     /// Process log sink supplied by the composition root; modules receive the same instance.
+    var sharedDiagnosticsFeature: DiagnosticsFeatureModel?
     var logWindowCoordinator: LogWindowCoordinator?
     var logWindowLogging: (any LogWindowLogging)?
     var logSink: (any LogSink)?

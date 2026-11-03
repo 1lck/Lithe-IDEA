@@ -22,7 +22,10 @@
       "rust/lithe-core/src/diagnostics/query_v2.rs",
       "rust/lithe-core/src/diagnostics/retention.rs",
       "shared/fixtures/diagnostics/logging-v2.json",
-      "rust/lithe-core/src/diagnostics/collection.rs"
+      "rust/lithe-core/src/diagnostics/collection.rs",
+      "macos/Tests/LitheTests/DiagnosticsExportV2Tests.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Diagnostics/MacCrashReportCollector.swift",
+      "macos/Sources/Lithe/Application/Features/WorkbenchNotificationFeatureModel.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -34,9 +37,9 @@
       "windows/tauri/src/features/settings/components/log-settings-panel.tsx",
       "windows/tauri/src/features/settings/components/log-settings-panel.test.tsx"
     ],
-    "implementationStatus": "implemented",
+    "implementationStatus": "missing",
     "verificationStatus": "pending"
   },
   "owner": "Diagnostics",
-  "verification": "双端记录 language/git/run/performance 事件，按模块、当前/上次会话、级别、UTC 时间与文本筛选；确认诊断 15 分钟到期、过载不阻塞调用线程、日志受限额控制、目录切换后收集实际位置、嵌套与转义凭据不落盘；确认预览后修改源文件不改变导出快照，取消/失败清理暂存，并检查 macOS v1 日志不进入时间线和导出、仅按 30 天过期清理与收集缺失计数。 验证自定义目录中无关的 lithe.*.log 不被收集或删除、刷新期间修改条件后按钮恢复、UTC 小数精度及等价时区边界正确、200 文件上限在模块/会话筛选后应用且遗漏明确标记。 两端从设置→工具→日志与诊断进入同一流程，核对中英文名称、顺序、实际诊断范围、清理全模块会话范围、目录/清理后刷新、预览条件冻结，以及取消/失败后按钮和快照恢复；原生 macOS 明暗页面与实际 ZIP 链路、Windows 前端界面交互分别验证。 macOS v2 按 sessions 会话目录查询并冻结导出，检查 Core 目录字段校验、100 ms/256 条批量、保留容量、log.dropped/log.repeated、32 个句柄 LRU、三段轮转、超时控制与跟随广播；Windows 仍使用 v1。 PR2b 回归覆盖合法 c++ 插件编辑器资源不受日志身份约束、点号活动通道与 ~N 轮转文件互不覆盖、控制取消不丢已接纳批次与丢弃汇总、退出无条件关闭订阅和句柄、多行错误经 Core 规范化后严格校验，以及 LSP/Git/下载/freeze 失败分类和数值证据。 验证 Windows 保留设备名被拒绝、溢出通道可写头并轮转、client_secret/auth_token 等前缀凭据在编码和查询时均被脱敏，以及按 ts/level 字段筛选。 检查多通道总量超过 10 MiB 时所有活动段优先，删除或原子替换已打开的日志后新事件仍落盘；Update 事件保留 Application 分类，浏览器 c++ 与超长语言 ID 语法失败始终保留插件证据。"
+  "verification": "双端记录 language/git/run/performance 事件，按模块、当前/上次会话、级别、UTC 时间与文本筛选；确认诊断 15 分钟到期、过载不阻塞调用线程、日志受限额控制、目录切换后收集实际位置、嵌套与转义凭据不落盘；确认预览后修改源文件不改变导出快照，取消/失败清理暂存，并检查 macOS v1 日志不进入时间线和导出、仅按 30 天过期清理与收集缺失计数。 验证自定义目录中无关的 lithe.*.log 不被收集或删除、刷新期间修改条件后按钮恢复、UTC 小数精度及等价时区边界正确、200 文件上限在模块/会话筛选后应用且遗漏明确标记。 两端从设置→工具→日志与诊断进入同一流程，核对中英文名称、顺序、实际诊断范围、清理全模块会话范围、目录/清理后刷新、预览条件冻结，以及取消/失败后按钮和快照恢复；原生 macOS 明暗页面与实际 ZIP 链路、Windows 前端界面交互分别验证。 macOS v2 按 sessions 会话目录查询并冻结导出，检查 Core 目录字段校验、100 ms/256 条批量、保留容量、log.dropped/log.repeated、32 个句柄 LRU、三段轮转、超时控制与跟随广播；Windows 仍使用 v1。 PR2b 回归覆盖合法 c++ 插件编辑器资源不受日志身份约束、点号活动通道与 ~N 轮转文件互不覆盖、控制取消不丢已接纳批次与丢弃汇总、退出无条件关闭订阅和句柄、多行错误经 Core 规范化后严格校验，以及 LSP/Git/下载/freeze 失败分类和数值证据。 验证 Windows 保留设备名被拒绝、溢出通道可写头并轮转、client_secret/auth_token 等前缀凭据在编码和查询时均被脱敏，以及按 ts/level 字段筛选。 检查多通道总量超过 10 MiB 时所有活动段优先，删除或原子替换已打开的日志后新事件仍落盘；Update 事件保留 Application 分类，浏览器 c++ 与超长语言 ID 语法失败始终保留插件证据。 PR4 B2：macOS 导出使用 Core 范围规划和精确级别过滤，确认前冻结脱敏内容，附带可选环境与有界崩溃报告；设置页打开统一日志窗口，通知保留原动作并提供目录事件引用跳转。运行 DiagnosticsExportV2Tests、DiagnosticsWorkflowTests、WorkbenchNotificationTests 和 probe-macos-logging-ui.sh，核对中英文 × 深浅色窗口及导出对话框。真实应用保存面板、访达、通知定位及崩溃后验收仍 pending；Windows 仍是 v1，未迁移。"
 }

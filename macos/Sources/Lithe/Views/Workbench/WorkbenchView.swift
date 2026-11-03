@@ -578,7 +578,9 @@ struct WorkbenchView: View {
                             occurrenceCount: notification.occurrenceCount,
                             showHistory: { isNotificationCenterPresented = true },
                             actionTitle: notification.action?.title,
-                            performAction: { model.performNotificationAction(notification.id) }) {
+                            performAction: { model.performNotificationAction(notification.id) },
+                            hasLogReference: notification.logReference != nil,
+                            showLog: { model.showNotificationLog(notification.id) }) {
                             model.dismissNotification(notification.id)
                         }
                         .onHover { model.setNotificationHovered(notification.id, isHovered: $0) }
@@ -1979,6 +1981,12 @@ private struct WorkbenchNotificationCenterView: View {
                                         .buttonStyle(.litheNoPress)
                                         .font(LitheTheme.uiFont(size: 12))
                                         .foregroundStyle(LitheTheme.accent)
+                                    }
+
+                                    if notification.logReference != nil {
+                                        Button("Show log") { model.showNotificationLog(notification.id) }
+                                            .buttonStyle(.litheNoPress)
+                                            .foregroundStyle(LitheTheme.accent)
                                     }
 
                                     Text(notification.updatedAt.formatted(date: .omitted, time: .shortened))

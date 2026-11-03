@@ -1,5 +1,6 @@
 import Foundation
 import LitheCoreContracts
+import LitheModuleAPI
 import LitheWorkspaceModule
 
 /// Constructs the per-session feature models used by AppModel.
@@ -47,7 +48,11 @@ final class AppModelFeatureGraph {
         // Coordinators report user-facing failures through the notification
         // feature directly; the application shell forwards the same call.
         let notify: @MainActor (String) -> Void = { message in
-            notification.show(message)
+            var reference: LogRecordReference?
+            if let sink = services.logSink {
+                reference = LogScope(sink: sink).emitReferenced(AppNotificationOperationRejected(operation: "language_debug_workflow", reason: "request_failed"))
+            }
+            notification.show(message, logReference: reference)
         }
         workbench = WorkbenchFeatureModel(layoutStore: services.workbenchLayoutStore)
         commitDraft = CommitDraftFeatureModel()
@@ -98,7 +103,9 @@ final class AppModelFeatureGraph {
             sessionsProvider: { nil }
         )
         github = GitHubFeatureModel(service: services.githubService)
-        diagnostics = DiagnosticsFeatureModel(service: services.diagnosticsExportService)
+        diagnostics = services.sharedDiagnosticsFeature ?? DiagnosticsFeatureModel(service: services.diagnosticsExportService, sink: services.logSink)
+        diagnostics.openLogWindow = { [weak services] in services?.logWindowCoordinator?.open($0) }
+        notification.openLogs = { [weak services] in services?.logWindowCoordinator?.open($0) }
         editorTabOrder = EditorTabOrderFeatureModel()
         media = MediaDocumentFeatureModel()
         terminalPlacement = TerminalPlacementFeatureModel()

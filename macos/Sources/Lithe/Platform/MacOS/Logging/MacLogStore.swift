@@ -535,6 +535,20 @@ final class MacLogStore: ApplicationLogging, LogWindowLogging, LogSink, @uncheck
             recent.removeAll(); recentBytes = 0; previousEvent = nil
         }
     }
+    func status() async throws -> ApplicationLogStatus {
+        try await perform { [self] token in
+            try drain(token: token)
+            if directory == nil { try switchDirectory(defaultDirectory) }
+            guard let root = directory else { throw CocoaError(.fileNoSuchFile) }
+            let bytes = try inventory(root, token: token).reduce(UInt64(0)) {
+                try token.check()
+                return $0 + UInt64(max(0, fileSize($1.url)))
+            }
+            let state = lock.withLock { (diagnosticNow() < diagnosticUntil, diagnosticCategory) }
+            return .init(diagnosticEnabled: state.0, diagnosticCategory: state.1, diskBytes: bytes)
+        }
+    }
+
     func collect(query: ApplicationLogQuery) async throws -> ApplicationLogCollection {
         try await perform { [self] token in
             try drain(token: token)
@@ -548,7 +562,7 @@ final class MacLogStore: ApplicationLogging, LogWindowLogging, LogSink, @uncheck
                     sizeBytes: UInt64(max(0, fileSize(file.url))), modifiedAt: formatter.string(from: modified))
             }
             let plan = try core.planLogCollection(.init(files: metadata, currentSession: current,
-                session: query.session, category: query.category))
+                session: query.session, category: query.category, recentSessions: query.recentSessions, since: query.since))
             var sources: [RustCoreBridge.LogSourceV2] = []
             var truncated = plan.truncated
             for read in plan.reads {
@@ -561,8 +575,9 @@ final class MacLogStore: ApplicationLogging, LogWindowLogging, LogSink, @uncheck
                 truncated = truncated || data.count < read.maxBytes
                 sources.append(.init(relativePath: read.relativePath, text: String(decoding: data, as: UTF8.self), startsMidLine: read.offset > 0))
             }
-            let result = try core.queryLogsV2(.init(sources: sources, channelPrefixes: [],
-                minimumLevel: query.minimumLevel?.uppercased(), since: query.since, until: query.until, search: query.search))
+            let result = try core.queryLogsV2(.init(sources: sources, channelPrefixes: query.channelPrefixes,
+                minimumLevel: query.minimumLevel?.uppercased(), since: query.since, until: query.until, search: query.search,
+                limit: 10000, expression: query.expression, levels: query.levels))
             try token.check()
             // Core returns redacted, canonical lines so exports never serialize raw input.
             let grouped = Dictionary(grouping: result.records, by: \.relativePath)
@@ -573,9 +588,12 @@ final class MacLogStore: ApplicationLogging, LogWindowLogging, LogSink, @uncheck
             truncated = truncated || result.truncated || result.skippedInvalidLines > 0
             let status = "truncated=\(truncated) dropped_events=\(state.0) write_failures=\(state.1) skipped_invalid_lines=\(result.skippedInvalidLines)\n"
             files.append(.init(relativePath: "collection-status.txt", data: Data(status.utf8)))
+            let starts = try plan.sessions.compactMap { name in
+                try safeURL(root: root, relative: "sessions/" + name).resourceValues(forKeys: [.creationDateKey]).creationDate
+            }
             return ApplicationLogCollection(files: files, content: result.records.map(\.line).joined(separator: "\n"),
                 truncated: truncated, effectiveDirectory: root, diagnosticEnabled: state.2,
-                droppedEvents: state.0, writeFailures: state.1, diagnosticCategory: state.3)
+                droppedEvents: state.0, writeFailures: state.1, diagnosticCategory: state.3, estimatedBytes: plan.estimatedBytes, sessions: plan.sessions, sessionStart: starts.min(), diskBytes: metadata.reduce(0) { $0 + $1.sizeBytes })
         }
     }
 

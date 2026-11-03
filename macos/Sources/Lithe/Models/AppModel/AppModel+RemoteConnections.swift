@@ -44,7 +44,7 @@ extension AppModel {
 
     private func offerReconnect(_ loss: RemoteConnectionLoss) {
         guard workspaceURL?.standardizedFileURL == loss.root.standardizedFileURL else { return }
-        showNotification(L10n.string("The connection to the remote host was lost. Reconnect to continue."))
+        showNotification(L10n.string("The connection to the remote host was lost. Reconnect to continue."), logReference: notificationRejection(operation: "remote_connection", reason: "connection_lost"))
         workbenchFeature.remoteReconnect = loss
         workbenchFeature.isRemoteConnectionsPresented = true
     }

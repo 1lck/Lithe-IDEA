@@ -94,7 +94,7 @@ extension AppModel {
                 enableAIAssistanceModule()
             }
             showNotification("API key saved locally")
-        } catch { showNotification(error.localizedDescription) }
+        } catch { showNotification(error.localizedDescription, logReference: notificationFailure(error, operation: "ai_configuration")) }
     }
 
     func loadAIConfigurations() -> [AIConfigurationSnapshot] {
@@ -130,7 +130,7 @@ extension AppModel {
                 try await services.moduleRuntime.setEnabled(true, for: .aiAssistance)
                 objectWillChange.send()
             } catch {
-                showNotification(error.localizedDescription)
+                showNotification(error.localizedDescription, logReference: notificationFailure(error, operation: "ai_configuration"))
             }
         }
     }

@@ -354,8 +354,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let redacted: String
     }
 
-    struct DiagnosticsManifestPayload: Decodable, Sendable {
-        struct Environment: Decodable, Sendable {
+    struct DiagnosticsManifestPayload: Codable, Sendable {
+        struct Environment: Codable, Sendable {
             let appVersion: String
             let osName: String
             let osVersion: String
@@ -364,12 +364,13 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             let diskFreeBytes: Int64
         }
 
-        struct FileEntry: Decodable, Sendable {
+        struct FileEntry: Codable, Sendable {
             let relativePath: String
             let sizeBytes: Int64
             let description: String
         }
 
+        let redaction: String
         let schemaVersion: Int
         let generatedAtEpochMilliseconds: Int64
         let environment: Environment
