@@ -192,8 +192,9 @@ fn command_handled(command: &str) -> bool {
     matches!(
         command,
         // 编辑器命令：只放行 EditorSurface::run_command 真正接线的条目。
-        // format / parameterHints / showHover / findNext|findPrevious 没有原生
-        // 实现，菜单项保持禁用，避免「点了没反应」的假可用。
+        // format / parameterHints / showHover 没有原生实现，菜单项保持禁用，
+        // 避免「点了没反应」的假可用；findNext / findPrevious 走编辑器已有的
+        // 查找会话（EditorSurface::find_next / find_previous）。
         "edit.undo"
             | "edit.redo"
             | "edit.cut"
@@ -202,6 +203,8 @@ fn command_handled(command: &str) -> bool {
             | "edit.selectAll"
             | "edit.find"
             | "edit.replace"
+            | "edit.findNext"
+            | "edit.findPrevious"
             | "edit.toggleComment"
             | "edit.quickFix"
             | "edit.duplicateLine"
@@ -496,7 +499,16 @@ fn edit_menu(state: &MenuState) -> MenuSpec {
         item_state(
             "Find and Replace",
             "edit.replace",
-            Some("⌥⌘F"),
+            Some("⌘R"),
+            false,
+            disabled,
+        ),
+        // 查找导航与 macOS 同键位；查找条未打开时命令是安全 no-op。
+        item_state("Find Next", "edit.findNext", Some("⌘G"), false, disabled),
+        item_state(
+            "Find Previous",
+            "edit.findPrevious",
+            Some("⇧⌘G"),
             false,
             disabled,
         ),
@@ -762,7 +774,9 @@ fn view_menu(state: &MenuState) -> MenuSpec {
     ];
 
     MenuSpec::new(tr("View")).items([
-        item("Toggle Activity Sidebar", "view.activityBar", Some("⌘B")),
+        // 侧栏切换不再占用 macOS 的 ⌘B（Go to Definition）与 ⇧⌘G
+        // （Find Previous），只保留菜单入口。
+        item("Toggle Activity Sidebar", "view.activityBar", None),
         item(
             "Toggle Secondary Sidebar",
             "view.secondarySidebar",
@@ -780,7 +794,7 @@ fn view_menu(state: &MenuState) -> MenuSpec {
         item("Diagnostics", "view.diagnostics", Some("⇧⌘J")),
         MenuItemSpec::separator(),
         item("File Explorer", "view.fileExplorer", Some("⇧⌘E")),
-        item("Source Control", "view.sourceControl", Some("⇧⌘G")),
+        item("Source Control", "view.sourceControl", None),
         item("GitHub", "view.github", None),
         item("Run and Debug", "view.runAndDebug", None),
         MenuItemSpec::separator(),
@@ -839,14 +853,14 @@ fn go_menu(state: &MenuState) -> MenuSpec {
             false,
             !state.has_project,
         ),
-        // Go to Line 复用编辑器命令，菜单里的两处入口行为一致。
-        item_state("Go to Line", "edit.gotoLine", Some("⌘G"), false, disabled),
+        // Go to Line 复用编辑器命令，菜单里的两处入口行为一致；⌘L 与 macOS 相同。
+        item_state("Go to Line", "edit.gotoLine", Some("⌘L"), false, disabled),
         MenuItemSpec::separator(),
-        item_state("Go Back", "go.back", Some("⌃⌥←"), false, !state.can_go_back),
+        item_state("Go Back", "go.back", Some("⌘["), false, !state.can_go_back),
         item_state(
             "Go Forward",
             "go.forward",
-            Some("⌃⌥→"),
+            Some("⌘]"),
             false,
             !state.can_go_forward,
         ),
@@ -854,14 +868,16 @@ fn go_menu(state: &MenuState) -> MenuSpec {
         item_state(
             "Go to Definition",
             "go.definition",
-            Some("F12"),
+            Some("⌘B"),
             false,
             disabled,
         ),
+        // 实现/引用仍缺 peek UI（命令未接线、保持禁用），但快捷键文案按
+        // macOS 的 ⌥⌘B / ⌥⌘U 显示，避免继续占用 Go to Definition 的 ⌘B。
         item_state(
             "Go to Implementation",
             "go.implementation",
-            Some("⌘F12"),
+            Some("⌥⌘B"),
             false,
             disabled,
         ),
@@ -875,7 +891,7 @@ fn go_menu(state: &MenuState) -> MenuSpec {
         item_state(
             "Go to References",
             "go.references",
-            Some("⌘B"),
+            Some("⌥⌘U"),
             false,
             disabled,
         ),

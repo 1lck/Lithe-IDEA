@@ -537,32 +537,49 @@ impl Workbench {
             // 没有独立的 key context 区分焦点，全局注册会抢占另一边，两个入口
             // 暂时都只从菜单触发（Tauri 靠编辑器/终端两套 keymap 作用域区分）。
             menu_key_binding("cmd-/", "ctrl-/", "edit.toggleComment"),
+            // ⌘R 是 macOS 的 Replace in File；⌥⌘F 作为既有别名保留，
+            // 两者都指向 `edit.replace`（同一命令两个键，不是冲突）。
+            menu_key_binding("cmd-r", "ctrl-r", "edit.replace"),
             menu_key_binding("alt-cmd-f", "ctrl-alt-f", "edit.replace"),
             menu_key_binding("shift-cmd-k", "ctrl-shift-k", "edit.deleteLine"),
             menu_key_binding("alt-up", "alt-up", "edit.moveLineUp"),
             menu_key_binding("alt-down", "alt-down", "edit.moveLineDown"),
-            menu_key_binding("cmd-g", "ctrl-g", "edit.gotoLine"),
-            // View。⌘B 只给 Toggle Activity Sidebar：Go > Go to References 的
-            // ⌘B 因为能力未落地已禁用，不存在冲突。macOS 上编辑器 Input
-            // context 自己绑了 cmd-shift-f（编辑器内替换），焦点在编辑器时
-            // Global Search 的全局绑定让位给它，菜单里的编辑器替换入口是 ⌥⌘F。
+            // 查找导航：⌘G / ⇧⌘G 与 macOS 的 Find Next / Find Previous 一致。
+            // 查找条未打开时命令本身是安全 no-op。
+            menu_key_binding("cmd-g", "ctrl-g", "edit.findNext"),
+            menu_key_binding("shift-cmd-g", "ctrl-shift-g", "edit.findPrevious"),
+            // Go to Line 在 macOS 是 ⌘L（原 ⌘G 已让给 Find Next）。
+            menu_key_binding("cmd-l", "ctrl-l", "edit.gotoLine"),
+            // View。侧栏切换只保留菜单入口，不占 ⌘B / ⇧⌘G：
+            // ⌘B 归 Go to Definition、⇧⌘G 归 Find Previous（macOS 同键位）。
+            // macOS 上编辑器 Input context 自己绑了 cmd-shift-f（编辑器内替换），
+            // 焦点在编辑器时 Global Search 的全局绑定让位给它，菜单里的编辑器
+            // 替换入口仍可用 ⌘F / ⌘R。
             menu_key_binding("shift-cmd-p", "ctrl-shift-p", "view.commandPalette"),
-            menu_key_binding("cmd-b", "ctrl-b", "view.activityBar"),
             menu_key_binding("cmd-e", "ctrl-e", "view.secondarySidebar"),
             menu_key_binding("cmd-j", "ctrl-j", "view.tool.terminal"),
             menu_key_binding("shift-cmd-f", "ctrl-shift-f", "view.globalSearch"),
             menu_key_binding("shift-cmd-j", "ctrl-shift-j", "view.diagnostics"),
             menu_key_binding("shift-cmd-e", "ctrl-shift-e", "view.fileExplorer"),
-            menu_key_binding("shift-cmd-g", "ctrl-shift-g", "view.sourceControl"),
             menu_key_binding("alt-z", "alt-z", "view.wrap"),
             menu_key_binding("cmd-=", "ctrl-=", "view.zoomIn"),
             menu_key_binding("cmd--", "ctrl--", "view.zoomOut"),
             menu_key_binding("cmd-0", "ctrl-0", "view.zoomReset"),
+            // 工具窗：⌘4 切换 Run、⌘6 打开 Problems（macOS 同键位）。
+            // ⌘5（Toggle Debug）不注册：Debug 工具窗在本构建还是空壳，
+            // 空壳入口维持禁用，不给快捷键。
+            menu_key_binding("cmd-4", "ctrl-4", "run.toggleWindow"),
+            menu_key_binding("cmd-6", "ctrl-6", "view.diagnostics"),
             // Go。⌃⌥←/⌃⌥→ 与 ⌥⌘←/⌥⌘→ 在非 macOS 上都塌缩成 ctrl-alt-方向键：
             // 按菜单文案把 ctrl-alt-方向键 给 Next/Previous Tab，Go Back/Forward
             // 在非 macOS 上改用 VSCode 约定的 alt-方向键（macOS 两组都能用）。
             menu_key_binding("cmd-p", "ctrl-p", "go.quickOpen"),
+            // ⌘B 是 macOS 的 Go to Definition；F12 作为既有别名保留。
+            menu_key_binding("cmd-b", "ctrl-b", "go.definition"),
             menu_key_binding("f12", "f12", "go.definition"),
+            // ⌘[ / ⌘] 与 macOS 的 Back / Forward 一致；方向键组合是既有别名。
+            menu_key_binding("cmd-[", "ctrl-[", "go.back"),
+            menu_key_binding("cmd-]", "ctrl-]", "go.forward"),
             menu_key_binding("ctrl-alt-left", "alt-left", "go.back"),
             menu_key_binding("ctrl-alt-right", "alt-right", "go.forward"),
             menu_key_binding("alt-cmd-right", "ctrl-alt-right", "go.nextTab"),

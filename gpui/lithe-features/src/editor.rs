@@ -641,6 +641,38 @@ impl EditorSurface {
         true
     }
 
+    /// Edit > Find Next（⌘G）：跳到当前查找会话的下一个匹配。
+    ///
+    /// 查找面板没有打开时直接返回：与 macOS「查找条可见才可查找下一个」
+    /// 的语义一致，避免把编辑区凭空滚到某个不可见的匹配上。
+    pub fn find_next(&mut self, cx: &mut Context<Self>) {
+        self.navigate_search(true, cx);
+    }
+
+    /// Edit > Find Previous（⇧⌘G）：跳到当前查找会话的上一个匹配。
+    pub fn find_previous(&mut self, cx: &mut Context<Self>) {
+        self.navigate_search(false, cx);
+    }
+
+    /// 在两个查找导航方向之间共用同一套会话判断。
+    fn navigate_search(&mut self, forward: bool, cx: &mut Context<Self>) {
+        let Some(editor) = self.editor.clone() else {
+            return;
+        };
+        editor.update(cx, |state, cx| {
+            if !state.search_session().is_active() {
+                return;
+            }
+            if forward {
+                let _ = state.next_search_match(cx);
+            } else {
+                let _ = state.previous_search_match(cx);
+            }
+            cx.notify();
+        });
+        cx.notify();
+    }
+
     /// Go to Line：把光标移到目标行行首（1 起始，超界收拢）并滚动到可见。
     pub fn go_to_line(&mut self, line: u32, window: &mut Window, cx: &mut Context<Self>) {
         let Some(editor) = self.editor.clone() else {

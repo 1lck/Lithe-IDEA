@@ -477,6 +477,21 @@ impl Workbench {
             return;
         }
 
+        // Edit > Find Next / Find Previous：直接驱动编辑器已有的查找会话，
+        // 不经过 action。查找条未打开时编辑器内部是安全 no-op，与 macOS
+        // 在查找条隐藏时禁用这两项的语义一致。
+        if matches!(command, "edit.findNext" | "edit.findPrevious") {
+            let forward = command == "edit.findNext";
+            self.editor.update(cx, |editor, editor_cx| {
+                if forward {
+                    editor.find_next(editor_cx);
+                } else {
+                    editor.find_previous(editor_cx);
+                }
+            });
+            return;
+        }
+
         let editor_command = match command {
             "edit.undo" => Some("undo"),
             "edit.redo" => Some("redo"),
