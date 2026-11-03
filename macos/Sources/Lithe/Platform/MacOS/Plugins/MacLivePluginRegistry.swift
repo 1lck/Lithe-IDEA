@@ -234,17 +234,18 @@ final class MacLivePluginRegistry {
 
     private func scan() async {
         let makeScanStore = makeScanStore
+        let logSink = logSink
         let outcome = await Task.detached(priority: .utility) { () -> ScanOutcome in
             do {
                 return ScanOutcome(result: try makeScanStore().scanInstalledPlugins(), error: nil)
             } catch {
+                logSink?.emit(PluginsScanFailed(error: error))
                 return ScanOutcome(result: nil, error: error.localizedDescription)
             }
         }.value
         guard let result = outcome.result else {
             // Keep the last known registrations rather than dropping them all
             // on a transient read failure.
-            logSink?.emit(PluginsScanFailed(error: NSError(domain: "plugins.scan", code: 1, userInfo: [NSLocalizedDescriptionKey: outcome.error ?? ""])))
             return
         }
         apply(result.packages)

@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Darwin
 import Foundation
 
@@ -9,6 +10,9 @@ final class MacRawProcessSession: RawProcessSession, @unchecked Sendable {
     var onError: (@Sendable (Data) -> Void)?
     var onTermination: (@Sendable (Int32) -> Void)?
     var onStateChange: (@Sendable (ProcessLifecycleEvent) -> Void)?
+
+    private let logSink: (any LogSink)?
+    init(logSink: (any LogSink)? = nil) { self.logSink = logSink }
 
     private var process: MacManagedProcess?
     private var inputPipe: Pipe?
@@ -97,9 +101,12 @@ final class MacRawProcessSession: RawProcessSession, @unchecked Sendable {
         self.errorPipe = errorPipe
         do {
             try process.run()
-            try? inputPipe?.fileHandleForReading.close()
-            try? outputPipe.fileHandleForWriting.close()
-            try? errorPipe.fileHandleForWriting.close()
+            do { try inputPipe?.fileHandleForReading.close() }
+            catch { logSink?.emit(RunProcessIoFailed(error: error, stage: "close", operationID: activeOperationID)) }
+            do { try outputPipe.fileHandleForWriting.close() }
+            catch { logSink?.emit(RunProcessIoFailed(error: error, stage: "close", operationID: activeOperationID)) }
+            do { try errorPipe.fileHandleForWriting.close() }
+            catch { logSink?.emit(RunProcessIoFailed(error: error, stage: "close", operationID: activeOperationID)) }
         } catch {
             closePipes()
             self.process = nil
@@ -159,12 +166,18 @@ final class MacRawProcessSession: RawProcessSession, @unchecked Sendable {
     }
 
     private func closePipes() {
-        try? inputPipe?.fileHandleForReading.close()
-        try? inputPipe?.fileHandleForWriting.close()
-        try? outputPipe?.fileHandleForReading.close()
-        try? outputPipe?.fileHandleForWriting.close()
-        try? errorPipe?.fileHandleForReading.close()
-        try? errorPipe?.fileHandleForWriting.close()
+        do { try inputPipe?.fileHandleForReading.close() }
+        catch { logSink?.emit(RunProcessIoFailed(error: error, stage: "close", operationID: activeOperationID)) }
+        do { try inputPipe?.fileHandleForWriting.close() }
+        catch { logSink?.emit(RunProcessIoFailed(error: error, stage: "close", operationID: activeOperationID)) }
+        do { try outputPipe?.fileHandleForReading.close() }
+        catch { logSink?.emit(RunProcessIoFailed(error: error, stage: "close", operationID: activeOperationID)) }
+        do { try outputPipe?.fileHandleForWriting.close() }
+        catch { logSink?.emit(RunProcessIoFailed(error: error, stage: "close", operationID: activeOperationID)) }
+        do { try errorPipe?.fileHandleForReading.close() }
+        catch { logSink?.emit(RunProcessIoFailed(error: error, stage: "close", operationID: activeOperationID)) }
+        do { try errorPipe?.fileHandleForWriting.close() }
+        catch { logSink?.emit(RunProcessIoFailed(error: error, stage: "close", operationID: activeOperationID)) }
         inputPipe = nil
         outputPipe = nil
         errorPipe = nil
@@ -177,6 +190,7 @@ final class MacRawProcessSession: RawProcessSession, @unchecked Sendable {
     ) {
         guard let milliseconds, milliseconds > 0 else { return }
         timeoutTask = Task { [weak self, weak process] in
+            // log-exempt: 用户取消：调用方取消采样或超时等待时结束任务
             try? await Task.sleep(for: .milliseconds(milliseconds))
             guard !Task.isCancelled,
                   let self,

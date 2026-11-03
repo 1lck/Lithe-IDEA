@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 
 /// macOS file access for Codex and Claude Code MCP configuration.
@@ -161,9 +162,10 @@ final class MacAgentMcpConfigurationStore: McpConfigurationStore {
     }
 
     private func applyPermissions(_ permissions: Int, to target: URL) {
-        try? fileManager.setAttributes(
+        do { try fileManager.setAttributes(
             [.posixPermissions: permissions], ofItemAtPath: target.path
-        )
+        ) }
+            catch { core.coreLogSink?.emit(AppStorageMaintenanceFailed(error: error, stage: "mcp-permissions")) }
     }
 
     func restore(_ change: McpConfigurationChange) throws {
@@ -355,9 +357,10 @@ final class MacAgentMcpConfigurationStore: McpConfigurationStore {
             try storage.createDirectory(at: directory, withIntermediateDirectories: true)
             let destination = directory.appendingPathComponent(target.lastPathComponent)
             try storage.copyItem(at: target, to: destination)
-            try? fileManager.setAttributes(
+            do { try fileManager.setAttributes(
                 [.posixPermissions: 0o600], ofItemAtPath: destination.path
-            )
+            ) }
+            catch { core.coreLogSink?.emit(AppStorageMaintenanceFailed(error: error, stage: "mcp-permissions")) }
             return destination
         } catch {
             throw McpConfigurationError.notWritable(target.path)

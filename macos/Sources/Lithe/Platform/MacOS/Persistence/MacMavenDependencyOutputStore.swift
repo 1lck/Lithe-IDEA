@@ -63,6 +63,7 @@ struct MacMavenDependencyOutputStore: MavenDependencyOutputStoring {
     private func removeIfPresent(_ fileURL: URL) throws {
         do {
             try FileManager.default.removeItem(at: fileURL)
+        // log-exempt: 预期的缺失：探测的可选文件或目录不存在，按未发现处理
         } catch CocoaError.fileNoSuchFile {
             return
         }

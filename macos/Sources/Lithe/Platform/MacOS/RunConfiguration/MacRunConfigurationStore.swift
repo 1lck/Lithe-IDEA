@@ -443,9 +443,12 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
         guard !settings.javaHomePath.isEmpty || !mavenExecutable.isEmpty || !settings.mavenJavaHomePath.isEmpty else { return }
         for id in configurationIDs {
             let legacyKey = "lithe.java-run-options.\(projectKey).\(id)"
-            var options = preferences.data(forKey: legacyKey)
-                .flatMap { try? JSONDecoder().decode(RunOptions.self, from: $0) }
-                ?? RunOptions()
+            var options: RunOptions
+            do { options = try preferences.data(forKey: legacyKey).map { try JSONDecoder().decode(RunOptions.self, from: $0) } ?? RunOptions() }
+            catch {
+                core.coreLogSink?.emit(AppStorageMaintenanceFailed(error: error, stage: "legacy-run-options"))
+                options = RunOptions()
+            }
             options.javaHomePath = settings.javaHomePath
             options.mavenExecutablePath = mavenExecutable
             options.mavenJavaHomePath = settings.mavenJavaHomePath

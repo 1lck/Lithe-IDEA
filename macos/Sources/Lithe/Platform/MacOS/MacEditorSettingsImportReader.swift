@@ -1,17 +1,18 @@
+import LitheModuleAPI
 import Foundation
 import CryptoKit
 import CoreFoundation
 
 /// Read-only, bounded configuration discovery. No launch, network, recursive home scan or source writes.
 enum MacEditorSettingsImportReader {
-    static func scan(directory: URL?) async throws -> [EditorSettingsImportSource] {
+    static func scan(directory: URL?, logSink: (any LogSink)? = nil) async throws -> [EditorSettingsImportSource] {
         let fonts = await MainActor.run { Set(MacEditorFontCatalog.editorFamilies()) }
         return try await Task.detached(priority: .userInitiated) {
-            try scan(home: FileManager.default.homeDirectoryForCurrentUser, directory: directory, fonts: fonts)
+            try scan(home: FileManager.default.homeDirectoryForCurrentUser, directory: directory, fonts: fonts, logSink: logSink)
         }.value
     }
 
-    static func scan(home: URL, directory: URL? = nil, fonts: Set<String>) throws -> [EditorSettingsImportSource] {
+    static func scan(home: URL, directory: URL? = nil, fonts: Set<String>, logSink: (any LogSink)? = nil) throws -> [EditorSettingsImportSource] {
         let fm = FileManager.default
         let support = home.appendingPathComponent("Library/Application Support")
         let products = [("Code", "VS Code"), ("Code - Insiders", "VS Code Insiders"), ("Cursor", "Cursor")]
@@ -54,7 +55,7 @@ enum MacEditorSettingsImportReader {
             let idea = fm.fileExists(atPath: root.appendingPathComponent("options").path)
             guard vscode || idea else { continue }
             var source = EditorSettingsImportSource(directory: root, title: title, revision: "", values: [:], warnings: [], isVSCode: vscode)
-            do { source = try read(root: root, title: title, vscode: vscode, fonts: fonts) }
+            do { source = try read(root: root, title: title, vscode: vscode, fonts: fonts, logSink: logSink) }
             catch { source.readFailed = true }
             source.isCursor = product?.0 == "Cursor"
             if source.isCursor || root.deletingLastPathComponent().lastPathComponent == "profiles" {
@@ -65,7 +66,7 @@ enum MacEditorSettingsImportReader {
         return result
     }
 
-    private static func read(root: URL, title: String, vscode: Bool, fonts: Set<String>) throws -> EditorSettingsImportSource {
+    private static func read(root: URL, title: String, vscode: Bool, fonts: Set<String>, logSink: (any LogSink)?) throws -> EditorSettingsImportSource {
         let fm = FileManager.default
         var files: [String: Data] = [:]
         var names = vscode ? ["settings.json", "keybindings.json"] : ["options/editor.xml", "options/editor-font.xml", "options/colors.scheme.xml", "options/laf.xml", "options/keymap.xml", "options/code.style.schemes.xml"]
@@ -99,7 +100,7 @@ enum MacEditorSettingsImportReader {
             let attributes = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
             guard attributes.isRegularFile == true, attributes.isSymbolicLink != true else { throw EditorSettingsImportError.read }
             let handle = try FileHandle(forReadingFrom: url)
-            defer { try? handle.close() }
+            defer { do { try handle.close() } catch { logSink?.emit(AppStorageMaintenanceFailed(error: error, stage: "file-close")) } }
             let data = try handle.read(upToCount: 1_048_577) ?? Data()
             guard data.count <= 1_048_576 else { throw EditorSettingsImportError.read }
             totalBytes += data.count

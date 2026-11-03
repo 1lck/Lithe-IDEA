@@ -123,6 +123,26 @@
       "owner": "Lithe"
     },
     {
+      "id": "editor.preview.update_failed",
+      "channel": "editor",
+      "level": "debug",
+      "message": "Preview {stage} update failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Preview update stage, such as markdown-javascript or download-replace"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Native WebKit or filesystem failure while applying the preview update"
+        }
+      },
+      "rate": 30,
+      "owner": "Lithe"
+    },
+    {
       "id": "editor.sync.edit_received",
       "channel": "editor",
       "level": "debug",

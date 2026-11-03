@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Darwin
 import Foundation
 
@@ -171,6 +172,7 @@ final class MacAgentProcessRegistry {
                 snapshot: snapshot
             )
         } catch {
+            instance.report(AppProcessJournalFailed(error: error, stage: "agent-inventory"))
             return ProcessInventory(items: [], plan: nil)
         }
     }

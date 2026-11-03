@@ -3,16 +3,18 @@ import LitheModuleAPI
 
 @MainActor
 final class MacLanguageExecutionHost: LanguageExecutionHostProviding {
+    private let logSink: (any LogSink)?
     private let processRegistry: ManagedProcessRegistry
 
-    init(processRegistry: ManagedProcessRegistry) {
+    init(processRegistry: ManagedProcessRegistry, logSink: (any LogSink)? = nil) {
+        self.logSink = logSink
         self.processRegistry = processRegistry
     }
 
     func makeSession(ownerModuleID: ModuleID) -> any LanguageExecutionSession {
         MacLanguageExecutionSession(process: MacStreamingProcess(
             processRegistry: processRegistry,
-            moduleID: ownerModuleID
+            moduleID: ownerModuleID, logSink: logSink
         ))
     }
 }

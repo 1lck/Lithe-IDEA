@@ -62,6 +62,7 @@ final class HTMLPreviewBrowserController: NSObject, ObservableObject {
     private var lastPayload: Payload?
     private var scrollRestoration: (x: Double, y: Double)?
     private var loadCount = 0
+    var logSink: (any LogSink)?
     private var processTerminations = 0
     /// Frames inside the page whose scroll bars follow the zoom.
     private var scrollbarFrames: [ScrollbarFrame] = []
@@ -554,7 +555,8 @@ extension HTMLPreviewBrowserController: WKDownloadDelegate {
         dialogs.chooseDownloadDestination(suggestedFilename: suggestedFilename, in: webView.window) { destination in
             // A destination that already exists must be replaced explicitly; WebKit refuses to overwrite.
             if let destination, FileManager.default.fileExists(atPath: destination.path) {
-                try? FileManager.default.removeItem(at: destination)
+                do { try FileManager.default.removeItem(at: destination) }
+                catch { self.logSink?.emit(EditorPreviewUpdateFailed(error: error, stage: "download-replace")) }
             }
             completionHandler(destination)
         }

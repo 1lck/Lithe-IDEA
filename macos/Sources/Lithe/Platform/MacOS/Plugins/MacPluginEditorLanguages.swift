@@ -115,7 +115,7 @@ final class MacPluginEditorLanguages: PluginEditorLanguageProviding {
                     message: "The grammar file is missing or larger than 256 KiB.", field: "grammar.path")
             }
             let handle = try FileHandle(forReadingFrom: url)
-            defer { try? handle.close() }
+            defer { do { try handle.close() } catch { logSink?.emit(PluginsResourcesMaintenanceFailed(error: error, stage: "file-close")) } }
             let bytes = try handle.read(upToCount: Self.maximumGrammarBytes + 1) ?? Data()
             guard bytes.count <= Self.maximumGrammarBytes,
                   let text = String(data: bytes, encoding: .utf8) else {

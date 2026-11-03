@@ -106,6 +106,7 @@ enum MacProcessSessionTerminator {
         let deadline = clock.now.advanced(by: timeout)
         var survivors = session.members()
         while !survivors.isEmpty, clock.now < deadline {
+            // log-exempt: 用户取消：调用方取消采样或超时等待时结束任务
             try? await Task.sleep(for: pollingInterval)
             survivors = session.members()
         }

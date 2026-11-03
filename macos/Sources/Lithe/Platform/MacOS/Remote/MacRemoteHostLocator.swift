@@ -8,6 +8,7 @@ import LitheModuleAPI
 /// where a public address is registered at ipinfo.io over HTTPS. Private
 /// and reserved addresses are answered locally and never sent.
 struct MacRemoteHostLocator: RemoteHostLocating {
+    var logSink: (any LogSink)? = nil
     private static let lookupTimeout: TimeInterval = 10
 
     func resolveAddress(of host: String) async -> String? {
@@ -46,6 +47,7 @@ struct MacRemoteHostLocator: RemoteHostLocating {
                 organization: answer.org, isPrivate: answer.bogon ?? false
             ))
         } catch {
+            logSink?.emit(RemoteSessionDiagnosticsFailed(error: error, stage: "host-location"))
             return .failure(RemoteProbeFailure(code: "lookupFailed", message: error.localizedDescription))
         }
     }

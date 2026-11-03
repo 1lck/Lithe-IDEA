@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Darwin
 import Foundation
 
@@ -226,8 +227,10 @@ struct MacProcessInstanceRecordStore: Sendable {
         try save(record)
     }
 
-    func remove(scope: String) {
-        try? FileManager.default.removeItem(at: url(for: scope))
+    func remove(scope: String, logSink: (any LogSink)? = nil) {
+        do { try FileManager.default.removeItem(at: url(for: scope)) }
+        catch let error as CocoaError where error.code == .fileNoSuchFile { /* Another sweep removed it. */ }
+        catch { logSink?.emit(AppProcessJournalFailed(error: error, stage: "remove")) }
     }
 
     /// Every readable record, oldest file first.

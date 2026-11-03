@@ -61,8 +61,13 @@ struct AppUpdateSource: Equatable, Sendable {
     }
 
     /// Reads the saved mirror. A missing or unusable value means the default.
-    static func saved(in defaults: UserDefaults, defaultFeed: URL) -> Self {
-        let custom = (defaults.string(forKey: preferenceKey)).flatMap { try? parseBase($0).get() }
+    static func saved(in defaults: UserDefaults, defaultFeed: URL, logSink: (any LogSink)? = nil) -> Self {
+        let custom: URL?
+        do { custom = try defaults.string(forKey: preferenceKey).map { try parseBase($0).get() } }
+        catch {
+            logSink?.emit(AppStorageMaintenanceFailed(error: error, stage: "update-source-setting"))
+            custom = nil
+        }
         return Self(defaultFeed: defaultFeed, customBase: custom == defaultFeed.deletingLastPathComponent() ? nil : custom)
     }
 
@@ -155,7 +160,7 @@ enum UpdateSourceProbeResult: Equatable, Sendable {
 
 enum UpdateSourceProbe {
     /// Fetches the source's appcast and confirms the newest archive is present.
-    static func run(_ source: AppUpdateSource, session: URLSession) async -> UpdateSourceProbeResult {
+    static func run(_ source: AppUpdateSource, session: URLSession, logSink: (any LogSink)? = nil) async -> UpdateSourceProbeResult {
         do {
             var request = URLRequest(url: source.feedURL, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 20)
             let (data, response) = try await session.data(for: request)
@@ -175,6 +180,7 @@ enum UpdateSourceProbe {
             if let failure = httpFailure(archiveResponse, host: source.host) { return .failed(failure) }
             return .reachable(version: latest.version)
         } catch {
+            logSink?.emit(UpdateSourceProbeFailed(error: error))
             return .failed(UpdateDownloadFailure(error)?.message(host: source.host)
                 ?? error.localizedDescription)
         }

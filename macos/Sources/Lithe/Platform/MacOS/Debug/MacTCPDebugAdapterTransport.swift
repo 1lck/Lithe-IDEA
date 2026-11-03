@@ -47,6 +47,7 @@ final class MacTCPDebugAdapterTransport: DebugAdapterDrainingTransport {
     private let resolveEndpoint: EndpointResolver
     private let makeSocket: @MainActor (DebugAdapterEndpoint) throws -> any DebugAdapterSocketConnection
     private let scheduler: any DebugOperationDeadlineScheduling
+    private let logSink: (any LogSink)?
     private let core: any DebugTransportLifecycleCore
     private let limits: Limits
     private var transportID = UUID().uuidString
@@ -76,6 +77,7 @@ final class MacTCPDebugAdapterTransport: DebugAdapterDrainingTransport {
     init(
         endpointResolver: @escaping EndpointResolver,
         core: any DebugTransportLifecycleCore,
+        logSink: (any LogSink)? = nil,
         connectionProvider: (any DebugAdapterConnectionProviding)? = nil,
         deadlineScheduler: (any DebugOperationDeadlineScheduling)? = nil,
         limits: Limits = Limits(),
@@ -85,6 +87,7 @@ final class MacTCPDebugAdapterTransport: DebugAdapterDrainingTransport {
         let provider = connectionProvider ?? DirectDebugAdapterConnectionProvider()
         makeSocket = socketFactory ?? { try provider.makeConnection(to: $0) }
         scheduler = deadlineScheduler ?? MacDebugOperationDeadlineScheduler()
+        self.logSink = logSink
         self.core = core
         self.limits = limits
     }
@@ -92,7 +95,8 @@ final class MacTCPDebugAdapterTransport: DebugAdapterDrainingTransport {
     isolated deinit {
         // Core's state for this transport goes with it; no event is needed.
         closeConnection()
-        try? core.releaseDebugTransport(transportID: transportID)
+        do { try core.releaseDebugTransport(transportID: transportID) }
+        catch { logSink?.emit(AppStorageMaintenanceFailed(error: error, stage: "debug-transport-release", operationID: transportID)) }
     }
 
     func start(rootURL: URL) throws {
@@ -306,7 +310,8 @@ final class MacTCPDebugAdapterTransport: DebugAdapterDrainingTransport {
         phase = .stopped
         generation &+= 1
         closeConnection()
-        try? core.releaseDebugTransport(transportID: transportID)
+        do { try core.releaseDebugTransport(transportID: transportID) }
+        catch { logSink?.emit(AppStorageMaintenanceFailed(error: error, stage: "debug-transport-release", operationID: transportID)) }
         // Releasing Core state resets its counters. Use a new registration so
         // old callbacks cannot match the replacement's generation or timer ids.
         transportID = UUID().uuidString

@@ -146,6 +146,27 @@ public struct AppLoggingRedirectFailed: LogEvent {
     }
 }
 
+public struct AppNativeOperationFailed: LogEvent {
+    public static let id = "app.native.operation_failed"
+    public static let level: LogLevel = .error
+    public static let messageTemplate = "Native {stage} operation failed"
+    public static let ratePerMinute = 60
+    public static let owner = "Lithe"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+
+    public init(`error`: any Error, `stage`: String, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.app, segments: [])
+        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["error"] = .error(`error`)
+        _logValues["stage"] = .token(`stage`)
+        self.fields = _logValues
+    }
+}
+
 public struct AppProcessJournalFailed: LogEvent {
     public static let id = "app.process.journal_failed"
     public static let level: LogLevel = .warn
@@ -315,6 +336,27 @@ public struct AppStorageCleanupFailed: LogEvent {
         self.channel = LogChannel(.app, segments: [])
         var _logValues: [String: LogFieldValue] = [:]
         _logValues["count"] = .int(`count`)
+        _logValues["error"] = .error(`error`)
+        _logValues["stage"] = .token(`stage`)
+        self.fields = _logValues
+    }
+}
+
+public struct AppStorageMaintenanceFailed: LogEvent {
+    public static let id = "app.storage.maintenance_failed"
+    public static let level: LogLevel = .warn
+    public static let messageTemplate = "Native storage {stage} failed"
+    public static let ratePerMinute = 60
+    public static let owner = "Lithe"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+
+    public init(`error`: any Error, `stage`: String, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.app, segments: [])
+        var _logValues: [String: LogFieldValue] = [:]
         _logValues["error"] = .error(`error`)
         _logValues["stage"] = .token(`stage`)
         self.fields = _logValues
@@ -523,6 +565,27 @@ public struct EditorDocumentWatchFailed: LogEvent {
         self.operationID = operationID
         self.channel = LogChannel(.editor, segments: [])
         var _logValues: [String: LogFieldValue] = [:]
+        _logValues["stage"] = .token(`stage`)
+        self.fields = _logValues
+    }
+}
+
+public struct EditorPreviewUpdateFailed: LogEvent {
+    public static let id = "editor.preview.update_failed"
+    public static let level: LogLevel = .debug
+    public static let messageTemplate = "Preview {stage} update failed"
+    public static let ratePerMinute = 30
+    public static let owner = "Lithe"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+
+    public init(`error`: any Error, `stage`: String, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.editor, segments: [])
+        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["error"] = .error(`error`)
         _logValues["stage"] = .token(`stage`)
         self.fields = _logValues
     }
@@ -2362,6 +2425,27 @@ public struct PluginsMigrationStateFailed: LogEvent {
     }
 }
 
+public struct PluginsResourcesMaintenanceFailed: LogEvent {
+    public static let id = "plugins.resources.maintenance_failed"
+    public static let level: LogLevel = .warn
+    public static let messageTemplate = "Plugin resource {stage} failed"
+    public static let ratePerMinute = 60
+    public static let owner = "Lithe"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+
+    public init(`error`: any Error, `stage`: String, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.plugins, segments: [])
+        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["error"] = .error(`error`)
+        _logValues["stage"] = .token(`stage`)
+        self.fields = _logValues
+    }
+}
+
 public struct PluginsScanFailed: LogEvent {
     public static let id = "plugins.scan.failed"
     public static let level: LogLevel = .warn
@@ -2657,6 +2741,27 @@ public struct RunProcessExecutionStarted: LogEvent {
     }
 }
 
+public struct RunProcessIoFailed: LogEvent {
+    public static let id = "run.process.io_failed"
+    public static let level: LogLevel = .warn
+    public static let messageTemplate = "Process pipe {stage} failed"
+    public static let ratePerMinute = 60
+    public static let owner = "Lithe"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+
+    public init(`error`: any Error, `stage`: String, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.run, segments: [])
+        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["error"] = .error(`error`)
+        _logValues["stage"] = .token(`stage`)
+        self.fields = _logValues
+    }
+}
+
 public struct TerminalRendererFallbackSelected: LogEvent {
     public static let id = "terminal.renderer.fallback_selected"
     public static let level: LogLevel = .warn
@@ -2777,6 +2882,26 @@ public struct UpdateRollbackPreparationFailed: LogEvent {
         _logValues["error"] = .error(`error`)
         if let value = `exitCode` { _logValues["exit_code"] = .int(value) }
         if let value = `stage` { _logValues["stage"] = .token(value) }
+        self.fields = _logValues
+    }
+}
+
+public struct UpdateSourceProbeFailed: LogEvent {
+    public static let id = "update.source.probe_failed"
+    public static let level: LogLevel = .error
+    public static let messageTemplate = "Update source probe failed"
+    public static let ratePerMinute = 60
+    public static let owner = "Lithe"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+
+    public init(`error`: any Error, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.update, segments: [])
+        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["error"] = .error(`error`)
         self.fields = _logValues
     }
 }

@@ -17,9 +17,11 @@ final class MacWorkbenchBackgroundPlatform: WorkbenchBackgroundPlatformProviding
         static let customImageAccess = "platform.macos.workbenchBackgroundImageAccess"
     }
 
+    private let logSink: (any LogSink)?
     private let store: any KeyValueStore
 
-    init(store: any KeyValueStore) {
+    init(store: any KeyValueStore, logSink: (any LogSink)? = nil) {
+        self.logSink = logSink
         self.store = store
     }
 
@@ -47,6 +49,7 @@ final class MacWorkbenchBackgroundPlatform: WorkbenchBackgroundPlatformProviding
             store.set(try JSONEncoder().encode(access), forKey: Key.customImageAccess)
             return .selected(displayName: access.displayName)
         } catch {
+            logSink?.emit(AppNativeOperationFailed(error: error, stage: "background-selection"))
             return .failed(message: "Could not save access to the selected background image.")
         }
     }
@@ -62,6 +65,7 @@ final class MacWorkbenchBackgroundPlatform: WorkbenchBackgroundPlatformProviding
         do {
             return Self.imageLoadResult(for: try Data(contentsOf: url))
         } catch {
+            logSink?.emit(AppStorageMaintenanceFailed(error: error, stage: "background-image"))
             return .temporarilyUnavailable(message: L10n.string("Could not read the selected built-in background."))
         }
     }
@@ -83,6 +87,7 @@ final class MacWorkbenchBackgroundPlatform: WorkbenchBackgroundPlatformProviding
                 bookmarkDataIsStale: &isStale
             )
         } catch {
+            logSink?.emit(AppStorageMaintenanceFailed(error: error, stage: "background-image"))
             // Bookmark resolution can fail while an external volume is offline
             // or the sandbox cannot currently reacquire access. Keep the user's
             // configuration and let Retry attempt resolution again.
@@ -98,6 +103,7 @@ final class MacWorkbenchBackgroundPlatform: WorkbenchBackgroundPlatformProviding
             if isStale, case .loaded = result { refreshCustomImageAccess(for: url) }
             return result
         } catch {
+            logSink?.emit(AppStorageMaintenanceFailed(error: error, stage: "background-image"))
             // A missing external volume and a temporary permission/I/O failure
             // cannot be distinguished reliably here; preserve the selection.
             return .temporarilyUnavailable(message: L10n.string("The selected background image is temporarily unavailable."))

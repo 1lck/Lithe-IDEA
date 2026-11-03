@@ -60,6 +60,7 @@ enum MacProcessTreePerformanceSampler {
                     previous = current
                     previousTime = now
                     do { try await Task.sleep(for: .seconds(1)) }
+                    // log-exempt: 用户取消：调用方取消采样或超时等待时结束任务
                     catch { break }
                 }
                 continuation.finish()
