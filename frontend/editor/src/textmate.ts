@@ -16,18 +16,23 @@ export interface TextMateResources {
 
 export type JavaTextMateResources = TextMateResources;
 
+/** An ownership change during async preparation is not a tokenizer failure. */
+export class TextMateInstallationCancelled extends Error {}
+
 export function installJavaTextMate(resourcesConfig: JavaTextMateResources = {}) {
   return installTextMate("java", "source.java", resourcesConfig);
 }
 
 /** A bundled grammar owns one registration and bounded background worker. */
-export async function installTextMate(language: string, scopeName: string, resourcesConfig: TextMateResources = {}) {
+export async function installTextMate(language: string, scopeName: string, resourcesConfig: TextMateResources = {},
+  canRegister: () => boolean = () => true) {
   const resources = await Promise.all([fetch(resourcesConfig.wasmURL ?? "onig.wasm"),
     fetch(resourcesConfig.grammarURL ?? `${language}.tmLanguage.json`),
     resourcesConfig.createWorker ? Promise.resolve(undefined) : fetch("textmate-worker.js")] as const);
   if (resources.some(resource => resource && !resource.ok)) throw new Error(`Tokenizer resources are unavailable: ${language}`);
   const [wasm, grammarText, workerSource] = await Promise.all([resources[0].arrayBuffer(), resources[1].text(), resources[2]?.text()]);
   const { registry, grammar } = await createTextMateGrammar(wasm, grammarText, scopeName);
+  if (!canRegister()) { registry.dispose(); throw new TextMateInstallationCancelled(); }
   const theme = StandaloneServices.get(IStandaloneThemeService);
   const languageID = StandaloneServices.get(ILanguageService).languageIdCodec.encodeLanguageId(language);
   let url: string | undefined;
@@ -54,6 +59,12 @@ export async function installTextMate(language: string, scopeName: string, resou
   });
   worker.postMessage({ type: "init", wasm, grammar: grammarText, scopeName });
   try { await ready; } catch (error) { worker.terminate(); revokeWorkerURL(); registry.dispose(); throw error; }
+  // No await may separate the final ownership check from registration. A plugin
+  // can take this language while resource fetches or worker startup are pending.
+  if (!canRegister()) {
+    worker.terminate(); revokeWorkerURL(); registry.dispose();
+    throw new TextMateInstallationCancelled();
+  }
   function encoded(tokens: any[], length: number, endOffsets: boolean) {
     const data = new Uint32Array(tokens.length * 2);
     for (let i = 0; i < tokens.length; i++) {

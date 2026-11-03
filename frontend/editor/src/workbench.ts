@@ -1090,9 +1090,12 @@ export function mountWorkbench(host: WorkbenchHost) {
         for (const [id, entry] of entries) {
           if (entry.filename === undefined || entry.model.isDisposed()) continue;
           const languageID = languageForFilename(entry.filename), language = editorLanguageID(languageID);
-          if (language === entry.model.getLanguageId() && languageID === entry.languageID || !(pluginIDs.has(language) || pluginIDs.has(entry.model.getLanguageId()))) continue;
+          if (!(pluginIDs.has(language) || pluginIDs.has(entry.model.getLanguageId()))) continue;
+          // A same-ID grammar can disappear before its builtin ever loaded.
+          // Restore the provider even when no model language transition is needed.
           await ensureMonacoLanguageTokenizer(language);
           if (entries.get(id) !== entry || entry.model.isDisposed()) continue;
+          if (language === entry.model.getLanguageId() && languageID === entry.languageID) continue;
           entry.contextGeneration++;
           entry.languageID = languageID;
           monaco.editor.setModelLanguage(entry.model, language);
