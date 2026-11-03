@@ -131,6 +131,7 @@ pub(crate) fn resolve_engine_log_subject(
 #[derive(Clone, Copy)]
 pub(super) enum EngineLog {
     ProcessStarted,
+    ProcessCleanupFailed,
     ProtocolInitialized,
     ConfigurationCleaned,
     ConfigurationCleanupFailed,
@@ -206,6 +207,7 @@ impl EngineLog {
 
     fn suffix(self) -> &'static str {
         match self {
+            Self::ProcessCleanupFailed => "process.cleanup_failed",
             Self::ProcessStarted => "process.started",
             Self::ProtocolInitialized => "protocol.initialized",
             Self::ConfigurationCleaned => "configuration.cleaned",
@@ -264,9 +266,10 @@ impl EngineLog {
                 );
                 copy(&mut fields, "truncated", &input, "truncated");
             }
-            Self::StderrReadFailed | Self::ConfigurationCleanupFailed | Self::MavenStartFailed => {
-                failure(&mut fields, code)
-            }
+            Self::ProcessCleanupFailed
+            | Self::StderrReadFailed
+            | Self::ConfigurationCleanupFailed
+            | Self::MavenStartFailed => failure(&mut fields, code),
             Self::MessageLogged | Self::MessageShown => {
                 copy(&mut fields, "diagnostic", &input, "diagnostic");
                 copy(&mut fields, "severity", &input, "severity");
@@ -714,6 +717,7 @@ mod tests {
                 EngineLog::TraceReceived,
                 EngineLog::NotificationReceived,
                 EngineLog::ProcessStarted,
+                EngineLog::ProcessCleanupFailed,
                 EngineLog::ProtocolInitialized,
                 EngineLog::ResponseSkipped,
                 EngineLog::ShutdownTimedOut,
@@ -724,6 +728,18 @@ mod tests {
                         .is_some()
                 );
             }
+        }
+        // Cleanup uses the same role-owned directory fields and never derives a
+        // catalog fact from legacy message/detail strings.
+        for role in [
+            SessionRole::LanguageServer,
+            SessionRole::Vcs,
+            SessionRole::Backend,
+        ] {
+            let identity = SessionLogIdentity::new(role, "java", Some("io.plugin"), Some("git"));
+            let (id, fields) = EngineLog::ProcessCleanupFailed.fact(&identity, &Value::Null, None);
+            crate::diagnostics::catalog::validate_fields(&id, &fields).unwrap();
+            assert_eq!(fields["error_code"], "operation_failed");
         }
         for (role, value) in [
             (SessionRole::LanguageServer, "c++"),

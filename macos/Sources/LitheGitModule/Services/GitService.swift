@@ -368,13 +368,16 @@ package struct GitService: Sendable {
     private let operations: any GitOperations
     private let historyCache = GitHistoryCache()
     private let performanceLogger: any GitPerformanceLogger
+    private let executionJournal: GitExecutionJournal?
 
     package init(
         operations: any GitOperations,
-        performanceLogger: any GitPerformanceLogger = NullGitPerformanceLogger()
+        performanceLogger: any GitPerformanceLogger = NullGitPerformanceLogger(),
+        executionJournal: GitExecutionJournal? = nil
     ) {
         self.operations = operations
         self.performanceLogger = performanceLogger
+        self.executionJournal = executionJournal
     }
 
     package struct CommandResult: Sendable {
@@ -391,6 +394,7 @@ package struct GitService: Sendable {
         package let branchDeletion: GitBranchDeletion?
         package let historyRewrite: GitHistoryRewriteResult?
         package let warnings: [GitOperationWarning]
+        package let logReference: LogRecordReference?
 
         package init(
             workingDirectory: URL? = nil,
@@ -405,7 +409,8 @@ package struct GitService: Sendable {
             tagDeletion: GitTagDeletion? = nil,
             branchDeletion: GitBranchDeletion? = nil,
             historyRewrite: GitHistoryRewriteResult? = nil,
-            warnings: [GitOperationWarning] = []
+            warnings: [GitOperationWarning] = [],
+            logReference: LogRecordReference? = nil
         ) {
             self.workingDirectory = workingDirectory
             self.arguments = arguments
@@ -420,6 +425,7 @@ package struct GitService: Sendable {
             self.branchDeletion = branchDeletion
             self.historyRewrite = historyRewrite
             self.warnings = warnings
+            self.logReference = logReference
         }
 
         package var succeeded: Bool {
@@ -1280,7 +1286,8 @@ package struct GitService: Sendable {
             tagDeletion: result?.tagDeletion,
             branchDeletion: result?.branchDeletion,
             historyRewrite: result?.historyRewrite,
-            warnings: result?.warnings ?? []
+            warnings: result?.warnings ?? [],
+            logReference: execution.flatMap { executionJournal?.takeFailureReference(operationID: $0.operationID) }
         )
         performanceLogger.emit(
             PerfGitCommandFinished(duration: .milliseconds(elapsedMilliseconds(since: startedAt)), operation: String(operationName.prefix(while: { $0 != "(" })), succeeded: commandResult.succeeded)
@@ -1293,7 +1300,8 @@ package struct GitService: Sendable {
     }
 
     func savedChangesSnapshot(stash: GitStash?, shelf: GitShelfEntry?, at root: URL) async -> Result<GitSavedChangesSnapshot, GitPatchFailure> {
-        await read { operations in
+        let performanceLogger = performanceLogger
+        return await read { operations in
             do {
                 var patches: [(String, String, String)] = []
                 let identity: String
@@ -1327,6 +1335,9 @@ package struct GitService: Sendable {
                 }
                 return .success(GitSavedChangesSnapshot(id: identity, repositoryRoot: root, files: files))
             } catch {
+                if !(error is CancellationError) {
+                    performanceLogger.emit(VcsShelfOperationFailed(error: LogFailure(domain: "GitSavedChanges", code: "load_failed"), stage: "load"))
+                }
                 return .failure(GitPatchFailure(error.localizedDescription))
             }
         } ?? .failure(GitPatchFailure("Could not load saved changes"))

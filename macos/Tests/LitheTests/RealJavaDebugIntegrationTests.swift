@@ -148,7 +148,7 @@ struct RealJavaDebugIntegrationTests {
         } catch {
             throw RealJavaDebugIntegrationError.languageToolingFailed(
                 message: String(describing: error),
-                logs: Self.languageServerLogSummary(languageManager.languageServerLogs)
+                logs: String(describing: languageManager.languageServerStates)
             )
         }
         // The dependency projection asks the same server for each project's
@@ -451,7 +451,7 @@ struct RealJavaDebugIntegrationTests {
         } catch {
             throw RealJavaDebugIntegrationError.languageToolingFailed(
                 message: String(describing: error),
-                logs: languageServerLogSummary(languageManager.languageServerLogs)
+                logs: String(describing: languageManager.languageServerStates)
             )
         }
         defer { prepared.stop() }
@@ -511,16 +511,6 @@ struct RealJavaDebugIntegrationTests {
         source.split(separator: "\n", omittingEmptySubsequences: false)
             .firstIndex { $0.contains(needle) }
             .map { $0 + 1 }
-    }
-
-    private static func languageServerLogSummary(
-        _ entries: [LanguageServerLogEntry]
-    ) -> String {
-        entries.reversed().map { entry in
-            [entry.level.rawValue, entry.message, entry.detail]
-                .compactMap { $0 }
-                .joined(separator: " | ")
-        }.joined(separator: "\n")
     }
 
     private static func debugSnapshot(

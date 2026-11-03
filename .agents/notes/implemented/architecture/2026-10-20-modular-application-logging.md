@@ -28,8 +28,8 @@ macOS 和 Windows 使用同一组模块分类、脱敏和筛选规则，文件�
 不得据此设计新的 v2 调用。
 
 本 Note 继续持有共享脱敏、确认时冻结导出、平台 I/O 所有权及 Windows v1 现状，
-因此仍放在 implemented，不整体归档。宿主接入、插件目录和独立窗口的未完成方案见
-[结构化日志宿主接入与独立窗口](../../proposed/architecture/2026-11-03-structured-logging-host-integration.md)。
+因此仍放在 implemented，不整体归档。macOS 的日志窗口与诊断导出见
+[应用级日志窗口与诊断导出](../feature/2026-11-03-structured-logging-log-window.md)。
 
 ### 共享规则，保留平台所有权
 
@@ -51,8 +51,8 @@ Rust Core 的 `diagnostics` 模块只处理传入的数据，不读写文件、�
 
 ### 双端现有日志与诊断入口（v1 现状）
 
-两端的用户入口都是“设置 → 工具 → 日志与诊断”。macOS 保留原来的 `Diagnostics`
-导航身份，Windows 保留 `logs`，只统一展示名称和搜索词；通用设置不再重复放日志。
+Windows 的用户入口是“设置 → 工具 → 日志与诊断”，导航身份为 `logs`；通用设置不再重复放日志。
+macOS 已删除这个设置页，改用独立日志窗口，见[结构化日志窗口](../feature/2026-11-03-structured-logging-log-window.md)。
 页面顺序统一为时间线、详细诊断、日志位置、保留与清理、诊断包。现有应用菜单的
 导出按钮继续作为快捷入口，不成为另一套导出流程。
 

@@ -866,6 +866,39 @@
       "sequences": [],
       "invalid": 0,
       "truncated": false
+    },
+    {
+      "name": "exact-level-set",
+      "request": {
+        "sources": [
+          {
+            "relativePath": "app.log",
+            "text": "2026-11-03T08:00:00.000Z DEBUG seq=1 event=app.trace msg=trace\n2026-11-03T08:00:01.000Z INFO seq=2 event=app.ready msg=ready\n2026-11-03T08:00:02.000Z ERROR seq=3 event=app.failed msg=failed\n"
+          }
+        ],
+        "levels": [
+          "DEBUG",
+          "ERROR"
+        ]
+      },
+      "messages": [
+        "trace",
+        "failed"
+      ],
+      "channels": [
+        "app",
+        "app"
+      ],
+      "events": [
+        "app.trace",
+        "app.failed"
+      ],
+      "sequences": [
+        1,
+        3
+      ],
+      "invalid": 0,
+      "truncated": false
     }
   ],
   "errorCodes": {
@@ -897,7 +930,11 @@
     "-32056": "unknownCatalogField",
     "-32057": "catalogLevelMismatch",
     "-32058": "invalidCollectionInventory",
-    "-32059": "coreEventOwnerMismatch"
+    "-32059": "coreEventOwnerMismatch",
+    "-32060": "invalidLogFilterExpression",
+    "-32061": "invalidHistogramBucketCount",
+    "-32062": "logCopyInputBudget",
+    "-32063": "noncanonicalRedactedLogRecord"
   },
   "catalogBatch": [
     {
@@ -1132,7 +1169,11 @@
           "maxBytes": 2097152
         }
       ],
-      "truncated": true
+      "truncated": true,
+      "estimatedBytes": 10485760,
+      "sessions": [
+        "2026-11-03T00-00-00_abcdef12"
+      ]
     },
     {
       "name": "update maps to application and plugin files stay opaque",
@@ -1160,7 +1201,11 @@
           "maxBytes": 10
         }
       ],
-      "truncated": false
+      "truncated": false,
+      "estimatedBytes": 10,
+      "sessions": [
+        "2026-11-03T00-00-00_abcdef12"
+      ]
     },
     {
       "name": "current and previous ignore unparseable and opaque files",
@@ -1193,7 +1238,322 @@
           "maxBytes": 50
         }
       ],
-      "truncated": false
+      "truncated": false,
+      "estimatedBytes": 50,
+      "sessions": [
+        "2026-11-02T00-00-00_12345678"
+      ]
+    }
+  ],
+  "windowCommands": [
+    {
+      "command": "diagnostics.parseLogFilter",
+      "request": {
+        "expression": "\"😀 a\" level>=WrN"
+      },
+      "expected": {
+        "terms": [
+          {
+            "kind": "text",
+            "value": "😀 a",
+            "negate": false,
+            "start": 0,
+            "end": 6
+          },
+          {
+            "kind": "level_at_least",
+            "value": "warn",
+            "negate": false,
+            "start": 7,
+            "end": 17
+          }
+        ],
+        "errors": []
+      }
+    },
+    {
+      "command": "diagnostics.parseLogFilter",
+      "request": {
+        "expression": "level:bad"
+      },
+      "expected": {
+        "terms": [],
+        "errors": [
+          {
+            "start": 0,
+            "end": 9,
+            "code": "invalidLevel",
+            "message": "Unknown log severity"
+          }
+        ]
+      }
+    },
+    {
+      "command": "diagnostics.composeLogFilter",
+      "request": {
+        "expression": "event:old foo",
+        "term": {
+          "kind": "event",
+          "value": "app.failed",
+          "negate": false
+        }
+      },
+      "expected": {
+        "expression": "event:app.failed foo"
+      }
+    },
+    {
+      "command": "diagnostics.composeLogFilter",
+      "request": {
+        "expression": "",
+        "term": {
+          "kind": "level",
+          "value": "bad",
+          "negate": false
+        }
+      },
+      "code": -32060
+    },
+    {
+      "command": "diagnostics.formatLogRecords",
+      "request": {
+        "lines": [
+          "2026-11-03T00:00:00.000Z WARN seq=1 event=app.failed msg=failed"
+        ],
+        "format": "markdown"
+      },
+      "expected": {
+        "text": "**Lithe**\n\n```ndjson\n2026-11-03T00:00:00.000Z WARN seq=1 event=app.failed msg=failed\n```\n"
+      }
+    },
+    {
+      "command": "diagnostics.formatLogRecords",
+      "request": {
+        "lines": [
+          "2026-11-03T00:00:00.000Z WARN seq=1 event=app.failed msg=failed token=unsafe"
+        ],
+        "format": "json"
+      },
+      "code": -32063
+    },
+    {
+      "command": "diagnostics.queryLogsV2",
+      "request": {
+        "expression": "/[/ "
+      },
+      "code": -32060
+    },
+    {
+      "command": "diagnostics.queryLogsV2",
+      "request": {
+        "histogramBuckets": 0
+      },
+      "code": -32061
+    },
+    {
+      "command": "diagnostics.formatLogRecords",
+      "request": {
+        "lines": [
+          "2026-11-03T00:00:00.000Z WARN seq=1 event=app.failed msg=failed"
+        ],
+        "format": "json"
+      },
+      "expected": {
+        "text": "{\n  \"ts\": \"2026-11-03T00:00:00.000Z\",\n  \"level\": \"WARN\",\n  \"seq\": 1,\n  \"event\": \"app.failed\",\n  \"msg\": \"failed\",\n  \"fields\": {}\n}"
+      }
+    },
+    {
+      "command": "diagnostics.planLogCollection",
+      "request": {
+        "files": [],
+        "currentSession": "",
+        "session": "all",
+        "recentSessions": 2,
+        "since": "2026-11-03T00:00:00Z"
+      },
+      "expected": {
+        "reads": [],
+        "truncated": false,
+        "estimatedBytes": 0,
+        "sessions": []
+      }
+    },
+    {
+      "command": "diagnostics.buildManifest",
+      "request": {
+        "environment": {
+          "appVersion": "1",
+          "osName": "macOS",
+          "osVersion": "27",
+          "cpuCoreCount": 1,
+          "memoryRssBytes": 0,
+          "diskFreeBytes": 0
+        },
+        "files": [],
+        "generatedAtEpochMilliseconds": 0
+      },
+      "expected": {
+        "schemaVersion": 1,
+        "generatedAtEpochMilliseconds": 0,
+        "redaction": "core-v2",
+        "environment": {
+          "appVersion": "1",
+          "osName": "macOS",
+          "osVersion": "27",
+          "cpuCoreCount": 1,
+          "memoryRssBytes": 0,
+          "diskFreeBytes": 0
+        },
+        "files": []
+      }
+    },
+    {
+      "command": "diagnostics.formatLogRecords",
+      "request": {
+        "lines": [],
+        "format": "json"
+      },
+      "repeatLine": "2026-11-03T00:00:00.000Z WARN seq=1 event=app.failed msg=failed",
+      "repeatCount": 10001,
+      "code": -32062
+    },
+    {
+      "command": "diagnostics.queryLogsV2",
+      "request": {
+        "sources": [
+          {
+            "relativePath": "app.log",
+            "text": "2026-11-03T00:00:00.000Z WARN seq=1 event=app.failed op=one msg=failed"
+          }
+        ],
+        "op": "one",
+        "histogramBuckets": 1,
+        "expression": "level>=info"
+      },
+      "expected": {
+        "records": [
+          {
+            "line": "2026-11-03T00:00:00.000Z WARN seq=1 event=app.failed op=one msg=failed",
+            "channel": "app",
+            "relativePath": "app.log",
+            "lineNumber": 1,
+            "foldKey": "c4d60ef213ff7102",
+            "epochMs": 1793664000000,
+            "opOffsetMs": 0,
+            "ts": "2026-11-03T00:00:00.000Z",
+            "level": "WARN",
+            "seq": 1,
+            "event": "app.failed",
+            "op": "one",
+            "msg": "failed",
+            "fields": {}
+          }
+        ],
+        "channelCounts": {
+          "app": {
+            "warn": 1,
+            "error": 0
+          }
+        },
+        "truncated": false,
+        "skippedInvalidLines": 0,
+        "foldMinimumRun": 3,
+        "channels": {
+          "app": {
+            "total": 1,
+            "warn": 1,
+            "error": 0
+          }
+        },
+        "histogram": {
+          "startEpochMs": 1793664000000,
+          "endEpochMs": 1793664000001,
+          "bucketMs": 1,
+          "buckets": [
+            {
+              "debug": 0,
+              "info": 0,
+              "warn": 1,
+              "error": 0
+            }
+          ]
+        },
+        "opSummary": {
+          "op": "one",
+          "count": 1,
+          "firstEpochMs": 1793664000000,
+          "lastEpochMs": 1793664000000,
+          "durationMs": 0
+        },
+        "sessionSequences": {
+          "": 1
+        }
+      }
+    },
+    {
+      "name": "session watermark",
+      "command": "diagnostics.queryLogsV2",
+      "request": {
+        "sources": [
+          {
+            "relativePath": "sessions/2026-11-03T00-00-00_12345678/app.log",
+            "text": "2026-11-03T00:00:01.000Z INFO seq=2 event=app.ready msg=ready"
+          }
+        ],
+        "afterSequences": {
+          "2026-11-03T00-00-00_12345678": 2
+        }
+      },
+      "expected": {
+        "records": [],
+        "channelCounts": {},
+        "truncated": false,
+        "skippedInvalidLines": 0,
+        "foldMinimumRun": 3,
+        "channels": {
+          "app": {
+            "total": 1,
+            "warn": 0,
+            "error": 0
+          }
+        },
+        "histogram": null,
+        "sessionSequences": {
+          "2026-11-03T00-00-00_12345678": 2
+        }
+      }
+    },
+    {
+      "name": "disjoint export range",
+      "command": "diagnostics.queryLogsV2",
+      "request": {
+        "sources": [
+          {
+            "relativePath": "sessions/2026-11-03T00-00-00_12345678/app.log",
+            "text": "2026-11-03T00:00:01.000Z INFO seq=2 event=app.ready msg=ready"
+          }
+        ],
+        "since": "2026-11-03T00:00:02Z",
+        "filterUntil": "2026-11-03T00:00:01Z"
+      },
+      "expected": {
+        "records": [],
+        "channelCounts": {},
+        "truncated": false,
+        "skippedInvalidLines": 0,
+        "foldMinimumRun": 3,
+        "channels": {
+          "app": {
+            "total": 1,
+            "warn": 0,
+            "error": 0
+          }
+        },
+        "histogram": null,
+        "sessionSequences": {
+          "2026-11-03T00-00-00_12345678": 2
+        }
+      }
     }
   ]
 }

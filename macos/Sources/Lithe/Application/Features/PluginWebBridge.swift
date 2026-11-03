@@ -725,6 +725,7 @@ final class PluginWebBridge {
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 let timeout = Task { @MainActor [weak self, requestTimeout] in
+                    // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
                     do { try await Task.sleep(for: requestTimeout) } catch { return }
                     self?.finishWaiter(id, completed: false)
                 }

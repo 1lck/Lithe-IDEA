@@ -161,7 +161,12 @@ public final class ModuleRuntime: ModuleCapabilityResolver, ModuleEventPublishin
     private func cancelActivation(_ id: ModuleID) async {
         guard let activation = activationTasks[id] else { return }
         activation.task.cancel()
-        _ = try? await activation.task.value
+        do { _ = try await activation.task.value }
+        catch is CancellationError {
+            // log-exempt: 用户取消：停止激活后等待其取消完成
+        } catch {
+            logSink?.emit(AppModuleTransitionFailed(error: error, module: id.rawValue, stage: "cancel-activation"))
+        }
         if activationTasks[id]?.token == activation.token { activationTasks.removeValue(forKey: id) }
     }
 
@@ -415,7 +420,10 @@ public final class ModuleRuntime: ModuleCapabilityResolver, ModuleEventPublishin
     }
 
     public func shutdown(_ id: ModuleID) async throws {
-        while let sleep = sleepTasks[id] { _ = try? await sleep.value }
+        while let sleep = sleepTasks[id] {
+            do { try await sleep.value }
+            catch { logSink?.emit(AppModuleTransitionFailed(error: error, module: id.rawValue, stage: "shutdown-wait")) }
+        }
         if let shutdown = shutdownTasks[id] { return try await shutdown.value }
         let shutdown = Task { @MainActor in
             defer { self.shutdownTasks.removeValue(forKey: id) }
@@ -451,7 +459,8 @@ public final class ModuleRuntime: ModuleCapabilityResolver, ModuleEventPublishin
 
     public func shutdownAll() async {
         for id in entries.keys.sorted().reversed() {
-            try? await shutdown(id)
+            do { try await shutdown(id) }
+            catch { logSink?.emit(AppModuleTransitionFailed(error: error, module: id.rawValue, stage: "shutdown")) }
         }
     }
 
@@ -463,7 +472,8 @@ public final class ModuleRuntime: ModuleCapabilityResolver, ModuleEventPublishin
                   entry.resources.activeLeaseReasons.isEmpty,
                   let lastActivity = entry.resources.lastActivityAt,
                   now.timeIntervalSince(lastActivity) >= interval else { continue }
-            try? await sleep(id)
+            do { try await sleep(id) }
+            catch { logSink?.emit(AppModuleTransitionFailed(error: error, module: id.rawValue, stage: "sleep")) }
         }
     }
 
@@ -482,7 +492,13 @@ public final class ModuleRuntime: ModuleCapabilityResolver, ModuleEventPublishin
     }
 
     public func snapshots() -> [ModuleSnapshot] {
-        entries.keys.sorted().compactMap { try? snapshot(for: $0) }
+        entries.keys.sorted().compactMap { id in
+            do { return try snapshot(for: id) }
+            catch {
+                logSink?.emit(AppModuleTransitionFailed(error: error, module: id.rawValue, stage: "snapshot"))
+                return nil
+            }
+        }
     }
 
     public func capability(_ id: ModuleCapabilityID) -> AnyObject? {

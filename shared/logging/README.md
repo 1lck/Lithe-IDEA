@@ -74,11 +74,16 @@ span.finish(exitCode: 0)
 
 Rust 通过静态 `EVENTS`（按 ID 排序）和二分查找 `event_by_id` 暴露元数据，不分配运行时目录缓存。生成表使用路径子模块载入：Rust `include!` 无法接受仓库注释门禁要求的首行 `//!`，子模块兼容该门禁，无需豁免或放宽检查。
 
-## 用法门禁与存量
+## 用法门禁
 
-扫描生产 Swift 的 `NSLog`、stderr 写入、`os_log`、导入 `os.log` 后的 `Logger` 和 `.record(level:)`；扫描 Rust 的 `eprintln!`、`println!`、`dbg!`。词法遮蔽注释和字符串内容，排除 `Tests/`、`tests/`、`tests.rs` 及明确 `#[cfg(test)]` 项。此门禁检查已列出的直接写法，不试图跨文件追踪别名或动态调用。
+门禁扫描 `macos/Sources`、`rust/lithe-core/src`、`rust/lithe-agent-host/src`、`rust/lithe-git-host/src`、`rust/lithe-ide-host/src` 和 `rust/lithe-remote/src`。排除 `rust/lithe-remote/src/server/`、`rust/lithe-remote/src/bin/` 和 `rust/lithe-ide-host/src/bin/`：它们在远端主机或独立进程运行，stderr 由宿主进程处理，后续单独迁移。
 
-`log-usage-baseline.json` 按文件、规则精确计数，PR3 Core 已清零 Rust 存量；非 LSP 事实通过 256 条的 Core 队列交给宿主。`log-usage-allowlist.json` 是永久例外，必须有具体的协议/架构理由和精确计数；当前为空，macOS Swift 基线已清零。禁止把新违规追加到基线来通过检查。机器性能标记迁移时需同步其消费者，不能直接删除测试依赖的协议输出。
+门禁分两类规则，都只扫描生产代码：词法遮蔽注释和字符串内容，排除 `Tests/`、`tests/`、`tests.rs`、文件名以 `_tests.rs` 结尾的 Rust 文件及明确 `#[cfg(test)]` 或 `#[cfg(all(test, …))]` 项；只检查列出的直接写法，不跨文件追踪别名或动态调用。
+
+- 绕过日志：Swift 的 `NSLog`、stderr 写入、`os_log`、导入 `os.log` 后的 `Logger`、`.record(level:)`、`print`/`debugPrint`；Rust 的 `eprintln!`、`println!`、`dbg!`。这些写法不经过目录和脱敏，只能改成生成事件；确属机器协议时进 `log-usage-allowlist.json`。这类写法没有存量；Rust 的非 LSP 事实通过 256 条的 Core 队列交给宿主。
+- 吞掉失败：Swift 语句级 `try?`（含 `_ = try?`）、块体只有 `return`/`break`/`continue` 的 `catch`；Rust 语句级 `.ok();` 和 `let _ = …;`。失败要么处理并记录事件，要么在同一行或上一行写 `// log-exempt: <原因>`。原因至少 3 个非空白字符，必须属于日志参考页的四类封闭例外；空原因本身报错。标记只对这四条规则生效，不能豁免绕过日志的写法。
+
+没有存量额度：门禁引入时的全部存量已经迁移完毕，任何不在 allowlist 里的违规都直接失败，必须改成记录事件，或者在属于四类例外时写豁免标记。`log-usage-allowlist.json` 只接受绕过日志的规则，用于确属机器协议的永久例外，必须有具体的协议或架构理由和精确计数；丢弃失败的规则不能进 allowlist。计数低于实际出现次数时同样失败，防止空出来的名额被新写法占用。当前 allowlist 为空。机器性能标记迁移时需同步其消费者，不能直接删除测试依赖的协议输出。
 
 CI 的 Draft PR 只跑 Linux，ready PR 和 preview push 跑三平台。输入和已提交生成物均由 Git 持有，每个 worktree 本地重建、检查；没有跨工作树可复用 identity stamp，不复制其他工作树的生成物。这些类型无运行时 I/O、不写 app bundle、插件资源或安装目录，不影响签名与 Sparkle delta。
 
@@ -88,7 +93,7 @@ PR3 引擎采用按角色事件族：`lsp.*` 使用 `lsp/{server}`，`vcs.*` 使
 
 PR3 macOS 将 CoreLogRecord 原样交给统一 LogSink/MacLogStore，按现有 drain、flush 和退出节奏一次排空 Core 队列，保留 ts/op、分配 seq，并继续 validateCatalog:true；不新增空闲轮询或独立 writer。启动者显式声明 role、真实 pluginId 与 VCS logSubject；宿主不解析 providerID。详细诊断类别沿用 lsp→language、vcs→git、plugins→plugins，对活动和新会话发送 lsp.setDetailedDiagnostics，15 分钟单次到期关闭，失败以 app.logging.diagnostics_failed 记录一次。
 
-v1 detail/message/level 保持兼容原文，v2 字段通过独立 EngineLogInput 传递，禁止从 detail 反解。stderr 唯一兼容变化是从任意 trim 的读取块改为逐行文本；保留行内空格、移除 LF/末尾 CR，并应用已声明的有界长度和限流。原始通知 JSON、projectCount=N 和 navigation 格式不变。LanguageToolingSessionManager 的 100 条 v1 内存缓冲继续供旧日志视图使用，到 PR4 再删除，不写 v1 文件。
+v1 detail/message/level 保持兼容原文，v2 字段通过独立 EngineLogInput 传递，禁止从 detail 反解。stderr 唯一兼容变化是从任意 trim 的读取块改为逐行文本；保留行内空格、移除 LF/末尾 CR，并应用已声明的有界长度和限流。原始通知 JSON、projectCount=N 和 navigation 格式不变。PR4 已删除 LanguageToolingSessionManager 的 100 条 v1 内存缓冲和旧语言服务日志标签页；macOS 日志窗口统一读取 v2 会话文件与写入器的实时批次，不写 v1 文件。
 
 本地启动前由 MacLogStore 用 Core plugin_files_path 创建当前 sessions/<session>/plugins/<id>/files/，目录 0700，描述符相对 no-follow 遍历防止符号链接越界；只属于当前日志会话，不注册为跨工作树可复用构建资源，不写 bundle 或安装目录。存储不可用时不传 logDirectory，使用 ${logDir} 的模板按现有 invalidRequest 失败。远程进程不能写本机日志目录，因此同样不传并拒绝该变量。安装验证只使用未创建的占位目录校验展开，不启动或写入。
 
@@ -97,3 +102,7 @@ v1 detail/message/level 保持兼容原文，v2 字段通过独立 EngineLogInpu
 PR3 审查修补：Core 生命周期事实挂在原有 `type:stateChanged` 运行时事件上，复用日志事实的 `prepare_catalog_event` 校验，不额外增加 v1 log 行。Swift 在事件分支前转发任何携带 coreLog 的事件一次，语言服务、VCS、构建、工具链和后端均适用。`*.session.updated` 的 state 指 Core 会话生命周期，owner 仍是 lithe-core。
 
 宿主在实际调用点发 `lsp.session.stage_changed`，阶段闭集为 requested/resolving/registered/stopping/cancelled；缓存清理成功发 `lsp.cache.cleaned(removed)`，与 Core 配置键清理的 configuration.cleaned 是不同事实。两者选 DEBUG，因为它们解释内部启动编排和缓存维护，不需要常态落盘。ready/terminated 由 Core 的 protocol.initialized 和 session.updated 表达，宿主仅保留原 v1 缓冲行。阶段、缓存、degradation/issue 事件统一使用 Core 计算的段；manager 按 providerID 缓存成功或失败结果，最多 128 项，满时清空缓存，失败仅跳过对应宿主 v2 事件，不改变原行为。
+
+四个链接进 Core 的辅助库通过各自的 `failure_log` 注入函数指针交付失败事实，依赖方向保持不变；未注入时只增加原子计数，不写 stderr。Core 的 `diagnostics/helper_failures` 是唯一安装处，JSON dispatcher、独立 ACP FFI open、直接 IDE dispatcher 和 AskPass 入口在调用 helper 前统一经过该 `Once`。sink 仅转换标量字段，随后走相同目录校验、脱敏和 256 条 Core 队列。新增事件 owner 均为 `lithe-core`，错误只保留固定摘要和类别。转发 accept/bridge 失败的目录 rate 为每分钟 12 条。
+
+辅助库收尾只记录丢失数据、能力或清理结果的意外错误。已断开的连接、已退出进程和远程关闭/取消的 Disconnected 或 Timeout 在类型化 helper 中豁免；ACP Cancel 的 InternalError 无法区分正常断连与序列化失败，按预期缺失豁免。转发 accept/bridge 的 rate=12 只限制仍需记录的失败，正常断连不占日志配额；强制终止后进程仍未退出的最终超时保留 WARN。

@@ -36,6 +36,7 @@ final class MacPluginDebugAdapterTransport: DebugAdapterDrainingTransport {
     private let findCommand: @MainActor ([String]) -> URL?
     private let startHostedPort: HostedPortStarter
     private let socketFactory: @MainActor (String, UInt16) -> any DebugAdapterSocketConnection
+    private let logSink: (any LogSink)?
     private var transport: (any DebugAdapterTransport)?
 
     var onData: ((Data) -> Void)?
@@ -47,6 +48,7 @@ final class MacPluginDebugAdapterTransport: DebugAdapterDrainingTransport {
         resolve: @escaping @MainActor (URL) throws -> MacPluginLanguageServerLaunchResolver.DebugAdapterLaunch,
         makeProcess: @escaping @MainActor () -> any RawProcessSession,
         core: any DebugTransportLifecycleCore,
+        logSink: (any LogSink)? = nil,
         findCommand: @escaping @MainActor ([String]) -> URL? = { _ in nil },
         startHostedPort: @escaping HostedPortStarter = { _, _, _ in
             throw MacHostedPortDebugAdapterTransport.TransportError.languageIntelligenceUnavailable
@@ -60,6 +62,7 @@ final class MacPluginDebugAdapterTransport: DebugAdapterDrainingTransport {
         self.resolve = resolve
         self.makeProcess = makeProcess
         self.core = core
+        self.logSink = logSink
         self.startHostedPort = startHostedPort
         self.socketFactory = socketFactory
     }
@@ -76,6 +79,7 @@ final class MacPluginDebugAdapterTransport: DebugAdapterDrainingTransport {
             transport = MacHostedPortDebugAdapterTransport(
                 portResolver: { rootURL in try await startHostedPort(languageID, command, rootURL) },
                 core: core,
+                logSink: logSink,
                 socketFactory: socketFactory
             )
         }

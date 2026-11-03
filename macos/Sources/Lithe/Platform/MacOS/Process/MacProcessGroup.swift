@@ -22,6 +22,7 @@ final class MacProcessGroup: @unchecked Sendable {
     ) -> Task<Bool, Never> {
         signal(SIGTERM)
         return Task { [self] in
+            // log-exempt: 用户取消：调用方取消采样或超时等待时结束任务
             try? await Task.sleep(for: gracePeriod)
             if hasRunningProcesses {
                 signal(SIGKILL)
@@ -72,6 +73,7 @@ final class MacProcessGroup: @unchecked Sendable {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: timeout)
         while hasRunningProcesses, clock.now < deadline {
+            // log-exempt: 用户取消：调用方取消采样或超时等待时结束任务
             try? await Task.sleep(for: Self.pollingInterval)
         }
         return !hasRunningProcesses

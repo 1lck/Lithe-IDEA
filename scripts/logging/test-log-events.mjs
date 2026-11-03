@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, cp, rm, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, cp, rm, readFile, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { ROOT, GENERIC_DESCRIPTIONS, generate, validateCatalog, loadCatalog, planGeneration } from './generate-log-events.mjs';
-import { scanSource, compareUsage, verify } from './verify-log-usage.mjs';
+import { scanSource, scanRepository, compareUsage, verify } from './verify-log-usage.mjs';
 
 const event = () => ({ id: 'app.test.finished', channel: 'app', level: 'info', message: 'Test finished', owner: 'lithe-core', fields: {} });
 const catalog = e => [{ version: 1, root: 'app', events: [e] }];
@@ -123,17 +123,17 @@ test('usage scanner ignores comments, literal contents and bounded cfg(test) ite
   assert.equal(scanSource('rust/lithe-core/src/tests.rs', rust).length, 0);
 });
 
-test('usage baseline forbids growth and requires tightening after migration', { timeout: 1000 }, () => {
+test('usage gate has no stock quota and allowlist counts stay exact', { timeout: 1000 }, () => {
   const violation = { file: 'macos/Sources/Example.swift', rule: 'swift.nslog', line: 3 };
   const empty = { version: 1, entries: [] };
-  const baseline = { version: 1, entries: [{ file: violation.file, rule: violation.rule, count: 1, reason: '待 PR2/PR3 迁移' }] };
-  assert.deepEqual(compareUsage([violation], empty, baseline), []);
-  assert.match(compareUsage([violation, violation], empty, baseline).join('\n'), /Example.swift:3.*emit a generated/);
-  assert.match(compareUsage([], empty, baseline).join('\n'), /tighten baseline/);
-  assert.match(compareUsage([violation], empty, empty).join('\n'), /exceed baseline 0/);
+  const allowlist = { version: 1, entries: [{ file: violation.file, rule: violation.rule, count: 1, reason: 'Machine-read protocol line consumed by the test runner' }] };
+  assert.match(compareUsage([violation], empty).join('\n'), /Example.swift:3.*emit a generated/);
+  assert.deepEqual(compareUsage([violation], allowlist), []);
+  assert.match(compareUsage([violation, violation], allowlist).join('\n'), /exceed allowlist 1/);
+  assert.match(compareUsage([], allowlist).join('\n'), /lower the allowlist count/);
 });
 
-test('checked-in catalog and baseline agree with current sources', { timeout: 15000 }, async () => {
+test('checked-in catalog and log usage agree with current sources', { timeout: 15000 }, async () => {
   const contract = await loadCatalog();
   assert.ok(contract.events.length > 0);
   await generate(ROOT, true);
@@ -153,4 +153,80 @@ test('macOS performance events preserve numeric evidence without raw payloads', 
   const git = events.find(event => event.id === 'perf.git.command_finished');
   assert.equal(Object.hasOwn(git.fields, 'arguments'), false);
   assert.equal(Object.hasOwn(git.fields, 'output'), false);
+});
+
+test('failure usage rules distinguish discarded statements from expressions', { timeout: 1000 }, () => {
+  const file = 'macos/Sources/Example.swift';
+  const positives = ['try? work()', '_ = try? work()', 'defer { try? work() }', 'x(); try? work()', 'catch { return }', 'catch {\n return nil\n}', 'catch let error {\n break\n}', 'catch { continue }', 'print(1)', 'debugPrint(1)'];
+  const expected = ['swift.discarded-try', 'swift.discarded-try', 'swift.discarded-try', 'swift.discarded-try', 'swift.catch-exit', 'swift.catch-exit', 'swift.catch-exit', 'swift.catch-exit', 'swift.print', 'swift.print'];
+  positives.forEach((s, i) => assert.deepEqual(scanSource(file, s).map(v => v.rule), [expected[i]], s));
+  for (const s of ['let x = try? work()', 'if let x = try? work() {}', 'guard let x = try? work() else {}', 'return try? work()', 'call(try? work())', 'call(\n try? work()\n)', 'let a = [\n try? work()\n]', 'let x = "try? work(); print(1)"', '// try? work()', '/* catch { return } */', 'catch { log(error); return }', 'catch { return nil\n x = 1\n}', 'catch {\nreturn nil\nprint(1)\n}']) {
+    assert.equal(scanSource(file, s).filter(v => v.rule !== 'swift.print').length, 0, s);
+  }
+  const rust = 'rust/lithe-core/src/example.rs';
+  assert.deepEqual(scanSource(rust, 'fn f() { work().ok(); let _ = tx.send(1); }').map(v => v.rule), ['rust.discarded-ok', 'rust.let-underscore']);
+  for (const s of ['let x = work().ok();', 'return work().ok();', '// let _ = work();', 'let s = "work().ok();";', '#[cfg(test)] mod tests { let _ = work(); work().ok(); }']) assert.deepEqual(scanSource(rust, s), [], s);
+});
+
+test('Rust test file exclusion requires a complete tests suffix', { timeout: 1000 }, () => {
+  const source = 'fn f() { let _ = work(); }';
+  for (const file of ['tests.rs', 'rust/lithe-core/src/tests.rs', 'rust/lithe-core/src/remote/sessions_integration_tests.rs']) {
+    assert.deepEqual(scanSource(file, source), [], file);
+  }
+  for (const file of ['rust/lithe-core/src/contests.rs', 'rust/lithe-core/src/tests_helper.rs', 'rust/lithe-core/src/test.rs']) {
+    assert.deepEqual(scanSource(file, source).map(v => v.rule), ['rust.let-underscore'], file);
+  }
+});
+
+test('line exemptions require an active comment and a nonempty concrete reason', { timeout: 1000 }, () => {
+  const file = 'macos/Sources/Example.swift';
+  for (const s of ['try? work() // log-exempt: best effort cleanup', '// log-exempt: best effort cleanup\ntry? work()']) assert.deepEqual(scanSource(file, s), []);
+  for (const s of ['// log-exempt: \ntry? work()', 'try? work() // log-exempt: a b']) assert.ok(scanSource(file, s).some(v => v.rule === 'usage.invalid-exemption'));
+  for (const s of ['let s = "// log-exempt: ignored"\ntry? work()', '/* // log-exempt: ignored */\ntry? work()', '// log-exempt: cleanup\n\ntry? work()']) assert.ok(scanSource(file, s).some(v => v.rule === 'swift.discarded-try'));
+  assert.deepEqual(scanSource('rust/lithe-core/src/example.rs', '#[cfg(test)] mod tests {\n// log-exempt: \nlet _ = work();\n}'), []);
+  assert.equal(scanSource(file, '// log-exempt: \n// log-exempt: valid reason').filter(v => v.rule === 'usage.invalid-exemption').length, 1);
+  // A marker cannot hide a logging bypass: print/NSLog/eprintln! stay reportable.
+  for (const s of ['print("x") // log-exempt: debugging aid', '// log-exempt: legacy\nNSLog("x")']) assert.ok(scanSource(file, s).some(v => v.rule === 'swift.print' || v.rule === 'swift.nslog'));
+  assert.ok(scanSource('rust/lithe-core/src/example.rs', '// log-exempt: legacy\neprintln!("x");').some(v => v.rule === 'rust.eprintln'));
+});
+
+test('discarded failures fail without a marker and cannot be allowlisted', { timeout: 1000 }, () => {
+  for (const rule of ['swift.discarded-try', 'swift.catch-exit', 'rust.discarded-ok', 'rust.let-underscore']) {
+    const file = rule.startsWith('rust.') ? 'rust/lithe-core/src/example.rs' : 'macos/Sources/Example.swift';
+    const violation = {file, rule, line: 1};
+    assert.match(compareUsage([violation], {version:1, entries:[]}).join('\n'), new RegExp(`${file.replace(/\./g, '\\.')}:1: ${rule.replace('.', '\\.')}`));
+    assert.throws(() => compareUsage([violation], {version:1, entries:[{file, rule, count:1, reason:'legacy code'}]}), /allowlist: invalid/);
+  }
+});
+
+test('generated references use catalog channel, event identity and operation', { timeout: 1000 }, async () => {
+  const source = await readFile(path.join(ROOT, 'macos/Sources/LitheModuleAPI/Logging/LogEvents.generated.swift'), 'utf8');
+  assert.match(source, /public var reference: LogRecordReference/);
+  assert.match(source, /LogRecordReference\(channel: channel.rawValue, event: Self.id, op: operationID\)/);
+});
+
+
+test('helper production roots are gated while remote server and standalone binaries are excluded', { timeout: 5000 }, async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'lithe-helper-log-usage-'));
+  try {
+    const roots = ['macos/Sources', ...['core', 'agent-host', 'git-host', 'ide-host', 'remote'].map(name => `rust/lithe-${name}/src`)];
+    await Promise.all(roots.map(directory => mkdir(path.join(root, directory), { recursive: true })));
+    const included = ['agent-host', 'git-host', 'ide-host', 'remote'].map(name => `rust/lithe-${name}/src/production.rs`);
+    const excluded = ['rust/lithe-remote/src/server/worker.rs', 'rust/lithe-remote/src/bin/server.rs', 'rust/lithe-ide-host/src/bin/mcp.rs'];
+    await Promise.all([...included, ...excluded].map(async file => {
+      await mkdir(path.dirname(path.join(root, file)), { recursive: true });
+      await writeFile(path.join(root, file), 'fn run() { eprintln!("failure"); let _ = operation(); }');
+    }));
+    const findings = await scanRepository(root);
+    assert.deepEqual([...new Set(findings.map(f => f.file))].sort(), included.sort());
+    for (const file of included) {
+      assert.deepEqual(findings.filter(f => f.file === file).map(f => f.rule), ['rust.eprintln', 'rust.let-underscore']);
+      const bypass = findings.find(f => f.file === file && f.rule === 'rust.eprintln');
+      assert.deepEqual(compareUsage([bypass], { version: 1, entries: [{ file, rule: bypass.rule, count: 1, reason: 'Test of helper path validation for a machine protocol exception' }] }), []);
+    }
+    assert.equal(scanSource(included[0], '#[cfg(all(test, unix))] mod tests { fn run() { let _ = operation(); eprintln!("test"); } }').length, 0);
+    assert.equal(scanSource(included[0], '#[cfg(all(unix, feature = "client"))] fn run() { let _ = operation(); }').length, 1);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

@@ -65,19 +65,24 @@ struct MacURLSessionPluginMarketplaceTransport: MacPluginMarketplaceTransport {
     /// Resolved per request so a proxy settings change takes effect without
     /// recreating the transport.
     let sessionProvider: @Sendable () -> MacNetworkSessionLease
+    private let logSink: (any LogSink)?
     private let temporaryDirectory: URL
 
     init(
+        logSink: (any LogSink)? = nil,
         sessionProvider: @escaping @Sendable () -> MacNetworkSessionLease = { MacNetworkSessionLease() },
         temporaryDirectory: URL = FileManager.default.temporaryDirectory
     ) {
         self.sessionProvider = sessionProvider
+        self.logSink = logSink
         self.temporaryDirectory = temporaryDirectory
     }
 
     func data(from url: URL, maximumBytes: Int64) async throws -> Data {
         let fileURL = try await download(from: url, maximumBytes: maximumBytes)
-        defer { try? FileManager.default.removeItem(at: fileURL) }
+        defer { do { try FileManager.default.removeItem(at: fileURL) }
+            catch let error as CocoaError where error.code == .fileNoSuchFile { /* Owned resource is already absent. */ }
+            catch { logSink?.emit(PluginsResourcesMaintenanceFailed(error: error, stage: "remove")) } }
         return try Data(contentsOf: fileURL)
     }
 
@@ -111,7 +116,7 @@ struct MacURLSessionPluginMarketplaceTransport: MacPluginMarketplaceTransport {
         }
         do {
             let handle = try FileHandle(forWritingTo: owned)
-            defer { try? handle.close() }
+            defer { do { try handle.close() } catch { logSink?.emit(PluginsResourcesMaintenanceFailed(error: error, stage: "file-close")) } }
             var buffer = Data()
             buffer.reserveCapacity(Self.writeChunkBytes)
             var received: Int64 = 0
@@ -130,7 +135,9 @@ struct MacURLSessionPluginMarketplaceTransport: MacPluginMarketplaceTransport {
             return owned
         } catch {
             bytes.task.cancel()
-            try? FileManager.default.removeItem(at: owned)
+            do { try FileManager.default.removeItem(at: owned) }
+            catch let error as CocoaError where error.code == .fileNoSuchFile { /* Owned resource is already absent. */ }
+            catch { logSink?.emit(PluginsResourcesMaintenanceFailed(error: error, stage: "remove")) }
             throw error
         }
     }
@@ -164,17 +171,20 @@ final class MacPluginPackageDownloader: MacPluginPackageDownloading {
     private static let extractionMeasureInterval: TimeInterval = 0.25
     private let transport: any MacPluginMarketplaceTransport
     private let fileManager: FileManager
+    private let logSink: (any LogSink)?
     private let temporaryDirectory: URL
     private let limits: Limits
 
     init(
-        transport: any MacPluginMarketplaceTransport = MacURLSessionPluginMarketplaceTransport(),
+        logSink: (any LogSink)? = nil,
+        transport: (any MacPluginMarketplaceTransport)? = nil,
         fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
         limits: Limits = .standard
     ) {
-        self.transport = transport
+        self.transport = transport ?? MacURLSessionPluginMarketplaceTransport(logSink: logSink)
         self.fileManager = fileManager
+        self.logSink = logSink
         self.temporaryDirectory = temporaryDirectory
         self.limits = limits
     }
@@ -186,17 +196,19 @@ final class MacPluginPackageDownloader: MacPluginPackageDownloading {
     ) async throws -> MacDownloadedPluginPackage {
         try Task.checkCancellation()
         let archiveOnDisk = try await transport.download(from: archiveURL, maximumBytes: limits.archiveBytes)
-        defer { try? fileManager.removeItem(at: archiveOnDisk) }
+        defer { do { try fileManager.removeItem(at: archiveOnDisk) }
+            catch let error as CocoaError where error.code == .fileNoSuchFile { /* Owned resource is already absent. */ }
+            catch { logSink?.emit(PluginsResourcesMaintenanceFailed(error: error, stage: "remove")) } }
         // The checksum comes from the index the user browsed; nothing from an
         // archive that does not match it is extracted.
-        let actual = try Self.sha256(of: archiveOnDisk)
+        let actual = try Self.sha256(of: archiveOnDisk, logSink: logSink)
         guard actual == expectedSHA256.lowercased() else {
             throw MacPluginPackageDownloadError.checksumMismatch(expected: expectedSHA256, actual: actual)
         }
         try Task.checkCancellation()
         // Refuse before writing anything when the archive's own directory
         // already declares too much.
-        try Self.checkDeclaredContents(of: archiveOnDisk, limits: limits)
+        try Self.checkDeclaredContents(of: archiveOnDisk, limits: limits, logSink: logSink)
 
         let extractionRoot = temporaryDirectory
             .appendingPathComponent("lithe-plugin-download-\(UUID().uuidString)", isDirectory: true)
@@ -209,15 +221,17 @@ final class MacPluginPackageDownloader: MacPluginPackageDownloading {
                 temporaryDirectory: extractionRoot
             )
         } catch {
-            try? fileManager.removeItem(at: extractionRoot)
+            do { try fileManager.removeItem(at: extractionRoot) }
+            catch let error as CocoaError where error.code == .fileNoSuchFile { /* Owned resource is already absent. */ }
+            catch { logSink?.emit(PluginsResourcesMaintenanceFailed(error: error, stage: "remove")) }
             throw error
         }
     }
 
     /// Streams the file so a large archive is never held in memory at once.
-    static func sha256(of fileURL: URL) throws -> String {
+    static func sha256(of fileURL: URL, logSink: (any LogSink)? = nil) throws -> String {
         let handle = try FileHandle(forReadingFrom: fileURL)
-        defer { try? handle.close() }
+        defer { do { try handle.close() } catch { logSink?.emit(PluginsResourcesMaintenanceFailed(error: error, stage: "file-close")) } }
         var hasher = SHA256()
         while let chunk = try handle.read(upToCount: 1_048_576), !chunk.isEmpty {
             try Task.checkCancellation()
@@ -230,11 +244,11 @@ final class MacPluginPackageDownloader: MacPluginPackageDownloading {
     /// The caller owns `directory` and removes it on every failed operation.
     func extractArchive(_ archiveURL: URL, into directory: URL) throws {
         try Task.checkCancellation()
-        try Self.checkDeclaredContents(of: archiveURL, limits: limits)
+        try Self.checkDeclaredContents(of: archiveURL, limits: limits, logSink: logSink)
         // MacManagedProcess resolves Foundation's null-device sentinel only
         // for stdin. Its output dup2 actions require a real, open descriptor.
         let sink = try FileHandle(forWritingTo: URL(fileURLWithPath: "/dev/null"))
-        defer { try? sink.close() }
+        defer { do { try sink.close() } catch { logSink?.emit(PluginsResourcesMaintenanceFailed(error: error, stage: "sink-close")) } }
         let process = MacManagedProcess(
             executableURL: URL(fileURLWithPath: "/usr/bin/ditto"),
             arguments: ["-x", "-k", archiveURL.path, directory.path],
@@ -317,10 +331,10 @@ final class MacPluginPackageDownloader: MacPluginPackageDownloading {
     /// Checks bounded ZIP metadata before `ditto` sees it. Both directory and
     /// local headers are inspected: extractors can use either filename. Links,
     /// special files, ambiguous paths, encryption and ZIP64 are not packages.
-    static func checkDeclaredContents(of archiveURL: URL, limits: Limits) throws {
+    static func checkDeclaredContents(of archiveURL: URL, limits: Limits, logSink: (any LogSink)? = nil) throws {
         try Task.checkCancellation()
         let handle = try FileHandle(forReadingFrom: archiveURL)
-        defer { try? handle.close() }
+        defer { do { try handle.close() } catch { logSink?.emit(PluginsResourcesMaintenanceFailed(error: error, stage: "file-close")) } }
         let fileSize = try handle.seekToEnd()
         guard limits.archiveBytes >= 0, fileSize <= UInt64(limits.archiveBytes) else {
             throw MacPluginPackageDownloadError.archiveTooLarge(limits.archiveBytes)

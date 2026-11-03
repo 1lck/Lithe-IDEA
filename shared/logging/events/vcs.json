@@ -69,6 +69,46 @@
       }
     },
     {
+      "id": "vcs.roots.fallback_selected",
+      "channel": "vcs",
+      "level": "warn",
+      "message": "Version control root planning failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Root planning action that failed, ownership or detection"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying failure at this operation boundary, preserving stable domain and code"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "vcs.shelf.operation_failed",
+      "channel": "vcs",
+      "level": "error",
+      "message": "Saved changes operation failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Saved changes action that failed, load, save or delete"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying failure at this operation boundary, preserving stable domain and code"
+        }
+      },
+      "rate": 60,
+      "owner": "LitheGitModule"
+    },
+    {
       "id": "vcs.stderr.received",
       "channel": "vcs/{provider}",
       "level": "warn",
@@ -295,6 +335,126 @@
           "description": "Validated provider identity assigned by Core to this engine session"
         }
       }
+    },
+    {
+      "id": "vcs.commit.cleanup_failed",
+      "channel": "vcs",
+      "level": "warn",
+      "message": "Temporary Git commit reference cleanup failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Temporary commit cleanup target; currently reference"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Core failure category returned while deleting a temporary selected-files commit reference"
+        }
+      },
+      "rate": 60,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "vcs.history.cleanup_failed",
+      "channel": "vcs",
+      "level": "warn",
+      "message": "Git history cleanup failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Cursor cleanup stage, e.g. cursor, kill, wait, or stdout-reader"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Stable Core, I/O, thread, or remote category from closing an owned Git history stream"
+        }
+      },
+      "rate": 60,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "vcs.history.read_failed",
+      "channel": "vcs",
+      "level": "warn",
+      "message": "Git history diagnostic read failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Git history diagnostic stream that ended early; currently stderr"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "I/O category returned when collecting the Git history process diagnostic stream"
+        }
+      },
+      "rate": 60,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "vcs.process.cleanup_failed",
+      "channel": "vcs/{provider}",
+      "level": "warn",
+      "message": "Engine process cleanup failed",
+      "owner": "lithe-core",
+      "rate": 60,
+      "fields": {
+        "provider": {
+          "type": "id",
+          "required": true,
+          "description": "Validated session identity selected from the explicit engine role"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Stable native cleanup failure category; excludes process arguments and paths"
+        }
+      }
+    },
+    {
+      "id": "vcs.authentication.response_failed",
+      "channel": "vcs/git",
+      "level": "warn",
+      "message": "Git authentication response failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Controlled vcs.authentication.response_failed operation stage; excludes paths and peer input"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Fixed summary and stable failure category from vcs.authentication.response_failed; never error display text"
+        }
+      },
+      "rate": 60,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "vcs.host.cleanup_failed",
+      "channel": "vcs/git",
+      "level": "warn",
+      "message": "Git host cleanup failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Controlled vcs.host.cleanup_failed operation stage; excludes paths and peer input"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Fixed summary and stable failure category from vcs.host.cleanup_failed; never error display text"
+        }
+      },
+      "rate": 60,
+      "owner": "lithe-core"
     }
   ]
 }

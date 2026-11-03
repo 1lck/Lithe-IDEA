@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 import LitheCoreContracts
 import LitheSearchModule
@@ -259,8 +260,14 @@ extension RustWorkspaceOperations: SearchOperations {
         kinds: Set<SearchResultKind>,
         onResults: @escaping @Sendable (SearchEverywhereResults) -> Void
     ) async -> SearchEverywhereResults? {
-        try? await searchEverywherePage(at: rootURL, query: query, options: options, visibilityRules: visibilityRules,
-            includeGeneratedFileNames: includeGeneratedFileNames, kinds: kinds, cursor: nil, onResults: onResults)
+        do {
+            return try await searchEverywherePage(at: rootURL, query: query, options: options, visibilityRules: visibilityRules,
+                includeGeneratedFileNames: includeGeneratedFileNames, kinds: kinds, cursor: nil, onResults: onResults)
+        // log-exempt: 用户取消：搜索被替换或调用方取消时返回空结果
+        } catch is CancellationError { return nil } catch {
+            core.coreLogSink?.emit(AppCoreFallbackSelected(error: error, stage: "search-everywhere"))
+            return nil
+        }
     }
 
     func searchEverywherePage(

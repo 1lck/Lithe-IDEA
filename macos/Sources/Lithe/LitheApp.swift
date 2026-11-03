@@ -133,7 +133,7 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
             _ = MacProcessScopeScanner.terminate(ended, gracePeriod: gracePeriod)
         }.value
         // Whatever was kept is no longer Lithe's to manage.
-        Set(leftovers.map(\.scope)).forEach(store.remove)
+        Set(leftovers.map(\.scope)).forEach { store.remove(scope: $0, logSink: logSink) }
     }
 
     func prepareForUpdateRelaunch() {
@@ -159,6 +159,7 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
     private func boundUpdateTermination() {
         updateForceExitTask?.cancel()
         updateForceExitTask = Task { @MainActor [weak self] in
+            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
             try? await Task.sleep(nanoseconds: Self.updateTerminationForceExitNanoseconds)
             guard let self, self.isUpdateInstallTermination, !Task.isCancelled else { return }
             // Sparkle's installer is waiting, and the user has confirmed unsaved work.
@@ -281,6 +282,7 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
                 await projectSessions.stopAllSessions()
             }
             group.addTask {
+                // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
                 try? await Task.sleep(nanoseconds: timeoutNanoseconds)
             }
             await group.next()
@@ -294,7 +296,7 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
         MacLiveProcessGroups.application.terminateAllAndWait()
         sweepProcessScope()
         if relaunchesAfterTermination, !isUpdateInstallTermination {
-            MacApplicationRelauncher.scheduleRelaunch()
+            MacApplicationRelauncher.scheduleRelaunch(logSink: logSink)
         }
         isUpdateInstallTermination = false
         updateForceExitTask?.cancel()
@@ -487,11 +489,15 @@ struct LitheApp: App {
     @StateObject private var memoryUsageMonitor: MemoryUsageMonitor
     @StateObject private var frameRateMonitor = FrameRateMonitor()
     @StateObject private var updateChecker: UpdateChecker
+    @StateObject private var logWindowCoordinator: LogWindowCoordinator
+    @StateObject private var logWindowModel: LogWindowModel
+    @StateObject private var logExportFeature: DiagnosticsFeatureModel
     private let applicationLogWriter: MacLogStore
 
     init() {
+        var migrationLogs: [any LogEvent] = []
         do {
-            _ = try MacDevelopmentProfileMigration.prepare()
+            _ = try MacDevelopmentProfileMigration.prepare(report: { if migrationLogs.count < 8 { migrationLogs.append($0) } })
         } catch {
             let alert = NSAlert()
             alert.messageText = L10n.string("Could not copy your Stable settings")
@@ -514,6 +520,7 @@ struct LitheApp: App {
                 proxyPolicyBridge.networkProxyPolicy(from: configuration)
             }
         )
+        let logWindowCoordinator = LogWindowCoordinator()
         let applicationLogWriter = MacServiceContainer.makeApplicationLogWriter { [weak settings] in
             Task { @MainActor [weak settings] in settings?.setCustomLogDirectory(nil) }
         }
@@ -529,6 +536,27 @@ struct LitheApp: App {
             }
         }
         self.applicationLogWriter = applicationLogWriter
+        _logWindowCoordinator = StateObject(wrappedValue: logWindowCoordinator)
+        settings.logWindowSink = applicationLogWriter
+        let logWindowModel = LogWindowModel(logging: applicationLogWriter, preferences: settings.logWindowPreferences,
+            sink: applicationLogWriter, save: { [weak settings] in settings?.logWindowPreferences = $0 })
+        #if arch(arm64)
+        let architecture = "arm64"
+        #else
+        let architecture = "x86_64"
+        #endif
+        logWindowModel.environment = .init(appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "",
+            osVersion: ProcessInfo.processInfo.operatingSystemVersionString, architecture: architecture, plugins: [])
+        _logWindowModel = StateObject(wrappedValue: logWindowModel)
+        migrationLogs.forEach { applicationLogWriter.emit($0) }
+        let exportService = MacServiceContainer.makeDiagnosticsExportService(fileStorage: MacFileStorage(),
+            processRunner: MacProcessRunner(logging: applicationLogWriter), core: RustCoreBridge(),
+            applicationLogging: applicationLogWriter, sink: applicationLogWriter)
+        exportService.environmentProvider = { [weak logWindowModel] in
+            logWindowModel?.environment ?? .init(appVersion: "", osVersion: "", architecture: architecture, plugins: [])
+        }
+        let logExportFeature = DiagnosticsFeatureModel(service: exportService, sink: applicationLogWriter)
+        _logExportFeature = StateObject(wrappedValue: logExportFeature)
         applicationLogWriter.emit(AppSessionStarted())
         if let error = SyntaxHighlightingRegistry.loadError { applicationLogWriter.emit(EditorSyntaxConfigurationFailed(error: error, kind: "formats")) }
         if let error = SyntaxHighlightingColorConfiguration.loadError { applicationLogWriter.emit(EditorSyntaxConfigurationFailed(error: error, kind: "colors")) }
@@ -544,9 +572,7 @@ struct LitheApp: App {
         let projectSessions = ProjectSessionManager(
             settings: settings,
             modelFactory: {
-                AppCompositionBuilder.makeModel(
-                    settings: settings,
-                    services: MacServiceContainer(
+                let services = MacServiceContainer(
                         store: store,
                         settings: settings,
                         processRegistry: processRegistry,
@@ -558,7 +584,11 @@ struct LitheApp: App {
                         applicationLogging: applicationLogWriter,
                         networkSessionProvider: networkSessionProvider
                     ).services
-                )
+                services.logWindowCoordinator = logWindowCoordinator
+                logWindowModel.environment = .init(appVersion: logWindowModel.environment.appVersion,
+                    osVersion: logWindowModel.environment.osVersion, architecture: logWindowModel.environment.architecture,
+                    plugins: services.pluginManager.snapshots.filter { $0.isEnabled }.map(\.id.rawValue))
+                return AppCompositionBuilder.makeModel(settings: settings, services: services)
             },
             projectWindowPresenter: { [weak projectWindowLauncher] windowID in
                 projectWindowLauncher?.present(windowID)
@@ -675,6 +705,10 @@ struct LitheApp: App {
         )
         .windowStyle(.hiddenTitleBar)
         .commands {
+            CommandGroup(after: .windowList) {
+                Button("Logs") { logWindowCoordinator.open() }
+                    .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "show-logs"))
+            }
             CommandGroup(replacing: .newItem) {
                 Button("Open Project…") {
                     model.chooseProject()
@@ -720,7 +754,7 @@ struct LitheApp: App {
                 .disabled(updateChecker.isBusy)
 
                 Button("Export Diagnostics Bundle…") {
-                    model.diagnosticsFeature.presentExport()
+                    model.openLogs(.init(presentsExport: true))
                 }
             }
 
@@ -870,6 +904,16 @@ struct LitheApp: App {
             height: LitheWindowLayout.workspaceContentSize.height
         )
         .windowStyle(.hiddenTitleBar)
+
+        Window(L10n.string("Logs"), id: LitheWindowID.logs) {
+            LogWindowView(model: logWindowModel, coordinator: logWindowCoordinator, exportFeature: logExportFeature)
+                .environmentObject(settings)
+                .environment(\.locale, settings.language.locale)
+                .preferredColorScheme(settings.themePreference.preferredColorScheme)
+                .id(settings.language)
+        }
+        .defaultSize(width: 1340, height: 786)
+        .windowResizability(.contentMinSize)
 
         Window(settingsWindowTitle(for: settings.language), id: LitheWindowID.settings) {
             SettingsWindowHost(projectSessions: projectSessions, settings: settings)

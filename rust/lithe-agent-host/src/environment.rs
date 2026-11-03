@@ -362,6 +362,7 @@ fn run_bounded_streams(
                     _ => {}
                 }
             }
+            // log-exempt: 用户取消：命令调用方已结束输出收集并关闭接收通道，放弃等待 reader 完成通知。
             let _ = sender.send((stream, None));
         })
     })
@@ -407,7 +408,7 @@ fn run_bounded_streams(
     // Reap the direct child and terminate descendants on every path. A process
     // that exits successfully can still leave a child holding stdout/stderr.
     crate::force_kill_tree(child.id());
-    let _ = child.wait();
+    crate::failure_log::io("agent.host.operation_failed", "process_wait", child.wait());
     // A descendant that escaped the process group can still hold a pipe open;
     // do not let it block the caller past a short grace period.
     let output_deadline = Instant::now() + OUTPUT_GRACE;
@@ -425,7 +426,13 @@ fn run_bounded_streams(
     // threads; the bounded grace period still protects the caller from a
     // descendant that deliberately escaped the group.
     for reader in readers {
-        let _ = reader.join();
+        crate::failure_log::outcome(
+            "agent.host.operation_failed",
+            "reader_join",
+            reader.join(),
+            "panic",
+            "thread",
+        );
     }
     let [stdout, stderr] = outputs;
     outcome.map(|success| (success, stdout, stderr))

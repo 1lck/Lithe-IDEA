@@ -64,7 +64,7 @@ extension AppModel {
 
     func revealInProjectTree(_ url: URL, isDirectory: Bool = false) {
         guard let treeURL = projectTreeURL(for: url) else {
-            showNotification("This file is not in the current workspace")
+            showNotification("This file is not in the current workspace", logReference: notificationRejection(operation: "feature_state", reason: "unavailable_0"))
             return
         }
         selectedSidebar = .project
@@ -152,7 +152,6 @@ extension AppModel {
     func selectEditorTab(_ item: EditorTabItem) {
         editorTabOrderFeature.focus(item)
         switch item {
-        case .languageLogs: selectLanguageServerLogsTab()
         case .agentConversation(let tab): showAgentChatsInEditor(tab: tab)
         case .repositoryDiff(let id):
             selectRepositoryDiffTab(id)

@@ -9,9 +9,10 @@ final class MacGitLifecycleLog: @unchecked Sendable {
     private var requests: [String: VcsGitRequestSpan] = [:]
     private var commands: [String: VcsGitCommandSpan] = [:]
     init(sink: (any LogSink)?) { self.sink = sink }
-    func receive(_ event: GitExecutionEvent) {
-        guard let sink, let provider = LogSegment("git") else { return }
-        lock.withLock {
+    @discardableResult
+    func receive(_ event: GitExecutionEvent) -> LogRecordReference? {
+        guard let sink, let provider = LogSegment("git") else { return nil }
+        return lock.withLock { () -> LogRecordReference? in
             let key = event.operationId
             let commandKey = key + ":" + String(event.invocationId ?? 0)
             let failed = event.error != nil || (event.exitCode ?? 0) != 0
@@ -22,22 +23,23 @@ final class MacGitLifecycleLog: @unchecked Sendable {
             let command = event.arguments?.first(where: { knownCommands.contains($0) }) ?? "git"
             switch event.type {
             case "requestStarted":
-                guard requests.count < 256 else { return }
+                guard requests.count < 256 else { return nil }
                 requests[key] = VcsGitRequestSpan.begin(command: command, provider: provider, operationID: key, emit: sink.emit)
             case "started":
-                guard commands.count < 256 else { return }
+                guard commands.count < 256 else { return nil }
                 commands[commandKey] = VcsGitCommandSpan.begin(command: command, provider: provider, operationID: key, emit: sink.emit)
             case "finished":
-                guard var span = commands.removeValue(forKey: commandKey) else { return }
+                guard var span = commands.removeValue(forKey: commandKey) else { return nil }
                 if failed && event.expectedExit != true {
-                    span.fail(error, exitCode: event.exitCode.map(Int64.init), failureCode: failureCode)
+                    return span.fail(error, exitCode: event.exitCode.map(Int64.init), failureCode: failureCode)
                 } else { span.finish(exitCode: event.exitCode.map(Int64.init)) }
             case "requestFinished":
-                guard var span = requests.removeValue(forKey: key) else { return }
-                if failed { span.fail(error, exitCode: event.exitCode.map(Int64.init), failureCode: failureCode) }
+                guard var span = requests.removeValue(forKey: key) else { return nil }
+                if failed { return span.fail(error, exitCode: event.exitCode.map(Int64.init), failureCode: failureCode) }
                 else { span.finish(exitCode: event.exitCode.map(Int64.init)) }
             default: break
             }
+            return nil
         }
     }
 }

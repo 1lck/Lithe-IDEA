@@ -1,6 +1,8 @@
+import LitheModuleAPI
 import SwiftUI
 
 struct KeyboardShortcutSettingsView: View {
+    @Environment(\.applicationLogSink) private var logSink
     @ObservedObject var feature: KeyboardShortcutFeatureModel
     let language: AppLanguage
     @State private var query = ""
@@ -379,7 +381,8 @@ struct KeyboardShortcutSettingsView: View {
         var bindings = feature.effectiveBindings(for: commandID)
         guard bindings.indices.contains(index) else { return }
         bindings.remove(at: index)
-        try? feature.replaceBindings(for: commandID, with: bindings)
+        do { try feature.replaceBindings(for: commandID, with: bindings) }
+        catch { logSink?.emit(EditorShortcutsUpdateFailed(error: error)) }
     }
 
     private func localizedString(_ key: String) -> String {

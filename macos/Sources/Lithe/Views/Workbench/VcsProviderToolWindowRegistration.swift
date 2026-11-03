@@ -23,7 +23,7 @@ extension WorkbenchModuleUIRegistry {
                 do {
                     _ = try await model.services.moduleRuntime.activate(owner)
                 } catch {
-                    if !Task.isCancelled && !(error is CancellationError) { model.showNotification(error.localizedDescription) }
+                    if !Task.isCancelled && !(error is CancellationError) { model.showNotification(error.localizedDescription, logReference: model.notificationFailure(error, operation: "vcs_activation")) }
                     return false
                 }
                 guard !Task.isCancelled, let workspaceURL = model.workspaceURL else { return false }

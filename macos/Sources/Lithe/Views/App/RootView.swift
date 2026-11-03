@@ -5,6 +5,7 @@ import LitheLocalHistoryModule
 import SwiftUI
 
 enum LitheWindowID {
+    static let logs = "logs"
     static let welcome = "welcome"
     static let settings = "settings"
     static let project = "project"
@@ -293,6 +294,9 @@ private struct ActiveSessionChrome: View {
                     title: windowTitle
                 )
             )
+            .onAppear {
+                session.services.logWindowCoordinator?.present = { openWindow(id: LitheWindowID.logs) }
+            }
             .onReceive(session.workbenchFeature.$settingsCategoryRequest.dropFirst()) { _ in
                 SettingsWindowChrome.ownerWindow = NSApp.orderedWindows.first {
                     ($0.delegate as? LitheWindowCoordinator)?.projectSessions.windowScope == scope
@@ -342,12 +346,6 @@ private struct ActiveSessionChrome: View {
                     })
                 }
             }.frame(width: 0, height: 0).allowsHitTesting(false))
-            .sheet(isPresented: Binding(
-                get: { session.diagnosticsFeature.isPresented },
-                set: { session.diagnosticsFeature.isPresented = $0 }
-            )) {
-                DiagnosticsExportSheet(feature: session.diagnosticsFeature)
-            }
             .sheet(item: scopedLocalHistoryRequest) { request in
                 LocalHistoryView(request: request, fontFamily: session.settings.editorFontFamily)
                     .environmentObject(session)

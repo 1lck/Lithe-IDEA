@@ -69,6 +69,7 @@ enum LitheActionRegistry {
             action("view-breakpoints", model: model) { model.showDebugBreakpointManager() },
             action("open-project", model: model) { model.chooseProject() },
             action("close-project", model: model) { model.closeProject() },
+            action("show-logs", model: model) { model.openLogs() },
             action("settings", model: model) { model.showSettings() },
             action("rebuild-java-index", model: model) { model.rebuildJavaIndex() },
             action("save", model: model) { model.saveActiveDocument() },

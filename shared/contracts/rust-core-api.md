@@ -1206,6 +1206,9 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `diagnostics.prepareLogEvent` | Normalize a bounded application event and recursively redact structured fields |
 | `diagnostics.queryLogs` | Merge and filter bounded host-collected module log tails |
 | `diagnostics.encodeLogBatch` | Encode independent structured v2 log events with per-item errors |
+| `diagnostics.parseLogFilter` | Parse bounded filter expressions and UTF-16 diagnostic ranges |
+| `diagnostics.composeLogFilter` | Compose a filter predicate preserving unrelated terms |
+| `diagnostics.formatLogRecords` | Validate and format canonical redacted records for copying |
 | `diagnostics.queryLogsV2` | Query structured v2 and legacy v1 native log tails |
 | `diagnostics.planLogCollection` | Plan bounded native log-tail reads from raw file metadata |
 | `diagnostics.planLogRetention` | Plan log cleanup from host-owned file inventories |
@@ -3896,13 +3899,14 @@ parser diagnostics; hosts localize codes for presentation.
   fields are additive; the default generic PR1 batch remains compatible.
   Overflow rotation paths are `_overflow~1.log` and `_overflow~2.log`.
 - `diagnostics.queryLogsV2` accepts `{sources:[{relativePath,text,
-  startsMidLine?:false,firstLineNumber?:1}],channelPrefixes?:[],minimumLevel?,
-  since?,until?,search?,fields?:{key:value},op?,limit?}`. The adapter marks a
+  startsMidLine?:false,firstLineNumber?:1}],channelPrefixes?:[],minimumLevel?,levels?:[],
+  since?,until?,search?,fields?:{key:value},op?,limit?,expression?,histogramBuckets?}`. The adapter marks a
   tail beginning inside a line with `startsMidLine:true`; Core discards its
   first fragment without counting it as invalid. Complete first lines stay.
   Paths are session-relative v2 paths, `sessions/<name>/<path>`, or legacy
   `<category>/lithe.*.log`. Channel prefixes match slash boundaries; severity
-  and parsed RFC3339 time bounds are inclusive; search is case-insensitive;
+  and parsed RFC3339 time bounds are inclusive; `levels` is an exact severity set
+  (intersected with `minimumLevel`; an empty array matches nothing); search is case-insensitive;
   field/op filters match exactly, including reserved `ts` and `level` fields. Returns `{result:{records:[{channel,
   relativePath,lineNumber,ts,level,seq,event,op?,msg,fields}],channelCounts:
   {channel:{warn,error}},truncated,skippedInvalidLines}}` or `{error}`.
@@ -3916,10 +3920,10 @@ parser diagnostics; hosts localize codes for presentation.
   Each returned record also includes `line`, the canonical, redacted v2 line for
   presentation and frozen export (without a newline).
 - `diagnostics.planLogCollection` accepts `{files:[{relativePath,sizeBytes,modifiedAt}],
-  currentSession,session,category?}`. Inventory is raw log-root-relative native
+  currentSession,session,category?,recentSessions?,since?}`. Inventory is raw log-root-relative native
   metadata; no contents are read before planning. `session` is `all|current|previous`,
   and category is one of the existing six product categories. Returns
-  `{result:{reads:[{relativePath,offset,maxBytes}],truncated}}` or `{error}`.
+  `{result:{reads:[{relativePath,offset,maxBytes}],truncated,estimatedBytes,sessions}}` or `{error}`.
   Only validated v2 session log files are selected; plugin-owned `files/` and legacy
   files remain retention inputs. Filters run before budgets. Order is newest session,
   active before rotation 1 before rotation 2, descending native modification instant,
@@ -3948,6 +3952,136 @@ parser diagnostics; hosts localize codes for presentation.
   shifting active→1 and 1→2, retaining three segments including active;
   `rotation_paths_to_delete` resolves those indices to session-relative paths.
   Unsafe paths, duplicate inventories, and negative age limits are rejected.
+
+#### Log-window pure APIs (PR4 stage A)
+
+These additions do not change any v1 public item or the bytes of v1
+`level/message/detail` evidence. All new request fields are optional. Standard
+Core envelopes remain `{ok:true,data:...}`; domain failures of compose, format,
+query and collection are `data:{error:{code,message}}`, and their successes are
+`data:{result:...}`. Parse succeeds directly as `data:{terms,errors}` because an
+incomplete draft is an expected editing state. Malformed JSON payload shapes use
+the existing outer InvalidRequest failure.
+
+`diagnostics.parseLogFilter` accepts `{expression}` (at most 1024 UTF-8 bytes).
+Returns `{terms:[{kind,key?,value,negate,start,end}],errors:[{start,end,code,message}]}`.
+Ranges are half-open **UTF-16 code-unit offsets**, including negation and quotes,
+for native text highlighting. For an over-budget expression, the sole
+`expressionTooLong` diagnostic has `[0,0)` to avoid scanning unbounded input.
+Kinds: `level_at_least|level|op|event|channel|regex|field|text`.
+All terms intersect; a leading `-` negates a term, while `-` alone is text.
+Whitespace separates terms except inside quotes or `/regex/`. Quoted values
+support `\\` and `\"` escapes; other quoted escapes fail. A quoted bare token
+always means text, including a leading hyphen or reserved-looking syntax.
+
+- `level>=debug|info|warn|error` is inclusive; `level:<value>` is exact.
+  Aliases `dbg/inf/wrn/err` and operator names are case-insensitive. Parsed level
+  values normalize to the full lowercase label. Unknown levels are errors.
+- `op:`, `event:`, `channel:` perform case-insensitive string prefix matching.
+  Expression channel prefixes intentionally do not require a slash boundary;
+  the existing `channelPrefixes` argument retains its boundary semantics.
+- `/pattern/` matches the message case-insensitively using the existing Rust regex
+  engine: at most 256 Unicode characters, 1 MiB compiled size and DFA cache limits.
+  Whitespace inside regex delimiters is allowed; escaped slashes remain regex text.
+- `key:value` / `key=value`, for `[A-Za-z0-9_.]+` keys other than reserved
+  operators above, match case-insensitive substrings in the field's string form.
+  Reserved record fields `ts/seq/msg` and context fields `server/plugin` are supported.
+  Keys compare case-insensitively. Reserved operators require `:`, not `=`.
+- Other bare words use the existing search scope: channel/event/op/message/context.
+  Empty values, malformed quotes, unsupported escapes and invalid regexes are errors.
+
+Diagnostic codes: `expressionTooLong`, `regexTooLong`, `invalidRegex`,
+`invalidLevel`, `emptyValue`, `unterminatedRegex`, `unterminatedQuote`,
+`invalidEscape`, `invalidOperator`, `invalidQuote`. Messages are fixed technical
+English; hosts localize by code. `queryLogsV2` rejects any erroneous expression
+with **-32060, "Invalid log filter expression"**; hosts retain the prior results
+and use parse diagnostics for the draft.
+
+`diagnostics.composeLogFilter` accepts `{expression,term:{kind,key?,value,negate?:false}}`
+and returns `{expression}` in `result`. Positive predicates replace all existing
+positive predicates of the same kind (field predicates additionally require the
+same key), placing the new token at the first replaced position. Negative
+predicates append unless an identical negative predicate exists. Non-regex values
+compare case-insensitively for deduplication; regex patterns compare exactly because
+inline flags can affect semantics. Other source tokens, whitespace and order remain
+unchanged. Values are quoted/escaped as needed; text is always quoted. Invalid drafts,
+invalid terms or a composed expression over 1024 bytes return -32060.
+
+`queryLogsV2` adds these fields in `result`:
+
+```json
+{
+  "records": [{"line":"...", "channel":"app", "relativePath":"app.log", "lineNumber":1,
+    "ts":"2026-11-03T00:00:00.000Z", "level":"WARN", "seq":1,
+    "event":"app.failed", "op":"one", "msg":"failed", "fields":{},
+    "foldKey":"c4d60ef213ff7102", "epochMs":1793664000000, "opOffsetMs":0}],
+  "foldMinimumRun":3,
+  "channels":{"app":{"total":1,"warn":1,"error":0}},
+  "channelCounts":{"app":{"warn":1,"error":0}},
+  "histogram":{"startEpochMs":1793664000000,"endEpochMs":1793664000001,
+    "bucketMs":1,"buckets":[{"debug":0,"info":0,"warn":1,"error":0}]},
+  "opSummary":{"op":"one","count":1,"firstEpochMs":1793664000000,
+    "lastEpochMs":1793664000000,"durationMs":0},
+  "truncated":false,"skippedInvalidLines":0
+}
+```
+
+`queryLogsV2` additionally accepts optional `filterSince` / `filterUntil` RFC3339
+bounds, intersected with `since` / `until`. Each pair must be ordered (-32052 otherwise);
+a disjoint intersection succeeds with zero records. This lets an export range and a
+window time selection share Core's exact instant comparison.
+
+Optional `afterSequences:{sessionBasename:u64}` excludes records at or below the
+specified session's sequence. Keys use the session directory grammar; the empty key
+represents session-relative sources without a `sessions/<name>/` prefix. Sequences
+from different sessions are never compared. The response's `sessionSequences` maps
+each supplied session to its highest decoded sequence, before filters and limits.
+Native live sources should carry their current session prefix so historical and
+live queries use the same identity. Missing fields preserve existing queries.
+
+`foldKey` is lowercase 16-digit FNV-1a 64 hex over channel, canonical uppercase
+level, event, message in that order; each UTF-8 value is preceded by its byte length
+as a little-endian u64. This encoding is stable across versions/architectures.
+Hosts group adjacent equal keys and collapse only runs of at least 3.
+`epochMs` parses the record timestamp; submillisecond ordering still uses the full
+instant. `channels` counts all decoded records before filters, within supplied input
+and its byte budget. Existing `channelCounts` retains filtered-before-limit semantics.
+
+`histogramBuckets` must be 1..240 (else -32061). Histogram uses every predicate
+**except since/until**, before output limiting. `histogram` is null when absent or
+empty. Exactly the requested number of buckets is returned, including empty trailing
+buckets; width is `ceil((maxEpochMs-minEpochMs+1)/count)`, at least 1 ms, and end is
+exclusive `start + width*count`. The maximum event is always included.
+`opSummary` and per-record `opOffsetMs` appear only with the existing explicit `op`
+argument. Summary includes all matches of all query predicates before limit;
+offset is relative to its earliest instant. An empty op result has count/instants/
+duration zero. Filtering op through expression alone does not add these fields.
+
+`diagnostics.formatLogRecords` accepts
+`{lines:[String],format:"json"|"markdown",environment?:{appVersion,osVersion,architecture,plugins:[String]}}`
+and returns `{text}` in `result`. Limits: 10000 lines and 4 MiB including one separator
+byte per line; environment strings total at most 64 KiB and at most 1000 plugin IDs.
+Budget violations use -32062. Each line is decoded again: decoder failures keep their
+precise codes, headers/noncanonical/nonredacted lines use -32063. JSON without an
+environment is one pretty object for one line, otherwise an array (including empty).
+With environment it is `{environment:{...},records:[...]}`. Markdown is
+`**Lithe**` plus optional version/OS/architecture JSON strings separated by ` · `,
+optional `Plugins: [JSON strings]`, a blank line and an `ndjson` fenced block of
+unchanged canonical lines followed by a newline. The fence grows if evidence contains
+backticks. The evidence grammar remains canonical v2 even though the technical fence
+label is `ndjson`. Keys/headings are fixed English report syntax, not UI copy.
+
+Collection inventory is bounded to 10000 entries. `recentSessions` must be 1..10,
+otherwise -32058. It includes current (even with no eligible files or a skewed clock), then selects
+the newest remaining sessions to fill N slots, **before** intersecting `session:all|current|previous`, category
+and since. `since` is
+inclusive RFC3339 (-32035 if invalid): a file qualifies if its session directory start
+**or** its modification instant reaches the cutoff. Previous still means the newest
+inventory session other than current, independent of category/time. Budgets apply last.
+`sessions` lists eligible session names before read budgets, newest first, excluding
+sessions with no eligible files; `estimatedBytes` sums selected `maxBytes` (already
+bounded by each file size), before compression. Crash collection remains host-owned
+and passes through `diagnostics.redactText`.
 
 Each v2 numeric domain code has one meaning. Existing outer Core string codes
 are unchanged:
@@ -3983,6 +4117,10 @@ are unchanged:
 | -32057 | Catalog level mismatch |
 | -32058 | Invalid collection inventory or selection |
 | -32059 | Core event owner mismatch |
+| -32060 | Invalid log filter expression |
+| -32061 | Invalid histogram bucket count |
+| -32062 | Log copy input exceeds budget |
+| -32063 | Expected canonical redacted log record |
 
 Diagnostic previews freeze the selected redacted bytes before confirmation.
 Windows returns a `snapshotId` from `preview_diagnostic_bundle`; export consumes
@@ -4011,7 +4149,9 @@ health, rather than inferring them from the currently selected view filter.
 `files` sorted by `relativePath` so the listing shown to the user before they
 confirm a diagnostic export — and the zip's contents — are deterministic
 across runs and across platforms. Hosts gather the environment and file facts
-natively; this command only shapes and sorts them.
+natively; this command only shapes and sorts them. The additive top-level
+`redaction:"core-v2"` identifies the shared redaction boundary; schemaVersion remains 1.
+Windows consumes the original fields and may ignore this marker.
 
 ### Declarative plugins
 

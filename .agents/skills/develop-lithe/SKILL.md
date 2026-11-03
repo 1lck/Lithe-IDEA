@@ -24,7 +24,7 @@ description: 在 Lithe 仓库进行实现、重构、缺陷修复、审查、调
 
 ## 一、核心要求
 
-以下六条适用于所有改动，完整规则在括号内的章节。
+以下七条适用于所有改动，完整规则在括号内的章节。
 
 1. **性能好、内存少**是产品的首要要求。多个方案都能满足功能时，选择常驻内存更少、主线程工作更少的方案。（第四节）
 2. **可共享的逻辑必须放进 Rust Core。** 不依赖操作系统或界面框架 API 的逻辑一律在 Core 实现；平台层只做原生 I/O 和呈现。（第三节“逻辑归属”）
@@ -32,6 +32,7 @@ description: 在 Lithe 仓库进行实现、重构、缺陷修复、审查、调
 4. **难以理解的配置和功能必须用 ⓘ 解释。**（第五节“用 ⓘ 解释”）
 5. **用户可修改的配置不得只显示“自动”**，必须显示为“自动（实际生效值）”。（第五节“显示实际生效值”）
 6. **发现无用代码或可重构之处，提交 `refactor` Issue**，不在当前 PR 中顺手处理。（第九节）
+7. **警告、错误和被丢弃的失败必须走日志。** 显示给用户的警告和错误、功能降级、回退、自动恢复、重试耗尽和被丢弃的错误，都必须在处理边界记录一条目录事件；只有封闭清单里的例外可以不记录，并且必须写 `// log-exempt: <类别>：<原因>`。日志用法门禁没有存量额度，任何违规都直接失败；新增的 `logSink` 参数必须在每个生产构造处传入真实 sink。（[日志接入](references/logging.md)）
 
 ## 二、开始前：按任务读取资料
 
@@ -48,7 +49,7 @@ description: 在 Lithe 仓库进行实现、重构、缺陷修复、审查、调
 | 新增、修改或审查设置 | `.agents/notes/implemented/architecture/2026-10-25-settings-native-configuration-editing.md` 和本文件第五节 |
 | 新增或移动 macOS 设置页 | `.agents/notes/implemented/feature/2026-10-15-macos-settings-hierarchy.md` |
 | 修复缺陷 | 本文件第八节，以及 `.agents/notes/implemented/bug-fix/` 中涉及同一模块的 Note |
-| 新增、迁移或审查日志事件、写入器和诊断采集 | [日志接入](references/logging.md)，声明规则以 `shared/logging/README.md` 为准 |
+| 新增、迁移或审查日志事件、写入器和诊断采集；新增界面警告或错误；写会丢弃错误的代码 | [日志接入](references/logging.md)，声明规则以 `shared/logging/README.md` 为准 |
 | 新增、移动或审查脚本 | [脚本放置与分类](references/scripts.md) |
 | 创建、迁移、更新、归档或审查 Agent Note | `.agents/skills/agent-notes/SKILL.md` |
 | 创建、修改或审查测试及测试基础设施 | `.agents/skills/write-stable-tests/SKILL.md` |
@@ -348,7 +349,7 @@ macOS app bundle 和 Windows 安装目录是发行基线。Sparkle 增量更新�
 
 ### 显式处理失败
 
-- 不得静默吞掉错误。在有足够上下文的层返回、转换或记录错误。
+- 不得静默吞掉错误。在有足够上下文的层返回、转换或记录错误；丢弃错误的写法（`try?`、只有 `return`/`break`/`continue` 的 `catch`、`.ok();`、`let _ =`）必须记录目录事件，或属于[日志接入](references/logging.md)第二节的例外并写豁免标记。
 - 跨 Rust、Swift、TypeScript、Tauri 或进程边界时，保留稳定的契约错误分类。
 - 面向用户的失败信息必须告诉用户可以怎么做，不得泄漏凭据、环境变量内容或不必要的内部细节。
 - 注释解释不明显的约束和取舍，不复述代码的执行过程。
@@ -421,6 +422,7 @@ git diff --name-only origin/preview...HEAD
 | 缺陷修复 | 第八节的回归测试（修复前失败、修复后通过），以及下面对应行的检查 |
 | 启动、打开项目、输入、滚动、大文件、长输出或搜索 | 第四节“验证”中对应平台的性能基线，改动前后对比 |
 | Agent Note 或架构决策迁移 | `./scripts/agent-notes/verify-agent-notes.sh` |
+| 日志事件、日志调用、界面警告或错误、会丢弃错误的代码 | `node scripts/logging/generate-log-events.mjs --check`、`node scripts/logging/verify-log-usage.mjs` |
 | 测试代码或测试基础设施 | `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`，再运行该 Skill 中对应平台的逐项计时入口 |
 | Swift 应用或测试 | `./scripts/macos/test/test-macos.sh` |
 | `macos/Sources/Lithe/` 的 Core、Services、Views 或依赖组装边界 | `./scripts/architecture/verify-service-boundaries.sh` |

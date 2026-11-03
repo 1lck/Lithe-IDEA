@@ -3,6 +3,56 @@
   "root": "app",
   "events": [
     {
+      "id": "app.core.fallback_selected",
+      "channel": "app",
+      "level": "warn",
+      "message": "Core request used a fallback",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Core request or catalog decoding operation that selected a fallback"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying failure at this operation boundary, preserving stable domain and code"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "app.credentials.cleanup_failed",
+      "channel": "app",
+      "level": "warn",
+      "message": "Obsolete credential removal failed",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying failure at this operation boundary, preserving stable domain and code"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "app.credentials.write_failed",
+      "channel": "app",
+      "level": "error",
+      "message": "Credential update failed",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying failure that prevented completing the requested operation"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
       "id": "app.demo.failed",
       "channel": "app",
       "level": "warn",
@@ -17,6 +67,41 @@
           "type": "error",
           "required": true,
           "description": "File operation error raised while creating or removing the Problems demo files"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "app.diagnostics.cleanup_failed",
+      "channel": "app",
+      "level": "warn",
+      "message": "Diagnostic staging cleanup failed",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying failure at this operation boundary, preserving stable domain and code"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "app.diagnostics.export_failed",
+      "channel": "app",
+      "level": "error",
+      "message": "Diagnostic bundle operation failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Diagnostic export phase that failed: planning, collect, manifest, prepare, staging, archive or cleanup"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying failure at this operation boundary, preserving stable domain and code"
         }
       },
       "rate": 60,
@@ -58,6 +143,66 @@
       "owner": "Lithe"
     },
     {
+      "id": "app.history.operation_failed",
+      "channel": "app",
+      "level": "warn",
+      "message": "Local history operation failed",
+      "fields": {
+        "count": {
+          "type": "int",
+          "required": false,
+          "description": "Number of failed snapshots in this batch; absent for a single history operation"
+        },
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "History action that failed, such as record, relocate or restore"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying failure at this operation boundary, preserving stable domain and code"
+        }
+      },
+      "rate": 60,
+      "owner": "LitheLocalHistoryModule"
+    },
+    {
+      "id": "app.history.restore_failed",
+      "channel": "app",
+      "level": "error",
+      "message": "Local history restore failed",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying failure that prevented completing the requested operation"
+        }
+      },
+      "rate": 60,
+      "owner": "LitheLocalHistoryModule"
+    },
+    {
+      "id": "app.ide.request_failed",
+      "channel": "app",
+      "level": "error",
+      "message": "IDE capability request failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "IDE request phase that failed, such as response encoding or dispatch"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying failure at this operation boundary, preserving stable domain and code"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
       "id": "app.logging.redirect_failed",
       "channel": "app",
       "level": "warn",
@@ -76,6 +221,31 @@
       },
       "rate": 60,
       "owner": "Lithe"
+    },
+    {
+      "id": "app.module.transition_failed",
+      "channel": "app",
+      "level": "warn",
+      "message": "Module transition failed",
+      "fields": {
+        "module": {
+          "type": "token",
+          "required": true,
+          "description": "Module identifier whose lifecycle transition failed"
+        },
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Lifecycle action that failed, such as shutdown, sleep or idle"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying failure at this operation boundary, preserving stable domain and code"
+        }
+      },
+      "rate": 60,
+      "owner": "LitheApplicationKernel"
     },
     {
       "id": "app.process.journal_failed",
@@ -148,6 +318,26 @@
       "level": "info",
       "message": "Application session started",
       "fields": {},
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "app.settings.decode_failed",
+      "channel": "app",
+      "level": "warn",
+      "message": "Stored settings used defaults",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Stored preference component whose decoding failed"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying failure at this operation boundary, preserving stable domain and code"
+        }
+      },
       "rate": 60,
       "owner": "Lithe"
     },
@@ -230,6 +420,41 @@
       "owner": "lithe-core"
     },
     {
+      "id": "app.workspace.file_operation_failed",
+      "channel": "app",
+      "level": "error",
+      "message": "Workspace file operation failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Workspace file action that failed, such as move, copy or create"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying failure at this operation boundary, preserving stable domain and code"
+        }
+      },
+      "rate": 60,
+      "owner": "LitheWorkspaceModule"
+    },
+    {
+      "id": "app.workspace.rollback_failed",
+      "channel": "app",
+      "level": "warn",
+      "message": "Workspace preference rollback failed",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying failure at this operation boundary, preserving stable domain and code"
+        }
+      },
+      "rate": 60,
+      "owner": "LitheWorkspaceModule"
+    },
+    {
       "id": "app.workspace.scratch_cleanup_failed",
       "channel": "app",
       "level": "warn",
@@ -273,6 +498,206 @@
       },
       "rate": 60,
       "owner": "Lithe"
+    },
+    {
+      "id": "app.cache.write_failed",
+      "channel": "app",
+      "level": "warn",
+      "message": "Generated execution cache write failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Generated execution cache persistence stage; currently generated-cache"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "I/O category from persisting a generated execution document for the next session"
+        }
+      },
+      "rate": 60,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "app.indexing.rollback_failed",
+      "channel": "app",
+      "level": "warn",
+      "message": "Indexing policy rollback failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Index policy rollback component that failed: lease or provider"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Core error category returned while restoring a failed indexing policy installation"
+        }
+      },
+      "rate": 60,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "app.storage.cleanup_failed",
+      "channel": "app",
+      "level": "warn",
+      "message": "Core storage cleanup failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Storage cleanup owner, e.g. snapshot-rollback, history-pruning, or jdt-settings"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "First filesystem failure category observed while removing owned temporary or history files"
+        },
+        "count": {
+          "type": "int",
+          "required": true,
+          "description": "Number of failed storage removals summarized by this cleanup operation"
+        }
+      },
+      "rate": 60,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "app.native.operation_failed",
+      "channel": "app",
+      "level": "error",
+      "message": "Native {stage} operation failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Native user request that could not finish, such as relaunch, agent-preserve, or background-selection"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Original native error from the failed request, preserving stable domain and code"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "app.storage.maintenance_failed",
+      "channel": "app",
+      "level": "warn",
+      "message": "Native storage {stage} failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Native storage operation that failed, such as file-close, staging-remove, or permissions"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Native filesystem error preserving its stable domain and code at the handling boundary"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "app.diagnostics.crash_skipped",
+      "channel": "app",
+      "level": "warn",
+      "message": "Crash report collection skipped evidence",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Native failure reading the DiagnosticReports directory or an eligible application crash report"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "app.notification.operation_failed",
+      "channel": "app",
+      "level": "error",
+      "message": "User operation {operation} failed",
+      "fields": {
+        "operation": {
+          "type": "token",
+          "required": true,
+          "description": "Source-owned operation category at the notification boundary, such as run_configuration or plugin_settings"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Error raised by the requested operation before the user-facing failure notification"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "app.notification.operation_rejected",
+      "channel": "app",
+      "level": "warn",
+      "message": "User operation {operation} was rejected",
+      "fields": {
+        "operation": {
+          "type": "token",
+          "required": true,
+          "description": "Source-owned operation category rejected at the notification boundary"
+        },
+        "reason": {
+          "type": "token",
+          "required": true,
+          "description": "Fixed source-owned rejection category, never the localized notification or user input"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "app.ide.connection_cleanup_failed",
+      "channel": "app",
+      "level": "warn",
+      "message": "IDE MCP connection cleanup failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Controlled app.ide.connection_cleanup_failed operation stage; excludes paths and peer input"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Fixed summary and stable failure category from app.ide.connection_cleanup_failed; never error display text"
+        }
+      },
+      "rate": 60,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "app.ide.broker_failed",
+      "channel": "app",
+      "level": "error",
+      "message": "IDE MCP broker stopped unexpectedly",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Controlled app.ide.broker_failed operation stage; excludes paths and peer input"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Fixed summary and stable failure category from app.ide.broker_failed; never error display text"
+        }
+      },
+      "rate": 60,
+      "owner": "lithe-core"
     }
   ]
 }

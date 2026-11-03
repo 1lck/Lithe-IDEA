@@ -46,6 +46,7 @@ struct UpdateSourceControl: View {
         }
     }
 
+    // log-exempt: 随输入实时重算的校验提示：更新来源草稿随键入解析，应用前不写入配置
     private var parsedDraft: URL? { try? AppUpdateSource.parseBase(draft).get() }
 
     private var canApply: Bool {

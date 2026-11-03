@@ -111,6 +111,31 @@
       "owner": "lithe-core"
     },
     {
+      "id": "lsp.host.operation_failed",
+      "channel": "lsp/{server}",
+      "level": "warn",
+      "message": "Language host operation failed at {stage}",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Core-resolved language server identity owning this host operation"
+        },
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Host operation step that failed, such as entrypoint-warmup or language-import"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Native or stable runtime error that caused the host operation fallback"
+        }
+      },
+      "rate": 120,
+      "owner": "LitheLanguageIntelligenceModule"
+    },
+    {
       "id": "lsp.maven.application_started",
       "channel": "lsp/{server}",
       "level": "info",
@@ -905,6 +930,26 @@
           "type": "int",
           "required": true,
           "description": "Number of workspace cache entries removed by the host cache cleaner."
+        }
+      }
+    },
+    {
+      "id": "lsp.process.cleanup_failed",
+      "channel": "lsp/{server}",
+      "level": "warn",
+      "message": "Engine process cleanup failed",
+      "owner": "lithe-core",
+      "rate": 60,
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Validated session identity selected from the explicit engine role"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Stable native cleanup failure category; excludes process arguments and paths"
         }
       }
     }

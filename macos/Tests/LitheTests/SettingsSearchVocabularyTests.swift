@@ -72,20 +72,16 @@ struct SettingsSearchVocabularyTests {
         #expect(!SettingsSearchVocabulary.matches(query: "menlo", category: .editor))
     }
 
-    @Test func logsAndDiagnosticsShareOneSearchableToolsPage() throws {
-        let translations = try simplifiedChineseTranslations()
-        for query in ["Logs", "Log directory", "Log timeline", "Detailed diagnostics", "日志", "日志目录", "详细诊断"] {
-            #expect(SettingsSearchVocabulary.matches(query: query, category: .diagnostics, localize: { translations[$0] ?? $0 }))
-            #expect(!SettingsSearchVocabulary.matches(query: query, category: .general, localize: { translations[$0] ?? $0 }))
+    @Test func logsAndDiagnosticsAreAbsentFromSettings() {
+        // Selection is typed, in-memory state; no persisted/deep-link raw value is restored.
+        #expect(SettingsCategory(rawValue: "Diagnostics") == nil)
+        #expect((SettingsCategory(rawValue: "Diagnostics") ?? .general) == .general)
+        #expect(SettingsGroup.tools.categories == [.terminal])
+        for category in SettingsCategory.allCases {
+            for query in ["Logs", "Log directory", "Detailed diagnostics", "日志", "详细诊断"] {
+                #expect(!SettingsSearchVocabulary.matches(query: query, category: category))
+            }
         }
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let fixture = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: root.appendingPathComponent("shared/fixtures/diagnostics/logging-ui-v1.json"))) as? [String: Any])
-        let navigation = try #require(fixture["navigation"] as? [String: String])
-        #expect(SettingsCategory.diagnostics.title == navigation["title"])
-        #expect(SettingsCategory.diagnostics.group?.rawValue == navigation["group"])
-        #expect(SettingsCategory.diagnostics.rawValue == navigation["macosCategory"])
-        #expect(SettingsCategory.diagnostics.group == .tools)
-        #expect(SettingsCategory.diagnostics.rawValue == "Diagnostics", "Existing navigation identifiers remain compatible")
     }
 
     @Test func emptyQueryMatchesEveryPage() {

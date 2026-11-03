@@ -7,7 +7,7 @@ import LitheModuleAPI
 /// Icons are read only from the verified package, never from a network URL or
 /// writable bundle cache. Ownership ends with this process's accepted catalog.
 enum MacPluginUIIconLoader {
-    static func load(_ descriptor: DeclarativePluginDescriptor, at packageURL: URL) throws -> [String: PluginUIIconResources] {
+    static func load(_ descriptor: DeclarativePluginDescriptor, at packageURL: URL, logSink: (any LogSink)? = nil) throws -> [String: PluginUIIconResources] {
         let root = packageURL.standardizedFileURL.resolvingSymlinksInPath()
         var assets: [String: Data] = [:]
         var totalBytes = 0
@@ -29,7 +29,7 @@ enum MacPluginUIIconLoader {
             guard values.isRegularFile == true, let size = values.fileSize, size > 0, size <= 262_144,
                   url.resolvingSymlinksInPath().path.hasPrefix(root.path + "/") else { throw InvalidIcon(path: path) }
             let handle = try FileHandle(forReadingFrom: url)
-            defer { try? handle.close() }
+            defer { do { try handle.close() } catch { logSink?.emit(AppStorageMaintenanceFailed(error: error, stage: "file-close")) } }
             let data = try handle.read(upToCount: 262_145) ?? Data()
             guard data.count <= 262_144, totalBytes + data.count <= 8_388_608,
                   let pixels = decodedPixelArea(of: data, isSVG: path.hasSuffix(".svg"),

@@ -19,13 +19,10 @@ final class EditorSessionCoordinator {
         self.media = media
         self.tabOrder = tabOrder
         observations = [
-            document.$activeDocumentID.dropFirst().sink { [weak media, weak terminalPlacement, weak tabOrder] id in
-                guard let id else { return }
+            document.$activeDocumentID.dropFirst().sink { [weak media, weak terminalPlacement] id in
+                guard id != nil else { return }
                 terminalPlacement?.activateDocument()
                 media?.deactivate()
-                // File opens can select directly on DocumentFeatureModel rather
-                // than through AppModel. A utility tab must not mask that open.
-                if tabOrder?.focusedItem == .languageLogs { tabOrder?.focus(.document(id)) }
             },
             document.$openDocuments.map { $0.map(\.id) }.removeDuplicates()
                 .sink { [weak tabOrder] ids in
@@ -39,7 +36,6 @@ final class EditorSessionCoordinator {
     }
 
     func resetContent() {
-        tabOrder.remove(.languageLogs)
         document.reset()
         media.reset()
     }

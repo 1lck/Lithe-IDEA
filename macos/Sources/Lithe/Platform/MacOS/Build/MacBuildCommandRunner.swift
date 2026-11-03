@@ -11,9 +11,11 @@ final class MacBuildCommandRunner: BuildCommandRunning {
     /// Rust Core refuses larger output, so more is never kept.
     static let standardOutputLimit = 32 * 1024 * 1024
 
+    private let logSink: (any LogSink)?
     private let processRegistry: ManagedProcessRegistry?
 
-    init(processRegistry: ManagedProcessRegistry? = nil) {
+    init(processRegistry: ManagedProcessRegistry? = nil, logSink: (any LogSink)? = nil) {
+        self.logSink = logSink
         self.processRegistry = processRegistry
     }
 
@@ -24,6 +26,7 @@ final class MacBuildCommandRunner: BuildCommandRunning {
         try Task.checkCancellation()
         let execution = MacBuildCommandExecution(
             request: request,
+            logSink: logSink,
             processRegistry: processRegistry,
             onOutput: onOutput
         )
@@ -38,6 +41,7 @@ final class MacBuildCommandRunner: BuildCommandRunning {
 /// One command from launch to the termination callback.
 private final class MacBuildCommandExecution: @unchecked Sendable {
     private let request: BuildCommandRequest
+    private let logSink: (any LogSink)?
     private let processRegistry: ManagedProcessRegistry?
     private let batcher: MacProcessOutputBatcher
 
@@ -61,10 +65,12 @@ private final class MacBuildCommandExecution: @unchecked Sendable {
 
     init(
         request: BuildCommandRequest,
+        logSink: (any LogSink)?,
         processRegistry: ManagedProcessRegistry?,
         onOutput: @escaping @Sendable (String) -> Void
     ) {
         self.request = request
+        self.logSink = logSink
         self.processRegistry = processRegistry
         batcher = MacProcessOutputBatcher(deliver: onOutput)
     }
@@ -133,8 +139,10 @@ private final class MacBuildCommandExecution: @unchecked Sendable {
             lock.withLock { registeredPID = pid }
             processRegistry?.register(pid: pid, category: .service, moduleID: .execution)
         }
-        try? streamPipe.fileHandleForWriting.close()
-        try? capturePipe?.fileHandleForWriting.close()
+        do { try streamPipe.fileHandleForWriting.close() }
+        catch { logSink?.emit(RunProcessIoFailed(error: error, stage: "close", operationID: nil)) }
+        do { try capturePipe?.fileHandleForWriting.close() }
+        catch { logSink?.emit(RunProcessIoFailed(error: error, stage: "close", operationID: nil)) }
         if lock.withLock({ isCancelled }) {
             process.terminate()
         }
@@ -144,6 +152,7 @@ private final class MacBuildCommandExecution: @unchecked Sendable {
     private func scheduleTimeout(for process: MacManagedProcess) {
         guard let timeout = request.timeout else { return }
         let task = Task { [weak self] in
+            // log-exempt: 用户取消：调用方取消采样或超时等待时结束任务
             try? await Task.sleep(for: timeout)
             guard !Task.isCancelled, let self else { return }
             let running = lock.withLock { () -> Bool in
@@ -195,16 +204,16 @@ private final class MacBuildCommandExecution: @unchecked Sendable {
         let standardOutput = readLock.withLock { () -> String? in
             if let handle = streamPipe?.fileHandleForReading {
                 handle.readabilityHandler = nil
-                if let remaining = try? handle.readToEnd(), !remaining.isEmpty {
-                    batcher.append(decoder.decode(remaining))
-                }
+                do {
+                    if let remaining = try handle.readToEnd(), !remaining.isEmpty { batcher.append(decoder.decode(remaining)) }
+                } catch { logSink?.emit(RunProcessIoFailed(error: error, stage: "stream-drain")) }
             }
             batcher.append(decoder.finish())
             guard let handle = capturePipe?.fileHandleForReading else { return nil }
             handle.readabilityHandler = nil
-            if let remaining = try? handle.readToEnd(), !remaining.isEmpty {
-                appendCaptured(remaining)
-            }
+            do {
+                if let remaining = try handle.readToEnd(), !remaining.isEmpty { appendCaptured(remaining) }
+            } catch { logSink?.emit(RunProcessIoFailed(error: error, stage: "capture-drain")) }
             return captureOverflowed ? nil : String(data: captured, encoding: .utf8)
         }
         batcher.finish()
@@ -236,8 +245,10 @@ private final class MacBuildCommandExecution: @unchecked Sendable {
         readLock.withLock {
             for pipe in [streamPipe, capturePipe].compactMap({ $0 }) {
                 pipe.fileHandleForReading.readabilityHandler = nil
-                try? pipe.fileHandleForReading.close()
-                try? pipe.fileHandleForWriting.close()
+                do { try pipe.fileHandleForReading.close() }
+                catch { logSink?.emit(RunProcessIoFailed(error: error, stage: "close", operationID: nil)) }
+                do { try pipe.fileHandleForWriting.close() }
+                catch { logSink?.emit(RunProcessIoFailed(error: error, stage: "close", operationID: nil)) }
             }
             streamPipe = nil
             capturePipe = nil

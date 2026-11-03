@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-日志接入以共享事件目录声明事实，由生成的类型约束字段；Core 负责通道、单行格式、查询和保留计划，平台负责实际文件操作。PR2 已把 macOS 生产写入器（负责排队和写盘的组件）与宿主调用点接到 v2；Windows 继续使用 v1。macOS 升级前的 v1 文件不显示、不解析，只参与保留计划并按 30 天自然过期。PR3 已在 Core 实现角色通道、上游诊断、有界日志队列与插件目录，并接入 macOS 统一写入器和诊断开关。后续接入必须使用已校验的身份生成通道，不能把显示名称或用户输入变成目录。
+日志接入以共享事件目录声明事实，由生成的类型约束字段；Core 负责通道、单行格式、查询和保留计划，平台负责实际文件操作。PR2 已把 macOS 生产写入器（负责排队和写盘的组件）与宿主调用点接到 v2；Windows 继续使用 v1。macOS 升级前的 v1 文件不显示、不解析，只参与保留计划并按 30 天自然过期。PR3 已在 Core 实现角色通道、上游诊断、有界日志队列与插件目录，并接入 macOS 统一写入器和诊断开关。PR4 让链接进 Core 的辅助 crate 经 Core 注入的函数指针进入同一队列，日志门禁覆盖这些 crate。后续接入必须使用已校验的身份生成通道，不能把显示名称或用户输入变成目录。
 
 ## 问题
 
@@ -20,7 +20,7 @@
 
 PR1 已实现的是纯计算规则、共享事件目录、Swift 事件类型与 span、Rust 静态元数据、生成器、用法检查及存量基线。span 是同一次操作的计时记录，成功或失败只提交一个终态。四个 v2 命令是显式调用才生效的新入口；v1 公开项和 dispatcher 命令继续兼容。字段目录校验与通用批量编码是独立能力，不能因为编码器可接收标量就绕过事件目录。
 
-macOS 的宿主调用点、类型化写入与诊断收集已落地。引擎身份、上游诊断和独立日志窗口的后续决策见 [结构化日志宿主接入与独立窗口](../../proposed/architecture/2026-11-03-structured-logging-host-integration.md)。组件验证不能替代真实产品工作流验收，Windows 未迁移。
+macOS 的宿主调用点、类型化写入与诊断收集已落地。PR4 的日志窗口与导出决策见 [应用级日志窗口与诊断导出](../feature/2026-11-03-structured-logging-log-window.md)。组件验证不能替代真实产品工作流验收，Windows 未迁移。
 
 ### 宿主依赖与操作所有权
 
@@ -125,16 +125,28 @@ CoreLogRecord 只接受标量，保留 event、目录 level、channel、op 和�
 
 详细诊断不在宿主另写分类：会话通道根按 Core `diagnostics.resolveLogChannel` 返回的 category 归入当前开关（lsp→language、vcs→git、plugins→plugins），与持久化 DEBUG 的准入共用 `diagnosticRoots`。当前类别开关、新会话注册和 15 分钟单次到期向活动会话发送 setDetailedDiagnostics，退出时关闭。相同失败状态只记录一次 app.logging.diagnostics_failed，避免 drain→失败日志→drain 循环；改变目标状态允许重试。
 
-LanguageToolingSessionManager.languageServerLogs 保留 100 条 v1 message/detail 内存缓冲，继续供 LanguageServerLogsModel 与旧视图订阅，到 PR4 再删除。Core 记录直接进入磁盘通道，缓冲不写 v1 文件，也不复制为第二条目录日志。
+Core 记录直接进入磁盘通道。PR3 曾为旧的语言服务日志视图保留 100 条 v1 内存缓冲，PR4 用日志窗口替换该视图时已一并删除；现在语言服务日志只有磁盘通道这一个来源。
+
+### PR4：辅助 crate 经注入的函数指针进入 Core 队列
+
+agent-host、git-host、ide-host 和 lithe-remote 客户端被链接进 Core，但 Core 依赖它们，它们不能反过来依赖 Core 的 `core_events`，否则形成循环依赖。每个辅助 crate 因此只带一个 `failure_log` 模块：公开本 crate 用到的事件 ID 列表和一个安装函数，内部只保存一个函数指针（先装先得），调用点只交出事件 ID 和标量字段。Core 的 `diagnostics::helper_failures::install()` 用一次性初始化把四个 crate 的指针都指向同一个转换函数，转换函数把字段交给 `core_events::record`，失败时计入丢弃。事件仍在共享目录里以 `lithe-core` 为 owner 声明，校验、脱敏和通道推导与 Core 自己的事件完全相同。
+
+安装点是所有会进入辅助 crate 的 Core 入口：请求分发、Agent 打开的 FFI、IDE 请求分发器挂接和 Git askpass 独立入口。新增这类入口必须同时调用 `install()`。未安装时辅助 crate 只累加未注入计数，不回退到 stderr：askpass 等入口的标准输出和错误输出本身是协议或用户可见输出，回退会污染它们，也会重新引入门禁禁止的直接打印。
+
+收尾失败按错误类别区分。对端已断开、进程已退出、连接已关闭这类“对象已经不在”的类别属于预期的缺失，不记录；权限不足、超时后进程仍在运行、清理目录失败（不存在除外）等真正留下残留的类别记录 WARN。端口转发的接受和连接失败可能逐连接发生，除目录 rate 外再加 5 秒的进程级限流。处理凭据的 askpass 写回失败只记阶段和错误类别，写入后清零凭据字节，测试证明凭据不出现在事件字段中。
+
+日志门禁随之扩展到这四个 crate。运行在远端主机上的 `lithe-remote-server`（`rust/lithe-remote/src/server/`、`src/bin/`）和 ide-host 的独立可执行文件不链接进本机 Core，没有可注入的 sink，暂时排除在门禁外；远端服务端日志回传和 Monaco 控制台转发在 Issue #1680 中跟踪。
 
 ## 考虑过的备选方案
 
 - JSON Lines：通用解析方便，但每行重复键名和身份信息、手工阅读噪声较多。采用有严格语法与 fixture 的单行文本，代价是维护专门编解码器。
 - 平铺文件加 scope：不能同时自然表达会话保留和插件证据边界；继续允许自由 scope 还会保留字符串接入问题。
 - 手写字符串 API：字段、级别和事件身份只能靠约定，编译器不能发现漂移，因此改用共享声明和生成类型。
-- 每插件自带宿主 writer：线程、队列、脱敏和预算会分裂。插件原生文件只能进入宿主管理的独立 files 区，后续接入方案见提案。
-- 在编辑器标签页查看日志：会将应用级证据绑定到项目，并延续语言服务内存与磁盘两份来源；独立窗口仍属于后续提案，PR1 没有更换现有界面。
+- 每插件自带宿主 writer：线程、队列、脱敏和预算会分裂。插件原生文件只能进入宿主管理的独立 files 区。
+- 在编辑器标签页查看日志：会将应用级证据绑定到项目，并延续语言服务内存与磁盘两份来源；PR4 改为应用级日志窗口。
 - 现在删除 v1：会破坏仍直接使用旧 Rust API 的 Windows。保留兼容入口，迁移完成后再单独评估删除。
+- 辅助 crate 依赖 Core 直接记录：形成循环依赖。把事件队列拆成第三个公共 crate 可以解开循环，但目录校验和脱敏都在 Core，拆出去要么复制规则，要么只搬一个空壳队列，不如注入一个函数指针简单。
+- 辅助 crate 未注入时回退到 stderr：askpass 等入口的输出是协议的一部分，回退会污染协议，也让门禁不得不为每个 crate 开 allowlist。
 
 ## 后果
 
@@ -161,6 +173,10 @@ fixture 覆盖往返、转义、非法输入、路径段、轮转与保留、共
 ## 适用范围
 
 - `rust/lithe-core/src/diagnostics/`
+- `rust/lithe-agent-host/src/failure_log.rs`
+- `rust/lithe-git-host/src/failure_log.rs`
+- `rust/lithe-ide-host/src/failure_log.rs`
+- `rust/lithe-remote/src/failure_log.rs`
 - `shared/logging/`
 - `scripts/logging/`
 - `shared/contracts/rust-core-api.md`

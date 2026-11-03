@@ -64,15 +64,17 @@ final class MacServiceContainer {
         fileStorage: any FileStorage,
         processRunner: any ProcessRunner,
         core: RustCoreBridge,
-        applicationLogging: (any ApplicationLogging)? = nil
+        applicationLogging: (any ApplicationLogging)? = nil,
+        sink: (any LogSink)? = nil
     ) -> DiagnosticsExportService {
         DiagnosticsExportService(
             logDirectoryProviding: makeLogDirectoryProvider(),
             fileStorage: fileStorage,
             systemDiagnostics: MacSystemDiagnosticsProvider(),
-            archiver: MacDittoArchiver(processRunner: processRunner),
+            archiver: MacDittoArchiver(processRunner: processRunner, logSink: applicationLogging as? any LogSink),
             core: core,
-            applicationLogging: applicationLogging
+            applicationLogging: applicationLogging,
+            crashReports: MacCrashReportCollector(sink: sink), sink: sink
         )
     }
 
@@ -115,7 +117,7 @@ final class MacServiceContainer {
             core: rustCore,
             metadataRepositoryURLs: [mavenRepositoryURL, gradleRepositoryURL]
         )
-        let fileStorage = MacFileStorage()
+        let fileStorage = MacFileStorage(logSink: logSink)
         // One proxy-aware session factory per process: LitheApp creates it so
         // the rollback downloader outside this container shares the policy,
         // and every transport inside resolves sessions through it per request.
@@ -126,7 +128,7 @@ final class MacServiceContainer {
                     rustCore.networkProxyPolicy(from: configuration)
                 }
             )
-        let proxyPasswordStore = MacKeychainSecureStore(service: fileStorage.identity.keychainService("proxy"))
+        let proxyPasswordStore = MacKeychainSecureStore(service: fileStorage.identity.keychainService("proxy"), logSink: logSink)
         if let credential = NetworkProxyCredential.load(from: proxyPasswordStore, key: AppSettings.networkProxyPasswordKey) {
             settings.updateNetworkProxyCredential(credential)
         }
@@ -161,7 +163,7 @@ final class MacServiceContainer {
             core: RustGitHubCore(bridge: rustCore),
             transport: MacGitHubHTTPTransport(sessionProvider: { [networkSessionProvider] in networkSessionProvider.acquireSession() }),
             configuration: MacGitHubConfiguration(),
-            secureStore: MacKeychainSecureStore(service: fileStorage.identity.keychainService("github")),
+            secureStore: MacKeychainSecureStore(service: fileStorage.identity.keychainService("github"), logSink: logSink),
             git: MacGitHubGitOperations(core: rustCore)
         )
         let platformUI = providedPlatformUI ?? MacPlatformUI()
@@ -169,7 +171,7 @@ final class MacServiceContainer {
             fileStorage: fileStorage,
             processRunner: processRunner,
             core: rustCore,
-            applicationLogging: applicationLogging
+            applicationLogging: applicationLogging, sink: logSink
         )
         let codexConfigurationSource = MacCodexConfigurationSource()
         let claudeConfigurationSource = MacClaudeConfigurationSource()
@@ -181,8 +183,8 @@ final class MacServiceContainer {
             localStore: secureStore,
             configurationSources: aiConfigurationSources
         )
-        let ideCapabilityRegistry = IdeCapabilityRegistry()
-        let languageExecutionHost = MacLanguageExecutionHost(processRegistry: processRegistry)
+        let ideCapabilityRegistry = IdeCapabilityRegistry(logSink: logSink)
+        let languageExecutionHost = MacLanguageExecutionHost(processRegistry: processRegistry, logSink: logSink)
         let moduleStore = providedModuleStore ?? MacModuleConfigurationStore(store: store)
         let moduleRuntime = ModuleRuntime(
             configurationStore: moduleStore,
@@ -196,6 +198,7 @@ final class MacServiceContainer {
             servicePrefix: fileStorage.identity.keychainService("plugin-credentials")
         )
         let pluginPackageStore = MacPluginPackageStore(
+            logSink: logSink,
             fileStorage: fileStorage,
             validator: declarativePluginOperations,
             credentials: pluginCredentials
@@ -295,14 +298,14 @@ final class MacServiceContainer {
         let proxySessionProvider: @Sendable () -> MacNetworkSessionLease = { [networkSessionProvider] in networkSessionProvider.acquireSession() }
         #if DEBUG
         pluginMarketplaceTransport = MacPluginMarketplaceFixtureTransport.fromEnvironment()
-            ?? MacURLSessionPluginMarketplaceTransport(sessionProvider: proxySessionProvider)
+            ?? MacURLSessionPluginMarketplaceTransport(logSink: logSink, sessionProvider: proxySessionProvider)
         #else
-        pluginMarketplaceTransport = MacURLSessionPluginMarketplaceTransport(sessionProvider: proxySessionProvider)
+        pluginMarketplaceTransport = MacURLSessionPluginMarketplaceTransport(logSink: logSink, sessionProvider: proxySessionProvider)
         #endif
         let remotePluginPackages = MacRemotePluginPackageDeployer(
             installed: pluginStartup.registeredPlugins,
             makeStore: { architecture in
-                MacPluginPackageStore(rootURL: fileStorage.applicationSupportDirectory().appendingPathComponent("Lithe/Plugins"),
+                MacPluginPackageStore(logSink: logSink, rootURL: fileStorage.applicationSupportDirectory().appendingPathComponent("Lithe/Plugins"),
                     validator: declarativePluginOperations, architecture: architecture)
             },
             evaluator: pluginMarketplaceEvaluator, transport: pluginMarketplaceTransport,
@@ -338,7 +341,7 @@ final class MacServiceContainer {
                 contributions: AgentConversationModule.moduleContributions
             ) {
                 AgentConversationModule(
-                    transportFactory: { MacACPAgentTransport() },
+                    transportFactory: { MacACPAgentTransport(logSink: logSink) },
                     historyPersistence: MacAgentHistoryPersistence(store: store),
                     historyExporter: MacAgentHistoryExporter(storage: fileStorage),
                     statisticsPersistence: MacAgentSessionStatisticsPersistence(store: store)
@@ -396,7 +399,7 @@ final class MacServiceContainer {
                 workspaceState: MacJdtWorkspaceState(
                     core: rustCore,
                     cacheDirectoryURL: languageServerCacheDirectory
-                )
+                ), logSink: logSink
             )
         ])
         languageServerHostIntegrations.pluginsDidLoad(
@@ -409,7 +412,7 @@ final class MacServiceContainer {
         let remotePluginLaunches = MacRemotePluginLaunchPreparer(registry: remoteWorkspaces, packages: remotePluginPackages,
             host: remoteOperations, planner: declarativePluginOperations, resolver: pluginLaunchResolver, core: rustCore)
         let providerTools = MacBuildToolResolver(runtime: runtimeService, processRunner: processRunner, fileStorage: fileStorage,
-            registry: remoteWorkspaces, remoteFiles: remoteOperations, remoteProcesses: remoteOperations)
+            registry: remoteWorkspaces, remoteFiles: remoteOperations, remoteProcesses: remoteOperations, logSink: logSink)
         let buildProviderSessions = MacBuildProviderSessions(
             launchResolver: pluginLaunchResolver,
             tools: providerTools,
@@ -438,7 +441,7 @@ final class MacServiceContainer {
             // passwords move into the Database plugin from Lithe Store
             // before its backend first starts; the old data is read, never
             // changed.
-            let databaseKeychain = MacKeychainSecureStore(service: fileStorage.identity.keychainService("database"))
+            let databaseKeychain = MacKeychainSecureStore(service: fileStorage.identity.keychainService("database"), logSink: logSink)
             let databaseMigration = MacDatabasePluginMigration(
                 preferences: store,
                 legacyPassword: { [secureStore] key in databaseKeychain.read(key: key) ?? secureStore.read(key: key) },
@@ -449,13 +452,13 @@ final class MacServiceContainer {
             // protocol 2 and the workspace contexts of protocol 3. Context
             // state lives below each plugin's `${stateDir}` in Application
             // Support, never in the bundle or the package.
-            let hostDispatcher = PluginHostServiceDispatcher(contexts: .shared)
+            let hostDispatcher = PluginHostServiceDispatcher(contexts: .shared, logSink: logSink)
             hostDispatcher.register(PluginCredentialHostService(credentials: pluginCredentials))
             let backendDirectories = MacPluginStateDirectories(fileStorage: fileStorage)
             let workspaceHost = PluginWorkspaceHostService(
                 contexts: .shared,
                 backendStateDirectory: { backendDirectories.backendStateDirectory(pluginID: $0) },
-                rootIDSecret: { MacPluginRootIDSecret.load(from: MacPluginRootIDSecret.fileURL(fileStorage: fileStorage)) }
+                rootIDSecret: { MacPluginRootIDSecret.load(from: MacPluginRootIDSecret.fileURL(fileStorage: fileStorage), logSink: logSink) }
             )
             hostDispatcher.register(workspaceHost)
             hostDispatcher.register(PluginDocumentHostService(contexts: .shared))
@@ -472,7 +475,7 @@ final class MacServiceContainer {
                                                             fileStorage: fileStorage, platformUI: platformUI))
             let sessions = MacPluginBackendSessions(
                 launchResolver: pluginLaunchResolver,
-                tools: MacBuildToolResolver(runtime: runtimeService, processRunner: processRunner, fileStorage: fileStorage),
+                tools: MacBuildToolResolver(runtime: runtimeService, processRunner: processRunner, fileStorage: fileStorage, logSink: logSink),
                 versionChecker: declarativePluginOperations,
                 runtime: runtimeService,
                 core: rustCore,
@@ -640,9 +643,10 @@ final class MacServiceContainer {
                         environmentResolver: rustCore
                     )
                     let runService = RunService(
+                        logSink: logSink,
                         runtime: runtimeService,
-                        process: MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution),
-                        processFactory: { MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution) },
+                        process: MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution, logSink: logSink),
+                        processFactory: { MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution, logSink: logSink) },
                         fileAccess: MacRunFileAccess(storage: fileStorage),
                         preferences: MacRunPreferenceStore(store: store),
                         serverPortParser: javaMavenOperations,
@@ -657,6 +661,7 @@ final class MacServiceContainer {
                     )
                     let buildSystemPlugins = pluginStartup.registeredPlugins.filter { !$0.descriptor.buildSystems.isEmpty }
                     let buildSystems = buildSystemPlugins.isEmpty ? nil : BuildSystemService(
+                        logSink: logSink,
                         planner: RustBuildSystemOperations(core: rustCore),
                         tools: MacBuildToolResolver(
                             runtime: runtimeService,
@@ -664,15 +669,16 @@ final class MacServiceContainer {
                             fileStorage: fileStorage,
                             registry: remoteWorkspaces,
                             remoteFiles: remoteOperations,
-                            remoteProcesses: remoteOperations
+                            remoteProcesses: remoteOperations, logSink: logSink
                         ),
                         optionsStore: MacBuildOptionsStore(store: store),
                         stateLocator: MacRemoteBuildStateLocator(local: MacBuildSystemStateLocator(
                             directories: MacPluginStateDirectories(fileStorage: fileStorage),
-                            fileStorage: fileStorage
+                            fileStorage: fileStorage, logSink: logSink
                         ), registry: remoteWorkspaces, host: remoteOperations, logSink: logSink, packages: remotePluginPackages),
                         runner: MacRemoteBuildCommandRunner(
-                            local: MacBuildCommandRunner(processRegistry: processRegistry),
+                            logSink: logSink,
+                            local: MacBuildCommandRunner(processRegistry: processRegistry, logSink: logSink),
                             registry: remoteWorkspaces, host: remoteOperations),
                         providers: buildProviderSessions,
                         runLauncher: runService,
@@ -697,9 +703,10 @@ final class MacServiceContainer {
                     )
                     let graph = ExecutionFeatureGraph(
                         maven: MavenService(
+                        logSink: logSink,
                             runtimeService: runtimeService,
-                            process: MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution),
-                            dependencyProcess: MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution),
+                            process: MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution, logSink: logSink),
+                            dependencyProcess: MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution, logSink: logSink),
                             mavenOperations: javaMavenOperations,
                             configurationStore: MacMavenConfigurationStore(storage: fileStorage),
                             dependencyOutputs: MacMavenDependencyOutputStore(logSink: logSink)
@@ -709,7 +716,7 @@ final class MacServiceContainer {
                             catalog: languagePackRegistry.catalog,
                             registry: languagePackRegistry.testProviders,
                             executableResolver: executableResolver,
-                            processFactory: { MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution) },
+                            processFactory: { MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution, logSink: logSink) },
                             extensionRequiredLanguageIDs: testExtensionLanguageIDs,
                             resultParser: { output, rootURL, reports in
                                 javaMavenOperations.mavenTestResults(
@@ -757,6 +764,7 @@ final class MacServiceContainer {
                         "java": {
                             CoreDebugAdapterProtocolSession(
                                 adapterID: "java",
+                                logSink: logSink,
                                 transport: MacHostedPortDebugAdapterTransport(
                                     portResolver: { rootURL in
                                         guard let capability = try await moduleRuntime
@@ -769,7 +777,7 @@ final class MacServiceContainer {
                                             rootURL: rootURL
                                         )
                                     },
-                                    core: rustCore
+                                    core: rustCore, logSink: logSink
                                 ),
                                 core: rustCore,
                                 deadlineScheduler: MacDebugOperationDeadlineScheduler()
@@ -790,6 +798,7 @@ final class MacServiceContainer {
                             let pluginID = entry.plugin.descriptor.id.rawValue
                             let session = CoreDebugAdapterProtocolSession(
                                 adapterID: entry.adapter.adapterID,
+                                logSink: logSink,
                                 consoleCommands: entry.adapter.consoleCommands,
                                 consoleCommandPrefix: entry.adapter.consoleCommandPrefix,
                                 disabledCapabilities: entry.adapter.disabledCapabilities,
@@ -804,8 +813,9 @@ final class MacServiceContainer {
                                             workspaceRootURL: rootURL
                                         )
                                     },
-                                    makeProcess: { MacRawProcessSession() },
+                                    makeProcess: { MacRawProcessSession(logSink: logSink) },
                                     core: rustCore,
+                                    logSink: logSink,
                                     findCommand: { commands in
                                         commands.lazy.compactMap { command in
                                             runtimeService.executableCandidates(command)
@@ -851,6 +861,7 @@ final class MacServiceContainer {
                         guard descriptor.id == "java" || entry != nil else { return nil }
                         let session = CoreDebugAdapterProtocolSession(
                             adapterID: entry?.adapter.adapterID ?? "java",
+                            logSink: logSink,
                             consoleCommands: entry?.adapter.consoleCommands ?? [],
                             consoleCommandPrefix: entry?.adapter.consoleCommandPrefix,
                             disabledCapabilities: entry?.adapter.disabledCapabilities ?? [],
@@ -865,7 +876,7 @@ final class MacServiceContainer {
                                         throw MacTCPDebugAdapterTransport.TransportError.invalidEndpoint
                                     }
                                 },
-                                core: rustCore
+                                core: rustCore, logSink: logSink
                             ),
                             core: rustCore,
                             deadlineScheduler: MacDebugOperationDeadlineScheduler(),
@@ -884,6 +895,7 @@ final class MacServiceContainer {
                     debugAdapterSessionsBox.manager = adapterSessions
                     let graph = DebugFeatureGraph(
                         adapterSessions: adapterSessions,
+                        logSink: logSink,
                         breakpointPersistence: debugBreakpointStore,
                         breakpointRelocator: rustCore,
                         steppingFilterResolver: rustCore,
@@ -898,6 +910,7 @@ final class MacServiceContainer {
         let gitOperations = RustGitOperations(core: rustCore)
         let defaultWorkspaceOperations = RustWorkspaceOperations(core: rustCore)
         let workspaceOperations: any WorkspaceOperations = RemoteRoutingWorkspaceOperations(
+            logSink: logSink,
             local: providedWorkspaceOperations ?? defaultWorkspaceOperations,
             registry: remoteWorkspaces,
             transport: remoteTransport
@@ -1018,19 +1031,24 @@ final class MacServiceContainer {
             lookUpDebugExecutable: { plugin, adapterID, workspaceRootURL, targetPath in
                 // The page only echoes what a launch would find; a plan Core
                 // cannot make shows nothing here and fails with its reason at launch.
-                try? debugExecutableResolver.lookup(
+                do { return try debugExecutableResolver.lookup(
                     plugin: plugin,
                     adapterID: adapterID,
                     workspaceRootURL: workspaceRootURL,
                     targetPath: targetPath
-                )
+                ) } catch {
+                    logSink?.emit(PluginsResourcesMaintenanceFailed(error: error, stage: "debug-executable-preview"))
+                    return nil
+                }
             },
             livePlugins: livePlugins
         )
         let pluginMarketplace = MacPluginMarketplaceService(
+            logSink: logSink,
             evaluator: pluginMarketplaceEvaluator,
             packageStore: pluginPackageStore,
             downloader: MacPluginPackageDownloader(
+                logSink: logSink,
                 transport: pluginMarketplaceTransport,
                 temporaryDirectory: fileStorage.temporaryDirectory()
             ),
@@ -1041,7 +1059,7 @@ final class MacServiceContainer {
             // the cache directory above, never into the bundle.
             bundledOfficialIndexURL: Bundle.main.resourceURL?
                 .appendingPathComponent("PluginMarketplace/index.json", isDirectory: false),
-            diskImporter: MacPluginDiskPackageImporter(temporaryDirectory: fileStorage.temporaryDirectory())
+            diskImporter: MacPluginDiskPackageImporter(logSink: logSink, temporaryDirectory: fileStorage.temporaryDirectory())
         )
         let pluginCatalog: ValidatedPluginCatalog
         do {
@@ -1143,15 +1161,26 @@ final class MacServiceContainer {
             workspaceSessionStore: WorkspaceSessionStore(store: store),
             directoryMarkStore: directoryMarkStore,
             workbenchLayoutStore: WorkbenchLayoutStore(store: store),
-            workbenchBackgroundPlatform: MacWorkbenchBackgroundPlatform(store: store),
+            workbenchBackgroundPlatform: MacWorkbenchBackgroundPlatform(store: store, logSink: logSink),
             directoryWatcherFactory: MacDirectoryWatcherFactory(registry: remoteWorkspaces, transport: remoteTransport, logSink: logSink),
             platformUI: platformUI,
             shortcutDetectorFactory: MacShortcutDetectorFactory(),
-            debugPerformanceSampler: MacDebugPerformanceSampler(processRegistry: processRegistry),
-            testJVMPerformance: MacTestJVMPerformance(processRegistry: processRegistry)
+            debugPerformanceSampler: MacDebugPerformanceSampler(processRegistry: processRegistry, logSink: logSink),
+            testJVMPerformance: MacTestJVMPerformance(processRegistry: processRegistry, logSink: logSink)
         )
+        services.logWindowLogging = applicationLogging as? any LogWindowLogging
+        diagnosticsExportService.environmentProvider = { [weak pluginManager] in
+            #if arch(arm64)
+            let architecture = "arm64"
+            #else
+            let architecture = "x86_64"
+            #endif
+            return .init(appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "",
+                osVersion: ProcessInfo.processInfo.operatingSystemVersionString, architecture: architecture,
+                plugins: pluginManager?.snapshots.filter { $0.isEnabled }.map(\.id.rawValue) ?? [])
+        }
         services.logSink = applicationLogging as? any LogSink
-        services.editorSettingsImportScan = { try await MacEditorSettingsImportReader.scan(directory: $0) }
+        services.editorSettingsImportScan = { try await MacEditorSettingsImportReader.scan(directory: $0, logSink: logSink) }
         services.ideCapabilityRegistry = ideCapabilityRegistry
         services.pluginRegistrationChanges = livePlugins.changes
         // Static editor resources follow their own enablement; ordinary tool
@@ -1196,6 +1225,7 @@ final class MacServiceContainer {
         let vcsProviderPlugins = pluginStartup.registeredPlugins.filter { !$0.descriptor.vcsProviders.isEmpty }
         if !vcsProviderPlugins.isEmpty {
             services.vcsProviders = VcsProvidersFeatureModel(
+                logSink: logSink,
                 planner: RustVcsOperations(core: rustCore),
                 providers: vcsProviderSessions,
                 mappingStore: MacVcsRootMappingStore(store: store),
@@ -1232,11 +1262,11 @@ final class MacServiceContainer {
         services.remoteConnections = RemoteConnectionServices(
             store: RemoteConnectionStore(
                 store: store,
-                secureStore: MacKeychainSecureStore(service: fileStorage.identity.keychainService("remote"))
+                secureStore: MacKeychainSecureStore(service: fileStorage.identity.keychainService("remote"), logSink: logSink)
             ),
             prober: remoteOperations,
             sessions: remoteOperations,
-            locator: MacRemoteHostLocator(),
+            locator: MacRemoteHostLocator(logSink: logSink),
             workspaces: remoteWorkspaces,
             prepareWorkspaceRoot: { connectionID, remotePath in
                 try MacRemoteWorkspaceRoots.prepare(
@@ -1251,7 +1281,7 @@ final class MacServiceContainer {
             planner: RustProjectGeneratorOperations(core: rustCore),
             platform: MacProjectGenerationPlatform(
                 runtime: runtimeService,
-                runner: MacBuildCommandRunner(processRegistry: processRegistry)
+                runner: MacBuildCommandRunner(processRegistry: processRegistry, logSink: logSink), logSink: logSink
             ),
             initializeGitRepository: { root in
                 switch gitOperations.initializeRepository(at: root) {
@@ -1284,8 +1314,9 @@ final class MacServiceContainer {
             isRemoteWorkspace: { remoteWorkspaces.contains($0) },
             discover: { [pluginBackends, fileStorage] request in
                 let rootIDs = PluginWorkspaceRootIDs(
-                    secret: MacPluginRootIDSecret.load(from: MacPluginRootIDSecret.fileURL(fileStorage: fileStorage)))
+                    secret: MacPluginRootIDSecret.load(from: MacPluginRootIDSecret.fileURL(fileStorage: fileStorage), logSink: logSink))
                 return await MacToolchainDiscovery(
+                    logSink: logSink,
                     queryProvider: { pluginID, providerID, params, timeout in
                         do {
                             return try await pluginBackends.queryToolchainProvider(

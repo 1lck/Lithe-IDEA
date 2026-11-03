@@ -343,6 +343,7 @@ private struct SearchEverywhereContent: View {
                 feature.clearSearchEverywhere()
                 return
             }
+            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
             try? await Task.sleep(for: .milliseconds(180))
             guard !Task.isCancelled else { return }
             await search(queryMode.workspaceQuery, scope == .text ? searchOptions : .default)

@@ -25,11 +25,11 @@ enum PluginHostServices {
         _ request: PluginHostRequest,
         pluginID: String,
         credentials: any PluginCredentialStoring
-    ) -> Result<ToolingJSONValue, PluginHostRequestFailure> {
+    ) -> Result<ToolingJSONValue, PluginHostServiceError> {
         guard request.service == "credentials",
               case .object(let params) = request.params,
               case .string(let key)? = params["key"] else {
-            return .failure(PluginHostRequestFailure(message: L10n.string("The host does not serve \(request.method).")))
+            return .failure(PluginHostServiceError(.failed, L10n.string("The host does not serve \(request.method).")))
         }
         do {
             switch request.method {
@@ -38,7 +38,7 @@ enum PluginHostServices {
                 return .success(.object(["secret": secret.map(ToolingJSONValue.string) ?? .null]))
             case "lithe/host/credentials/set":
                 guard case .string(let secret)? = params["secret"] else {
-                    return .failure(PluginHostRequestFailure(message: L10n.string("The request has no secret.")))
+                    return .failure(PluginHostServiceError(.failed, L10n.string("The request has no secret.")))
                 }
                 try credentials.setSecret(secret, pluginID: pluginID, key: key)
                 return .success(.null)
@@ -46,12 +46,12 @@ enum PluginHostServices {
                 try credentials.deleteSecret(pluginID: pluginID, key: key)
                 return .success(.null)
             default:
-                return .failure(PluginHostRequestFailure(message: L10n.string("The host does not serve \(request.method).")))
+                return .failure(PluginHostServiceError(.failed, L10n.string("The host does not serve \(request.method).")))
             }
         } catch {
-            return .failure(PluginHostRequestFailure(
-                message: L10n.string("The credential store failed: \(error.localizedDescription)")
-            ))
+            var failure = PluginHostServiceError(.failed, L10n.string("The credential store failed: \(error.localizedDescription)"))
+            failure.logError = error
+            return .failure(failure)
         }
     }
 }

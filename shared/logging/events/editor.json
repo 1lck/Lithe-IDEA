@@ -3,6 +3,21 @@
   "root": "editor",
   "events": [
     {
+      "id": "editor.document.header_failed",
+      "channel": "editor",
+      "level": "warn",
+      "message": "Document header inspection failed",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying failure at this operation boundary, preserving stable domain and code"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
       "id": "editor.document.open_failed",
       "channel": "editor",
       "level": "error",
@@ -117,6 +132,61 @@
           "type": "token",
           "required": true,
           "description": "FSEvents setup step that failed, e.g. create or start"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "editor.icon.fallback_selected",
+      "channel": "editor",
+      "level": "debug",
+      "message": "File icon content inspection failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "File icon inspection kind, java or generic"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying failure at this operation boundary, preserving stable domain and code"
+        }
+      },
+      "rate": 30,
+      "owner": "Lithe"
+    },
+    {
+      "id": "editor.preview.update_failed",
+      "channel": "editor",
+      "level": "debug",
+      "message": "Preview {stage} update failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Preview update stage, such as markdown-javascript or download-replace"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Native WebKit or filesystem failure while applying the preview update"
+        }
+      },
+      "rate": 30,
+      "owner": "Lithe"
+    },
+    {
+      "id": "editor.shortcuts.update_failed",
+      "channel": "editor",
+      "level": "error",
+      "message": "Keyboard shortcut update failed",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying failure at this operation boundary, preserving stable domain and code"
         }
       },
       "rate": 60,
@@ -296,6 +366,26 @@
       "level": "warn",
       "message": "Core text classification failed",
       "fields": {},
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "editor.workspace_edit.rollback_failed",
+      "channel": "editor",
+      "level": "warn",
+      "message": "Workspace edit rollback failed",
+      "fields": {
+        "count": {
+          "type": "int",
+          "required": true,
+          "description": "Number of closed-file rollback writes that failed"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying failure at this operation boundary, preserving stable domain and code"
+        }
+      },
       "rate": 60,
       "owner": "Lithe"
     }

@@ -114,7 +114,7 @@ final class MacStableRollback: ObservableObject {
             let log = staged.root.appendingPathComponent("installation.log")
             FileManager.default.createFile(atPath: log.path, contents: nil)
             let handle = try FileHandle(forWritingTo: log)
-            defer { try? handle.close() }
+            defer { do { try handle.close() } catch { logSink?.emit(UpdateRollbackCleanupFailed(error: error, stage: "helper-log-close")) } }
             process.standardOutput = handle
             process.standardError = handle
             process.terminationHandler = { [weak self] _ in
@@ -186,7 +186,11 @@ struct StableRollbackPackage: Sendable {
             throw StableRollbackFailure.invalidPublisherSignature
         }
         let (download, archiveResponse) = try await session.download(from: asset.url)
-        defer { try? FileManager.default.removeItem(at: download) }
+        defer {
+            do { try FileManager.default.removeItem(at: download) }
+            catch let error as CocoaError where error.code == .fileNoSuchFile { /* Download already removed. */ }
+            catch { logSink?.emit(UpdateRollbackCleanupFailed(error: error, stage: "download")) }
+        }
         try validateResponse(archiveResponse)
         try Task.checkCancellation()
         await preparing()

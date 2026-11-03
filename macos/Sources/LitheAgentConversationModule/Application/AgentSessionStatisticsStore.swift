@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 import LitheCoreContracts
 
@@ -11,6 +12,7 @@ final class AgentSessionStatisticsStore {
     /// Agents keep far more history than anyone reopens; the oldest records go first.
     static let maximumSessions = 200
 
+    private let logSink: (any LogSink)?
     private let persistence: any AgentSessionStatisticsPersisting
     private let agentID: String
     /// The workspace can be bound after the module is created.
@@ -19,7 +21,8 @@ final class AgentSessionStatisticsStore {
     private var loaded: (workspaceURL: URL, records: [String: AgentSessionStatisticsRecord])?
 
     init(persistence: any AgentSessionStatisticsPersisting, agentID: String,
-         workspaceURL: @escaping () -> URL?, currentDate: @escaping () -> Date = Date.init) {
+         workspaceURL: @escaping () -> URL?, currentDate: @escaping () -> Date = Date.init, logSink: (any LogSink)? = nil) {
+        self.logSink = logSink
         self.persistence = persistence
         self.agentID = agentID
         self.workspaceURL = workspaceURL
@@ -70,8 +73,14 @@ final class AgentSessionStatisticsStore {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .secondsSince1970
         // An unreadable document is replaced by the next save rather than blocking the panel.
-        let records = persistence.loadStatistics(workspaceURL: workspaceURL, agentID: agentID)
-            .flatMap { try? decoder.decode([String: AgentSessionStatisticsRecord].self, from: $0) } ?? [:]
+        let records: [String: AgentSessionStatisticsRecord] = persistence.loadStatistics(workspaceURL: workspaceURL, agentID: agentID)
+            .flatMap { data in
+                do { return try decoder.decode([String: AgentSessionStatisticsRecord].self, from: data) }
+                catch {
+                    logSink?.emit(AgentStatisticsDecodeFailed(error: error))
+                    return nil
+                }
+            } ?? [:]
         loaded = (workspaceURL, records)
         return records
     }

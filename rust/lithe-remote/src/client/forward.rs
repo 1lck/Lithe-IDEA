@@ -11,9 +11,9 @@ use crate::protocol::methods::TunnelTarget;
 use std::io::{self, Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const READ_CHUNK_BYTES: usize = 32 * 1024;
 
@@ -52,7 +52,14 @@ impl PortForward {
                         }
                         let connection = match connection {
                             Ok(connection) => connection,
-                            Err(_) => {
+                            Err(error) => {
+                                forward_failed(
+                                    "remote.forward.accept_failed",
+                                    "accept",
+                                    &format!("{:?}", error.kind()),
+                                    "io",
+                                    &ACCEPT_LOG,
+                                );
                                 // Failures such as EMFILE repeat immediately;
                                 // pausing keeps the acceptor from spinning.
                                 thread::sleep(ACCEPT_FAILURE_BACKOFF);
@@ -63,7 +70,16 @@ impl PortForward {
                         let target = target.clone();
                         thread::spawn(move || {
                             if let Err(error) = bridge(&session, connection, target) {
-                                eprintln!("lithe-remote: forwarded connection failed: {error}");
+                                if let Some(category) = crate::failure_log::bridge_category(&error)
+                                {
+                                    forward_failed(
+                                        "remote.forward.connection_failed",
+                                        "bridge",
+                                        &category,
+                                        "remote",
+                                        &BRIDGE_LOG,
+                                    );
+                                }
                             }
                         });
                     }
@@ -86,10 +102,26 @@ impl Drop for PortForward {
     /// until either side closes them.
     fn drop(&mut self) {
         self.stopping.store(true, Ordering::Release);
-        // A blocking accept only returns for a connection, so make one.
-        let _ = TcpStream::connect(self.local_address);
+        // The acceptor owns the listener. A refused wakeup means that owner
+        // already dropped it; otherwise the next accept result observes stopping.
+        match TcpStream::connect(self.local_address) {
+            Ok(_) => {}
+            // log-exempt: 预期的缺失：ConnectionRefused 表示 listener 已关闭，拥有它的 acceptor 已经退出。
+            Err(error) if error.kind() == io::ErrorKind::ConnectionRefused => {}
+            Err(error) => crate::failure_log::io::<()>(
+                "remote.client.operation_failed",
+                "acceptor_wakeup",
+                Err(error),
+            ),
+        }
         if let Some(acceptor) = self.acceptor.take() {
-            let _ = acceptor.join();
+            crate::failure_log::outcome(
+                "remote.client.operation_failed",
+                "forward_acceptor_join",
+                acceptor.join(),
+                "panic",
+                "thread",
+            );
         }
     }
 }
@@ -99,10 +131,15 @@ fn bridge(
     local: TcpStream,
     target: TunnelTarget,
 ) -> Result<(), ClientError> {
-    let _ = local.set_nodelay(true);
+    crate::failure_log::teardown(
+        "remote.client.operation_failed",
+        "nodelay",
+        local.set_nodelay(true),
+    );
     let tunnel = match session.open_tunnel(target) {
         Ok(tunnel) => tunnel,
         Err(error) => {
+            // log-exempt: 同一次失败已经记录过：隧道建立错误向上传到 bridge 边界记录，随后关闭本地连接不再重复记录。
             let _ = local.shutdown(Shutdown::Both);
             return Err(error);
         }
@@ -132,16 +169,16 @@ fn bridge(
                 // The local client finished sending, as HTTP/1.0 clients and
                 // `nc -N` do, and now waits for the reply: pass the half-close
                 // on after the queued data, and keep receiving.
-                let _ = writer.shutdown_write();
+                crate::failure_log::client("tunnel_half_close", writer.shutdown_write());
             } else {
-                let _ = writer.close();
+                crate::failure_log::client("tunnel_close", writer.close());
             }
         });
         loop {
             match tunnel.next_event(IDLE_CHECK) {
                 Ok(Some(TunnelEvent::Data(bytes))) => {
                     if to_local.write_all(&bytes).is_err() {
-                        let _ = tunnel.close();
+                        crate::failure_log::client("tunnel_close", tunnel.close());
                         break;
                     }
                 }
@@ -154,7 +191,60 @@ fn bridge(
                 Err(_) => break,
             }
         }
-        let _ = to_local.shutdown(Shutdown::Both);
+        crate::failure_log::teardown(
+            "remote.client.operation_failed",
+            "socket_shutdown",
+            to_local.shutdown(Shutdown::Both),
+        );
     });
     Ok(())
+}
+
+// Each forward failure family emits at most once per five seconds process-wide,
+// matching the catalog's rate=12 even across concurrent forwarded connections.
+const FAILURE_LOG_INTERVAL: Duration = Duration::from_secs(5);
+static ACCEPT_LOG: Mutex<Option<Instant>> = Mutex::new(None);
+static BRIDGE_LOG: Mutex<Option<Instant>> = Mutex::new(None);
+
+fn permit_failure(last: &mut Option<Instant>, now: Instant) -> bool {
+    if last.is_some_and(|previous| now.saturating_duration_since(previous) < FAILURE_LOG_INTERVAL) {
+        return false;
+    }
+    *last = Some(now);
+    true
+}
+
+fn forward_failed(
+    event: &str,
+    stage: &'static str,
+    code: &str,
+    domain: &'static str,
+    gate: &Mutex<Option<Instant>>,
+) {
+    let permitted = permit_failure(
+        &mut gate.lock().unwrap_or_else(|error| error.into_inner()),
+        Instant::now(),
+    );
+    if permitted {
+        crate::failure_log::failed(event, stage, code, domain);
+    }
+}
+
+#[cfg(test)]
+mod failure_tests {
+    #[test]
+    fn forwarding_failure_rate_is_bounded_without_real_time_waits() {
+        let now = std::time::Instant::now();
+        let mut last = None;
+        assert!(super::permit_failure(&mut last, now));
+        assert!(!super::permit_failure(&mut last, now));
+        assert!(!super::permit_failure(
+            &mut last,
+            now + std::time::Duration::from_secs(4)
+        ));
+        assert!(super::permit_failure(
+            &mut last,
+            now + super::FAILURE_LOG_INTERVAL
+        ));
+    }
 }

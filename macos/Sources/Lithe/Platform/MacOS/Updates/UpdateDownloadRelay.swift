@@ -123,7 +123,7 @@ struct UpdateDownloadPartialStore: Sendable {
     }
 
     /// Removes abandoned archives, never the entry about to be downloaded.
-    func prune(keeping url: URL, now: Date = Date()) {
+    func prune(keeping url: URL, now: Date = Date(), logSink: (any LogSink)? = nil) {
         let manager = FileManager.default
         guard let files = try? manager.contentsOfDirectory(at: directory,
                 includingPropertiesForKeys: [.contentModificationDateKey], options: .skipsHiddenFiles) else { return }
@@ -136,11 +136,18 @@ struct UpdateDownloadPartialStore: Sendable {
             groups[key] = max(groups[key] ?? .distantPast, modified)
         }
         let ordered = groups.sorted { $0.value > $1.value }
+        var failedRemovals: Int64 = 0
+        var lastError: (any Error)?
         for (index, group) in ordered.enumerated()
         where index >= maximumEntries - 1 || now.timeIntervalSince(group.value) > maximumAge {
-            try? manager.removeItem(at: directory.appendingPathComponent("\(group.key).part"))
-            try? manager.removeItem(at: directory.appendingPathComponent("\(group.key).json"))
+            do { try manager.removeItem(at: directory.appendingPathComponent("\(group.key).part")) }
+            catch let error as CocoaError where error.code == .fileNoSuchFile { /* No partial component remains. */ }
+            catch { failedRemovals += 1; lastError = error }
+            do { try manager.removeItem(at: directory.appendingPathComponent("\(group.key).json")) }
+            catch let error as CocoaError where error.code == .fileNoSuchFile { /* No partial component remains. */ }
+            catch { failedRemovals += 1; lastError = error }
         }
+        if let lastError { logSink?.emit(AppStorageCleanupFailed(count: failedRemovals, error: lastError, stage: "update-partials")) }
     }
 }
 
@@ -178,6 +185,7 @@ final class UpdateDownloadTransfer: NSObject, URLSessionDataDelegate, @unchecked
         queue.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
+    private let logSink: (any LogSink)?
     private let upstream: URL
     private let userAgent: String?
     private let entry: UpdateDownloadPartialStore.Entry
@@ -201,11 +209,12 @@ final class UpdateDownloadTransfer: NSObject, URLSessionDataDelegate, @unchecked
     private var done = false
     private var afterCancel: (() -> Void)?
 
-    init(upstream: URL, userAgent: String?, entry: UpdateDownloadPartialStore.Entry,
+    init(logSink: (any LogSink)? = nil, upstream: URL, userAgent: String?, entry: UpdateDownloadPartialStore.Entry,
          client: UpdateRelayClient, configuration: URLSessionConfiguration, policy: Policy = Policy(),
          now: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
          schedule: @escaping Scheduler = UpdateDownloadTransfer.defaultScheduler,
          finished: @escaping @Sendable (Outcome, UpdateDownloadFailure?) -> Void) {
+        self.logSink = logSink
         self.upstream = upstream
         self.userAgent = userAgent
         self.entry = entry
@@ -235,7 +244,9 @@ final class UpdateDownloadTransfer: NSObject, URLSessionDataDelegate, @unchecked
                    saved.url == upstream.absoluteString, saved.validator != nil {
                     metadata = saved
                 } else {
-                    try? FileManager.default.removeItem(at: entry.data)
+                    do { try FileManager.default.removeItem(at: entry.data) }
+                    catch let error as CocoaError where error.code == .fileNoSuchFile { /* No partial component remains. */ }
+                    catch { logSink?.emit(AppStorageMaintenanceFailed(error: error, stage: "update-partial-remove")) }
                 }
                 if !FileManager.default.fileExists(atPath: entry.data.path) {
                     FileManager.default.createFile(atPath: entry.data.path, contents: nil,
@@ -266,7 +277,13 @@ final class UpdateDownloadTransfer: NSObject, URLSessionDataDelegate, @unchecked
         if let userAgent { request.setValue(userAgent, forHTTPHeaderField: "User-Agent") }
         if storedBytes > 0 {
             guard let validator = metadata.validator else {
-                guard sentBytes == 0, (try? file.map(truncate)) != nil else { return finish(.failed(lastFailure)) }
+                let truncated: Bool
+                do { truncated = try sentBytes == 0 && file.map(truncate) != nil }
+                catch {
+                    logSink?.emit(AppStorageMaintenanceFailed(error: error, stage: "update-truncate"))
+                    truncated = false
+                }
+                guard truncated else { return finish(.failed(lastFailure)) }
                 return self.request()
             }
             request.setValue("bytes=\(storedBytes)-", forHTTPHeaderField: "Range")
@@ -300,7 +317,7 @@ final class UpdateDownloadTransfer: NSObject, URLSessionDataDelegate, @unchecked
             // no longer matches, so a re-uploaded archive must be caught here.
             if Self.validator(of: http) != metadata.validator {
                 guard sentBytes == 0 else {
-                    try? file.map(truncate)
+                    do { try file.map(truncate) } catch { logSink?.emit(AppStorageMaintenanceFailed(error: error, stage: "update-truncate")) }
                     lastFailure = .invalidResponse
                     return cancelTask(completionHandler) { self.finish(.failed(self.lastFailure)) }
                 }
@@ -310,8 +327,14 @@ final class UpdateDownloadTransfer: NSObject, URLSessionDataDelegate, @unchecked
         case 200..<300:
             if storedBytes > 0 {
                 // A full response means the validator no longer matches.
-                guard sentBytes == 0, (try? file.map(truncate)) != nil else {
-                    try? file.map(truncate)
+                let truncated: Bool
+                do { truncated = try sentBytes == 0 && file.map(truncate) != nil }
+                catch {
+                    logSink?.emit(AppStorageMaintenanceFailed(error: error, stage: "update-truncate"))
+                    truncated = false
+                }
+                guard truncated else {
+                    do { try file.map(truncate) } catch { logSink?.emit(AppStorageMaintenanceFailed(error: error, stage: "update-truncate")) }
                     lastFailure = .invalidResponse
                     return cancelTask(completionHandler) { self.finish(.failed(self.lastFailure)) }
                 }
@@ -334,7 +357,8 @@ final class UpdateDownloadTransfer: NSObject, URLSessionDataDelegate, @unchecked
         metadata.totalBytes = total
         if let type = http.value(forHTTPHeaderField: "Content-Type") { metadata.contentType = type }
         if let disposition = http.value(forHTTPHeaderField: "Content-Disposition") { metadata.contentDisposition = disposition }
-        if let data = try? JSONEncoder().encode(metadata) { try? data.write(to: entry.metadata, options: .atomic) }
+        do { try JSONEncoder().encode(metadata).write(to: entry.metadata, options: .atomic) }
+        catch { logSink?.emit(AppStorageMaintenanceFailed(error: error, stage: "update-metadata-write")) }
         if !headersSent {
             guard sendHeaders(), replayStoredBytes() else {
                 return cancelTask(completionHandler) { self.finish(.cancelled) }
@@ -385,7 +409,13 @@ final class UpdateDownloadTransfer: NSObject, URLSessionDataDelegate, @unchecked
     }
 
     private func restartFromZero() {
-        guard sentBytes == 0, (try? file.map(truncate)) != nil else {
+        let truncated: Bool
+        do { truncated = try sentBytes == 0 && file.map(truncate) != nil }
+        catch {
+            logSink?.emit(AppStorageMaintenanceFailed(error: error, stage: "update-truncate"))
+            truncated = false
+        }
+        guard truncated else {
             lastFailure = .invalidResponse
             return finish(.failed(lastFailure))
         }
@@ -407,7 +437,9 @@ final class UpdateDownloadTransfer: NSObject, URLSessionDataDelegate, @unchecked
         try handle.truncate(atOffset: 0)
         storedBytes = 0
         metadata = .init(url: upstream.absoluteString)
-        try? FileManager.default.removeItem(at: entry.metadata)
+        do { try FileManager.default.removeItem(at: entry.metadata) }
+            catch let error as CocoaError where error.code == .fileNoSuchFile { /* No partial component remains. */ }
+            catch { logSink?.emit(AppStorageMaintenanceFailed(error: error, stage: "update-partial-remove")) }
     }
 
     private func sendHeaders() -> Bool {
@@ -439,7 +471,10 @@ final class UpdateDownloadTransfer: NSObject, URLSessionDataDelegate, @unchecked
             }
             try file.seekToEnd()
             return true
-        } catch { return false }
+        } catch {
+            logSink?.emit(AppStorageMaintenanceFailed(error: error, stage: "update-partial-replay"))
+            return false
+        }
     }
 
     private func finish(_ outcome: Outcome) {
@@ -447,12 +482,16 @@ final class UpdateDownloadTransfer: NSObject, URLSessionDataDelegate, @unchecked
         done = true
         task?.cancel()
         task = nil
-        try? file?.close()
+        do { try file?.close() } catch { logSink?.emit(AppStorageMaintenanceFailed(error: error, stage: "update-partial-close")) }
         file = nil
         if outcome == .completed {
             if chunkedResponse { _ = client.send(Data("0\r\n\r\n".utf8)) }
-            try? FileManager.default.removeItem(at: entry.data)
-            try? FileManager.default.removeItem(at: entry.metadata)
+            do { try FileManager.default.removeItem(at: entry.data) }
+            catch let error as CocoaError where error.code == .fileNoSuchFile { /* No partial component remains. */ }
+            catch { logSink?.emit(AppStorageMaintenanceFailed(error: error, stage: "update-partial-remove")) }
+            do { try FileManager.default.removeItem(at: entry.metadata) }
+            catch let error as CocoaError where error.code == .fileNoSuchFile { /* No partial component remains. */ }
+            catch { logSink?.emit(AppStorageMaintenanceFailed(error: error, stage: "update-partial-remove")) }
         }
         session?.invalidateAndCancel()
         session = nil
@@ -512,7 +551,7 @@ final class UpdateDownloadRelay: @unchecked Sendable {
         guard ["http", "https"].contains(upstream.scheme?.lowercased() ?? "") else { return nil }
         do {
             try store.prepareDirectory()
-            store.prune(keeping: upstream)
+            store.prune(keeping: upstream, logSink: logSink)
             let port = try listen()
             var bytes = [UInt8](repeating: 0, count: 16)
             guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else { return nil }
@@ -602,7 +641,7 @@ final class UpdateDownloadRelay: @unchecked Sendable {
         // One writer per partial file: a new request replaces an abandoned one.
         lock.withLock { transfers.removeValue(forKey: key) }?.transfer.cancel()
         let id = UUID()
-        let transfer = UpdateDownloadTransfer(upstream: upstream, userAgent: request.userAgent,
+        let transfer = UpdateDownloadTransfer(logSink: logSink, upstream: upstream, userAgent: request.userAgent,
             entry: store.entry(for: upstream), client: socket, configuration: configuration, policy: policy) {
             [weak self] outcome, failure in
             guard let self else { return }

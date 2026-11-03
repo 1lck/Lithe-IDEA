@@ -243,7 +243,7 @@ final class DocumentFeatureModel: ObservableObject {
             case .failure(let error):
                 // A failed drain may hide unsent input; keep the document reachable.
                 self.promotePreviewDocument(document)
-                self.notify?(error.localizedDescription)
+                self.notifyFailure(error.localizedDescription, error: error, operation: "preview_close")
             }
         }
     }
@@ -258,6 +258,7 @@ final class DocumentFeatureModel: ObservableObject {
     private var autoSaveEnabledProvider: (@MainActor () -> Bool)?
     private var autoSaveDelayProvider: (@MainActor () -> TimeInterval)?
     private var notify: (@MainActor (String) -> Void)?
+    var notifyWithLog: ((String, LogRecordReference?) -> Void)?
     private var onDocumentOpened: (@MainActor (EditorDocument) -> Void)?
     private var onDocumentChanged: (@MainActor (EditorDocument) -> Void)?
     private var onDocumentClosed: (@MainActor (EditorDocument) -> Void)?
@@ -489,6 +490,7 @@ final class DocumentFeatureModel: ObservableObject {
         do {
             data = try fileStorage.readData(from: url, options: [])
         } catch {
+            logSink?.emit(EditorDocumentOpenFailed(error: error, reason: String(describing: StandaloneFileOpenFailure(error: error))))
             return .failure(StandaloneFileOpenFailure(error: error))
         }
         guard data.count <= WorkspaceTextFilePolicy.standaloneFileByteLimit else {
@@ -642,11 +644,14 @@ final class DocumentFeatureModel: ObservableObject {
             // A known binary signature can explain a decoding failure, but a
             // suffix alone must not hide an actual encoding error.
             let fileStorage = self.fileStorage
-            let header = await Task.detached(priority: .userInitiated) {
-                try? fileStorage.readPrefix(
-                    from: normalizedURL,
-                    byteCount: BinaryFileViewerRegistry.headerByteCount
-                )
+            let logSink = self.logSink
+            let header = await Task.detached(priority: .userInitiated) { () -> Data? in
+                do {
+                    return try fileStorage.readPrefix(from: normalizedURL, byteCount: BinaryFileViewerRegistry.headerByteCount)
+                } catch {
+                    logSink?.emit(EditorDocumentHeaderFailed(error: error))
+                    return nil
+                }
             }.value
             guard workspaceURLProvider() == openingWorkspaceURL,
                   pendingFileOpenRequests[filePath]?.id == requestID else { return }
@@ -860,7 +865,7 @@ final class DocumentFeatureModel: ObservableObject {
             do { preparation = try await EditorClosingPreparation.acquire(targets) }
             catch {
                 if self.groupCloseID == operationID, !Task.isCancelled {
-                    self.notify?("Editor synchronization failed: \(error.localizedDescription)")
+                    self.notifyFailure("Editor synchronization failed: \(error.localizedDescription)", error: error, operation: "editor_synchronization")
                     self.cancelPendingClose()
                 }
                 return
@@ -882,7 +887,7 @@ final class DocumentFeatureModel: ObservableObject {
                             else { self.closeDocument(document) }
                             continuation.resume(returning: true)
                         } catch {
-                            self.notify?("Editor synchronization failed: \(error.localizedDescription)")
+                            self.notifyFailure("Editor synchronization failed: \(error.localizedDescription)", error: error, operation: "editor_synchronization")
                             continuation.resume(returning: false)
                         }
                     }
@@ -951,7 +956,7 @@ final class DocumentFeatureModel: ObservableObject {
                     self.cancelPendingClose()
                     self.onCloseFailed?()
                     if !(error is CancellationError) {
-                        self.notify?(self.saveFailureMessage(for: document, error: error))
+                        self.notifySaveFailure(for: document, error: error)
                     }
                     return
                 }
@@ -1015,6 +1020,7 @@ final class DocumentFeatureModel: ObservableObject {
                 let previousText = document.savedText
                 try await saveDocument(document)
                 if document.savedText != previousText { onRecordSave?(document, previousText) }
+            // log-exempt: 同一次失败已经记录过：saveDocument 在保存处理边界记录 editor.document.save_failed
             } catch {
                 return false
             }
@@ -1046,7 +1052,7 @@ final class DocumentFeatureModel: ObservableObject {
             } catch {
                 if self.persistenceGeneration == generation, !Task.isCancelled {
                     if !(error is CancellationError) {
-                        self.notify?(self.saveFailureMessage(for: document, error: error))
+                        self.notifySaveFailure(for: document, error: error)
                     }
                 }
             }
@@ -1087,7 +1093,7 @@ final class DocumentFeatureModel: ObservableObject {
                 if document.isDirty { self.pendingEncodingReopen = request }
                 else { try await self.performEncodingReopen(request, saveChanges: false) }
             } catch {
-                if !Task.isCancelled { self.notify?("Could not reopen " + document.displayName + " with " + encoding.displayName) }
+                if !Task.isCancelled { self.notifyFailure("Could not reopen " + document.displayName + " with " + encoding.displayName, error: error, operation: "encoding_reopen") }
             }
         }
         encodingTask = task
@@ -1104,7 +1110,7 @@ final class DocumentFeatureModel: ObservableObject {
             do { try await self.performEncodingReopen(request, saveChanges: saveChanges) }
             catch {
                 if !Task.isCancelled, !(error is CancellationError) {
-                    self.notify?(self.saveFailureMessage(for: request.document, error: error))
+                    self.notifySaveFailure(for: request.document, error: error)
                 }
             }
         }
@@ -1178,6 +1184,7 @@ final class DocumentFeatureModel: ObservableObject {
         let id = UUID()
         let wait = autoSaveDelay
         let task = Task { [weak self, weak document] in
+            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
             try? await wait(.seconds(delay))
             guard let self, let document else { return }
             defer {
@@ -1199,7 +1206,7 @@ final class DocumentFeatureModel: ObservableObject {
                     guard self.openDocuments.contains(where: { $0 === document }) else { return }
                 } catch {
                     if !Task.isCancelled {
-                        self.notify?(self.saveFailureMessage(for: document, error: error))
+                        self.notifySaveFailure(for: document, error: error)
                     }
                     return
                 }
@@ -1245,7 +1252,7 @@ final class DocumentFeatureModel: ObservableObject {
                 self.onDocumentChanged?(document)
                 self.notify?("Loaded file-system version")
             } catch {
-                if !Task.isCancelled { self.notify?("Could not reload \(url.lastPathComponent)") }
+                if !Task.isCancelled { self.notifyFailure("Could not reload \(url.lastPathComponent)", error: error, operation: "external_reload") }
             }
         }
     }
@@ -1357,7 +1364,7 @@ final class DocumentFeatureModel: ObservableObject {
                         self.onDocumentChanged?(document)
                     }
                 } catch {
-                    if !Task.isCancelled { self.notify?("Could not process an external change to \(url.lastPathComponent)") }
+                    if !Task.isCancelled { self.notifyFailure("Could not process an external change to \(url.lastPathComponent)", error: error, operation: "external_change") }
                 }
             }
         }
@@ -1596,10 +1603,30 @@ final class DocumentFeatureModel: ObservableObject {
         }
     }
 
+    private func notifyFailure(_ message: String, error: Error, operation: String) {
+        guard !error.isCancellation else { return }
+        let event = AppNotificationOperationFailed(error: error, operation: operation)
+        logSink?.emit(event)
+        if let notifyWithLog { notifyWithLog(message, event.reference) }
+        else { notify?(message) }
+    }
+
+    private func notifySaveFailure(for document: EditorDocument, error: Error) {
+        let message = saveFailureMessage(for: document, error: error)
+        if let notifyWithLog { notifyWithLog(message, lastSaveFailureReference) }
+        else { notify?(message) }
+    }
+
+    private(set) var lastSaveFailureReference: LogRecordReference?
+
     private func logSaveFailure(
         _ error: Error, stage: String, operationID: String, document: EditorDocument
     ) {
-        if let id = LogSegment(document.id.uuidString.lowercased()) { logSink?.emit(EditorDocumentSaveFailed(document: id, error: error, revision: Int64(document.lifecycleState.revision), stage: stage, operationID: operationID)) }
+        if let id = LogSegment(document.id.uuidString.lowercased()) {
+            let event = EditorDocumentSaveFailed(document: id, error: error, revision: Int64(document.lifecycleState.revision), stage: stage, operationID: operationID)
+            logSink?.emit(event)
+            lastSaveFailureReference = event.reference
+        }
     }
 
     func saveFailureMessage(for document: EditorDocument, error: Error) -> String {

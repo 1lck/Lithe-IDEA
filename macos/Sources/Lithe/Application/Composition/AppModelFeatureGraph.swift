@@ -1,5 +1,6 @@
 import Foundation
 import LitheCoreContracts
+import LitheModuleAPI
 import LitheWorkspaceModule
 
 /// Constructs the per-session feature models used by AppModel.
@@ -22,7 +23,6 @@ final class AppModelFeatureGraph {
     let languageTooling: LanguageToolingFeatureModel
     let workspace: WorkspaceFeatureModel
     let github: GitHubFeatureModel
-    let diagnostics: DiagnosticsFeatureModel
     let editorTabOrder: EditorTabOrderFeatureModel
     let media: MediaDocumentFeatureModel
     let terminalPlacement: TerminalPlacementFeatureModel
@@ -47,12 +47,17 @@ final class AppModelFeatureGraph {
         // Coordinators report user-facing failures through the notification
         // feature directly; the application shell forwards the same call.
         let notify: @MainActor (String) -> Void = { message in
-            notification.show(message)
+            var reference: LogRecordReference?
+            if let sink = services.logSink {
+                reference = LogScope(sink: sink).emitReferenced(AppNotificationOperationRejected(operation: "language_debug_workflow", reason: "request_failed"))
+            }
+            notification.show(message, logReference: reference)
         }
         workbench = WorkbenchFeatureModel(layoutStore: services.workbenchLayoutStore)
         commitDraft = CommitDraftFeatureModel()
         searchSession = SearchSessionFeatureModel()
         let workspace = WorkspaceFeatureModel(
+            logSink: services.logSink,
             operations: services.workspaceOperations,
             fileOperations: services.fileOperations,
             gitWatchContextProvider: services.gitWatchContextProvider,
@@ -97,7 +102,7 @@ final class AppModelFeatureGraph {
             sessionsProvider: { nil }
         )
         github = GitHubFeatureModel(service: services.githubService)
-        diagnostics = DiagnosticsFeatureModel(service: services.diagnosticsExportService)
+        notification.openLogs = { [weak services] in services?.logWindowCoordinator?.open($0) }
         editorTabOrder = EditorTabOrderFeatureModel()
         media = MediaDocumentFeatureModel()
         terminalPlacement = TerminalPlacementFeatureModel()

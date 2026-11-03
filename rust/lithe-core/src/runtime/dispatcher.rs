@@ -43,6 +43,7 @@ use crate::protocol::{CoreError, ErrorCode};
 use serde_json::json;
 
 pub fn execute_json(request: &str) -> String {
+    crate::diagnostics::helper_failures::install();
     let response = execute(request);
     serde_json::to_string(&response).unwrap_or_else(|_| {
         serde_json::to_string(&CoreResponse::failure(
@@ -3443,6 +3444,58 @@ fn execute(request: &str) -> CoreResponse {
                 Err(_) => CoreResponse::failure(
                     id,
                     CoreError::new(ErrorCode::InvalidRequest, "Invalid log batch request"),
+                ),
+            }
+        }
+        CoreCommand::DiagnosticsParseLogFilter => {
+            match serde_json::from_value::<crate::diagnostics::filter::ParseLogFilterRequest>(
+                parsed.payload,
+            ) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(crate::diagnostics::filter::parse_log_filter(request))
+                        .expect("Filter response serializes"),
+                ),
+                Err(_) => CoreResponse::failure(
+                    id,
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid log parse_log_filter request",
+                    ),
+                ),
+            }
+        }
+        CoreCommand::DiagnosticsComposeLogFilter => {
+            match serde_json::from_value::<crate::diagnostics::filter::ComposeLogFilterRequest>(
+                parsed.payload,
+            ) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    log_v2_result(crate::diagnostics::filter::compose_log_filter(request)),
+                ),
+                Err(_) => CoreResponse::failure(
+                    id,
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid log compose_log_filter request",
+                    ),
+                ),
+            }
+        }
+        CoreCommand::DiagnosticsFormatLogRecords => {
+            match serde_json::from_value::<crate::diagnostics::format::FormatLogRecordsRequest>(
+                parsed.payload,
+            ) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    log_v2_result(crate::diagnostics::format::format_log_records(request)),
+                ),
+                Err(_) => CoreResponse::failure(
+                    id,
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid log format_log_records request",
+                    ),
                 ),
             }
         }

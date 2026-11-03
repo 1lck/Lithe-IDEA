@@ -141,11 +141,11 @@ final class MacLoginShellEnvironment: LoginShellEnvironmentInspecting, @unchecke
             // A slow rc file must not delay the first start indefinitely.
             let started = ContinuousClock.now
             var span = shared.beginRead(shell: shell, source: "startup")
-            let login = read(shell: shell, timeout: shellTimeout ?? coldStartTimeout)
+            let login = read(shell: shell, timeout: shellTimeout ?? coldStartTimeout, report: { shared.record($0) })
             shared.recordRead(login, started: started, span: &span)
             guard let login, let path = login["PATH"], !path.isEmpty else { return nil }
             shared.replaceOverlay(login)
-            writeCache(path, to: cacheURL)
+            writeCache(path, to: cacheURL, report: { shared.record($0) })
             loginPath = path
         }
         let processPath = mergedPath(login: loginPath, inherited: environment["PATH"])
@@ -196,12 +196,12 @@ final class MacLoginShellEnvironment: LoginShellEnvironmentInspecting, @unchecke
             defer { lock.withLock { isReading = false } }
             let started = ContinuousClock.now
             var span = beginRead(shell: shell, source: source)
-            let login = Self.read(shell: shell, timeout: timeout)
+            let login = Self.read(shell: shell, timeout: timeout, report: { self.record($0) })
             recordRead(login, started: started, span: &span)
             guard let login else { return }
             replaceOverlay(login)
             if let cacheURL, let path = login["PATH"], !path.isEmpty {
-                Self.writeCache(path, to: cacheURL)
+                Self.writeCache(path, to: cacheURL, report: { self.record($0) })
             }
         }
     }
@@ -252,7 +252,7 @@ final class MacLoginShellEnvironment: LoginShellEnvironmentInspecting, @unchecke
 
     /// The environment of `shell` started as an interactive login shell, or `nil`
     /// when it fails or does not finish within `timeout`.
-    static func read(shell: String, timeout: TimeInterval) -> [String: String]? {
+    static func read(shell: String, timeout: TimeInterval, report: (any LogEvent) -> Void = { _ in }) -> [String: String]? {
         // Keep this read from looping back into itself through a shell that starts Lithe.
         var environment = ProcessInfo.processInfo.environment
         environment[skipVariable] = "1"
@@ -280,12 +280,12 @@ final class MacLoginShellEnvironment: LoginShellEnvironmentInspecting, @unchecke
         do {
             try process.run()
         } catch {
-            try? output.fileHandleForWriting.close()
-            try? discardedErrors.close()
+            do { try output.fileHandleForWriting.close() } catch { report(AppStorageMaintenanceFailed(error: error, stage: "shell-pipe-close")) }
+            do { try discardedErrors.close() } catch { report(AppStorageMaintenanceFailed(error: error, stage: "shell-stderr-close")) }
             return nil
         }
-        try? output.fileHandleForWriting.close()
-        try? discardedErrors.close()
+        do { try output.fileHandleForWriting.close() } catch { report(AppStorageMaintenanceFailed(error: error, stage: "shell-pipe-close")) }
+        do { try discardedErrors.close() } catch { report(AppStorageMaintenanceFailed(error: error, stage: "shell-stderr-close")) }
         guard finished.wait(timeout: .now() + timeout) == .success else {
             // Ends the shell and every job its rc file left in the process group, so
             // nothing outlives the read and the pipe reaches end-of-file.
@@ -311,11 +311,11 @@ final class MacLoginShellEnvironment: LoginShellEnvironmentInspecting, @unchecke
         return result
     }
 
-    private static func writeCache(_ path: String, to url: URL) {
-        try? FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(), withIntermediateDirectories: true
-        )
-        try? path.write(to: url, atomically: true, encoding: .utf8)
+    private static func writeCache(_ path: String, to url: URL, report: (any LogEvent) -> Void) {
+        do {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try path.write(to: url, atomically: true, encoding: .utf8)
+        } catch { report(AppStorageMaintenanceFailed(error: error, stage: "shell-cache-write")) }
     }
 
     private final class OutputBox: @unchecked Sendable {

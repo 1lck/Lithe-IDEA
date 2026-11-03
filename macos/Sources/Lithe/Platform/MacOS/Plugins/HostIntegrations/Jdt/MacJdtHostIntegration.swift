@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 import LitheCoreContracts
 
@@ -13,6 +14,7 @@ final class MacJdtHostIntegration: MacLanguageServerHostIntegration {
 
     let id = MacJdtHostIntegration.integrationID
 
+    private let logSink: (any LogSink)?
     private let launchResolver: MacPluginLanguageServerLaunchResolver
     private let runtimeService: ProjectRuntimeService
     private let workspaceState: MacJdtWorkspaceState
@@ -24,8 +26,10 @@ final class MacJdtHostIntegration: MacLanguageServerHostIntegration {
     init(
         launchResolver: MacPluginLanguageServerLaunchResolver,
         runtimeService: ProjectRuntimeService,
-        workspaceState: MacJdtWorkspaceState
+        workspaceState: MacJdtWorkspaceState,
+        logSink: (any LogSink)? = nil
     ) {
+        self.logSink = logSink
         self.launchResolver = launchResolver
         self.runtimeService = runtimeService
         self.workspaceState = workspaceState
@@ -51,8 +55,9 @@ final class MacJdtHostIntegration: MacLanguageServerHostIntegration {
             return
         }
         let cacheDirectoryURL = workspaceState.cacheDirectoryURL
+        let logSink = logSink
         stateRemoval = Task.detached(priority: .utility) {
-            MacJdtWorkspaceState.removeAllState(in: cacheDirectoryURL)
+            MacJdtWorkspaceState.removeAllState(in: cacheDirectoryURL, logSink: logSink)
         }
     }
 
@@ -85,6 +90,7 @@ final class MacJdtHostIntegration: MacLanguageServerHostIntegration {
                 coreLaunch: .jdt(resources)
             ))
         } catch {
+            logSink?.emit(PluginsResourcesMaintenanceFailed(error: error, stage: "jdt-launch-resolution"))
             return .unavailable(error.localizedDescription)
         }
     }

@@ -14,6 +14,9 @@ enum WorkspaceProjectionComposition {
         let workbench = graph.workbench
         let editorSession = graph.editorSession
         let notification = graph.notification
+        graph.workspace.notifyFailure = { [weak model] in
+            model?.showNotification($0, logReference: model?.notificationRejection(operation: "workspace_files", reason: "operation_failed"))
+        }
         graph.workspace.configureProjection(
             documentsProvider: { [weak document] in
                 document?.openDocuments.map {

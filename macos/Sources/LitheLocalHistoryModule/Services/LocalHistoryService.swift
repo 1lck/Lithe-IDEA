@@ -1,6 +1,8 @@
+import LitheModuleAPI
 import Foundation
 
 actor LocalHistoryService {
+    private let logSink: (any LogSink)?
     private let workspaceURL: URL
     private var visibilityRules: LocalHistoryVisibilityRules
     private let storageURL: URL
@@ -11,10 +13,12 @@ actor LocalHistoryService {
         workspaceURL: URL,
         visibilityRules: LocalHistoryVisibilityRules,
         storage: any LocalHistoryStorage,
-        operations: any LocalHistoryOperations
+        operations: any LocalHistoryOperations,
+        logSink: (any LogSink)? = nil
     ) {
         self.workspaceURL = workspaceURL.standardizedFileURL
         self.visibilityRules = visibilityRules
+        self.logSink = logSink
         self.operations = operations
         let applicationSupport = storage.applicationSupportDirectory()
         storageURL = applicationSupport
@@ -39,9 +43,13 @@ actor LocalHistoryService {
     }
 
     func seed(files: [URL]) async {
+        var failureCount: Int64 = 0
+        var lastError: (any Error)?
         for fileURL in files where !Task.isCancelled {
-            _ = try? recordFile(at: fileURL, reason: .projectBaseline, pruneExpired: false)
+            do { _ = try recordFile(at: fileURL, reason: .projectBaseline, pruneExpired: false) }
+            catch { failureCount += 1; lastError = error }
         }
+        if let lastError { logSink?.emit(AppHistoryOperationFailed(count: failureCount, error: lastError, stage: "seed")) }
     }
 
     /// Retention scans the whole history store, so request it only until the
@@ -53,11 +61,14 @@ actor LocalHistoryService {
     ) async {
         let generation = recordingGeneration
         var needsPruning = true
+        var failureCount: Int64 = 0
+        var lastError: (any Error)?
+        defer { if let lastError { logSink?.emit(AppHistoryOperationFailed(count: failureCount, error: lastError, stage: "record-batch")) } }
         for fileURL in files {
             guard !Task.isCancelled, generation == recordingGeneration else { return }
-            if (try? recordFile(at: fileURL, reason: reason, pruneExpired: needsPruning)) != nil {
-                needsPruning = false
-            }
+            do {
+                if try recordFile(at: fileURL, reason: reason, pruneExpired: needsPruning) != nil { needsPruning = false }
+            } catch { failureCount += 1; lastError = error }
             await yieldBetweenFiles()
         }
     }

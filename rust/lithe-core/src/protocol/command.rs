@@ -575,6 +575,12 @@ pub enum CoreCommand {
     DiagnosticsDrainCoreEvents,
     /// Merges structured and legacy log evidence (`diagnostics.queryLogsV2`).
     DiagnosticsQueryLogsV2,
+    /// Parses filter terms and UTF-16 diagnostics (`diagnostics.parseLogFilter`).
+    DiagnosticsParseLogFilter,
+    /// Composes a context-menu predicate (`diagnostics.composeLogFilter`).
+    DiagnosticsComposeLogFilter,
+    /// Formats canonical redacted evidence (`diagnostics.formatLogRecords`).
+    DiagnosticsFormatLogRecords,
     /// Plans bounded native tail reads (`diagnostics.planLogCollection`).
     DiagnosticsPlanLogCollection,
     /// Plans log cleanup without filesystem access (`diagnostics.planLogRetention`).
@@ -864,6 +870,9 @@ impl CoreCommand {
             "diagnostics.queryLogs" => Some(Self::DiagnosticsQueryLogs),
             "diagnostics.drainCoreEvents" => Some(Self::DiagnosticsDrainCoreEvents),
             "diagnostics.encodeLogBatch" => Some(Self::DiagnosticsEncodeLogBatch),
+            "diagnostics.parseLogFilter" => Some(Self::DiagnosticsParseLogFilter),
+            "diagnostics.composeLogFilter" => Some(Self::DiagnosticsComposeLogFilter),
+            "diagnostics.formatLogRecords" => Some(Self::DiagnosticsFormatLogRecords),
             "diagnostics.queryLogsV2" => Some(Self::DiagnosticsQueryLogsV2),
             "diagnostics.planLogCollection" => Some(Self::DiagnosticsPlanLogCollection),
             "diagnostics.planLogRetention" => Some(Self::DiagnosticsPlanLogRetention),

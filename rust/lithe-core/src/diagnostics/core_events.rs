@@ -86,7 +86,7 @@ pub fn record(
     Ok(())
 }
 
-fn prepare(
+pub(super) fn prepare(
     event: &str,
     fields: BTreeMap<String, Value>,
     op: Option<String>,
@@ -166,12 +166,81 @@ pub(crate) fn directory_skipped(event: &str, path: &str, code: &crate::protocol:
     }
 }
 
-fn note_dropped() {
+pub(super) fn note_dropped() {
     let mut queue = QUEUE
         .get_or_init(Mutex::default)
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     queue.dropped = queue.dropped.saturating_add(1);
+}
+
+/// Hands a category-only recovery failure to the host; callers own the decision
+/// to continue, so WARN describes degradation without exposing error payloads.
+pub(crate) fn recovery_failed(event: &str, stage: &str, code: &str, domain: &str) {
+    let fields = BTreeMap::from([
+        ("stage".into(), json!(stage)),
+        ("error".into(), json!("Core recovery failed")),
+        ("error_code".into(), json!(code)),
+        ("error_domain".into(), json!(domain)),
+    ]);
+    if record(event, fields, None).is_err() {
+        note_dropped();
+    }
+}
+
+/// Fixed-size cleanup summary: batch callers emit once rather than once per file.
+#[derive(Default)]
+pub(crate) struct StorageCleanup {
+    count: i64,
+    first: Option<std::io::ErrorKind>,
+}
+
+impl StorageCleanup {
+    /// Missing staging files are normal after failed creation or concurrent eviction.
+    pub(crate) fn observe(&mut self, result: std::io::Result<()>) {
+        match result {
+            Ok(()) => {}
+            // log-exempt: Expected absence: creation may have failed before a file existed.
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                self.count = self.count.saturating_add(1);
+                self.first.get_or_insert(error.kind());
+            }
+        }
+    }
+
+    /// Removes a directory only when empty; retained contents belong to the caller.
+    pub(crate) fn empty_directory(&mut self, path: &std::path::Path) {
+        match std::fs::read_dir(path) {
+            Ok(mut entries) => match entries.next() {
+                None => self.observe(std::fs::remove_dir(path)),
+                Some(Ok(_)) => {} // Retained snapshots/settings still own the directory.
+                Some(Err(error)) => self.observe(Err(error)),
+            },
+            Err(error) => self.observe(Err(error)),
+        }
+    }
+
+    /// Records one WARN at the storage recovery boundary, preserving normal results.
+    pub(crate) fn finish(self, stage: &str) {
+        if let Some(kind) = self.first {
+            if record(
+                "app.storage.cleanup_failed",
+                BTreeMap::from([
+                    ("stage".into(), json!(stage)),
+                    ("count".into(), json!(self.count)),
+                    ("error".into(), json!("Storage cleanup failed")),
+                    ("error_code".into(), json!(format!("{kind:?}"))),
+                    ("error_domain".into(), json!("io")),
+                ]),
+                None,
+            )
+            .is_err()
+            {
+                note_dropped();
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -226,7 +295,11 @@ mod tests {
             ),
         ] {
             assert_eq!(client_failure_category(&error), expected);
+            assert!(!remote_resource_already_gone(&error));
         }
+        assert!(remote_resource_already_gone(&ClientError::Remote(
+            RemoteError::new(ErrorCode::UnknownResource, "process 7 is not active")
+        )));
         let safe = prepare(
             "app.workspace.scratch_cleanup_failed",
             BTreeMap::from([
@@ -261,6 +334,27 @@ mod tests {
         )
         .is_err());
     }
+}
+
+/// Records a recovery failure whose cause is a [`CoreError`], keeping only its
+/// stable code token so details and paths never reach the log.
+pub(crate) fn core_failed(event: &str, stage: &str, error: &crate::protocol::CoreError) {
+    let code = serde_json::to_value(&error.code).expect("Core error codes serialize");
+    let code = code.as_str().expect("Core error codes serialize as tokens");
+    recovery_failed(event, stage, code, "core");
+}
+
+/// True when a remote cleanup request found nothing to clean: the host prunes
+/// exited processes, stopped watches and closed terminals, so `UnknownResource`
+/// is the expected missing case rather than a cleanup failure.
+pub(crate) fn remote_resource_already_gone(
+    error: &lithe_remote::client::session::ClientError,
+) -> bool {
+    matches!(
+        error,
+        lithe_remote::client::session::ClientError::Remote(remote)
+            if remote.code == lithe_remote::protocol::ErrorCode::UnknownResource
+    )
 }
 
 /// Stable transport/protocol category; never copies a peer message or address.

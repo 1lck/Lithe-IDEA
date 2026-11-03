@@ -31,7 +31,7 @@
 
 - **不自研调试器。** 符号解析、ptrace / Mach 异常端口 / Windows Debug API、各 CPU 架构的断点和单步，都由 GDB、LLDB 等上游负责。GCC 是编译器；GCC 编出来的程序用 GDB 或 LLDB 调试。
 - **不重建项目模型。** Java 的主类和 classpath 来自 JDT，Python 解释器来自 Run，C/C++/Rust 产物来自 Build/Run。
-- **不另造插件协议。** 启动声明复用 `serverProcess`、启动模板、能力版本和安装审查，详见[声明草案](../../../../shared/proposals/debug-adapters-1210/README.md)（正式契约见 `shared/contracts/plugins/v1/README.md`）。
+- **不另造插件协议。** 启动声明复用 `serverProcess`、启动模板、能力版本和安装审查，详见[正式调试适配器契约](../../../../shared/contracts/plugins/v1/README.md#api-level-4-debug-adapters)。
 - **现有行为是迁移基线，不能丢。** 包括 Java 热替换、JUnit/TestNG、调试使用 Run 选中的 JDK、子调试会话与 source map 位置透传、断点先于 launch 入队、停止与清理顺序。
 
 ## 提案
@@ -49,7 +49,7 @@
 
 ### 2. 会话模型 v2：第一版就为扩展留位置
 
-新内核发布投影版本 2，草案见 [`debug-session-projection.draft.schema.json`](../../../../shared/proposals/debug-adapters-1210/debug-session-projection.draft.schema.json) 和[样例](../../../../shared/proposals/debug-adapters-1210/projection-v2-examples.draft.json)。与 v1 相比：
+会话投影版本 2 已在 Rust Core 落地，类型与校验见 [`projection_v2.rs`](../../../../rust/lithe-core/src/debug/projection_v2.rs)，共享回归样例见 [`projection-v2-examples.json`](../../../../shared/fixtures/debug/projection-v2-examples.json)。实现与共享 fixture 是当前真源，不再维护独立的评审 schema。与 v1 相比：
 
 | 预留 | 规则 | 为什么第一版就要定 |
 | --- | --- | --- |
@@ -99,7 +99,7 @@ Registry 注册时不启动程序做验证。一个适配器在接入验收中�
 
 ### 5. Registry 与插件声明
 
-完整字段和拒绝规则见[声明草案](../../../../shared/proposals/debug-adapters-1210/README.md)（正式契约见 `shared/contracts/plugins/v1/README.md`），这里只记录决策：
+完整字段和拒绝规则见[正式调试适配器契约](../../../../shared/contracts/plugins/v1/README.md#api-level-4-debug-adapters)、[清单 schema](../../../../shared/contracts/plugins/v1/plugin-manifest.schema.json) 和[拒绝 fixtures](../../../../shared/contracts/plugins/v1/fixtures/debug-adapter-rejections.json)，这里只记录决策：
 
 - 插件只写一个 `plugin.json.debugAdapters` 块，必填 `id`、`displayName`、`launch`。`launch` 由两部分组成：复用 `serverProcess` 的进程，加上 `stdio`、`tcpAnnounced` 或 `tcpPort` 三种传输之一；调试服务寄居在同一插件的语言服务器里时（Java Debug Server 之于 JDT LS），改用 `tcpLanguageServer`，此时没有 `process`，只有 `endpoint`。
 - 拟定 API 4、`requires.debugAdapters: 1`、`debug.launch` / `debug.attach` 权限。需要 Run 选中的运行时时，使用 `serverProcess: 2` 的 `runSelectedRuntime`。
@@ -122,7 +122,7 @@ Registry 注册时不启动程序做验证。一个适配器在接入验收中�
 | P0 行为基线 | 把现有两套内核的行为录成 v1 基线 fixtures：启动序列、断点先于 launch、断点位置修正、变量分页、停止与断开策略、`runInTerminal`、Node 子会话、Java 热替换 / 测试 / Run JDK、取消与晚到事件 |
 | P1 新内核与 v2 投影 | 新内核实现必选层和推荐层、v2 投影、能力快照、扩展注册表；三端都能解码 v2 fixtures；通过全部 P0 基线 |
 | P2 内置迁移与 Registry | 内置适配器逐个注册为 Provider 并切到新内核，建议顺序：通用 stdio → Go → Node → Python → Java。每个都有可回退的开关，同一目标只启用一个实现；Windows 同步迁移 |
-| P3 第三方声明契约 | 正式 schema、Core 语义校验、版本号、权限、安装审查一起落地；声明草案里的拒绝 fixtures 接上 Core 测试 |
+| P3 第三方声明契约 | 正式 schema、Core 语义校验、版本号、权限、安装审查一起落地；正式契约的拒绝 fixtures 接上 Core 测试 |
 | P4 第三方纵向验收 | 两个平台各用一个真实第三方适配器（GDB DAP `gdb -i=dap` 或 `lldb-dap`）完成安装、选择、launch / attach、必选层全流程和资源回收 |
 | P5 删除旧路径 | 所有消费者迁到 v2 之后，在同一个 PR 里删除 Swift 会话、按语言的工厂和 v1 投影 |
 
@@ -317,7 +317,7 @@ P0–P5 完成后关闭 #1210。可选扩展、插件依赖和私有 resolver �
 
 ## 验证
 
-本阶段只修改设计文档和草案 schema。运行 `./scripts/agent-notes/verify-agent-notes.sh`、`./scripts/architecture/verify-shared-contracts.sh`、`./scripts/macos/verify/verify-runtime-bundle-immutability.sh` 和 `git diff --check`，并用 Draft 2020-12 离线校验草案 schema 与样例。这些检查不构成运行时证据。
+文档与共享 fixture 运行 `./scripts/agent-notes/verify-agent-notes.sh`、`./scripts/architecture/verify-shared-contracts.sh`、`./scripts/macos/verify/verify-runtime-bundle-immutability.sh` 和 `git diff --check`。会话投影 v2 的解码、拒绝与往返一致性由正式 fixture 及现有 Rust、Swift 测试验证，不再依赖草案 schema。这些静态检查不构成运行时证据。
 
 实施阶段加载 `write-stable-tests`，按改动范围运行 `./scripts/rust-core/verify-rust-core-comments.sh`、`./scripts/rust-core/verify-rust-core.sh`、`./scripts/macos/test/test-macos.sh`、`./scripts/architecture/verify-service-boundaries.sh` 和 `./scripts/windows/verify/verify-windows-boundaries.sh`；Windows 另外执行 `./scripts/windows/build/build-windows.ps1 -Configuration Release`、宿主 Rust 测试和前端测试。所有等待都有上限，失败时也释放资源，结束后确认本次启动的进程都已退出。平台行为变化时同步功能矩阵，运行 `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`。正式契约与 Core 一起修改，合并后按[两仓库发布规则](../../implemented/architecture/2026-10-23-plugin-contract-publishing.md)同步 `lithe-plugin-docs`。
 
@@ -327,7 +327,6 @@ P0–P5 完成后关闭 #1210。可选扩展、插件依赖和私有 resolver �
 - `rust/lithe-core/src/plugins/`
 - `shared/contracts/plugins/v1/`
 - `shared/contracts/rust-core-api.md`
-- `shared/proposals/debug-adapters-1210/`
 - `shared/fixtures/debug/`
 - `macos/Sources/LitheCoreContracts/Debug/`
 - `macos/Sources/LitheDebugModule/`

@@ -4286,7 +4286,7 @@ impl RuntimeSession {
                             "status": status,
                             "errorDetails": error_details,
                         }))
-                        .ok();
+                        .expect("JSON values serialize without fallible map keys");
                         if status == MavenProfileTaskStatus::Failed {
                             push_issue_log_event(
                                 self,
@@ -4298,7 +4298,7 @@ impl RuntimeSession {
                                     json!({"projectUri": project_uri, "status": status}),
                                 ),
                                 "Maven profile project update completed",
-                                detail,
+                                Some(detail),
                             );
                         } else {
                             push_log_event(
@@ -4309,7 +4309,7 @@ impl RuntimeSession {
                                     json!({"projectUri": project_uri, "status": status}),
                                 ),
                                 "Maven profile project update completed",
-                                detail,
+                                Some(detail),
                             );
                         }
                     }
@@ -5400,6 +5400,7 @@ impl RuntimeSession {
         state.maintenance_write_deadline = Some(Instant::now() + state.request_timeout);
         drop(state);
         // Process termination by the monitor releases a blocked native stdin write.
+        // log-exempt: Same failure already recorded: send_messages_or_fail transitions the session and emits its transport failure.
         let _ = self.send_messages_or_fail(&outbound_order, messages, "outboundMaintenance");
         if let Ok(mut state) = self.lock_state() {
             state.maintenance_write_deadline = None;
@@ -5582,7 +5583,7 @@ impl RuntimeSession {
                         "status": MavenProfileTaskStatus::TimedOut,
                         "errorDetails": error_details,
                     }))
-                    .ok();
+                    .expect("JSON values serialize without fallible map keys");
                     push_issue_log_event(
                         self,
                         &mut state,
@@ -5591,7 +5592,7 @@ impl RuntimeSession {
                         "mavenProfileUpdateFailed",
                         EngineLog::MavenProjectFinished.with_fields(json!({"projectUri": redacted_project_uri(&project_uri), "status": MavenProfileTaskStatus::TimedOut})),
                         "Maven profile project update completed",
-                        detail,
+                        Some(detail),
                     );
                     push_maven_profile_project_event(
                         self,
@@ -5921,6 +5922,31 @@ impl RuntimeSession {
 
     fn kill_process(&self) {
         self.process.terminate();
+        if let Some(error) = self.process.take_termination_failure() {
+            // The session owns process recovery; WARN reports cleanup degradation.
+            // Reuse the role routing and runtime envelope without adding a v1 log row.
+            if let Ok(mut state) = self.lock_state() {
+                let category = format!("{:?}", error.kind());
+                let error = runtime_error(
+                    self,
+                    "processCleanupFailed",
+                    "cleanup",
+                    None,
+                    None,
+                    "Engine process cleanup failed",
+                    None,
+                    None,
+                );
+                let input = EngineLog::ProcessCleanupFailed.with_fields(json!({}));
+                let (id, mut fields) =
+                    input
+                        .identity
+                        .fact(&self.log_identity, &input.fields, Some(&error));
+                fields.insert("error_code".into(), json!(category));
+                fields.insert("error_domain".into(), json!("io"));
+                push_cleanup_fact(self, &mut state, id, fields, error);
+            }
+        }
     }
 
     fn lock_outbound_order(&self) -> Result<MutexGuard<'_, ()>, CoreError> {
@@ -6499,6 +6525,49 @@ fn refresh_project_preparation(session: &RuntimeSession, state: &mut SessionStat
         maven_profile_task: None,
     });
     session.event_signal.notify_all();
+}
+
+// Cleanup failure is a log row, never a state change: hosts take the latest
+// `stateChanged` as the session state, so a stateless one would erase `failed`.
+fn push_cleanup_fact(
+    session: &RuntimeSession,
+    state: &mut SessionState,
+    id: String,
+    fields: std::collections::BTreeMap<String, Value>,
+    error: LspRuntimeError,
+) {
+    let sequence = take_sequence(state);
+    enqueue_runtime_event(
+        session,
+        state,
+        LspRuntimeEvent {
+            kind: "log".to_string(),
+            channel: None,
+            plugin_id: None,
+            role: None,
+            event: Some(id),
+            fields: Some(fields),
+            catalog_level: None,
+            sequence,
+            provider_id: session.provider_id.clone(),
+            session_id: session.id.clone(),
+            state: None,
+            operation_id: None,
+            method: None,
+            uri: None,
+            version: None,
+            diagnostics: None,
+            result: None,
+            error: Some(error),
+            capabilities: None,
+            server_info: None,
+            level: Some("warning".to_string()),
+            message: Some("Engine process cleanup failed".to_string()),
+            detail: None,
+            maven_profile_project: None,
+            maven_profile_task: None,
+        },
+    );
 }
 
 fn transition_locked(
@@ -9130,6 +9199,43 @@ mod tests {
                 legacy,
                 json!({"type": "stateChanged", "sequence": sequence,
                 "providerId": "c++", "sessionId": session.id, "state": "stopped"})
+            );
+            state.events.clear();
+            let error = runtime_error(
+                &session,
+                "processCleanupFailed",
+                "cleanup",
+                None,
+                None,
+                "Engine process cleanup failed",
+                None,
+                None,
+            );
+            let (id, fields) = EngineLog::ProcessCleanupFailed.fact(
+                &session.log_identity,
+                &Value::Null,
+                Some(&error),
+            );
+            push_cleanup_fact(&session, &mut state, id, fields, error);
+            let event = state.events.front().unwrap();
+            assert_eq!(
+                event.channel.as_deref(),
+                Some(session.log_identity.channel().as_str())
+            );
+            assert_eq!(
+                event.catalog_level,
+                Some(crate::diagnostics::record::LogLevel::Warn)
+            );
+            assert_eq!(event.kind, "log");
+            assert_eq!(event.level.as_deref(), Some("warning"));
+            assert_eq!(
+                event.message.as_deref(),
+                Some("Engine process cleanup failed")
+            );
+            assert!(event.detail.is_none() && event.state.is_none());
+            assert_eq!(
+                event.error.as_ref().map(|error| error.code.as_str()),
+                Some("processCleanupFailed")
             );
         }
     }

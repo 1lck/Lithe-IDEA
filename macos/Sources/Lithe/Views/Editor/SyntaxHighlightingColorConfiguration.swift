@@ -167,6 +167,7 @@ struct SyntaxHighlightingColorConfiguration {
                 throw SyntaxHighlightingColorConfigurationError.missingBundledConfiguration
             }
             return (try SyntaxHighlightingColorConfiguration(data: Data(contentsOf: url)), nil)
+        // log-exempt: 同一次失败已经记录过：保留原始 loadError，由 LitheApp 启动边界记录 editor.syntax.configuration_failed
         } catch {
             // Invalid packaged colors must not prevent the editor from rendering text.
             return (SyntaxHighlightingColorConfiguration(), error)

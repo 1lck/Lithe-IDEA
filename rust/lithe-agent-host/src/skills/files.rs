@@ -228,8 +228,14 @@ struct Staging(PathBuf);
 impl Drop for Staging {
     fn drop(&mut self) {
         if let Err(error) = fs::remove_dir_all(&self.0) {
+            // log-exempt: 预期的缺失：暂存清理对象已不存在，没有仍需删除的文件或目录。
             if error.kind() != std::io::ErrorKind::NotFound {
-                eprintln!("Skill staging cleanup failed: {error}");
+                crate::failure_log::failed(
+                    "agent.skills.cleanup_failed",
+                    "install",
+                    &format!("{:?}", error.kind()),
+                    "io",
+                );
             }
         }
     }

@@ -1,4 +1,5 @@
 import LitheModuleAPI
+import LitheModuleAPI
 import Foundation
 
 /// macOS filesystem adapter for JDT LS workspace fingerprints and cached state.
@@ -95,6 +96,7 @@ struct MacJdtWorkspaceState {
             do {
                 _ = try fileManager.attributesOfItem(atPath: path)
                 buildFiles.append(RustCoreBridge.JdtBuildFileObservation(path: name))
+            // log-exempt: 预期的缺失：探测的可选文件或目录不存在，按未发现处理
             } catch where isMissingFileError(error) {
                 continue
             }
@@ -114,6 +116,7 @@ struct MacJdtWorkspaceState {
                 let attributes = try fileManager.attributesOfItem(atPath: descriptorPath)
                 guard attributes[.type] as? FileAttributeType == .typeRegular else { continue }
                 modules.append(entry.lastPathComponent)
+            // log-exempt: 预期的缺失：探测的可选文件或目录不存在，按未发现处理
             } catch where isMissingFileError(error) {
                 continue
             }
@@ -129,12 +132,17 @@ struct MacJdtWorkspaceState {
     /// Removes every index and configuration area JDT LS wrote, for the case
     /// where the plugin that owns them is gone and nothing will read them
     /// again. Best effort: it only frees disk space.
-    nonisolated static func removeAllState(in cacheDirectoryURL: URL) {
+    nonisolated static func removeAllState(in cacheDirectoryURL: URL, logSink: (any LogSink)? = nil) {
+        var failures: Int64 = 0
+        var lastError: (any Error)?
         for name in ownedCacheDirectoryNames {
-            try? FileManager.default.removeItem(
+            do { try FileManager.default.removeItem(
                 at: cacheDirectoryURL.appendingPathComponent(name, isDirectory: true)
-            )
+            ) }
+            catch let error as CocoaError where error.code == .fileNoSuchFile { /* No cache was created. */ }
+            catch { failures += 1; lastError = error }
         }
+        if let lastError { logSink?.emit(AppStorageCleanupFailed(count: failures, error: lastError, stage: "jdt-cache")) }
     }
 
     /// Removes only the current workspace/fingerprint directory. Other cached
@@ -184,6 +192,7 @@ struct MacJdtWorkspaceState {
                 ],
                 options: [.skipsHiddenFiles]
             )
+        // log-exempt: 预期的缺失：探测的可选文件或目录不存在，按未发现处理
         } catch where isMissingFileError(error) {
             let plan = try cacheRetentionPlanner(
                 unixSeconds(now),
@@ -316,6 +325,7 @@ struct MacJdtWorkspaceState {
                     )
                 }
                 return version
+            // log-exempt: 预期的缺失：探测的可选文件或目录不存在，按未发现处理
             } catch where isMissingFileError(error) {
                 // A selected development executable may not ship a manifest;
                 // the JDT LS core plug-in name remains the next stable source.
@@ -325,6 +335,7 @@ struct MacJdtWorkspaceState {
             let names: [String]
             do {
                 names = try fileManager.contentsOfDirectory(atPath: pluginsURL.path)
+            // log-exempt: 预期的缺失：探测的可选文件或目录不存在，按未发现处理
             } catch where isMissingFileError(error) {
                 continue
             }

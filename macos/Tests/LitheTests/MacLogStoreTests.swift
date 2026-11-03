@@ -45,6 +45,22 @@ struct MacLogStoreTests {
 
     @Test
     func flushDrainsRealWorkspaceFailureFromCoreOnlyOnce() async throws {
+        // Core's pending facts belong to the process. Run this real Core-to-file
+        // boundary alone so another store's scheduled drain cannot steal them.
+        if ProcessInfo.processInfo.environment["LITHE_CORE_LOG_DRAIN_CHILD"] != "1" {
+            let image = try #require(Bundle(for: CoreLogDrainBundleMarker.self).executableURL)
+            var environment = ProcessInfo.processInfo.environment
+            environment["LITHE_CORE_LOG_DRAIN_CHILD"] = "1"
+            let result = try await TestProcess.run(
+                executableURL: URL(fileURLWithPath: CommandLine.arguments[0]),
+                arguments: ["--test-bundle-path", image.path, "--testing-library", "swift-testing", "--filter",
+                    "LitheTests.MacLogStoreTests/flushDrainsRealWorkspaceFailureFromCoreOnlyOnce"],
+                currentDirectoryURL: FileManager.default.temporaryDirectory,
+                environment: environment, timeout: .seconds(10))
+            #expect(result.terminationStatus == 0, "Isolated Core drain failed: \(String(decoding: result.output, as: UTF8.self))")
+            #expect(String(decoding: result.output, as: UTF8.self).contains("Test run with 1 test in 1 suite passed"))
+            return
+        }
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let workspace = root.appendingPathComponent("workspace")
         let hidden = workspace.appendingPathComponent("inaccessible")
@@ -584,3 +600,5 @@ extension MacLogStoreTests {
         await writer.finishSession()
     }
 }
+
+private final class CoreLogDrainBundleMarker: NSObject {}

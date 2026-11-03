@@ -242,6 +242,26 @@
       "owner": "Lithe"
     },
     {
+      "id": "plugins.resources.maintenance_failed",
+      "channel": "plugins",
+      "level": "warn",
+      "message": "Plugin resource {stage} failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Owned plugin resource operation that failed, such as staging-remove, rollback, or archive-close"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Native failure while maintaining host-owned plugin download, staging, or state resources"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
       "id": "plugins.scan.failed",
       "channel": "plugins",
       "level": "warn",
@@ -486,6 +506,26 @@
       "owner": "lithe-core"
     },
     {
+      "id": "plugins.host.request_failed",
+      "channel": "plugins/{plugin}/host",
+      "level": "error",
+      "message": "Plugin host request failed",
+      "fields": {
+        "plugin": {
+          "type": "id",
+          "required": true,
+          "description": "Validated plugin identity that owns this failed host request"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Native host service error or stable host request failure code"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
       "id": "plugins.host.session.updated",
       "channel": "plugins/{plugin}/host",
       "level": "debug",
@@ -501,6 +541,26 @@
           "type": "id",
           "required": true,
           "description": "Validated plugin identity assigned by Core to this engine session"
+        }
+      }
+    },
+    {
+      "id": "plugins.host.process.cleanup_failed",
+      "channel": "plugins/{plugin}/host",
+      "level": "warn",
+      "message": "Engine process cleanup failed",
+      "owner": "lithe-core",
+      "rate": 60,
+      "fields": {
+        "plugin": {
+          "type": "id",
+          "required": true,
+          "description": "Validated session identity selected from the explicit engine role"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Stable native cleanup failure category; excludes process arguments and paths"
         }
       }
     }

@@ -18,7 +18,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     lazy var debugPerformanceFeature = DebugPerformanceFeatureModel(sampler: services.debugPerformanceSampler)
     lazy var testPerformanceFeature = TestJVMPerformanceFeatureModel(
         sampler: services.debugPerformanceSampler, provider: services.testJVMPerformance)
-    lazy var ideCapabilities = IdeCapabilitiesFeatureModel(model: self)
+    lazy var ideCapabilities = IdeCapabilitiesFeatureModel(model: self, logSink: services.logSink)
     /// Settings › MCP: servers registered with Codex and Claude Code, created
     /// when the page is first shown.
     lazy var mcpServerLibrary = McpServerLibraryFeatureModel(model: self)
@@ -104,12 +104,12 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     )
     lazy var agentInstructionsFeature = AgentInstructionsFeatureModel(service: services.agentInstructions)
     lazy var agentHooksFeature = AgentHooksFeatureModel(service: services.agentHooks)
-    lazy var agentSkillsFeature = AgentSkillsFeatureModel(service: services.agentManagement)
+    lazy var agentSkillsFeature = AgentSkillsFeatureModel(service: services.agentManagement, logSink: services.logSink)
     /// Settings › Plugins marketplace and plugin repositories, created when
     /// the page is first shown.
     lazy var pluginMarketplaceFeature = PluginMarketplaceFeatureModel(
         service: services.pluginMarketplace,
-        pluginManager: services.pluginManager
+        pluginManager: services.pluginManager, logSink: services.logSink
     )
     var commitDraftFeature: CommitDraftFeatureModel { featureGraph.commitDraft }
     lazy var commitWorkflow = CommitWorkflowComposition.make(model: self)
@@ -213,7 +213,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     let debugPortAvailabilityChecker: any DebugPortAvailabilityChecking
     var workspaceFeature: WorkspaceFeatureModel { featureGraph.workspace }
     var githubFeature: GitHubFeatureModel { featureGraph.github }
-    var diagnosticsFeature: DiagnosticsFeatureModel { featureGraph.diagnostics }
     var editorTabOrderFeature: EditorTabOrderFeatureModel { featureGraph.editorTabOrder }
     var mediaFeature: MediaDocumentFeatureModel { featureGraph.media }
     var terminalPlacementFeature: TerminalPlacementFeatureModel {
@@ -229,7 +228,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         store: moduleCapabilityStore,
         awaitShutdown: { [weak self] in await self?.awaitModuleRuntimeShutdown() },
         onChange: { [weak self] in self?.scheduleObjectWillChangeRelay(affectsSettings: false) },
-        onError: { [weak self] in self?.showNotification($0) }
+        onError: { [weak self] in self?.showNotification($0, logReference: self?.notificationRejection(operation: "module_activation", reason: "activation_failed")) }
     )
     lazy var debugModuleCoordinator = DebugModuleCoordinator(
         runtime: services.moduleRuntime,
@@ -239,7 +238,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         openWorkspace: { feature, url in feature.openWorkspace(at: url) },
         onStateChange: { [weak self] in self?.handleDebugSessionStateChange($0) },
         onChange: { [weak self] in self?.scheduleObjectWillChangeRelay(affectsSettings: false) },
-        onError: { [weak self] in self?.showNotification($0) }
+        onError: { [weak self] in self?.showNotification($0, logReference: self?.notificationRejection(operation: "module_activation", reason: "activation_failed")) }
     )
     lazy var languageIntelligenceModuleCoordinator = LanguageIntelligenceModuleCoordinator(
         runtime: services.moduleRuntime,
@@ -249,18 +248,19 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             guard self?.isProjectSessionClosed == false else { throw CancellationError() }
         },
         bind: { [weak self] in self?.bindLanguageIntelligenceCapability($0) },
-        notify: { [weak self] in self?.showNotification($0) }
+        notify: { [weak self] in self?.showNotification($0, logReference: self?.notificationRejection(operation: "language_activation", reason: "activation_failed")) }
     )
     lazy var terminalModuleCoordinator = TerminalModuleCoordinator(
         runtime: services.moduleRuntime,
         store: moduleCapabilityStore,
-        onChange: { [weak self] in self?.scheduleObjectWillChangeRelay(affectsSettings: false) }
+        onChange: { [weak self] in self?.scheduleObjectWillChangeRelay(affectsSettings: false) },
+        logSink: services.logSink
     )
     lazy var gitModuleCoordinator = GitModuleCoordinator(
         runtime: services.moduleRuntime,
         store: moduleCapabilityStore,
         onChange: { [weak self] in self?.scheduleObjectWillChangeRelay(affectsSettings: false) },
-        onError: { [weak self] in self?.showNotification($0) }
+        onError: { [weak self] in self?.showNotification($0, logReference: self?.notificationRejection(operation: "module_activation", reason: "activation_failed")) }
     )
     let javaLanguageServerPreparationCoordinator = JavaLanguageServerPreparationCoordinator()
     lazy var historyModuleCoordinator = HistoryModuleCoordinator(
@@ -277,19 +277,19 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
                 LocalHistoryDocumentSnapshot(id: $0.id, url: $0.url, text: $0.text)
             } ?? []
         },
-        notify: { [weak self] in self?.showNotification($0) },
+        notify: { [weak self] in self?.showNotification($0, logReference: self?.notificationRejection(operation: "history_activation", reason: "activation_failed")) },
         onChange: { [weak self] in self?.scheduleObjectWillChangeRelay(affectsSettings: false) }
     )
     lazy var searchModuleCoordinator = SearchModuleCoordinator(
         runtime: services.moduleRuntime,
         store: moduleCapabilityStore,
         onChange: { [weak self] in self?.scheduleObjectWillChangeRelay(affectsSettings: false) },
-        onError: { [weak self] in self?.showNotification($0) }
+        onError: { [weak self] in self?.showNotification($0, logReference: self?.notificationRejection(operation: "module_activation", reason: "activation_failed")) }
     )
     lazy var runWorkflowCoordinator = RunWorkflowCoordinator(
         pluginCatalog: services.pluginCatalog,
         moduleRuntime: services.moduleRuntime,
-        notify: { [weak self] in self?.showNotification($0) },
+        notify: { [weak self] in self?.showNotification($0, logReference: self?.notificationRejection(operation: "run_workflow", reason: "preparation_failed")) },
         onPendingActionChange: { [weak self] in self?.scheduleObjectWillChangeRelay(affectsSettings: false) }
     )
     var languageCapability: LitheLanguageIntelligenceModule.LanguageIntelligenceCapability? {
@@ -384,6 +384,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     var detectedClaudeConfiguration: AIConfigurationSnapshot? {
         detectedAIConfigurations.first { $0.source == .claude }
     }
+
+    func openLogs(_ request: LogWindowOpenRequest = .init()) { services.logWindowCoordinator?.open(request) }
 
     func showSettings(category: SettingsCategory = .general) {
         workbenchFeature.presentSettings(category: category)
@@ -628,11 +630,11 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         }
         if let configuration = (needsConfigurationImport ? configurationToImport : nil) ?? (shouldImportCodex ? codexConfiguration : nil) {
             let provider = settings.importAIConfiguration(configuration)
-            try? services.secureStore.delete(key: provider.apiKeyIdentifier)
+            do { try services.secureStore.delete(key: provider.apiKeyIdentifier) } catch { services.logSink?.emit(AppCredentialsCleanupFailed(error: error)) }
         } else if settings.commitMessageAI.providers.isEmpty,
                   let configuration = detectedAIConfigurations.first {
             let provider = settings.importAIConfiguration(configuration)
-            try? services.secureStore.delete(key: provider.apiKeyIdentifier)
+            do { try services.secureStore.delete(key: provider.apiKeyIdentifier) } catch { services.logSink?.emit(AppCredentialsCleanupFailed(error: error)) }
         }
         languageServerToolsIfActive?.onCandidatesChanged = { [weak self] providerID in
             guard let self,
@@ -951,7 +953,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         } else if placement == .thisWindow {
             openProjectDirectly(url)
         } else {
-            showNotification("Project window management is unavailable.")
+            showNotification("Project window management is unavailable.", logReference: notificationRejection(operation: "project_window", reason: "unavailable"))
         }
     }
 
@@ -1149,7 +1151,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     }
 
     func javaIconKind(for url: URL) async -> LitheIconKind? {
-        await JavaFileIconResolver.resolve(for: url, storage: services.fileStorage)
+        await JavaFileIconResolver.resolve(for: url, storage: services.fileStorage, logSink: services.logSink)
     }
 
     func refreshWorkspace() async {
@@ -1256,7 +1258,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     func restoreSelectedLocalHistoryEntry() async {
         guard let feature = await activateHistoryModule(),
               let restoration = await feature.restoreSelectedLocalHistoryEntry() else {
-            showNotification("Could not restore local history")
+            showNotification("Could not restore local history", logReference: notificationRejection(operation: "history_restore", reason: "restore_failed"))
             return
         }
         if let documentID = restoration.documentID {
@@ -1275,7 +1277,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     func restoreSelectedProjectLocalHistoryEntry() async {
         guard let feature = await activateHistoryModule(),
               let restoration = await feature.restoreSelectedProjectLocalHistoryEntry() else {
-            showNotification("Could not restore project history")
+            showNotification("Could not restore project history", logReference: notificationRejection(operation: "project_history_restore", reason: "restore_failed"))
             return
         }
         if let documentID = restoration.documentID {
@@ -1357,7 +1359,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
                 showNotification("Saved \(document.displayName) as \(encoding.displayName)")
             } catch {
                 if !(error is CancellationError) {
-                    showNotification(documentFeature.saveFailureMessage(for: document, error: error))
+                    showNotification(documentFeature.saveFailureMessage(for: document, error: error), logReference: documentFeature.lastSaveFailureReference)
                 }
             }
         }
@@ -1418,7 +1420,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
                 capability: .aiPullRequestDescription
             )
         }
-        defer { try? services.moduleRuntime.markIdle(.aiAssistance) }
+        defer { do { try services.moduleRuntime.markIdle(.aiAssistance) } catch { services.logSink?.emit(AppModuleTransitionFailed(error: error, module: "ai-assistance", stage: "idle")) } }
         return try await capability.generatePullRequestDescription(
             input: input,
             settings: settings.commitMessageAI

@@ -19,10 +19,12 @@ final class MacKeychainSecureStore: SecureStore, @unchecked Sendable {
         }
     }
 
+    private let logSink: (any LogSink)?
     private let service: String
     private let legacyStore: (any SecureStore)?
 
-    init(service: String, legacyStore: (any SecureStore)? = nil) {
+    init(service: String, legacyStore: (any SecureStore)? = nil, logSink: (any LogSink)? = nil) {
+        self.logSink = logSink
         self.service = service
         self.legacyStore = legacyStore
     }
@@ -52,7 +54,8 @@ final class MacKeychainSecureStore: SecureStore, @unchecked Sendable {
 
         // Migration is best-effort. Falling back to the legacy value keeps an
         // existing connection usable even if Keychain is temporarily locked.
-        try? write(value, key: key)
+        do { try write(value, key: key) }
+        catch { logSink?.emit(AppStorageMaintenanceFailed(error: error, stage: "keychain-migration")) }
         return value
     }
 

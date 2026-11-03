@@ -18,6 +18,21 @@
       "owner": "Lithe"
     },
     {
+      "id": "remote.connections.save_failed",
+      "channel": "remote",
+      "level": "warn",
+      "message": "Remote connection metadata save failed",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying failure at this operation boundary, preserving stable domain and code"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
       "id": "remote.directory.watch_failed",
       "channel": "remote",
       "level": "warn",
@@ -77,6 +92,141 @@
           "type": "token",
           "required": true,
           "description": "Controlled cleanup failure category; excludes remote addresses and process output"
+        }
+      },
+      "rate": 60,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "remote.resource.cleanup_failed",
+      "channel": "remote",
+      "level": "warn",
+      "message": "Remote workspace resource cleanup failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Remote resource family being closed: terminal, watch, or process"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Remote protocol category returned when releasing a workspace-owned terminal, watch, or process"
+        }
+      },
+      "rate": 60,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "remote.session.cleanup_failed",
+      "channel": "remote",
+      "level": "warn",
+      "message": "Remote session cleanup failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "SSH connection cleanup stage, e.g. shutdown, tree-kill, wait, or closer"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Stable native, thread, or remote category from ending an owned SSH connection"
+        }
+      },
+      "rate": 60,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "remote.session.diagnostics_failed",
+      "channel": "remote",
+      "level": "warn",
+      "message": "Remote session diagnostic reader failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "SSH diagnostic collection stage: reader join or stderr read"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Stable I/O or thread category explaining incomplete SSH connection diagnostic evidence"
+        }
+      },
+      "rate": 60,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "remote.workspace.write_failed",
+      "channel": "remote",
+      "level": "error",
+      "message": "Remote workspace write failed",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying failure at this operation boundary, preserving stable domain and code"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "remote.forward.accept_failed",
+      "channel": "remote",
+      "level": "warn",
+      "message": "Port forward accept failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Controlled remote.forward.accept_failed operation stage; excludes paths and peer input"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Fixed summary and stable failure category from remote.forward.accept_failed; never error display text"
+        }
+      },
+      "rate": 12,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "remote.forward.connection_failed",
+      "channel": "remote",
+      "level": "warn",
+      "message": "Forwarded connection failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Controlled remote.forward.connection_failed operation stage; excludes paths and peer input"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Fixed summary and stable failure category from remote.forward.connection_failed; never error display text"
+        }
+      },
+      "rate": 12,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "remote.client.operation_failed",
+      "channel": "remote",
+      "level": "warn",
+      "message": "Remote client operation failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Controlled remote.client.operation_failed operation stage; excludes paths and peer input"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Fixed summary and stable failure category from remote.client.operation_failed; never error display text"
         }
       },
       "rate": 60,

@@ -40,7 +40,6 @@ struct LanguageServerStatusTests {
         try harness.sessions.startLanguageServer(providerID: "example", rootURL: harness.workspace)
         #expect(harness.feature.serverRuntimeSnapshot.states["example"] == .ready)
         let beforeLog = changes
-        harness.sessions.recordLanguageServerLog(providerID: "example", level: .info, message: "server output")
         #expect(changes == beforeLog)
         harness.feature.stop(providerID: "example")
         #expect(harness.feature.serverRuntimeSnapshot.states["example"] == .stopped)
@@ -165,24 +164,17 @@ struct LanguageServerStatusTests {
         #expect(harness.session.startCount == 2)
     }
 
-    @Test func providerResetPreservesOtherLiveServersAndLogSelection() throws {
+    @Test func providerResetPreservesOtherLiveServers() throws {
         let harness = Harness(includesJava: true)
         defer { harness.sessions.stopAllLanguageServers() }
         harness.feature.bindProjectPreparation(harness.sessions)
         try harness.sessions.startLanguageServer(providerID: "example", rootURL: harness.workspace)
         try harness.sessions.startLanguageServer(providerID: "java", rootURL: harness.workspace)
-        harness.feature.logs.providerID = "example"
-        harness.sessions.recordLanguageServerLog(providerID: "example", level: .info, message: "retained output")
         let before = harness.feature.serverRuntimeSnapshot
-        let logs = harness.feature.logs.entries
         try harness.sessions.rebuildWorkspaceState(providerID: "java", rootURL: harness.workspace)
         harness.feature.resetProviderState(providerID: "java")
         #expect(harness.feature.serverRuntimeSnapshot.states["example"] == .ready)
         #expect(harness.feature.serverRuntimeSnapshot.states["java"] == .stopped)
-        #expect(harness.feature.logs.providerID == "example")
-        #expect(harness.feature.logs.entries.filter { $0.providerID == "example" }
-            == logs.filter { $0.providerID == "example" })
-        harness.sessions.recordLanguageServerLog(providerID: "example", level: .info, message: "later output")
         #expect(harness.feature.serverRuntimeSnapshot.states["example"] == before.states["example"])
     }
 
@@ -198,84 +190,6 @@ struct LanguageServerStatusTests {
         #expect(harness.feature.activationToken(providerID: "other") == other)
         harness.feature.resetWorkspaceState()
         #expect(harness.feature.activationToken(providerID: "other") != other)
-    }
-
-    @Test func logFiltersAndClearArePerProviderAndNewEntriesRemainVisible() {
-        let logs = LanguageServerLogsModel()
-        let first = LanguageServerLogEntry(providerID: "a", level: .info, message: "one")
-        let second = LanguageServerLogEntry(providerID: "b", level: .warning, message: "two")
-        let third = LanguageServerLogEntry(providerID: "a", level: .error, message: "three")
-        logs.replace([third, second, first])
-        logs.providerID = "a"
-        #expect(logs.visibleEntries.map(\.id) == [first.id, third.id])
-        logs.minimumLevel = .warning
-        #expect(logs.visibleEntries.map(\.id) == [third.id])
-        logs.clear()
-        logs.minimumLevel = .info
-        #expect(logs.visibleEntries.isEmpty)
-        logs.providerID = "b"
-        #expect(logs.visibleEntries.map(\.id) == [second.id])
-        let newer = LanguageServerLogEntry(providerID: "a", level: .warning, message: "new")
-        logs.replace([newer, third, second, first])
-        logs.providerID = "a"
-        #expect(logs.visibleEntries.map(\.id) == [newer.id])
-        logs.reset()
-        #expect(logs.entries.isEmpty)
-        #expect(logs.providerID.isEmpty)
-    }
-
-    @Test func logsTabReusesSelectionAndClosesBackToTheUnsavedDocument() async throws {
-        let store = StatusTestStore()
-        let settings = AppSettings(store: store)
-        let container = MacServiceContainer(store: store, settings: settings, moduleLaunchMode: .safeMode)
-        defer { container.moduleLifecycleCoordinator.stop() }
-        let model = AppModel(settings: settings, services: container.services)
-        try await WorkbenchTestScope.withCleanup({ await model.shutdownProjectSession() }) { _ in
-            model.documentFeature.openVirtualDocument(URL(string: "lithe-test://lsp/source.txt")!, text: "unsaved", displayPath: nil)
-            let document = try #require(model.activeDocument)
-            let file = EditorTabItem.document(document.id)
-            model.showLanguageServerLogs(providerID: "a")
-            #expect(model.editorTabItems == [file, .languageLogs])
-            #expect(model.editorTabOrderFeature.focusedItem == .languageLogs)
-            #expect(model.activeDocument == nil)
-            model.showLanguageServerLogs(providerID: "b")
-            #expect(model.editorTabItems == [file, .languageLogs])
-            #expect(model.languageToolingFeature.logs.providerID == "b")
-            model.selectEditorTab(file)
-            #expect(model.activeDocument === document)
-            model.selectEditorTab(.languageLogs)
-            model.documentFeature.openVirtualDocument(URL(string: "lithe-test://lsp/another.txt")!, text: "second", displayPath: nil)
-            #expect(model.editorTabOrderFeature.focusedItem != .languageLogs)
-            model.selectEditorTab(.languageLogs)
-            #expect(model.requestCloseActiveWorkbenchItem())
-            #expect(!model.editorTabItems.contains(.languageLogs))
-            #expect(model.activeDocument != nil)
-            #expect(document.text == "unsaved")
-            model.showLanguageServerLogs(providerID: "a")
-            model.openMediaFile(URL(fileURLWithPath: "/example/image.png"), kind: .image)
-            let media = try #require(model.activeMediaDocument)
-            #expect(model.editorTabOrderFeature.focusedItem == .media(media.id))
-            model.closeMediaDocument(media)
-            model.showLanguageServerLogs(providerID: "a")
-            model.featureGraph.editorSession.resetContent()
-            #expect(!model.editorTabItems.contains(.languageLogs))
-        }
-    }
-
-    @Test func logsTabUsesSharedReorderingAndSplitGroupLifecycle() throws {
-        let order = EditorTabOrderFeatureModel()
-        let file = EditorTabItem.document(UUID())
-        order.moveToEnd(file)
-        order.moveToEnd(.languageLogs)
-        order.focus(.languageLogs)
-        let group = try #require(order.groupLayout.groups.first)
-        #expect(order.drop(.languageLogs, into: group, side: .right))
-        #expect(order.groupLayout.groups.count == 2)
-        order.reconcileDocuments(orderedIDs: [order.documentIDs[0]])
-        #expect(order.contains(.languageLogs))
-        order.remove(.languageLogs)
-        #expect(order.groupLayout.groups.count == 1)
-        #expect(order.items == [file])
     }
 
     @Test func menuActionsTargetTheirServerAndBulkActionsUseTheSnapshot() throws {
@@ -304,52 +218,6 @@ struct LanguageServerStatusTests {
         #expect(openedSettings)
     }
 
-    @Test(arguments: [ColorScheme.light, .dark], [CGFloat(360), 900])
-    func logPanelRendersInNarrowAndWideDocks(scheme: ColorScheme, width: CGFloat) async throws {
-        let settings = AppSettings(store: StatusTestStore())
-        let container = MacServiceContainer(store: StatusTestStore(), settings: settings, moduleLaunchMode: .safeMode)
-        defer { container.moduleLifecycleCoordinator.stop() }
-        let model = AppModel(settings: settings, services: container.services)
-        try await WorkbenchTestScope.withCleanup({ await model.shutdownProjectSession() }) { _ in
-            let logs = model.languageToolingFeature.logs
-            logs.providerID = "example"
-            logs.replace([
-                LanguageServerLogEntry(timestamp: Date(timeIntervalSince1970: 100), providerID: "example", level: .error,
-                    message: "Server exited", detail: "Example failure detail"),
-                LanguageServerLogEntry(timestamp: Date(timeIntervalSince1970: 99), providerID: "example", level: .warning,
-                    message: "Server warning"),
-                LanguageServerLogEntry(timestamp: Date(timeIntervalSince1970: 98), providerID: "example", level: .info,
-                    message: "Server ready")
-            ])
-            let host = NSHostingView(rootView: LanguageServerLogsView(feature: logs)
-                .environmentObject(model).environmentObject(settings).environment(\.colorScheme, scheme))
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 320),
-                styleMask: [.borderless], backing: .buffered, defer: false)
-            window.isReleasedWhenClosed = false
-            window.contentView = host
-            defer { window.contentView = nil; window.close() }
-            host.layoutSubtreeIfNeeded()
-            #expect(host.frame.width == width)
-            func textView(in view: NSView) -> NSTextView? {
-                if let text = view as? NSTextView { return text }
-                return view.subviews.lazy.compactMap { textView(in: $0) }.first
-            }
-            let nativeText = try #require(textView(in: host))
-            #expect(nativeText.string.contains("Server ready"))
-            #expect(nativeText.enclosingScrollView?.frame.width == width)
-            #expect(nativeText.isEditable == false)
-            #expect(nativeText.isSelectable)
-            let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-            host.cacheDisplay(in: host.bounds, to: bitmap)
-            #expect(bitmap.pixelsWide > 0 && bitmap.pixelsHigh > 0)
-            if let directory = ProcessInfo.processInfo.environment["LITHE_LSP_SNAPSHOT_DIR"] {
-                let output = URL(fileURLWithPath: directory)
-                try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
-                let data = try #require(bitmap.representation(using: .png, properties: [:]))
-                try data.write(to: output.appendingPathComponent("logs-\(scheme)-\(Int(width)).png"))
-            }
-        }
-    }
 
     private func registration(_ id: String, _ name: String) -> LanguageServerRegistration {
         LanguageServerRegistration(id: id, pluginID: "org.example.tools", executableNames: [name])

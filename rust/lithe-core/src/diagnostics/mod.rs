@@ -12,10 +12,14 @@ pub mod catalog;
 pub mod channel;
 pub mod collection;
 pub mod core_events;
+pub mod filter;
+pub mod format;
 pub mod logging;
 pub mod query_v2;
 pub mod record;
 pub mod retention;
+
+pub(crate) mod helper_failures;
 
 mod manifest;
 mod redaction;
