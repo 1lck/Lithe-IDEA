@@ -265,6 +265,8 @@ jobs:
       - name: Run Windows frontend tests
         shell: pwsh
         run: |
+          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-code-actions.json -- src/features/editor/lsp/lsp-client-code-actions.test.ts src/features/editor/engines/monaco/code-action-diagnostics.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           bun test src/platform
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 120000 --report .artifacts/test-stability/windows-documents.json -- src/features/editor/stores/editor-app.store.test.ts src/features/editor/services/document-external-change-workflow.test.ts src/features/editor/services/document-save-lifecycle.test.ts src/features/editor/services/document-watch-controller.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

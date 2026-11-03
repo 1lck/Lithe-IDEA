@@ -25,6 +25,7 @@ import {
 import { flushLspDocumentChanges } from "@/features/editor/lsp/pending-document-changes";
 import { useLspStore } from "@/features/editor/lsp/stores/lsp.store";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
+import { diagnosticsForCodeActionMarker } from "./code-action-diagnostics";
 import { useDiagnosticsStore } from "@/features/diagnostics/stores/diagnostics.store";
 import {
   collectWorkspaceTextEdits,
@@ -509,28 +510,22 @@ export function registerMonacoLspProviders() {
       for (const marker of context.markers.slice(0, 3)) {
         // Monaco markers are a visual projection (including a minimum underline
         // width). Recover their owning diagnostic instead of reconstructing LSP data.
-        const diagnostic = diagnostics.find((entry) =>
-          entry.line + 1 === marker.startLineNumber &&
-          entry.column + 1 === marker.startColumn &&
-          entry.endLine + 1 === marker.endLineNumber &&
-          Math.max(entry.endColumn + 1, entry.column + 2) === marker.endColumn &&
-          entry.message === marker.message && entry.source === marker.source &&
-          entry.code === (typeof marker.code === "string" ? marker.code : marker.code?.value),
-        );
-        if (!diagnostic) continue;
-        const lspActions = await lspClient.getCodeActions(target, diagnostic);
-        for (const action of lspActions) {
-          if (action.disabledReason) continue;
-          const edit = toWorkspaceEdit(getPayloadEdit(action.payload));
-          if (!edit) continue;
-          actions.push({
-            title: action.title,
-            kind: codeActionKind(action.kind),
-            diagnostics: [marker],
-            isPreferred: action.isPreferred,
-            edit,
-          });
+        for (const diagnostic of diagnosticsForCodeActionMarker(diagnostics, marker)) {
+          const lspActions = await lspClient.getCodeActions(target, diagnostic);
+          for (const action of lspActions) {
+            if (action.disabledReason) continue;
+            const edit = toWorkspaceEdit(getPayloadEdit(action.payload));
+            if (!edit) continue;
+            actions.push({
+              title: action.title,
+              kind: codeActionKind(action.kind),
+              diagnostics: [marker],
+              isPreferred: action.isPreferred,
+              edit,
+            });
+          }
         }
+
       }
 
       return { actions, dispose: () => {} };
