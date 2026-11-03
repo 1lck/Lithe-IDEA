@@ -86,6 +86,7 @@ impl Workbench {
         self.palette_visible = false;
         self.notifications_visible = false;
         self.pending_close_tab = None;
+        self.pending_close_queue.clear();
         self.project_menu_visible = false;
         self.branch_menu_visible = false;
 

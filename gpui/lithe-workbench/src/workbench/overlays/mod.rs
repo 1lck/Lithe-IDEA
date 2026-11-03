@@ -64,6 +64,7 @@ impl Workbench {
         self.history_target = None;
         self.notifications_visible = false;
         self.pending_close_tab = None;
+        self.pending_close_queue.clear();
         self.pending_quit = false;
         self.prompt = None;
         self.prompt_action = None;

@@ -519,7 +519,8 @@ impl Workbench {
             "file.save" => self.save_active_tab(window, cx),
             "file.saveAs" => self.save_active_tab_as(window, cx),
             "file.saveAll" => {
-                self.editor.update(cx, |e, ecx| e.save_all(ecx));
+                // 真正的保存全部：当前标签走编辑区文本，后台标签走缓存文本。
+                self.save_all_tabs(cx).detach();
             }
             "file.revert" => self.revert_active_file(window, cx),
             "file.closeFile" | "file.closeTab" => {

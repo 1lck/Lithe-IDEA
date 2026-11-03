@@ -211,6 +211,7 @@ impl Workbench {
     pub(super) fn open_problem(
         &mut self,
         path: PathBuf,
+        line: u32,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -221,7 +222,8 @@ impl Workbench {
                 .unwrap_or_else(|_| path.to_path_buf()),
             None => path,
         };
-        self.open_file_from_tree(requested, window, cx);
+        // 诊断行号是 1-based，直接交给统一的「打开并跳行」入口。
+        self.open_file_at_line(requested, line, window, cx);
     }
 }
 
@@ -265,6 +267,7 @@ fn problem_row(
     tokens: LitheTokens,
 ) -> AnyElement {
     let path = problem.path.clone();
+    let line = problem.line;
     h_flex()
         .id(format!("lithe-problem-row:{index}"))
         .w_full()
@@ -276,7 +279,7 @@ fn problem_row(
         .cursor_pointer()
         .on_click(move |_, window, cx| {
             let path = path.clone();
-            let _ = owner.update(cx, |this, cx| this.open_problem(path, window, cx));
+            let _ = owner.update(cx, |this, cx| this.open_problem(path, line, window, cx));
         })
         .child(
             div()

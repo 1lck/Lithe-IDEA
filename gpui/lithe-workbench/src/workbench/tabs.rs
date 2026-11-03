@@ -8,6 +8,7 @@ use lithe_core_client::FileReadResult;
 use lithe_ui::i18n::tr;
 use lithe_ui::icons::LitheIcon;
 
+use super::notifications::NotificationKind;
 use super::Workbench;
 
 /// 一个打开的文件标签。
@@ -35,8 +36,9 @@ impl Workbench {
     /// 打开文件并跳转到指定行（搜索结果、诊断等入口）。
     ///
     /// 行号是 1-based；打开沿用 `open_file_from_tree` 的完整链路（含历史、
-    /// 去重与标签激活），只在文件真正装上之后才请求编辑器跳行，避免对还没
-    /// 打开的文档发定位指令。
+    /// 去重与标签激活）。目标已经是活动文档时当场跳行；需要读盘时只记下
+    /// 待跳转请求，等 `install_file` 把文档真正装上后再交给编辑器，避免
+    /// 对着还没打开的上一个文档定位。
     pub(super) fn open_file_at_line(
         &mut self,
         requested: PathBuf,
@@ -46,18 +48,41 @@ impl Workbench {
     ) {
         self.open_file_from_tree(requested.clone(), window, cx);
 
-        // 目标是当前活动标签时才跳行：读取失败或索引不同步时不必报错。
+        // 打开失败（无工作区、越界路径）时 `open_file_from_tree` 已经给出
+        // 提示；这里解析不出绝对路径就直接放弃跳行。
         let Some(root) = self.project_root.clone() else {
             return;
         };
         let Ok((absolute, _relative)) = resolve_project_file(&root, &requested) else {
             return;
         };
-        if self.active_tab_path().as_deref() != Some(absolute.as_path()) {
+
+        if self.active_tab_path().as_deref() == Some(absolute.as_path()) {
+            self.editor.update(cx, |editor, editor_cx| {
+                editor.go_to_line(line, window, editor_cx);
+            });
+            return;
+        }
+
+        // 记下代次，切换工作区后不再消费旧项目的请求。
+        self.pending_reveal = Some((absolute, line, self.open_generation));
+    }
+
+    /// 文档装上后执行待跳转行；路径或打开代次不匹配时丢弃请求。
+    fn apply_pending_reveal(
+        &mut self,
+        absolute: &Path,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some((path, line, generation)) = self.pending_reveal.take() else {
+            return;
+        };
+        if generation != self.open_generation || file_identity(&path) != file_identity(absolute) {
             return;
         }
         self.editor.update(cx, |editor, editor_cx| {
-            editor.reveal_line(line, window, editor_cx);
+            editor.go_to_line(line, window, editor_cx);
         });
     }
 
@@ -167,6 +192,8 @@ impl Workbench {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // `open_file` 按值接收路径；跳行还要用，先留一份。
+        let reveal_path = absolute.clone();
         let display_path = if file.path.is_empty() {
             display_path
         } else {
@@ -177,6 +204,7 @@ impl Workbench {
             self.tabs[index].text = file.text;
             self.status_message = None;
             self.activate_index(index, window, cx);
+            self.apply_pending_reveal(&reveal_path, window, cx);
             return;
         }
 
@@ -198,6 +226,7 @@ impl Workbench {
         });
         self.sync_editor_secondary(window, cx);
         self.sync_preview_with_active_tab(cx);
+        self.apply_pending_reveal(&reveal_path, window, cx);
         cx.notify();
     }
 
@@ -243,14 +272,32 @@ impl Workbench {
             return;
         }
 
+        // 上一次批量关闭可能已经处理完目标标签却还留着确认项；先清理，
+        // 避免新的关闭请求被一个失效的 pending id 挡住。
+        if self
+            .pending_close_tab
+            .as_ref()
+            .is_some_and(|pending| !self.tabs.iter().any(|tab| &tab.id == pending))
+        {
+            self.pending_close_tab = None;
+            self.pending_close_queue.clear();
+        }
+
         let pending_id = self.tabs[index].id.clone();
-        self.settings_visible = false;
-        self.palette_visible = false;
-        self.notifications_visible = false;
-        self.project_menu_visible = false;
-        self.branch_menu_visible = false;
-        self.pending_close_tab = Some(pending_id);
-        self.overlay_focus.focus(window, cx);
+        if self.pending_close_tab.is_none() {
+            self.settings_visible = false;
+            self.palette_visible = false;
+            self.notifications_visible = false;
+            self.project_menu_visible = false;
+            self.branch_menu_visible = false;
+            self.pending_close_tab = Some(pending_id);
+            self.overlay_focus.focus(window, cx);
+        } else if self.pending_close_tab.as_ref() != Some(&pending_id)
+            && !self.pending_close_queue.contains(&pending_id)
+        {
+            // 批量关闭（Close All / Close Others 等）：脏标签排队，逐个确认。
+            self.pending_close_queue.push(pending_id);
+        }
         cx.notify();
     }
 
@@ -306,11 +353,67 @@ impl Workbench {
             return;
         };
         self.close_tab_now(id.as_ref(), window, cx);
+        self.advance_pending_close(window, cx);
+    }
+
+    /// 保存当前待确认关闭的标签，成功后再关闭并继续处理队列。
+    ///
+    /// 待确认的标签不一定是活动标签（Close Others / Close All），因此必须
+    /// 走 [`Self::save_tabs`] 的后台文本路径，不能调用活动文档的保存。
+    /// 保存失败或未命名标签无法写盘时保留标签与确认弹层，并把错误通知出去。
+    pub(super) fn save_pending_close(&mut self, cx: &mut Context<Self>) {
+        if self.pending_close_saving {
+            return;
+        }
+        let Some(id) = self.pending_close_tab.clone() else {
+            return;
+        };
+        self.pending_close_saving = true;
+        let task = self.save_tabs(std::slice::from_ref(&id), cx);
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update_in(cx, move |this, window, cx| {
+                this.pending_close_saving = false;
+                if result.is_err() || this.pending_close_tab.as_ref() != Some(&id) {
+                    cx.notify();
+                    return;
+                }
+                this.pending_close_tab = None;
+                this.close_tab_now(id.as_ref(), window, cx);
+                this.advance_pending_close(window, cx);
+            });
+        })
+        .detach();
+    }
+
+    /// 处理完当前确认后弹出下一个待确认的脏标签。
+    pub(super) fn advance_pending_close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        while !self.pending_close_queue.is_empty() {
+            let next = self.pending_close_queue.remove(0);
+            let Some(index) = self.tabs.iter().position(|tab| tab.id == next) else {
+                continue;
+            };
+            if !self.tabs[index].modified {
+                self.close_tab_now(next.as_ref(), window, cx);
+                continue;
+            }
+            self.pending_close_tab = Some(next);
+            self.overlay_focus.focus(window, cx);
+            cx.notify();
+            return;
+        }
+        self.pending_close_tab = None;
         cx.notify();
     }
 
+    /// 取消关闭确认。对齐 macOS `cancelPendingClose`：取消整个批量，
+    /// 不再追问队列里的其他标签。
     pub(super) fn cancel_pending_close(&mut self, cx: &mut Context<Self>) {
-        if self.pending_close_tab.take().is_some() {
+        let had_pending = self.pending_close_tab.take().is_some();
+        let had_queue = !self.pending_close_queue.is_empty();
+        self.pending_close_queue.clear();
+        self.pending_close_saving = false;
+        if had_pending || had_queue {
             cx.notify();
         }
     }
@@ -377,6 +480,177 @@ impl Workbench {
 
     pub(super) fn save_active_tab_as(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.save_active_as(window, cx);
+    }
+
+    /// 保存全部脏标签（File > Save All 与退出确认）。
+    ///
+    /// 返回 `Ok(())` 表示这一批目标都已经写盘；`Err(message)` 表示有文件
+    /// 写盘失败或被跳过（未命名标签）。错误同时会推送通知并写到状态栏，
+    /// 调用方（退出确认）据此决定是否允许退出。
+    pub(super) fn save_all_tabs(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> gpui_kit::Task<Result<(), String>> {
+        let ids: Vec<SharedString> = self
+            .tabs
+            .iter()
+            .filter(|tab| tab.modified)
+            .map(|tab| tab.id.clone())
+            .collect();
+        self.save_tabs(&ids, cx)
+    }
+
+    /// 把一组标签的最新文本写盘。
+    ///
+    /// 当前活动标签从编辑区取文本（包含最新输入），后台标签使用
+    /// `EditorSurface::cached_text`。未命名标签没有磁盘路径，不写盘，
+    /// 只作为失败原因上报，避免把内容静默写到猜出来的位置。
+    pub(super) fn save_tabs(
+        &mut self,
+        ids: &[SharedString],
+        cx: &mut Context<Self>,
+    ) -> gpui_kit::Task<Result<(), String>> {
+        let Some(root) = self.project_root.clone() else {
+            let message = tr("Open a project first").to_string();
+            self.push_notification(
+                tr("Save Failed"),
+                Some(SharedString::from(message.clone())),
+                NotificationKind::Error,
+            );
+            cx.notify();
+            return gpui_kit::Task::ready(Err(message));
+        };
+
+        let targets: Vec<(SharedString, PathBuf)> = ids
+            .iter()
+            .filter_map(|id| {
+                self.tabs
+                    .iter()
+                    .find(|tab| &tab.id == id)
+                    .map(|tab| (tab.id.clone(), tab.absolute_path.clone()))
+            })
+            .collect();
+
+        // (绝对路径, 工作区相对路径, 文本)
+        let mut writes: Vec<(PathBuf, String, String)> = Vec::new();
+        let mut untitled: Vec<String> = Vec::new();
+        let mut missing: Vec<String> = Vec::new();
+
+        for (id, absolute) in targets {
+            let Some(tab) = self.tabs.iter().find(|tab| tab.id == id && tab.modified) else {
+                continue;
+            };
+            if tab.id.starts_with("untitled:") {
+                untitled.push(tab.title.to_string());
+                continue;
+            }
+            let is_active = self.active_tab.as_ref() == Some(&id);
+            let text = self.editor.update(cx, |editor, editor_cx| {
+                if is_active {
+                    Some(editor.current_text(editor_cx))
+                } else {
+                    editor.cached_text(&root, &absolute, editor_cx)
+                }
+            });
+            let Some(text) = text else {
+                // 后台标签缓存缺失时宁可失败，也不能用旧文本覆盖磁盘。
+                missing.push(absolute.display().to_string());
+                continue;
+            };
+            writes.push((absolute.clone(), workspace_relative(&root, &absolute), text));
+        }
+
+        if writes.is_empty() {
+            let failure = save_failure_message(&untitled, &missing, None);
+            if let Some(message) = failure {
+                self.status_message = Some(SharedString::from(message.clone()));
+                self.push_notification(
+                    tr("Save Failed"),
+                    Some(SharedString::from(message.clone())),
+                    NotificationKind::Error,
+                );
+                cx.notify();
+                return gpui_kit::Task::ready(Err(message));
+            }
+            return gpui_kit::Task::ready(Ok(()));
+        }
+
+        let single = !ids.is_empty() && ids.len() == 1;
+        let client = self.client;
+        cx.spawn(async move |this, cx| {
+            let mut saved: Vec<(PathBuf, String)> = Vec::new();
+            let mut write_error: Option<String> = None;
+            for (absolute, relative, text) in writes {
+                let result = cx
+                    .background_spawn({
+                        let root = root.clone();
+                        let relative = relative.clone();
+                        let text = text.clone();
+                        let client = client;
+                        async move { client.write_file(&root, &relative, &text) }
+                    })
+                    .await;
+                match result {
+                    Ok(_) => saved.push((absolute, text)),
+                    Err(error) => {
+                        write_error = Some(format!("{}: {error}", absolute.display()));
+                        break;
+                    }
+                }
+            }
+
+            let result = this.update(cx, |this, cx| {
+                for (path, text) in &saved {
+                    this.editor.update(cx, |editor, _editor_cx| {
+                        editor.mark_saved(path, text.clone());
+                    });
+                    let identity = file_identity(path);
+                    if let Some(tab) = this
+                        .tabs
+                        .iter_mut()
+                        .find(|tab| file_identity(&tab.absolute_path) == identity)
+                    {
+                        tab.text = text.clone();
+                        tab.modified = false;
+                    }
+                    lithe_features::local_history::record(path, text);
+                    this.java_language.update(cx, |model, _model_cx| {
+                        model.notify_document_saved(path.clone(), text.clone());
+                    });
+                    if single {
+                        let file_name = path
+                            .file_name()
+                            .and_then(|name| name.to_str())
+                            .unwrap_or_default()
+                            .to_string();
+                        this.push_notification(
+                            tr("Saved"),
+                            Some(SharedString::from(file_name)),
+                            NotificationKind::Success,
+                        );
+                    }
+                }
+
+                let failure = save_failure_message(&untitled, &missing, write_error.as_deref());
+                if let Some(message) = &failure {
+                    this.status_message = Some(SharedString::from(message.clone()));
+                    this.push_notification(
+                        tr("Save Failed"),
+                        Some(SharedString::from(message.clone())),
+                        NotificationKind::Error,
+                    );
+                } else if !saved.is_empty() {
+                    this.status_message = Some(tr("Saved").into());
+                }
+                cx.notify();
+                match failure {
+                    Some(message) => Err(message),
+                    None => Ok(()),
+                }
+            });
+
+            result.unwrap_or_else(|_| Err(tr("Save failed").to_string()))
+        })
     }
 
     /// 启动前保存当前文档，并等写盘完成后再返回。
@@ -818,6 +1092,29 @@ pub(super) fn file_identity(path: &Path) -> String {
         normalised.to_lowercase()
     } else {
         normalised
+    }
+}
+
+/// 汇总保存全部时无法写盘的原因。未命名标签没有磁盘路径，只报告不写盘。
+fn save_failure_message(
+    untitled: &[String],
+    missing: &[String],
+    write_error: Option<&str>,
+) -> Option<String> {
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(error) = write_error {
+        parts.push(error.to_string());
+    }
+    if !untitled.is_empty() {
+        parts.push(format!("{}: {}", tr("Untitled"), untitled.join(", ")));
+    }
+    if !missing.is_empty() {
+        parts.push(format!("{}: {}", tr("Save failed"), missing.join(", ")));
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join("\n"))
     }
 }
 

@@ -21,6 +21,7 @@ impl Workbench {
         let backdrop_owner = cx.weak_entity();
         let cancel_owner = cx.weak_entity();
         let discard_owner = cx.weak_entity();
+        let save_owner = cx.weak_entity();
 
         let title = self
             .pending_close_tab
@@ -72,7 +73,7 @@ impl Workbench {
                             .text_size(px(LitheMetrics::UI_FONT_SIZE))
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(tokens.primary_text)
-                            .child(tr("Discard unsaved changes?")),
+                            .child(tr("Save changes")),
                     )
                     .child(
                         div()
@@ -113,6 +114,19 @@ impl Workbench {
                                             this.discard_pending_close(window, cx)
                                         });
                                     }),
+                            )
+                            .child(
+                                Button::new("lithe-close-confirm-save")
+                                    .primary()
+                                    .small()
+                                    .label(tr("Save"))
+                                    .tooltip(tr("Save"))
+                                    .accessibility_label(tr("Save"))
+                                    .on_click(move |_, _window, cx| {
+                                        let _ = save_owner.update(cx, |this, cx| {
+                                            this.save_pending_close(cx)
+                                        });
+                                    }),
                             ),
                     ),
             )
@@ -143,11 +157,18 @@ impl Workbench {
         cx.quit();
     }
 
-    /// 退出确认选「全部保存并退出」：与 File > Save All 同一路径写盘后退出。
+    /// 退出确认选「全部保存并退出」：与 File > Save All 同一路径写盘；
+    /// 只有整批写盘成功才退出，失败留在应用内并显示错误通知。
     fn save_all_and_quit(&mut self, cx: &mut Context<Self>) {
         self.pending_quit = false;
-        self.editor.update(cx, |e, ecx| e.save_all(ecx));
-        cx.quit();
+        let task = self.save_all_tabs(cx);
+        cx.spawn(async move |this, cx| {
+            if task.await.is_ok() {
+                let _ = this.update(cx, |_this, cx| cx.quit());
+            }
+        })
+        .detach();
+        cx.notify();
     }
 
     /// 未保存退出确认：全屏背板 + 居中面板，与标签关闭确认同一套视觉。

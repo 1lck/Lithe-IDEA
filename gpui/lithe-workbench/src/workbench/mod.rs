@@ -170,6 +170,10 @@ pub struct Workbench {
     active_tab: Option<SharedString>,
     untitled_counter: usize,
     pending_close_tab: Option<SharedString>,
+    /// 批量关闭时等待逐个确认的脏标签队列（对齐 macOS `pendingCloseQueue`）。
+    pending_close_queue: Vec<SharedString>,
+    /// 关闭确认里的「保存」正在写盘，防止重复点击并发保存。
+    pending_close_saving: bool,
     /// 退出确认：File > Quit 在有未保存标签时先弹确认（对齐 Tauri
     /// `requestApplicationQuit` 让每个窗口走 close guard 的语义）。
     pending_quit: bool,
@@ -186,6 +190,9 @@ pub struct Workbench {
     cursor_line: u32,
     cursor_column: u32,
     problems: Vec<DiagnosticItem>,
+    /// 目标文档还在读盘时的跳行请求：(绝对路径, 1 基行号, 打开代次)。
+    /// 由 `install_file` 在文档真正装上后消费，避免把行号发给上一个文档。
+    pending_reveal: Option<(PathBuf, u32, u64)>,
     open_generation: u64,
     _read_task: Task<()>,
     _preview_task: Task<()>,
@@ -626,6 +633,8 @@ impl Workbench {
             active_tab: None,
             untitled_counter: 0,
             pending_close_tab: None,
+            pending_close_queue: Vec::new(),
+            pending_close_saving: false,
             pending_quit: false,
             closed_tabs: Vec::new(),
             nav_back: Vec::new(),
@@ -640,6 +649,7 @@ impl Workbench {
             cursor_line: 1,
             cursor_column: 1,
             problems: Vec::new(),
+            pending_reveal: None,
             open_generation: 0,
             _read_task: Task::ready(()),
             _preview_task: Task::ready(()),

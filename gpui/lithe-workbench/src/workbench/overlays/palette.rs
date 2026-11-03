@@ -216,6 +216,7 @@ impl Workbench {
         self.settings_visible = false;
         self.notifications_visible = false;
         self.pending_close_tab = None;
+        self.pending_close_queue.clear();
         self.project_menu_visible = false;
         self.branch_menu_visible = false;
         self.palette_visible = true;
@@ -235,6 +236,7 @@ impl Workbench {
         self.settings_visible = false;
         self.notifications_visible = false;
         self.pending_close_tab = None;
+        self.pending_close_queue.clear();
         self.project_menu_visible = false;
         self.branch_menu_visible = false;
         self.palette_mode = PaletteMode::Files;
@@ -274,6 +276,7 @@ impl Workbench {
         self.settings_visible = false;
         self.notifications_visible = false;
         self.pending_close_tab = None;
+        self.pending_close_queue.clear();
         self.project_menu_visible = false;
         self.branch_menu_visible = false;
         self.history_snapshots = snapshots;

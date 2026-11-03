@@ -675,28 +675,51 @@ impl EditorSurface {
         self.save_text(text, cx, false);
     }
 
-    /// 保存全部。原生编辑器只持有当前文档，后台标签由工作台缓存文本。
-    pub fn save_all(&mut self, cx: &mut Context<Self>) {
-        self.save(cx);
-    }
-
     /// 当前编辑器里的最新文本（包含尚未保存的修改）。
     pub fn current_text(&self, cx: &Context<Self>) -> String {
         self.editor_value(cx)
     }
 
-    /// 启动前保存完成后同步编辑器状态，不触发“Saved”通知。
+    /// 读取任意已打开文档的未保存文本。
+    ///
+    /// 当前活动文档直接从编辑区取值，保证拿到最新输入；后台标签使用
+    /// `texts` 缓存。`root` 必须与 `open_file` 时传入的工作区根一致，
+    /// 文档身份才与缓存 key 相同。工作台的「保存全部」和关闭确认靠它
+    /// 写盘，避免把后台标签的修改丢掉。
+    pub fn cached_text(&self, root: &Path, path: &Path, cx: &Context<Self>) -> Option<String> {
+        let (id, _, _) = document_identity(root, path);
+        if self
+            .document
+            .as_ref()
+            .is_some_and(|document| document.id == id)
+        {
+            return Some(self.editor_value(cx));
+        }
+        self.texts.get(&id).cloned()
+    }
+
+    /// 文档已写盘后同步编辑器状态，不触发“Saved”通知。
+    ///
+    /// 当前活动文档会清除脏标记；后台标签不在编辑区，只能更新它的文本
+    /// 缓存，不能误改当前文档的脏状态。
     pub fn mark_saved(&mut self, path: &Path, text: String) {
-        let Some(document) = self.document.as_mut() else {
+        let Some(document) = self.document.as_ref() else {
             return;
         };
-        if document.absolute_path.as_path() != path {
+        let root = document.root.clone();
+        let (id, _, _) = document_identity(&root, path);
+        if document.id != id {
+            self.texts.insert(id, text);
             return;
         }
-        document.dirty = false;
-        let id = document.id.clone();
-        self.dirty = false;
-        self.texts.insert(id, text);
+        if let Some(document) = self.document.as_mut() {
+            document.dirty = false;
+            let id = document.id.clone();
+            self.dirty = false;
+            // 成功的写盘要清掉上一次保存失败留下的错误条。
+            self.error = None;
+            self.texts.insert(id, text);
+        }
     }
 
     /// 另存为。

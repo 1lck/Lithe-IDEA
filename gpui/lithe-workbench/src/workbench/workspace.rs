@@ -87,6 +87,8 @@ impl Workbench {
         self.tabs.clear();
         self.active_tab = None;
         self.pending_close_tab = None;
+        self.pending_close_queue.clear();
+        self.pending_close_saving = false;
         self.cursor_line = 1;
         self.cursor_column = 1;
         self.problems.clear();
