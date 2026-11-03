@@ -14,6 +14,7 @@ mod console;
 pub mod editor;
 pub mod git;
 pub mod git_diff;
+pub mod language;
 pub mod local_history;
 pub mod logging;
 pub mod markdown_preview;

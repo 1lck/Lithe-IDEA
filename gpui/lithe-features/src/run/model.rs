@@ -695,6 +695,20 @@ impl PreparationPhase {
             Self::Stopped => tr("Java project preparation stopped"),
         }
     }
+
+    /// 映射 Core `project_preparation.rs` 的稳定阶段字符串。
+    pub fn from_core(value: &str) -> Option<Self> {
+        match value {
+            "starting" => Some(Self::Starting),
+            "importing" => Some(Self::Importing),
+            "configuring" => Some(Self::Configuring),
+            "building" => Some(Self::Building),
+            "ready" => Some(Self::Ready),
+            "failed" => Some(Self::Failed),
+            "stopped" => Some(Self::Stopped),
+            _ => None,
+        }
+    }
 }
 
 /// 准备结果态。
@@ -704,6 +718,19 @@ pub enum PreparationStatus {
     Loading,
     Ready,
     Failed,
+}
+
+impl PreparationStatus {
+    /// 映射 Core `ProjectPreparation.status` 的稳定字符串。
+    pub fn from_core(value: &str) -> Option<Self> {
+        match value {
+            "idle" => Some(Self::Idle),
+            "loading" => Some(Self::Loading),
+            "ready" => Some(Self::Ready),
+            "failed" => Some(Self::Failed),
+            _ => None,
+        }
+    }
 }
 
 /// 项目准备状态（完全对齐 Tauri `ProjectPreparation` 与 Core `lsp/languages/project_preparation.rs`）。

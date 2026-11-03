@@ -19,7 +19,7 @@ use lithe_git_host::ProcessTree;
 use serde_json::{Value, json};
 
 use super::direct;
-use super::model::{PreparationPhase, RunConfiguration};
+use super::model::RunConfiguration;
 use super::toolchain;
 
 /// 运行会话向视图发送的事件。
@@ -29,29 +29,8 @@ pub enum SessionEvent {
     /// 子进程已经创建；视图保留进程树用于 Stop。
     Started(Arc<ProcessTree>),
     Output(String),
-    /// 准备状态条的真实进度；视图转交 `apply_preparation_event`。
-    Preparation(PreparationEvent),
     Exited(Option<i32>),
     Failed(String),
-}
-
-/// 准备状态条的真实进度事件，字段语义与视图侧消费契约一致。
-///
-/// GPUI 侧没有 Java 语言服务导入，`import_percent` 与 `current_project`
-/// 始终为 `None`，不伪造导入进度。
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum PreparationEvent {
-    /// 准备阶段推进。
-    Phase {
-        phase: PreparationPhase,
-        import_percent: Option<u8>,
-        current_project: Option<String>,
-        download_artifact: Option<String>,
-    },
-    /// 准备完成，主进程已经拉起。
-    Ready,
-    /// 准备失败。
-    Failed,
 }
 
 /// 一次会话真正用上的启动方式。
@@ -83,8 +62,6 @@ pub fn start(
     let (sender, receiver) = unbounded();
     thread::spawn(move || {
         if let Err(message) = launch(client, root, configuration, skip_build, sender.clone()) {
-            // 整条启动链失败是唯一的准备失败节点；直启回退路径不会走到这里。
-            let _ = sender.send_blocking(SessionEvent::Preparation(PreparationEvent::Failed));
             let _ = sender.send_blocking(SessionEvent::Failed(message));
         }
     });
@@ -247,9 +224,6 @@ fn launch(
         })?;
 
     let launch = LaunchPlan::from_json(&plan)?;
-    // 启动计划解析完成，进入配置同步（pre-launch 编译等）；失败仍由
-    // SessionEvent::Failed 承载，直启回退路径不会误报准备失败。
-    send_preparation_phase(&sender, PreparationPhase::Configuring);
     let module = configuration
         .extensions
         .get("maven")
@@ -260,7 +234,6 @@ fn launch(
     // 后不重新安装依赖模块，编译会停在“找不到符号”。先构建依赖链再启动。
     if !skip_build && needs_maven_install(&configuration.provider, module) {
         if let Some(module) = module {
-            send_preparation_phase(&sender, PreparationPhase::Building);
             run_maven_install(client, &root, &configuration, module, &sender)?;
         }
     }
@@ -383,7 +356,6 @@ fn launch(
     if let Some(stderr) = child.stderr.take() {
         spawn_reader(stderr, sender.clone());
     }
-    send_preparation_ready(&sender);
     spawn_exit_waiter(child, sender, stop_flag, None);
     Ok(())
 }
@@ -585,13 +557,9 @@ fn force_stop_system_line() -> String {
 // ---------------------------------------------------------------------------
 
 mod launch_plan;
-mod preparation_events;
 mod toolchain_probe;
 
 use launch_plan::{EnvironmentRef, ExecutableRef, LaunchPlan, LaunchStep, resolve_plan_paths};
-pub(super) use preparation_events::{
-    emit_downloads, send_preparation_phase, send_preparation_ready,
-};
 pub(crate) use toolchain_probe::toolchain_candidates;
 
 fn resolve_working_directory(root: &Path, value: &str) -> PathBuf {
@@ -668,7 +636,6 @@ fn run_maven_install(
     if !text.is_empty() {
         let _ = sender.send_blocking(SessionEvent::Output(text.clone()));
     }
-    emit_downloads(&text, sender);
     if !output.status.success() {
         return Err(format!(
             "{} ({})",
@@ -1265,7 +1232,7 @@ mod tests {
                     exit_code = code;
                 }
                 Ok(SessionEvent::Failed(message)) => panic!("run failed: {message}"),
-                Ok(SessionEvent::LaunchMode(_)) | Ok(SessionEvent::Preparation(_)) => {}
+                Ok(SessionEvent::LaunchMode(_)) => {}
                 Err(_) => break,
             }
         }
@@ -1356,7 +1323,7 @@ mod tests {
                     break;
                 }
                 Ok(SessionEvent::Failed(message)) => panic!("run failed: {message}"),
-                Ok(SessionEvent::LaunchMode(_)) | Ok(SessionEvent::Preparation(_)) => {}
+                Ok(SessionEvent::LaunchMode(_)) => {}
                 Err(_) => break,
             }
         }

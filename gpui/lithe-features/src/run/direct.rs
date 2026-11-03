@@ -17,11 +17,10 @@ use lithe_core::execution::{
 };
 use lithe_core_client::CoreClient;
 
-use super::model::{PreparationPhase, RunConfiguration, RunLanguage};
+use super::model::{RunConfiguration, RunLanguage};
 use super::session::{
-    LaunchArgumentFile, ProjectToolchains, RunMode, SessionEvent, command_for, emit_downloads,
-    maven_install_context, resolve_toolchain_with, send_preparation_phase, send_preparation_ready,
-    spawn_session,
+    LaunchArgumentFile, ProjectToolchains, RunMode, SessionEvent, command_for,
+    maven_install_context, resolve_toolchain_with, spawn_session,
 };
 
 /// 能否用 JVM 直启代替构建工具目标。
@@ -67,7 +66,6 @@ pub(super) fn start(
     goals.push(format!("-Dmdep.outputFile={}", classpath_file.display()));
     goals.push("-DincludeScope=runtime".to_string());
     let build = crate::maven::plan_goal(client, root, &context, module, &goals)?;
-    send_preparation_phase(sender, PreparationPhase::Building);
     run_captured(&build, sender)?;
 
     // 2) 组合类路径：本模块的编译输出、反应堆里兄弟模块的输出，最后是依赖。
@@ -123,7 +121,6 @@ pub(super) fn start(
         sender,
         temporary,
     )?;
-    send_preparation_ready(sender);
     Ok(())
 }
 
@@ -450,8 +447,6 @@ fn run_captured(
     if !text.is_empty() {
         let _ = sender.send_blocking(SessionEvent::Output(text.clone()));
     }
-    // Maven 拉取依赖的输出里带着构件名；用它推进准备状态条，不造假进度。
-    emit_downloads(&text, sender);
     if !output.status.success() {
         return Err(format!(
             "{} ({})",

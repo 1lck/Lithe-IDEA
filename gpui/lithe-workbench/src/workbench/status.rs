@@ -2,11 +2,12 @@ use std::path::{Path, PathBuf};
 
 use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::{
-    AnyElement, Context, FontWeight, Hsla, InteractiveElement as _, IntoElement,
+    AnyElement, AppContext as _, Context, FontWeight, Hsla, InteractiveElement as _, IntoElement,
     ParentElement as _, RenderOnce as _, SharedString, StatefulInteractiveElement as _,
     Styled as _, WeakEntity, Window, div, px,
 };
 use lithe_features::editor::DiagnosticItem;
+use lithe_features::language::status as java_status;
 use lithe_ui::components::status_bar::{LitheStatusBar, StatusBarItem};
 use lithe_ui::i18n::tr;
 use lithe_ui::icons::LitheIcon;
@@ -60,17 +61,50 @@ impl Workbench {
 
         let memory = format!("{} {}", tr("RAM"), self.memory_text);
 
-        let right = [
+        let mut right = Vec::new();
+        // Java 项目准备状态紧挨内存之前，与 macOS 状态栏顺序一致。
+        if let Some(item) = java_status::status_item(
+            self.java_language.read(cx),
+            self.java_language.downgrade(),
+            current_tokens(cx),
+        ) {
+            right.push(item);
+        }
+        right.extend([
             StatusBarItem::new("lithe-status-memory", memory),
             StatusBarItem::new("lithe-status-theme", theme),
             StatusBarItem::new("lithe-status-position", position),
             StatusBarItem::new("lithe-status-encoding", tr("UTF-8")),
             StatusBarItem::new("lithe-status-indent", tr("4 spaces")),
-        ];
+        ]);
 
         LitheStatusBar::new(left, right)
             .render(window, cx)
             .into_any_element()
+    }
+
+    /// 状态栏展开的 Java 项目准备面板；与服务状态共用同一份快照。
+    pub(super) fn render_java_preparation_panel(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let tokens = current_tokens(cx);
+        let owner = self.java_language.downgrade();
+        let workbench = cx.weak_entity();
+        let settings_owner = workbench.clone();
+        let logs_owner = workbench;
+        java_status::render_panel(
+            self.java_language.read(cx),
+            tokens,
+            owner,
+            move |window, cx| {
+                let _ = settings_owner.update(cx, |this, cx| {
+                    this.open_language_service_settings(window, cx);
+                });
+            },
+            move |window, cx| {
+                let _ = logs_owner.update(cx, |this, cx| {
+                    this.open_log_settings(window, cx);
+                });
+            },
+        )
     }
 
     /// Problems 工具窗：按文件分组的诊断列表。

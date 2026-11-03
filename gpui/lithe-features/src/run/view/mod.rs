@@ -8,7 +8,6 @@ mod actions;
 mod console;
 mod details;
 mod list;
-mod preparation;
 mod render;
 mod state;
 mod toolbar;
@@ -30,9 +29,11 @@ use self::state::SessionState;
 use super::config;
 use super::java_decision::{self, JavaLaunchDecision};
 use super::model::{
-    self, PreparationPhase, ProjectPreparation, RunConfiguration, RunDiagnostic, RunScope,
+    self, RunConfiguration, RunDiagnostic, RunScope,
 };
 use super::session;
+
+use crate::language::JavaLanguageServiceModel;
 
 /// Run 面板状态变化。工作台用它刷新顶栏 Run/Stop 和配置名。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -164,12 +165,12 @@ pub struct RunPanel {
     on_before_launch: Option<BeforeLaunchHandler>,
     /// 打开 Run 配置设置页回调；由工作台注入。
     on_open_settings: Option<OpenSettingsHandler>,
-    /// 顶部项目准备状态是否展开（对齐 Tauri `ProjectPreparationStatus` 的 details 状态）。
+    /// 顶部项目准备状态是否展开（Run 面板自己的详情状态）。
     preparation_expanded: bool,
-    /// Java 项目准备状态（完全对齐 Tauri `ProjectPreparation`，仅在 Java 项目中激活）。
-    pub preparation: Option<ProjectPreparation>,
-    /// 准备条真实收到过事件的阶段；未收到事件的阶段不显示为已完成。
-    pub(super) preparation_seen: Vec<PreparationPhase>,
+    /// 应用级 Java 语言服务模型；准备状态的唯一来源。
+    java_language: Entity<JavaLanguageServiceModel>,
+    /// 等待 Java 项目准备完成后要启动的配置 id。
+    pending_java_launch: Option<String>,
     /// Java/Spring Boot 启动前的构建检查结果；有待决项时暂停启动。
     launch_decision: Option<JavaLaunchDecision>,
     /// 用户选择「对此工作区始终继续」后跳过后续构建检查。

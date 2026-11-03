@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use async_channel::Receiver;
 use gpui_kit::component::resizable::ResizableState;
-use gpui_kit::{App, AppContext as _, Context, KeyBinding, SharedString, Task, Window};
+use gpui_kit::{App, AppContext as _, Context, Entity, KeyBinding, SharedString, Task, Window};
 use lithe_core_client::CoreClient;
 use lithe_git_host::ProcessTree;
 use lithe_ui::i18n::tr;
@@ -15,21 +15,20 @@ use lithe_ui::i18n::tr;
 use crate::console::ConsoleScroll;
 
 use super::config::{self, LoadedRunConfigurations};
-use super::model::{
-    PreparationPhase, ProjectPreparation, RunConfiguration, RunExecution, RunLanguage, RunScope,
-};
-use super::preparation::PreparationEvent;
+use super::model::{RunConfiguration, RunExecution, RunScope};
 use super::session::{self, RunMode, SessionEvent};
 use super::state::SessionState;
 use super::{
     CONFIGURATION_LIST_DEFAULT_WIDTH, CONSOLE_CONTEXT, CopySelection, OUTPUT_FLUSH_INTERVAL,
     RunPanel, RunPanelEvent,
 };
+use crate::language::{JavaLanguageServiceEvent, JavaLanguageServiceModel};
 
 impl RunPanel {
     pub fn new(
         client: CoreClient,
         root: PathBuf,
+        java_language: Entity<JavaLanguageServiceModel>,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -43,6 +42,15 @@ impl RunPanel {
         // 配置列表 / 输出的分栏状态：拖拽期间由 gpui-kit 维护，提交后回写宽度。
         let split_state = cx.new(|_| ResizableState::default());
         cx.observe(&split_state, |_, _, cx| cx.notify()).detach();
+        // 准备状态由模型驱动：状态变化时放行被闸门拦下的启动。
+        cx.subscribe(
+            &java_language,
+            |this, _, _: &JavaLanguageServiceEvent, cx| {
+                this.resume_pending_java_launch(cx);
+                cx.notify();
+            },
+        )
+        .detach();
         Self {
             client,
             pending_initial_load: root.is_some(),
@@ -77,8 +85,8 @@ impl RunPanel {
             on_before_launch: None,
             on_open_settings: None,
             preparation_expanded: false,
-            preparation: None,
-            preparation_seen: Vec::new(),
+            java_language,
+            pending_java_launch: None,
             launch_decision: None,
             skip_build_check: false,
         }
@@ -117,8 +125,6 @@ impl RunPanel {
         self.pending_run = false;
         self.restart_pending = None;
         self.pending_initial_load = self.root.is_some();
-        self.preparation = None;
-        self.preparation_seen.clear();
         self.emit(cx);
         cx.notify();
     }
@@ -362,36 +368,17 @@ impl RunPanel {
         .detach();
     }
 
-    /// 检查当前工作区是否是包含 Java 的项目（完全对齐 Tauri 规则）。
-    fn has_java_project(&self) -> bool {
-        if self
-            .configurations
-            .iter()
-            .any(|c| c.language() == RunLanguage::Java)
-        {
-            return true;
-        }
-        if let Some(root) = self.root.as_ref() {
-            return root.join("pom.xml").exists()
-                || root.join("build.gradle").exists()
-                || root.join("build.gradle.kts").exists()
-                || root.join("src").join("main").join("java").exists();
-        }
-        false
-    }
-
-    /// 建立 Java 项目准备状态的初始显示；阶段推进由准备事件驱动，
-    /// 消费入口见 `preparation::RunPanel::apply_preparation_event`。
-    pub fn start_project_preparation(&mut self, cx: &mut Context<Self>) {
-        if !self.has_java_project() {
-            self.preparation = None;
+    /// 准备完成后继续被闸门拦下的启动。
+    pub(super) fn resume_pending_java_launch(&mut self, cx: &mut Context<Self>) {
+        let blocked = self.java_language.read(cx).blocks_run();
+        let Some(id) = self.pending_java_launch.take() else {
+            return;
+        };
+        if blocked {
+            self.pending_java_launch = Some(id);
             return;
         }
-        if self.preparation.is_none() {
-            self.preparation = Some(ProjectPreparation::starting());
-            self.preparation_seen = vec![PreparationPhase::Starting];
-        }
-        cx.notify();
+        self.start_configuration(id, cx);
     }
 
     fn apply_loaded(&mut self, loaded: LoadedRunConfigurations, cx: &mut Context<Self>) {
@@ -409,14 +396,6 @@ impl RunPanel {
                 .or_else(|| self.configurations.first().map(|item| item.id.clone()));
         }
         self.pending_initial_load = false;
-        if self.has_java_project() {
-            if self.preparation.is_none() {
-                self.start_project_preparation(cx);
-            }
-        } else {
-            self.preparation = None;
-            self.preparation_seen.clear();
-        }
         self.emit(cx);
         cx.notify();
 
@@ -452,6 +431,17 @@ impl RunPanel {
             return;
         };
         if self.sessions.get(&id).is_some_and(SessionState::is_active) {
+            self.selected_id = Some(id);
+            self.show_details = false;
+            self.emit(cx);
+            cx.notify();
+            return;
+        }
+
+        // Java 项目准备未完成时先排队：JDT 还没导入完时主类与 classpath
+        // 都没有可靠答案。完成或失败都会由模型事件放行。
+        if self.java_language.read(cx).blocks_run() {
+            self.pending_java_launch = Some(id.clone());
             self.selected_id = Some(id);
             self.show_details = false;
             self.emit(cx);
@@ -538,8 +528,6 @@ impl RunPanel {
         let is_output = matches!(&event, SessionEvent::Output(_));
         let mut output_chunk: Option<String> = None;
         let mut failed_output: Option<String> = None;
-        let mut preparation_event: Option<PreparationEvent> = None;
-        let mut preparation_failed = false;
         if let Some(session) = self.sessions.get_mut(id) {
             match event {
                 // 输出不在这里直接入账：高频日志先合批，避免每个数据块都触发
@@ -550,9 +538,6 @@ impl RunPanel {
                     session.tree = Some(tree);
                     session.starting = false;
                     session.running = true;
-                }
-                SessionEvent::Preparation(event) => {
-                    preparation_event = Some(PreparationEvent::from_session(event));
                 }
                 SessionEvent::Exited(code) => {
                     session.starting = false;
@@ -569,7 +554,6 @@ impl RunPanel {
                     session.tree = None;
                     session.flush_pending_line();
                     failed_output = Some(format!("{message}\n"));
-                    preparation_failed = true;
                 }
             }
         }
@@ -583,12 +567,6 @@ impl RunPanel {
                 .or_default()
                 .push_str(&text);
             self.flush_output(cx);
-        }
-        if let Some(event) = preparation_event {
-            self.apply_preparation_event(event, cx);
-        }
-        if preparation_failed {
-            self.mark_preparation_failed();
         }
 
         if self.restart_pending.as_deref() == Some(id)
@@ -669,7 +647,6 @@ impl RunPanel {
         if let Some(session) = self.sessions.get_mut(id) {
             session.stopped = true;
         }
-        self.mark_preparation_failed();
         cx.background_spawn(async move {
             let _ = session::stop(tree);
         })

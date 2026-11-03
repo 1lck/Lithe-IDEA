@@ -16,6 +16,8 @@ pub struct StatusBarItem {
     pub id: SharedString,
     pub text: SharedString,
     pub icon: Option<LitheIcon>,
+    /// 自定义条目；有值时忽略 `text` 与 `icon`，由调用方完全负责呈现与交互。
+    custom: Option<AnyElement>,
 }
 
 impl StatusBarItem {
@@ -24,6 +26,17 @@ impl StatusBarItem {
             id: id.into(),
             text: text.into(),
             icon: None,
+            custom: None,
+        }
+    }
+
+    /// 状态栏里的自定义元素，例如可点击的项目准备状态。
+    pub fn element(id: impl Into<SharedString>, element: AnyElement) -> Self {
+        Self {
+            id: id.into(),
+            text: SharedString::default(),
+            icon: None,
+            custom: Some(element),
         }
     }
 
@@ -95,7 +108,13 @@ fn status_children(items: Vec<StatusBarItem>, tokens: LitheTokens) -> Vec<AnyEle
             id,
             text,
             icon: item_icon,
+            custom,
         } = item;
+
+        if let Some(custom) = custom {
+            children.push(custom);
+            continue;
+        }
 
         // 条目的业务 id 参与 ElementId 生成；这里不按下标命名。
         let mut entry = div()

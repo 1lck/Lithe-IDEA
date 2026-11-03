@@ -153,17 +153,17 @@ impl LitheMetrics {
 
     /// 状态栏字号。依据 `WorkbenchView.swift:1693` 的 `LitheTheme.smallFont`
     ///（12pt，`LitheTheme.swift:826`）。
-    pub(crate) const STATUS_BAR_FONT_SIZE: f32 = 12.0;
+    pub const STATUS_BAR_FONT_SIZE: f32 = 12.0;
     /// 状态栏条目图标尺寸。依据 `WorkbenchView.swift:1762` 的面包屑图标 12pt。
-    pub(crate) const STATUS_BAR_ICON_SIZE: f32 = 12.0;
+    pub const STATUS_BAR_ICON_SIZE: f32 = 12.0;
     /// 状态栏左右内边距。依据 `WorkbenchView.swift:1695` 的
     /// `padding(.horizontal, 9)`。
-    pub(crate) const STATUS_BAR_HORIZONTAL_PADDING: f32 = 9.0;
+    pub const STATUS_BAR_HORIZONTAL_PADDING: f32 = 9.0;
     /// 状态栏条目间距。依据 `WorkbenchView.swift:1837` 的
     /// `compactStatusItems` 的 `HStack(spacing: 10)`。
-    pub(crate) const STATUS_BAR_ITEM_GAP: f32 = 10.0;
+    pub const STATUS_BAR_ITEM_GAP: f32 = 10.0;
     /// 状态栏条目内图标与文字间距。依据 `WorkbenchView.swift:1760` 的
     /// `HStack(spacing: 4)`。
-    pub(crate) const STATUS_BAR_ICON_GAP: f32 = 4.0;
+    pub const STATUS_BAR_ICON_GAP: f32 = 4.0;
 }
 

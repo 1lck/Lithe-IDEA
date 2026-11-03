@@ -20,6 +20,7 @@ use gpui_kit::{
 };
 use lithe_core_client::CoreClient;
 use lithe_features::editor::DiagnosticItem;
+use lithe_features::language::JavaLanguageServiceModel;
 use lithe_features::local_history::Snapshot;
 use lithe_features::quick_open::QuickFile;
 use lithe_features::{
@@ -131,6 +132,10 @@ pub struct Workbench {
     commit_tab: CommitTab,
     search: Entity<SearchPanel>,
     run_panel: Entity<RunPanel>,
+    /// 应用级 Java 语言服务：准备状态由它拥有，Run 面板与状态栏共享。
+    java_language: Entity<JavaLanguageServiceModel>,
+    /// 首帧是否已经为当前工作区启动过语言服务。
+    java_language_started: bool,
     maven: Entity<MavenPanel>,
     maven_output: Entity<MavenOutputPanel>,
     terminal: Entity<TerminalPanel>,
@@ -249,7 +254,9 @@ impl Workbench {
         let platform = lithe_platform::current();
         let client = CoreClient::new();
         let recent_projects = platform.recent_projects();
-        let initial_root = recent_projects.iter().find(|path| path.is_dir()).cloned();
+        let initial_root = open_project_argument()
+            .filter(|path| path.is_dir())
+            .or_else(|| recent_projects.iter().find(|path| path.is_dir()).cloned());
         let has_initial_root = initial_root.is_some();
         let tree_root = initial_root.clone().unwrap_or_default();
 
@@ -270,7 +277,16 @@ impl Workbench {
         let git = cx.new(|git_cx| GitPanel::new(client, tree_root.clone(), git_cx));
         let git_log = cx.new(|git_cx| GitPanel::new_log(client, tree_root.clone(), git_cx));
         let search = cx.new(|search_cx| SearchPanel::new(client, tree_root.clone(), search_cx));
-        let run_panel = cx.new(|run_cx| RunPanel::new(client, tree_root.clone(), window, run_cx));
+        let java_language = cx.new(|_| JavaLanguageServiceModel::new(client));
+        let run_panel = cx.new(|run_cx| {
+            RunPanel::new(
+                client,
+                tree_root.clone(),
+                java_language.clone(),
+                window,
+                run_cx,
+            )
+        });
         let maven = cx.new(|maven_cx| MavenPanel::new(client, tree_root.clone(), window, maven_cx));
         let maven_output =
             cx.new(|output_cx| MavenOutputPanel::new(maven.clone(), window, output_cx));
@@ -570,6 +586,8 @@ impl Workbench {
             commit_tab: CommitTab::Commit,
             search,
             run_panel,
+            java_language,
+            java_language_started: false,
             maven,
             maven_output,
             terminal,
@@ -971,6 +989,15 @@ impl Render for Workbench {
             }
         }
 
+        if !self.java_language_started {
+            self.java_language_started = true;
+            let root = self.project_root.clone();
+            let java = self.java_language.clone();
+            cx.defer_in(window, move |_this, _window, cx| {
+                java.update(cx, |model, cx| model.set_root(root, cx));
+            });
+        }
+
         if !self.memory_started {
             self.memory_started = true;
             cx.defer_in(window, |this, window, cx| {
@@ -1126,8 +1153,26 @@ impl Render for Workbench {
             .children(self.render_top_menu(window, cx))
             .children(self.render_toasts(cx))
             .children(self.render_tab_context_menu(cx))
+            .children(self.render_java_preparation_panel(cx))
             .children(self.render_overlay(window, cx))
     }
+}
+
+/// 解析启动参数 `--open-project <path>`；供命令行和验证脚本直接打开工作区。
+fn open_project_argument() -> Option<PathBuf> {
+    let mut arguments = std::env::args_os().skip(1);
+    while let Some(argument) = arguments.next() {
+        if argument.as_os_str() == std::ffi::OsStr::new("--open-project") {
+            return arguments.next().map(PathBuf::from);
+        }
+        if let Some(value) = argument
+            .to_str()
+            .and_then(|argument| argument.strip_prefix("--open-project="))
+        {
+            return Some(PathBuf::from(value));
+        }
+    }
+    None
 }
 
 /// 构造「打开文件位置」回调：有行号时跳行，否则只打开文件。

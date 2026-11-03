@@ -32,6 +32,8 @@ impl Workbench {
         }
 
         self.project_root = Some(root.clone());
+        self.java_language
+            .update(cx, |model, cx| model.set_root(Some(root.clone()), cx));
         self.apply_layout(workspace_layout::load(&root), cx);
         self.layout_root = Some(root.clone());
         self.layout_restored = true;
@@ -142,6 +144,8 @@ impl Workbench {
         let Some(root) = self.project_root.take() else {
             return;
         };
+        self.java_language
+            .update(cx, |model, cx| model.stop(cx));
         self.persist_layout_for(&root);
         self.layout_root = None;
         // 关项目必须与 `open_project` 对称：标签、编辑器文档、右分栏、Markdown
