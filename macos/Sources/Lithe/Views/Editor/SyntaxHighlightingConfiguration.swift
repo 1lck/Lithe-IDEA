@@ -68,6 +68,7 @@ struct SyntaxHighlightingRegistry {
                 throw SyntaxHighlightingConfigurationError.missingBundledConfiguration
             }
             return (try SyntaxHighlightingRegistry(data: Data(contentsOf: url)), nil)
+        // log-exempt: 同一次失败已经记录过：保留原始 loadError，由 LitheApp 启动边界记录 editor.syntax.configuration_failed
         } catch {
             // A bad packaged mapping must not make the editor unusable; retain its generic highlighting.
             return (SyntaxHighlightingRegistry(), error)

@@ -62,11 +62,16 @@ struct PluginHostServiceError: Error, Equatable, Sendable {
     /// Facts the backend may act on, such as `{ currentVersion }` of a
     /// version conflict. The same rule as the message applies.
     let details: [String: ToolingJSONValue]?
+    var logError: (any Error)? = nil
 
     init(_ code: PluginHostErrorCode, _ message: String, details: [String: ToolingJSONValue]? = nil) {
         self.code = code
         self.message = message
         self.details = details
+    }
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.code == rhs.code && lhs.message == rhs.message && lhs.details == rhs.details
     }
 
     var failure: PluginHostRequestFailure {
@@ -217,7 +222,10 @@ final class PluginHostServiceDispatcher {
     private var inFlight: [String: [String: Pending]] = [:]
     private var contextObserver: UUID?
 
-    init(contexts: PluginWorkspaceContexts) {
+    private let logSink: (any LogSink)?
+
+    init(contexts: PluginWorkspaceContexts, logSink: (any LogSink)? = nil) {
+        self.logSink = logSink
         self.contexts = contexts
         contextObserver = contexts.observeClose { [weak self] contextID in
             guard let self else { return }
@@ -315,6 +323,7 @@ final class PluginHostServiceDispatcher {
         let waitsForUser = request.method.hasPrefix("lithe/host/window/show")
             || ["lithe/host/terminal/create", "lithe/host/terminal/reopen"].contains(request.method)
         let deadline: Task<Void, Never>? = waitsForUser ? nil : Task { @MainActor [weak self] in
+            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
             do { try await Task.sleep(for: .seconds(30)) } catch { return }
             guard let self, self.sessionIDs[pluginID] == currentSession,
                   let pending = self.inFlight[pluginID]?.removeValue(forKey: request.id) else { return }
@@ -386,7 +395,11 @@ final class PluginHostServiceDispatcher {
         let call = PluginHostCall(
             pluginID: pluginID, sessionID: sessionID, request: request, context: context, params: params, subscriptions: subscriptions
         )
-        return await handler.answer(call).mapError(\.failure)
+        let result = await handler.answer(call)
+        if case .failure(let failure) = result, failure.code != .cancelled, let plugin = LogSegment(pluginID) {
+            logSink?.emit(PluginsHostRequestFailed(error: failure.logError ?? LogFailure(domain: "PluginHost", code: failure.code.rawValue), plugin: plugin, operationID: request.id))
+        }
+        return result.mapError(\.failure)
     }
 
     static func contextReference(_ value: ToolingJSONValue) -> PluginWorkspaceContextReference? {
@@ -417,7 +430,7 @@ final class PluginCredentialHostService: PluginHostServiceHandling {
         let outcome = await Task.detached(priority: .userInitiated) {
             PluginHostServices.answer(request, pluginID: pluginID, credentials: credentials)
         }.value
-        return outcome.mapError { PluginHostServiceError(.failed, $0.message) }
+        return outcome
     }
 }
 
@@ -475,9 +488,11 @@ final class PluginWorkspaceHostService: PluginHostServiceHandling {
             do {
                 try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
             } catch {
-                return .failure(PluginHostServiceError(
+                var failure = PluginHostServiceError(
                     .failed, L10n.string("The host could not create the plugin's workspace state directory.")
-                ))
+                )
+                failure.logError = error
+                return .failure(failure)
             }
             var object = describe(context, pluginID: call.pluginID)
             object["stateDirectory"] = .string(directory.path)

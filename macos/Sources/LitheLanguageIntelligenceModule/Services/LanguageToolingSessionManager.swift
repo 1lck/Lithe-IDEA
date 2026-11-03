@@ -157,6 +157,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
                 self.javaDependencyWorkspaceURL = workspace
                 self.javaDependencySnapshot = snapshot
                 self.onJavaDependencySnapshotChange?()
+            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
             } catch is CancellationError {
                 return
             } catch {
@@ -177,6 +178,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
         javaDependencyChangeTask = Task { [weak self] in
             // Watched-file notifications have no acknowledgement. Give JDT LS time to
             // start a configuration job; its ready transition takes precedence.
+            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
             try? await Task.sleep(for: .milliseconds(750))
             guard !Task.isCancelled, let self else { return }
             self.refreshJavaDependenciesWhenReady()
@@ -503,6 +505,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
                 return .noSession
             }
         } catch {
+            recordHostFailure(providerID: "java", stage: "language-import", error: error)
             return .failed(LanguageServerRuntimeFailure(code: "languageImportUnavailable", message: error.localizedDescription))
         }
         switch session.updateMavenConfiguration(context, reloadProjects: reloadProjects) {
@@ -1055,8 +1058,14 @@ package final class LanguageToolingSessionManager: ObservableObject,
 
 
     package func recordHostFailure(providerID: String, stage: String, error: Error) {
-        recordLogIssue(providerID, languageServerOperationIDs[providerID]?.uuidString, true,
-                       stage, (error as NSError).domain, nil)
+        guard !(error is CancellationError) else { return }
+        let operationID = languageServerOperationIDs[providerID]?.uuidString
+        onLogIssue?(providerID, operationID, true, stage, (error as NSError).domain, nil)
+        guard let logSink, let server = logSubject(for: providerID) else { return }
+        let failure: any Error = (error as? LanguageServerRuntimeFailure).map {
+            LogFailure(domain: "LanguageRuntime", code: $0.code) as any Error
+        } ?? error
+        logSink.emit(LspHostOperationFailed(error: failure, server: server, stage: stage, operationID: operationID))
     }
 
     private func logSubject(for providerID: String) -> LogSegment? {

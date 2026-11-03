@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 import LitheCoreContracts
 import LitheRustCore
@@ -162,13 +163,16 @@ struct RustLanguageProviderCatalogSource: LanguageProviderCatalogSource {
         }
     }
 
+    private let logSink: (any LogSink)?
     private let loader: any RustLanguageProviderCatalogLoading
 
     init(core: RustCoreBridge = RustCoreBridge()) {
         loader = core
+        logSink = core.coreLogSink
     }
 
-    init(loader: any RustLanguageProviderCatalogLoading) {
+    init(loader: any RustLanguageProviderCatalogLoading, logSink: (any LogSink)? = nil) {
+        self.logSink = logSink
         self.loader = loader
     }
 
@@ -188,6 +192,7 @@ struct RustLanguageProviderCatalogSource: LanguageProviderCatalogSource {
         do {
             payload = try JSONDecoder().decode(CatalogPayload.self, from: data)
         } catch {
+            logSink?.emit(AppCoreFallbackSelected(error: error, stage: "language-catalog"))
             return compatibilityFallback(
                 message: "The Rust language-provider catalog could not be decoded: \(error.localizedDescription)"
             )

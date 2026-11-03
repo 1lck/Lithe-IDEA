@@ -53,6 +53,7 @@ final class AppModelFeatureGraph {
         commitDraft = CommitDraftFeatureModel()
         searchSession = SearchSessionFeatureModel()
         let workspace = WorkspaceFeatureModel(
+            logSink: services.logSink,
             operations: services.workspaceOperations,
             fileOperations: services.fileOperations,
             gitWatchContextProvider: services.gitWatchContextProvider,

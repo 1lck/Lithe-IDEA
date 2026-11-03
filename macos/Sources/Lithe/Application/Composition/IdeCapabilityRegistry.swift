@@ -5,6 +5,8 @@ import LitheModuleAPI
 @MainActor
 final class IdeCapabilityRegistry: IDECapabilitiesProviding {
     private struct Entry { weak var feature: IdeCapabilitiesFeatureModel? }
+    private let logSink: (any LogSink)?
+    init(logSink: (any LogSink)? = nil) { self.logSink = logSink }
     private var entries: [String: Entry] = [:]
 
     func register(_ feature: IdeCapabilitiesFeatureModel, workspaceID: String) {
@@ -25,6 +27,6 @@ final class IdeCapabilityRegistry: IDECapabilitiesProviding {
             result = ["error": ["code": "UNAVAILABLE", "message": "Select an authorized project and supply valid JSON arguments"]]
         }
         do { return String(decoding: try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]), as: UTF8.self) }
-        catch { return "{\"error\":{\"code\":\"ENCODING_FAILED\",\"message\":\"Could not encode IDE result\"}}" }
+        catch { logSink?.emit(AppIdeRequestFailed(error: error, stage: "response-encoding")); return "{\"error\":{\"code\":\"ENCODING_FAILED\",\"message\":\"Could not encode IDE result\"}}" }
     }
 }

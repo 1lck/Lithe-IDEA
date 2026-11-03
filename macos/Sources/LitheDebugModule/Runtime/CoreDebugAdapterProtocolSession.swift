@@ -24,6 +24,7 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
         let deadline: any DebugOperationDeadline
     }
 
+    private let logSink: (any LogSink)?
     private let adapterID: String
     public let consoleCommands: [DebugConsoleCommand]
     public let consoleCommandPrefix: String?
@@ -60,6 +61,7 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
 
     public init(
         adapterID: String,
+        logSink: (any LogSink)? = nil,
         consoleCommands: [DebugConsoleCommand] = [],
         consoleCommandPrefix: String? = nil,
         disabledCapabilities: [String] = [],
@@ -70,6 +72,7 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
         operationTimeoutMilliseconds: Int = 10_000,
         initializationTimeoutMilliseconds: Int? = nil
     ) {
+        self.logSink = logSink
         self.adapterID = adapterID
         self.disabledCapabilities = disabledCapabilities
         self.consoleCommands = consoleCommands
@@ -131,9 +134,9 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
         cancelInitializationDeadline()
         failPendingRunInTerminalRequests(DebugAdapterProtocolError.stopped)
         failPendingStartDebuggingRequests(DebugAdapterProtocolError.stopped)
-        if ownsCoreSession, transport.isRunning,
-           let update = try? core.disconnectDebugSession(sessionID: sessionID) {
-            try? apply(update)
+        if ownsCoreSession, transport.isRunning {
+            do { try apply(core.disconnectDebugSession(sessionID: sessionID)) }
+            catch { logSink?.emit(DebugSessionCleanupFailed(error: error, stage: "disconnect", operationID: sessionID)) }
         }
         if let draining = transport as? any DebugAdapterDrainingTransport {
             draining.finishSendingAndStop()

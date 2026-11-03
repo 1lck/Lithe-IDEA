@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import CryptoKit
 import Foundation
 import LitheCoreContracts
@@ -155,6 +156,7 @@ struct ConnectionWatchingTransport: RemoteWorkspaceTransport {
 /// Project tree and plain file access: remote roots are listed on the host,
 /// all other roots go to the local operations unchanged.
 struct RemoteRoutingWorkspaceOperations: WorkspaceOperations {
+    var logSink: (any LogSink)? = nil
     let local: any WorkspaceOperations
     let registry: RemoteWorkspaceRegistry
     let transport: any RemoteWorkspaceTransport
@@ -239,7 +241,10 @@ struct RemoteRoutingWorkspaceOperations: WorkspaceOperations {
             if case .saved = try transport.writeFile(Data(text.utf8), to: path, expected: expected, session: binding.sessionID) {
                 return true
             }
-        } catch { return false }
+        } catch {
+            logSink?.emit(RemoteWorkspaceWriteFailed(error: (error as? RemoteProbeFailure).map { LogFailure(domain: "RemoteWorkspace", code: $0.code) as any Error } ?? error))
+            return false
+        }
         return false
     }
 

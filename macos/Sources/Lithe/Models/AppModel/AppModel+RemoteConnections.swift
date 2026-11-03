@@ -54,7 +54,7 @@ extension AppModel {
     func makeRemoteConnectionsFeature() -> RemoteConnectionsFeatureModel? {
         guard let services = services.remoteConnections else { return nil }
         return RemoteConnectionsFeatureModel(
-            store: services.store, prober: services.prober, sessions: services.sessions,
+            store: services.store, logSink: self.services.logSink, prober: services.prober, sessions: services.sessions,
             locator: services.locator, servers: services.servers,
             reconnect: workbenchFeature.remoteReconnect,
             openWorkspace: { [weak self] connection, folder, session in

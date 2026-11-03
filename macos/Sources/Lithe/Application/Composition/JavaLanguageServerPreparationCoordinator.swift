@@ -73,6 +73,7 @@ final class JavaLanguageServerPreparationCoordinator {
                 )
                 guard ownsPreparation() else { return }
                 onStarted(startedOperationID)
+            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
             } catch is CancellationError {
                 return
             } catch {
@@ -121,6 +122,7 @@ final class JavaLanguageServerPreparationCoordinator {
                     self?.mavenRecoveryRoot = workspaceURL
                 }
                 try await sessions.reloadJavaWorkspace(rootURL: workspaceURL)
+            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
             } catch is CancellationError {
                 return
             } catch {

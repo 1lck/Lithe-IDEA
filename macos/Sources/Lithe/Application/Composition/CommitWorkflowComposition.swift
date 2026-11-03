@@ -28,6 +28,7 @@ enum CommitWorkflowComposition {
         let settings = model.settings
         let workspace = model.workspaceFeature
         let notification = model.notificationFeature
+        let logSink = model.services.logSink
         return CommitWorkflowCoordinator(
             draft: draft,
             activateGit: activateGit,
@@ -35,7 +36,7 @@ enum CommitWorkflowComposition {
             generate: { [weak model] input in
                 model?.refreshAIConfigurations()
                 let value = try await runtime.activateCapability(.aiCommitMessage)
-                defer { try? runtime.markIdle(.aiAssistance) }
+                defer { do { try runtime.markIdle(.aiAssistance) } catch { logSink?.emit(AppModuleTransitionFailed(error: error, module: "ai-assistance", stage: "idle")) } }
                 guard let capability = value as? any AICommitMessageGenerating else {
                     throw ModuleRuntimeError.missingCapabilityDependency(
                         module: .aiAssistance, capability: .aiCommitMessage

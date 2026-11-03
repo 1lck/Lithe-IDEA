@@ -1,5 +1,51 @@
 {
   "version": 1,
   "root": "debug",
-  "events": []
+  "events": [
+    {
+      "id": "debug.inspection.fallback_selected",
+      "channel": "debug",
+      "level": "warn",
+      "message": "Debug inspection used a fallback",
+      "fields": {
+        "count": {
+          "type": "int",
+          "required": false,
+          "description": "Number of field requests that failed in this bounded snapshot; absent for memory layout decoding"
+        },
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Debug inspection step that failed, variable-fields or memory-layout"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying failure at this operation boundary, preserving stable domain and code"
+        }
+      },
+      "rate": 60,
+      "owner": "LitheDebugModule"
+    },
+    {
+      "id": "debug.session.cleanup_failed",
+      "channel": "debug",
+      "level": "warn",
+      "message": "Debug session cleanup failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Debug cleanup phase that failed, breakpoints or disconnect"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying failure at this operation boundary, preserving stable domain and code"
+        }
+      },
+      "rate": 60,
+      "owner": "LitheDebugModule"
+    }
+  ]
 }

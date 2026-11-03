@@ -96,7 +96,14 @@ final class AppSettings: ObservableObject {
         let presets: [String: [String: [KeyboardShortcutBinding]]]
     }
 
-    var logWindowSink: (any LogSink)?
+    private var pendingDecodeFailures: [AppSettingsDecodeFailed] = []
+    var logWindowSink: (any LogSink)? {
+        didSet {
+            guard let logWindowSink else { return }
+            pendingDecodeFailures.forEach { logWindowSink.emit($0) }
+            pendingDecodeFailures.removeAll()
+        }
+    }
     var logWindowPreferences: LogWindowPreferences {
         get {
             guard let data = defaults.data(forKey: "settings.logWindow"), data.count <= 256_000 else { return .init() }
@@ -465,8 +472,19 @@ final class AppSettings: ObservableObject {
 
     init(
         store: any KeyValueStore,
-        logDirectoryProvider: any LogDirectoryProviding
+        logDirectoryProvider: any LogDirectoryProviding,
+        logSink: (any LogSink)? = nil
     ) {
+        var decodeFailures: [AppSettingsDecodeFailed] = []
+        func decodeStored<T: Decodable>(_ type: T.Type, from data: Data, stage: String) -> T? {
+            do { return try JSONDecoder().decode(type, from: data) }
+            catch {
+                let event = AppSettingsDecodeFailed(error: error, stage: stage)
+                if let logSink { logSink.emit(event) }
+                else if decodeFailures.count < 16 { decodeFailures.append(event) }
+                return nil
+            }
+        }
         self.defaults = store
         self.logDirectoryProvider = logDirectoryProvider
         colorTheme = AppColorTheme(
@@ -520,7 +538,7 @@ final class AppSettings: ObservableObject {
         gitExecutable = defaults.string(forKey: Key.gitExecutable) ?? ""
         gitUseCredentialHelper = defaults.object(forKey: Key.gitUseCredentialHelper) as? Bool ?? true
         var savedFetchOptions = defaults.data(forKey: Key.gitFetchOptions)
-            .flatMap { try? JSONDecoder().decode(GitFetchOptions.self, from: $0) } ?? GitFetchOptions()
+            .flatMap { decodeStored(GitFetchOptions.self, from: $0, stage: "GitFetchOptions") } ?? GitFetchOptions()
         savedFetchOptions.remote = nil
         gitFetchOptions = savedFetchOptions
         gitSaveChangesPolicy = GitSaveChangesPolicy(
@@ -554,33 +572,34 @@ final class AppSettings: ObservableObject {
         workbenchBackground = backgroundConfiguration
         workbenchBackgroundOpacity = backgroundConfiguration.opacity
         if let data = defaults.data(forKey: Key.commitMessageAI),
-           let saved = try? JSONDecoder().decode(CommitMessageAISettings.self, from: data) {
+           let saved = decodeStored(CommitMessageAISettings.self, from: data, stage: "CommitMessageAISettings") {
             commitMessageAI = saved
         } else {
             commitMessageAI = .default
         }
         processTermination = defaults.data(forKey: Key.processTermination)
-            .flatMap { try? JSONDecoder().decode(ProcessTerminationSettings.self, from: $0) }
+            .flatMap { decodeStored(ProcessTerminationSettings.self, from: $0, stage: "ProcessTerminationSettings") }
             ?? ProcessTerminationSettings()
         agentCommand = defaults.string(forKey: Key.agentCommand) ?? ""
         agentArguments = defaults.string(forKey: Key.agentArguments) ?? ""
         agentModelCallStatistics = defaults.object(forKey: Key.agentModelCallStatistics) as? Bool ?? true
         agentConfigurations = defaults.data(forKey: Key.agentConfigurations)
-            .flatMap { try? JSONDecoder().decode([String: AgentConfiguration].self, from: $0) } ?? [:]
+            .flatMap { decodeStored([String: AgentConfiguration].self, from: $0, stage: "StringAgentConfiguration") } ?? [:]
         agentContextLimits = defaults.data(forKey: Key.agentContextLimits)
-            .flatMap { try? JSONDecoder().decode([String: AgentContextLimits].self, from: $0) } ?? [:]
+            .flatMap { decodeStored([String: AgentContextLimits].self, from: $0, stage: "StringAgentContextLimits") } ?? [:]
         agentContextDefaults = defaults.data(forKey: Key.agentContextDefaults)
-            .flatMap { try? JSONDecoder().decode([String: UInt64].self, from: $0) } ?? [:]
+            .flatMap { decodeStored([String: UInt64].self, from: $0, stage: "StringUInt64") } ?? [:]
         agentAccounts = defaults.data(forKey: Key.agentAccounts)
-            .flatMap { try? JSONDecoder().decode([AgentAccountProfile].self, from: $0) } ?? []
+            .flatMap { decodeStored([AgentAccountProfile].self, from: $0, stage: "AgentAccountProfile") } ?? []
         preferredAgentAccountIDs = defaults.data(forKey: Key.preferredAgentAccountIDs)
-            .flatMap { try? JSONDecoder().decode([String: UUID].self, from: $0) } ?? [:]
+            .flatMap { decodeStored([String: UUID].self, from: $0, stage: "StringUUID") } ?? [:]
         agentAccountSnapshots = defaults.data(forKey: Key.agentAccountSnapshots)
-            .flatMap { try? JSONDecoder().decode([String: AgentAccountSnapshot].self, from: $0) } ?? [:]
+            .flatMap { decodeStored([String: AgentAccountSnapshot].self, from: $0, stage: "StringAgentAccountSnapshot") } ?? [:]
         if let data = defaults.data(forKey: Key.javaBuildFailurePolicies),
-           let saved = try? JSONDecoder().decode([String: JavaBuildFailurePolicy].self, from: data) {
+           let saved = decodeStored([String: JavaBuildFailurePolicy].self, from: data, stage: "StringJavaBuildFailurePolicy") {
             javaBuildFailurePolicies = saved
         }
+        pendingDecodeFailures = decodeFailures
         repairImportedAgentProviders()
         AppThemeRuntime.shared.activate(colorTheme)
         updateGitExecutionPreferences()

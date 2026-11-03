@@ -181,7 +181,7 @@ final class MacServiceContainer {
             localStore: secureStore,
             configurationSources: aiConfigurationSources
         )
-        let ideCapabilityRegistry = IdeCapabilityRegistry()
+        let ideCapabilityRegistry = IdeCapabilityRegistry(logSink: logSink)
         let languageExecutionHost = MacLanguageExecutionHost(processRegistry: processRegistry)
         let moduleStore = providedModuleStore ?? MacModuleConfigurationStore(store: store)
         let moduleRuntime = ModuleRuntime(
@@ -449,7 +449,7 @@ final class MacServiceContainer {
             // protocol 2 and the workspace contexts of protocol 3. Context
             // state lives below each plugin's `${stateDir}` in Application
             // Support, never in the bundle or the package.
-            let hostDispatcher = PluginHostServiceDispatcher(contexts: .shared)
+            let hostDispatcher = PluginHostServiceDispatcher(contexts: .shared, logSink: logSink)
             hostDispatcher.register(PluginCredentialHostService(credentials: pluginCredentials))
             let backendDirectories = MacPluginStateDirectories(fileStorage: fileStorage)
             let workspaceHost = PluginWorkspaceHostService(
@@ -640,6 +640,7 @@ final class MacServiceContainer {
                         environmentResolver: rustCore
                     )
                     let runService = RunService(
+                        logSink: logSink,
                         runtime: runtimeService,
                         process: MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution),
                         processFactory: { MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution) },
@@ -657,6 +658,7 @@ final class MacServiceContainer {
                     )
                     let buildSystemPlugins = pluginStartup.registeredPlugins.filter { !$0.descriptor.buildSystems.isEmpty }
                     let buildSystems = buildSystemPlugins.isEmpty ? nil : BuildSystemService(
+                        logSink: logSink,
                         planner: RustBuildSystemOperations(core: rustCore),
                         tools: MacBuildToolResolver(
                             runtime: runtimeService,
@@ -697,6 +699,7 @@ final class MacServiceContainer {
                     )
                     let graph = ExecutionFeatureGraph(
                         maven: MavenService(
+                        logSink: logSink,
                             runtimeService: runtimeService,
                             process: MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution),
                             dependencyProcess: MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution),
@@ -757,6 +760,7 @@ final class MacServiceContainer {
                         "java": {
                             CoreDebugAdapterProtocolSession(
                                 adapterID: "java",
+                                logSink: logSink,
                                 transport: MacHostedPortDebugAdapterTransport(
                                     portResolver: { rootURL in
                                         guard let capability = try await moduleRuntime
@@ -790,6 +794,7 @@ final class MacServiceContainer {
                             let pluginID = entry.plugin.descriptor.id.rawValue
                             let session = CoreDebugAdapterProtocolSession(
                                 adapterID: entry.adapter.adapterID,
+                                logSink: logSink,
                                 consoleCommands: entry.adapter.consoleCommands,
                                 consoleCommandPrefix: entry.adapter.consoleCommandPrefix,
                                 disabledCapabilities: entry.adapter.disabledCapabilities,
@@ -851,6 +856,7 @@ final class MacServiceContainer {
                         guard descriptor.id == "java" || entry != nil else { return nil }
                         let session = CoreDebugAdapterProtocolSession(
                             adapterID: entry?.adapter.adapterID ?? "java",
+                            logSink: logSink,
                             consoleCommands: entry?.adapter.consoleCommands ?? [],
                             consoleCommandPrefix: entry?.adapter.consoleCommandPrefix,
                             disabledCapabilities: entry?.adapter.disabledCapabilities ?? [],
@@ -884,6 +890,7 @@ final class MacServiceContainer {
                     debugAdapterSessionsBox.manager = adapterSessions
                     let graph = DebugFeatureGraph(
                         adapterSessions: adapterSessions,
+                        logSink: logSink,
                         breakpointPersistence: debugBreakpointStore,
                         breakpointRelocator: rustCore,
                         steppingFilterResolver: rustCore,
@@ -898,6 +905,7 @@ final class MacServiceContainer {
         let gitOperations = RustGitOperations(core: rustCore)
         let defaultWorkspaceOperations = RustWorkspaceOperations(core: rustCore)
         let workspaceOperations: any WorkspaceOperations = RemoteRoutingWorkspaceOperations(
+            logSink: logSink,
             local: providedWorkspaceOperations ?? defaultWorkspaceOperations,
             registry: remoteWorkspaces,
             transport: remoteTransport
@@ -1197,6 +1205,7 @@ final class MacServiceContainer {
         let vcsProviderPlugins = pluginStartup.registeredPlugins.filter { !$0.descriptor.vcsProviders.isEmpty }
         if !vcsProviderPlugins.isEmpty {
             services.vcsProviders = VcsProvidersFeatureModel(
+                logSink: logSink,
                 planner: RustVcsOperations(core: rustCore),
                 providers: vcsProviderSessions,
                 mappingStore: MacVcsRootMappingStore(store: store),

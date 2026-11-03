@@ -707,6 +707,7 @@ struct SettingsView: View {
             fontPreviewResetTask?.cancel()
             withAnimation(fontPreviewAnimation) { previousEditorFontFamily = previous }
             fontPreviewResetTask = Task { @MainActor in
+                // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
                 try? await Task.sleep(nanoseconds: 2_500_000_000)
                 guard !Task.isCancelled else { return }
                 withAnimation(fontPreviewAnimation) { previousEditorFontFamily = nil }

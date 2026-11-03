@@ -75,6 +75,7 @@ public extension LanguageExecutionSession {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(5))
         while isRunning, clock.now < deadline {
+            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
             try? await Task.sleep(for: .milliseconds(25))
         }
         return !isRunning
@@ -173,6 +174,7 @@ public extension LanguageServerExtensionLifecycle {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(5))
         while isRunning, clock.now < deadline {
+            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
             try? await Task.sleep(for: .milliseconds(25))
         }
     }

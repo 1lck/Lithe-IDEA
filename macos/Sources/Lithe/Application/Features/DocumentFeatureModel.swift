@@ -489,6 +489,7 @@ final class DocumentFeatureModel: ObservableObject {
         do {
             data = try fileStorage.readData(from: url, options: [])
         } catch {
+            logSink?.emit(EditorDocumentOpenFailed(error: error, reason: String(describing: StandaloneFileOpenFailure(error: error))))
             return .failure(StandaloneFileOpenFailure(error: error))
         }
         guard data.count <= WorkspaceTextFilePolicy.standaloneFileByteLimit else {
@@ -642,11 +643,14 @@ final class DocumentFeatureModel: ObservableObject {
             // A known binary signature can explain a decoding failure, but a
             // suffix alone must not hide an actual encoding error.
             let fileStorage = self.fileStorage
-            let header = await Task.detached(priority: .userInitiated) {
-                try? fileStorage.readPrefix(
-                    from: normalizedURL,
-                    byteCount: BinaryFileViewerRegistry.headerByteCount
-                )
+            let logSink = self.logSink
+            let header = await Task.detached(priority: .userInitiated) { () -> Data? in
+                do {
+                    return try fileStorage.readPrefix(from: normalizedURL, byteCount: BinaryFileViewerRegistry.headerByteCount)
+                } catch {
+                    logSink?.emit(EditorDocumentHeaderFailed(error: error))
+                    return nil
+                }
             }.value
             guard workspaceURLProvider() == openingWorkspaceURL,
                   pendingFileOpenRequests[filePath]?.id == requestID else { return }
@@ -1015,6 +1019,7 @@ final class DocumentFeatureModel: ObservableObject {
                 let previousText = document.savedText
                 try await saveDocument(document)
                 if document.savedText != previousText { onRecordSave?(document, previousText) }
+            // log-exempt: 同一次失败已经记录过：saveDocument 在保存处理边界记录 editor.document.save_failed
             } catch {
                 return false
             }
@@ -1178,6 +1183,7 @@ final class DocumentFeatureModel: ObservableObject {
         let id = UUID()
         let wait = autoSaveDelay
         let task = Task { [weak self, weak document] in
+            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
             try? await wait(.seconds(delay))
             guard let self, let document else { return }
             defer {

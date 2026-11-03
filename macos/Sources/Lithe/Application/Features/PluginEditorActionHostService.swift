@@ -120,7 +120,11 @@ final class PluginEditorActionHostService: PluginHostServiceHandling {
             }
             changed.send()
             return .success(.object(["subscriptionID": .string(subscription)]))
-        } catch { return .failure(PluginHostAPIValues.failure(error)) }
+        } catch {
+            var failure = PluginHostAPIValues.failure(error)
+            failure.logError = error
+            return .failure(failure)
+        }
     }
 
     func decode(_ result: ToolingJSONValue, text: String) throws -> [PluginEditorAction] {

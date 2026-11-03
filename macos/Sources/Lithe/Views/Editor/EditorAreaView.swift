@@ -81,7 +81,7 @@ private struct EditorDocumentTabIcon: View {
                 let resolved = await WorkspaceFileIconResolver.resolve(
                     for: url,
                     suggested: .generic,
-                    storage: model.services.fileStorage
+                    storage: model.services.fileStorage, logSink: model.services.logSink
                 )
                 guard !Task.isCancelled, resolutionKey == key else { return }
                 resolvedKind = resolved.kind

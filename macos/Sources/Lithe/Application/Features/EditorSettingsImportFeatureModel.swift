@@ -48,8 +48,10 @@ final class EditorSettingsImportFeatureModel: ObservableObject {
     var keymapConflict: String? {
         guard let map = importValues["keymap"].flatMap(EditorImportKeymap.decode) else { return nil }
         do { try KeyboardShortcutFeatureModel(settings: settings).validateOverrides(map.commands) }
+        // log-exempt: 随输入实时重算的校验提示：导入草稿的快捷键冲突预览尚未执行写入
         catch KeyboardShortcutUpdateError.conflict(let command) {
             return LitheCommandCatalog.command(id: command)?.title ?? command
+        // log-exempt: 随输入实时重算的校验提示：导入草稿冲突预览使用通用字段名
         } catch { return "Keyboard shortcuts" }
         return nil
     }

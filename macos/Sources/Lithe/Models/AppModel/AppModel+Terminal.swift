@@ -404,7 +404,7 @@ extension AppModel {
             workbenchFeature.setVisibility(.terminal, isVisible: false)
         }
         if terminalSessions.isEmpty {
-            try? services.moduleRuntime.markIdle(.terminal)
+            do { try services.moduleRuntime.markIdle(.terminal) } catch { services.logSink?.emit(AppModuleTransitionFailed(error: error, module: "terminal", stage: "idle")) }
         }
     }
 

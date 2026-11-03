@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 
 /// Prepares and exports a whitelisted diagnostic bundle: the redacted
@@ -59,6 +60,7 @@ final class DiagnosticsExportService: ObservableObject {
     private let systemDiagnostics: any SystemDiagnosticsProviding
     private let archiver: any DiagnosticsArchiving
     let applicationLogging: (any ApplicationLogging)?
+    private let logSink: (any LogSink)?
     private let core: RustCoreBridge
     private let now: () -> Date
 
@@ -76,6 +78,7 @@ final class DiagnosticsExportService: ObservableObject {
         systemDiagnostics: any SystemDiagnosticsProviding,
         archiver: any DiagnosticsArchiving,
         core: RustCoreBridge,
+        logSink: (any LogSink)? = nil,
         applicationLogging: (any ApplicationLogging)? = nil,
         now: @escaping () -> Date = Date.init
     ) {
@@ -83,6 +86,7 @@ final class DiagnosticsExportService: ObservableObject {
         self.fileStorage = fileStorage
         self.systemDiagnostics = systemDiagnostics
         self.archiver = archiver
+        self.logSink = logSink ?? core.coreLogSink
         self.core = core
         self.applicationLogging = applicationLogging
         self.now = now
@@ -93,15 +97,16 @@ final class DiagnosticsExportService: ObservableObject {
         let generation = operationGeneration
         state = .preparing
         if let stagingRootURL {
-            try? fileStorage.removeItem(at: stagingRootURL)
+            Self.removeStaging(stagingRootURL, storage: fileStorage, logSink: logSink)
         }
         stagingRootURL = nil
 
         let collection: ApplicationLogCollection?
         do { collection = try await applicationLogging?.collect(query: query) }
-        catch { if generation == operationGeneration { state = .failed(error.localizedDescription) }; return }
+        catch { logSink?.emit(AppDiagnosticsExportFailed(error: error, stage: "collect")); if generation == operationGeneration { state = .failed(error.localizedDescription) }; return }
         guard generation == operationGeneration else { return }
         let logDirectoryURL = collection?.effectiveDirectory ?? logDirectoryProviding.defaultLogDirectory
+        let logSink = logSink
         let fileStorage = fileStorage
         let systemDiagnostics = systemDiagnostics
         let core = core
@@ -156,12 +161,14 @@ final class DiagnosticsExportService: ObservableObject {
                 ) {
                 case .success(let manifest):
                     return .success(manifest: manifest, stagingRootURL: stagingRootURL)
-                case .failure:
-                    try? fileStorage.removeItem(at: stagingRootURL)
+                case .failure(let error):
+                    logSink?.emit(AppDiagnosticsExportFailed(error: LogFailure(domain: "RustCore", code: error.code), stage: "manifest"))
+                    Self.removeStaging(stagingRootURL, storage: fileStorage, logSink: logSink)
                     return .failure("Could not build the diagnostics manifest.")
                 }
             } catch {
-                try? fileStorage.removeItem(at: stagingRootURL)
+                logSink?.emit(AppDiagnosticsExportFailed(error: error, stage: "prepare"))
+                Self.removeStaging(stagingRootURL, storage: fileStorage, logSink: logSink)
                 return .failure("Could not stage diagnostic files: \(error.localizedDescription)")
             }
         }.value
@@ -171,7 +178,7 @@ final class DiagnosticsExportService: ObservableObject {
         // the confirmation state is not resurrected and no orphan is left.
         guard generation == operationGeneration else {
             if case .success(_, let resolvedStagingRootURL) = outcome {
-                try? fileStorage.removeItem(at: resolvedStagingRootURL)
+                Self.removeStaging(resolvedStagingRootURL, storage: fileStorage, logSink: logSink)
             }
             return
         }
@@ -194,6 +201,7 @@ final class DiagnosticsExportService: ObservableObject {
         let generation = operationGeneration
         state = .exporting
 
+        let logSink = logSink
         let fileStorage = fileStorage
         let archiver = archiver
         let contentDirectoryURL = stagingRootURL.appendingPathComponent(Self.exportFolderName, isDirectory: true)
@@ -229,11 +237,12 @@ final class DiagnosticsExportService: ObservableObject {
                 try archiver.archive(directoryURL: contentDirectoryURL, toZipURL: destinationURL)
                 return .success
             } catch {
+                logSink?.emit(AppDiagnosticsExportFailed(error: error, stage: "archive"))
                 return .failure(error.localizedDescription)
             }
         }.value
 
-        try? fileStorage.removeItem(at: stagingRootURL)
+        Self.removeStaging(stagingRootURL, storage: fileStorage, logSink: logSink)
         if self.stagingRootURL == stagingRootURL { self.stagingRootURL = nil }
 
         // Cancelled (or superseded) mid-archive: the staging cleanup above still
@@ -251,9 +260,16 @@ final class DiagnosticsExportService: ObservableObject {
     func cancel() {
         operationGeneration += 1
         if let stagingRootURL {
-            try? fileStorage.removeItem(at: stagingRootURL)
+            Self.removeStaging(stagingRootURL, storage: fileStorage, logSink: logSink)
         }
         stagingRootURL = nil
         state = .idle
     }
+    private nonisolated static func removeStaging(_ url: URL, storage: any FileStorage, logSink: (any LogSink)?) {
+        do { try storage.removeItem(at: url) }
+        catch where (error as NSError).domain == NSCocoaErrorDomain && [NSFileNoSuchFileError, NSFileReadNoSuchFileError].contains((error as NSError).code) {
+            // log-exempt: 预期的缺失：暂存目录已被取消或另一次清理移除
+        } catch { logSink?.emit(AppDiagnosticsCleanupFailed(error: error)) }
+    }
+
 }

@@ -159,6 +159,7 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
     private func boundUpdateTermination() {
         updateForceExitTask?.cancel()
         updateForceExitTask = Task { @MainActor [weak self] in
+            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
             try? await Task.sleep(nanoseconds: Self.updateTerminationForceExitNanoseconds)
             guard let self, self.isUpdateInstallTermination, !Task.isCancelled else { return }
             // Sparkle's installer is waiting, and the user has confirmed unsaved work.
@@ -281,6 +282,7 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
                 await projectSessions.stopAllSessions()
             }
             group.addTask {
+                // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
                 try? await Task.sleep(nanoseconds: timeoutNanoseconds)
             }
             await group.next()

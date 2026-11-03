@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 
 /// How a page of bytes is drawn: the number base, how many bytes make one value, how many
@@ -104,8 +105,14 @@ public struct GenericDebugMemoryDisplay: Equatable, Codable, Sendable {
     }
 
     /// An empty or unreadable text yields the standard layout.
-    public init(storedText: String) {
-        let decoded = storedText.data(using: .utf8).flatMap { try? JSONDecoder().decode(Self.self, from: $0) }
+    public init(storedText: String, logSink: (any LogSink)? = nil) {
+        let decoded: Self? = storedText.isEmpty ? nil : storedText.data(using: .utf8).flatMap { data in
+            do { return try JSONDecoder().decode(Self.self, from: data) }
+            catch {
+                logSink?.emit(DebugInspectionFallbackSelected(error: error, stage: "memory-layout"))
+                return nil
+            }
+        }
         self = (decoded ?? .standard).normalized()
     }
 

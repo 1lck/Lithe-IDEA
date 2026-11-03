@@ -25,7 +25,7 @@ extension AppModel {
     @discardableResult
     func importAIConfiguration(_ configuration: AIConfigurationSnapshot) -> Bool {
         let provider = settings.importAIConfiguration(configuration)
-        try? services.secureStore.delete(key: provider.apiKeyIdentifier)
+        do { try services.secureStore.delete(key: provider.apiKeyIdentifier) } catch { services.logSink?.emit(AppCredentialsCleanupFailed(error: error)) }
         detectedAIConfigurations.removeAll { $0.source == configuration.source }
         detectedAIConfigurations.append(configuration)
         enableAIAssistanceModule()
@@ -121,7 +121,7 @@ extension AppModel {
             provider.apiKeyIdentifier = "lithe.\(configuration.source.rawValue).imported.apiKey"
             provider.credentialSource = configuration.source.credentialSource
         }
-        try? services.secureStore.delete(key: "lithe.\(configuration.source.rawValue).imported.apiKey")
+        do { try services.secureStore.delete(key: "lithe.\(configuration.source.rawValue).imported.apiKey") } catch { services.logSink?.emit(AppCredentialsCleanupFailed(error: error)) }
     }
 
     private func enableAIAssistanceModule() {

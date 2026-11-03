@@ -313,6 +313,7 @@ final class PluginMarketplaceFeatureModel: ObservableObject {
     /// missing build system from New Project; the page adopts and clears it.
     @Published var requestedSearch: String?
 
+    private let logSink: (any LogSink)?
     private let service: any PluginMarketplaceServicing
     private let pluginManager: any PluginManaging
     private var indexes: [String: PluginMarketplaceIndex] = [:]
@@ -325,7 +326,8 @@ final class PluginMarketplaceFeatureModel: ObservableObject {
     /// does not re-render the whole marketplace page.
     let icons: PluginMarketplaceIconStore
 
-    init(service: any PluginMarketplaceServicing, pluginManager: any PluginManaging) {
+    init(service: any PluginMarketplaceServicing, pluginManager: any PluginManaging, logSink: (any LogSink)? = nil) {
+        self.logSink = logSink
         self.service = service
         self.pluginManager = pluginManager
         icons = PluginMarketplaceIconStore { [service] icon in try await service.iconData(from: icon) }
@@ -611,7 +613,16 @@ final class PluginMarketplaceFeatureModel: ObservableObject {
         let session = installationSession
         let installed = pluginManager.snapshots.first { $0.id == pluginID }
         let approved = installed?.marketplace.map { provenance in
-            provenance.approvedPrograms.compactMap { try? PluginProgram(canonicalJSON: $0) }
+            var lastError: (any Error)?
+            let programs = provenance.approvedPrograms.compactMap { value -> PluginProgram? in
+                do { return try PluginProgram(canonicalJSON: value) }
+                catch {
+                    lastError = error
+                    return nil
+                }
+            }
+            if let lastError { logSink?.emit(AppSettingsDecodeFailed(error: lastError, stage: "plugin-approval")) }
+            return programs
         }
         do {
             let prepared = try await service.prepareInstall(
@@ -668,6 +679,7 @@ final class PluginMarketplaceFeatureModel: ObservableObject {
             } else {
                 try commit(prepared)
             }
+        // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
         } catch is CancellationError {
             return
         } catch {
