@@ -173,6 +173,8 @@ impl RunPanel {
                     main_class.as_deref().unwrap_or("")
                 ),
             );
+            let source_for_retry = source_path.clone();
+            let main_for_retry = main_class.clone();
             let prepared = this
                 .update(cx, |this, cx| {
                     if this.generation != generation {
@@ -188,7 +190,36 @@ impl RunPanel {
             let Some(prepared) = prepared else {
                 return;
             };
-            let result = prepared.await;
+            let mut result = prepared.await;
+            // 重建索引或刚完成导入时 JDT 可能还在后台构建，resolveMainClass 会
+            // 撞上 30 秒请求超时；等一会儿再试一次，行为仍是“准备失败则中止”。
+            if result
+                .as_ref()
+                .err()
+                .is_some_and(|error| error.contains("timed out"))
+            {
+                crate::logging::log_info(
+                    "run",
+                    "Java launch preparation timed out; retrying once",
+                );
+                cx.background_executor()
+                    .timer(std::time::Duration::from_secs(3))
+                    .await;
+                let retry = this
+                    .update(cx, |this, cx| {
+                        if this.generation != generation {
+                            return None;
+                        }
+                        Some(this.java_language.update(cx, |model, cx| {
+                            model.prepare_launch(source_for_retry, main_for_retry, cx)
+                        }))
+                    })
+                    .ok()
+                    .flatten();
+                if let Some(retry) = retry {
+                    result = retry.await;
+                }
+            }
             let _ = this.update(cx, |this, cx| {
                 if this.generation != generation {
                     return;
