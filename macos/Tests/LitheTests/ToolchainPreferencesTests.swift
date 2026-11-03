@@ -95,6 +95,36 @@ struct ToolchainPreferencesTests {
     }
 
     @Test
+    func consumerToolReferenceSurvivesNativeSaveReopenAndDirectoryDefaultChanges() async throws {
+        let root = try workspace()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let native = store()
+        let directory = ToolchainPreferenceAddress(directory: "nested", consumer: nil, tool: address.tool)
+        let consumer = ToolchainPreferenceAddress(directory: ".", consumer: "dev.example.build/engine", tool: address.tool)
+        let child = ToolchainPreferenceAddress(directory: "nested/child", consumer: consumer.consumer, tool: address.tool)
+        var baseline = try await native.load(workspace: root)
+        baseline = try await native.save(.object(["home": .string("/fixture/workspace-sdk")]), at: address, expecting: baseline)
+        baseline = try await native.save(.object(["home": .string("/fixture/directory-sdk")]), at: directory, expecting: baseline)
+        _ = try await native.save(.object(["inherit": .string("tool")]), at: consumer, expecting: baseline)
+        let model = ToolchainPreferencesFeatureModel(store: native)
+        defer { model.close() }
+        await model.open(workspace: root, address: child)
+        #expect(model.reading?.fixed == .installation(home: "/fixture/directory-sdk"))
+        model.edit(mode: .directoryTool)
+        await model.save()
+        #expect(model.error == nil && model.reading?.stored == .object(["inherit": .string("tool")]))
+        model.close()
+        await model.open(workspace: root, address: child)
+        #expect(model.draft?.mode == .directoryTool && model.reading?.fixed == .installation(home: "/fixture/directory-sdk"))
+        baseline = try await native.load(workspace: root)
+        _ = try await native.save(.object(["home": .string("/fixture/changed-sdk")]), at: directory, expecting: baseline)
+        await model.open(workspace: root, address: child)
+        #expect(model.error == nil && model.draft?.mode == .directoryTool)
+        #expect(model.reading?.fixed == .installation(home: "/fixture/changed-sdk"))
+        #expect(model.reading?.stored == .object(["inherit": .string("tool")]))
+    }
+
+    @Test
     func externalEditKeepsTheOriginalDraftBaselineUntilExplicitCancel() async throws {
         let root = try workspace()
         defer { try? FileManager.default.removeItem(at: root) }

@@ -10003,7 +10003,8 @@
     "native.toolchainPreferences.savedInputInfo": "A saved input is revalidated by the existing toolchain resolver when the consumer runs. It is not a verified current installation.",
     "native.toolchainPreferences.useConsumerDefault": "Use consumer default",
     "native.toolchainPreferences.useInheritedChoice": "Use inherited choice",
-    "native.toolchainPreferences.useWorkspaceDefault": "Use workspace default"
+    "native.toolchainPreferences.useWorkspaceDefault": "Use workspace default",
+    "native.toolchainPreferences.useDirectoryToolDefault": "Use directory tool default"
   },
   "overrides": {
     "windows": {

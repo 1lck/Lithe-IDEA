@@ -10003,7 +10003,8 @@
     "native.toolchainPreferences.savedInputInfo": "使用方运行时会由现有工具链解析器重新校验此输入。它不代表已验证的当前安装。",
     "native.toolchainPreferences.useConsumerDefault": "使用方的工作区默认值",
     "native.toolchainPreferences.useInheritedChoice": "沿用继承选择",
-    "native.toolchainPreferences.useWorkspaceDefault": "使用工作区默认值"
+    "native.toolchainPreferences.useWorkspaceDefault": "使用工作区默认值",
+    "native.toolchainPreferences.useDirectoryToolDefault": "使用当前目录的工具默认值"
   },
   "overrides": {
     "macos": {

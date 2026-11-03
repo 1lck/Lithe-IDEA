@@ -4935,8 +4935,11 @@ The document follows `toolchain-consumer-preferences-v1.schema.json`; `directory
 and `consumer` is an inert `pluginID/contributionID` identity. A non-null explicit Run `fixed` value
 wins. Otherwise the nearest consumer choice precedes general directory/workspace choices.
 `inherit: workspace` reads the workspace tool afresh; `inherit: consumer` in a directory reads that
-consumer's workspace preference and then the workspace tool. References cannot target directory
-scopes or themselves, so they cannot form cycles. Missing workspace tools return `fixed: null`,
+consumer's workspace preference and then the workspace tool. A consumer's `inherit: tool` reads
+the general tool at the original requested directory, including its nearest general override;
+following a workspace consumer reference preserves that original directory. General tool entries
+cannot refer back to consumers or to themselves, so the reference graph cannot form cycles.
+An absent general choice returns `fixed: null`,
 which means the normal toolchain resolver still owns automatic/project/global selection.
 
 The response is `{status: ok, preferences: {fixed, source, inheritance, stored}}`, or the standard rejected

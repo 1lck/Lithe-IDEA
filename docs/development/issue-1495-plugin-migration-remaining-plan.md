@@ -63,6 +63,17 @@ Debug service 14、LSP 86、错误映射 2 项均通过。同一宿主的
 适配器/Build 完整准入与旧 Maven/Java/Agent 生产消费者切换；正式 SDK/插件发行；两端
 完整 GUI 与发行组合验收。连接调试接线缩小了 Windows 缺口，没有完成阶段 D。
 
+### 当前目录工具继承（2026-11-03，实现中）
+
+为保持“构建运行时跟随当前目录应用工具”的动态关系，Core 增加消费者专用 tool
+引用，复用通用工具原有目录查找；经 workspace consumer 间接引用时仍保留最初目录。
+通用工具不能反向引用消费者，不引入任意循环、工具名称分支或缓存路径。macOS 编辑器
+已支持保存/重开该引用；共享 schema/fixture 与两端运行前解析回归同步增加。它为旧
+默认转换补齐表达能力，尚未清理旧默认来源，不能据此标记一次性迁移完成。
+Core 全量 1636 项、原生 Project 108 项、macOS 67 项与后补的 8 项编辑器回归均通过；
+报告前缀 `stage-d-directory-tool-reference-*`。此前 cc6fc7d8f 的 Windows CI
+41550723054 已全通过；本增量尚未取得对应 Windows runner 结果。
+
 ### macOS Build 偏好显式编辑（2026-11-02，实现中）
 
 设置页从当前启用插件的 Core invocation 列出真实 Build 使用方，可编辑通用目录默认

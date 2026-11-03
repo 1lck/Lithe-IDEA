@@ -53,6 +53,30 @@ fn consumer_defaults_follow_workspace_edits_and_explicit_runs_stay_independent()
 }
 
 #[test]
+fn consumer_tool_inheritance_tracks_directory_defaults_and_keeps_explicit_runs() {
+    let fixture = Fixture::new();
+    let first = fixture.install("first-directory-default");
+    let second = fixture.install("second-directory-default");
+    let file = fixture.workspace.join(".lithe/run/local.json");
+    fs::create_dir_all(file.parent().unwrap()).unwrap();
+    fs::create_dir_all(fixture.workspace.join("nested/child")).unwrap();
+    for home in [&first, &second] {
+        fs::write(&file, json!({"version":2,"configurations":[],"toolchain":{"preferences":{"version":1,
+            "workspace":{"tools":{TOOL:{"home":native_path(&first)}},"consumers":{"dev.example.build/engine":{TOOL:{"inherit":"tool"}}}},
+            "directories":{"nested":{"tools":{TOOL:{"home":native_path(home)}},"consumers":{"dev.example.build/engine":{TOOL:{"home":native_path(&first)}}}},
+                "nested/child":{"consumers":{"dev.example.build/engine":{TOOL:{"inherit":"consumer"}}}}}}}}).to_string()).unwrap();
+        let mut request = fixture.request();
+        request.consumer = Some("dev.example.build/engine"); request.directory = "nested/child";
+        let selected = resolve(request, |path, _, _, _| { assert_eq!(path, home.join(launcher())); Ok("compiler 21".into()) }).unwrap().unwrap();
+        assert_eq!(selected.executable, home.join(launcher()));
+    }
+    let explicit = json!({"home":native_path(&first)});
+    let mut request = fixture.request();
+    request.consumer = Some("dev.example.build/engine"); request.directory = "nested/child"; request.fixed = Some(&explicit);
+    assert_eq!(resolve(request, |_, _, _, _| Ok("compiler 21".into())).unwrap().unwrap().executable, first.join(launcher()));
+}
+
+#[test]
 fn consumer_preferences_changed_during_native_probe_revoke_the_result() {
     let fixture = Fixture::new();
     let home = fixture.install("selected");

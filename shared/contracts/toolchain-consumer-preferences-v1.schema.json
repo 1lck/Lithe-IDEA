@@ -86,7 +86,8 @@
         "inherit": {
           "enum": [
             "workspace",
-            "consumer"
+            "consumer",
+            "tool"
           ]
         }
       }
@@ -146,7 +147,7 @@
           "type": "object",
           "maxProperties": 128,
           "additionalProperties": {
-            "$ref": "#/$defs/workspaceTools"
+            "$ref": "#/$defs/workspaceConsumerTools"
           },
           "propertyNames": {
             "$ref": "#/$defs/consumerID"
@@ -182,6 +183,38 @@
       "type": "string",
       "maxLength": 256,
       "pattern": "^(?!\\.{1,2}/)[a-z0-9.-]+/[a-z][a-z0-9-]{0,63}$"
+    },
+    "workspaceConsumerReference": {
+      "type": "object",
+      "required": [
+        "inherit"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "inherit": {
+          "enum": [
+            "workspace",
+            "tool"
+          ]
+        }
+      }
+    },
+    "workspaceConsumerTools": {
+      "type": "object",
+      "maxProperties": 64,
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/fixed"
+          },
+          {
+            "$ref": "#/$defs/workspaceConsumerReference"
+          }
+        ]
+      },
+      "propertyNames": {
+        "$ref": "#/$defs/toolID"
+      }
     }
   }
 }

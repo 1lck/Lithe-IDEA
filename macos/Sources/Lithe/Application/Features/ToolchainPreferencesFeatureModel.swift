@@ -7,7 +7,7 @@ import LitheCoreContracts
 /// silently rebase a later write onto a newer document.
 @MainActor
 final class ToolchainPreferencesFeatureModel: ObservableObject {
-    enum Mode: String, CaseIterable, Sendable { case inherited, workspace, consumer, installation, executable }
+    enum Mode: String, CaseIterable, Sendable { case inherited, workspace, consumer, directoryTool, installation, executable }
     struct Draft: Equatable {
         let snapshot: ToolchainPreferencesSnapshot
         var mode: Mode
@@ -21,6 +21,7 @@ final class ToolchainPreferencesFeatureModel: ObservableObject {
             case .inherited: nil
             case .workspace: .object(["inherit": .string("workspace")])
             case .consumer: .object(["inherit": .string("consumer")])
+            case .directoryTool: .object(["inherit": .string("tool")])
             case .installation: .object(["home": .string(path)])
             case .executable: .object(["executable": .string(path)])
             }
@@ -126,6 +127,7 @@ final class ToolchainPreferencesFeatureModel: ObservableObject {
             else if case .string(let value) = stored["executable"] { mode = .executable; path = value }
             else if stored["inherit"] == .string("workspace") { mode = .workspace }
             else if stored["inherit"] == .string("consumer") { mode = .consumer }
+            else if stored["inherit"] == .string("tool") { mode = .directoryTool }
             else { throw ToolchainPreferenceError.invalid }
         } else if reading.stored != nil { throw ToolchainPreferenceError.invalid }
         return Draft(snapshot: snapshot, mode: mode, path: path, originalMode: mode, originalPath: path)

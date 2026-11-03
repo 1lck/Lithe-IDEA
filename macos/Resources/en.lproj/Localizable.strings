@@ -4665,6 +4665,7 @@
 "Use consumer default" = "Use consumer default";
 "Use credential helper" = "Use credential helper";
 "Use detected JDK" = "Use detected JDK";
+"Use directory tool default" = "Use directory tool default";
 "Use fast processing" = "Use fast processing";
 "Use form" = "Use form";
 "Use full HTTP path for credentials" = "Use full HTTP path for credentials";
@@ -9342,6 +9343,7 @@
 "native.toolchainPreferences.savedInput" = "Saved input";
 "native.toolchainPreferences.savedInputInfo" = "A saved input is revalidated by the existing toolchain resolver when the consumer runs. It is not a verified current installation.";
 "native.toolchainPreferences.useConsumerDefault" = "Use consumer default";
+"native.toolchainPreferences.useDirectoryToolDefault" = "Use directory tool default";
 "native.toolchainPreferences.useInheritedChoice" = "Use inherited choice";
 "native.toolchainPreferences.useWorkspaceDefault" = "Use workspace default";
 "native.toolchainSettings.answeredIn" = "Answered in %1$lld ms";

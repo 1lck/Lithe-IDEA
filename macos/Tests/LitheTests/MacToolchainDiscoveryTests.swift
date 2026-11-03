@@ -47,6 +47,31 @@ struct MacToolchainDiscoveryTests {
         #expect(try Data(contentsOf: url) == before)
     }
 
+    @MainActor @Test func consumerToolReferenceReadsCurrentDirectoryDefaultsAndLeavesExplicitRunsAlone() async throws {
+        let root = try DiscoveryFixtureRoot()
+        defer { root.remove() }
+        let first = try root.installation("first-directory"), second = try root.installation("second-directory")
+        try FileManager.default.createDirectory(at: root.url("workspace/nested/child"), withIntermediateDirectories: true)
+        let url = root.url("workspace/.lithe/run/local.json")
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let source = Self.source(), resolver = MacDefinedToolchainResolver()
+        resolver.sources = { [source] }
+        resolver.discovery = discovery(root: root, probes: DiscoveryProbes(outputs: [first + "/bin/compiler": "compiler 21", second + "/bin/compiler": "compiler 21"]))
+        for home in [first, second] {
+            let document: [String: Any] = ["version": 2, "configurations": [], "toolchain": ["preferences": ["version": 1,
+                "workspace": ["tools": ["compiler": ["home": first]], "consumers": ["dev.example.build/engine": ["compiler": ["inherit": "tool"]]]],
+                "directories": ["nested": ["tools": ["compiler": ["home": home]], "consumers": ["dev.example.build/engine": ["compiler": ["home": first]]]],
+                    "nested/child": ["consumers": ["dev.example.build/engine": ["compiler": ["inherit": "consumer"]]]]]]]]
+            try JSONSerialization.data(withJSONObject: document, options: [.sortedKeys]).write(to: url)
+            let selected = try await resolver.resolve(tool: "compiler", directory: "nested/child", workspace: root.url("workspace"), environment: [:],
+                minimumVersion: "11", projectCodeAllowed: true, fixed: nil, use: .installation, consumerID: "dev.example.build/engine")
+            #expect(selected?.executable.path == home + "/bin/compiler")
+        }
+        let explicit = try await resolver.resolve(tool: "compiler", directory: "nested/child", workspace: root.url("workspace"), environment: [:],
+            minimumVersion: "11", projectCodeAllowed: true, fixed: .installation(home: first), use: .installation, consumerID: "dev.example.build/engine")
+        #expect(explicit?.executable.path == first + "/bin/compiler")
+    }
+
     @MainActor @Test func consumerDefaultsChangedDuringNativeProofCannotPublishASelection() async throws {
         let root = try DiscoveryFixtureRoot()
         defer { root.remove() }

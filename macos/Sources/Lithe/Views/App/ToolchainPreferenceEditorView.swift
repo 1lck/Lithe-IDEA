@@ -17,6 +17,7 @@ struct ToolchainPreferenceEditorView: View {
         var result: [ToolchainPreferencesFeatureModel.Mode] = [.inherited]
         if tool.directoryID != "." || editor.address?.consumer != nil { result.append(.workspace) }
         if tool.directoryID != ".", editor.address?.consumer != nil { result.append(.consumer) }
+        if editor.address?.consumer != nil { result.append(.directoryTool) }
         return result + [.installation, .executable]
     }
 
@@ -98,6 +99,7 @@ struct ToolchainPreferenceEditorView: View {
         case .inherited: L10n.string("Use inherited choice")
         case .workspace: L10n.string("Use workspace default")
         case .consumer: L10n.string("Use consumer default")
+        case .directoryTool: L10n.string("Use directory tool default")
         case .installation: L10n.string("Installation directory")
         case .executable: L10n.string("Executable file")
         }

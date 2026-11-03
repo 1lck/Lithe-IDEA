@@ -96056,6 +96056,17 @@
         "key": "Executable file",
         "arguments": []
       }
+    },
+    {
+      "id": "native.toolchainPreferences.useDirectoryToolDefault",
+      "description": "Build consumer follows the general tool at its requested directory.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Use directory tool default",
+        "arguments": []
+      }
     }
   ]
 }

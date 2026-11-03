@@ -85,18 +85,11 @@ fn resolve_choice(input: &Value) -> Validation<Value> {
                 .and_then(|map| map.get(*directory))
                 .and_then(|scope| scope["consumers"][consumer].get(tool))
             {
-                return resolved(
-                    binding,
-                    "consumer",
-                    directory,
-                    Some(consumer),
-                    workspace,
-                    tool,
-                );
+                return resolved(binding, "consumer", directory, Some(consumer), input);
             }
         }
         if let Some(binding) = workspace["consumers"][consumer].get(tool) {
-            return resolved(binding, "consumer", ".", Some(consumer), workspace, tool);
+            return resolved(binding, "consumer", ".", Some(consumer), input);
         }
     }
     for directory in ancestors {
@@ -104,11 +97,11 @@ fn resolve_choice(input: &Value) -> Validation<Value> {
             .and_then(|map| map.get(directory))
             .and_then(|scope| scope["tools"].get(tool))
         {
-            return resolved(binding, "directory", directory, None, workspace, tool);
+            return resolved(binding, "directory", directory, None, input);
         }
     }
     match workspace["tools"].get(tool) {
-        Some(binding) => resolved(binding, "workspace", ".", None, workspace, tool),
+        Some(binding) => resolved(binding, "workspace", ".", None, input),
         None => Ok(automatic(Vec::new())),
     }
 }
@@ -182,14 +175,18 @@ fn resolved(
     kind: &str,
     directory: &str,
     consumer: Option<&str>,
-    workspace: &Value,
-    tool: &str,
+    input: &Value,
 ) -> Validation<Value> {
+    let workspace = &input["document"]["workspace"];
+    let tool = input["tool"].as_str().expect("validated tool");
     let source = json!({"kind":kind,"directory":directory,"consumer":consumer});
     let Some(inherit) = binding.get("inherit").and_then(Value::as_str) else {
         return Ok(json!({"fixed":binding,"source":source,"inheritance":[]}));
     };
     let mut inheritance = vec![source];
+    if inherit == "tool" {
+        return general_tool_choice(input, inheritance);
+    }
     if inherit == "consumer" {
         let consumer = consumer.ok_or_else(|| invalid("inherit"))?;
         if let Some(binding) = workspace["consumers"][consumer].get(tool) {
@@ -201,6 +198,9 @@ fn resolved(
                 );
             }
             inheritance.push(json!({"kind":"consumer","directory":".","consumer":consumer}));
+            if binding["inherit"] == "tool" {
+                return general_tool_choice(input, inheritance);
+            }
         }
     }
     match workspace["tools"].get(tool) {
@@ -209,6 +209,26 @@ fn resolved(
         ),
         None => Ok(automatic(inheritance)),
     }
+}
+
+/// Consumer-to-tool references remove only the consumer dimension. General
+/// tools cannot point back to consumers, so reusing the normal resolver keeps
+/// directory ordering in one place and the reference graph acyclic.
+fn general_tool_choice(input: &Value, mut inheritance: Vec<Value>) -> Validation<Value> {
+    let mut general = input.clone();
+    let request = general.as_object_mut().expect("validated input");
+    request.remove("consumer");
+    request.remove("fixed");
+    let mut selected = resolve_choice(&general)?;
+    inheritance.extend(
+        selected["inheritance"]
+            .as_array()
+            .expect("resolved inheritance")
+            .iter()
+            .cloned(),
+    );
+    selected["inheritance"] = json!(inheritance);
+    Ok(selected)
 }
 
 fn automatic(inheritance: Vec<Value>) -> Value {
@@ -270,6 +290,7 @@ fn tools_map(value: &Value, field: &str, workspace: bool, consumer: bool) -> Val
             match reference.get("inherit").and_then(Value::as_str) {
                 Some("workspace") if !workspace || consumer => {}
                 Some("consumer") if !workspace && consumer => {}
+                Some("tool") if consumer => {}
                 _ => return Err(invalid(field)),
             }
         } else {
@@ -427,6 +448,47 @@ mod tests {
         );
         document["workspace"]["tools"] = json!({});
         assert!(resolve(&request(document)).unwrap()["fixed"].is_null());
+    }
+
+    #[test]
+    fn consumer_tool_reference_follows_requested_directory_without_cycles_or_frozen_values() {
+        let mut document = document();
+        document["workspace"]["consumers"]["dev.example.build/engine"]["dev.example.runtime:sdk"] =
+            json!({"inherit":"tool"});
+        document["directories"]["nested"]["consumers"] = json!({"dev.example.build/engine":{"dev.example.runtime:sdk":{"home":"/fixture/parent-consumer"}}});
+        document["directories"]["nested/child"] = json!({"consumers":{"dev.example.build/engine":{"dev.example.runtime:sdk":{"inherit":"consumer"}}}});
+        let initial = resolve(&request(document.clone())).unwrap();
+        assert_eq!(initial["fixed"], json!({"home":"/fixture/directory-sdk"}));
+        assert_eq!(initial["source"]["kind"], "directory");
+        assert_eq!(initial["inheritance"].as_array().unwrap().len(), 2);
+        document["directories"]["nested"]["tools"]["dev.example.runtime:sdk"] =
+            json!({"home":"/fixture/changed-directory-sdk"});
+        assert_eq!(
+            resolve(&request(document.clone())).unwrap()["fixed"],
+            json!({"home":"/fixture/changed-directory-sdk"})
+        );
+        document["workspace"]["tools"]["dev.example.runtime:sdk"] =
+            json!({"home":"/fixture/changed-workspace-sdk"});
+        document["directories"]["nested/child"]["tools"] =
+            json!({"dev.example.runtime:sdk":{"inherit":"workspace"}});
+        assert_eq!(
+            resolve(&request(document.clone())).unwrap()["fixed"],
+            json!({"home":"/fixture/changed-workspace-sdk"})
+        );
+        let mut explicit = request(document.clone());
+        explicit["fixed"] = json!({"home":"/fixture/explicit-run"});
+        assert_eq!(resolve(&explicit).unwrap()["fixed"], explicit["fixed"]);
+        for scope in ["workspace", "directories"] {
+            let mut invalid = document.clone();
+            if scope == "workspace" {
+                invalid["workspace"]["tools"]["dev.example.runtime:sdk"] =
+                    json!({"inherit":"tool"});
+            } else {
+                invalid["directories"]["nested"]["tools"]["dev.example.runtime:sdk"] =
+                    json!({"inherit":"tool"});
+            }
+            assert!(resolve(&request(invalid)).is_err());
+        }
     }
 
     #[test]
