@@ -33,9 +33,9 @@ normally GitHub's test merge commit. Check **macOS CI gate** or **Windows CI
 gate** for the combined test result. The macOS **Swift tests** job builds the
 Swift tests once and runs the suites selected by the classifier;
 **Remote Workspace CI gate** checks the Linux remote workspace lane (`scripts/remote/verify-remote-workspace.sh`),
-which draft pull requests keep because it uses no macOS runner. **macOS Plugin CI**
-stays separate: it only reserves a macOS runner when the classifier selects the
-plugin lane, and otherwise **Plugin CI gate** passes on Linux in seconds.
+which draft pull requests keep because it uses no macOS runner. Selected plugin
+tests and package verification reuse the same Swift build. **macOS Plugin CI**
+remains available only through manual dispatch for focused diagnosis.
 A failed architecture still fails the macOS gate; `fail-fast: false` lets the
 other architecture finish and upload its package. To request a Windows installer
 for a branch, manually run **Release AutoBuild** and provide that branch as
@@ -45,12 +45,12 @@ for that caller.
 ### Reusing lane results within a pull request
 
 A new push to a pull request does not rerun every lane. In **macOS CI**,
-**macOS Plugin CI** and **Windows CI**, the classify job runs
+**Windows CI** (and the manually dispatched **macOS Plugin CI**), the classify job runs
 `scripts/ci/common/plan-ci-lane-reuse.mjs`, which decides per lane (Swift tests, Rust Core
 tests, packaging, plugin tests, Windows frontend, Windows Rust, real JDT):
 
 - It finds the latest earlier run of the same pull request that actually ran
-  the lane. If that job passed or is still running, and none of the pull
+  the lane. If that job completed successfully, and none of the pull
   request's **own** changes since then affect the lane (by the same classifier
   rules), the lane is reused instead of run. Changes that only arrived from the
   base branch, whether merged in or picked up by GitHub's merge commit, do not
@@ -73,14 +73,11 @@ tests, packaging, plugin tests, Windows frontend, Windows Rust, real JDT):
   raw (NUL-separated), so Chinese and other escaped file names are compared
   and classified correctly.
 - A failed or cancelled earlier result is never reused.
-- Pull request runs are no longer cancelled per branch. The planner cancels the
-  earlier runs that no lane reuses; an earlier run with a reused lane still in
-  progress keeps running, because GitHub cannot cancel a single job. Only runs
-  with a smaller run number than the current one are considered, so a planner
-  that starts late never cancels or reuses a run for a newer push.
-- The gate accepts a reused lane only after confirming that the earlier job
-  passed, waiting up to 90 minutes for one still running. It also fails if a
-  selected lane neither ran nor has a reused result.
+- New pushes cancel earlier PR runs immediately through `cancel-in-progress`.
+  Only completed successful jobs may be reused; the planner has read-only API
+  permissions. Windows Rust is a matrix and always reruns its selected shards.
+- The gate rereads every reused job and rejects failures, cancellation or missing
+  coverage. It never relies on a source job remaining active after a newer push.
 - Any planner error runs every selected lane. Pushes and manual runs never
   reuse results.
 
@@ -99,6 +96,22 @@ consumers. Swift Java adapters and tests are covered by the Swift lane; a
 macOS path containing `Java` alone does not select Windows real-JDT. Shared Core
 and contract changes still select the relevant cross-platform checks.
 
+Windows Core tests run on two machines with stable name-based sharding; Windows
+host tests and shared Git/Agent/IDE host adapters run independently. The gate verifies that the Core reports contain
+the same discovered inventory and execute every case exactly once. Real-JDT
+runs only its native integration prefix, keeping its JDKs and deadlines. The
+ordinary Core suite is covered by the shards instead of repeated in that job.
+
+Plugin-focused Swift tests and official plugin package verification share the
+main Swift compilation, selected independently by `plugins`. Plugin-only changes
+still require that lane. The standalone plugin workflow remains manually
+available but no longer competes for an additional runner on each PR.
+
+The required `macOS CI gate` still appears for documentation-only PRs. Its
+classifier skips native lanes and the independent Ubuntu tooling tests. Other
+native workflows filter documentation paths. Structured logging checks run on
+Ubuntu; i18n retains macOS's binary-plist packaging test and the other platforms.
+
 ### What runs after a pull request merges
 
 A pull request into `preview` carries the full verification, and merging it
@@ -110,17 +123,17 @@ not observe:
 | Pull request into `preview` | Every lane the classifier selects |
 | Push to `preview` (the merge) | **macOS CI** builds the universal package when the merge touched anything packaged; nothing else. The universal build is the only Intel (`x86_64`) compile and link, and it also compiles the merged combination of pull requests that each passed on their own. Light Linux checks (platform feature matrix, Agent Notes board deployment) still run. |
 | Pull request from `preview` into `main` | No lane. **macOS CI** checks that the same commit already passed **macOS CI** as a `preview` push; re-run the job once that push run has succeeded. |
-| Push to `main` | Nothing. |
+| Push to `main` | Full macOS, Windows, plugin and remote CI. Every run has a unique concurrency group, so neither running nor pending commits are replaced. |
 
 The classifier implements this through `LITHE_CI_SCOPE` (`pull_request`,
 `post_merge`, or `release_promotion`). Windows CI no longer runs on `preview`
-pushes, so its GitHub cache entries are refreshed only by pull requests; a
+pushes, so its GitHub cache entries are refreshed by pull requests and main pushes; a
 `Cargo.lock` change makes the next pull requests restore an older prefix match.
 
 ### macOS runners
 
-Every macOS lane (**Swift tests**, **Rust Core tests**, **Release package
-verification**, and **Plugin tests and package verification**) runs on the
+Every automatic macOS lane (**Swift tests**, including selected plugin tests,
+**Rust Core tests**, and **Release package verification**) runs on the
 GitHub-hosted `macos-26` runner, including pull requests from forks. Release
 workflows also use GitHub-hosted runners because they hold signing material.
 
@@ -353,7 +366,7 @@ LITHE_RUN_GIT_COMPOSITOR_TESTS=1 \
 Swift 文本文件策略直接调用 Rust Core，因此 `scripts/macos/test/test-macos.sh` 会先构建并链接
 当前工作树的 Core 静态库。它复用现有 `rust/target/macos` 构建路径；这是可变编译状态，
 不允许跨工作树复制或共享，也没有新增可复用资源目录。依赖下载仍按下文清单复用。
-Swift 单元和插件 CI 通道复用已有 Cargo 下载缓存。先通过
+Swift 单元和插件 CI 通道通过 Swatinem/rust-cache 复用裁剪后的 Rust 依赖编译输出。先通过
 `./scripts/macos/test/test-macos.sh list` 构建并发现测试，独立步骤上限为 40 分钟；随后计时工具
 传入 `--skip-build`，测试阶段保留 960 秒总时限及 17 分钟外层步骤时限，给超时清理
 与报告留出一分钟。构建失败时不生成合并报告，避免同一失败被重复计为“未生成测试
@@ -361,6 +374,16 @@ Swift 单元和插件 CI 通道复用已有 Cargo 下载缓存。先通过
 输出看门狗保持不变。
 
 ### 独立工作树的本地编译
+
+CI 的 `Swatinem/rust-cache` 只复用 Cargo 依赖编译输出，按 OS、架构、rustc、
+Cargo 清单/锁文件、编译环境和 target 布局区分；Swift/plugin 共享一份 macOS Rust
+缓存，Windows Core 分片只有一个写者，host 另用一份，JDT 只读 Core 缓存。
+这是 GitHub CI 专用缓存，不是本地跨工作树复用的身份凭证。注册表
+`ci-rust-compilation-state` 明确禁止复制 `rust/target/`、`rust/target/macos/`
+与 `windows/tauri/src-tauri/target/`；复用脚本在任何复制前拒绝它们。
+本地只复制经验证的 Cargo 下载归档，目标工作树自行生成编译状态。生命周期由
+工作树/Cargo 管理，不写入已安装包，不影响代码签名和 Sparkle delta。
+
 
 SwiftPM 的 `.build/`、资源 bundle 和 `.lithe-swift-toolchain` 标记登记为
 `swiftpm-build-state`，所有工作树复用阶段均拒绝复制。编译器标记只用于本工作树
@@ -501,6 +524,7 @@ macOS 的 Application Support 临时快照 `.lithe-dev-profile-import-<transacti
 同一发行身份的多个源码工作树仍会使用同一用户域；本地测试应注入临时目录与独立偏好域。
 
 模块日志和诊断包暂存目录登记为 `application-log-state`，不允许跨工作树复用。
+PR3 macOS 的 `sessions/<session>/plugins/<id>/files/` 也属于该项：由当前日志会话通过 Core 路径规则创建，权限 0700，以描述符相对 no-follow 操作防符号链接越界，按日志保留规则结束生命周期；不属于下载或构建资源，没有任何可跨版本、平台、架构或工具链复用的身份，也没有允许复制的时机。v2 的 `sessions/<session>/` 通道文件和旧版
 日志根目录下的 `application`、`language`、`run`、`git`、`plugins`、`performance`
 子目录、旧版 `lithe.log`、macOS 缓存中的 `Lithe/diagnostics-export/<snapshot>/`
 以及导出目标旁的临时 ZIP（macOS 的 `.lithe-diagnostics-<snapshot>.zip`

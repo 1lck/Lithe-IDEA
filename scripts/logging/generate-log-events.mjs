@@ -97,7 +97,7 @@ export function validateCatalog(catalogs) {
         keys(event.span, ['failureLevel'], `${event.id} span`);
         if (!LEVELS.includes(event.span.failureLevel)) fail(`${event.id}: invalid span failureLevel`);
         if (['duration', 'error'].some(name => Object.hasOwn(event.fields, name)) || ['duration_ms', 'error', 'error_code', 'error_domain'].some(name => encoded.has(name))) fail(`${event.id}: span automatic fields collide`);
-      } else if (!/(?:started|finished|failed|skipped|missing|received|selected|superseded|hit|inspected|sampled|measured|rejected|updated|forwarded|removed|cleaned|cancelled|initialized|limited|applied|waiting|stalled|timed_out|resolved|logged|shown|interrupted)$/.test(event.id.split('.').at(-1))) fail(`${event.id}: expected outcome name in past tense`);
+      } else if (!/(?:started|finished|failed|changed|skipped|missing|received|selected|superseded|hit|inspected|sampled|measured|rejected|updated|forwarded|removed|cleaned|cancelled|initialized|limited|applied|waiting|stalled|timed_out|resolved|logged|shown|interrupted)$/.test(event.id.split('.').at(-1))) fail(`${event.id}: expected outcome name in past tense`);
       declarations.push({ ...event, rate });
       const variants = event.span ? ['started', 'finished', 'failed'] : [null];
       for (const phase of variants) {

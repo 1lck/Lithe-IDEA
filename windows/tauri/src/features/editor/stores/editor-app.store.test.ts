@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { toast } from "sonner";
 import * as native from "@/platform/tauri-core";
+import * as lsp from "@/platform/lsp-core-adapter";
 import { saveActiveFileAs } from "@/features/keymaps/commands/file-command-actions";
 import { applyWorkspaceEdit } from "../lsp/workspace-edit";
 import { replaceAllInSources, replaceNextInSource } from "@/features/global-search/utils/source-replace";
@@ -129,6 +130,64 @@ describe("workspace-scoped editor actions", () => {
       expect(getEditorBuffer(WORKSPACE_A, b.id).content).toBe("");
     });
   }
+
+  for (const scope of ["document", "range"] as const) {
+    test(`${scope} formatting catches an asynchronous Core edit rejection`, async () => {
+      const range = { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } };
+      const supported = spyOn(lsp, "isLspSemanticCommandSupported").mockReturnValue(true);
+      const request = spyOn(lsp, "invokeLsp").mockResolvedValue([{ range, newText: "new" }]);
+      const invoke = spyOn(native, "invoke").mockRejectedValue(new Error("invalidRange"));
+      try {
+        const client = LspClient.getInstance();
+        const result = scope === "document"
+          ? client.formatDocument("C:/fixture/a.txt", "old")
+          : client.formatRange("C:/fixture/a.txt", "old", range);
+        expect(await result).toBeNull();
+        expect(invoke).toHaveBeenCalledTimes(1);
+      } finally {
+        invoke.mockRestore();
+        request.mockRestore();
+        supported.mockRestore();
+      }
+    });
+  }
+
+  test("workspace edits await every Core validation before changing buffers", async () => {
+    const a = editorBuffer("a", "first", { path: "C:/fixture/a.txt", isVirtual: false });
+    const b = editorBuffer("b", "second", { path: "C:/fixture/b.txt", isVirtual: false });
+    setWorkspaceBuffers(WORKSPACE_A, [a, b], a.id);
+    workspaceRuntimeRegistry.activateWorkspace({ id: WORKSPACE_A, name: "Workspace A" }, "ready");
+    const failure = Object.assign(new Error("overlappingEdits"), { code: "invalid_request" });
+    const invoke = spyOn(native, "invoke").mockImplementation(async <T>(command: string, args?: unknown): Promise<T> => {
+      expect(command).toBe("lsp.applyTextEdits");
+      if ((args as { text?: string } | undefined)?.text === "second") throw failure;
+      return { text: "changed" } as T;
+    });
+    const edit = { range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, newText: "new" };
+    try {
+      await expect(applyWorkspaceEdit({ changes: {
+        "file:///C:/fixture/a.txt": [edit], "file:///C:/fixture/b.txt": [edit],
+      } })).rejects.toBe(failure);
+      expect(getEditorBuffer(WORKSPACE_A, a.id).content).toBe("first");
+      expect(getEditorBuffer(WORKSPACE_A, b.id).content).toBe("second");
+      expect(getEditorBuffer(WORKSPACE_A, a.id).isDirty).toBe(false);
+      expect(invoke).toHaveBeenCalledTimes(2);
+    } finally { invoke.mockRestore(); }
+  });
+
+  test("workspace edits store Core text rather than the pending request", async () => {
+    const a = editorBuffer("a", "中文😀\r\n", { path: "C:/fixture/a.txt", isVirtual: false });
+    setWorkspaceBuffers(WORKSPACE_A, [a], a.id);
+    workspaceRuntimeRegistry.activateWorkspace({ id: WORKSPACE_A, name: "Workspace A" }, "ready");
+    const invoke = spyOn(native, "invoke").mockResolvedValue({ text: "中文🚀\r\n" });
+    try {
+      expect(await applyWorkspaceEdit({ changes: { "file:///C:/fixture/a.txt": [{
+        range: { start: { line: 0, character: 2 }, end: { line: 0, character: 4 } }, newText: "🚀",
+      }] } })).toEqual({ editedFiles: 1 });
+      expect(getEditorBuffer(WORKSPACE_A, a.id).content).toBe("中文🚀\r\n");
+      expect(getEditorBuffer(WORKSPACE_A, a.id).isDirty).toBe(true);
+    } finally { invoke.mockRestore(); }
+  });
 
   test("unrelated loading tabs do not block replacement or lose later edits", async () => {
     const a = editorBuffer("a", "old name", { path: "C:/fixture/a.txt", isVirtual: false });

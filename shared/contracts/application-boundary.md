@@ -32,6 +32,14 @@ to native positional formatting, literal percent signs and unmodified argument d
 
 ## Feature Contracts
 
+Action search matches the current interface title, description and group as well
+as the original action metadata. Localized host copy and literal plugin titles
+remain distinct; changing the interface language takes effect on the next query.
+Hidden tool-window rail entries remain recoverable by their available command.
+Core's stateless `search.actions` returns ordered candidate offsets; the host keeps
+ownership of action availability, execution and module activation. See
+[the action search fixture](../fixtures/search/actions-v1.json).
+
 Global Agent instructions edit each upstream Agent's native user file, independently
 of the current project and provider. Opening settings is read-only. Codex uses
 `CODEX_HOME` (otherwise the user home `.codex`) and its first non-empty

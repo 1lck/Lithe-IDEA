@@ -41,8 +41,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-official-plugins-${{ github.ref }}
-  cancel-in-progress: false
+  group: release-official-plugins-${{ github.ref == 'refs/heads/main' && github.run_id || github.event.pull_request.number || github.ref }}
+  # PRs only validate plans; never interrupt a publishing run.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   plan:

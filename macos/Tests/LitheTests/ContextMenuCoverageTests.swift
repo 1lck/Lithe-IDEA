@@ -9,6 +9,10 @@ import LitheGitModule
 @Suite("Unified context menus", .serialized)
 @MainActor
 struct ContextMenuCoverageTests {
+    init() {
+        _ = NSApplication.shared
+    }
+
     @Test(arguments: [false, true], [ColorScheme.dark, .light])
     func dropdownTriggerClosesItsPopupAndSwitchesToAnother(customContent: Bool, scheme: ColorScheme) async throws {
         let host = NSHostingView(rootView: HStack(spacing: 20) {
@@ -108,7 +112,7 @@ struct ContextMenuCoverageTests {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         _ = RecentProjectsStore(store: store).record(root, in: [])
-        let settings = AppSettings(store: store)
+        let settings = AppSettings(store: store, logDirectoryProvider: MacServiceContainer.makeLogDirectoryProvider())
         let services = MacServiceContainer(store: store, settings: settings, moduleLaunchMode: .safeMode).services
         let model = AppModel(settings: settings, services: services)
         let sessions = ProjectSessionManager(settings: settings, modelFactory: { model })
@@ -973,11 +977,13 @@ struct ContextMenuCoverageTests {
             #expect(contextMenu.firstMatch(in: source, range: range) == nil,
                     "Use the shared context menu in \(file.lastPathComponent)")
             // Completion and source-action pickers are caret popups, not right-click menus.
-            // All other AppKit menu construction must use the shared presenter.
+            // Open With uses AppKit through the shared presenter's single system
+            // integration renderer; product callers still cannot build NSMenus.
             let withoutCaretPickers = caretPickers.stringByReplacingMatches(in: source, range: range, withTemplate: "")
-            #expect(nativeMenu.firstMatch(in: withoutCaretPickers,
-                    range: NSRange(withoutCaretPickers.startIndex..., in: withoutCaretPickers)) == nil,
-                    "Audit the native menu entry in \(file.lastPathComponent)")
+            let constructions = nativeMenu.numberOfMatches(in: withoutCaretPickers,
+                range: NSRange(withoutCaretPickers.startIndex..., in: withoutCaretPickers))
+            #expect(constructions == (file.lastPathComponent == "LitheSystemContextMenu.swift" ? 1 : 0),
+                    "AppKit menus must be built by the shared system renderer in \(file.lastPathComponent)")
         }
     }
 
@@ -1007,6 +1013,36 @@ struct ContextMenuCoverageTests {
         try sendKey(124, to: window)
         try sendKey(36, to: window)
         #expect(calls == ["open", "folder"])
+    }
+
+    @Test func rightClickOnSubmenuKeepsThePopupAndShowRemainsKeyboardAccessible() async throws {
+        let presenter = LitheContextMenuPresenter()
+        let owner = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 400, height: 300),
+            styleMask: [.borderless], backing: .buffered, defer: false)
+        owner.isReleasedWhenClosed = false
+        owner.makeKeyAndOrderFront(nil)
+        defer { presenter.dismiss(); owner.close() }
+        var restored = false
+        presenter.show(items: [.submenu("Terminal", items: [
+            .action("Show") { restored = true }
+        ])], at: NSPoint(x: 200, y: 300), appearance: nil,
+            locale: Locale(identifier: "en"), parentWindow: owner)
+        let root = try #require(owner.childWindows?.first { $0.isVisible })
+        let content = try #require(root.contentView)
+        await Task.yield()
+        content.layoutSubtreeIfNeeded()
+        await Task.yield()
+        content.layoutSubtreeIfNeeded()
+        NSApp.sendEvent(try #require(NSEvent.mouseEvent(with: .rightMouseDown,
+            location: NSPoint(x: root.frame.width / 2, y: root.frame.height / 2), modifierFlags: [], timestamp: 0,
+            windowNumber: root.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1)))
+        #expect(root.isVisible && !restored)
+        #expect(owner.childWindows?.filter { $0.isVisible }.count == 1)
+        try sendKey(125, to: root)
+        try sendKey(124, to: root)
+        try sendKey(36, to: root)
+        #expect(restored)
+        #expect(!root.isVisible)
     }
 
     @Test(arguments: [false, true])

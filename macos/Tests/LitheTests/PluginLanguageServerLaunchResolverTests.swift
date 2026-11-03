@@ -75,6 +75,63 @@ struct PluginLanguageServerLaunchResolverTests {
         #expect(try packageFiles(fixture.source.packageURL) == filesBefore)
     }
 
+    @Test
+    func unavailableLogStorageOnlyRejectsTemplatesThatRequireIt() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeFixture(root: root, manifest: "node-runtime.plugin.json", languageID: "fixture")
+        // Use the actual writer with an invalid filesystem root, rather than a
+        // fabricated planner result, to exercise the optional-storage boundary.
+        let blocked = root.appendingPathComponent("blocked-logs")
+        try Data("ordinary file".utf8).write(to: blocked)
+        let writer = MacLogStore(defaultDirectory: blocked)
+        let resolver = MacPluginLanguageServerLaunchResolver(planner: DeclarativePluginTestSupport.operations,
+            directories: fixture.directories, settings: InMemoryPluginSettings(),
+            logDirectory: { try writer.pluginFilesDirectory(pluginID: $0) })
+        let resolved = try resolver.resolve(fixture.source, workspaceRootURL: fixture.workspaceURL)
+        #expect(resolved.arguments.contains("--stdio"))
+        _ = try resolver.executableProbe(for: fixture.source)
+
+        var manifest = try #require(JSONSerialization.jsonObject(with: fixture.source.manifest) as? [String: Any])
+        var servers = try #require(manifest["languageServers"] as? [[String: Any]])
+        servers[0]["arguments"] = ["--log=${logDir}/server.log"]
+        manifest["languageServers"] = servers
+        let source = DeclarativeLanguageServerLaunchSource(pluginID: fixture.source.pluginID, languageID: "fixture",
+            manifest: try JSONSerialization.data(withJSONObject: manifest), packageURL: fixture.source.packageURL)
+        #expect(throws: (any Error).self) { try resolver.resolve(source, workspaceRootURL: fixture.workspaceURL) }
+        #expect(try String(contentsOf: blocked, encoding: .utf8) == "ordinary file")
+        try writer.redirect(to: root.appendingPathComponent("recovered-logs"))
+        let collection = try await writer.collect(query: .init(session: "all"))
+        #expect(collection.writeFailures > 0)
+        await writer.finishSession()
+    }
+
+    @Test
+    func logDirectoryTemplateUsesTheCurrentSessionOutsideTheInstalledPackage() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeFixture(root: root, manifest: "node-runtime.plugin.json", languageID: "fixture")
+        var manifest = try #require(JSONSerialization.jsonObject(with: fixture.source.manifest) as? [String: Any])
+        var servers = try #require(manifest["languageServers"] as? [[String: Any]])
+        servers[0]["arguments"] = ["--stdio", "--log=${logDir}/server.log"]
+        manifest["languageServers"] = servers
+        let source = DeclarativeLanguageServerLaunchSource(pluginID: fixture.source.pluginID, languageID: "fixture",
+            manifest: try JSONSerialization.data(withJSONObject: manifest), packageURL: fixture.source.packageURL)
+        let before = try packageFiles(source.packageURL)
+        let writer = MacLogStore(defaultDirectory: root.appendingPathComponent("logs"))
+        let resolver = MacPluginLanguageServerLaunchResolver(planner: DeclarativePluginTestSupport.operations,
+            directories: fixture.directories, settings: InMemoryPluginSettings(),
+            logDirectory: { try writer.pluginFilesDirectory(pluginID: $0) })
+        let resolved = try resolver.resolve(source, workspaceRootURL: fixture.workspaceURL)
+        let files = try writer.pluginFilesDirectory(pluginID: source.pluginID)
+        #expect(resolved.arguments.last == "--log=" + files.path + "/server.log")
+        #expect(isDirectory(files))
+        #expect(files.path.hasPrefix(root.resolvingSymlinksInPath().appendingPathComponent("logs/sessions").path + "/"))
+        #expect(try packageFiles(source.packageURL) == before)
+        #expect(throws: (any Error).self) { try fixture.resolver.resolve(source, workspaceRootURL: fixture.workspaceURL) }
+        await writer.finishSession()
+    }
+
     /// The Java plugin's JDT LS files reach the shared JDT launch only through
     /// what the plugin declares; nothing is looked up in the app or on the Mac.
     @Test

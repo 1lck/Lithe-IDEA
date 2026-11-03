@@ -521,10 +521,10 @@ fn collect_files(
         {
             // A transient/inaccessible descendant must not hide unrelated workspace results.
             // Log only a workspace-relative path; root errors and cancellation still propagate.
-            eprintln!(
-                "Search index skipped directory {:?}: {}",
-                relative_path(path, root),
-                error.message
+            crate::diagnostics::core_events::directory_skipped(
+                "app.search.directory_skipped",
+                &relative_path(path, root),
+                &error.code,
             );
             return Ok(());
         }

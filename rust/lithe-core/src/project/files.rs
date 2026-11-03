@@ -1267,10 +1267,10 @@ fn scan_node(
                 ) =>
             {
                 incomplete_directories.push(relative_path(&child_path, root));
-                eprintln!(
-                    "Workspace skipped directory {:?}: {}",
-                    relative_path(&child_path, root),
-                    error.message
+                crate::diagnostics::core_events::directory_skipped(
+                    "app.workspace.directory_skipped",
+                    &relative_path(&child_path, root),
+                    &error.code,
                 );
             }
             Err(error) => return Err(error),
@@ -1322,10 +1322,10 @@ fn collect_snapshot_files(
                     return Err(error);
                 }
                 incomplete_directories.push(relative_path(&child_path, root));
-                eprintln!(
-                    "Workspace skipped directory {:?}: {}",
-                    relative_path(&child_path, root),
-                    error.message
+                crate::diagnostics::core_events::directory_skipped(
+                    "app.workspace.directory_skipped",
+                    &relative_path(&child_path, root),
+                    &error.code,
                 );
             }
         } else {

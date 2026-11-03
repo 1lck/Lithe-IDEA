@@ -1,0 +1,329 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "unsorted batch with Chinese emoji and CRLF",
+      "text": "中文😀\r\n编辑\r\n",
+      "edits": [
+        {
+          "range": {
+            "start": {
+              "line": 1,
+              "character": 0
+            },
+            "end": {
+              "line": 1,
+              "character": 2
+            }
+          },
+          "newText": "批量"
+        },
+        {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 2
+            },
+            "end": {
+              "line": 0,
+              "character": 4
+            }
+          },
+          "newText": "🚀"
+        }
+      ],
+      "expectedText": "中文🚀\r\n批量\r\n"
+    },
+    {
+      "name": "multiline replacement preserves remaining CRLF",
+      "text": "甲\r\n乙😀\r\n丙",
+      "edits": [
+        {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 1
+            },
+            "end": {
+              "line": 1,
+              "character": 1
+            }
+          },
+          "newText": "\r\n新"
+        }
+      ],
+      "expectedText": "甲\r\n新😀\r\n丙"
+    },
+    {
+      "name": "insertion deletion and adjacent replacement",
+      "text": "abcdef",
+      "edits": [
+        {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 4
+            },
+            "end": {
+              "line": 0,
+              "character": 6
+            }
+          },
+          "newText": ""
+        },
+        {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 0
+            }
+          },
+          "newText": "中"
+        },
+        {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 1
+            },
+            "end": {
+              "line": 0,
+              "character": 3
+            }
+          },
+          "newText": "😀"
+        },
+        {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 3
+            },
+            "end": {
+              "line": 0,
+              "character": 4
+            }
+          },
+          "newText": "文"
+        }
+      ],
+      "expectedText": "中a😀文"
+    },
+    {
+      "name": "empty edit batch",
+      "text": "中文😀\r\n",
+      "edits": [],
+      "expectedText": "中文😀\r\n"
+    },
+    {
+      "name": "end of document after CRLF",
+      "text": "甲\r\n",
+      "edits": [
+        {
+          "range": {
+            "start": {
+              "line": 1,
+              "character": 0
+            },
+            "end": {
+              "line": 1,
+              "character": 0
+            }
+          },
+          "newText": "乙😀"
+        }
+      ],
+      "expectedText": "甲\r\n乙😀"
+    },
+    {
+      "name": "Core clamps a column beyond line end before CRLF",
+      "text": "甲\r\n乙",
+      "edits": [
+        {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 99
+            },
+            "end": {
+              "line": 0,
+              "character": 99
+            }
+          },
+          "newText": "!"
+        }
+      ],
+      "expectedText": "甲!\r\n乙"
+    },
+    {
+      "name": "Core normalizes a position inside a surrogate pair",
+      "text": "😀x",
+      "edits": [
+        {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 1
+            },
+            "end": {
+              "line": 0,
+              "character": 2
+            }
+          },
+          "newText": "中"
+        }
+      ],
+      "expectedText": "中x"
+    },
+    {
+      "name": "missing line",
+      "text": "abc",
+      "edits": [
+        {
+          "range": {
+            "start": {
+              "line": 2,
+              "character": 0
+            },
+            "end": {
+              "line": 2,
+              "character": 0
+            }
+          },
+          "newText": "bad"
+        }
+      ],
+      "expectedError": "invalidRange"
+    },
+    {
+      "name": "negative line",
+      "text": "abc",
+      "edits": [
+        {
+          "range": {
+            "start": {
+              "line": -1,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 1
+            }
+          },
+          "newText": "bad"
+        }
+      ],
+      "expectedError": "invalidRange"
+    },
+    {
+      "name": "negative column",
+      "text": "abc",
+      "edits": [
+        {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": -1
+            },
+            "end": {
+              "line": 0,
+              "character": 1
+            }
+          },
+          "newText": "bad"
+        }
+      ],
+      "expectedError": "invalidRange"
+    },
+    {
+      "name": "reversed range",
+      "text": "abc",
+      "edits": [
+        {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 2
+            },
+            "end": {
+              "line": 0,
+              "character": 1
+            }
+          },
+          "newText": "bad"
+        }
+      ],
+      "expectedError": "invalidRange"
+    },
+    {
+      "name": "overlapping edits",
+      "text": "abcd",
+      "edits": [
+        {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 3
+            }
+          },
+          "newText": "a"
+        },
+        {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 2
+            },
+            "end": {
+              "line": 0,
+              "character": 4
+            }
+          },
+          "newText": "b"
+        }
+      ],
+      "expectedError": "overlappingEdits"
+    },
+    {
+      "name": "nested edits",
+      "text": "abcd",
+      "edits": [
+        {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 4
+            }
+          },
+          "newText": "a"
+        },
+        {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 1
+            },
+            "end": {
+              "line": 0,
+              "character": 2
+            }
+          },
+          "newText": "b"
+        }
+      ],
+      "expectedError": "overlappingEdits"
+    }
+  ]
+}

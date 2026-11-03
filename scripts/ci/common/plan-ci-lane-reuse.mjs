@@ -2,13 +2,8 @@
 // Decides, per CI lane of a pull request run, whether to run the lane again or
 // to reuse the result of an earlier run of the same pull request.
 //
-// A lane is reused when it already passed (or is still running) on an earlier
-// revision and none of the pull request's own changes since then can affect
-// it. Changes that only arrived from the base branch are ignored unless they
-// touch CI infrastructure this workflow reads, in which case every lane of
-// this workflow runs again; infrastructure of other workflows only (such as a
-// Windows workflow edit seen by macOS CI) keeps reuse intact. Earlier runs
-// that no lane reuses are cancelled, because GitHub cannot cancel single jobs.
+// Only completed, successful jobs are reusable. Workflow concurrency cancels
+// superseded PR runs, so depending on an active job would race cancellation.
 // Any planning error runs every selected lane, so a check is never skipped
 // because of the planner itself.
 //
@@ -24,7 +19,7 @@ import { pathToFileURL } from 'node:url';
 // outputs that select it. Keep in sync with the workflows' job `if:` lines.
 export const WORKFLOW_LANES = Object.freeze({
   macos: [
-    { lane: 'swift', job: 'Swift tests', selected: (o) => o.swift || o.rust_core },
+    { lane: 'swift', job: 'Swift tests', selected: (o) => o.swift || o.rust_core || o.plugins },
     { lane: 'rust', job: 'Rust Core tests', selected: (o) => o.rust_core },
     { lane: 'release', job: 'Release package verification', prefix: true, selected: (o) => o.macos_release },
   ],
@@ -33,7 +28,7 @@ export const WORKFLOW_LANES = Object.freeze({
   ],
   windows: [
     { lane: 'frontend', job: 'Test Windows frontend', selected: (o) => o.windows },
-    { lane: 'rust', job: 'Test Windows Rust implementation', selected: (o) => o.rust_core || o.windows_rust },
+    { lane: 'rust', job: 'Test Windows Rust implementation', reusable: false, selected: (o) => o.rust_core || o.windows_rust },
     { lane: 'jdt', job: 'Test real JDT on Windows', selected: (o) => o.java_jdt },
   ],
 });
@@ -60,7 +55,7 @@ export const CI_INFRA_RULES = Object.freeze([
   { pattern: /^\.agents\/skills\/write-stable-tests\/scripts\/test-stability-macos\.sh$/, workflows: MACOS_FAMILY },
   { pattern: /^\.agents\/skills\/write-stable-tests\/scripts\//, workflows: ALL_WORKFLOWS },
   { pattern: /^scripts\/ci\/common\/(test-)?classify-ci-changes\.sh$/, workflows: ALL_WORKFLOWS },
-  { pattern: /^scripts\/ci\/common\/(plan-ci-lane-reuse|verify-reused-ci-jobs)(\.test)?\.mjs$/, workflows: ALL_WORKFLOWS },
+  { pattern: /^scripts\/ci\/common\/(plan-ci-lane-reuse|verify-reused-ci-jobs|verify-rust-shards|rust-shards)(\.test)?\.mjs$/, workflows: ALL_WORKFLOWS },
   { pattern: /^scripts\/(macos\/test\/test-macos|rust-core\/build-rust-core|macos\/prepare\/(prepare-macos-dependencies|validate-macos-dependency-caches)|rust-core\/verify-rust-core[a-z-]*)\.sh$/, workflows: MACOS_FAMILY },
   // Windows scripts are routed by directory, like the classifier does. The one Windows-only
   // script that stays with its cross-platform domain is listed by name.
@@ -302,19 +297,14 @@ export async function planLaneReuse({ env, outputs, repoRoot, fetchImpl = fetch,
       return affectedByRun.get(run.id);
     };
 
-    for (const definition of WORKFLOW_LANES[workflow].filter((item) => lanes.includes(item.lane))) {
+    for (const definition of WORKFLOW_LANES[workflow].filter((item) => lanes.includes(item.lane) && item.reusable !== false)) {
       for (const run of runs) {
         const job = (await jobsOf(run)).find((candidate) => matchesJob(definition, candidate));
         // A lane skipped in a run was itself reused or not selected there; keep
         // looking for the run that actually executed it.
         if (!job || job.conclusion === 'skipped') continue;
         executed = true;
-        // Jobs assigned to the retired self-hosted pool cannot migrate to
-        // hosted runners. Keep hosted queues reusable: other lanes can still
-        // need that run, so replacing its queued jobs would duplicate builds.
-        const usable = job.conclusion === 'success'
-          || (job.status !== 'completed'
-            && !(job.labels ?? []).some((label) => label.toLowerCase() === 'self-hosted'));
+        const usable = job.status === 'completed' && job.conclusion === 'success';
         if (usable) {
           const affected = await affectedSince(run);
           if (affected !== 'all' && !affected.has(definition.lane)) {
@@ -326,16 +316,6 @@ export async function planLaneReuse({ env, outputs, repoRoot, fetchImpl = fetch,
       }
     }
 
-    // Earlier runs still in progress are obsolete unless a lane reuses them.
-    const kept = new Set(Object.values(plan.reuse).map((source) => source.run_id));
-    for (const run of runs.filter((item) => item.status !== 'completed' && !kept.has(item.id))) {
-      try {
-        await api(`/repos/${env.GITHUB_REPOSITORY}/actions/runs/${run.id}/cancel`, { method: 'POST' });
-        plan.cancelled.push(run.id);
-      } catch (error) {
-        log.warn?.(`Could not cancel obsolete run ${run.id}: ${error.message}`);
-      }
-    }
     if (Object.keys(plan.reuse).length) plan.reason = 'unaffected lanes reuse earlier results';
     else if (plan.infrastructure.rerun.size) plan.reason = 'every selected lane runs (the base branch changed CI infrastructure this workflow reads)';
     else if (executed) plan.reason = 'every selected lane runs (earlier results failed, were cancelled, or are affected by new changes)';
@@ -357,7 +337,7 @@ export function planOutputs(workflow, plan) {
 
 function summary(workflow, plan) {
   const rows = WORKFLOW_LANES[workflow].map(({ lane }) => {
-    if (plan.reuse[lane]) return `| ${lane} | reuse ${plan.reuse[lane].status === 'completed' ? 'passed' : 'running'} job from [${plan.reuse[lane].head_sha.slice(0, 8)}](${plan.reuse[lane].url}) |`;
+    if (plan.reuse[lane]) return `| ${lane} | reuse passed job from [${plan.reuse[lane].head_sha.slice(0, 8)}](${plan.reuse[lane].url}) |`;
     return `| ${lane} | ${plan.run[lane] ? 'run' : 'not selected'} |`;
   });
   const cancelled = plan.cancelled.length ? `\n\nCancelled obsolete runs: ${plan.cancelled.join(', ')}` : '';

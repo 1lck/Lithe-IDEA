@@ -7,16 +7,17 @@ set -euo pipefail
 ROOT_DIR="${0:A:h:h:h}"
 cd "$ROOT_DIR"
 
+# CI runs the static checks on Ubuntu in parallel with native tests. The local
+# entrypoint retains the complete validation unless explicitly split by CI.
+if [[ "${1:-}" == "--skip-static" && $# == 1 ]]; then
+    :
+elif [[ $# == 0 ]]; then
+    ./scripts/rust-core/verify-rust-core-static.sh
+else
+    print -u2 -- "Usage: $0 [--skip-static]"
+    exit 2
+fi
 mkdir -p .artifacts/test-stability
-node --test --test-reporter=spec --test-reporter-destination=stdout \
-    --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/npm-progress.xml \
-    rust/lithe-agent-host/tests/npm-progress.test.mjs
-node --test --test-reporter=spec --test-reporter-destination=stdout \
-    --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/rust-comment-checker.xml \
-    scripts/rust-core/test-rust-core-comments.mjs
-scripts/rust-core/verify-rust-core-comments.sh
-scripts/rust-core/verify-rust-core-layout.sh
-cargo fmt --manifest-path rust/Cargo.toml -p lithe-core -- --check
 node .agents/skills/write-stable-tests/scripts/run-rust-tests-with-timing.mjs \
     --manifest rust/Cargo.toml --package lithe-git-host \
     --suite-timeout-ms 120000 \

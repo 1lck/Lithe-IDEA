@@ -2,8 +2,16 @@ name: Verify Platform Feature Matrix
 
 on:
   pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - "LICENSE*"
     types: [opened, synchronize, reopened, labeled, unlabeled]
   push:
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - "LICENSE*"
     branches:
       - preview
   workflow_dispatch:
@@ -11,9 +19,11 @@ on:
 permissions:
   contents: read
 
+# Every main commit gets its own group, including pending runs. PR pushes
+# cancel their predecessor immediately; only completed results may be reused.
 concurrency:
-  group: verify-platform-feature-matrix-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_id || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   verify:

@@ -50,6 +50,8 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     private let moduleID: ModuleID
     /// The plugin that owns the process; nil for host-owned servers, which
     /// serve no plugin functions.
+    private let logRole: LanguageServerLogRole
+    private let logSubject: String?
     private let pluginID: String?
     /// Host services Core lets this plugin backend request.
     private let hostServices: [String]
@@ -110,6 +112,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     package var releaseResources: (@Sendable () async -> Void)?
 
     package var onDiagnostics: ((URL, [LanguageServerDiagnostic]) -> Void)?
+    package var onCoreLog: ((CoreLogRecord) -> Void)?
     package var onLog: ((LanguageServerLogLevel, String, String?, String?) -> Void)?
     package var onLogIssue: ((Bool, String, String, Int?, String?) -> Void)?
     package var onProjectPreparation: ((ProjectPreparationSnapshot) -> Void)?
@@ -159,6 +162,8 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         processRegistry: (any LanguageServerProcessRegistry)? = nil,
         moduleID: ModuleID = .languageIntelligence,
         pluginID: String? = nil,
+        role: LanguageServerLogRole = .languageServer,
+        logSubject: String? = nil,
         hostServices: [String] = [],
         toolchainProviders: [String] = []
     ) {
@@ -174,9 +179,10 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         self.initializeTimeout = initializeTimeout
         self.requestTimeout = requestTimeout
         self.shutdownTimeout = shutdownTimeout
-        self.core = core
+        self.core = core.loggingRuntime(role: role, logSubject: logSubject, pluginID: pluginID)
         self.processRegistry = processRegistry
         self.moduleID = moduleID
+        self.logRole = role; self.logSubject = logSubject
         self.pluginID = pluginID
         self.hostServices = hostServices
         self.offeredToolchainProviders = toolchainProviders
@@ -235,7 +241,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
                     self.environment = prepared.environment
                     self.initializationOptions = prepared.launch.initializationOptions
                     self.preparedWorkspaceConfiguration = prepared.launch.workspaceConfiguration
-                    self.core = prepared.core
+                    self.core = prepared.core.loggingRuntime(role: self.logRole, logSubject: self.logSubject, pluginID: self.pluginID)
                     self.releaseResources = prepared.release
                     self.startingPreparedProcess = true
                     defer { self.startingPreparedProcess = false }
@@ -1445,6 +1451,9 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
 
     /// Applies one runtime event and reports whether it ended the session.
     private func handle(_ event: LanguageServerRuntimeEvent) -> Bool {
+        if let record = event.coreLog {
+            if let onCoreLog { onCoreLog(record) } else { core.emitCoreLog(record) }
+        }
         switch event.type {
         case "projectPreparation":
             switch Self.decodeEventResult(event, as: ProjectPreparationSnapshot.self) {
@@ -1576,7 +1585,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
             if let status = event.mavenProfileTask { onMavenProfileTask?(status) }
             if let result = event.mavenProfileProject { onMavenProfileProject?(result) }
             let level = event.level == "warn" ? .warning : event.level.flatMap(LanguageServerLogLevel.init(rawValue:)) ?? .info
-            if level == .warning || level == .error {
+            if event.coreLog == nil && (level == .warning || level == .error) {
                 onLogIssue?(level == .warning, event.error?.stage ?? "runtime",
                     event.error?.code ?? "upstreamDiagnostic", event.error?.processExitCode, event.operationID)
             }

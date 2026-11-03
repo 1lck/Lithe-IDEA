@@ -77,7 +77,7 @@ extension WorkbenchModuleUIRegistry {
                 rightSidebarBehavior: .docked
             ))
         }
-        return Registration(contributions: declaration.contributions, actions: actions, renderers: renderers)
+        return Registration(contributions: declaration.contributions, actions: actions, renderers: renderers, localizesTitles: false)
     }
 }
 

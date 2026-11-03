@@ -20,6 +20,8 @@ struct MacPluginBackendSessionsTests {
         try #require(await fixture.core.waitForNotifications(1))
         _ = try await fixture.sessions.pluginFunctions(ofPlugin: BackendFixture.pluginID)
         #expect(fixture.core.starts.count == 1)
+        #expect(fixture.core.loggingOwners.first?.0 == .backend)
+        #expect(fixture.core.loggingOwners.first?.2 == BackendFixture.pluginID)
         #expect(fixture.core.stops.isEmpty)
     }
 
@@ -347,6 +349,13 @@ private struct BackendFixture {
 /// Starts ready plugin backends, queues host requests on demand, and
 /// records how the host answered them.
 private final class ScriptedBackendCore: LanguageServerRuntimeCore, @unchecked Sendable {
+    private var logOwners: [(LanguageServerLogRole, String?, String?)] = []
+    var loggingOwners: [(LanguageServerLogRole, String?, String?)] { lock.withLock { logOwners } }
+    func loggingRuntime(role: LanguageServerLogRole, logSubject: String?, pluginID: String?) -> any LanguageServerRuntimeCore {
+        lock.withLock { logOwners.append((role, logSubject, pluginID)) }
+        return self
+    }
+
     struct Start {
         let pluginID: String
         let arguments: [String]
