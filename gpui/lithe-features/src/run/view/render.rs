@@ -16,6 +16,36 @@ use super::{
 };
 
 impl RunPanel {
+    /// 选中会话的状态文案，对齐 IDEA 的运行状态语义：
+    /// 运行中、已结束、非零退出码如实显示、被用户停止不作为失败。
+    /// 没有选中会话时不显示状态行。
+    fn session_status_line(&self, tokens: LitheTokens) -> Option<(Hsla, SharedString)> {
+        let session = self
+            .selected_id
+            .as_ref()
+            .and_then(|id| self.sessions.get(id))?;
+        let (color, text) = if session.starting {
+            (tokens.warning, tr("Starting…").to_string())
+        } else if session.running {
+            (tokens.success, tr("Running").to_string())
+        } else if session.stopped {
+            (tokens.tertiary_text, tr("Stopped").to_string())
+        } else if session.exit_code == Some(0) {
+            (tokens.secondary_text, tr("Finished").to_string())
+        } else if let Some(code) = session.exit_code {
+            (
+                tokens.error,
+                format!("{} {code}", tr("Process finished with exit code")),
+            )
+        } else {
+            (
+                tokens.error,
+                tr("Process finished with an unknown exit code").to_string(),
+            )
+        };
+        Some((color, text.into()))
+    }
+
     /// 未找到运行配置的空状态视图（完全对齐 Tauri 图一）。
     fn render_missing_configuration_view(
         &self,
@@ -153,6 +183,9 @@ impl Render for RunPanel {
 
         if let Some(error) = self.error.clone() {
             panel = panel.child(status_line(tokens.error, error));
+        }
+        if let Some((color, text)) = self.session_status_line(tokens) {
+            panel = panel.child(status_line(color, text));
         }
         for banner in self.render_banners(tokens, cx) {
             panel = panel.child(banner);
