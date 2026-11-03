@@ -53,6 +53,19 @@ launch already succeeds there.
 Strings returned by the core are UTF-8 JSON allocated by Rust. The caller must
 release response strings with `lithe_core_free_string`.
 
+### Localized action search
+
+`search.actions` accepts `{query, candidates: [{texts: [string]}]}` and returns
+`{indices: [integer]}`. Native hosts supply the original title, subtitle and group
+alongside their current interface translations. Plugin-owned titles stay verbatim.
+Core performs case-insensitive, NFC-normalized Unicode subsequence matching after removing query
+whitespace, preserving input order and returning zero-based candidate offsets.
+It retains no catalog, performs no workspace I/O, and never executes actions.
+The request is limited to 4096 candidates, 16 fields per candidate, 2 MiB of text
+and a 4096-byte query; excess input returns `invalid_request`.
+[Action search fixtures](../fixtures/search/actions-v1.json) cover both languages,
+English aliases, ordered results, Unicode and literal plugin titles.
+
 ### Remote workspace path identity
 
 Workspace-aware commands accept an optional top-level `remoteWorkspace` with
@@ -1145,6 +1158,12 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `github.normalizeResponse` | Normalize raw GitHub JSON and HTTP status into deterministic data or a stable error |
 | `diagnostics.prepareLogEvent` | Normalize a bounded application event and recursively redact structured fields |
 | `diagnostics.queryLogs` | Merge and filter bounded host-collected module log tails |
+| `diagnostics.encodeLogBatch` | Encode independent structured v2 log events with per-item errors |
+| `diagnostics.queryLogsV2` | Query structured v2 and legacy v1 native log tails |
+| `diagnostics.planLogCollection` | Plan bounded native log-tail reads from raw file metadata |
+| `diagnostics.planLogRetention` | Plan log cleanup from host-owned file inventories |
+| `diagnostics.resolveEngineLogSubject` | Resolve the same routing segment and channel used by engine startup, without I/O |
+| `diagnostics.resolveLogChannel` | Validate channels and resolve safe session-relative destinations |
 | `diagnostics.redactText` | Redact credentials, tokens, and home-directory paths from diagnostic-bundle text |
 | `diagnostics.buildManifest` | Shape a deterministic diagnostic bundle manifest from host-gathered environment and file facts |
 | `plugins.declarative.validate` | Validate and normalize a declarative plugin manifest (plugin contract v1) |
@@ -3050,6 +3069,13 @@ completion and resolve, hover, definition/declaration/type-definition, reference
 implementation, rename, formatting, code actions and resolve, execute command,
 inlay hints, full-document semantic tokens, folding ranges, code lens, provider
 virtual documents, `javaEntrypoints`, `javaTestItems`, and `javaMainMethods`.
+For code actions, `diagnostics` contains the original `LspClientDiagnostic`
+objects returned by Core: nullable integer `severity`, `tags`, and
+`relatedInformation` remain intact, and every range uses zero-based `line` /
+`utf16Column` positions. A platform's display severity or marker projection is
+not a diagnostic request model. Non-LSP markers may request actions with a range
+and an empty diagnostic context. The round-trip fixture is
+`shared/fixtures/lsp/diagnostic-code-actions-v1.json`.
 `javaEntrypoints` invokes Java Debug Server's
 `vscode.java.resolveMainClass` for the session workspace and returns schema
 version 1 with deterministic workspace-relative `{ sourcePath, mainClass,
@@ -3726,6 +3752,190 @@ discard partial first lines, and report both native
 collection truncation and Core query truncation, including files omitted by the cap.
 Time comparisons use parsed RFC3339 instants, so fractional precision and equivalent
 UTC offsets do not change ordering or inclusive boundaries. Missing filters include all.
+
+Structured logging v2 adds pure opt-in commands. The v1 APIs and commands above
+retain their behavior and public Rust signatures. Native adapters own writable
+log roots, I/O, clocks, queues, and file lifecycle operations. Core never resolves
+logs under installed application resources. Executable cases and numeric errors
+are in [`logging-v2.json`](../fixtures/diagnostics/logging-v2.json).
+
+All commands use the existing `{id?,command,payload}` Core request/response
+envelope. Malformed payload shapes return outer `invalid_request` without raw
+input. Channel, query, and retention domain results are the union
+`data:{result:...}` or `data:{error:{code,reason}}`; callers inspect that union even
+when outer `ok` is true. Batch encoding returns
+`data:{results:[{line}|{error:{code,reason}}]}` in input order. Reasons are safe
+parser diagnostics; hosts localize codes for presentation.
+
+- `diagnostics.resolveEngineLogSubject` accepts
+  `{role,providerId,pluginId?,logSubject?}` and returns direct
+  `data:{channel,segment}` (no nested domain result). `role` is required and is
+  `language_server|vcs|build|toolchain|backend`; `providerId` is a required string.
+  It calls the same `SessionLogIdentity::new` as engine startup, including the
+  stable `invalid-<first 32 lowercase SHA-256 hex digits>` fallback for unsafe or
+  absent routing identities. This pure command does no I/O and can run before
+  startup. Malformed shapes and unknown roles use outer `invalid_request`, with
+  no new numeric or domain code. macOS caches its result by provider ID for
+  host-owned stages, cache cleanup, degradation and issue facts; a resolution
+  failure skips only that structured host fact and preserves startup/v1 behavior.
+- `diagnostics.resolveLogChannel` accepts
+  `{channel,rotationIndex?:0,existingChannels?:[]}` and returns
+  `{result:{relativePath,category,pluginFilesPath?}}` or `{error}`. The category maps app/update/remote/agent
+  and overflow to application, editor/lsp to language, vcs to git, perf to performance,
+  run/debug/terminal to run, and plugins to plugins. The optional plugin files
+  path is returned only for `plugins/<id>/host` using `plugin_files_path`. Roots are `app`, `editor`, `perf`,
+  `lsp`, `vcs`, `run`, `debug`, `terminal`, `remote`, `agent`, `update`, `plugins`.
+  Channels are `root`, non-plugin `root/segment`, or `plugins/<id>/host`. Segments match
+  `[a-z0-9][a-z0-9._-]{0,63}`, excluding trailing dots and Windows device
+  basenames (`con`, `prn`, `aux`, `nul`, `com1`–`com9`, `lpt1`–`lpt9`,
+  including those followed by an extension). Paths are `app.log`, `vcs/git.log`, or
+  `plugins/<id>/host.log`; positive rotation indices produce `git~1.log` siblings. The `~` delimiter
+  cannot occur in a channel, so rotations never alias dotted channel IDs.
+  After 128 admitted channels a new identity maps to `_overflow.log`; existing
+  channels retain their paths. The overflow sink rotates as `_overflow~1.log`
+  and its header uses the channel `_overflow`. Rust `plugin_files_path` returns
+  `plugins/<id>/files/`. `session_directory_name`,
+  `parse_session_directory_name`, and `session_relative_path` convert explicit
+  RFC3339 start time/full UUID to `sessions/YYYY-MM-DDTHH-MM-SS_<8 lowercase
+  hex>`. Native adapters join these relative paths only to platform-owned
+  writable storage, never a bundle or installation directory.
+- `diagnostics.encodeLogBatch` accepts `{validateCatalog?:false,deduplicate?:false,previousEvent?:event,headers?:[],events:[{ts,level,seq,event,op?,msg,
+  fields?:{key:scalar}}]}`. `level` is `DEBUG|INFO|WARN|ERROR`, `seq` is `u64`,
+  and `ts` is RFC3339 normalized to UTC milliseconds. Scalars become text;
+  arrays and objects fail per item. Malformed event shapes also fail per item.
+  Disk order is timestamp, level, `seq`, `event`, optional `op`, `msg`, then
+  lexical context keys (the truncation marker is last). Keys match
+  `[a-z][a-z0-9_]{0,63}` and cannot repeat or reuse reserved keys
+  (`ts`, `level`, `seq`, `event`, `op`, `msg`). Event/op
+  identities are nonempty bare tokens. Shared redaction runs before escaping,
+  including prefixed credential-key fields such as `client_secret` and
+  `auth_token`; the same structured-field redactor runs on queried v1/v2
+  evidence. Bare values match `[A-Za-z0-9._:/@+-]+`;
+  other values use double quotes, escaping quote, backslash, newline, carriage
+  return, tab, and other controls as `\u{XX}`. Each result excludes a newline
+  and reserves one byte for it within 8192 bytes. Oversized lines shorten the
+  longest non-reserved context values first and append `truncated=1`.
+  If needed, the message is shortened next; mandatory identity/key overhead
+  that still cannot fit returns `-32046`. No context keys are silently dropped.
+  Rust `encode_header`/`decode_line` support
+  `#lithe-log v2 session=<uuid> pid=<u32> app=<bare version> channel=<channel> started=<UTC milliseconds>`.
+  `decode_line` returns a typed header or record and rejects invalid lines with
+  reasons. `repeated_event` and `dropped_event` create ordinary `log.repeated`
+  records with `count,first,last,of`, and `log.dropped` records with `count`.
+  With `deduplicate:true`, adjacent facts with equal event ID, fields, channel,
+  level, message and op merge within a batch into `log.repeated`; structural hashing
+  is followed by equality comparison. Results then correspond to retained records,
+  and the repeated record uses the last omitted event sequence. `previousEvent`
+  carries the prior batch’s last input for bounded cross-batch comparison; it is
+  validated again and never emitted by itself.
+  With `validateCatalog:true`, every ordinary event must exist in `catalog::EVENTS`;
+  required/unknown/invalid fields and a mismatched level fail before encoding.
+  Messages and channels are derived from the catalog, never trusted from input.
+  Before strict field validation, Core redacts declared error/text messages, removes
+  control characters, and truncates to at most 1024 bytes at a UTF-8 boundary.
+  `catalog::validate_fields` still rejects unnormalized strings, invalid types, unknown
+  keys, incomplete error components, and invalid code/domain tokens.
+  Path fields are redacted before template interpolation; unrecognized absolute
+  paths become `<PATH>`. Item results additionally contain `channel` on success.
+  Codes: `-32053` unknown event, `-32054` missing field, `-32055` invalid field,
+  `-32056` unknown field, `-32057` catalog level mismatch.
+  Catalog validation rejects `event:legacy` as an unknown event. macOS collects only v2
+  session files; its v1 files participate solely in age retention. The public v1
+  APIs, old commands and shared v1 query compatibility remain available to Windows.
+  `log.dropped` and `log.repeated` accept only their documented field shapes and
+  an optional validated `channel`. No other identity bypasses catalog validation.
+  Optional `headers:[{session,pid,app,channel,started}]` returns ordered `headers`
+  results and `sessionPath`, using the same Core header/session grammar. These
+  fields are additive; the default generic PR1 batch remains compatible.
+  Overflow rotation paths are `_overflow~1.log` and `_overflow~2.log`.
+- `diagnostics.queryLogsV2` accepts `{sources:[{relativePath,text,
+  startsMidLine?:false,firstLineNumber?:1}],channelPrefixes?:[],minimumLevel?,
+  since?,until?,search?,fields?:{key:value},op?,limit?}`. The adapter marks a
+  tail beginning inside a line with `startsMidLine:true`; Core discards its
+  first fragment without counting it as invalid. Complete first lines stay.
+  Paths are session-relative v2 paths, `sessions/<name>/<path>`, or legacy
+  `<category>/lithe.*.log`. Channel prefixes match slash boundaries; severity
+  and parsed RFC3339 time bounds are inclusive; search is case-insensitive;
+  field/op filters match exactly, including reserved `ts` and `level` fields. Returns `{result:{records:[{channel,
+  relativePath,lineNumber,ts,level,seq,event,op?,msg,fields}],channelCounts:
+  {channel:{warn,error}},truncated,skippedInvalidLines}}` or `{error}`.
+  Counts reflect all filtered matches before the newest 1–10000 limit (default
+  2000). Records sort ascending by parsed timestamp, seq, file, line, then
+  source order. The aggregate native-tail byte budget is 10 MiB. Omitted bytes,
+  partial first lines, or output limits set `truncated`. Invalid physical lines
+  are skipped and counted. V1 records use `event:legacy`, preserve available
+  sequence/op/context, and map application→app, language→lsp, git→vcs,
+  performance→perf, run→run, plugins→plugins. Queries redact decoded evidence.
+  Each returned record also includes `line`, the canonical, redacted v2 line for
+  presentation and frozen export (without a newline).
+- `diagnostics.planLogCollection` accepts `{files:[{relativePath,sizeBytes,modifiedAt}],
+  currentSession,session,category?}`. Inventory is raw log-root-relative native
+  metadata; no contents are read before planning. `session` is `all|current|previous`,
+  and category is one of the existing six product categories. Returns
+  `{result:{reads:[{relativePath,offset,maxBytes}],truncated}}` or `{error}`.
+  Only validated v2 session log files are selected; plugin-owned `files/` and legacy
+  files remain retention inputs. Filters run before budgets. Order is newest session,
+  active before rotation 1 before rotation 2, descending native modification instant,
+  then lexical path. Session ties use descending basename. Previous means the newest
+  session other than current. Reads are capped at 200 files, 2 MiB per file and 10 MiB
+  aggregate. Any omitted eligible bytes/files set truncated. Duplicate paths or invalid
+  selections return -32058; invalid selected timestamps return -32035. Exact native
+  offsets and read sizes belong to Core; adapters validate containment and report I/O errors.
+- `diagnostics.planLogRetention` accepts `{sessions:[{name,files:[{
+  relativePath,sizeBytes,modifiedAt}]}],legacyFiles?:[same file shape],
+  currentSession,now,limits?:{maxAgeMs,totalBytes,perfBytes,pluginFilesBytes},
+  startupCleanup?:false}`. Timestamps are explicit RFC3339. Defaults are 30
+  days, 100 MiB combined, 20 MiB perf, 20 MiB per plugin files directory per
+  session. Returns `{result:{deletions:[{relativePath,directory,reason}],
+  warnings:[{session,pluginId,relativePath,sizeBytes,limitBytes}]}}` or `{error}`.
+  Paths are relative to the writable log root and sorted lexically. Whole
+  sessions expire first, combined pressure removes oldest whole sessions,
+  then perf files are removed from oldest surviving sessions and startup
+  cleanup removes oldest plugin files. Whole-session removal supersedes child
+  deletion. Reasons are `expired|totalBudget|perfBudget|pluginFilesBudget`.
+  The current session and all its files are always protected, even if budgets
+  cannot be satisfied. Runtime plugin overages emit warnings; startup may also
+  delete files in inactive sessions. Legacy files count toward the total but
+  only age can delete them. `should_rotate(size)` is true above 10 MiB;
+  `rotation_indices_to_delete` returns existing indices >=2 to remove before
+  shifting active→1 and 1→2, retaining three segments including active;
+  `rotation_paths_to_delete` resolves those indices to session-relative paths.
+  Unsafe paths, duplicate inventories, and negative age limits are rejected.
+
+Each v2 numeric domain code has one meaning. Existing outer Core string codes
+are unchanged:
+
+| Code | Meaning |
+| --- | --- |
+| -32031 | Unknown channel root |
+| -32032 | Unsupported channel shape |
+| -32033 | Invalid channel/plugin segment |
+| -32034 | Invalid full session UUID |
+| -32035 | Invalid timestamp |
+| -32036 | Invalid session directory basename |
+| -32037 | Invalid context field key |
+| -32038 | Reserved key reused as context |
+| -32039 | Duplicate context key |
+| -32040 | Invalid file header |
+| -32041 | Invalid line grammar |
+| -32042 | Invalid value escape |
+| -32043 | Missing or misordered reserved fields |
+| -32044 | Invalid unpadded u64 sequence |
+| -32045 | Invalid log level |
+| -32046 | Line cannot fit the byte budget |
+| -32047 | Non-scalar context value |
+| -32048 | Invalid event or operation identity |
+| -32049 | Invalid retention inventory or limits |
+| -32050 | Invalid query source path or line origin |
+| -32051 | Invalid structured event JSON shape |
+| -32052 | Reversed query time range |
+| -32053 | Unknown catalog event |
+| -32054 | Missing catalog field |
+| -32055 | Invalid catalog field |
+| -32056 | Unknown catalog field |
+| -32057 | Catalog level mismatch |
+| -32058 | Invalid collection inventory or selection |
+| -32059 | Core event owner mismatch |
 
 Diagnostic previews freeze the selected redacted bytes before confirmation.
 Windows returns a `snapshotId` from `preview_diagnostic_bundle`; export consumes
@@ -4700,3 +4910,181 @@ indexing policies or retired roots. Hosts discard in-flight results when their
 workspace root set changes. Removing a nested root restores parent scanning.
 An unavailable non-current root does not fail a scoped request for an accessible
 root; a missing descendant retains its ownership boundary until removed by the host.
+
+### Structured logging of recoverable LSP maintenance warnings
+
+`lsp.pollEvents` log observations may carry the existing `error` object even at
+WARN severity. Its code and stage describe a recoverable diagnostic; `type:log`
+does not transition session state. Codes have one meaning:
+
+| code | stage | meaning |
+| --- | --- | --- |
+| `mavenSettingsUnchanged` | `mavenSettings` | Maven settings could not be normalized and were forwarded unchanged |
+| `configurationCleanupFailed` | `configurationCleanup` | Unused language-server configuration areas could not be removed |
+| `mavenProfileStartFailed` | `mavenProfileStart` | The pending Maven profile update could not start |
+
+The existing Core log sources additionally classify `upstreamStderr` (stderr
+observation), `stderrReadFailed` (stderr I/O), `navigationLimited` (batch cap),
+`navigationMarkerFailed` (marker verification), `workspaceImportStalled`
+(no import progress), `mavenProfileUpdateFailed` (project update failure),
+`shutdownTimeout` (forced termination after shutdown deadline), and
+`mavenProfileTimeout` (profile application deadline). Each code names exactly
+that observation; arbitrary upstream messages retain `upstreamDiagnostic`.
+
+Hosts persist these controlled identities, never the raw detail, URL, output or argv.
+
+### Engine logging v2 handoff (PR3)
+
+`lsp.startServer` adds optional `role` (`language_server`, `vcs`, `build`,
+`toolchain`, `backend`; default `language_server`) and optional `logSubject`.
+The host supplies the registered VCS ID as `logSubject` for `role:vcs`.
+The start response additionally returns `channel`, derived by Core from these
+identities, so hosts can register trace I/O without rebuilding routing rules.
+Core does not parse prefixes or colons in `providerId`. Routing is:
+
+| Role | Catalog channel | Identity field |
+| --- | --- | --- |
+| `language_server` | `lsp/{server}` | `providerId` |
+| `vcs` | `vcs/{provider}` | `logSubject` |
+| `build`, `toolchain`, `backend` | `plugins/{plugin}/host` | `pluginId` |
+
+Every dynamic segment passes `validate_segment`. Invalid or missing identities
+use `invalid-` followed by the first 32 lowercase SHA-256 hexadecimal digits of
+that identity (the opaque provider ID when the selected identity is absent).
+This deterministic fallback preserves evidence and startup compatibility for
+language IDs such as `c++`; it never exposes the original invalid text as a path.
+`pluginId` in the event remains the original ownership identity, independently
+of the validated catalog routing field. Hosts must use `fields` and `channel`
+from Core, never rebuild the route from `providerId` or `pluginId`.
+
+Log runtime events retain `type:"log"`, sequence, providerId, sessionId,
+level, message, detail, error, and Maven state fields. They add `channel`,
+`pluginId?`, `role`, `event` (catalog ID), `catalogLevel` (canonical uppercase v2 level), and `fields` (normalized scalar disk
+fields). `type` is the actual JSON discriminator; there is no `kind` wire key.
+Catalog metadata determines canonical v2 severity; the old `level` remains a v1
+compatibility value, including its historical `warning` spelling. To pass one
+fact to `diagnostics.encodeLogBatch`, the host supplies a timestamp and its own
+session sequence and uses `catalogLevel`, the catalog's uppercase severity. It sets
+`validateCatalog:true`; catalog-derived channel and message are authoritative.
+The special system event `log.dropped` uses the validated session channel.
+
+```json
+{"type":"log","sequence":17,"providerId":"opaque:git:provider","sessionId":"lsp-1","level":"info","message":"window/logMessage","detail":"{\"type\":2,\"message\":\"upstream warning\"}","channel":"vcs/git","pluginId":"io.example.git","role":"vcs","event":"vcs.message.logged","catalogLevel":"INFO","fields":{"provider":"git","diagnostic":"upstream warning","severity":"warning"}}
+```
+
+`window/logMessage` and `window/showMessage` produce `*.message.logged` and
+`*.message.shown`. The `severity` token is `error|warning|info|log|debug`.
+Upstream diagnostics pass through the shared text normalization/redaction
+boundary. Other notifications record only their method, never the payload.
+Existing v1 `detail`, `message`, and `level` remain byte-for-byte compatible,
+including `projectCount=N`, navigation format strings, and original notification
+JSON. V2 source inputs travel independently of detail; Core never parses v1
+detail to construct catalog fields. The one stderr framing change is explicit:
+v1 detail is now each complete line (without LF/trailing CR), including its
+spaces, rather than a trimmed arbitrary read chunk. The existing reader bounds
+and overflow rules below apply. New dropped facts use `count=N`, not JSON detail.
+Legacy detail is not a v2 persistence input. Trace catalog level is DEBUG while
+its historical v1 level remains info.
+Core lifecycle transitions attach `*.session.updated`, `channel`, `pluginId`,
+`role`, `fields:{server|provider|plugin,state}`, and `catalogLevel:DEBUG` to the
+existing `type:"stateChanged"` event. They pass through the same
+`prepare_catalog_event` boundary as log facts. They never add a v1 `type:"log"`
+row, and existing type/state/sequence/message/error fields remain unchanged.
+Hosts decode and forward optional structured identity independently of the event
+kind, once before event-specific handling; this also covers VCS, build, toolchain
+and backend sessions. Core owns these session lifecycle states and protocol
+initialization. macOS owns only `lsp.session.stage_changed` (DEBUG; closed
+requested|resolving|registered|stopping|cancelled) and `lsp.cache.cleaned` (DEBUG;
+removed entry count), emitted at the source rather than inferred from v1 text.
+Host ready/terminated callbacks retain v1 buffer lines without duplicate v2 facts.
+Stderr is framed by LF, removes a trailing CR, ignores empty lines, flushes the
+last partial line at EOF, and keeps at most 4096 bytes per line while discarding
+the remainder through LF. `truncated:true` marks the reader limit. Catalog text
+normalization then redacts and caps the diagnostic at 1024 UTF-8 bytes.
+The reader accepts at most 200 nonempty lines in each monotonic elapsed-second
+window. Suppressed counts produce `log.dropped` on the next reader observation
+in a later window or on reader completion, including read failure. No idle
+background timer is installed.
+
+`lsp.setDetailedDiagnostics` accepts `{sessionId,enabled}` and returns `{}`.
+It sends `$/setTrace` with `{"value":"verbose"}` when enabled and
+`{"value":"off"}` when disabled. Sessions start disabled; only enabled
+sessions emit `*.trace.received` (DEBUG). Only the summary `message` enters v2,
+limited to 1024 UTF-8 bytes before shared text redaction and control removal.
+The `verbose` field is excluded because it can contain raw RPC bodies and source
+text; the legacy in-memory detail remains compatible. The gate changes only
+after a successful ordered write. Before the initialize handshake completes, the command
+only stores the latest desired value; an enabled value is sent after `initialized`
+in the ordered handshake batch. Disabling it before that batch cancels the pending
+enable without sending any trace notification. Invalid payloads or terminal
+sessions fail through the existing Core error envelope; transport errors keep the existing session
+failure/cleanup behavior. This does not change showMessage handling.
+
+```json
+{"version":1,"command":"lsp.setDetailedDiagnostics","payload":{"sessionId":"lsp-1","enabled":true}}
+```
+
+```json
+{"id":null,"ok":true,"data":{}}
+```
+
+`diagnostics.drainCoreEvents` accepts `{}` and atomically returns
+`{events:[{ts,level,event,channel,op?,fields}],dropped}` in the ordinary Core
+success envelope. It drains a process-owned queue shared across workspaces,
+with at most 256 normalized entries. Overflow and exact duplicate pending
+facts increment a saturating `dropped` counter; draining resets the counter.
+The host converts `dropped` to `log.dropped` on its application channel.
+`record` accepts only catalog events whose owner is `lithe-core`: logging error
+`-32059` means Core event owner mismatch, exclusively; existing `-32053` through
+`-32058` retain their catalog and collection meanings. There is no second writer, file handle,
+or background task. The queue observes UTC at the Core event boundary; host
+session sequences are assigned at drain ingestion. Project skips retain only
+workspace-relative paths and stable error categories; cleanup facts retain
+only categories, excluding remote addresses, output, and scratch names.
+
+```json
+{"version":1,"command":"diagnostics.drainCoreEvents","payload":{}}
+```
+
+```json
+{"id":null,"ok":true,"data":{"events":[{"ts":"2026-11-03T08:00:00.000Z","level":"WARN","event":"app.workspace.directory_skipped","channel":"app","fields":{"path":"src/inaccessible","error":"Directory traversal failed","error_code":"permission_denied","error_domain":"core"}}],"dropped":0}}
+```
+
+`plugins.declarative.languageServerLaunchPlan.request.logDirectory` is an
+optional absolute host-owned current-session plugin files directory for
+`${logDir}`. Language servers and plugin backends use the same expansion.
+Missing, unusable, or relative values fail with `plugin.launch.invalidRequest`
+when needed; `requiredDirectories` adds `log` when used. The host creates the
+provided writable directory before launch, outside all bundles and installation
+resources. Validation probes cannot reference `${logDir}`. See the synchronized
+[plugin contract](plugins/v1/README.md). Existing API 1 literal arguments remain
+literal. Wire examples are exercised by
+`shared/fixtures/diagnostics/engine-logging-v2.json` and Core tests.
+
+macOS PR3 passes `CoreLogRecord` directly to the injected `LogSink`. The existing
+MacLogStore drain/flush/finish cadence calls `diagnostics.drainCoreEvents` once per
+drain, retaining source `ts`/`op` and allocating session `seq`. It creates no idle
+poller or second writer. `channelCategory` maps lsp to language, vcs to git and
+plugin-host processes to plugins. The selected diagnostic category drives
+`lsp.setDetailedDiagnostics` for active sessions, newly registered sessions and
+a one-shot 15-minute expiry. A failed desired state is reported once with
+`app.logging.diagnostics_failed`; changing desired state permits another attempt.
+The 100-entry v1 message/detail memory buffer remains for LanguageServerLogsView
+until PR4; it does not create v1 files.
+
+`diagnostics.resolveLogChannel` additionally returns optional `pluginFilesPath`
+for a `plugins/<id>/host` channel using Core's `plugin_files_path` rule. macOS
+creates that directory under its current session with mode 0700 and descriptor
+relative no-follow traversal, and supplies `request.logDirectory` before local
+language/provider/backend launch. Missing log storage omits it; Core rejects a
+launch that actually uses `${logDir}`. Remote processes cannot write the macOS
+log directory, so remote requests omit it and reject `${logDir}` rather than
+writing into remote package/state directories. Package installation validation
+uses an uncreated placeholder only to validate expansion, never to launch.
+
+Core directory traversal and scratch cleanup reuse PR1's
+`app.search.directory_skipped`, `app.workspace.directory_skipped` and
+`app.workspace.scratch_cleanup_failed`. Error message/domain are fixed; code is a
+stable category without absolute paths, scratch names or remote addresses.
+Remote process/upload cleanup uses ClientError categories timeout, closed,
+transport, spawn, protocol, or remote_<protocol_code>; peer prose is excluded.

@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 
 enum WorkspaceTextFilePolicy {
@@ -15,8 +16,8 @@ enum WorkspaceTextFilePolicy {
 
     /// Reject the control characters that are strong indicators of binary
     /// data while allowing normal whitespace such as tabs and newlines.
-    static func isPlainText(_ text: String) -> Bool {
-        RustTextContentPolicy.isPlainText(text)
+    static func isPlainText(_ text: String, logSink: (any LogSink)? = nil) -> Bool {
+        RustTextContentPolicy.isPlainText(text, logSink: logSink)
     }
 
     static func isPlainText(_ data: Data) -> Bool {

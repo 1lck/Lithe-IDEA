@@ -137,6 +137,7 @@ public struct LanguageServerRuntimeVersionCheck: Equatable, Sendable {
 
 /// Host directories substituted into a server's launch templates.
 public struct DeclarativeLanguageServerLaunchRequest: Equatable, Sendable {
+    public let logDirectory: URL?
     public let pluginDirectory: URL
     public let stateDirectory: URL
     /// Nil for a process bound to no workspace, such as a plugin backend;
@@ -157,8 +158,10 @@ public struct DeclarativeLanguageServerLaunchRequest: Equatable, Sendable {
         workspaceStateDirectory: URL?,
         architecture: String,
         settings: [String: ToolingJSONValue] = [:],
-        projectSettings: [String: ToolingJSONValue] = [:]
+        projectSettings: [String: ToolingJSONValue] = [:],
+        logDirectory: URL? = nil
     ) {
+        self.logDirectory = logDirectory
         self.pluginDirectory = pluginDirectory
         self.stateDirectory = stateDirectory
         self.workspaceStateDirectory = workspaceStateDirectory
@@ -399,6 +402,7 @@ public extension PluginSettingsStoring {
 /// joins text; the host creates the directories and checks the package paths.
 public struct DeclarativeLanguageServerLaunchPlan: Equatable, Sendable {
     public enum RequiredDirectory: String, Sendable {
+        case log
         case state
         case workspaceState
     }

@@ -393,6 +393,13 @@ modify_plugin_settings_schema_test() {
 assert_classification plugin-settings-schema-test-runs-on-linux \
     "$(classification false false false false false false false false)" \
     modify_plugin_settings_schema_test
+modify_logging_script() {
+    mkdir -p scripts/logging
+    printf '%s\n' '// Logging catalog validation' > scripts/logging/generate-log-events.mjs
+}
+assert_classification logging-uses-independent-workflow \
+    "$(classification false false false false false false false false)" \
+    modify_logging_script
 LITHE_CI_DRAFT_PULL_REQUEST=true assert_classification draft-defers-runner-lanes \
     "$(classification false false false false false false false false false false pull_request true)" \
     modify_unknown_script

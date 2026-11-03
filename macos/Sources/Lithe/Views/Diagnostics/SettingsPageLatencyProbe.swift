@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import AppKit
 import SwiftUI
 
@@ -33,6 +34,7 @@ enum SettingsPageLatencyTrace {
 
     struct Visit {
         let category: String
+        var logSink: (any LogSink)? = nil
         let eventID: Int64
         let input: UInt64
         let received: UInt64
@@ -44,7 +46,7 @@ enum SettingsPageLatencyTrace {
     private static var inputCorrelation = InputCorrelation()
     private(set) static var visit: Visit?
 
-    static func installIfEnabled() {
+    static func installIfEnabled(logSink: (any LogSink)? = nil) {
         guard LitheSignpost.settingsLatencyTracingEnabled, eventMonitor == nil else { return }
         eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp]) { event in
             MainActor.assumeIsolated {
@@ -54,7 +56,7 @@ enum SettingsPageLatencyTrace {
                     let now = DispatchTime.now().uptimeNanoseconds
                     if let value = inputCorrelation.receive(id: id, input: native.timestamp, at: now) {
                         LitheSignpost.settingsLatencyEvent("inputReceived", category: "-", eventID: value.id,
-                                                           input: value.input, received: value.received, selected: 0)
+                                                           input: value.input, received: value.received, selected: 0, logSink: logSink)
                     }
                     if id <= 0 {
                         visit = nil
@@ -75,7 +77,7 @@ enum SettingsPageLatencyTrace {
         }
     }
 
-    static func selected(_ category: String) {
+    static func selected(_ category: String, logSink: (any LogSink)? = nil) {
         guard LitheSignpost.settingsLatencyTracingEnabled else { return }
         let now = DispatchTime.now().uptimeNanoseconds
         let event = NSApp.currentEvent
@@ -85,7 +87,7 @@ enum SettingsPageLatencyTrace {
             visit = nil
             return
         }
-        let value = Visit(category: category, eventID: input.id, input: input.input,
+        let value = Visit(category: category, logSink: logSink, eventID: input.id, input: input.input,
                           received: input.received, selected: now)
         visit = value
         record("selected", value)
@@ -93,7 +95,7 @@ enum SettingsPageLatencyTrace {
 
     static func record(_ phase: String, _ value: Visit) {
         LitheSignpost.settingsLatencyEvent(phase, category: value.category, eventID: value.eventID,
-                                           input: value.input, received: value.received, selected: value.selected)
+                                           input: value.input, received: value.received, selected: value.selected, logSink: value.logSink)
     }
 
     static func completed(_ value: Visit) {

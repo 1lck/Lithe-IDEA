@@ -28,7 +28,6 @@ import type {
   CompletionList,
   CompletionContext,
   Hover,
-  PublishDiagnosticsParams,
 } from "vscode-languageserver-protocol";
 import {
   convertLSPDiagnostic,
@@ -614,7 +613,7 @@ export class LspClient {
         logger.error("LSPClient", "No uri in diagnostics payload:", publication);
         continue;
       }
-      const diagnostics = (publication.diagnostics ?? []) as PublishDiagnosticsParams["diagnostics"];
+      const diagnostics = publication.diagnostics ?? [];
       const publishedFilePath = filePathFromUri(uri);
       const filePath = resolvePublishedDiagnosticsFilePath(
         publishedFilePath,
@@ -1954,16 +1953,11 @@ export class LspClient {
     try {
       return await invoke<DiagnosticCodeAction[]>("lsp_get_code_actions", {
         ...lspDocumentRequestArgs(target),
-        diagnostic: {
-          line: diagnostic.line,
-          column: diagnostic.column,
-          endLine: diagnostic.endLine,
-          endColumn: diagnostic.endColumn,
-          message: diagnostic.message,
-          source: diagnostic.source,
-          code: diagnostic.code,
-          severity: diagnostic.severity,
+        range: diagnostic.lspDiagnostic?.range ?? {
+          start: { line: diagnostic.line, utf16Column: diagnostic.column },
+          end: { line: diagnostic.endLine, utf16Column: diagnostic.endColumn },
         },
+        diagnostics: diagnostic.lspDiagnostic ? [diagnostic.lspDiagnostic] : [],
       });
     } catch (error) {
       logger.warn("LSPClient", "LSP code action request failed:", error);

@@ -53,6 +53,29 @@ static HOME_DIRECTORY_PATH: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)(?:/(?:Users|home)/[^/\s]+|[A-Z]:\\Users\\[^\\\s]+)").expect("valid regex")
 });
 
+// Structured keys may prefix a credential name (client_secret, auth_token).
+// Inspect the key before serializing; free-text word boundaries treat `_` as a
+// word character and cannot reliably recognize those keys. Plural counters such
+// as `tokens` are ordinary telemetry, not credential values.
+pub(super) fn redact_log_field(key: &str, value: &str) -> String {
+    let normalized = key.to_ascii_lowercase().replace(['_', '-'], "");
+    if [
+        "password",
+        "token",
+        "authorization",
+        "secret",
+        "apikey",
+        "cookie",
+    ]
+    .iter()
+    .any(|suffix| normalized.ends_with(suffix))
+    {
+        "<redacted>".into()
+    } else {
+        redact_text(RedactTextRequest { text: value.into() }).redacted
+    }
+}
+
 /// Redacts credentials, tokens, and home-directory paths from diagnostic text.
 ///
 /// Hosts run this over log lines, panic reports, and any other text bound for

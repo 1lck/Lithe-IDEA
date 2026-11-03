@@ -48,6 +48,7 @@ private final class InMemoryDiagnosticsFileStorage: FileStorage, @unchecked Send
     /// Invoked at the top of `readData` (on the caller's thread) so a test can
     /// pause the detached staging task and interleave a `cancel()`.
     var beforeReadData: (@Sendable () -> Void)?
+    var beforeCreateDirectory: (@Sendable () -> Void)?
 
     func seed(_ data: Data, at url: URL) {
         lock.lock()
@@ -117,6 +118,7 @@ private final class InMemoryDiagnosticsFileStorage: FileStorage, @unchecked Send
     }
 
     func createDirectory(at url: URL, withIntermediateDirectories: Bool) throws {
+        beforeCreateDirectory?()
         lock.lock()
         directories.insert(url.path)
         lock.unlock()
@@ -154,7 +156,7 @@ struct DiagnosticsExportServiceTests {
     }
 
     @Test
-    func prepareStagesRedactedLogAndAwaitsConfirmation() async {
+    func prepareIgnoresV1LogAndAwaitsConfirmation() async {
         // `swift test` does not force-load the Rust Core static library by
         // default (see scripts/macos/test/test-macos.sh); skip gracefully rather than
         // asserting on the "unavailable" failure path, mirroring
@@ -186,7 +188,7 @@ struct DiagnosticsExportServiceTests {
             Issue.record("Expected awaitingConfirmation after prepare(), got \(service.state)")
             return
         }
-        #expect(manifest.files.map(\.relativePath).sorted() == ["environment.json", "lithe.log"])
+        #expect(manifest.files.map(\.relativePath).sorted() == ["environment.json"])
         #expect(manifest.environment.appVersion == "1.2.3")
         #expect(manifest.environment.cpuCoreCount == 8)
     }
@@ -284,10 +286,10 @@ struct DiagnosticsExportServiceTests {
         let logDirectoryProviding = makeLogDirectoryProviding()
         storage.seed(Data("token=secret\n".utf8), at: logDirectoryProviding.applicationLogFileURL)
 
-        // Gate the log read so prepare() is provably mid-flight when we cancel.
+        // Gate staging creation so prepare() is provably mid-flight when we cancel.
         let readEntered = DispatchSemaphore(value: 0)
         let readRelease = DispatchSemaphore(value: 0)
-        storage.beforeReadData = {
+        storage.beforeCreateDirectory = {
             readEntered.signal()
             // Bounded so a missed handshake fails fast instead of hanging CI;
             // the happy path releases within milliseconds.
@@ -303,6 +305,7 @@ struct DiagnosticsExportServiceTests {
         )
 
         let prepareTask = Task { await service.prepare() }
+        defer { readRelease.signal(); prepareTask.cancel() }
         // Wait off the main actor (bounded) so prepare() and its detached task
         // can run, then assert the read was actually reached before cancelling.
         let entered: DispatchTimeoutResult = await withCheckedContinuation { continuation in
@@ -332,7 +335,6 @@ struct DiagnosticsExportServiceTests {
 }
 
 private struct SelectedDirectoryLogCollector: ApplicationLogging {
-    func record(level: String, scope: String, message: String, fields: [String: String]) {}
     func configureDiagnostic(category: String?, enabled: Bool) async {}
     func clear() async throws {}
     func collect(query: ApplicationLogQuery) async throws -> ApplicationLogCollection {

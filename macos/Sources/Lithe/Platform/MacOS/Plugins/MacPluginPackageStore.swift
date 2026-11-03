@@ -791,7 +791,8 @@ final class MacPluginPackageStore {
                     stateDirectory: unused.appendingPathComponent("state", isDirectory: true),
                     workspaceStateDirectory: unused.appendingPathComponent("workspace", isDirectory: true),
                     architecture: MacPluginLanguageServerLaunchResolver.hostArchitecture,
-                    settings: [:]
+                    settings: [:],
+                    logDirectory: unused.appendingPathComponent("log", isDirectory: true)
                 )
             )
         } catch let rejection as DeclarativePluginRejection {

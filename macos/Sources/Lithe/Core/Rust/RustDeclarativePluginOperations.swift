@@ -440,6 +440,7 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
     }
 
     private struct LaunchRequest: Encodable {
+        let logDirectory: String?
         let pluginDirectory: String
         let stateDirectory: String
         /// Omitted for a process bound to no workspace.
@@ -449,6 +450,7 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
         let projectSettings: [String: ToolingJSONValue]
 
         init(_ request: DeclarativeLanguageServerLaunchRequest) {
+            logDirectory = request.logDirectory?.path
             pluginDirectory = request.pluginDirectory.path
             stateDirectory = request.stateDirectory.path
             workspaceStateDirectory = request.workspaceStateDirectory?.path

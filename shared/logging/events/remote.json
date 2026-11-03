@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "root": "remote",
+  "events": [
+    {
+      "id": "remote.build.cleanup_failed",
+      "channel": "remote",
+      "level": "warn",
+      "message": "Remote build output cleanup failed",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Filesystem error raised while removing remote build output staging"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "remote.directory.watch_failed",
+      "channel": "remote",
+      "level": "warn",
+      "message": "Remote directory watch ended",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Error that ended the remote workspace directory observation stream"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "remote.plugins.cleanup_failed",
+      "channel": "remote",
+      "level": "warn",
+      "message": "Remote plugin {stage} cleanup failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Remote plugin deployment cleanup target, e.g. snapshot or extraction"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Filesystem error raised while deleting remote plugin deployment staging"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "remote.process.cleanup_failed",
+      "channel": "remote",
+      "level": "warn",
+      "message": "Remote backend cleanup failed",
+      "fields": {
+        "failure_code": {
+          "type": "token",
+          "required": true,
+          "description": "Controlled cleanup failure category; excludes remote addresses and process output"
+        }
+      },
+      "rate": 60,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "remote.upload.abort_failed",
+      "channel": "remote",
+      "level": "warn",
+      "message": "Remote upload abort failed",
+      "fields": {
+        "failure_code": {
+          "type": "token",
+          "required": true,
+          "description": "Controlled cleanup failure category; excludes remote addresses and process output"
+        }
+      },
+      "rate": 60,
+      "owner": "lithe-core"
+    }
+  ]
+}

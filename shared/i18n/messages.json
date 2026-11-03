@@ -95726,6 +95726,124 @@
       "platforms": [
         "windows"
       ]
+    },
+    {
+      "id": "workspace.appStore",
+      "description": "Native project file Open With menu",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "App Store",
+        "arguments": []
+      }
+    },
+    {
+      "id": "workspace.chooseApplication",
+      "description": "Native project file Open With menu",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Choose an Application",
+        "arguments": []
+      }
+    },
+    {
+      "id": "workspace.defaultApplication",
+      "description": "Native project file Open With menu",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ (default)",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "workspace.externalOpenFailed",
+      "description": "Native project file Open With menu",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not open %@: %@",
+        "arguments": [
+          "arg1",
+          "arg2"
+        ]
+      },
+      "parameters": {
+        "arg1": "string",
+        "arg2": "string"
+      }
+    },
+    {
+      "id": "workspace.openWith",
+      "description": "Native project file Open With menu",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Open With",
+        "arguments": []
+      }
+    },
+    {
+      "id": "workspace.openWithAppStore",
+      "description": "Native project file Open With menu",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "App Store…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "workspace.openWithOther",
+      "description": "Native project file Open With menu",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Other…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "workspace.nativeMenuDescription",
+      "description": "Visible title and description for native menu items on macOS 13/14.0–14.3",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ — %@",
+        "arguments": [
+          "arg1",
+          "arg2"
+        ]
+      },
+      "parameters": {
+        "arg1": "string",
+        "arg2": "string"
+      }
+    },
+    {
+      "id": "mac.workbench.unhide",
+      "description": "Restore a hidden tool window rail entry without opening its panel",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Unhide",
+        "arguments": []
+      }
     }
   ]
 }

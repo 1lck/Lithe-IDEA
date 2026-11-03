@@ -45,7 +45,8 @@ package final class LanguageToolingSessionManager: ObservableObject,
     @Published package private(set) var semanticTokensGeneration: UInt64 = 0
     @Published package private(set) var languageServerFeatures: [String: LanguageServerFeatureSet] = [:]
     /// Application composition persists lifecycle facts without raw protocol payloads.
-    package var onLogEvent: ((String, String?, String, String, String?) -> Void)?
+    package var onLogEvent: ((CoreLogRecord) -> Void)?
+    package var onLogIssue: ((String, String?, Bool, String, String, Int?) -> Void)?
     @Published package private(set) var languageServerLogs: [LanguageServerLogEntry] = []
     @Published package private(set) var projectPreparation: ProjectPreparationSnapshot?
     package var onJavaDependencySnapshotChange: (@MainActor () -> Void)?
@@ -58,6 +59,11 @@ package final class LanguageToolingSessionManager: ObservableObject,
     @Published package private(set) var languageServerInfos: [String: LanguageServerInfo] = [:]
     @Published package private(set) var languageServerOperationIDs: [String: UUID] = [:]
     package var onLanguageServerStateChange: ((String, LanguageServerSessionState, UUID?) -> Void)?
+    private let logSink: (any LogSink)?
+    private let resolveLogSubject: (String) throws -> LogSegment?
+    // Cache both success and failure; diagnostics must not change startup behavior.
+    private var logSubjects: [String: LogSegment?] = [:]
+    private static let maximumLogSubjects = 128
     private var catalog: LanguageProviderCatalog
     private let extensionRequiredProviderIDs: Set<String>
     private let isLanguageServerEnabled: (String, URL) -> Bool
@@ -93,6 +99,8 @@ package final class LanguageToolingSessionManager: ObservableObject,
 
     package init(
         catalog: LanguageProviderCatalog = .compatibilityFallback,
+        logSink: (any LogSink)? = nil,
+        resolveLogSubject: @escaping (String) throws -> LogSegment? = { _ in nil },
         runtimes: [any LanguageProviderRuntime] = [],
         runtimeFactory: (any LanguageProviderRuntimeFactory)? = nil,
         builtinCore: (any BuiltinLanguageFeatureCore)? = nil,
@@ -103,6 +111,8 @@ package final class LanguageToolingSessionManager: ObservableObject,
         workspaceStateResetter: ((LanguageProviderDescriptor, URL, String?) throws -> Void)? = nil,
         workspaceStateCleaner: ((LanguageProviderDescriptor, URL, String?) throws -> Int)? = nil
     ) {
+        self.logSink = logSink
+        self.resolveLogSubject = resolveLogSubject
         self.catalog = catalog
         self.runtimeFactory = runtimeFactory
         self.extensionRequiredProviderIDs = extensionRequiredProviderIDs
@@ -151,6 +161,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
             } catch is CancellationError {
                 return
             } catch {
+                self.recordLogIssue("java", nil, true, "dependencies", "dependencyProjectionUnavailable", nil)
                 self.recordLanguageServerLog(
                     providerID: "java", level: .warning,
                     message: "Java dependency projection unavailable",
@@ -1053,6 +1064,36 @@ package final class LanguageToolingSessionManager: ObservableObject,
         languageServerLogs = []
     }
 
+    private func logSubject(for providerID: String) -> LogSegment? {
+        if let cached = logSubjects[providerID] { return cached }
+        let subject = try? resolveLogSubject(providerID)
+        if logSubjects.count >= Self.maximumLogSubjects { logSubjects.removeAll(keepingCapacity: true) }
+        logSubjects[providerID] = .some(subject)
+        return subject
+    }
+
+    private enum SessionStage: String {
+        case requested, resolving, registered, stopping, cancelled
+    }
+
+    private func recordSessionStage(_ stage: SessionStage, providerID: String, operationID: String?) {
+        guard let logSink, let server = logSubject(for: providerID) else { return }
+        logSink.emit(LspSessionStageChanged(server: server, stage: stage.rawValue, operationID: operationID))
+    }
+
+    private func recordLogIssue(_ providerID: String, _ operationID: String?, _ warning: Bool,
+                                _ stage: String, _ code: String, _ exitCode: Int?) {
+        onLogIssue?(providerID, operationID, warning, stage, code, exitCode)
+        guard let logSink, let server = logSubject(for: providerID) else { return }
+        if warning {
+            logSink.emit(LspSessionDegradationReceived(exitCode: exitCode.map(Int64.init),
+                failureCode: code, server: server, stage: stage, operationID: operationID))
+        } else {
+            logSink.emit(LspSessionIssueFailed(exitCode: exitCode.map(Int64.init),
+                failureCode: code, server: server, stage: stage, operationID: operationID))
+        }
+    }
+
     package func recordLanguageServerLog(
         providerID: String,
         operationID: String? = nil,
@@ -1060,8 +1101,6 @@ package final class LanguageToolingSessionManager: ObservableObject,
         message: String,
         detail: String? = nil
     ) {
-        onLogEvent?(providerID, operationID ?? languageServerOperationIDs[providerID]?.uuidString,
-            level.rawValue, message, detail)
         languageServerLogs.insert(LanguageServerLogEntry(
             providerID: providerID,
             operationID: operationID ?? languageServerOperationIDs[providerID]?.uuidString,
@@ -1112,6 +1151,10 @@ package final class LanguageToolingSessionManager: ObservableObject,
             case .startingProcess, .initializing: true
             default: false
             }
+            if wasPreparing { recordLogIssue(providerID, languageServerOperationIDs[providerID]?.uuidString,
+                true, "startup", "requestCancelled", nil) }
+            recordSessionStage(wasPreparing ? .cancelled : .stopping, providerID: providerID,
+                               operationID: operationID?.uuidString)
             recordLanguageServerLog(
                 providerID: providerID,
                 level: wasPreparing ? .warning : .info,
@@ -1679,6 +1722,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
         languageServerStartupAttempts[descriptor.id] = (rootURL, attempts + 1)
         let operationID = requestedOperationID ?? UUID()
         languageServerOperationIDs[descriptor.id] = operationID
+        recordSessionStage(.requested, providerID: descriptor.id, operationID: operationID.uuidString)
         recordLanguageServerLog(
             providerID: descriptor.id,
             operationID: operationID,
@@ -1686,6 +1730,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
             message: "Language server start requested",
             detail: rootURL.path
         )
+        recordSessionStage(.resolving, providerID: descriptor.id, operationID: operationID.uuidString)
         recordLanguageServerLog(
             providerID: descriptor.id,
             operationID: operationID,
@@ -1702,6 +1747,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
                 message: message
             ))
             languageServerStates[descriptor.id] = state
+            recordLogIssue(descriptor.id, operationID.uuidString, false, "discovery", "tool_not_found", nil)
             recordLanguageServerLog(
                 providerID: descriptor.id,
                 operationID: operationID,
@@ -1726,6 +1772,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
                 message: error.localizedDescription
             ))
             languageServerStates[descriptor.id] = state
+            recordLogIssue(descriptor.id, operationID.uuidString, false, "workspaceFingerprint", "workspace_fingerprint_failed", nil)
             recordLanguageServerLog(
                 providerID: descriptor.id,
                 operationID: operationID,
@@ -1750,6 +1797,10 @@ package final class LanguageToolingSessionManager: ObservableObject,
                     rootURL,
                     workspaceFingerprint
                 )
+                if let logSink, let server = logSubject(for: descriptor.id) {
+                    logSink.emit(LspCacheCleaned(removed: Int64(removedCount), server: server,
+                                                operationID: operationID.uuidString))
+                }
                 recordLanguageServerLog(
                     providerID: descriptor.id,
                     operationID: operationID,
@@ -1760,6 +1811,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
             } catch {
                 // Cache maintenance is best-effort and must not prevent the
                 // current workspace's language server from starting.
+                recordLogIssue(descriptor.id, operationID.uuidString, true, "cacheCleanup", "cacheCleanupFailed", nil)
                 recordLanguageServerLog(
                     providerID: descriptor.id,
                     operationID: operationID,
@@ -1823,6 +1875,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
                     )
                 let state = LanguageServerSessionState.failed(failure)
                 languageServerStates[descriptor.id] = state
+                recordLogIssue(descriptor.id, languageServerOperationIDs[descriptor.id]?.uuidString, false, failure.stage ?? "processStart", failure.code ?? "start_failed", failure.exitCode.map(Int.init))
                 recordLanguageServerLog(
                     providerID: descriptor.id,
                     operationID: operationID,
@@ -1837,6 +1890,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
             throw error
         }
 
+        recordSessionStage(.registered, providerID: descriptor.id, operationID: operationID.uuidString)
         recordLanguageServerLog(
             providerID: descriptor.id,
             operationID: operationID,
@@ -2108,6 +2162,17 @@ package final class LanguageToolingSessionManager: ObservableObject,
             guard let self, self.languageServerSessionIdentities[providerID] == sessionIdentity else { return }
             self.mavenProfileProjectResults[result.projectURI] = result
         }
+        // Retiring sessions still own their terminal facts after UI state is cleared.
+        // Core records carry their own identity, so do not apply the UI stale-session gate.
+        let sink = logSink
+        session.onCoreLog = { [weak self] record in
+            if let sink { sink.emit(record) } else { self?.onLogEvent?(record) }
+        }
+        session.onLogIssue = { [weak self] warning, stage, code, exitCode, operationID in
+            guard let self, self.languageServerSessionIdentities[providerID] == sessionIdentity else { return }
+            self.recordLogIssue(providerID, operationID ?? self.languageServerOperationIDs[providerID]?.uuidString,
+                warning, stage, code, exitCode)
+        }
         session.onLog = { [weak self] level, message, detail, operationID in
             guard let self, self.languageServerSessionIdentities[providerID] == sessionIdentity else { return }
             self.recordLanguageServerLog(
@@ -2171,6 +2236,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
                 stop: false
             )
             if case .failed(let failure) = state {
+                recordLogIssue(providerID, languageServerOperationIDs[providerID]?.uuidString, false, failure.stage ?? "processStart", failure.code ?? "start_failed", failure.exitCode.map(Int.init))
                 recordLanguageServerLog(
                     providerID: providerID,
                     level: .error,

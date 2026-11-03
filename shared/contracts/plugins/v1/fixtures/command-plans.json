@@ -855,6 +855,70 @@
         "status": "rejected",
         "code": "plugin.launch.unavailable"
       }
+    },
+    {
+      "name": "node runtime receives an explicit session plugin log directory",
+      "plugin": "node-runtime.plugin.json",
+      "languageID": "fixture",
+      "operation": "languageServerLaunchPlan",
+      "request": {
+        "pluginDirectory": "/plugins/node/versions/1.0.0",
+        "stateDirectory": "/state/node",
+        "workspaceStateDirectory": "/state/node/workspaces/abc",
+        "architecture": "x86_64",
+        "logDirectory": "/logs/sessions/current/plugins/io.example/files"
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "launch": {
+            "kind": "runtime",
+            "tool": "node",
+            "entry": "language-server/lib/server.js",
+            "minimumVersion": "18.17",
+            "versionArguments": [
+              "--version"
+            ]
+          },
+          "arguments": [
+            "--max-old-space-size=2048",
+            "--require=/plugins/node/versions/1.0.0/language-server/lib/preload.js",
+            "/plugins/node/versions/1.0.0/language-server/lib/server.js",
+            "--stdio",
+            "--log=/logs/sessions/current/plugins/io.example/files/server.log"
+          ],
+          "validationArguments": [],
+          "runtimeRequirements": [
+            {
+              "tool": "node",
+              "minimumVersion": "18.17"
+            }
+          ],
+          "initializationOptions": {
+            "stubs": [
+              "/plugins/node/versions/1.0.0/language-server/stubs/x86_64"
+            ],
+            "telemetry": false
+          },
+          "requiredDirectories": [
+            "log"
+          ],
+          "requiredPackagePaths": [
+            "language-server/lib/preload.js",
+            "language-server/lib/server.js",
+            "language-server/stubs/x86_64"
+          ],
+          "settings": {
+            "heapMB": 2048,
+            "logLevel": "info",
+            "telemetry": false
+          }
+        }
+      },
+      "manifestArguments": [
+        "--stdio",
+        "--log=${logDir}/server.log"
+      ]
     }
   ]
 }

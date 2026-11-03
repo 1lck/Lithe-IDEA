@@ -356,6 +356,7 @@ test('planning failures and non pull request events run every selected lane', as
 
 test('CI infrastructure paths are recognised', () => {
   assert.equal(isCiInfrastructure('scripts/plugins/plugin-settings-schema.test.mjs'), true);
+  assert.equal(isCiInfrastructure('scripts/logging/generate-log-events.mjs'), true);
   for (const path of ['.github/workflows/ci-macos.yml', 'scripts/ci/common/classify-ci-changes.sh', 'scripts/macos/test/test-macos.sh', 'Package.resolved', 'rust/Cargo.lock', 'rust/lithe-core/Cargo.toml', 'windows/tauri/crates/project/Cargo.toml', 'windows/tauri/rust-toolchain.toml', '.agents/skills/write-stable-tests/scripts/x.sh']) {
     assert.equal(isCiInfrastructure(path), true, path);
   }
@@ -372,6 +373,7 @@ test('CI infrastructure reaches only the workflows that read it', () => {
   const reached = (path) => ['macos', 'plugins', 'windows'].filter((workflow) => infrastructureAffects(path, workflow, references));
   const shared = ['macos', 'plugins', 'windows'];
   const expectations = {
+    'scripts/logging/generate-log-events.mjs': [],
     // Shared Rust workspace: the Windows product links Rust Core by path.
     'rust/Cargo.lock': shared,
     'rust/lithe-core/Cargo.toml': shared,

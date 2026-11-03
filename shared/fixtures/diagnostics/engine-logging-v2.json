@@ -1,0 +1,68 @@
+{
+  "version": 1,
+  "start": {
+    "providerId": "opaque:git:provider",
+    "role": "vcs",
+    "logSubject": "git",
+    "pluginId": "io.example.git",
+    "executablePath": "/tools/provider",
+    "rootUri": "file:///workspace",
+    "workingDirectory": "/workspace"
+  },
+  "trace": {
+    "version": 1,
+    "command": "lsp.setDetailedDiagnostics",
+    "payload": {
+      "sessionId": "lsp-1",
+      "enabled": true
+    }
+  },
+  "drain": {
+    "version": 1,
+    "command": "diagnostics.drainCoreEvents",
+    "payload": {}
+  },
+  "startResponse": {
+    "sessionId": "lsp-1",
+    "state": "initializing",
+    "processId": null,
+    "channel": "vcs/git"
+  },
+  "pluginFiles": {
+    "command": "diagnostics.resolveLogChannel",
+    "payload": {
+      "channel": "plugins/io.example.git/host"
+    },
+    "result": {
+      "relativePath": "plugins/io.example.git/host.log",
+      "pluginFilesPath": "plugins/io.example.git/files/"
+    }
+  },
+  "resolveSubject": {
+    "command": "diagnostics.resolveEngineLogSubject",
+    "payload": {
+      "role": "language_server",
+      "providerId": "c++"
+    },
+    "result": {
+      "channel": "lsp/invalid-cedb1bac7efcd7db47e9f2f2250a7c83",
+      "segment": "invalid-cedb1bac7efcd7db47e9f2f2250a7c83"
+    }
+  },
+  "lifecycleEvent": {
+    "type": "stateChanged",
+    "sequence": 17,
+    "providerId": "opaque:git:provider",
+    "sessionId": "lsp-1",
+    "state": "ready",
+    "channel": "vcs/git",
+    "pluginId": "io.example.git",
+    "role": "vcs",
+    "event": "vcs.session.updated",
+    "catalogLevel": "DEBUG",
+    "fields": {
+      "provider": "git",
+      "state": "ready"
+    }
+  }
+}

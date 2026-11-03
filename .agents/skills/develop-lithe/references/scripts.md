@@ -17,7 +17,7 @@
 | `scripts/release/{sparkle,macos,windows,autobuild,notes}/` | 发布流水线：Sparkle 更新与验签、更新清单、AutoBuild 发布、发布说明校验 |
 | `scripts/macos/{build,package,prepare,test,verify,perf,probe}/` | 只服务 macOS 产品的脚本：构建、打包、依赖与资源准备、测试入口、门禁校验、性能基线、手动探针 |
 | `scripts/windows/{build,package,prepare,test,verify,perf}/` | 只服务 Windows 产品的脚本，子目录含义同上 |
-| `scripts/rust-core/`、`architecture/`、`i18n/`、`agent-notes/`、`platform-feature-matrix/`、`plugins/`、`remote/`、`ide-mcp/`、`editor/`、`git-graph/`、`agent/`、`resources/` | 跨平台领域的脚本，目录名就是领域名 |
+| `scripts/rust-core/`、`architecture/`、`i18n/`、`logging/`、`agent-notes/`、`platform-feature-matrix/`、`plugins/`、`remote/`、`ide-mcp/`、`editor/`、`git-graph/`、`agent/`、`resources/` | 跨平台领域的脚本，目录名就是领域名 |
 
 - 没有合适的目录时，新建一个以领域或作用命名的目录，并在同一次改动中更新上表。不得新建 `misc/`、`utils/`、`tools/` 这类不表达作用的目录。
 - 例外：属于某个跨平台领域、但只在一个平台上运行的脚本，留在领域目录，文件名中带平台名，不放进 `scripts/macos/` 或 `scripts/windows/`。例如 `scripts/ide-mcp/build-windows-ide-mcp.mjs`、`scripts/ide-mcp/build-ide-mcp.sh`、`scripts/editor/package-macos-monaco.sh`。这类脚本必须在分类器和 `plan-ci-lane-reuse.mjs` 中按完整路径登记，不得依靠文件名中的平台子串匹配。

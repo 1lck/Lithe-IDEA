@@ -30,6 +30,19 @@ enum UpdateDownloadFailure: Equatable, Sendable {
         }
     }
 
+    var logEvent: UpdateDownloadInterrupted {
+        let reason: String
+        var status: Int64?
+        switch self {
+        case .timedOut: reason = "timedOut"
+        case .connectionFailed: reason = "connectionFailed"
+        case .tlsOrProxyFailure: reason = "tlsOrProxyFailure"
+        case .httpStatus(let value): reason = "httpStatus"; status = Int64(value)
+        case .invalidResponse: reason = "invalidResponse"
+        }
+        return UpdateDownloadInterrupted(httpStatus: status, reason: reason)
+    }
+
     var checkError: UpdateCheckError {
         switch self {
         case .timedOut: return .timedOut
@@ -469,7 +482,7 @@ final class UpdateDownloadRelay: @unchecked Sendable {
     private let store: UpdateDownloadPartialStore
     private let configuration: URLSessionConfiguration
     private let policy: UpdateDownloadTransfer.Policy
-    private let diagnosticSink: @Sendable (String) -> Void
+    private let logSink: (any LogSink)?
     private let lock = NSLock()
     private let acceptQueue = DispatchQueue(label: "app.lithe.updates.relay.accept")
     private var listener: Int32 = -1
@@ -481,11 +494,11 @@ final class UpdateDownloadRelay: @unchecked Sendable {
 
     init(store: UpdateDownloadPartialStore, configuration: URLSessionConfiguration = .default,
          policy: UpdateDownloadTransfer.Policy = .init(),
-         diagnosticSink: @escaping @Sendable (String) -> Void = { NSLog("%@", $0) }) {
+         logSink: (any LogSink)? = nil) {
         self.store = store
         self.configuration = configuration
         self.policy = policy
-        self.diagnosticSink = diagnosticSink
+        self.logSink = logSink
     }
 
     deinit { stop() }
@@ -512,7 +525,7 @@ final class UpdateDownloadRelay: @unchecked Sendable {
             let name = upstream.lastPathComponent.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? "update"
             return URL(string: "http://127.0.0.1:\(port)/\(token)/\(name)")
         } catch {
-            diagnosticSink("Update download relay unavailable: \(error.localizedDescription)\n")
+            logSink?.emit(UpdateRelayStartFailed(error: error))
             return nil
         }
     }
@@ -598,7 +611,7 @@ final class UpdateDownloadRelay: @unchecked Sendable {
                 if self.transfers[key]?.id == id { self.transfers.removeValue(forKey: key) }
             }
             if case .failed = outcome {
-                self.diagnosticSink("Update download stopped; partial data kept for resume: \(String(describing: failure))\n")
+                self.logSink?.emit(failure?.logEvent ?? UpdateDownloadInterrupted(reason: "unclassified"))
             }
         }
         lock.withLock { transfers[key] = (id, transfer) }

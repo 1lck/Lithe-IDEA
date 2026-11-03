@@ -4,6 +4,24 @@ import UniformTypeIdentifiers
 import LitheModuleAPI
 
 final class MacPlatformUI: PlatformUI {
+    var supportsExternalFileApplications: Bool { true }
+
+    func applications(toOpen url: URL) -> [ExternalFileApplication] {
+        MacExternalFileApplications.applications(toOpen: url)
+    }
+
+    func chooseExternalFileApplication() async -> URL? {
+        await MacExternalFileApplications.chooseApplication()
+    }
+
+    func openFile(_ url: URL, withApplicationAt application: URL?) async throws {
+        try await MacExternalFileApplications.openFile(url, withApplicationAt: application)
+    }
+
+    func findApplicationsOnAppStore(for url: URL) throws {
+        try MacExternalFileApplications.findOnAppStore(for: url)
+    }
+
     func confirmHardLinkSave(at url: URL) -> DocumentHardLinkSaveMode? {
         let alert = NSAlert()
         alert.alertStyle = .warning

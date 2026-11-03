@@ -26,7 +26,7 @@
 
 `AppSettings` 保存可选的自定义目录，并把有效日志目录定义为“自定义目录
 或默认目录”。用户从系统目录选择器选中目录后立即持久化，并通过已有观察
-机制让 `MacApplicationLogWriter` 将后续输出写入新目录；应用重启后继续使用
+机制让 `MacLogStore` 将后续输出写入新目录；应用重启后继续使用
 该选择。字体注册和 Git 性能基线诊断等现有诊断输出复用同一个 writer。
 
 如果启动时或运行中无法创建、打开或切换到自定义目录，应用清除自定义选择，
@@ -56,8 +56,14 @@
 用户可以立即切换目录，重启后也能保持选择。目录不可用时会自动恢复可用
 默认值，代价是用户需要重新选择一个可用目录。
 
-模块日志与导出快照的后续决策见
+模块日志的共享脱敏、导出冻结与 Windows v1 现状见
 [双端模块日志与诊断快照](../architecture/2026-10-20-modular-application-logging.md)。
+该 Note 的目录、scope 与记录格式设计已由
+[结构化日志通道与事件目录](../architecture/2026-11-03-structured-logging-channels.md) 部分取代。
+v2 在本 Note 的有效日志根下计算会话和通道相对路径，不改变根目录选择与失败回退的所有权。
+macOS 的 PR2 已接入生产 writer，时间线与导出只收集 v2，v1 文件仅按年龄过期；插件
+`${logDir}` 与独立窗口方案见
+[结构化日志宿主接入与独立窗口](../../proposed/architecture/2026-11-03-structured-logging-host-integration.md)。
 日志 writer 仍然由 macOS 应用启动和设置观察机制驱动，目录配置本身不负责
 日志内容治理、轮换、清理或上传。未来如果改变日志文件名、诊断导出来源
 或 Windows 日志策略，需要重新检查 `LogDirectoryProviding` 与本 Note 的
@@ -67,20 +73,20 @@
 
 - `./scripts/macos/test/test-macos.sh`
 - `./scripts/architecture/verify-service-boundaries.sh`
-- `macos/Tests/LitheTests/MacApplicationLogWriterTests.swift`
+- `macos/Tests/LitheTests/MacLogStoreTests.swift`
 - `macos/Tests/LitheTests/AppLocalizationTests.swift`
 - `./scripts/agent-notes/verify-agent-notes.sh`
 
 测试覆盖 macOS 默认日志目录、切换目录后的后续写入、设置文案和诊断导出
-使用的统一 `applicationLogFileURL`。
+使用的有效目录与 v2 会话快照。
 
 ## 适用范围
 
 - `macos/Sources/Lithe/Platform/MacOS/Logging/MacLogDirectoryProvider.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Logging/MacApplicationLogWriter.swift`
+- `macos/Sources/Lithe/Platform/MacOS/Logging/MacLogStore.swift`
 - `macos/Sources/Lithe/Core/Ports/LogDirectoryProviding.swift`
 - `macos/Sources/Lithe/Models/Settings/AppSettings.swift`
 - `macos/Sources/Lithe/LitheApp.swift`
 - `macos/Sources/Lithe/Views/App/SettingsView.swift`
-- `macos/Tests/LitheTests/MacApplicationLogWriterTests.swift`
+- `macos/Tests/LitheTests/MacLogStoreTests.swift`
 - `macos/Tests/LitheTests/AppLocalizationTests.swift`
