@@ -15,7 +15,7 @@ const commonBindings = {
 const workflows = [
   {
     id: 'macos',
-    selected: ['validation', 'swift', 'rust_core', 'macos_release'],
+    selected: ['validation', 'plugins', 'swift', 'rust_core', 'macos_release'],
     lanes: [
       { lane: 'tooling', job: 'tooling' },
       { lane: 'swift', job: 'swift-tests', run: 'run_swift' },
@@ -32,7 +32,7 @@ const workflows = [
       RUN_SWIFT: 'needs.changes.outputs.run_swift',
       RUN_RUST: 'needs.changes.outputs.run_rust',
       RUN_RELEASE: 'needs.changes.outputs.run_release',
-      SWIFT_SELECTED: "needs.changes.outputs.swift == 'true' || needs.changes.outputs.rust_core == 'true'",
+      SWIFT_SELECTED: "needs.changes.outputs.swift == 'true' || needs.changes.outputs.rust_core == 'true' || needs.changes.outputs.plugins == 'true'",
       RUST_CORE_SELECTED: 'needs.changes.outputs.rust_core',
       RELEASE_SELECTED: 'needs.changes.outputs.macos_release',
     },
@@ -346,7 +346,7 @@ for (const conclusions of ['completed:success', 'completed:failure completed:suc
 
 // Preserve the scheduling contract: main needs unique groups even for pending
 // runs; the required gate must exist when every changed path is documentation.
-for (const id of ['macos', 'windows', 'plugins', 'remote']) {
+for (const id of ['macos', 'windows', 'remote']) {
   test(`${id}: PR supersession and main preservation are declared at workflow scope`, testOptions, () => {
     const source = readFileSync(new URL(`../../../.github/workflows/ci-${id}.yml`, import.meta.url), 'utf8');
     const concurrency = block(source, 'concurrency:', 0);
@@ -359,3 +359,69 @@ for (const id of ['macos', 'windows', 'plugins', 'remote']) {
     assert.match(source, /\$GITHUB_REF.*refs\/heads\/main/);
   });
 }
+
+test('plugin-only changes require the shared Swift lane and keep every native plugin check', testOptions, async () => {
+  const context = fixture(macos, false);
+  context.needs.changes.outputs.plugins = 'true';
+  expectStatus(await runBash(bash(macos.required), environment(macos.required, context)), false);
+  context.needs.changes.outputs.run_swift = 'true';
+  context.needs['swift-tests'].result = 'success';
+  expectStatus(await runBash(bash(macos.required), environment(macos.required, context)), true);
+  const swift = block(macos.source, 'swift-tests:', 2);
+  for (const name of ['Run plugin-focused Swift tests', 'Build and verify official plugin packages']) {
+    const step = block(swift, `- name: ${name}`, 6);
+    assert.equal(expression(scalar(step, 'if', 8)), "needs.changes.outputs.plugins == 'true'");
+  }
+  assert.match(block(swift, '- name: Run plugin-focused Swift tests', 6), /--skip-build --filter/);
+  const standalone = readFileSync(new URL('../../../.github/workflows/ci-plugins.yml', import.meta.url), 'utf8');
+  assert.equal(block(standalone, 'on:', 0).trim(), 'workflow_dispatch:');
+});
+
+test('shared Swift test selection preserves coverage and removes the language-suite overlap', testOptions, () => {
+  const ordinary = block(block(macos.source, 'swift-tests:', 2), '- name: Run Swift unit tests', 6);
+  const plugin = block(block(macos.source, 'swift-tests:', 2), '- name: Run plugin-focused Swift tests', 6);
+  const filter = scalar(plugin, 'run', 8).match(/--filter '([^']+)'/)[1];
+  const binding = scalar(block(ordinary, 'env:', 8), 'PLUGIN_TEST_SKIP', 10);
+  const choices = binding.match(/&& '([^']+)' \|\| '([^']+)'/);
+  assert.equal(choices[1], filter);
+  assert.equal(choices[2], '([Pp]lugin|LinuxDo)');
+  assert.match(ordinary, /--skip "\$PLUGIN_TEST_SKIP"/);
+  for (const name of ['PluginManagerTests', 'LinuxDoTests', 'LanguageExtensionProcessLifecycleTests', 'LanguageServerToolServiceTests', 'EditorTests']) {
+    const prior = !new RegExp(choices[2]).test(name) || new RegExp(filter).test(name);
+    const selected = Number(!new RegExp(choices[1]).test(name)) + Number(new RegExp(filter).test(name));
+    assert.equal(selected, Number(prior), name);
+  }
+});
+
+// checkout can replace an uninitialized workspace even with clean: false.
+// Reports must be downloaded after source setup, or the gate loses its evidence.
+test('Windows shard evidence survives checkout and remains isolated per artifact', testOptions, () => {
+  const windows = workflows.find((workflow) => workflow.id === 'windows');
+  const gate = block(windows.source, 'gate:', 2);
+  const checkout = gate.indexOf('- name: Check out shard coverage verifier');
+  const download = gate.indexOf('- name: Download Core shard reports');
+  const verify = gate.indexOf('- name: Verify exhaustive Core shard coverage');
+  assert.ok(checkout >= 0 && checkout < download && download < verify);
+  assert.doesNotMatch(gate.slice(download, verify), /uses: actions\/checkout/);
+  assert.doesNotMatch(block(gate, '- name: Download Core shard reports', 6), /merge-multiple: true/);
+});
+
+test('Windows Rust matrices preserve every package and give host adapters their own lane', testOptions, () => {
+  const windows = workflows.find((workflow) => workflow.id === 'windows');
+  const rust = block(windows.source, 'rust-tests:', 2);
+  const matrices = [...rust.matchAll(/'(\[[^']+\])'/g)].map(match => JSON.parse(match[1]));
+  assert.equal(matrices.length, 3);
+  for (const matrix of matrices) {
+    const core = matrix.filter(lane => lane.scope === 'SharedRustCore');
+    const hosts = matrix.filter(lane => lane.scope === 'SharedRustHosts');
+    assert.deepEqual(core.map(lane => lane.shard), core.length ? [1, 2] : []);
+    assert.equal(hosts.length, core.length ? 1 : 0);
+    assert.equal(new Set(matrix.map(lane => lane.lane)).size, matrix.length);
+  }
+  const harness = readFileSync(new URL('../../../.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1', import.meta.url), 'utf8');
+  for (const packageName of ['lithe-core', 'lithe-git-host', 'lithe-agent-host', 'lithe-ide-host']) {
+    assert.match(harness, new RegExp('-Package "' + packageName + '"'));
+  }
+  assert.match(block(rust, '- name: Test shared Rust host adapters', 6), /-Scope SharedRustHosts/);
+  assert.match(block(rust, '- name: Verify Windows MCP stdio protocol', 6), /matrix.lane == 'shared-hosts'/);
+});

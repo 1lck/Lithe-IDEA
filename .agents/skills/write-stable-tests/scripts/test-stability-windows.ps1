@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [ValidateSet("All", "Frontend", "WindowsRust", "SharedRust")]
+    [ValidateSet("All", "Frontend", "WindowsRust", "SharedRust", "SharedRustCore", "SharedRustHosts")]
     [string]$Scope = "All",
     [ValidateRange(1, 3600)]
     [int]$WarnSeconds = 1,
@@ -199,9 +199,7 @@ if ($Scope -in @("All", "WindowsRust")) {
         -Report (Join-Path $reportRoot "windows-rust.json")
 }
 
-if ($Scope -in @("All", "SharedRust")) {
-    # Host crates and MCP run once; only the long Core suite is partitioned.
-    if ($CoreShardIndex -eq 1) {
+if ($Scope -in @("All", "SharedRust", "SharedRustHosts")) {
     # Dependency tests are not selected by -p lithe-core. Exercise the native
     # process and AskPass adapter on Windows as a separate timed package.
     Invoke-TimedRustTests `
@@ -222,8 +220,9 @@ if ($Scope -in @("All", "SharedRust")) {
         -TargetDirectory "rust/target" `
         -Report (Join-Path $reportRoot "ide-host-rust.json")
 
-    }
+}
 
+if ($Scope -in @("All", "SharedRust", "SharedRustCore")) {
     Invoke-TimedRustTests `
         -Manifest "rust/Cargo.toml" `
         -Package "lithe-core" `

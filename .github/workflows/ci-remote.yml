@@ -124,7 +124,7 @@ jobs:
         run: ./scripts/remote/verify-remote-workspace.sh --tests
 
       - name: Upload test timing report
-        if: always()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: rust-remote-tests-linux

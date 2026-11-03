@@ -32,6 +32,7 @@ jobs:
       actions: read
     outputs:
       validation: ${{ steps.classify.outputs.validation }}
+      plugins: ${{ steps.classify.outputs.plugins }}
       swift: ${{ steps.classify.outputs.swift }}
       rust_core: ${{ steps.classify.outputs.rust_core }}
       macos_release: ${{ steps.classify.outputs.macos_release }}
@@ -87,6 +88,7 @@ jobs:
             {
               echo "ci_scope=pull_request"
               echo "validation=true"
+              echo "plugins=true"
               echo "swift=true"
               echo "rust_core=true"
               echo "macos_release=true"
@@ -138,6 +140,7 @@ jobs:
           PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
           LITHE_CI_CLASSIFICATION: |
             ci_scope=${{ steps.classify.outputs.ci_scope }}
+            plugins=${{ steps.classify.outputs.plugins }}
             swift=${{ steps.classify.outputs.swift }}
             rust_core=${{ steps.classify.outputs.rust_core }}
             macos_release=${{ steps.classify.outputs.macos_release }}
@@ -229,7 +232,7 @@ jobs:
             scripts/ci/common/plan-ci-lane-reuse.test.mjs scripts/ci/common/rust-shards.test.mjs scripts/ci/common/verify-reused-ci-jobs.test.mjs scripts/ci/common/ci-workflow-gates.test.mjs scripts/ci/cancel-closed-pr-runs/cancel-closed-pr-runs.test.mjs
 
       - name: Generate Sparkle download timing report
-        if: always()
+        if: ${{ !cancelled() }}
         run: |
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
@@ -243,7 +246,7 @@ jobs:
           NODE
 
       - name: Upload Sparkle download timing report
-        if: always()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: test-stability-sparkle-baseline
@@ -259,7 +262,7 @@ jobs:
             scripts/macos/build/build-macos.test.mjs
 
       - name: Generate macOS build cache timing report
-        if: always()
+        if: ${{ !cancelled() }}
         run: |
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
@@ -278,21 +281,12 @@ jobs:
         with:
           components: rustfmt
 
-      - name: Cache Rust static-check dependencies
-        if: needs.changes.outputs.rust_core == 'true'
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rust
-          shared-key: core-static-linux
-          cache-bin: false
-          cache-on-failure: true
-
       - name: Check Rust comments, layout and formatting
         if: needs.changes.outputs.rust_core == 'true'
         run: ./scripts/rust-core/verify-rust-core-static.sh
 
       - name: Upload build tooling test reports
-        if: always()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: test-stability-build-tooling
@@ -302,7 +296,7 @@ jobs:
   # The Rust Core bridge checks reuse the Swift test build: a separate job
   # spent about ten minutes compiling the same products and held another of
   # the five organization macOS runners.
-  # Plugin tests stay in macOS Plugin CI so that unrelated changes skip them.
+  # Plugin tests share this compilation; path classification still skips unrelated suites.
   swift-tests:
     name: Swift tests
     needs: changes
@@ -325,6 +319,9 @@ jobs:
         uses: ./.github/actions/prepare-macos-dependency-cache
         with:
           swiftpm: "true"
+          jdtls: ${{ needs.changes.outputs.plugins }}
+          jdk: ${{ needs.changes.outputs.plugins }}
+          jdk-architecture: arm64
 
       # Compile and discover tests before starting the test execution deadline.
       # A cold Rust/Swift build still compiling Lithe exceeded 20 minutes in
@@ -334,8 +331,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust -> target/macos
-          shared-key: macos-swift-tests
-          key: ${{ hashFiles('.swift-version', 'scripts/rust-core/build-rust-core.sh') }}
+          shared-key: macos-swift-tests-${{ hashFiles('.swift-version', 'scripts/rust-core/build-rust-core.sh') }}
           cache-bin: false
           cache-on-failure: true
 
@@ -353,6 +349,9 @@ jobs:
         if: needs.changes.outputs.swift == 'true'
         timeout-minutes: 17
         env:
+          # The plugin lane already owns these two language-service suites when
+          # selected; keep them in the ordinary lane on non-plugin changes.
+          PLUGIN_TEST_SKIP: ${{ needs.changes.outputs.plugins == 'true' && '([Pp]lugin|LanguageExtensionProcessLifecycleTests|LanguageServerToolServiceTests|LinuxDo)' || '([Pp]lugin|LinuxDo)' }}
           LITHE_AGENT_ACTIVITY_SCREENSHOTS: ${{ github.workspace }}/.artifacts/test-stability
           LITHE_AGENT_SELECTOR_SCREENSHOTS: ${{ github.workspace }}/.artifacts/test-stability
           LITHE_AGENT_EDITOR_LAYOUT_SCREENSHOTS: ${{ github.workspace }}/.artifacts/test-stability
@@ -365,7 +364,7 @@ jobs:
             --skip StableRollbackDiskImageIntegrationTests \
             --skip GitStatusObservationTests \
             --skip LitheGitPerformanceTests \
-            --skip '([Pp]lugin|LinuxDo)'
+            --skip "$PLUGIN_TEST_SKIP"
 
       - name: Run stable rollback disk image integration test
         if: needs.changes.outputs.swift == 'true'
@@ -406,14 +405,24 @@ jobs:
             --skip-build \
             --filter StableRollbackDiskImageIntegrationTests
 
+      - name: Run plugin-focused Swift tests
+        if: needs.changes.outputs.plugins == 'true'
+        timeout-minutes: 17
+        run: ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh --report .artifacts/test-stability/macos-plugins.json --suite-timeout-seconds 960 -- --skip-build --filter '([Pp]lugin|LanguageExtensionProcessLifecycleTests|LanguageServerToolServiceTests|LinuxDo)'
+
+      - name: Build and verify official plugin packages
+        if: needs.changes.outputs.plugins == 'true'
+        timeout-minutes: 10
+        run: ./scripts/plugins/verify-official-plugins.sh
+
       # A failed build cannot produce reports; the build step already fails the
       # job, so do not stack a second "no reports found" failure on top of it.
       - name: Generate combined Swift test report
-        if: always() && steps.build.outcome == 'success'
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: node .agents/skills/write-stable-tests/scripts/generate-test-report.mjs
 
       - name: Upload Swift test reports
-        if: always()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: test-stability-macos
@@ -458,7 +467,7 @@ jobs:
         run: ./scripts/rust-core/verify-rust-core-crates.sh --skip-static
 
       - name: Upload Rust test reports
-        if: always()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
         with:
           name: rust-core-tests-macos
@@ -657,7 +666,7 @@ jobs:
           RUN_SWIFT: ${{ needs.changes.outputs.run_swift }}
           RUN_RUST: ${{ needs.changes.outputs.run_rust }}
           RUN_RELEASE: ${{ needs.changes.outputs.run_release }}
-          SWIFT_SELECTED: ${{ needs.changes.outputs.swift == 'true' || needs.changes.outputs.rust_core == 'true' }}
+          SWIFT_SELECTED: ${{ needs.changes.outputs.swift == 'true' || needs.changes.outputs.rust_core == 'true' || needs.changes.outputs.plugins == 'true' }}
           RUST_CORE_SELECTED: ${{ needs.changes.outputs.rust_core }}
           RELEASE_SELECTED: ${{ needs.changes.outputs.macos_release }}
           REUSE: ${{ needs.changes.outputs.reuse }}

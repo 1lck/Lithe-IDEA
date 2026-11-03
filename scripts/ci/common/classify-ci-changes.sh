@@ -88,6 +88,7 @@ classify_path() {
             enable_all_validation
             ;;
         .github/workflows/ci-macos.yml)
+            plugins=true
             swift=true
             rust_core=true
             macos_release=true

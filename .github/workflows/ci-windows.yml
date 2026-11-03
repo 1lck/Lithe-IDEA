@@ -669,7 +669,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Upload Windows frontend test reports
-        if: always()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: test-stability-windows-frontend
@@ -686,7 +686,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(needs.changes.outputs.rust_core == 'true' && needs.changes.outputs.windows_rust == 'true' && '[{"lane":"shared-1","scope":"SharedRust","shard":1},{"lane":"shared-2","scope":"SharedRust","shard":2},{"lane":"host","scope":"WindowsRust","shard":1}]' || needs.changes.outputs.rust_core == 'true' && '[{"lane":"shared-1","scope":"SharedRust","shard":1},{"lane":"shared-2","scope":"SharedRust","shard":2}]' || '[{"lane":"host","scope":"WindowsRust","shard":1}]') }}
+        include: ${{ fromJSON(needs.changes.outputs.rust_core == 'true' && needs.changes.outputs.windows_rust == 'true' && '[{"lane":"shared-1","scope":"SharedRustCore","shard":1},{"lane":"shared-2","scope":"SharedRustCore","shard":2},{"lane":"shared-hosts","scope":"SharedRustHosts","shard":1},{"lane":"host","scope":"WindowsRust","shard":1}]' || needs.changes.outputs.rust_core == 'true' && '[{"lane":"shared-1","scope":"SharedRustCore","shard":1},{"lane":"shared-2","scope":"SharedRustCore","shard":2},{"lane":"shared-hosts","scope":"SharedRustHosts","shard":1}]' || '[{"lane":"host","scope":"WindowsRust","shard":1}]') }}
 
     steps:
       - name: Check out source
@@ -702,23 +702,26 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: |
-            rust
-            windows/tauri/src-tauri
-          shared-key: windows-tests
+          workspaces: ${{ matrix.scope == 'WindowsRust' && 'windows/tauri/src-tauri' || 'rust' }}
+          shared-key: windows-tests-${{ matrix.scope == 'WindowsRust' && 'WindowsRust' || 'SharedRust' }}
           cache-bin: false
           cache-on-failure: true
           save-if: ${{ matrix.lane == 'shared-1' || matrix.lane == 'host' }}
-          key: ${{ matrix.scope }}
 
       - name: Test shared Rust Core
-        if: needs.changes.outputs.rust_core == 'true' && matrix.scope == 'SharedRust'
+        if: needs.changes.outputs.rust_core == 'true' && matrix.scope == 'SharedRustCore'
         shell: pwsh
         timeout-minutes: 20
-        run: ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope SharedRust -SuiteTimeoutSeconds 1080 -CoreShardIndex ${{ matrix.shard }} -CoreShardCount 2
+        run: ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope SharedRustCore -SuiteTimeoutSeconds 1080 -CoreShardIndex ${{ matrix.shard }} -CoreShardCount 2
+
+      - name: Test shared Rust host adapters
+        if: matrix.scope == 'SharedRustHosts'
+        shell: pwsh
+        timeout-minutes: 20
+        run: ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope SharedRustHosts -SuiteTimeoutSeconds 1080
 
       - name: Verify Windows MCP stdio protocol
-        if: needs.changes.outputs.rust_core == 'true' && matrix.lane == 'shared-1'
+        if: needs.changes.outputs.rust_core == 'true' && matrix.lane == 'shared-hosts'
         shell: pwsh
         timeout-minutes: 5
         run: |
@@ -734,12 +737,12 @@ jobs:
         run: ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope WindowsRust -SuiteTimeoutSeconds 1080
 
       - name: Generate combined Windows Rust test report
-        if: always()
+        if: ${{ !cancelled() }}
         shell: pwsh
         run: node .agents/skills/write-stable-tests/scripts/generate-test-report.mjs
 
       - name: Upload Windows Rust test reports
-        if: always()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: test-stability-windows-rust-${{ matrix.lane }}
@@ -765,8 +768,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
-          shared-key: windows-tests
-          key: SharedRust
+          shared-key: windows-tests-SharedRust
           cache-bin: false
           save-if: false
 
@@ -827,7 +829,7 @@ jobs:
             --report .artifacts/test-stability/windows-real-jdt.json
 
       - name: Upload real JDT test report
-        if: always()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: test-stability-windows-real-jdt
@@ -882,20 +884,19 @@ jobs:
           require_job "$RUN_FRONTEND" "$FRONTEND_RESULT"
           require_job "$RUN_RUST" "$RUST_TESTS_RESULT"
           require_job "$RUN_JDT" "$REAL_JDT_RESULT"
-      - name: Download Core shard reports
-        if: needs.rust-tests.result == 'success' && needs.changes.outputs.rust_core == 'true'
-        uses: actions/download-artifact@v8
-        with:
-          pattern: test-stability-windows-rust-shared-*
-          path: .artifacts/rust-shards
-
       - name: Check out shard coverage verifier
         if: needs.rust-tests.result == 'success' && needs.changes.outputs.rust_core == 'true'
         uses: actions/checkout@v7
         with:
           sparse-checkout: scripts/ci/common/verify-rust-shards.mjs
           sparse-checkout-cone-mode: false
-          clean: false
+
+      - name: Download Core shard reports
+        if: needs.rust-tests.result == 'success' && needs.changes.outputs.rust_core == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          pattern: test-stability-windows-rust-shared-*
+          path: .artifacts/rust-shards
 
       - name: Verify exhaustive Core shard coverage
         if: needs.rust-tests.result == 'success' && needs.changes.outputs.rust_core == 'true'

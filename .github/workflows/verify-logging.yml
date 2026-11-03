@@ -59,7 +59,7 @@ jobs:
       - name: Check log usage
         run: node scripts/logging/verify-log-usage.mjs
       - name: Generate per-test timing report
-        if: always()
+        if: ${{ !cancelled() }}
         run: |
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
@@ -72,7 +72,7 @@ jobs:
           writeTestReportArtifacts(`${stem}.json`);
           NODE
       - name: Upload timing report
-        if: always()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: structured-logging-ubuntu-latest

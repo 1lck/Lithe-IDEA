@@ -33,9 +33,9 @@ normally GitHub's test merge commit. Check **macOS CI gate** or **Windows CI
 gate** for the combined test result. The macOS **Swift tests** job builds the
 Swift tests once and runs the suites selected by the classifier;
 **Remote Workspace CI gate** checks the Linux remote workspace lane (`scripts/remote/verify-remote-workspace.sh`),
-which draft pull requests keep because it uses no macOS runner. **macOS Plugin CI**
-stays separate: it only reserves a macOS runner when the classifier selects the
-plugin lane, and otherwise **Plugin CI gate** passes on Linux in seconds.
+which draft pull requests keep because it uses no macOS runner. Selected plugin
+tests and package verification reuse the same Swift build. **macOS Plugin CI**
+remains available only through manual dispatch for focused diagnosis.
 A failed architecture still fails the macOS gate; `fail-fast: false` lets the
 other architecture finish and upload its package. To request a Windows installer
 for a branch, manually run **Release AutoBuild** and provide that branch as
@@ -45,7 +45,7 @@ for that caller.
 ### Reusing lane results within a pull request
 
 A new push to a pull request does not rerun every lane. In **macOS CI**,
-**macOS Plugin CI** and **Windows CI**, the classify job runs
+**Windows CI** (and the manually dispatched **macOS Plugin CI**), the classify job runs
 `scripts/ci/common/plan-ci-lane-reuse.mjs`, which decides per lane (Swift tests, Rust Core
 tests, packaging, plugin tests, Windows frontend, Windows Rust, real JDT):
 
@@ -97,10 +97,15 @@ macOS path containing `Java` alone does not select Windows real-JDT. Shared Core
 and contract changes still select the relevant cross-platform checks.
 
 Windows Core tests run on two machines with stable name-based sharding; Windows
-host tests run independently. The gate verifies that the Core reports contain
+host tests and shared Git/Agent/IDE host adapters run independently. The gate verifies that the Core reports contain
 the same discovered inventory and execute every case exactly once. Real-JDT
 runs only its native integration prefix, keeping its JDKs and deadlines. The
 ordinary Core suite is covered by the shards instead of repeated in that job.
+
+Plugin-focused Swift tests and official plugin package verification share the
+main Swift compilation, selected independently by `plugins`. Plugin-only changes
+still require that lane. The standalone plugin workflow remains manually
+available but no longer competes for an additional runner on each PR.
 
 The required `macOS CI gate` still appears for documentation-only PRs. Its
 classifier skips native lanes and the independent Ubuntu tooling tests. Other
@@ -127,8 +132,8 @@ pushes, so its GitHub cache entries are refreshed by pull requests and main push
 
 ### macOS runners
 
-Every macOS lane (**Swift tests**, **Rust Core tests**, **Release package
-verification**, and **Plugin tests and package verification**) runs on the
+Every automatic macOS lane (**Swift tests**, including selected plugin tests,
+**Rust Core tests**, and **Release package verification**) runs on the
 GitHub-hosted `macos-26` runner, including pull requests from forks. Release
 workflows also use GitHub-hosted runners because they hold signing material.
 

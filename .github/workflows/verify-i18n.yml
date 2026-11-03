@@ -68,7 +68,7 @@ jobs:
             --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/i18n-node.junit.xml \
             scripts/i18n/test-i18n.mjs
       - name: Generate per-test timing report
-        if: always()
+        if: ${{ !cancelled() }}
         run: |
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
@@ -81,7 +81,7 @@ jobs:
           writeTestReportArtifacts(`${stem}.json`);
           NODE
       - name: Upload timing report
-        if: always()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: shared-i18n-${{ matrix.os }}

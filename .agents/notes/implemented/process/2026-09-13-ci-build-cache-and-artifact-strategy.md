@@ -20,7 +20,7 @@ Rust Core、数据库辅助 crate 和前端构建的耗时来源不同；如果�
 
 ## 决策
 
-2026-11-02 的最近 50 次运行样本显示，Swift 编译步骤中位数约 14 分钟、单元测试
+2026-11-03 的最近 50 次运行样本显示，Swift 编译步骤中位数约 14 分钟、单元测试
 约 3.7 分钟；macOS 打包 job 最长排队 1,237 秒。Windows Rust 原 job 最长 1,735 秒，
 其中 Core 测试与 host 测试串行，real-JDT 又执行了一遍普通 Core 测试。以下调整保留
 所有测试与平台专属验证：
@@ -29,7 +29,9 @@ Rust Core、数据库辅助 crate 和前端构建的耗时来源不同；如果�
   其他原生 CI 用文档路径过滤；代码提交的工具测试放到并行 Ubuntu job，gate 检查其结果。
   Windows 分类 job 不再重复执行同一份下载校验、工作树复用和 relay 测试。
   分类在 draft 延迟原生任务前记下 tooling 选择，不能让 draft 绕过工具验证。
-- Windows Rust 使用两个 Core 分片和独立 host job。测试名称的稳定哈希决定分片，
+- Windows Rust 使用两个 Core 分片、共享 host/MCP job 和独立 Windows host job。
+  首轮分片一仍串行编译三个共享 host，耗时 16 分 16 秒，而分片二只要 10 分 20 秒；
+  因此共享 host 与 MCP 改为独立任务，避免把这段准备成本加到 Core 分片的关键路径上。测试名称的稳定哈希决定分片，
   单测试看门狗、suite deadline 和报告不变。gate 下载两个 Core 报告，核对相同清单、
   不重不漏与成功状态；矩阵 `fail-fast: false` 保留其他分片的诊断。
 - real-JDT 只选择 `lsp::interface::engine::real_jdt_tests::`，专用环境与 600 秒预算不变。
@@ -39,9 +41,12 @@ Rust Core、数据库辅助 crate 和前端构建的耗时来源不同；如果�
   原来的三系统验证，不把这一真实平台需求当作重复测试删除。
 - Swift bridge 的 Git execution 驱动直接使用同次 Cargo 构建产生的 dylib，避免重新
   向另一个 target 目录编译 Core。静态库、Swift app、C 驱动仍执行全部验证。
-- Rust 测试使用 `Swatinem/rust-cache` 缓存裁剪后的依赖编译输出；Swift/plugin 共享
-  同一个 Rust target cache 身份，Windows Core 两分片只有一个写者，host 使用独立身份。
-  real-JDT 只读同一 Core 缓存。禁止缓存整个 incremental 目录、最终安装包或 SwiftPM
+- Rust 测试使用 `Swatinem/rust-cache` 缓存裁剪后的依赖编译输出；Swift/plugin 共用
+  同一次 Swift 编译与同一个 Rust target cache 身份，Windows Core 两分片只有一个写者，host 使用独立身份。
+  `shared-key` 优先于 `key`，因此工作区身份和额外脚本哈希必须直接放进 `shared-key`，
+  不能同时传两个输入后误以为 action 会把它们拼接。首轮 Windows 日志已经复现这种碰撞。
+  real-JDT 只读同一 Core 缓存；其 workspace 列表也必须与 Core 分片一致，否则 action
+  会因为清单集合不同生成不同的环境哈希，看似相同的 shared-key 仍无法命中。禁止缓存整个 incremental 目录、最终安装包或 SwiftPM
   可变构建状态。PR 的 macOS 下载缓存只读，避免每个 PR 复制相同下载物挤占 10 GB。
 - setup-node 的工作流只运行无外部依赖的 Node 脚本，没有 npm 安装；不为了打开 `cache`
   而引入不存在的 npm lockfile。产品使用 Bun，保留其真实依赖缓存。
@@ -54,13 +59,13 @@ macOS CI 与发布工作流统一使用 Xcode 26.6，编译器
 某台开发机升级了 Xcode 27 而改变，否则仍在 macOS 15 上工作的开发者会被迫
 升级开发环境。
 
-日常 CI 的 Swift 测试、Rust Core 测试、应用打包验证和插件测试都运行在 GitHub 托管的
+日常 CI 的 Swift/插件共用测试、Rust Core 原生测试和应用打包验证都运行在 GitHub 托管的
 `macos-26` 上，包括 fork 提交到本仓库的 PR；发布流程（正式版、AutoBuild、官方插件
 发布）需要签名证书和发布密钥，同样使用托管 Runner。2026-10-16 至 10-18 曾试用自建
 Mac mini Runner，因为离线时没有回退、fork 代码跑在长期存活的机器上而撤销，经过见
 [已否决的 Note](../../rejected/process/2026-10-18-self-hosted-mac-mini-ci-runners.md)。
 
-同一个 PR 的后续 push 按 lane 复用之前的结果。观察到的问题是：作者补一个很小的
+同一个 PR 的后续 push 按 lane 复用之前已完成的成功结果。观察到的问题是：作者补一个很小的
 提交，或者为了同步 `preview` 更新分支，所有 lane 都会重新完整运行，而结果大概率
 不变。`scripts/ci/common/plan-ci-lane-reuse.mjs` 在 macOS CI、插件 CI 和 Windows CI 的分类 job
 中逐个 lane 判断：找到这个 PR 之前真正执行过该 lane 的最近一次运行，job 已完成且通过，并且 PR 自己在此之后的改动（按现有分类规则）不影响这个 lane，就复用
@@ -227,9 +232,11 @@ macOS runner（GitHub 托管的 Mac 构建机）按组织共享，Free 计划同
   Linux 上运行。Linux runner 能执行服务的 Linux 适配器，同时交叉检查 macOS 目标，
   所以不需要为它申请 macOS runner；这些 crate 暂未被产品链接，改动它们也不会触发
   macOS 或 Windows lane。
-- 插件测试保留在独立的 macOS Plugin CI，只有分类器选中插件 lane 时才申请
-  macOS runner。多数 PR 不改插件，独立 job 时整条 lane 直接跳过；合进共用
-  job 则需要为少数插件 PR 额外拉长主 Swift job，收益更小。
+- 插件测试与官方插件包校验按 `plugins` 分类结果接入主 Swift job，复用同一次测试
+  编译。只有插件改动时也会选择该 job，但不跑无关的普通 Swift 测试。独立 macOS
+  Plugin CI 保留手动诊断入口，不再自动触发。2026-11-03 首轮优化实测中，插件 job
+  正在冷编译整套 Swift 测试时主 Swift job 仍排队；这种重复构建不值得多占一个槽位。
+  必需 macOS gate 同时覆盖插件专项测试与包校验，不能把单独 workflow 停掉却漏迁测试。
 - `shared/platform-feature-matrix/` 是规划数据，产品代码不读取，由 Verify
   Platform Feature Matrix 工作流单独校验。几乎每个功能 PR 都要更新它；过去它
   落入 `shared/*` 规则，只改 macOS 界面的 PR 也会触发 Windows CI 和 macOS 上
@@ -246,8 +253,8 @@ macOS runner（GitHub 托管的 Mac 构建机）按组织共享，Free 计划同
   Rust Core 从 18 次降到 3 次，Windows Rust 与真实 JDT 降到 3 次。
 - 分类脚本读取 `LITHE_CI_DRAFT_PULL_REQUEST`。Draft PR 关闭所有 macOS 和
   Windows lane，只保留 Linux 上的分类、diff、Rust 数据库、注释和元数据检查；
-  PR 标记为 ready for review 时，macOS CI、Windows CI 和 macOS Plugin CI 重新
-  触发完整分类。
+  PR 标记为 ready for review 时，macOS CI 与 Windows CI 重新触发完整分类，
+  插件专项测试由 macOS CI 的共用 Swift job 承担。
 - 独立共享 i18n 校验同样遵循 Draft 限制：Draft 只展开 Linux 生成器检查，
   ready PR、preview 推送和手动运行展开三系统矩阵。工作流监听
   `ready_for_review`，并取消同一 PR 的旧 i18n 校验，避免重复占用 runner。
@@ -389,11 +396,13 @@ macOS 并发上限冲突，也会和 PR、Swift 测试互相排队，因此不�
 覆盖 x86_64。代价是 Intel 专属的问题要在合并后才暴露，需要由 `preview` 上的
 macOS CI 失败来修复。
 
-### 把插件测试也并入共用 Swift job
+### 继续让插件任务单独编译整套 Swift 测试
 
-可以再省一次插件 PR 的编译，但插件 lane 只在少数 PR 中被选中。并入后会把
-插件过滤测试和官方插件打包验证串进主 Swift job，延长包含插件改动的 PR 的
-主反馈路径，因此插件 CI 保持独立并依赖分类器跳过。
+此前为了避免插件包校验拉长主 Swift job 而保留独立任务。2026-11-03 运行
+`41601214368` / `41601214530` 显示，两条任务编译相同目标，但主 Swift job
+还会被正在编译的插件 job 挤出五个 macOS 槽位。插件专项在本地只运行约十秒，
+先前成功的 CI 插件任务约 19 分钟主要用于编译；因此改为共用编译更合适。
+代价是涉及插件时，包校验串在主 Swift job 中；原有专项时限、断言和报告仍保留。
 
 ### 用 workflow 的 `paths` 过滤跳过插件 CI
 

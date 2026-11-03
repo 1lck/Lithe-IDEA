@@ -19,7 +19,7 @@ import { pathToFileURL } from 'node:url';
 // outputs that select it. Keep in sync with the workflows' job `if:` lines.
 export const WORKFLOW_LANES = Object.freeze({
   macos: [
-    { lane: 'swift', job: 'Swift tests', selected: (o) => o.swift || o.rust_core },
+    { lane: 'swift', job: 'Swift tests', selected: (o) => o.swift || o.rust_core || o.plugins },
     { lane: 'rust', job: 'Rust Core tests', selected: (o) => o.rust_core },
     { lane: 'release', job: 'Release package verification', prefix: true, selected: (o) => o.macos_release },
   ],
