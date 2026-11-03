@@ -22,6 +22,11 @@ fn process_fixture() {
         run_tree_fixture(&mode);
         return;
     }
+    #[cfg(unix)]
+    if mode == "sigint-survivor" {
+        run_sigint_survivor_fixture();
+        return;
+    }
     // Output is the synchronization signal. The helper also has its own hard
     // deadline, so a broken parent cancellation path cannot leave it running.
     let deadline = Instant::now() + Duration::from_secs(3);
@@ -162,6 +167,173 @@ fn reap_in_background(mut root: Child) -> mpsc::Receiver<()> {
         let _ = sender.send(());
     });
     receiver
+}
+
+#[cfg(unix)]
+static SURVIVED_SIGINT: AtomicBool = AtomicBool::new(false);
+
+#[cfg(unix)]
+extern "C" fn record_sigint(_: libc::c_int) {
+    SURVIVED_SIGINT.store(true, Ordering::SeqCst);
+}
+
+/// Survives SIGINT by handling it, so a parent can observe that a graceful
+/// stop delivered the signal before its grace period forces the kill.
+#[cfg(unix)]
+fn run_sigint_survivor_fixture() {
+    unsafe {
+        libc::signal(libc::SIGINT, record_sigint as libc::sighandler_t);
+    }
+    println!("fixture-ready");
+    std::io::stdout().flush().expect("announce fixture");
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while Instant::now() < deadline {
+        if SURVIVED_SIGINT.load(Ordering::SeqCst) {
+            println!("sigint-received");
+            std::io::stdout().flush().expect("announce signal");
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let _ = std::io::stdin().read_to_end(&mut Vec::new());
+}
+
+#[cfg(unix)]
+struct SurvivorFixture {
+    tree: ProcessTree,
+    root: Child,
+    // Dropped last: closing it lets the fixture exit on its own.
+    _input: std::process::ChildStdin,
+    lines: mpsc::Receiver<String>,
+}
+
+#[cfg(unix)]
+fn spawn_sigint_survivor_fixture() -> SurvivorFixture {
+    let mut command = Command::new(std::env::current_exe().expect("test executable"));
+    command
+        .args(["--exact", "process_fixture", "--nocapture"])
+        .env("LITHE_GIT_PROCESS_FIXTURE", "sigint-survivor")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped());
+    ProcessTree::prepare(&mut command);
+    let mut root = command.spawn().expect("spawn sigint fixture");
+    let input = root.stdin.take().expect("root input");
+    let output = root.stdout.take().expect("root output");
+    let tree = ProcessTree::adopt(&mut root).expect("adopt sigint fixture");
+    let (sender, lines) = mpsc::channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(output).lines() {
+            let Ok(line) = line else { return };
+            if line.starts_with("fixture-") || line == "sigint-received" {
+                if sender.send(line).is_err() {
+                    return;
+                }
+            }
+        }
+    });
+    SurvivorFixture {
+        tree,
+        root,
+        _input: input,
+        lines,
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn graceful_stop_forces_a_tree_that_survives_sigint() {
+    let mut fixture = spawn_sigint_survivor_fixture();
+    fixture
+        .lines
+        .recv_timeout(TREE_DEADLINE)
+        .expect("fixture did not start");
+    let forced = fixture
+        .tree
+        .terminate_gracefully(Duration::from_millis(300))
+        .expect("graceful stop ends the tree");
+    assert!(forced, "a tree that survives SIGINT must be killed");
+    fixture
+        .root
+        .wait()
+        .expect("the forced root is reaped by its owner");
+}
+
+#[cfg(unix)]
+#[test]
+fn graceful_stop_lets_a_tree_that_honours_sigint_exit_on_its_own() {
+    let fixture = spawn_tree_fixture();
+    assert_ne!(fixture.descendant, 0);
+    let forced = fixture
+        .tree
+        .terminate_gracefully(TREE_DEADLINE)
+        .expect("graceful stop ends the tree");
+    assert!(!forced, "a tree that exits on SIGINT must not be killed");
+    fixture
+        .root_exit
+        .recv_timeout(TREE_DEADLINE)
+        .expect("root ended");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_second_graceful_stop_kills_right_away() {
+    let mut fixture = spawn_sigint_survivor_fixture();
+    fixture
+        .lines
+        .recv_timeout(TREE_DEADLINE)
+        .expect("fixture did not start");
+    std::thread::scope(|scope| {
+        let tree = &fixture.tree;
+        let first = scope.spawn(move || {
+            tree.terminate_gracefully(Duration::from_secs(30))
+        });
+        // The fixture only reports the signal after the first request has
+        // sent it, so the second request is provably not the graceful one.
+        let line = fixture
+            .lines
+            .recv_timeout(TREE_DEADLINE)
+            .expect("no signal delivery report");
+        assert_eq!(line, "sigint-received");
+        let began = Instant::now();
+        let forced = tree
+            .terminate_gracefully(TREE_DEADLINE)
+            .expect("second stop ends the tree");
+        assert!(forced, "the second stop must kill right away");
+        assert!(
+            began.elapsed() < TREE_DEADLINE,
+            "the second stop must not wait out the first grace period"
+        );
+        let forced = first
+            .join()
+            .expect("first stop thread")
+            .expect("first stop ends the tree");
+        assert!(forced, "the first stop observed the forced phase");
+        fixture
+            .root
+            .wait()
+            .expect("the forced root is reaped by its owner");
+    });
+}
+
+#[cfg(windows)]
+#[test]
+fn graceful_stop_on_windows_ends_the_tree_by_force() {
+    let fixture = spawn_tree_fixture();
+    assert_ne!(fixture.descendant, 0);
+    let forced = fixture
+        .tree
+        .terminate_gracefully(TREE_DEADLINE)
+        .expect("graceful stop ends the tree");
+    assert!(forced, "Windows ends the tree by force right away");
+    fixture
+        .root_exit
+        .recv_timeout(TREE_DEADLINE)
+        .expect("root ended");
+    // A second request after the tree is empty is harmless.
+    fixture
+        .tree
+        .terminate_gracefully(TREE_DEADLINE)
+        .expect("an empty tree terminates");
 }
 
 #[test]

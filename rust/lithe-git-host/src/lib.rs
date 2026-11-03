@@ -269,10 +269,15 @@ fn discard_unowned_child(child: &mut Child) -> io::Result<()> {
 /// that explicitly asks to leave (`CREATE_BREAKAWAY_FROM_JOB`) is allowed to,
 /// matching a Unix process that starts its own session.
 ///
-/// On Unix the child leads a new process group. Only [`ProcessTree::kill`]
-/// and [`ProcessTree::terminate`] end it; crash cleanup belongs to the host.
+/// On Unix the child leads a new process group. Only [`ProcessTree::kill`],
+/// [`ProcessTree::terminate`] and [`ProcessTree::terminate_gracefully`] end
+/// it; crash cleanup belongs to the host.
 pub struct ProcessTree {
     group: platform::Group,
+    // Set when a graceful stop has been asked for, so a later call skips the
+    // grace period and kills right away.
+    #[cfg(unix)]
+    graceful_since: std::sync::Mutex<Option<Instant>>,
 }
 
 impl ProcessTree {
@@ -288,6 +293,12 @@ impl ProcessTree {
     /// a suspended process is never left behind.
     pub fn adopt(child: &mut Child) -> io::Result<Self> {
         match platform::Group::new(child, true) {
+            #[cfg(unix)]
+            Ok(group) => Ok(Self {
+                group,
+                graceful_since: std::sync::Mutex::new(None),
+            }),
+            #[cfg(windows)]
             Ok(group) => Ok(Self { group }),
             Err(error) => {
                 discard_unowned_child(child)?;
@@ -320,6 +331,58 @@ impl ProcessTree {
                 ));
             }
             std::thread::sleep(POLL_INTERVAL);
+        }
+    }
+
+    /// Asks the tree to end gracefully and waits for it.
+    ///
+    /// On Unix the whole process group first receives `SIGINT`, the same
+    /// signal a foreground Ctrl+C delivers, and the call polls until every
+    /// process has exited within `grace`; processes that remain are then
+    /// killed. It returns `Ok(true)` when the kill phase ran and `Ok(false)`
+    /// when every process exited on its own during the grace period. A later
+    /// call on the same tree skips the grace period and kills right away, so
+    /// a repeated stop request acts as a forced stop. As with
+    /// [`ProcessTree::terminate`], a Unix root that its owner has not reaped
+    /// yet still counts, so the owner must keep waiting on its `Child`
+    /// concurrently.
+    ///
+    /// On Windows the job is terminated right away and `Ok(true)` is
+    /// returned; the Job Object already ends every process of the tree
+    /// immediately.
+    pub fn terminate_gracefully(&self, grace: Duration) -> io::Result<bool> {
+        #[cfg(unix)]
+        {
+            let mut requested = self
+                .graceful_since
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if requested.is_some() {
+                drop(requested);
+                self.group.kill()?;
+                return Ok(true);
+            }
+            *requested = Some(Instant::now());
+            drop(requested);
+            self.group.interrupt()?;
+            let deadline = Instant::now() + grace;
+            loop {
+                if !self.group.has_live_processes()? {
+                    return Ok(false);
+                }
+                if Instant::now() >= deadline {
+                    break;
+                }
+                std::thread::sleep(POLL_INTERVAL);
+            }
+            self.group.kill()?;
+            Ok(true)
+        }
+        #[cfg(windows)]
+        {
+            let _ = grace;
+            self.group.kill()?;
+            Ok(true)
         }
     }
 }
@@ -403,6 +466,17 @@ mod platform {
             unsafe {
                 libc::kill(-self.0, if force { libc::SIGKILL } else { libc::SIGTERM });
             }
+        }
+        pub fn interrupt(&self) -> io::Result<()> {
+            // SAFETY: a negative PID addresses only the process group we created.
+            if unsafe { libc::kill(-self.0, libc::SIGINT) } == 0 {
+                return Ok(());
+            }
+            let error = io::Error::last_os_error();
+            if error.raw_os_error() == Some(libc::ESRCH) {
+                return Ok(());
+            }
+            Err(error)
         }
         pub fn kill(&self) -> io::Result<()> {
             // SAFETY: a negative PID addresses only the process group we created.
