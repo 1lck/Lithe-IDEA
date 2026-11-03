@@ -6,6 +6,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { createSelectors } from "@/utils/zustand-selectors";
+import { KeymapContextError, prepareWhenClause } from "../utils/context";
 import type { Keybinding, KeymapContext, KeymapStore } from "../types/keymaps.types";
 import {
   getExportableUserKeybindings,
@@ -15,9 +16,9 @@ import {
 interface KeymapState extends KeymapStore {
   recordingCommandId: string | null;
   actions: {
-    addKeybinding: (keybinding: Keybinding) => void;
+    addKeybinding: (keybinding: Keybinding) => Promise<void>;
     removeKeybinding: (commandId: string) => void;
-    updateKeybinding: (commandId: string, updates: Partial<Keybinding>) => void;
+    updateKeybinding: (commandId: string, updates: Partial<Keybinding>) => Promise<void>;
     resetToDefaults: () => void;
     setContext: (key: keyof KeymapContext, value: boolean) => void;
     setContexts: (contexts: Partial<KeymapContext>) => void;
@@ -44,31 +45,39 @@ const useKeymapStoreBase = create<KeymapState>()(
         isRecordingKeybinding: false,
       },
       actions: {
-        addKeybinding: (keybinding) =>
-          set((state) => {
-            const userKeybinding = normalizeUserKeybinding(keybinding);
-
-            if (!userKeybinding) {
-              return state;
-            }
-
-            return {
-              keybindings: [
-                ...state.keybindings.filter((kb) => kb.command !== userKeybinding.command),
-                userKeybinding,
-              ],
-            };
-          }),
+        addKeybinding: async (keybinding) => {
+          const expected = useKeymapStoreBase.getState().keybindings;
+          const userKeybinding = normalizeUserKeybinding(keybinding);
+          if (!userKeybinding) return;
+          if (userKeybinding.when) await prepareWhenClause(userKeybinding.when);
+          if (useKeymapStoreBase.getState().keybindings !== expected)
+            throw new KeymapContextError("configuration_changed");
+          set((state) => ({
+            keybindings: [
+              ...state.keybindings.filter((kb) => kb.command !== userKeybinding.command),
+              userKeybinding,
+            ],
+          }));
+        },
         removeKeybinding: (commandId) =>
           set((state) => ({
             keybindings: state.keybindings.filter((kb) => kb.command !== commandId),
           })),
-        updateKeybinding: (commandId, updates) =>
-          set((state) => ({
-            keybindings: state.keybindings.map((kb) =>
-              kb.command === commandId ? { ...kb, ...updates } : kb,
-            ),
-          })),
+        updateKeybinding: async (commandId, updates) => {
+          const expected = useKeymapStoreBase.getState().keybindings;
+          const replacements = expected.map((kb) =>
+            kb.command === commandId ? normalizeUserKeybinding({ ...kb, ...updates }) : kb,
+          );
+          for (const kb of replacements) {
+            if (kb?.command === commandId) await prepareWhenClause(kb.when);
+          }
+          // Do not overwrite a reset, import or edit that completed during Core validation.
+          if (useKeymapStoreBase.getState().keybindings !== expected)
+            throw new KeymapContextError("configuration_changed");
+          set(() => ({
+            keybindings: replacements.filter((kb): kb is Keybinding => kb !== null),
+          }));
+        },
         resetToDefaults: () =>
           set(() => ({
             keybindings: [],

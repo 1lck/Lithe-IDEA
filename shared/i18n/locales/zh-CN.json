@@ -3122,6 +3122,8 @@
     "keybindings.resetToDefault": "重置为默认",
     "keybindings.resetToDefaultAria": "重置为默认快捷键",
     "keybindings.user": "用户",
+    "keybindings.invalidWhen": "无法保存快捷键条件，请检查表达式后重试。",
+    "keybindings.saveFailed": "保存快捷键失败：{error}",
     "layout.actions": "操作",
     "layout.pinned": "已固定",
     "layout.projectDots": "项目圆点",

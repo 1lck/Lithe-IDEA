@@ -3122,6 +3122,8 @@
     "keybindings.resetToDefault": "Reset to default",
     "keybindings.resetToDefaultAria": "Reset to default keybinding",
     "keybindings.user": "User",
+    "keybindings.invalidWhen": "The shortcut condition could not be saved. Check the expression and try again.",
+    "keybindings.saveFailed": "Failed to save shortcut: {error}",
     "layout.actions": "Actions",
     "layout.pinned": "Pinned",
     "layout.projectDots": "Project Dots",
