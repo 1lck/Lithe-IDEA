@@ -1014,6 +1014,19 @@ pub struct GitDiffRowResponse {
     /// Rendering category such as context, changed, insertion, deletion, or information.
     pub kind: String,
     pub hunk_id: Option<String>,
+    /// Both sides look equal only after removing a trailing carriage return.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_invisible_change: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// One original-order display line from a unified diff.
+pub struct GitDiffUnifiedLineResponse {
+    pub line_type: String,
+    pub content: String,
+    pub old_line: Option<usize>,
+    pub new_line: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1023,6 +1036,9 @@ pub struct GitDiffHunkResponse {
     pub id: String,
     pub header: String,
     pub patch: String,
+    /// A rename's content-only patch preserves its file identity when applied.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_patch: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1037,6 +1053,13 @@ pub struct GitDiffFileResponse {
     pub patch: String,
     pub rows: Vec<GitDiffRowResponse>,
     pub hunks: Vec<GitDiffHunkResponse>,
+    /// Unified lines in Git patch order, with display-only CR normalization.
+    pub lines: Vec<GitDiffUnifiedLineResponse>,
+    pub is_binary: bool,
+    /// True if display lines omit CR, EOF markers or invalid UTF-8 bytes.
+    pub has_lossy_line_endings: bool,
+    pub additions: Option<u64>,
+    pub deletions: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1050,7 +1073,7 @@ pub struct GitDiffResponse {
     /// patch bytes are not a faithful representation of the file content.
     #[serde(default)]
     pub has_decoding_loss: bool,
-    /// Present only when per-file stash output was requested.
+    /// Present only when per-file output was requested.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub files: Option<Vec<GitDiffFileResponse>>,
 }

@@ -1185,7 +1185,8 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `git.rebaseStart` | Start a reviewed native interactive rebase with persisted messages and recovery identity |
 | `git.rebaseSession` | Read the latest owned rebase session and distinguish edit/conflict pauses from completion |
 | `git.rebaseControl` | Continue, skip, or abort an identified session, optionally amending an edit pause |
-| `git.diff` | Produce a structured working-tree, index, reference, or commit patch |
+| `git.diff` | Produce a structured working-tree, index, reference, commit, or stash patch |
+| `git.parsePatch` | Parse a complete saved patch into Core-owned per-file documents |
 | `git.apply` | Apply or check a patch in `stage`, `unstage`, `discard`, or Shelf restore mode |
 | `git.history` | Return the legacy combined reference snapshot and first bounded commit page |
 | `git.references` | Return deterministic refs, recent local branches, ahead/behind state, and effective Git identity without scanning commit history |
@@ -4966,20 +4967,35 @@ See `shared/fixtures/git/patch-exchange-v1.json`.
 files. Stash write operations also accept the full object identity in `reference`;
 Core resolves its current stash position under the existing writer lease and rejects
 an identity that is no longer present. Legacy positional references remain accepted.
-With `includeFileSections: true`, `git.diff` requires `stashReference` and the
-whole-repository pathspec `["."]`, and returns `files` in Git order. Other
-pathspecs are rejected instead of silently returning files outside the selection. Each file contains its validated path, optional original path,
-status, byte-faithful UTF-8 patch, and Core-rendered `rows` and `hunks`; the flat
-`patch`, `rows`, and `hunks` are empty to avoid transferring the same full document
-twice. Core rejects patches exceeding 32 MiB, lossy UTF-8, inconsistent sections,
-and unsafe paths. Metadata comes from bounded Git patch inspection in both directions,
-not from parsing quoted names in a host. Standard prefixes and no color or textconv
-are forced even when the repository config requests other display formats. Without the
-flag, `git.diff` keeps its flat response shape; stash output also uses those safe Git
-settings. Shelf patch parsing and the
-Windows diff adapter are not migrated by this stash-only mode.
-See `shared/fixtures/git/saved-stash-v1.json`. Native Shelf persistence is platform-owned;
-raw patch bytes are kept separately for index and working-tree versions.
+With `includeFileSections: true`, `git.diff` returns `files` in Git order for
+working-tree, index, reference, commit, snapshot and stash reads. Stash reads
+still require the whole-repository pathspec `["."]`. Each file provides a
+validated `path`, optional `originalPath`, `status`, `isBinary`, additions and
+deletions, UTF-8 `patch`, unified `lines`, aligned `rows`, and complete per-hunk
+`hunks`. The flat `patch`, `rows`, and `hunks` are empty in this mode to avoid
+a second full-document transfer. `omitFilePatch: true` additionally omits each
+whole-file patch after validation while retaining exact per-hunk patches; hosts
+that need a complete saved patch must leave it false. The `hasLossyLineEndings` flag records whether
+display normalization omits CR or a missing-final-newline marker. Git's NUL
+statistics and patch are captured by the same invocation; standard prefixes,
+no color, and no text conversion are forced. Unsupported paths, mismatched
+sections and patches exceeding 32 MiB are rejected. Regular diff reads replace
+invalid UTF-8 for display and set `hasDecodingLoss`; their patches and hunks
+must never be used as write material. Rename hunks additionally provide a
+`contentPatch` against the destination path, so a partial stage or unstage does
+not itself apply or reverse the rename. If absent, such a hunk is not writable.
+Stash reads reject invalid UTF-8.
+Without the flag, `git.diff` retains its flat response shape.
+
+`git.parsePatch` accepts `{root, patch}` and returns the same per-file shape
+for a complete saved UTF-8 patch. Git validates file identity in one batch,
+with a reverse inspection when rename/copy identities require it. Empty patches
+return no files; invalid, unsafe or oversized inputs are rejected. Shelf retains
+separate staged and working-tree patches and parses each layer once. Hosts may
+render the unified and split rows, but must use only byte-faithful hunks for
+writes and honor the decoding-loss flag. See
+`shared/fixtures/git/saved-stash-v1.json` and
+`shared/fixtures/git/parsed-diff-v1.json`.
 
 ### Native plugin UI data
 

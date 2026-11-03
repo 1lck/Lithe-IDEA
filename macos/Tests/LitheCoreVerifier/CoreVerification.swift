@@ -1,3 +1,4 @@
+import LitheGitTestSupport
 import Foundation
 import LitheCoreContracts
 import LitheGitModule

@@ -162,14 +162,18 @@ test("a raw Core result bypasses the compatibility adapter but keeps Git provena
   tauriInvoke.mockImplementationOnce((async () => core) as never);
   const raw = await invoke("git.diff", { root: "C:/fixture/project", pathspecs: ["a.txt"] }, { rawCoreResult: true });
   expect(raw).toBe(core);
-  const calls = tauriInvoke.mock.calls as unknown as [string, { gitEvents?: unknown }, unknown][];
+  const calls = tauriInvoke.mock.calls as unknown as [string, { gitEvents?: unknown; args: Record<string, unknown> }, unknown][];
   expect(calls[0]![1].gitEvents).toBeDefined();
+  expect(calls[0]![1].args.includeFileSections).toBeUndefined();
+  expect(calls[0]![1].args.omitFilePatch).toBeUndefined();
   // The option is local metadata, never forwarded as native invoke options.
   expect(calls[0]![2]).toBeUndefined();
 
   tauriInvoke.mockImplementationOnce((async () => core) as never);
   const adapted = await invoke<unknown>("git.diff", { root: "C:/fixture/project", pathspecs: ["a.txt"] });
   expect(Array.isArray(adapted)).toBe(true);
+  expect(calls[1]![1].args.includeFileSections).toBe(true);
+  expect(calls[1]![1].args.omitFilePatch).toBe(true);
 });
 
 test("native headers survive Git provenance forwarding", async () => {

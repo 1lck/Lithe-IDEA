@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseRawDiffContent } from "./git-diff-parser";
+import { parseRawDiffContent } from "@/test-utils/git-diff-fixture-parser";
 
 describe("git diff parser line endings", () => {
   test.each(["\n", "\r\n"])("keeps multi-file paths and line numbers with %j separators", (separator) => {

@@ -214,7 +214,7 @@ const TextDiffViewer = memo(
     const tabSize = editorTabSize;
     const displayViewMode = resolveDiffViewMode(diff, viewMode);
 
-    const hunks = useMemo(() => groupLinesIntoHunks(diff.lines), [diff.lines]);
+    const hunks = useMemo(() => groupLinesIntoHunks(diff.lines, diff.core_hunks), [diff.lines, diff.core_hunks]);
     const splitHunkRows = useMemo(
       () =>
         hunks.map(
@@ -312,6 +312,7 @@ const TextDiffViewer = memo(
             return (
               <div key={`split-${hunk.id}`}>
                 <DiffHunkHeader
+                    hasDecodingLoss={diff.has_decoding_loss || (diff.core_hunks !== undefined && !hunk.rawPatch)}
                   hunk={hunk}
                   stats={countSplitDiffStats([splitRows])}
                   hasInvisibleChanges={hasInvisibleDiffChanges(splitRows)}
@@ -431,6 +432,7 @@ const TextDiffViewer = memo(
             return (
               <div key={hunk.id}>
                 <DiffHunkHeader
+                    hasDecodingLoss={diff.has_decoding_loss || (diff.core_hunks !== undefined && !hunk.rawPatch)}
                   hunk={hunk}
                   stats={countSplitDiffStats([splitRows])}
                   hasInvisibleChanges={hasInvisibleDiffChanges(splitRows)}

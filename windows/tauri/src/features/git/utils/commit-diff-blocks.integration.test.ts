@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { GitDiff, GitHunk } from "../types/git.types";
-import { parseRawDiffContent } from "./git-diff-parser";
+import { parseRawDiffContent } from "@/test-utils/git-diff-fixture-parser";
 import { planCommitDiffBlocks } from "./commit-diff-blocks";
 import { commitDiffPresentation } from "../services/commit-diff-review";
 import { FULL_FILE_CONTEXT_LINES } from "./git-diff-helpers";

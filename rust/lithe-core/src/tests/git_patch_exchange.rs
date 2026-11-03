@@ -284,11 +284,14 @@ fn saved_stash_diff_returns_file_sections_and_core_documents() {
     let mut request = fixture["sectionRequest"].clone();
     request["stashReference"] = json!(oid);
     let saved = repository.data("git.diff", request);
-    let invalid = repository.call(
+    let ordinary = repository.data(
         "git.diff",
         json!({"pathspecs":["."], "includeFileSections":true}),
     );
-    assert_eq!(invalid["ok"], false, "per-file mode requires a stash");
+    assert!(
+        ordinary["files"].is_array(),
+        "ordinary Git diffs also expose sections"
+    );
     let narrowed = repository.call(
         "git.diff",
         json!({
@@ -338,6 +341,189 @@ fn saved_stash_diff_returns_file_sections_and_core_documents() {
     assert_eq!(
         saved["patch"], "",
         "Per-file mode must not duplicate the whole patch"
+    );
+}
+
+#[test]
+fn structured_patch_and_git_diff_preserve_file_identity_and_writable_hunks() {
+    let repository = PatchRepository::new("structured-patch");
+    repository.write("text.txt", b"first\r\nchanged");
+    repository.write("新 文件.txt", "untracked\n".as_bytes());
+    repository.write("binary.bin", &[0, 128, 255, 0]);
+    let patch = repository.export("workingTree")["patch"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/git/parsed-diff-v1.json"
+    ))
+    .unwrap();
+    let mut request = fixture["parseRequest"].clone();
+    request["patch"] = json!(patch);
+    let parsed = repository.data("git.parsePatch", request);
+    let files = parsed["files"].as_array().expect("parsed file sections");
+    assert_eq!(files.len(), 3, "{parsed}");
+    let text = files
+        .iter()
+        .find(|file| file["path"] == "text.txt")
+        .unwrap();
+    assert_eq!(text["hasLossyLineEndings"], true);
+    assert_eq!(text["lines"], fixture["expectedTextLines"]);
+    assert!(text["hunks"][0]["patch"]
+        .as_str()
+        .unwrap()
+        .contains("\\ No newline at end of file"));
+    assert!(text["hunks"][0]["patch"]
+        .as_str()
+        .unwrap()
+        .contains("+first\r\n"));
+    let binary = files
+        .iter()
+        .find(|file| file["path"] == "binary.bin")
+        .unwrap();
+    assert_eq!(binary["isBinary"], true);
+    assert_eq!(binary["status"], "A");
+    assert!(files.iter().any(|file| file["path"] == "新 文件.txt"));
+    repository.git(&["add", "--all"]);
+    let diff = repository.data("git.diff", fixture["sectionRequest"].clone());
+    assert_eq!(diff["files"].as_array().unwrap().len(), 3);
+    let compact = repository.data(
+        "git.diff",
+        json!({"pathspecs":["."], "staged":true, "includeFileSections":true, "omitFilePatch":true}),
+    );
+    assert_eq!(compact["files"][0]["patch"], "");
+    let text = compact["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|file| file["path"] == "text.txt")
+        .unwrap();
+    assert!(!text["hunks"][0]["patch"].as_str().unwrap().is_empty());
+    assert_eq!(
+        diff["patch"], "",
+        "structured mode must not duplicate the full patch"
+    );
+    assert_eq!(
+        repository.data("git.parsePatch", json!({"patch":""}))["files"],
+        json!([])
+    );
+}
+
+#[test]
+fn structured_git_diff_marks_invalid_utf8_without_unsafe_write_material() {
+    let repository = PatchRepository::new("structured-lossy");
+    repository.write(
+        "text.txt",
+        &[b'f', b'i', b'r', b's', b't', b'\n', 0xff, b'\n'],
+    );
+    let diff = repository.data(
+        "git.diff",
+        json!({"pathspecs":["text.txt"], "includeFileSections":true}),
+    );
+    assert_eq!(diff["hasDecodingLoss"], true, "{diff}");
+    assert_eq!(diff["files"][0]["hasLossyLineEndings"], true);
+    assert!(diff["files"][0]["patch"]
+        .as_str()
+        .unwrap()
+        .contains('\u{fffd}'));
+}
+
+#[test]
+fn structured_untracked_snapshot_and_exact_hunk_writes_use_real_git() {
+    let repository = PatchRepository::new("structured-untracked-hunk");
+    repository.git(&["config", "diff.noprefix", "true"]);
+    repository.write("new space.txt", b"new\r\nlast");
+    let untracked = repository.data(
+        "git.diff",
+        json!({"pathspecs":["new space.txt"], "untracked":true, "includeFileSections":true}),
+    );
+    assert_eq!(
+        untracked["files"][0]["path"], "new space.txt",
+        "{untracked}"
+    );
+    assert_eq!(untracked["files"][0]["status"], "A", "{untracked}");
+    repository.write("text.txt", b"first\r\nchanged");
+    let snapshot = repository.data(
+        "git.diff",
+        json!({"pathspecs":["."], "worktreeSnapshot":true, "includeFileSections":true}),
+    );
+    assert_eq!(snapshot["files"].as_array().unwrap().len(), 2, "{snapshot}");
+    let diff = repository.data(
+        "git.diff",
+        json!({"pathspecs":["text.txt"], "includeFileSections":true}),
+    );
+    let patch = diff["files"][0]["hunks"][0]["patch"].as_str().unwrap();
+    let applied = repository.data("git.apply", json!({"patch":patch, "mode":"stage"}));
+    assert_eq!(applied["exitCode"], 0, "{applied}");
+    assert_eq!(
+        repository.git(&["show", ":text.txt"]).as_bytes(),
+        b"first\r\nchanged"
+    );
+    let reverted = repository.data("git.apply", json!({"patch":patch, "mode":"unstage"}));
+    assert_eq!(reverted["exitCode"], 0, "{reverted}");
+    assert_eq!(
+        repository.git(&["show", ":text.txt"]).as_bytes(),
+        b"first\nbase\n"
+    );
+}
+
+#[test]
+fn structured_diff_keeps_git_rename_identity_and_visible_cr_changes() {
+    let repository = PatchRepository::new("structured-rename");
+    repository.git(&["mv", "text.txt", "改名.txt"]);
+    let renamed = repository.data(
+        "git.diff",
+        json!({"pathspecs":["."], "staged":true, "includeFileSections":true}),
+    );
+    assert_eq!(renamed["files"][0]["path"], "改名.txt", "{renamed}");
+    assert_eq!(renamed["files"][0]["originalPath"], "text.txt");
+    assert_eq!(renamed["files"][0]["status"], "R");
+    repository.git(&["commit", "-qm", "rename"]);
+    repository.write("改名.txt", b"first\r\nbase\n");
+    let modified = repository.data(
+        "git.diff",
+        json!({"pathspecs":["改名.txt"], "includeFileSections":true}),
+    );
+    let rows = modified["files"][0]["rows"].as_array().unwrap();
+    assert!(
+        rows.iter().any(|row| row["isInvisibleChange"] == true),
+        "{modified}"
+    );
+}
+
+#[test]
+fn rename_hunk_unstage_preserves_rename_and_other_staged_changes() {
+    let repository = PatchRepository::new("rename-content-hunks");
+    let original: Vec<String> = (0..100).map(|line| format!("line {line:03}\n")).collect();
+    repository.write("text.txt", original.concat().as_bytes());
+    repository.git(&["add", "text.txt"]);
+    repository.git(&["commit", "-qm", "long file"]);
+    repository.git(&["mv", "text.txt", "new name\t中文.txt"]);
+    let mut changed = original.clone();
+    changed[5] = "first changed\r\n".into();
+    changed[90] = "second changed\n".into();
+    repository.write("new name\t中文.txt", changed.concat().as_bytes());
+    repository.git(&["add", "--all"]);
+    let diff = repository.data(
+        "git.diff",
+        json!({"pathspecs":["."], "staged":true, "contextLines":3, "includeFileSections":true}),
+    );
+    let file = &diff["files"][0];
+    assert_eq!(file["status"], "R", "{diff}");
+    assert_eq!(file["hunks"].as_array().unwrap().len(), 2);
+    let patch = file["hunks"][0]["contentPatch"]
+        .as_str()
+        .expect("content-only patch");
+    let applied = repository.data("git.apply", json!({"patch":patch, "mode":"unstage"}));
+    assert_eq!(applied["exitCode"], 0, "{applied}");
+    let status = repository.git(&["diff", "--cached", "--name-status"]);
+    assert!(status.starts_with("R"), "{status}");
+    let staged = repository.git(&["show", ":new name\t中文.txt"]);
+    assert!(staged.contains("line 005\n"));
+    assert!(staged.contains("second changed\n"));
+    assert_eq!(
+        fs::read(repository.0.join("new name\t中文.txt")).unwrap(),
+        changed.concat().as_bytes()
     );
 }
 

@@ -129,7 +129,7 @@ package protocol GitOperations: Sendable {
     func createHistoryRecoveryBranch(named name: String, reference: String, at rootURL: URL) -> GitProcessResult?
     func exportPatch(at rootURL: URL, source: GitPatchSource, paths: [String], base: String?, target: String?, metadataOnly: Bool) -> Result<GitPatchExport, GitPatchFailure>
     func savedStashFiles(at rootURL: URL, reference: String, base: String) -> Result<[GitSavedPatchFile], GitPatchFailure>
-    func inspectSavedPatch(at rootURL: URL, patch: String) -> Result<GitPatchPreview, GitPatchFailure>
+    func savedShelfFiles(at rootURL: URL, patch: String, version: String, base: String) -> Result<[GitSavedPatchFile], GitPatchFailure>
     func previewPatch(at rootURL: URL, patch: String, target: GitPatchTarget) -> Result<GitPatchPreview, GitPatchFailure>
     func applyExchangePatch(at rootURL: URL, patch: String, target: GitPatchTarget, expectedState: String) -> GitProcessResult?
     func createBranch(named name: String, from reference: GitReference, checkout: Bool, at rootURL: URL) -> GitProcessResult?
@@ -213,8 +213,8 @@ package extension GitOperations {
         .failure(GitPatchFailure(L10n.string("Could not load saved changes")))
     }
 
-    func inspectSavedPatch(at rootURL: URL, patch: String) -> Result<GitPatchPreview, GitPatchFailure> {
-        .failure(GitPatchFailure("Saved patch inspection is unavailable"))
+    func savedShelfFiles(at rootURL: URL, patch: String, version: String, base: String) -> Result<[GitSavedPatchFile], GitPatchFailure> {
+        .failure(GitPatchFailure(L10n.string("Could not load saved changes")))
     }
 
     func prepareWorkspaceCommit(_ request: GitWorkspaceCommitRequest) -> Result<GitWorkspaceCommitPreparation, GitWorkspaceCommitFailure> {
@@ -1354,19 +1354,10 @@ package struct GitService: Sendable {
                 } else { throw GitPatchFailure(L10n.string("Select saved changes")) }
                 var files: [GitSavedPatchFile] = []
                 for (version, base, patch) in patches {
-                    guard patch.utf8.count <= GitPatchContent.maximumByteCount else {
-                        throw GitPatchFailure("Patch files must be at most 32 MiB.")
-                    }
-                    // ponytail: one bounded Core/Git inspection per file; batch section metadata in Core if large shelves make this costly.
-                    for section in GitSavedChangesSnapshot.sections(in: patch) {
-                        try Task.checkCancellation()
-                        let metadata = try operations.inspectSavedPatch(at: root, patch: section).get()
-                        guard let file = metadata.files.first, metadata.files.count == 1 else {
-                            throw GitPatchFailure("Could not inspect saved file")
-                        }
-                        let status = section.contains("\nnew file mode ") ? "A" : section.contains("\ndeleted file mode ") ? "D" : file.originalPath != nil ? "R" : "M"
-                        files.append(GitSavedPatchFile(file: GitCommitFile(status: status, path: file.path), version: version, base: base, patch: section))
-                    }
+                    guard !patch.isEmpty else { continue }
+                    try Task.checkCancellation()
+                    let parsed = try operations.savedShelfFiles(at: root, patch: patch, version: version, base: base).get()
+                    files.append(contentsOf: parsed)
                 }
                 return .success(GitSavedChangesSnapshot(id: identity, repositoryRoot: root, files: files))
             } catch {

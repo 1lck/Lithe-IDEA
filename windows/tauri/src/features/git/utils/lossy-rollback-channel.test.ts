@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
-import { parseRawDiffContent } from "@/features/git/utils/git-diff-parser";
+import { parseRawDiffContent } from "@/test-utils/git-diff-fixture-parser";
 import { monacoDiffRows } from "@/features/git/utils/monaco-diff-rows";
 import { createMonacoDiffHunkActions } from "@/features/git/utils/monaco-diff-hunk-actions";
 

@@ -533,6 +533,8 @@ pub enum CoreCommand {
     GitPatchApply,
     /// Builds a structured Git diff (`git.diff`).
     GitDiff,
+    /// Parses a saved patch into validated per-file documents (`git.parsePatch`).
+    GitParsePatch,
     /// Applies a patch to the index or working tree (`git.apply`).
     GitApply,
     /// Lists references and bounded commit history (`git.history`).
@@ -862,6 +864,7 @@ impl CoreCommand {
             "git.patchPreview" => Some(Self::GitPatchPreview),
             "git.patchApply" => Some(Self::GitPatchApply),
             "git.diff" => Some(Self::GitDiff),
+            "git.parsePatch" => Some(Self::GitParsePatch),
             "git.apply" => Some(Self::GitApply),
             "git.history" => Some(Self::GitHistory),
             "git.historyQuery" => Some(Self::GitHistoryQuery),
