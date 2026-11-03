@@ -1,0 +1,285 @@
+{
+  "version": 1,
+  "root": "plugins",
+  "events": [
+    {
+      "id": "plugins.backend.activation_failed",
+      "channel": "plugins/{plugin}/host",
+      "level": "warn",
+      "message": "Plugin {plugin} backend activation failed",
+      "fields": {
+        "plugin": {
+          "type": "id",
+          "required": true,
+          "description": "Validated installed plugin id whose backend activation failed"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Error returned while activating the installed plugin backend"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "plugins.catalog.rejected",
+      "channel": "plugins",
+      "level": "warn",
+      "message": "Plugin catalog startup rejected",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Validation error that rejected the global plugin module graph, without a single owning plugin"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "plugins.editor.action_failed",
+      "channel": "plugins/{plugin}/host",
+      "level": "warn",
+      "message": "Plugin {plugin} editor action failed",
+      "fields": {
+        "plugin": {
+          "type": "id",
+          "required": true,
+          "description": "Validated plugin id that contributed the invoked editor action"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Error returned while executing the selected plugin editor action"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "plugins.editor.actions_failed",
+      "channel": "plugins/{plugin}/host",
+      "level": "warn",
+      "message": "Plugin {plugin} editor actions failed",
+      "fields": {
+        "plugin": {
+          "type": "id",
+          "required": true,
+          "description": "Validated plugin id whose editor actions could not be queried"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Error returned while loading available editor actions from this plugin"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "plugins.editor.refresh_failed",
+      "channel": "plugins/{plugin}/host",
+      "level": "warn",
+      "message": "Plugin {plugin} editor action refresh failed",
+      "fields": {
+        "plugin": {
+          "type": "id",
+          "required": true,
+          "description": "Validated plugin id whose editor action refresh failed"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Error returned while refreshing the plugin editor action registrations"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "plugins.grammar.load_failed",
+      "channel": "plugins/{plugin}/host",
+      "level": "warn",
+      "message": "Plugin {plugin} grammar for {language} failed in editor",
+      "fields": {
+        "plugin": {
+          "type": "id",
+          "required": true,
+          "description": "Validated plugin id that contributed the grammar rejected by the editor"
+        },
+        "language": {
+          "type": "id",
+          "required": true,
+          "description": "Language id from the plugin grammar registration"
+        },
+        "error": {
+          "type": "error",
+          "required": false,
+          "description": "Editor grammar loading error, when the browser supplied structured failure details"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "plugins.grammar.rejected",
+      "channel": "plugins/{plugin}/host",
+      "level": "warn",
+      "message": "Plugin {plugin} grammar for {language} rejected: {reason}",
+      "fields": {
+        "plugin": {
+          "type": "id",
+          "required": true,
+          "description": "Validated plugin id that owns the rejected grammar declaration"
+        },
+        "language": {
+          "type": "id",
+          "required": true,
+          "description": "Language id from the rejected plugin grammar declaration"
+        },
+        "reason": {
+          "type": "token",
+          "required": true,
+          "description": "Grammar rejection category, e.g. outside-package, not-regular-file or invalid-grammar"
+        },
+        "error": {
+          "type": "error",
+          "required": false,
+          "description": "Grammar file read or decode error; absent for path and file-kind rejections"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "plugins.lifecycle.failed",
+      "channel": "plugins",
+      "level": "error",
+      "message": "Module activation failed",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Error raised while starting the registered eager modules"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "plugins.lifecycle.started",
+      "channel": "plugins",
+      "level": "info",
+      "message": "Eager modules started",
+      "fields": {},
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "plugins.migration.finished",
+      "channel": "plugins/{plugin}/host",
+      "level": "info",
+      "message": "Plugin {plugin} migrated {profiles} database profiles and {passwords} credentials",
+      "fields": {
+        "plugin": {
+          "type": "id",
+          "required": true,
+          "description": "Validated database plugin id that received the migrated state"
+        },
+        "profiles": {
+          "type": "int",
+          "required": true,
+          "description": "Number of legacy database connection profiles migrated into the plugin state"
+        },
+        "passwords": {
+          "type": "int",
+          "required": true,
+          "description": "Number of legacy passwords successfully transferred to the plugin credential store"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "plugins.migration.password_failed",
+      "channel": "plugins/{plugin}/host",
+      "level": "warn",
+      "message": "Plugin {plugin} credential migration failed for connection {connection}",
+      "fields": {
+        "plugin": {
+          "type": "id",
+          "required": true,
+          "description": "Validated database plugin id receiving the migrated credentials"
+        },
+        "connection": {
+          "type": "id",
+          "required": true,
+          "description": "Legacy database connection id whose password could not be transferred"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Credential store error raised when transferring this connection password; never the secret"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "plugins.migration.state_failed",
+      "channel": "plugins/{plugin}/host",
+      "level": "warn",
+      "message": "Plugin {plugin} state migration failed",
+      "fields": {
+        "plugin": {
+          "type": "id",
+          "required": true,
+          "description": "Validated database plugin id receiving the migrated connection state"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Filesystem or encoding error raised while writing the migrated plugin state"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "plugins.scan.failed",
+      "channel": "plugins",
+      "level": "warn",
+      "message": "Live plugin scan failed",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Error returned by the live installed-plugin scan"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "plugins.startup.rejected",
+      "channel": "plugins/{plugin}/host",
+      "level": "warn",
+      "message": "Plugin {plugin} startup rejected",
+      "fields": {
+        "plugin": {
+          "type": "id",
+          "required": true,
+          "description": "Validated installed plugin id whose startup acceptance checks failed"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Manifest, UI binding or resource validation error that rejected this plugin at startup"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    }
+  ]
+}

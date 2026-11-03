@@ -485,6 +485,17 @@
       ],
       "identity": "Worktree-owned frontend perf bundles, local baselines and CPU profiles. They follow that worktree's sources and machine and carry no identity stamp.",
       "reason": "Never copy or share this state at any worktree reuse stage. A bundle or baseline from another worktree would compare different sources. run-windows-perf.mjs rebuilds the bundle in its own worktree; nothing here reaches an app bundle, install directory or Sparkle delta baseline."
+    },
+    {
+      "id": "shared-logging",
+      "reusable": false,
+      "locations": [
+        "shared/logging/",
+        "macos/Sources/LitheModuleAPI/Logging/LogEvents.generated.swift",
+        "rust/lithe-core/src/diagnostics/catalog_generated.rs"
+      ],
+      "identity": "Git-owned event catalog and checked-in generated source bytes from the current revision. No sealed version/platform/architecture/toolchain reuse identity stamp.",
+      "reason": "Generate and check with scripts/logging/generate-log-events.mjs in each target worktree before compilation. Every validation and copy stage rejects cross-worktree reuse. No download or cache; compiled metadata and Swift event values perform no runtime I/O and never change code signatures or Sparkle delta baselines."
     }
   ]
 }

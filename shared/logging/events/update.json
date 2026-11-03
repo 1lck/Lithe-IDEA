@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "root": "update",
+  "events": [
+    {
+      "id": "update.download.interrupted",
+      "channel": "update",
+      "level": "warn",
+      "message": "Update download interrupted with resume data retained",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Download transfer failure that stopped the update while preserving partial data for resume"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "update.relay.start_failed",
+      "channel": "update",
+      "level": "warn",
+      "message": "Update download relay unavailable",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Socket or listener setup error that prevented starting the local update download relay"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "update.rollback.cleanup_failed",
+      "channel": "update",
+      "level": "warn",
+      "message": "Stable rollback {stage} cleanup failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Rollback cleanup target, e.g. leftover, disk-image or staging"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Filesystem or disk-image cleanup error raised while preparing a stable rollback"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "update.rollback.preparation_failed",
+      "channel": "update",
+      "level": "warn",
+      "message": "Stable rollback preparation failed",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Download, verification or staging error that prevented preparing the stable rollback package"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    }
+  ]
+}

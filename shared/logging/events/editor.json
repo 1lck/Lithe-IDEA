@@ -1,0 +1,298 @@
+{
+  "version": 1,
+  "root": "editor",
+  "events": [
+    {
+      "id": "editor.document.open_failed",
+      "channel": "editor",
+      "level": "warn",
+      "message": "Document open failed: {reason}",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying document open error, including its native domain and code"
+        },
+        "reason": {
+          "type": "token",
+          "required": true,
+          "description": "Standalone file open failure classification supplied by the document workflow"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "editor.document.recovery_failed",
+      "channel": "editor",
+      "level": "warn",
+      "message": "Document {document} save state recovery failed",
+      "fields": {
+        "document": {
+          "type": "id",
+          "required": true,
+          "description": "Internal document UUID whose save lifecycle state could not be recovered"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Error raised while recovering the document lifecycle state after a failed save"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "editor.document.save_failed",
+      "channel": "editor",
+      "level": "warn",
+      "message": "Document {document} revision {revision} save failed at {stage}",
+      "fields": {
+        "document": {
+          "type": "id",
+          "required": true,
+          "description": "Internal document UUID for the failed save operation"
+        },
+        "revision": {
+          "type": "int",
+          "required": true,
+          "description": "Native document lifecycle revision associated with this save attempt"
+        },
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Save workflow stage that failed, e.g. post-write"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying save error, including its native domain and code"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "editor.document.save_superseded",
+      "channel": "editor",
+      "level": "warn",
+      "message": "Document {document} revision {revision} save superseded",
+      "fields": {
+        "document": {
+          "type": "id",
+          "required": true,
+          "description": "Internal document UUID whose save result was superseded"
+        },
+        "revision": {
+          "type": "int",
+          "required": true,
+          "description": "Native document lifecycle revision at the post-write supersession check"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "editor.document.staging_cleanup_failed",
+      "channel": "editor",
+      "level": "warn",
+      "message": "Document staging cleanup failed",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Filesystem error raised while deleting the temporary document staging file"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "editor.document.watch_failed",
+      "channel": "editor",
+      "level": "warn",
+      "message": "Document watch unavailable at {stage}",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "FSEvents setup step that failed, e.g. create or start"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "editor.sync.edit_received",
+      "channel": "editor",
+      "level": "debug",
+      "message": "Document {document} received {change_count} edits during freeze",
+      "fields": {
+        "document": {
+          "type": "id",
+          "required": true,
+          "description": "Internal document UUID that received browser edits while synchronization was frozen"
+        },
+        "base_revision": {
+          "type": "int",
+          "required": true,
+          "description": "Native revision on which the incoming browser edit batch was based"
+        },
+        "native_revision": {
+          "type": "int",
+          "required": true,
+          "description": "Current native revision when the edit batch arrived"
+        },
+        "change_count": {
+          "type": "int",
+          "required": true,
+          "description": "Number of ordered edits in the incoming browser batch"
+        },
+        "inserted_utf16_length": {
+          "type": "int",
+          "required": true,
+          "description": "Total UTF-16 code units inserted by the incoming edit batch"
+        },
+        "replaced_utf16_length": {
+          "type": "int",
+          "required": true,
+          "description": "Total UTF-16 code units replaced by the incoming edit batch"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "editor.sync.freeze",
+      "channel": "editor",
+      "level": "debug",
+      "message": "Document {document} revision {revision} synchronization freeze",
+      "fields": {
+        "document": {
+          "type": "id",
+          "required": true,
+          "description": "Internal document UUID whose browser and native snapshots are being synchronized"
+        },
+        "revision": {
+          "type": "int",
+          "required": true,
+          "description": "Native document revision captured when the freeze was requested"
+        },
+        "status": {
+          "type": "token",
+          "required": false,
+          "description": "Freeze comparison result, e.g. matched or mismatch; absent before completion"
+        },
+        "snapshot_revision": {
+          "type": "int",
+          "required": false,
+          "description": "Revision attached to the frozen snapshot; absent when no snapshot was returned"
+        },
+        "browser_revision": {
+          "type": "int",
+          "required": false,
+          "description": "Browser-reported native revision at freeze completion"
+        },
+        "model_version": {
+          "type": "int",
+          "required": false,
+          "description": "Monaco model version reported by the frozen browser snapshot"
+        },
+        "barrier_drained": {
+          "type": "bool",
+          "required": false,
+          "description": "Whether the browser edit barrier drained before returning the frozen snapshot"
+        },
+        "pending_edits": {
+          "type": "int",
+          "required": false,
+          "description": "Number of browser edits pending when the freeze result was produced"
+        },
+        "input_passes": {
+          "type": "int",
+          "required": false,
+          "description": "Number of browser input passes observed by the freeze barrier"
+        },
+        "snapshot_utf16_length": {
+          "type": "int",
+          "required": false,
+          "description": "UTF-16 code units in the returned snapshot; absent when no snapshot was returned"
+        },
+        "native_utf16_length": {
+          "type": "int",
+          "required": false,
+          "description": "UTF-16 code units in the native document at the freeze observation"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe",
+      "span": {
+        "failureLevel": "error"
+      }
+    },
+    {
+      "id": "editor.sync.unlock_failed",
+      "channel": "editor",
+      "level": "debug",
+      "message": "Document {document} synchronization unlock failed",
+      "fields": {
+        "document": {
+          "type": "id",
+          "required": true,
+          "description": "Internal document UUID whose browser synchronization lock could not be released"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Browser bridge error returned while releasing the synchronization lock"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "editor.sync.unlock_finished",
+      "channel": "editor",
+      "level": "debug",
+      "message": "Document {document} synchronization unlocked",
+      "fields": {
+        "document": {
+          "type": "id",
+          "required": true,
+          "description": "Internal document UUID whose browser synchronization lock was released"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "editor.syntax.configuration_failed",
+      "channel": "editor",
+      "level": "warn",
+      "message": "Syntax {kind} configuration load failed",
+      "fields": {
+        "kind": {
+          "type": "token",
+          "required": true,
+          "description": "Syntax configuration being loaded, e.g. highlighting or colors"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Read or decode error raised while loading the syntax configuration"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "editor.text.classification_failed",
+      "channel": "editor",
+      "level": "warn",
+      "message": "Core text classification failed",
+      "fields": {},
+      "rate": 60,
+      "owner": "Lithe"
+    }
+  ]
+}

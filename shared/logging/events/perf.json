@@ -1,0 +1,166 @@
+{
+  "version": 1,
+  "root": "perf",
+  "events": [
+    {
+      "id": "perf.app.sampled",
+      "channel": "perf",
+      "level": "debug",
+      "message": "Application performance sampled at {phase}",
+      "fields": {
+        "rss": {
+          "type": "bytes",
+          "required": false,
+          "description": "Application resident memory sampled from the native process monitor, in bytes"
+        },
+        "phase": {
+          "type": "token",
+          "required": true,
+          "description": "Performance baseline phase associated with this sample, e.g. ready or stable"
+        },
+        "duration": {
+          "type": "duration",
+          "required": false,
+          "description": "Elapsed time for the measured application phase in milliseconds, when applicable"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "perf.editor.open_measured",
+      "channel": "perf",
+      "level": "debug",
+      "message": "Document {document} editor open measured",
+      "fields": {
+        "document": {
+          "type": "id",
+          "required": true,
+          "description": "Internal document UUID associated with the editor open measurement"
+        },
+        "duration": {
+          "type": "duration",
+          "required": true,
+          "description": "Elapsed editor open time reported by the browser performance probe, in milliseconds"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "perf.editor.semantic_measured",
+      "channel": "perf",
+      "level": "debug",
+      "message": "Editor semantic update measured with {tokens} tokens",
+      "fields": {
+        "tokens": {
+          "type": "int",
+          "required": true,
+          "description": "Number of semantic tokens delivered to the editor for this update"
+        },
+        "revision": {
+          "type": "int",
+          "required": false,
+          "description": "Document revision associated with the semantic token update, when supplied"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "perf.git.cache_hit",
+      "channel": "perf",
+      "level": "debug",
+      "message": "Git {operation} history cache hit",
+      "fields": {
+        "operation": {
+          "type": "token",
+          "required": true,
+          "description": "Git service operation served from the history cache, e.g. history"
+        },
+        "duration": {
+          "type": "duration",
+          "required": true,
+          "description": "Elapsed history cache lookup time in milliseconds"
+        }
+      },
+      "rate": 60,
+      "owner": "LitheGitModule"
+    },
+    {
+      "id": "perf.git.command_finished",
+      "channel": "perf",
+      "level": "debug",
+      "message": "Git {operation} command measured",
+      "fields": {
+        "operation": {
+          "type": "token",
+          "required": true,
+          "description": "Git service operation that issued the measured command"
+        },
+        "duration": {
+          "type": "duration",
+          "required": true,
+          "description": "Elapsed Git command workflow time in milliseconds"
+        },
+        "succeeded": {
+          "type": "bool",
+          "required": true,
+          "description": "Whether the Git command result reported success"
+        }
+      },
+      "rate": 60,
+      "owner": "LitheGitModule"
+    },
+    {
+      "id": "perf.git.read_finished",
+      "channel": "perf",
+      "level": "debug",
+      "message": "Git {operation} read measured",
+      "fields": {
+        "operation": {
+          "type": "token",
+          "required": true,
+          "description": "Git service read operation being measured, e.g. history"
+        },
+        "duration": {
+          "type": "duration",
+          "required": true,
+          "description": "Elapsed Git service read time in milliseconds"
+        },
+        "succeeded": {
+          "type": "bool",
+          "required": true,
+          "description": "Whether the Git service read returned a result"
+        }
+      },
+      "rate": 60,
+      "owner": "LitheGitModule"
+    },
+    {
+      "id": "perf.git.worktree_inspected",
+      "channel": "perf",
+      "level": "debug",
+      "message": "Git worktree {worktree} inspection measured at {phase}",
+      "fields": {
+        "worktree": {
+          "type": "id",
+          "required": true,
+          "description": "Validated worktree identity passed to the Git worktree inspection workflow"
+        },
+        "phase": {
+          "type": "token",
+          "required": true,
+          "description": "Worktree inspection phase supplied by the Git service"
+        },
+        "duration": {
+          "type": "duration",
+          "required": true,
+          "description": "Elapsed time for this worktree inspection phase, in milliseconds"
+        }
+      },
+      "rate": 60,
+      "owner": "LitheGitModule"
+    }
+  ]
+}

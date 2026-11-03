@@ -1,0 +1,248 @@
+{
+  "version": 1,
+  "root": "app",
+  "events": [
+    {
+      "id": "app.demo.failed",
+      "channel": "app",
+      "level": "warn",
+      "message": "Problems demo {stage} failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Problems demo step that failed, e.g. creation or cleanup"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "File operation error raised while creating or removing the Problems demo files"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "app.font.missing",
+      "channel": "app",
+      "level": "warn",
+      "message": "Bundled font {font} missing",
+      "fields": {
+        "font": {
+          "type": "token",
+          "required": true,
+          "description": "Filename of the missing bundled font, e.g. Inter-Regular.otf"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "app.font.registration_failed",
+      "channel": "app",
+      "level": "warn",
+      "message": "Bundled font {font} registration failed",
+      "fields": {
+        "font": {
+          "type": "token",
+          "required": true,
+          "description": "Filename of the font passed to CoreText for registration"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "CoreText error returned when registering this bundled font"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "app.logging.redirect_failed",
+      "channel": "app",
+      "level": "warn",
+      "message": "Application log redirect to {directory} failed",
+      "fields": {
+        "directory": {
+          "type": "path",
+          "required": true,
+          "description": "Requested log destination directory, redacted before persistence"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Filesystem error that prevented switching to the requested log directory"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "app.process.journal_failed",
+      "channel": "app",
+      "level": "warn",
+      "message": "Process lifecycle journal write failed at {stage}",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Lifecycle journal write stage, e.g. process-exit or startup-descendants"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Persistence error raised while saving managed process identities"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "app.process.watch_failed",
+      "channel": "app",
+      "level": "warn",
+      "message": "Retained process watch failed at {stage}",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Retained process watcher step, e.g. create, register or read"
+        },
+        "pid": {
+          "type": "int",
+          "required": false,
+          "description": "Retained process PID being registered; absent for watcher-wide failures"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "POSIX error from creating, registering or reading the retained process watcher"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "app.search.directory_skipped",
+      "channel": "app",
+      "level": "warn",
+      "message": "Search index directory {path} skipped",
+      "fields": {
+        "path": {
+          "type": "path",
+          "required": true,
+          "description": "Workspace-relative directory that the search index could not enumerate"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Directory enumeration error that made this search subtree incomplete"
+        }
+      },
+      "rate": 60,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "app.session.started",
+      "channel": "app",
+      "level": "info",
+      "message": "Application session started",
+      "fields": {},
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "app.shell.environment",
+      "channel": "app",
+      "level": "info",
+      "message": "Login shell {shell} environment read from {source}",
+      "fields": {
+        "shell": {
+          "type": "token",
+          "required": true,
+          "description": "Basename of the interactive login shell executable, e.g. zsh"
+        },
+        "source": {
+          "type": "token",
+          "required": true,
+          "description": "Login environment read trigger, e.g. startup, refresh or manual"
+        },
+        "variables": {
+          "type": "int",
+          "required": false,
+          "description": "Number of variables returned by the shell; absent when the read failed"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe",
+      "span": {
+        "failureLevel": "error"
+      }
+    },
+    {
+      "id": "app.window.session_missing",
+      "channel": "app",
+      "level": "warn",
+      "message": "Project window {window} session missing",
+      "fields": {
+        "window": {
+          "type": "id",
+          "required": true,
+          "description": "Internal project window UUID whose corresponding session could not be found"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "app.workbench.registration_failed",
+      "channel": "app",
+      "level": "warn",
+      "message": "Workbench UI registration failed",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Validation error raised when registering workbench UI contributions"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "app.workspace.directory_skipped",
+      "channel": "app",
+      "level": "warn",
+      "message": "Workspace directory {path} skipped",
+      "fields": {
+        "path": {
+          "type": "path",
+          "required": true,
+          "description": "Workspace-relative directory omitted from the workspace tree after an enumeration failure"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Directory enumeration error that made the workspace tree incomplete"
+        }
+      },
+      "rate": 60,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "app.workspace.scratch_cleanup_failed",
+      "channel": "app",
+      "level": "warn",
+      "message": "Workspace scratch cleanup failed",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Filesystem error raised while removing the workspace scratch directory"
+        }
+      },
+      "rate": 60,
+      "owner": "lithe-core"
+    }
+  ]
+}

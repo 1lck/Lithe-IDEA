@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "root": "run",
+  "events": [
+    {
+      "id": "run.build.scratch_cleanup_failed",
+      "channel": "run",
+      "level": "warn",
+      "message": "Build dependency {stage} cleanup failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Dependency-tree cleanup target, e.g. current-scratch or abandoned-scratch"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Filesystem error raised while deleting a Maven dependency-tree scratch file"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "run.process.execution",
+      "channel": "run",
+      "level": "info",
+      "message": "Process {executable} execution",
+      "fields": {
+        "executable": {
+          "type": "path",
+          "required": true,
+          "description": "Executable URL from the process request, redacted to a safe path before persistence"
+        },
+        "exit_code": {
+          "type": "int",
+          "required": false,
+          "description": "Exit status of the child process; absent when it could not start"
+        },
+        "outcome": {
+          "type": "token",
+          "required": false,
+          "description": "Process completion category, e.g. exited, timed-out or cancelled"
+        }
+      },
+      "rate": 600,
+      "owner": "Lithe",
+      "span": {
+        "failureLevel": "error"
+      }
+    }
+  ]
+}

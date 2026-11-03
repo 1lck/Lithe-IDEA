@@ -1145,6 +1145,10 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `github.normalizeResponse` | Normalize raw GitHub JSON and HTTP status into deterministic data or a stable error |
 | `diagnostics.prepareLogEvent` | Normalize a bounded application event and recursively redact structured fields |
 | `diagnostics.queryLogs` | Merge and filter bounded host-collected module log tails |
+| `diagnostics.encodeLogBatch` | Encode independent structured v2 log events with per-item errors |
+| `diagnostics.queryLogsV2` | Query structured v2 and legacy v1 native log tails |
+| `diagnostics.planLogRetention` | Plan log cleanup from host-owned file inventories |
+| `diagnostics.resolveLogChannel` | Validate channels and resolve safe session-relative destinations |
 | `diagnostics.redactText` | Redact credentials, tokens, and home-directory paths from diagnostic-bundle text |
 | `diagnostics.buildManifest` | Shape a deterministic diagnostic bundle manifest from host-gathered environment and file facts |
 | `plugins.declarative.validate` | Validate and normalize a declarative plugin manifest (plugin contract v1) |
@@ -3717,6 +3721,128 @@ discard partial first lines, and report both native
 collection truncation and Core query truncation, including files omitted by the cap.
 Time comparisons use parsed RFC3339 instants, so fractional precision and equivalent
 UTC offsets do not change ordering or inclusive boundaries. Missing filters include all.
+
+Structured logging v2 adds pure opt-in commands. The v1 APIs and commands above
+retain their behavior and public Rust signatures. Native adapters own writable
+log roots, I/O, clocks, queues, and file lifecycle operations. Core never resolves
+logs under installed application resources. Executable cases and numeric errors
+are in [`logging-v2.json`](../fixtures/diagnostics/logging-v2.json).
+
+All commands use the existing `{id?,command,payload}` Core request/response
+envelope. Malformed payload shapes return outer `invalid_request` without raw
+input. Channel, query, and retention domain results are the union
+`data:{result:...}` or `data:{error:{code,reason}}`; callers inspect that union even
+when outer `ok` is true. Batch encoding returns
+`data:{results:[{line}|{error:{code,reason}}]}` in input order. Reasons are safe
+parser diagnostics; hosts localize codes for presentation.
+
+- `diagnostics.resolveLogChannel` accepts
+  `{channel,rotationIndex?:0,existingChannels?:[]}` and returns
+  `{result:{relativePath}}` or `{error}`. Roots are `app`, `editor`, `perf`,
+  `lsp`, `vcs`, `run`, `debug`, `terminal`, `remote`, `agent`, `update`, `plugins`.
+  Channels are `root`, non-plugin `root/segment`, or `plugins/<id>/host`. Segments match
+  `[a-z0-9][a-z0-9._-]{0,63}`, excluding trailing dots and Windows device
+  basenames (`con`, `prn`, `aux`, `nul`, `com1`–`com9`, `lpt1`–`lpt9`,
+  including those followed by an extension). Paths are `app.log`, `vcs/git.log`, or
+  `plugins/<id>/host.log`; positive rotation indices produce `git~1.log` siblings. The `~` delimiter
+  cannot occur in a channel, so rotations never alias dotted channel IDs.
+  After 128 admitted channels a new identity maps to `_overflow.log`; existing
+  channels retain their paths. The overflow sink rotates as `_overflow~1.log`
+  and its header uses the channel `_overflow`. Rust `plugin_files_path` returns
+  `plugins/<id>/files/`. `session_directory_name`,
+  `parse_session_directory_name`, and `session_relative_path` convert explicit
+  RFC3339 start time/full UUID to `sessions/YYYY-MM-DDTHH-MM-SS_<8 lowercase
+  hex>`. Native adapters join these relative paths only to platform-owned
+  writable storage, never a bundle or installation directory.
+- `diagnostics.encodeLogBatch` accepts `{events:[{ts,level,seq,event,op?,msg,
+  fields?:{key:scalar}}]}`. `level` is `DEBUG|INFO|WARN|ERROR`, `seq` is `u64`,
+  and `ts` is RFC3339 normalized to UTC milliseconds. Scalars become text;
+  arrays and objects fail per item. Malformed event shapes also fail per item.
+  Disk order is timestamp, level, `seq`, `event`, optional `op`, `msg`, then
+  lexical context keys (the truncation marker is last). Keys match
+  `[a-z][a-z0-9_]{0,63}` and cannot repeat or reuse reserved keys
+  (`ts`, `level`, `seq`, `event`, `op`, `msg`). Event/op
+  identities are nonempty bare tokens. Shared redaction runs before escaping,
+  including prefixed credential-key fields such as `client_secret` and
+  `auth_token`; the same structured-field redactor runs on queried v1/v2
+  evidence. Bare values match `[A-Za-z0-9._:/@+-]+`;
+  other values use double quotes, escaping quote, backslash, newline, carriage
+  return, tab, and other controls as `\u{XX}`. Each result excludes a newline
+  and reserves one byte for it within 8192 bytes. Oversized lines shorten the
+  longest non-reserved context values first and append `truncated=1`.
+  If needed, the message is shortened next; mandatory identity/key overhead
+  that still cannot fit returns `-32046`. No context keys are silently dropped.
+  Rust `encode_header`/`decode_line` support
+  `#lithe-log v2 session=<uuid> pid=<u32> app=<bare version> channel=<channel> started=<UTC milliseconds>`.
+  `decode_line` returns a typed header or record and rejects invalid lines with
+  reasons. `repeated_event` and `dropped_event` create ordinary `log.repeated`
+  records with `count,first,last,of`, and `log.dropped` records with `count`.
+- `diagnostics.queryLogsV2` accepts `{sources:[{relativePath,text,
+  startsMidLine?:false,firstLineNumber?:1}],channelPrefixes?:[],minimumLevel?,
+  since?,until?,search?,fields?:{key:value},op?,limit?}`. The adapter marks a
+  tail beginning inside a line with `startsMidLine:true`; Core discards its
+  first fragment without counting it as invalid. Complete first lines stay.
+  Paths are session-relative v2 paths, `sessions/<name>/<path>`, or legacy
+  `<category>/lithe.*.log`. Channel prefixes match slash boundaries; severity
+  and parsed RFC3339 time bounds are inclusive; search is case-insensitive;
+  field/op filters match exactly, including reserved `ts` and `level` fields. Returns `{result:{records:[{channel,
+  relativePath,lineNumber,ts,level,seq,event,op?,msg,fields}],channelCounts:
+  {channel:{warn,error}},truncated,skippedInvalidLines}}` or `{error}`.
+  Counts reflect all filtered matches before the newest 1–10000 limit (default
+  2000). Records sort ascending by parsed timestamp, seq, file, line, then
+  source order. The aggregate native-tail byte budget is 10 MiB. Omitted bytes,
+  partial first lines, or output limits set `truncated`. Invalid physical lines
+  are skipped and counted. V1 records use `event:legacy`, preserve available
+  sequence/op/context, and map application→app, language→lsp, git→vcs,
+  performance→perf, run→run, plugins→plugins. Queries redact decoded evidence.
+- `diagnostics.planLogRetention` accepts `{sessions:[{name,files:[{
+  relativePath,sizeBytes,modifiedAt}]}],legacyFiles?:[same file shape],
+  currentSession,now,limits?:{maxAgeMs,totalBytes,perfBytes,pluginFilesBytes},
+  startupCleanup?:false}`. Timestamps are explicit RFC3339. Defaults are 30
+  days, 100 MiB combined, 20 MiB perf, 20 MiB per plugin files directory per
+  session. Returns `{result:{deletions:[{relativePath,directory,reason}],
+  warnings:[{session,pluginId,relativePath,sizeBytes,limitBytes}]}}` or `{error}`.
+  Paths are relative to the writable log root and sorted lexically. Whole
+  sessions expire first, combined pressure removes oldest whole sessions,
+  then perf files are removed from oldest surviving sessions and startup
+  cleanup removes oldest plugin files. Whole-session removal supersedes child
+  deletion. Reasons are `expired|totalBudget|perfBudget|pluginFilesBudget`.
+  The current session and all its files are always protected, even if budgets
+  cannot be satisfied. Runtime plugin overages emit warnings; startup may also
+  delete files in inactive sessions. Legacy files count toward the total but
+  only age can delete them. `should_rotate(size)` is true above 10 MiB;
+  `rotation_indices_to_delete` returns existing indices >=2 to remove before
+  shifting active→1 and 1→2, retaining three segments including active;
+  `rotation_paths_to_delete` resolves those indices to session-relative paths.
+  Unsafe paths, duplicate inventories, and negative age limits are rejected.
+
+Each v2 numeric domain code has one meaning. Existing outer Core string codes
+are unchanged:
+
+| Code | Meaning |
+| --- | --- |
+| -32031 | Unknown channel root |
+| -32032 | Unsupported channel shape |
+| -32033 | Invalid channel/plugin segment |
+| -32034 | Invalid full session UUID |
+| -32035 | Invalid timestamp |
+| -32036 | Invalid session directory basename |
+| -32037 | Invalid context field key |
+| -32038 | Reserved key reused as context |
+| -32039 | Duplicate context key |
+| -32040 | Invalid file header |
+| -32041 | Invalid line grammar |
+| -32042 | Invalid value escape |
+| -32043 | Missing or misordered reserved fields |
+| -32044 | Invalid unpadded u64 sequence |
+| -32045 | Invalid log level |
+| -32046 | Line cannot fit the byte budget |
+| -32047 | Non-scalar context value |
+| -32048 | Invalid event or operation identity |
+| -32049 | Invalid retention inventory or limits |
+| -32050 | Invalid query source path or line origin |
+| -32051 | Invalid structured event JSON shape |
+| -32052 | Reversed query time range |
 
 Diagnostic previews freeze the selected redacted bytes before confirmation.
 Windows returns a `snapshotId` from `preview_diagnostic_bundle`; export consumes

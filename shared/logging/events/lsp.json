@@ -1,0 +1,773 @@
+{
+  "version": 1,
+  "root": "lsp",
+  "events": [
+    {
+      "id": "lsp.build.execution",
+      "channel": "lsp/{server}",
+      "level": "info",
+      "message": "Language service project build for server {server}",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Validated language server session id that owns the project build"
+        },
+        "waiters": {
+          "type": "int",
+          "required": true,
+          "description": "Number of callers waiting for the shared Java project build result"
+        },
+        "waited": {
+          "type": "duration",
+          "required": false,
+          "description": "Time spent waiting for build dispatch, encoded in milliseconds"
+        },
+        "outcome": {
+          "type": "token",
+          "required": false,
+          "description": "Project build completion category reported by the build reducer"
+        },
+        "marker_scope": {
+          "type": "token",
+          "required": false,
+          "description": "Diagnostic marker scope reported by the completed Java build"
+        },
+        "builder_failed_earlier": {
+          "type": "bool",
+          "required": false,
+          "description": "Whether an earlier builder failure was observed before this build completed"
+        },
+        "recovery": {
+          "type": "bool",
+          "required": false,
+          "description": "Whether the completed Java build report represents a recovery attempt"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core",
+      "span": {
+        "failureLevel": "error"
+      }
+    },
+    {
+      "id": "lsp.build.waiting",
+      "channel": "lsp/{server}",
+      "level": "info",
+      "message": "Project build waiting for server {server}: {reason}",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Validated language server session id that owns the queued build"
+        },
+        "reason": {
+          "type": "token",
+          "required": true,
+          "description": "Build dispatch blocker returned by the Java build reducer"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "lsp.configuration.cleaned",
+      "channel": "lsp/{server}",
+      "level": "info",
+      "message": "Unused server configuration areas removed for server {server}",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Validated language server session id whose configuration areas were pruned"
+        },
+        "removed": {
+          "type": "int",
+          "required": true,
+          "description": "Number of unused language server configuration areas removed"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "lsp.configuration.cleanup_failed",
+      "channel": "lsp/{server}",
+      "level": "warn",
+      "message": "Server configuration cleanup failed for server {server}",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Validated language server session id whose configuration cleanup failed"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Filesystem error raised while removing unused language server configuration areas"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "lsp.maven.application_started",
+      "channel": "lsp/{server}",
+      "level": "info",
+      "message": "Maven profile application started for server {server}",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Validated Java language server session id applying the Maven profiles"
+        },
+        "projects": {
+          "type": "int",
+          "required": false,
+          "description": "Number of Java projects targeted by this Maven profile application, when known"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "lsp.maven.applied",
+      "channel": "lsp/{server}",
+      "level": "info",
+      "message": "Maven profiles applied for server {server}",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Validated Java language server session id that successfully applied the Maven profiles"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "lsp.maven.cancelled",
+      "channel": "lsp/{server}",
+      "level": "info",
+      "message": "Maven profile application cancelled for server {server}",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Validated Java language server session id whose Maven profile application was cancelled"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "lsp.maven.configuration_updated",
+      "channel": "lsp/{server}",
+      "level": "info",
+      "message": "Maven configuration updated for server {server}",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Validated Java language server session id that received the Maven configuration"
+        },
+        "settings_changed": {
+          "type": "bool",
+          "required": true,
+          "description": "Whether settings changed after the Java language service was initialized"
+        },
+        "projects_reloaded": {
+          "type": "bool",
+          "required": true,
+          "description": "Whether updating the Maven configuration reloaded Java projects"
+        },
+        "profiles_updating": {
+          "type": "bool",
+          "required": true,
+          "description": "Whether a Maven profile application remains in progress after the update"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "lsp.maven.partially_applied",
+      "channel": "lsp/{server}",
+      "level": "warn",
+      "message": "Maven profiles partially applied for server {server}",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Validated Java language server session id whose Maven profiles were only partially applied"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "lsp.maven.project_failed",
+      "channel": "lsp/{server}",
+      "level": "error",
+      "message": "Maven profile project {project} update failed for server {server} with outcome {outcome}",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Validated Java language server session id updating this Maven project"
+        },
+        "project": {
+          "type": "path",
+          "required": true,
+          "description": "Project directory derived from the Maven update project URI, redacted before persistence"
+        },
+        "outcome": {
+          "type": "token",
+          "required": true,
+          "description": "Maven project update result, e.g. failed or timed-out"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Error reported for this Maven project update or synthesized for its timeout"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "lsp.maven.project_finished",
+      "channel": "lsp/{server}",
+      "level": "info",
+      "message": "Maven profile project {project} update finished for server {server} with outcome {outcome}",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Validated Java language server session id updating this Maven project"
+        },
+        "project": {
+          "type": "path",
+          "required": true,
+          "description": "Project directory derived from the Maven update project URI, redacted before persistence"
+        },
+        "outcome": {
+          "type": "token",
+          "required": true,
+          "description": "Maven project update result reported by the profile task reducer"
+        },
+        "duration": {
+          "type": "duration",
+          "required": false,
+          "description": "Elapsed time for this Maven project update in milliseconds, when available"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "lsp.maven.settings_forwarded",
+      "channel": "lsp/{server}",
+      "level": "warn",
+      "message": "Maven settings forwarded unchanged for server {server}: {reason}",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Validated Java language server session id receiving the unchanged Maven settings"
+        },
+        "reason": {
+          "type": "token",
+          "required": true,
+          "description": "Maven settings warning category explaining why the settings were forwarded unchanged"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "lsp.maven.start_failed",
+      "channel": "lsp/{server}",
+      "level": "warn",
+      "message": "Pending Maven profile update failed to start for server {server}",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Validated Java language server session id that could not dispatch the pending Maven update"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Error returned when starting the pending Maven profile update"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "lsp.maven.timed_out",
+      "channel": "lsp/{server}",
+      "level": "error",
+      "message": "Maven profile application timed out for server {server}",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Validated Java language server session id whose Maven profile application exceeded its deadline"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "lsp.message.logged",
+      "channel": "lsp/{server}",
+      "level": "info",
+      "message": "Language server log message received for server {server} with severity {severity}",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Validated language server session id that sent window/logMessage"
+        },
+        "diagnostic": {
+          "type": "text",
+          "required": true,
+          "description": "Original message from the window/logMessage params, redacted and capped at 1024 UTF-8 bytes",
+          "reason": "The language server owns the unstructured window/logMessage explanation and exposes no stable error code for it, so preserve its original wording after redaction and truncation."
+        },
+        "severity": {
+          "type": "token",
+          "required": true,
+          "description": "LSP MessageType mapped to a controlled severity word, e.g. error, warn, info or log"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "lsp.message.shown",
+      "channel": "lsp/{server}",
+      "level": "info",
+      "message": "Language server show message received for server {server} with severity {severity}",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Validated language server session id that sent window/showMessage"
+        },
+        "diagnostic": {
+          "type": "text",
+          "required": true,
+          "description": "Original message from the window/showMessage params, redacted and capped at 1024 UTF-8 bytes",
+          "reason": "The language server owns the window/showMessage explanation shown to the user; retain its original wording after redaction and truncation to correlate a reported message with the server session."
+        },
+        "severity": {
+          "type": "token",
+          "required": true,
+          "description": "LSP MessageType mapped to a controlled severity word, e.g. error, warn, info or log"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "lsp.navigation.cache_hit",
+      "channel": "lsp/{server}",
+      "level": "debug",
+      "message": "Navigation markers served from cache for server {server} for {document}",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Validated Java language server session id serving cached navigation markers"
+        },
+        "document": {
+          "type": "path",
+          "required": true,
+          "description": "Document path derived from the navigation request URI, redacted before persistence"
+        },
+        "document_version": {
+          "type": "int",
+          "required": true,
+          "description": "Document version used as part of the navigation marker cache key"
+        },
+        "markers": {
+          "type": "int",
+          "required": true,
+          "description": "Number of navigation markers returned from the cache"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "lsp.navigation.limited",
+      "channel": "lsp/{server}",
+      "level": "warn",
+      "message": "Navigation marker batch limited for server {server} for {document}",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Validated Java language server session id that limited the navigation batch"
+        },
+        "document": {
+          "type": "path",
+          "required": true,
+          "description": "Document path for the limited navigation request, redacted before persistence"
+        },
+        "tasks": {
+          "type": "int",
+          "required": true,
+          "description": "Number of navigation tasks requested before applying the batch limit"
+        },
+        "limit": {
+          "type": "int",
+          "required": true,
+          "description": "Maximum navigation tasks permitted by MAX_JAVA_NAVIGATION_TASKS"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "lsp.navigation.marker_failed",
+      "channel": "lsp/{server}",
+      "level": "warn",
+      "message": "Navigation marker verification failed for server {server} for {document}",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Validated Java language server session id resolving the navigation marker"
+        },
+        "document": {
+          "type": "path",
+          "required": true,
+          "description": "Document path for the marker resolution request, redacted before persistence"
+        },
+        "document_version": {
+          "type": "int",
+          "required": true,
+          "description": "Document version associated with the marker resolution request"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "JSON-RPC error returned while resolving one Java navigation marker"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "lsp.navigation.resolved",
+      "channel": "lsp/{server}",
+      "level": "debug",
+      "message": "Navigation markers resolved for server {server} for {document}",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Validated Java language server session id that resolved the navigation markers"
+        },
+        "document": {
+          "type": "path",
+          "required": true,
+          "description": "Document path for the completed navigation request, redacted before persistence"
+        },
+        "document_version": {
+          "type": "int",
+          "required": true,
+          "description": "Document version associated with the completed navigation request"
+        },
+        "duration": {
+          "type": "duration",
+          "required": true,
+          "description": "Time from navigation request creation to marker completion, in milliseconds"
+        },
+        "tasks": {
+          "type": "int",
+          "required": true,
+          "description": "Total navigation resolution tasks belonging to the completed request"
+        },
+        "code_lenses": {
+          "type": "int",
+          "required": true,
+          "description": "Number of code lenses successfully resolved for the completed request"
+        },
+        "markers": {
+          "type": "int",
+          "required": true,
+          "description": "Number of navigation markers produced by the completed request"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "lsp.notification.received",
+      "channel": "lsp/{server}",
+      "level": "info",
+      "message": "Language server {server} notification {method} received",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Validated language server session id that emitted the notification"
+        },
+        "method": {
+          "type": "token",
+          "required": true,
+          "description": "LSP notification method name, e.g. language/status; never the notification payload"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "lsp.process.started",
+      "channel": "lsp/{server}",
+      "level": "info",
+      "message": "Language service process started for server {server}",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Validated Java language server session id whose process started"
+        },
+        "runtime_version": {
+          "type": "version",
+          "required": false,
+          "description": "Java runtime version used to launch the language server, when available"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "lsp.protocol.initialized",
+      "channel": "lsp/{server}",
+      "level": "info",
+      "message": "Language service protocol initialized for server {server}",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Validated Java language server session id whose initialize handshake completed"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "lsp.response.skipped",
+      "channel": "lsp/{server}",
+      "level": "info",
+      "message": "Late language-server response ignored for server {server}",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Validated language server session id that received an obsolete response"
+        },
+        "request": {
+          "type": "token",
+          "required": false,
+          "description": "JSON-RPC response id of the late reply; absent when the response has no id"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "lsp.shutdown.timed_out",
+      "channel": "lsp/{server}",
+      "level": "warn",
+      "message": "Language server shutdown timed out for server {server}",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Validated language server session id whose shutdown deadline expired before termination"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "lsp.stderr.read_failed",
+      "channel": "lsp/{server}",
+      "level": "warn",
+      "message": "Language server stderr read failed for server {server}",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Validated language server session id whose stderr pipe could not be read"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "I/O error returned by the language server stderr reader"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "lsp.stderr.received",
+      "channel": "lsp/{server}",
+      "level": "warn",
+      "message": "Language server stderr received for server {server}",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Validated language server session id that wrote the stderr diagnostic"
+        },
+        "diagnostic": {
+          "type": "text",
+          "required": true,
+          "description": "Original language server stderr diagnostic, redacted and capped at 1024 UTF-8 bytes",
+          "reason": "Language servers emit implementation-specific failure explanations only on stderr, so retain the original diagnostic wording for diagnosis after redaction and truncation rather than attempting an unstable parser."
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "lsp.trace.received",
+      "channel": "lsp/{server}",
+      "level": "debug",
+      "message": "Language server trace received for server {server}",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Validated language server session id that sent $/logTrace"
+        },
+        "diagnostic": {
+          "type": "text",
+          "required": true,
+          "description": "Original $/logTrace message, excluding verbose payload, redacted and capped at 1024 UTF-8 bytes",
+          "reason": "The upstream $/logTrace message describes server-internal protocol decisions without structured equivalents, so retain that original message after redaction and truncation while excluding the verbose payload."
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "lsp.workspace.import_finished",
+      "channel": "lsp/{server}",
+      "level": "info",
+      "message": "Language service project import finished for server {server}",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Validated Java language server session id that reached ServiceReady"
+        },
+        "duration": {
+          "type": "duration",
+          "required": false,
+          "description": "Elapsed workspace import time in milliseconds, when reported by the readiness diagnostics"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "lsp.workspace.legacy_removed",
+      "channel": "lsp/{server}",
+      "level": "info",
+      "message": "Legacy project files removed for server {server}",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Validated Java language server session id whose legacy project metadata was removed"
+        },
+        "removed_files": {
+          "type": "int",
+          "required": true,
+          "description": "Number of legacy Java project files removed from the workspace"
+        },
+        "state_reset": {
+          "type": "bool",
+          "required": true,
+          "description": "Whether removing the legacy Java metadata also reset language server workspace state"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "lsp.workspace.progress_received",
+      "channel": "lsp/{server}",
+      "level": "info",
+      "message": "Workspace import progress received for server {server} at {phase}",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Validated Java language server session id reporting workspace import progress"
+        },
+        "phase": {
+          "type": "token",
+          "required": true,
+          "description": "Workspace import phase reported by the Java language service"
+        },
+        "completed": {
+          "type": "int",
+          "required": false,
+          "description": "Completed work units reported for the current import phase, when available"
+        },
+        "total": {
+          "type": "int",
+          "required": false,
+          "description": "Total work units reported for the current import phase, when available"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "lsp.workspace.stalled",
+      "channel": "lsp/{server}",
+      "level": "warn",
+      "message": "Workspace import progress stalled for server {server}",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Validated Java language server session id still waiting for ServiceReady"
+        },
+        "duration": {
+          "type": "duration",
+          "required": true,
+          "description": "Time since the last workspace import progress observation, encoded in milliseconds"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "lsp.workspace.waiting",
+      "channel": "lsp/{server}",
+      "level": "info",
+      "message": "Workspace import waiting for service readiness for server {server}",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Validated Java language server session id waiting for project import to reach ServiceReady"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    }
+  ]
+}

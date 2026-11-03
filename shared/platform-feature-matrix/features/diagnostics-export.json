@@ -9,7 +9,13 @@
       "macos/Sources/Lithe/Services/Diagnostics",
       "macos/Sources/Lithe/Platform/MacOS/Logging/MacApplicationLogWriter.swift",
       "macos/Sources/Lithe/Views/Diagnostics/ApplicationLogSettingsView.swift",
-      "macos/Tests/LitheTests/DiagnosticsWorkflowTests.swift"
+      "macos/Tests/LitheTests/DiagnosticsWorkflowTests.swift",
+      "macos/Sources/LitheModuleAPI/Logging",
+      "rust/lithe-core/src/diagnostics/channel.rs",
+      "rust/lithe-core/src/diagnostics/record.rs",
+      "rust/lithe-core/src/diagnostics/query_v2.rs",
+      "rust/lithe-core/src/diagnostics/retention.rs",
+      "shared/fixtures/diagnostics/logging-v2.json"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -25,5 +31,5 @@
     "verificationStatus": "pending"
   },
   "owner": "Diagnostics",
-  "verification": "双端记录 language/git/run/performance 事件，按模块、当前/上次会话、级别、UTC 时间与文本筛选；确认诊断 15 分钟到期、过载不阻塞调用线程、日志受限额控制、目录切换后收集实际位置、嵌套与转义凭据不落盘；确认预览后修改源文件不改变导出快照，取消/失败清理暂存，并检查旧日志兼容与收集缺失计数。 验证自定义目录中无关的 lithe.*.log 不被收集或删除、刷新期间修改条件后按钮恢复、UTC 小数精度及等价时区边界正确、200 文件上限在模块/会话筛选后应用且遗漏明确标记。 两端从设置→工具→日志与诊断进入同一流程，核对中英文名称、顺序、实际诊断范围、清理全模块会话范围、目录/清理后刷新、预览条件冻结，以及取消/失败后按钮和快照恢复；原生 macOS 明暗页面与实际 ZIP 链路、Windows 前端界面交互分别验证。"
+  "verification": "双端记录 language/git/run/performance 事件，按模块、当前/上次会话、级别、UTC 时间与文本筛选；确认诊断 15 分钟到期、过载不阻塞调用线程、日志受限额控制、目录切换后收集实际位置、嵌套与转义凭据不落盘；确认预览后修改源文件不改变导出快照，取消/失败清理暂存，并检查旧日志兼容与收集缺失计数。 验证自定义目录中无关的 lithe.*.log 不被收集或删除、刷新期间修改条件后按钮恢复、UTC 小数精度及等价时区边界正确、200 文件上限在模块/会话筛选后应用且遗漏明确标记。 两端从设置→工具→日志与诊断进入同一流程，核对中英文名称、顺序、实际诊断范围、清理全模块会话范围、目录/清理后刷新、预览条件冻结，以及取消/失败后按钮和快照恢复；原生 macOS 明暗页面与实际 ZIP 链路、Windows 前端界面交互分别验证。 结构化日志 v2 目前仅提供可选 Core 命令和 macOS 生成事件，双端生产 writer 仍使用 v1，不据此标记运行时迁移完成。接入后验证带数字后缀的通道与轮转文件互不覆盖、Windows 保留设备名被拒绝、溢出通道可写头并轮转、client_secret/auth_token 等前缀凭据在编码和查询时均被脱敏，以及按 ts/level 字段筛选；再验证按会话保留与当前会话保护。"
 }
