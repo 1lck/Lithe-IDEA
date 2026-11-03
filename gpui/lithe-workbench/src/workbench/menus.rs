@@ -671,7 +671,15 @@ impl Workbench {
             // 因此本分支当前没有真实入口（活动栏 debug 图标直接调
             // toggle_tool，不经命令）；调试器落地后改回启动调试会话。
             "run.debug" => self.show_tool(ToolWindow::Debug, window, cx),
-            "run.configurations" => self.show_tool(ToolWindow::Run, window, cx),
+            // Run Configurations…：打开设置覆盖层的「Run Configurations」页，
+            // 对齐 openidea Run 菜单 EditConfigs 的「进入配置编辑界面」语义，
+            // 不再退化成只切 Run 工具窗。同时保持 Run 工具窗可见：覆盖层关闭
+            // 后用户直接落在输出与配置列表上下文；定位到具体配置的编辑入口
+            // 由 Run 面板详情页的「Edit Configuration…」承担。
+            "run.configurations" => {
+                self.show_tool(ToolWindow::Run, window, cx);
+                self.open_run_settings(window, cx);
+            }
             // Stop Debugging：停止当前运行会话。Tauri 的 `debug.stop` 停止当前
             // 调试会话；gpui 构建没有调试器，语义映射为停止当前活跃的运行会话
             // （`stop_active`：优先选中配置，否则停止所有仍在启动/运行的会话），
