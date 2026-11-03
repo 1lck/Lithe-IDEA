@@ -9956,7 +9956,8 @@
     "workspace.openWith": "Open With",
     "workspace.openWithAppStore": "App Store…",
     "workspace.openWithOther": "Other…",
-    "workspace.nativeMenuDescription": "{arg1} — {arg2}"
+    "workspace.nativeMenuDescription": "{arg1} — {arg2}",
+    "mac.workbench.unhide": "Unhide"
   },
   "overrides": {
     "windows": {

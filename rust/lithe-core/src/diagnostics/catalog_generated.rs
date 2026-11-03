@@ -7,6 +7,18 @@ use super::{EventMetadata, FieldMetadata, FieldType, LogLevel, SpanPhase};
 #[rustfmt::skip]
 pub static EVENTS: &[EventMetadata] = &[
     EventMetadata {
+        id: "app.action_search.failed",
+        channel: "app",
+        level: LogLevel::Error,
+        message: "Action catalog search failed",
+        fields: &[
+            FieldMetadata { name: "error", field_type: FieldType::Error, required: true, description: "Core command failure while matching the current action catalog; excludes query text and action content", reason: None },
+        ],
+        span: None,
+        rate: 60,
+        owner: "Lithe",
+    },
+    EventMetadata {
         id: "app.demo.failed",
         channel: "app",
         level: LogLevel::Warn,

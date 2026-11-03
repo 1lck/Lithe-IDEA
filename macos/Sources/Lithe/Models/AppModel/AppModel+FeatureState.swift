@@ -3,6 +3,7 @@ import LitheCoreContracts
 import LitheGitModule
 import LitheLocalHistoryModule
 import LitheSearchModule
+import LitheModuleAPI
 
 extension AppModel {
     var workspaceSnapshotID: UUID? { workspaceFeature.appliedSnapshot?.id }
@@ -313,8 +314,16 @@ extension AppModel {
     var isLoadingWorkspace: Bool { workspaceFeature.isLoadingWorkspace }
     var isRefreshingWorkspace: Bool { workspaceFeature.isRefreshingWorkspace }
     var workspaceLoadErrorMessage: String? { workspaceFeature.loadErrorMessage }
-    func searchEverywhereActionMatches(query: String) -> [LitheAction] {
-        LitheActionRegistry.actions(for: self).filter { $0.matches(query) }
+    func searchEverywhereActionMatches(query: String,
+                                      localize: (String) -> String = { L10n.string(key: $0) }) -> [LitheAction] {
+        let actions = LitheActionRegistry.actions(for: self)
+        do {
+            let indices = try RustCoreBridge().searchActions(query: query, texts: actions.map { $0.searchTexts(localize: localize) })
+            return indices.map { actions[$0] }
+        } catch {
+            services.logSink?.emit(AppActionSearchFailed(error: error))
+            return []
+        }
     }
 
     var localHistoryRequest: LocalHistoryRequest? {

@@ -53,6 +53,19 @@ launch already succeeds there.
 Strings returned by the core are UTF-8 JSON allocated by Rust. The caller must
 release response strings with `lithe_core_free_string`.
 
+### Localized action search
+
+`search.actions` accepts `{query, candidates: [{texts: [string]}]}` and returns
+`{indices: [integer]}`. Native hosts supply the original title, subtitle and group
+alongside their current interface translations. Plugin-owned titles stay verbatim.
+Core performs case-insensitive, NFC-normalized Unicode subsequence matching after removing query
+whitespace, preserving input order and returning zero-based candidate offsets.
+It retains no catalog, performs no workspace I/O, and never executes actions.
+The request is limited to 4096 candidates, 16 fields per candidate, 2 MiB of text
+and a 4096-byte query; excess input returns `invalid_request`.
+[Action search fixtures](../fixtures/search/actions-v1.json) cover both languages,
+English aliases, ordered results, Unicode and literal plugin titles.
+
 ### Remote workspace path identity
 
 Workspace-aware commands accept an optional top-level `remoteWorkspace` with
