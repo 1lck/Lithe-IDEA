@@ -3,7 +3,7 @@
 //! 对照 macOS `ProjectPreparationStatusView`：折叠时只显示状态图标和当前阶段，
 //! 展开时按固定顺序列出四个阶段，用 `›` 标当前、`·` 标其它，不额外追认完成。
 
-use gpui_kit::component::{Icon, IconName, Sizable as _};
+use gpui_kit::component::{Icon, IconName, Sizable as _, h_flex, v_flex};
 use gpui_kit::{
     AnyElement, App, InteractiveElement as _, IntoElement, ParentElement as _, StatefulInteractiveElement as _,
     Styled as _, WeakEntity, Window, deferred, div, px,
@@ -90,7 +90,7 @@ pub fn render_panel(
         return None;
     }
 
-    let mut phases = gpui_kit::v_flex().gap(px(4.0));
+    let mut phases = v_flex().gap(px(4.0));
     for phase in [
         PreparationPhase::Starting,
         PreparationPhase::Importing,
@@ -149,7 +149,7 @@ pub fn render_panel(
                         )),
                 )
                 .child(
-                    gpui_kit::h_flex()
+                    h_flex()
                         .gap(px(16.0))
                         .items_center()
                         .child(panel_action(
