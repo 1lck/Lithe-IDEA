@@ -6,7 +6,7 @@
 
 固定根为 `app`、`editor`、`perf`、`lsp`、`vcs`、`run`、`debug`、`terminal`、`remote`、`agent`、`update`、`plugins`。每个根恰有一个 JSON 文件，没有实际调用的根保持空数组，不预造事件。事件 ID 是小写点分的稳定标识，如 `editor.document.save_failed`；结果词使用过去时。`owner` 标明维护模块。
 
-通道由固定根和可选段组成。动态段只能来自插件、provider、server 或内部连接等已校验的 ID，格式为 `^[a-z0-9][a-z0-9._-]{0,63}$`；禁止显示名称、任意目录、用户输入和命令行。占位符必须引用本事件必填的 `id` 字段。固定段也是目录声明的一部分。插件宿主通道统一为 `plugins/{plugin}/host`。Swift 的 `LogSegment` 失败返回 `nil`，不得用未知输入强制解包。
+通道由固定根和可选段组成。动态段只能来自插件、provider、server 或内部连接等已校验的 ID，格式为 `^[a-z0-9][a-z0-9._-]{0,63}$`，同时拒绝末尾点号和 Windows 设备名（如 `con`、`nul.txt`、`com1`）；禁止显示名称、任意目录、用户输入和命令行。占位符必须引用本事件必填的 `id` 字段。固定段也是目录声明的一部分。Core 与生成器都只接受根、非插件根/段及插件宿主三种形状。插件宿主通道统一为 `plugins/{plugin}/host`。活动文件使用 `<channel>.log`，轮转使用 `<channel>~1.log`；`~` 不在通道字符集中，因此 `vcs/git.1` 不会与 `vcs/git` 的轮转文件冲突。`_overflow` 使用同样的文件头和轮转规则。Swift 的 `LogSegment` 失败返回 `nil`，不得用未知输入强制解包。
 
 `message` 是英文单行模板，只能引用本事件声明的必填字段，例如 `Operation {command} finished`；可选字段不参与模板。生成器拒绝未知属性、跨文件重名、生成类型名冲突、保留键和编码后的字段名冲突。JSON Schema 描述静态形状；生成器还执行通道、引用、span 和磁盘键展开等跨字段语义校验。
 

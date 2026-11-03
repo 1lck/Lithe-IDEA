@@ -43,7 +43,10 @@ test('rejects invalid catalogs before generation', { timeout: 1000 }, () => {
     ['encoded collision', e => { e.fields.elapsed = field('duration'); e.fields.elapsed_ms = field('int'); }, /collision/],
     ['channel type', e => { e.channel = 'app/{provider}'; e.fields.provider = field('token'); }, /required id/],
     ['optional channel', e => { e.channel = 'app/{provider}'; e.fields.provider = field('id', { required: false }); }, /required id/],
-    ['path traversal', e => { e.channel = 'app/../bad'; }, /segment/],
+    ['path traversal', e => { e.channel = 'app/..'; }, /segment/],
+    ['unsupported depth', e => { e.channel = 'app/a/b'; }, /channel shape/],
+    ['Windows device', e => { e.channel = 'app/con.txt'; }, /segment/],
+    ['Windows trailing dot', e => { e.channel = 'app/git.'; }, /segment/],
     ['span collision', e => { e.span = { failureLevel: 'error' }; e.fields.duration = field('int'); }, /automatic fields/],
     ['malformed message', e => { e.message = 'Result {missing'; }, /malformed/],
     ['generated parameter collision', e => { e.span = { failureLevel: 'error' }; e.fields.state = field('token'); }, /parameter collision/],
@@ -53,6 +56,8 @@ test('rejects invalid catalogs before generation', { timeout: 1000 }, () => {
     const e = event(); edit(e);
     assert.throws(() => validateCatalog(catalog(e)), pattern, name);
   }
+  const plugin = { ...event(), id: 'plugins.test.finished', channel: 'plugins/example' };
+  assert.throws(() => validateCatalog([{ version: 1, root: 'plugins', events: [plugin] }]), /channel shape/);
   const e = event();
   const duplicate = catalog(e); duplicate[0].events.push(structuredClone(e));
   assert.throws(() => validateCatalog(duplicate), /duplicate id/);

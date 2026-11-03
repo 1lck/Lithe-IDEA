@@ -3740,11 +3740,15 @@ parser diagnostics; hosts localize codes for presentation.
   `{channel,rotationIndex?:0,existingChannels?:[]}` and returns
   `{result:{relativePath}}` or `{error}`. Roots are `app`, `editor`, `perf`,
   `lsp`, `vcs`, `run`, `debug`, `terminal`, `remote`, `agent`, `update`, `plugins`.
-  Channels are `root`, `root/segment`, or `plugins/<id>/host`. Segments match
-  `[a-z0-9][a-z0-9._-]{0,63}`. Paths are `app.log`, `vcs/git.log`, or
-  `plugins/<id>/host.log`; positive rotation indices produce `git.1.log` siblings.
+  Channels are `root`, non-plugin `root/segment`, or `plugins/<id>/host`. Segments match
+  `[a-z0-9][a-z0-9._-]{0,63}`, excluding trailing dots and Windows device
+  basenames (`con`, `prn`, `aux`, `nul`, `com1`–`com9`, `lpt1`–`lpt9`,
+  including those followed by an extension). Paths are `app.log`, `vcs/git.log`, or
+  `plugins/<id>/host.log`; positive rotation indices produce `git~1.log` siblings. The `~` delimiter
+  cannot occur in a channel, so rotations never alias dotted channel IDs.
   After 128 admitted channels a new identity maps to `_overflow.log`; existing
-  channels retain their paths. Rust `plugin_files_path` returns
+  channels retain their paths. The overflow sink rotates as `_overflow~1.log`
+  and its header uses the channel `_overflow`. Rust `plugin_files_path` returns
   `plugins/<id>/files/`. `session_directory_name`,
   `parse_session_directory_name`, and `session_relative_path` convert explicit
   RFC3339 start time/full UUID to `sessions/YYYY-MM-DDTHH-MM-SS_<8 lowercase
@@ -3756,9 +3760,12 @@ parser diagnostics; hosts localize codes for presentation.
   arrays and objects fail per item. Malformed event shapes also fail per item.
   Disk order is timestamp, level, `seq`, `event`, optional `op`, `msg`, then
   lexical context keys (the truncation marker is last). Keys match
-  `[a-z][a-z0-9_]{0,63}` and cannot repeat or reuse reserved keys. Event/op
+  `[a-z][a-z0-9_]{0,63}` and cannot repeat or reuse reserved keys
+  (`ts`, `level`, `seq`, `event`, `op`, `msg`). Event/op
   identities are nonempty bare tokens. Shared redaction runs before escaping,
-  including credential-key fields. Bare values match `[A-Za-z0-9._:/@+-]+`;
+  including prefixed credential-key fields such as `client_secret` and
+  `auth_token`; the same structured-field redactor runs on queried v1/v2
+  evidence. Bare values match `[A-Za-z0-9._:/@+-]+`;
   other values use double quotes, escaping quote, backslash, newline, carriage
   return, tab, and other controls as `\u{XX}`. Each result excludes a newline
   and reserves one byte for it within 8192 bytes. Oversized lines shorten the
@@ -3778,7 +3785,7 @@ parser diagnostics; hosts localize codes for presentation.
   Paths are session-relative v2 paths, `sessions/<name>/<path>`, or legacy
   `<category>/lithe.*.log`. Channel prefixes match slash boundaries; severity
   and parsed RFC3339 time bounds are inclusive; search is case-insensitive;
-  field/op filters match exactly. Returns `{result:{records:[{channel,
+  field/op filters match exactly, including reserved `ts` and `level` fields. Returns `{result:{records:[{channel,
   relativePath,lineNumber,ts,level,seq,event,op?,msg,fields}],channelCounts:
   {channel:{warn,error}},truncated,skippedInvalidLines}}` or `{error}`.
   Counts reflect all filtered matches before the newest 1–10000 limit (default

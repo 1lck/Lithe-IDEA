@@ -3,6 +3,7 @@
 use super::channel::{validate_segment, LogChannel, LogError};
 use super::logging::{sanitize_log_text_unbounded, LOG_CATEGORIES, MAX_LOG_EXPORT_BYTES};
 use super::record::{decode_line, DecodedLogLine, LogLevel, LogRecord};
+use super::redaction::redact_log_field;
 use chrono::{DateTime, FixedOffset};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -124,22 +125,25 @@ fn source_channel(path: &str) -> Result<(String, bool), LogError> {
     } else {
         path.into()
     };
-    if relative == "_overflow.log" {
-        return Ok(("_overflow".into(), false));
-    }
     let stem = relative
         .strip_suffix(".log")
         .ok_or_else(|| LogError::new(-32050, "Invalid query source path"))?;
-    // A numeric final suffix is the reserved rotation namespace.
-    let stem = if let Some((base, suffix)) = stem.rsplit_once('.') {
-        if !suffix.is_empty() && suffix.bytes().all(|b| b.is_ascii_digit()) {
-            base
-        } else {
-            stem
+    // The rotation delimiter is outside the channel alphabet. Dotted numeric
+    // channel IDs (e.g. server.1) remain active identities, even without a header.
+    let stem = if let Some((base, suffix)) = stem.rsplit_once('~') {
+        let index = suffix
+            .parse::<u32>()
+            .map_err(|_| LogError::new(-32050, "Invalid query source path"))?;
+        if index == 0 || index.to_string() != suffix {
+            return Err(LogError::new(-32050, "Invalid query source path"));
         }
+        base
     } else {
         stem
     };
+    if stem == "_overflow" {
+        return Ok(("_overflow".into(), false));
+    }
     let channel = LogChannel::parse(stem)?;
     Ok((channel.as_str().into(), false))
 }
@@ -269,6 +273,8 @@ fn legacy_context(mut input: &str) -> Result<Vec<(String, String)>, LogError> {
 
 fn field_matches(record: &LogRecord, key: &str, value: &str) -> bool {
     match key {
+        "ts" => record.ts == value,
+        "level" => record.level.label() == value,
         "seq" => record.seq.to_string() == value,
         "event" => record.event == value,
         "op" => record.op.as_deref() == Some(value),
@@ -279,13 +285,7 @@ fn field_matches(record: &LogRecord, key: &str, value: &str) -> bool {
 fn redact_record(mut record: LogRecord) -> LogRecord {
     record.msg = sanitize_log_text_unbounded(&record.msg);
     for (key, value) in &mut record.fields {
-        let combined =
-            sanitize_log_text_unbounded(&format!("{key}=\"{}\"", value.replace('"', "\\\"")));
-        if combined == format!("{key}=<redacted>") {
-            *value = "<redacted>".into();
-        } else {
-            *value = sanitize_log_text_unbounded(value);
-        }
+        *value = redact_log_field(key, value);
     }
     record
 }
@@ -435,10 +435,54 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn headerless_queries_preserve_dotted_channels_rotations_and_reserved_filters() {
+        let line = "2026-11-03T08:00:01.123Z WARN seq=1 event=vcs.git.failed msg=failed";
+        let response = query_logs_v2(
+            serde_json::from_value(json!({
+                "sources": [
+                    {"relativePath":"vcs/git.1.log", "text":line},
+                    {"relativePath":"vcs/git~1.log", "text":line},
+                    {"relativePath":"_overflow~1.log", "text":line}
+                ],
+                "fields":{"level":"WARN", "ts":"2026-11-03T08:00:01.123Z"}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            response
+                .records
+                .iter()
+                .map(|r| r.channel.as_str())
+                .collect::<Vec<_>>(),
+            vec!["_overflow", "vcs/git.1", "vcs/git"]
+        );
+        assert_eq!(response.channel_counts["vcs/git.1"].warn, 1);
+    }
+
+    #[test]
+    fn queries_redact_prefixed_credentials_in_existing_v1_and_v2_files() {
+        let request = json!({"sources":[
+            {"relativePath":"app.log", "text":"2026-11-03T08:00:00.000Z INFO seq=1 event=app.test.finished msg=finished client_secret=synthetic-secret"},
+            {"relativePath":"application/lithe.previous.log", "text":"2026-11-03T08:00:01Z INFO legacy schema_version=1 auth_token=synthetic-token"}
+        ]});
+        let response = query_logs_v2(serde_json::from_value(request).unwrap()).unwrap();
+        assert_eq!(response.records.len(), 2);
+        assert_eq!(
+            response.records[0].record.fields["client_secret"],
+            "<redacted>"
+        );
+        assert_eq!(
+            response.records[1].record.fields["auth_token"],
+            "<redacted>"
+        );
+    }
+
+    #[test]
     fn query_headers_filters_and_invalid_arguments_preserve_source_evidence() {
         let header = "#lithe-log v2 session=abcdef12-3456-7890-abcd-ef1234567890 pid=42 app=1.0 channel=vcs/git started=2026-11-03T08:00:00.000Z";
         let line = "2026-11-03T08:00:01.123Z ERROR seq=9 event=vcs.git.failed op=op1 msg=failed exit_code=128";
-        let response = query_logs_v2(serde_json::from_value(json!({"sources":[{"relativePath":"vcs/git.2.log","text":format!("{header}\n{line}\n{header}\n"),"firstLineNumber":1}],"fields":{"exit_code":"128"},"search":"FAILED"})).unwrap()).unwrap();
+        let response = query_logs_v2(serde_json::from_value(json!({"sources":[{"relativePath":"vcs/git~2.log","text":format!("{header}\n{line}\n{header}\n"),"firstLineNumber":1}],"fields":{"exit_code":"128"},"search":"FAILED"})).unwrap()).unwrap();
         assert_eq!(response.records.len(), 1);
         assert_eq!(response.records[0].line_number, 2);
         assert_eq!(response.channel_counts["vcs/git"].error, 1);

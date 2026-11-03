@@ -14,6 +14,11 @@ public struct LogSegment: Hashable, Sendable {
         guard (1...64).contains(bytes.count),
               bytes[0].isASCIILowercaseOrDigit,
               bytes.allSatisfy({ $0.isASCIILowercaseOrDigit || [46, 95, 45].contains($0) }) else { return nil }
+        let basename = rawValue.split(separator: ".", omittingEmptySubsequences: false).first.map(String.init) ?? ""
+        let numberedDevice = basename.count == 4
+            && (basename.hasPrefix("com") || basename.hasPrefix("lpt"))
+            && basename.last.map { ("1"..."9").contains(String($0)) } == true
+        guard !rawValue.hasSuffix("."), !["con", "prn", "aux", "nul"].contains(basename), !numberedDevice else { return nil }
         self.rawValue = rawValue
     }
 }

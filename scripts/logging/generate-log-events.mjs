@@ -24,6 +24,7 @@ export const GENERIC_DESCRIPTIONS = Object.freeze([
 const LEVELS = ['debug', 'info', 'warn', 'error'];
 const RESERVED = ['seq', 'event', 'op', 'msg', 'ts', 'level'];
 const segment = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+const safeSegment = value => segment.test(value) && !value.endsWith('.') && !/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/.test(value);
 const fieldName = /^[a-z][a-z0-9_]{0,63}$/;
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const fail = message => { throw new Error(message); };
@@ -78,12 +79,13 @@ export function validateCatalog(catalogs) {
       if (typeof event.channel !== 'string') fail(`${event.id}: missing channel`);
       const parts = event.channel.split('/');
       if (!ROOTS.includes(parts[0]) || parts[0] !== catalog.root) fail(`${event.id}: invalid channel root`);
+      if (!(parts.length === 1 || (parts.length === 2 && parts[0] !== 'plugins') || (parts.length === 3 && parts[0] === 'plugins' && parts[2] === 'host'))) fail(`${event.id}: unsupported channel shape`);
       for (const part of parts.slice(1)) {
         const placeholder = /^\{([a-z][a-z0-9_]*)\}$/.exec(part);
         if (placeholder) {
           const field = event.fields[placeholder[1]];
           if (field?.type !== 'id' || !field.required) fail(`${event.id}: channel placeholder must be a required id field`);
-        } else if (!segment.test(part)) fail(`${event.id}: invalid channel segment`);
+        } else if (!safeSegment(part)) fail(`${event.id}: invalid channel segment`);
       }
       if (parts[0] === 'plugins' && parts.length > 1 && event.channel !== 'plugins/{plugin}/host') fail(`${event.id}: plugin host channel must be plugins/{plugin}/host`);
       for (const match of event.message.matchAll(/\{([^{}]+)\}/g)) {

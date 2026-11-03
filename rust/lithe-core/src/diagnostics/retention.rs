@@ -139,7 +139,7 @@ fn safe_path(path: &str) -> bool {
 fn perf(path: &str) -> bool {
     path == "perf.log"
         || path.starts_with("perf/")
-        || (path.starts_with("perf.") && path.ends_with(".log"))
+        || (path.starts_with("perf~") && path.ends_with(".log"))
 }
 fn plugin(path: &str) -> Option<&str> {
     let mut parts = path.split('/');

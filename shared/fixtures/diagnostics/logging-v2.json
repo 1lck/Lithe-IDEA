@@ -203,7 +203,7 @@
     },
     {
       "channel": "vcs/git",
-      "path": "vcs/git.2.log",
+      "path": "vcs/git~2.log",
       "rotation": 2
     },
     {
@@ -213,8 +213,7 @@
     },
     {
       "channel": "plugins/p",
-      "path": "plugins/p.log",
-      "rotation": 0
+      "code": -32032
     },
     {
       "channel": "unknown",
@@ -255,6 +254,15 @@
     {
       "channel": "vcs/中文",
       "code": -32033
+    },
+    {
+      "channel": "vcs/git.1",
+      "rotation": 0,
+      "path": "vcs/git.1.log"
+    },
+    {
+      "channel": "plugins/example",
+      "code": -32032
     }
   ],
   "segments": {
@@ -273,7 +281,13 @@
       "a\\b",
       " a",
       "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "é"
+      "é",
+      "con",
+      "aux",
+      "nul.txt",
+      "com1",
+      "lpt9.log",
+      "git."
     ]
   },
   "retention": [

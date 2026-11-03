@@ -30,10 +30,10 @@ pub enum FieldType {
     Text,
 }
 
-/// A generated operation phase. Started events are emitted only in DEBUG builds.
+/// A generated operation phase. Hosts filter started events by the DEBUG severity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpanPhase {
-    /// Debug-only operation start.
+    /// Operation start at DEBUG severity, available to verbose diagnostics in every build.
     Started,
     /// Successful terminal observation with duration.
     Finished,

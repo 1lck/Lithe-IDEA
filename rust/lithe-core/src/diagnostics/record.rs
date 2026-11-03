@@ -1,7 +1,7 @@
 //! Encodes and strictly decodes bounded structured log lines without native I/O or clocks.
 
 use super::channel::{valid_uuid, LogChannel, LogError};
-use super::redaction::{redact_text, RedactTextRequest};
+use super::redaction::{redact_log_field, redact_text, RedactTextRequest};
 use chrono::{DateTime, SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 
 /// Maximum UTF-8 bytes including the record's terminating newline.
 pub const MAX_RECORD_BYTES: usize = 8 * 1024;
-const RESERVED: [&str; 4] = ["seq", "event", "op", "msg"];
+const RESERVED: [&str; 6] = ["seq", "event", "op", "msg", "ts", "level"];
 
 /// Ordered severity shared by the encoder and query filters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -236,16 +236,7 @@ pub fn encode_record(event: StructuredLogEvent) -> Result<String, LogError> {
             }
             value => value.to_string(),
         };
-        // Reuse the shared text redactor for both a standalone secret shape and key-based credentials.
-        let redacted = scrub(&format!("{key}={}", encode_value(&text)));
-        let clean = if redacted != format!("{key}={}", encode_value(&text))
-            && redacted == format!("{key}=<redacted>")
-        {
-            "<redacted>".into()
-        } else {
-            scrub(&text)
-        };
-        fields.insert(key, clean);
+        fields.insert(key.clone(), redact_log_field(&key, &text));
     }
     let mut record = LogRecord {
         ts: normalize_timestamp(&event.ts)?,
@@ -303,7 +294,9 @@ pub fn encode_header(header: &LogFileHeader) -> Result<String, LogError> {
     if !valid_uuid(&header.session) || !bare(&header.app) {
         return Err(LogError::new(-32040, "Invalid file header"));
     }
-    LogChannel::parse(&header.channel)?;
+    if header.channel != "_overflow" {
+        LogChannel::parse(&header.channel)?;
+    }
     let line = format!(
         "#lithe-log v2 session={} pid={} app={} channel={} started={}",
         header.session.to_ascii_lowercase(),
@@ -589,6 +582,45 @@ mod tests {
     }
 
     #[test]
+    fn structured_credential_keys_are_redacted_and_reserved_keys_rejected() {
+        let mut event = dropped_event("2026-11-03T08:00:00Z", 1, 2);
+        event.fields = BTreeMap::from([
+            ("client_secret".into(), json!("synthetic credential value")),
+            ("auth_token".into(), json!("synthetic-token")),
+            ("db_password".into(), json!("synthetic-password")),
+            ("tokens".into(), json!(42)),
+        ]);
+        let line = encode_record(event.clone()).unwrap();
+        let DecodedLogLine::Record(record) = decode_line(&line).unwrap() else {
+            panic!("expected record")
+        };
+        for key in ["client_secret", "auth_token", "db_password"] {
+            assert_eq!(record.fields[key], "<redacted>");
+        }
+        assert_eq!(record.fields["tokens"], "42");
+        for key in ["ts", "level"] {
+            event.fields.insert(key.into(), json!("reserved"));
+            assert_eq!(encode_record(event.clone()).unwrap_err().code, -32038);
+            event.fields.remove(key);
+        }
+    }
+
+    #[test]
+    fn overflow_headers_use_the_same_codec_as_ordinary_channels() {
+        let header = LogFileHeader {
+            session: "abcdef12-3456-7890-abcd-ef1234567890".into(),
+            pid: 1,
+            app: "1.0".into(),
+            channel: "_overflow".into(),
+            started: "2026-11-03T08:00:00.000Z".into(),
+        };
+        assert_eq!(
+            decode_line(&encode_header(&header).unwrap()).unwrap(),
+            DecodedLogLine::Header(header)
+        );
+    }
+
+    #[test]
     fn shared_fixture_roundtrips_escaping_and_enforces_byte_budgets() {
         let fixture = fixture();
         assert_eq!(fixture["limits"]["lineBytes"], MAX_RECORD_BYTES);
@@ -704,7 +736,7 @@ mod tests {
                 &channel::LogChannel::parse("vcs/git").unwrap(),
                 &[0, 1, 2]
             ),
-            vec!["vcs/git.2.log"]
+            vec!["vcs/git~2.log"]
         );
     }
 

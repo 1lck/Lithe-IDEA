@@ -26,7 +26,7 @@ PR1 已实现的是纯计算规则、共享事件目录、Swift 事件类型与 
 
 会话是一次应用进程运行。Core 从宿主传入的开始时间和完整 UUID（会话唯一编号）生成 `sessions/YYYY-MM-DDTHH-MM-SS_<8位小写十六进制>/`，不读取时钟或文件系统。
 
-通道是“固定根 + 已校验 ID 段”，不是自由路径。根的封闭集合及段语法以 `shared/logging/README.md` 和共享 Core 契约为准；通道支持根、根/段及插件宿主的 `plugins/<id>/host`。Core 生成如 `app.log`、`vcs/git.log` 和 `plugins/<id>/host.log` 的会话相对路径。每会话接纳最多 128 个通道，新超额通道映射到会话根的 `_overflow.log`，已经接纳的通道保留路径。
+通道是“固定根 + 已校验 ID 段”，不是自由路径。根的封闭集合及段语法以 `shared/logging/README.md` 和共享 Core 契约为准；通道支持根、非插件根/段及插件宿主的 `plugins/<id>/host`。Core 生成如 `app.log`、`vcs/git.log` 和 `plugins/<id>/host.log` 的会话相对路径。轮转文件使用 `git~1.log`，分隔符 `~` 不属于通道字符集，避免合法 ID `git.1` 的活动日志与 `git` 的轮转相互覆盖。段还拒绝末尾点号和 Windows 设备名，使同一身份在双端都能安全落盘。每会话接纳最多 128 个通道，新超额通道映射到会话根的 `_overflow.log`，已经接纳的通道保留路径。溢出文件的头使用 `_overflow`，轮转沿用相同规则，超额通道也受单文件预算约束。
 
 这里明确推翻“调用方字符串不进目录”的绝对限制，改成“只有来自已校验插件、provider、server 或内部连接身份的 ID 才能进入目录”。理由是这些身份有明确所有者、稳定格式和数量预算，可以同时表达证据来源与插件隔离；任意 scope、主机名、显示名称和用户文本仍不能进入目录。语法校验只证明字符安全，调用方还必须证明 ID 的真实来源。
 
@@ -45,7 +45,7 @@ PR1 已实现的是纯计算规则、共享事件目录、Swift 事件类型与 
 
 时间统一为 UTC 毫秒；级别封闭为 DEBUG、INFO、WARN、ERROR；顺序为时间、级别、`seq`、`event`、可选 `op`、`msg`，其余字段按键排序。`seq` 是宿主分配的会话内单调序号，不补零；无状态编码器不能证明跨批次单调性。`op` 是操作关联身份，不是事件字段或路径段。
 
-编码器负责脱敏、转义与 8 KiB 单行预算，换行只作为转义值存在。超长优先缩短上下文字段，再缩短消息，并标记 `truncated=1`；身份与键开销仍无法容纳时返回错误，不能悄悄删键。重复聚合与队列丢弃采用普通 `log.repeated`、`log.dropped` 事件。精确语法、错误码及边界由 `shared/contracts/rust-core-api.md` 和 `shared/fixtures/diagnostics/logging-v2.json` 持有，不在 Note 中另建字段手册。
+编码器和查询复用结构化字段脱敏，先检查完整字段名（包括 `client_secret`、`auth_token` 等前缀形式），再处理文本；不能只把字段拼成字符串后依赖文本正则的单词边界。编码器负责转义与 8 KiB 单行预算，换行只作为转义值存在。超长优先缩短上下文字段，再缩短消息，并标记 `truncated=1`；身份与键开销仍无法容纳时返回错误，不能悄悄删键。重复聚合与队列丢弃采用普通 `log.repeated`、`log.dropped` 事件。精确语法、错误码及边界由 `shared/contracts/rust-core-api.md` 和 `shared/fixtures/diagnostics/logging-v2.json` 持有，不在 Note 中另建字段手册。
 
 ### 事件目录与生成类型约束接入
 

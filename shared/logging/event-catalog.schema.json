@@ -128,7 +128,8 @@
         },
         "channel": {
           "type": "string",
-          "pattern": "^(app|editor|perf|lsp|vcs|run|debug|terminal|remote|agent|update|plugins)(/([a-z0-9][a-z0-9._-]{0,63}|\\{[a-z][a-z0-9_]{0,63}\\}))*$"
+          "description": "Root, non-plugin root/segment, or plugins/{plugin}/host. The generator also rejects Windows device segments and trailing dots.",
+          "pattern": "^(?:(?:app|editor|perf|lsp|vcs|run|debug|terminal|remote|agent|update)(?:/(?:[a-z0-9][a-z0-9._-]{0,63}|\\{[a-z][a-z0-9_]{0,63}\\}))?|plugins(?:/\\{plugin\\}/host)?)$"
         },
         "level": {
           "enum": [

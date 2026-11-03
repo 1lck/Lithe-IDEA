@@ -86,11 +86,13 @@ impl LogError {
 pub struct LogChannel(String);
 
 impl LogChannel {
-    /// Parses a fixed root, root/segment, or plugins/plugin-id/host channel.
+    /// Parses a fixed root, non-plugin root/segment, or plugins/plugin-id/host channel.
     pub fn parse(value: &str) -> Result<Self, LogError> {
         let parts: Vec<_> = value.split('/').collect();
         ChannelRoot::parse(parts[0])?;
-        if !(parts.len() <= 2 || (parts.len() == 3 && parts[0] == "plugins" && parts[2] == "host"))
+        if !(parts.len() == 1
+            || (parts.len() == 2 && parts[0] != "plugins")
+            || (parts.len() == 3 && parts[0] == "plugins" && parts[2] == "host"))
         {
             return Err(LogError::new(-32032, "Unsupported channel shape"));
         }
@@ -106,7 +108,7 @@ impl LogChannel {
     }
 }
 
-/// Rejects empty, traversal, uppercase, non-ASCII, and overlong path segments.
+/// Rejects traversal, noncanonical characters, and names that alias Windows device paths.
 pub fn validate_segment(value: &str) -> Result<(), LogError> {
     let valid = !value.is_empty()
         && value.len() <= 64
@@ -114,7 +116,14 @@ pub fn validate_segment(value: &str) -> Result<(), LogError> {
         && value
             .bytes()
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || b"._-".contains(&c));
-    if !valid || matches!(value, "." | "..") {
+    // Win32 strips trailing dots and reserves device basenames even with an extension.
+    // Reject them on every host so the same identity always names the same file.
+    let basename = value.split('.').next().unwrap_or("");
+    let device = matches!(basename, "con" | "prn" | "aux" | "nul")
+        || (basename.len() == 4
+            && (basename.starts_with("com") || basename.starts_with("lpt"))
+            && matches!(basename.as_bytes()[3], b'1'..=b'9'));
+    if !valid || value.ends_with('.') || device {
         return Err(LogError::new(-32033, "Invalid channel segment"));
     }
     Ok(())
@@ -123,10 +132,15 @@ pub fn validate_segment(value: &str) -> Result<(), LogError> {
 /// Returns a slash-separated file path relative to the writable session directory.
 /// Index zero is active; positive indices produce numbered rotation siblings.
 pub fn relative_log_path(channel: &LogChannel, rotation_index: u32) -> String {
+    log_path(channel.as_str(), rotation_index)
+}
+
+fn log_path(channel: &str, rotation_index: u32) -> String {
     if rotation_index == 0 {
-        format!("{}.log", channel.as_str())
+        format!("{channel}.log")
     } else {
-        format!("{}.{rotation_index}.log", channel.as_str())
+        // `~` cannot occur in a channel, keeping rotations disjoint from active files.
+        format!("{channel}~{rotation_index}.log")
     }
 }
 
@@ -145,7 +159,7 @@ pub fn bounded_log_path(
     rotation_index: u32,
 ) -> String {
     if existing.len() >= MAX_SESSION_CHANNELS && !existing.contains(channel.as_str()) {
-        "_overflow.log".into()
+        log_path("_overflow", rotation_index)
     } else {
         relative_log_path(channel, rotation_index)
     }
@@ -263,6 +277,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn channel_paths_are_disjoint_from_rotations_and_safe_on_windows() {
+        let base = LogChannel::parse("vcs/git").unwrap();
+        let dotted = LogChannel::parse("vcs/git.1").unwrap();
+        assert_ne!(relative_log_path(&base, 1), relative_log_path(&dotted, 0));
+        assert_eq!(relative_log_path(&base, 1), "vcs/git~1.log");
+        for segment in ["con", "aux", "nul.txt", "prn", "com1", "lpt9.log", "git."] {
+            assert_eq!(validate_segment(segment).unwrap_err().code, -32033);
+            assert!(plugin_files_path(segment).is_err());
+        }
+        for segment in ["console", "com0", "com10", "lpt0", "git.1"] {
+            assert!(validate_segment(segment).is_ok());
+        }
+        assert_eq!(
+            LogChannel::parse("plugins/example").unwrap_err().code,
+            -32032
+        );
+        let existing = (0..128).map(|i| format!("vcs/git{i}")).collect();
+        assert_eq!(bounded_log_path(&base, &existing, 2), "_overflow~2.log");
+    }
+
+    #[test]
     fn session_names_roundtrip_and_overflow_preserves_existing_channels() {
         let name = session_directory_name(
             "2026-11-03T10:00:00+02:00",
@@ -282,7 +317,7 @@ mod tests {
         );
         assert_eq!(
             bounded_log_path(&LogChannel::parse("vcs/git0").unwrap(), &existing, 1),
-            "vcs/git0.1.log"
+            "vcs/git0~1.log"
         );
         assert_eq!(
             plugin_files_path("io.example.plugin").unwrap(),
