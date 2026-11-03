@@ -29,9 +29,11 @@ final class AppSettings: ObservableObject {
         static let themePreference = "settings.themePreference"
         static let language = "settings.language"
         static let editorFontSize = "settings.editorFontSize"
+        static let editorAppearance = "settings.editorAppearance"
         static let editorFontFamily = "settings.editorFontFamily"
         static let editorSoftWrap = "settings.editorSoftWrap"
         static let editorMinimap = "settings.editorMinimap"
+        static let javaKeywordNavigationFilter = "settings.javaKeywordNavigationFilter"
         static let projectTreeRowHeight = "settings.projectTreeRowHeight"
         static let tabWidth = "settings.tabWidth"
         static let editorTabLayoutMode = "settings.editorTabLayoutMode"
@@ -47,11 +49,20 @@ final class AppSettings: ObservableObject {
         static let legacyHiddenFilePatterns = "settings.hiddenFilePatterns"
         static let searchExcludedPathPatterns = "settings.searchExcludedPathPatterns"
         static let searchExclusionsEnabled = "settings.searchExclusionsEnabled"
+        static let localHistoryIgnorePatterns = "settings.localHistoryIgnorePatterns"
+        static let localHistoryIgnoreRegexes = "settings.localHistoryIgnoreRegexes"
+        static let localHistoryStorageLimitMegabytes = "settings.localHistoryStorageLimitMegabytes"
         static let gitExecutable = "settings.gitExecutable"
         static let gitUseCredentialHelper = "settings.gitUseCredentialHelper"
         static let gitFetchOptions = "settings.gitFetchOptions"
         static let gitSaveChangesPolicy = "settings.gitSaveChangesPolicy"
         static let projectOpenBehavior = "settings.projectOpenBehavior"
+        static let networkProxyMode = "settings.networkProxyMode"
+        static let networkProxyType = "settings.networkProxyType"
+        static let networkProxyHost = "settings.networkProxyHost"
+        static let networkProxyPort = "settings.networkProxyPort"
+        static let networkProxyUsername = "settings.networkProxyUsername"
+        static let networkProxyExclusions = "settings.networkProxyExclusions"
         static let commitMessageAI = "settings.commitMessageAI"
         static let agentCommand = "settings.agentCommand"
         static let agentArguments = "settings.agentArguments"
@@ -103,7 +114,26 @@ final class AppSettings: ObservableObject {
             InterfaceLanguage.select(language.rawValue)
         }
     }
-    @Published var editorFontSize: Double { didSet { defaults.set(editorFontSize, forKey: Key.editorFontSize) } }
+    @Published var editorFontSize: Double {
+        didSet {
+            let normalized = EditorAppearanceSettings.normalizedFontSize(editorFontSize)
+            if editorFontSize != normalized {
+                editorFontSize = normalized
+                return
+            }
+            defaults.set(editorFontSize, forKey: Key.editorFontSize)
+        }
+    }
+    @Published var editorAppearance: EditorAppearanceSettings {
+        didSet {
+            let normalized = EditorAppearanceSettings(values: editorAppearance.storedValues)
+            if editorAppearance != normalized {
+                editorAppearance = normalized
+                return
+            }
+            defaults.set(editorAppearance.storedValues, forKey: Key.editorAppearance)
+        }
+    }
     /// 代码编辑器编程字体族。默认是随包分发的 JetBrains Mono，只有在用户
     /// 显式选择系统字体后才偏离打包字体；终端、Output 工具窗和提交信息
     /// 输入框继续使用打包字体，与 IDEA 的 Editor/Console 字体分工一致。
@@ -116,13 +146,17 @@ final class AppSettings: ObservableObject {
     @Published var editorSoftWrapEnabled: Bool {
         didSet { defaults.set(editorSoftWrapEnabled, forKey: Key.editorSoftWrap) }
     }
+    /// 跳过 Java 关键字的定义查询。关键字没有定义，但语言服务器对它们可能要等数秒；
+    /// 默认开启，关闭后恢复每次都向语言服务器查询的行为。
+    @Published var javaKeywordNavigationFilterEnabled: Bool {
+        didSet { defaults.set(javaKeywordNavigationFilterEnabled, forKey: Key.javaKeywordNavigationFilter) }
+    }
     @Published var editorMinimapEnabled: Bool {
         didSet { defaults.set(editorMinimapEnabled, forKey: Key.editorMinimap) }
     }
     @Published var projectTreeRowHeight: Double {
         didSet { defaults.set(projectTreeRowHeight, forKey: Key.projectTreeRowHeight) }
     }
-    @Published var tabWidth: Int { didSet { defaults.set(tabWidth, forKey: Key.tabWidth) } }
     @Published var editorTabLayoutMode: EditorTabLayoutMode {
         didSet { defaults.set(editorTabLayoutMode.rawValue, forKey: Key.editorTabLayoutMode) }
     }
@@ -162,6 +196,40 @@ final class AppSettings: ObservableObject {
             if oldValue != searchExclusionsEnabled { searchExclusionsDidChange.send() }
         }
     }
+    /// Kept out of local history only; the project tree still shows these files.
+    /// Holds the user's own globs plus `!**/name/` for removed built-in folder
+    /// rules, so built-ins added later still apply.
+    @Published var localHistoryIgnorePatterns: [String] {
+        didSet {
+            defaults.set(localHistoryIgnorePatterns, forKey: Key.localHistoryIgnorePatterns)
+            if oldValue != localHistoryIgnorePatterns { localHistoryIgnoreRulesDidChange.send() }
+        }
+    }
+    @Published var localHistoryIgnoreRegexes: [String] {
+        didSet {
+            defaults.set(localHistoryIgnoreRegexes, forKey: Key.localHistoryIgnoreRegexes)
+            if oldValue != localHistoryIgnoreRegexes { localHistoryIgnoreRulesDidChange.send() }
+        }
+    }
+    static let defaultLocalHistoryStorageLimitMegabytes = 100
+    static let localHistoryStorageLimitRange = 50...5000
+    /// Accept a whole nonnegative number, optionally followed by the displayed unit.
+    nonisolated static func parseLocalHistoryStorageLimitMegabytes(_ input: String) -> Int? {
+        var number = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        if number.uppercased().hasSuffix("MB") {
+            number = String(number.dropLast(2)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        guard !number.isEmpty, number.utf8.allSatisfy({ (48...57).contains($0) }) else { return nil }
+        return Int(number)
+    }
+
+    /// Per-project local history cap in MB (1 MB = 1024 × 1024 bytes).
+    @Published var localHistoryStorageLimitMegabytes: Int {
+        didSet {
+            defaults.set(localHistoryStorageLimitMegabytes, forKey: Key.localHistoryStorageLimitMegabytes)
+            if oldValue != localHistoryStorageLimitMegabytes { localHistoryIgnoreRulesDidChange.send() }
+        }
+    }
     let gitExecutionPreferences = GitExecutionPreferences()
     @Published var gitExecutable: String {
         didSet { defaults.set(gitExecutable, forKey: Key.gitExecutable); updateGitExecutionPreferences() }
@@ -187,6 +255,94 @@ final class AppSettings: ObservableObject {
     }
     @Published var projectOpenBehavior: ProjectOpenBehavior {
         didSet { defaults.set(projectOpenBehavior.rawValue, forKey: Key.projectOpenBehavior) }
+    }
+    /// Read by the Keychain migration in the composition root, which runs
+    /// without an `AppSettings` path for secrets.
+    nonisolated static let networkProxyPasswordKey = "proxy.password"
+    let networkProxyPreferences = NetworkProxyPreferences()
+    @Published var networkProxyMode: NetworkProxyMode {
+        didSet {
+            defaults.set(networkProxyMode.rawValue, forKey: Key.networkProxyMode)
+            updateNetworkProxyPreferences()
+        }
+    }
+    @Published var networkProxyType: NetworkProxyType {
+        didSet {
+            defaults.set(networkProxyType.rawValue, forKey: Key.networkProxyType)
+            updateNetworkProxyPreferences()
+        }
+    }
+    @Published var networkProxyHost: String {
+        didSet {
+            defaults.set(networkProxyHost, forKey: Key.networkProxyHost)
+            updateNetworkProxyPreferences()
+        }
+    }
+    @Published var networkProxyPort: Int {
+        didSet {
+            defaults.set(networkProxyPort, forKey: Key.networkProxyPort)
+            updateNetworkProxyPreferences()
+        }
+    }
+    @Published var networkProxyUsername: String {
+        didSet {
+            defaults.set(networkProxyUsername, forKey: Key.networkProxyUsername)
+            updateNetworkProxyPreferences()
+        }
+    }
+    /// Hosts that bypass a custom proxy, one entry per element; the settings
+    /// page edits them as one comma-separated string.
+    @Published var networkProxyExclusions: [String] {
+        didSet {
+            defaults.set(networkProxyExclusions, forKey: Key.networkProxyExclusions)
+            updateNetworkProxyPreferences()
+        }
+    }
+
+    private func updateNetworkProxyPreferences() {
+        // The snapshot carries the stored values as entered; normalization
+        // and validation are owned by Rust Core (`network.proxyPolicy`).
+        var configuration = networkProxyPreferences.snapshot
+        configuration.mode = networkProxyMode
+        configuration.type = networkProxyType
+        configuration.host = networkProxyHost
+        configuration.port = networkProxyPort
+        configuration.username = networkProxyUsername
+        configuration.exclusions = networkProxyExclusions
+        networkProxyPreferences.update(configuration)
+    }
+
+    /// Drafts retain the saved credential's identity. Only a newly typed
+    /// password is unbound; Rust decides whether a saved one matches this draft.
+    func networkProxyCandidate(type: NetworkProxyType, host: String, port: Int,
+                               username: String, passwordDraft: String) -> NetworkProxyConfiguration {
+        var configuration = networkProxyPreferences.snapshot
+        configuration.mode = .custom
+        configuration.type = type
+        configuration.host = host
+        configuration.port = port
+        configuration.username = username
+        if !passwordDraft.isEmpty {
+            configuration.password = passwordDraft
+            configuration.passwordIdentity = nil
+        }
+        return configuration
+    }
+
+    /// Loading must use the identity stored with the secret, not today's
+    /// mutable endpoint. This also prevents rebinding after a failed save.
+    func updateNetworkProxyCredential(_ credential: NetworkProxyCredential?) {
+        networkProxyCredential = credential
+        var configuration = networkProxyPreferences.snapshot
+        configuration.password = credential?.password ?? ""
+        configuration.passwordIdentity = credential?.identity
+        networkProxyPreferences.update(configuration)
+    }
+
+    @Published private(set) var networkProxyCredential: NetworkProxyCredential? = nil
+
+    var networkProxyHasSavedPassword: Bool {
+        networkProxyCredential?.password.isEmpty == false
     }
     @Published var commitMessageAI: CommitMessageAISettings {
         didSet { saveCommitMessageAI() }
@@ -307,14 +463,24 @@ final class AppSettings: ObservableObject {
         let storedLanguage = AppLanguage(rawValue: defaults.string(forKey: Key.language) ?? "") ?? .defaultLanguage
         language = storedLanguage
         InterfaceLanguage.select(storedLanguage.rawValue)
-        editorFontSize = defaults.object(forKey: Key.editorFontSize) as? Double ?? 13
+        editorFontSize = EditorAppearanceSettings.normalizedFontSize(
+            defaults.object(forKey: Key.editorFontSize) as? Double ?? 13
+        )
+        var appearanceValues = defaults.object(forKey: Key.editorAppearance) as? [String: Any] ?? [:]
+        // Preserve legacy choices only until the unified setting has its own value.
+        if appearanceValues["tabSize"] == nil, let legacy = defaults.object(forKey: Key.tabWidth) as? Int,
+           (1...16).contains(legacy) {
+            appearanceValues["tabSize"] = legacy
+            defaults.set(appearanceValues, forKey: Key.editorAppearance)
+        }
+        editorAppearance = EditorAppearanceSettings(values: appearanceValues)
         editorFontFamily = EditorFontResolution.normalizedFamily(
             defaults.string(forKey: Key.editorFontFamily)
         )
         editorSoftWrapEnabled = defaults.object(forKey: Key.editorSoftWrap) as? Bool ?? false
         editorMinimapEnabled = defaults.object(forKey: Key.editorMinimap) as? Bool ?? true
+        javaKeywordNavigationFilterEnabled = defaults.object(forKey: Key.javaKeywordNavigationFilter) as? Bool ?? true
         projectTreeRowHeight = defaults.object(forKey: Key.projectTreeRowHeight) as? Double ?? 24
-        tabWidth = defaults.object(forKey: Key.tabWidth) as? Int ?? 4
         editorTabLayoutMode = EditorTabLayoutMode(
             rawValue: defaults.string(forKey: Key.editorTabLayoutMode) ?? ""
         ) ?? .singleLine
@@ -331,6 +497,11 @@ final class AppSettings: ObservableObject {
         searchExcludedPathPatterns = defaults.stringArray(forKey: Key.searchExcludedPathPatterns) ?? []
         // Existing saved exclusions stay active when upgrading from the inline editor.
         searchExclusionsEnabled = defaults.object(forKey: Key.searchExclusionsEnabled) as? Bool ?? true
+        localHistoryIgnorePatterns = defaults.stringArray(forKey: Key.localHistoryIgnorePatterns) ?? []
+        localHistoryIgnoreRegexes = defaults.stringArray(forKey: Key.localHistoryIgnoreRegexes) ?? []
+        localHistoryStorageLimitMegabytes = (defaults.object(forKey: Key.localHistoryStorageLimitMegabytes) as? Int)
+            .map { min(max($0, Self.localHistoryStorageLimitRange.lowerBound), Self.localHistoryStorageLimitRange.upperBound) }
+            ?? Self.defaultLocalHistoryStorageLimitMegabytes
         gitExecutable = defaults.string(forKey: Key.gitExecutable) ?? ""
         gitUseCredentialHelper = defaults.object(forKey: Key.gitUseCredentialHelper) as? Bool ?? true
         var savedFetchOptions = defaults.data(forKey: Key.gitFetchOptions)
@@ -343,6 +514,16 @@ final class AppSettings: ObservableObject {
         projectOpenBehavior = ProjectOpenBehavior(
             rawValue: defaults.string(forKey: Key.projectOpenBehavior) ?? ""
         ) ?? .ask
+        networkProxyMode = NetworkProxyMode(
+            rawValue: defaults.string(forKey: Key.networkProxyMode) ?? ""
+        ) ?? .system
+        networkProxyType = NetworkProxyType(
+            rawValue: defaults.string(forKey: Key.networkProxyType) ?? ""
+        ) ?? .http
+        networkProxyHost = defaults.string(forKey: Key.networkProxyHost) ?? ""
+        networkProxyPort = defaults.object(forKey: Key.networkProxyPort) as? Int ?? 0
+        networkProxyUsername = defaults.string(forKey: Key.networkProxyUsername) ?? ""
+        networkProxyExclusions = defaults.stringArray(forKey: Key.networkProxyExclusions) ?? []
         let selectedPreset = KeyboardShortcutPreset(
             rawValue: defaults.string(forKey: Key.keyboardShortcutPreset) ?? ""
         ) ?? .macOS
@@ -388,6 +569,129 @@ final class AppSettings: ObservableObject {
         repairImportedAgentProviders()
         AppThemeRuntime.shared.activate(colorTheme)
         updateGitExecutionPreferences()
+        // Property initialization does not fire didSet, so the snapshot the
+        // network layer reads must be synced explicitly once, here at the end
+        // of initialization — a reload must keep the saved policy effective.
+        updateNetworkProxyPreferences()
+        recoverEditorSettingsImport()
+    }
+
+    private static let editorImportJournalKey = "settings.editorImportJournal.v1"
+    var didOfferEditorSettingsImport: Bool {
+        get { defaults.object(forKey: "settings.didOfferEditorImport") as? Bool ?? false }
+        set { defaults.set(newValue, forKey: "settings.didOfferEditorImport") }
+    }
+    @Published private(set) var editorImportRecoveryFailed = false
+
+    func editorImportValues(persisted: Bool = false) -> [String: String] {
+        let appearance = persisted
+            ? EditorAppearanceSettings(values: defaults.object(forKey: Key.editorAppearance) as? [String: Any] ?? [:])
+            : editorAppearance
+        var result = appearance.storedValues.mapValues { String(describing: $0) }
+        result["themePreference"] = persisted ? defaults.string(forKey: Key.themePreference) ?? AppThemePreference.dark.rawValue : themePreference.rawValue
+        result["fontFamily"] = persisted ? defaults.string(forKey: Key.editorFontFamily) ?? EditorFontDefaults.monospacedFamily : editorFontFamily
+        result["fontSize"] = String(persisted ? defaults.object(forKey: Key.editorFontSize) as? Double ?? 13 : editorFontSize)
+        result["softWrap"] = String(persisted ? defaults.object(forKey: Key.editorSoftWrap) as? Bool ?? false : editorSoftWrapEnabled)
+        result["minimap"] = String(persisted ? defaults.object(forKey: Key.editorMinimap) as? Bool ?? true : editorMinimapEnabled)
+        let preset = persisted ? KeyboardShortcutPreset(rawValue: defaults.string(forKey: Key.keyboardShortcutPreset) ?? "") ?? .macOS : keyboardShortcutPreset
+        let commands = persisted ? Self.loadKeyboardShortcutPresets(from: defaults)[preset.rawValue] ?? [:] : keyboardShortcutOverrides
+        result["keymap"] = EditorImportKeymap(preset: preset.rawValue, commands: commands).encoded
+        return result.filter { EditorSettingsImportField(rawValue: $0.key) != nil }
+    }
+
+    private func writeEditorImportValues(_ values: [String: String]) throws {
+        guard values.allSatisfy({ EditorSettingsImportField(rawValue: $0.key)?.accepts($0.value) == true }) else {
+            throw EditorSettingsImportError.invalid
+        }
+        var appearance = EditorAppearanceSettings(values: defaults.object(forKey: Key.editorAppearance) as? [String: Any] ?? [:]).storedValues
+        for (key, value) in values {
+            switch key {
+            case "keymap":
+                let keymap = EditorImportKeymap.decode(value)!
+                guard let preset = KeyboardShortcutPreset(rawValue: keymap.preset) else { throw EditorSettingsImportError.invalid }
+                selectKeyboardShortcutPreset(preset)
+                setKeyboardShortcutOverrides(keymap.commands)
+            case "tabSize": appearance[key] = Int(value)!
+            case "themePreference": themePreference = AppThemePreference(rawValue: value)!
+            case "fontFamily": editorFontFamily = value
+            case "fontSize": editorFontSize = Double(value)!
+            case "softWrap": editorSoftWrapEnabled = value == "true"
+            case "minimap": editorMinimapEnabled = value == "true"
+            case "lineHeight": appearance[key] = Double(value)!
+            case "customTheme", "colorScheme", "lineNumbers", "whitespace", "cursorStyle", "cursorBlinking": appearance[key] = value
+            default: appearance[key] = value == "true"
+            }
+        }
+        editorAppearance = EditorAppearanceSettings(values: appearance)
+        let stored = editorImportValues(persisted: true)
+        guard values.allSatisfy({ stored[$0.key] == $0.value }) else { throw EditorSettingsImportError.storage }
+    }
+
+    private func saveEditorImportJournal(_ journal: EditorSettingsImportJournal) throws {
+        let data = try JSONEncoder().encode(journal)
+        defaults.set(data, forKey: Self.editorImportJournalKey)
+        guard defaults.data(forKey: Self.editorImportJournalKey) == data else { throw EditorSettingsImportError.storage }
+    }
+
+    private var editorImportJournal: EditorSettingsImportJournal? {
+        guard let data = defaults.data(forKey: Self.editorImportJournalKey), data.count <= 131_072,
+              let journal = try? JSONDecoder().decode(EditorSettingsImportJournal.self, from: data),
+              Set(journal.before.keys) == Set(journal.after.keys),
+              !journal.before.isEmpty,
+              [journal.before, journal.after].allSatisfy({ values in
+                  values.allSatisfy { EditorSettingsImportField(rawValue: $0.key)?.accepts($0.value) == true }
+              }) else { return nil }
+        return journal
+    }
+
+    func importEditorSettings(_ changes: [String: String], baseline: [String: String]) throws {
+        let current = editorImportValues()
+        let persisted = editorImportValues(persisted: true)
+        guard !editorImportRecoveryFailed, editorImportJournal?.pending != true, !changes.isEmpty,
+              changes.keys.allSatisfy({ current[$0] == baseline[$0] && persisted[$0] == baseline[$0] }) else { throw EditorSettingsImportError.changed }
+        guard changes.allSatisfy({ EditorSettingsImportField(rawValue: $0.key)?.accepts($0.value) == true }) else { throw EditorSettingsImportError.invalid }
+        // ponytail: keep one import attempt, not a multi-step undo history; recovery restores effective values.
+        var journal = EditorSettingsImportJournal(before: baseline.filter { changes[$0.key] != nil }, after: changes, pending: true)
+        guard journal.before.count == changes.count else { throw EditorSettingsImportError.invalid }
+        try saveEditorImportJournal(journal)
+        do {
+            try writeEditorImportValues(changes)
+            journal.pending = false
+            try saveEditorImportJournal(journal)
+        } catch {
+            recoverEditorSettingsImport()
+            throw error
+        }
+    }
+
+    var canUndoEditorSettingsImport: Bool { editorImportJournal != nil }
+
+    func undoEditorSettingsImport() throws {
+        guard var journal = editorImportJournal else { throw EditorSettingsImportError.invalid }
+        let current = editorImportValues()
+        let persisted = editorImportValues(persisted: true)
+        guard journal.after.allSatisfy({ current[$0.key] == $0.value || (journal.pending && current[$0.key] == journal.before[$0.key]) }) else {
+            throw EditorSettingsImportError.changed
+        }
+        guard journal.after.allSatisfy({ persisted[$0.key] == $0.value || (journal.pending && persisted[$0.key] == journal.before[$0.key]) }) else {
+            throw EditorSettingsImportError.changed
+        }
+        journal.pending = true
+        try saveEditorImportJournal(journal)
+        try writeEditorImportValues(journal.before)
+        defaults.set(nil, forKey: Self.editorImportJournalKey)
+        guard defaults.data(forKey: Self.editorImportJournalKey) == nil else { throw EditorSettingsImportError.storage }
+        editorImportRecoveryFailed = false
+    }
+
+    private func recoverEditorSettingsImport() {
+        guard let journal = editorImportJournal else {
+            editorImportRecoveryFailed = defaults.object(forKey: Self.editorImportJournalKey) != nil
+            return
+        }
+        guard journal.pending else { return }
+        do { try undoEditorSettingsImport() }
+        catch { editorImportRecoveryFailed = true }
     }
 
     var terminalShellPath: String? {
@@ -469,6 +773,8 @@ final class AppSettings: ObservableObject {
 
     private let searchExclusionsDidChange = PassthroughSubject<Void, Never>()
     var searchExclusionsChanges: AnyPublisher<Void, Never> { searchExclusionsDidChange.eraseToAnyPublisher() }
+    private let localHistoryIgnoreRulesDidChange = PassthroughSubject<Void, Never>()
+    var localHistoryIgnoreRulesChanges: AnyPublisher<Void, Never> { localHistoryIgnoreRulesDidChange.eraseToAnyPublisher() }
 
     /// Search Everywhere globs never change other search clients or project visibility.
     var searchEverywhereVisibilityRules: FileVisibilityRules {
@@ -507,11 +813,12 @@ final class AppSettings: ObservableObject {
         themePreference = .dark
         language = .defaultLanguage
         editorFontSize = 13
+        editorAppearance = EditorAppearanceSettings()
         editorFontFamily = EditorFontDefaults.monospacedFamily
         editorSoftWrapEnabled = false
         editorMinimapEnabled = true
+        javaKeywordNavigationFilterEnabled = true
         projectTreeRowHeight = 24
-        tabWidth = 4
         editorTabLayoutMode = .singleLine
         showCodeVision = true
         autoSave = true
@@ -522,11 +829,20 @@ final class AppSettings: ObservableObject {
         hiddenPathPatterns = []
         searchExcludedPathPatterns = []
         searchExclusionsEnabled = true
+        localHistoryIgnorePatterns = []
+        localHistoryIgnoreRegexes = []
+        localHistoryStorageLimitMegabytes = Self.defaultLocalHistoryStorageLimitMegabytes
         gitFetchOptions = GitFetchOptions()
         gitExecutable = ""
         gitUseCredentialHelper = true
         gitSaveChangesPolicy = .stash
         projectOpenBehavior = .ask
+        networkProxyMode = .system
+        networkProxyType = .http
+        networkProxyHost = ""
+        networkProxyPort = 0
+        networkProxyUsername = ""
+        networkProxyExclusions = []
         commitMessageAI = .default
         agentCommand = ""
         agentArguments = ""
@@ -547,6 +863,8 @@ final class AppSettings: ObservableObject {
         setKeyboardShortcutOverrides([:])
         javaBuildFailurePolicies = [:]
         defaults.set(nil, forKey: Key.javaBuildFailurePolicies)
+        // All stored properties are initialized; the snapshot can now read self.
+        updateNetworkProxyPreferences()
     }
 
     func setKeyboardShortcutOverrides(_ value: [String: [KeyboardShortcutBinding]]) {

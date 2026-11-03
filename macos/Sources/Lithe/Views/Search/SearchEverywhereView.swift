@@ -148,7 +148,16 @@ private struct SearchEverywhereContent: View {
         get { draftQuery ?? session.everywhereQuery }
         nonmutating set { draftQuery = newValue; session.everywhereQuery = newValue }
     }
-    @State private var selectedIndex = 0
+    @State private var pageRequest = 0
+    @State private var retryPage = false
+    // nil follows the current first result until the user explicitly selects a row.
+    @State private var selectedItemID: String?
+    private var selectedIndex: Int {
+        get { visibleItems.firstIndex { $0.id == selectedItemID } ?? 0 }
+        nonmutating set {
+            selectedItemID = visibleItems.indices.contains(newValue) ? visibleItems[newValue].id : nil
+        }
+    }
     // New searches and keyboard navigation reveal rows; mouse selection preserves the viewport.
     @State private var selectionRevealRevision = 0
     private var scope: SearchEverywhereScope {
@@ -167,10 +176,33 @@ private struct SearchEverywhereContent: View {
         nonmutating set { session.isEverywherePreviewVisible = newValue }
     }
     @State private var keyMonitor: Any?
+    @State private var panelSize: CGSize?
+    @State private var resizeStart: CGSize?
 
-    private enum SearchItem {
+    private var effectivePanelSize: CGSize {
+        let desired = panelSize ?? CGSize(width: LitheTheme.SearchEverywhere.preferredWidth,
+            height: LitheTheme.SearchEverywhere.maxResultsHeight + 84)
+        return CGSize(width: min(desired.width, max(0, availableSize.width - 32)),
+            height: min(hasQuery ? desired.height : 84, max(0, availableSize.height - 100)))
+    }
+
+    private func resizePanel(_ translation: CGSize) {
+        let start = resizeStart ?? effectivePanelSize
+        panelSize = ProjectReplacePanelGeometry.updated(CGRect(origin: .zero, size: start),
+            translation: translation, corner: .bottomTrailing,
+            in: CGSize(width: max(0, availableSize.width - 32), height: max(0, availableSize.height - 100))).size
+    }
+
+    private enum SearchItem: Identifiable {
         case result(FileSearchResult)
         case action(LitheAction)
+
+        var id: String {
+            switch self {
+            case .result(let result): "result:\(result.id)"
+            case .action(let action): "action:\(action.id)"
+            }
+        }
     }
 
     private var visibleItems: [SearchItem] {
@@ -180,8 +212,10 @@ private struct SearchEverywhereContent: View {
             let nameMatches = (enabledProviders.contains(.files) ? values.fileMatches : [])
                 + (enabledProviders.contains(.classes) ? values.classMatches : [])
                 + (enabledProviders.contains(.symbols) ? values.symbolMatches : [])
-            return rankedResults(nameMatches)
+            let names = rankedResults(nameMatches)
+            return names.filter { pageNumber($0) == 0 }
                 + (enabledProviders.contains(.actions) ? actionMatches(query).map(SearchItem.action) : [])
+                + names.filter { pageNumber($0) > 0 }
         case .classes:
             return results(in: feature.searchEverywhereResults.classMatches)
         case .files:
@@ -219,9 +253,21 @@ private struct SearchEverywhereContent: View {
             )
         }
         ranked.sort { left, right in
-            left.score == right.score ? left.index < right.index : left.score > right.score
+            let leftPage = feature.searchEverywherePageByID[left.value.id] ?? 0
+            let rightPage = feature.searchEverywherePageByID[right.value.id] ?? 0
+            if leftPage != rightPage { return leftPage < rightPage }
+            return left.score == right.score ? left.index < right.index : left.score > right.score
         }
         return ranked.map { SearchItem.result($0.value) }
+    }
+
+    private func pageNumber(_ item: SearchItem) -> Int {
+        guard case .result(let result) = item else { return 0 }
+        return feature.searchEverywherePageByID[result.id] ?? 0
+    }
+
+    private var searchTaskIdentity: String {
+        "\(queryMode.workspaceSearchTaskID)|\(scope.rawValue)|\(session.everywhereResultKinds.map(\.rawValue).sorted())|\(searchOptions.cacheKey)|\(settings.searchExcludedPathPatterns)|\(settings.searchExclusionsEnabled)"
     }
 
     private var hasQuery: Bool {
@@ -233,24 +279,32 @@ private struct SearchEverywhereContent: View {
             scopeTabs
             searchField
             if hasQuery {
-                resultsWithPreview.frame(maxHeight: LitheTheme.SearchEverywhere.maxResultsHeight)
+                resultsWithPreview.frame(maxHeight: .infinity)
             }
         }
-        .frame(width: min(LitheTheme.SearchEverywhere.preferredWidth, max(0, availableSize.width - 32)),
-               height: min(hasQuery ? LitheTheme.SearchEverywhere.maxResultsHeight + 84 : 84,
-                           max(0, availableSize.height - 100)), alignment: .top)
+        .frame(width: effectivePanelSize.width, height: effectivePanelSize.height, alignment: .top)
         .background(LitheTheme.SearchEverywhere.background)
         .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.popupCornerRadius))
         .overlay {
             RoundedRectangle(cornerRadius: LitheTheme.Metrics.popupCornerRadius)
                 .strokeBorder(LitheTheme.SearchEverywhere.border, lineWidth: 1)
         }
+        .overlay(alignment: .bottomTrailing) {
+            if hasQuery {
+                ProjectReplaceCornerHandle(corner: .bottomTrailing,
+                    onStart: { resizeStart = effectivePanelSize },
+                    onChange: resizePanel,
+                    onEnd: { resizePanel($0); resizeStart = nil }, preservesWindowPosition: true)
+                    .frame(width: 14, height: 14)
+                    .accessibilityIdentifier("search-everywhere-resize")
+            }
+        }
         .background(LitheCenteredPopup(isPresented: $editingExclusions,
             dialogTitle: L10n.string("Search exclusions", locale: locale), focusFirstTextField: true) {
             SearchEverywhereExclusionsEditor(settings: settings, dismiss: { editingExclusions = false })
         }.frame(width: 0, height: 0).allowsHitTesting(false))
         .onAppear {
-            selectedIndex = 0
+            selectedItemID = nil
             installKeyMonitor()
         }
         .onDisappear { removeKeyMonitor() }
@@ -262,18 +316,29 @@ private struct SearchEverywhereContent: View {
             inputFocusRequest &+= 1
         }
         .onChange(of: query) { _ in
-            selectedIndex = 0
+            selectedItemID = nil
             selectionRevealRevision &+= 1
         }
         .onChange(of: scope) { _ in
-            selectedIndex = 0
+            selectedItemID = nil
             selectionRevealRevision &+= 1
         }
         .onChange(of: enabledProviders) { _ in
-            selectedIndex = 0
+            selectedItemID = nil
             selectionRevealRevision &+= 1
         }
-        .task(id: "\(queryMode.workspaceSearchTaskID)|\(scope.rawValue)|\(session.everywhereResultKinds.map(\.rawValue).sorted())|\(searchOptions.cacheKey)|\(settings.searchExcludedPathPatterns)|\(settings.searchExclusionsEnabled)") {
+        .onChange(of: visibleItems.map(\.id)) { ids in
+            if let selectedItemID, !ids.contains(selectedItemID) { self.selectedItemID = nil }
+        }
+        .onChange(of: searchTaskIdentity) { _ in
+            feature.cancelSearchEverywhere()
+            pageRequest = 0
+        }
+        .task(id: pageRequest) {
+            guard pageRequest > 0 else { return }
+            await feature.loadNextSearchPage(retry: retryPage)
+        }
+        .task(id: searchTaskIdentity) {
             if queryMode.commandQuery != nil || session.everywhereResultKinds.isEmpty {
                 feature.clearSearchEverywhere()
                 return
@@ -292,6 +357,7 @@ private struct SearchEverywhereContent: View {
                 } label: {
                     Text(LocalizedStringKey(item.rawValue))
                         .font(LitheTheme.uiFont(size: 13))
+                        .lineLimit(1)
                         .foregroundStyle(LitheTheme.searchFieldText)
                         .padding(.horizontal, 8)
                         .modifier(LitheToolWindowTabStyle(isSelected: scope == item, isActive: true))
@@ -411,58 +477,49 @@ private struct SearchEverywhereContent: View {
 
     @ViewBuilder
     private var resultsList: some View {
-        if visibleItems.isEmpty {
+        let items = visibleItems
+        let selectedID = items.first(where: { $0.id == selectedItemID })?.id ?? items.first?.id
+        if items.isEmpty {
             if !feature.isSearchingEverywhere {
                 placeholder(resultSource.emptyResultsMessage)
             }
         } else {
             LitheTreeList(
-                Array(visibleItems.enumerated()), id: \.offset,
-                selection: Binding(
-                    get: { selectedIndex }, set: { if let index = $0 { selectedIndex = index } }),
+                Array(items.enumerated()), id: \.element.id,
+                selection: Binding(get: { selectedID }, set: { selectedItemID = $0 }),
+                multiline: scope == .text,
                 retainsSearchFocus: true
             ) { index, item in
-                itemRow(item, index: index)
+                itemRow(item, index: index, selected: item.id == selectedID)
+                    .background {
+                        // A lazy list may not instantiate its last row until it is visible.
+                        if index == max(0, items.count - Int(LitheScrollLoadTrigger.prefetchDistance / LitheTheme.Tree.rowHeight)) {
+                            LitheScrollLoadTrigger(continuationID: feature.searchEverywhereResults.nextCursor,
+                                isEnabled: !feature.isSearchingEverywhere && !feature.searchEverywhereFailed) {
+                                    retryPage = false
+                                    pageRequest += 1
+                                }
+                        }
+                    }
             }
-            if isTruncated { moreRow }
         }
-    }
-
-    /// 后端按 matchLimit 截断，命中数刚好顶到上限时提示还有更多。
-    private var isTruncated: Bool {
-        guard queryMode.commandQuery == nil else { return false }
-        let values = feature.searchEverywhereResults
-        let buckets: [[FileSearchResult]]
-        switch resultSource {
-        case .combinedWorkspaceNames:
-            buckets = (enabledProviders.contains(.files) ? [values.fileMatches] : [])
-                + (enabledProviders.contains(.classes) ? [values.classMatches] : [])
-                + (enabledProviders.contains(.symbols) ? [values.symbolMatches] : [])
-        case .files: buckets = [values.fileMatches]
-        case .classes: buckets = [values.classMatches]
-        case .symbols: buckets = [values.symbolMatches]
-        case .text: buckets = [values.contentMatches]
-        case .actions, .commands: buckets = []
+        if feature.searchEverywhereFailed {
+            Button("Retry") {
+                retryPage = true
+                pageRequest += 1
+            }
+            .buttonStyle(.plain)
+            .padding(8)
         }
-        return buckets.contains { $0.count >= SearchEverywhereResults.providerLimit }
-    }
-
-    private var moreRow: some View {
-        Text("… more")
-            .font(LitheTheme.uiFont(size: 11))
-            .foregroundStyle(LitheTheme.tertiaryText)
-            .padding(.horizontal, 12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: 22)
     }
 
     @ViewBuilder
-    private func itemRow(_ item: SearchItem, index: Int) -> some View {
+    private func itemRow(_ item: SearchItem, index: Int, selected: Bool) -> some View {
         switch item {
         case .result(let result):
-            resultRow(result, index: index, showsLine: result.kind != .file)
+            resultRow(result, index: index, selected: selected, showsLine: result.kind != .file)
         case .action(let action):
-            actionRow(action, index: index)
+            actionRow(action, selected: selected)
         }
     }
 
@@ -475,43 +532,55 @@ private struct SearchEverywhereContent: View {
             .frame(height: 34)
     }
 
-    private func resultRow(_ result: FileSearchResult, index: Int, showsLine: Bool) -> some View {
+    private func resultRow(_ result: FileSearchResult, index: Int, selected: Bool, showsLine: Bool) -> some View {
         // 文件夹按钮与整行点击是两个独立目标，所以并排放而不是嵌套，
         // 否则嵌套的 Button 收不到点击。
         HStack(spacing: 8) {
             Button {
                 let event = NSApp.currentEvent
-                if showsPreview && event?.type != .keyDown && event?.clickCount != 2 { selectedIndex = index }
+                if showsPreview && event?.type != .keyDown && event?.clickCount != 2 { selectedItemID = SearchItem.result(result).id }
                 else { openResult(result) }
             } label: {
                 HStack(spacing: 8) {
                     LitheIcon(kind: iconKind(for: result), size: 16)
                         .frame(width: 16)
 
-                    // 对齐 IDEA：名字和路径左侧连排，而不是把路径推到右端。
-                    Text(SearchEverywhereNameText.highlighted(result, selected: index == selectedIndex,
-                        foreground: session.everywhereGitStatus.change(relativePath: result.url.standardizedFileURL.path)?.fileNameColor
-                            ?? LitheTheme.primaryText))
-                        .font(LitheTheme.uiFont(size: 13))
-                        .foregroundStyle(LitheTheme.primaryText)
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-                    if showsLine, let line = result.line {
-                        Text(":\(line)")
-                            .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
-                            .foregroundStyle(LitheTheme.secondaryText)
-                            .fixedSize(horizontal: true, vertical: false)
-                    }
-                    Text(containerPath(for: result.url))
-                        .font(LitheTheme.uiFont(size: 13))
-                        .foregroundStyle(LitheTheme.secondaryText)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
                     if result.kind == .content {
-                        Text(result.preview)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(result.preview)
+                                .font(LitheTheme.uiFont(size: 13, design: .monospaced))
+                                .foregroundStyle(LitheTheme.primaryText)
+                                .lineLimit(1)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            HStack(spacing: 4) {
+                                Text(result.url.lastPathComponent)
+                                if let line = result.line { Text(":\(line)") }
+                                Text(containerPath(for: result.url)).truncationMode(.middle)
+                            }
                             .font(LitheTheme.uiFont(size: 10.5))
-                            .foregroundStyle(LitheTheme.tertiaryText)
+                            .foregroundStyle(LitheTheme.secondaryText)
                             .lineLimit(1)
+                        }
+                    } else {
+                        // 对齐 IDEA：名字和路径左侧连排，而不是把路径推到右端。
+                        Text(SearchEverywhereNameText.highlighted(result, selected: selected,
+                            foreground: session.everywhereGitStatus.change(relativePath: result.url.standardizedFileURL.path)?.fileNameColor
+                                ?? LitheTheme.primaryText))
+                            .font(LitheTheme.uiFont(size: 13))
+                            .foregroundStyle(LitheTheme.primaryText)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                        if showsLine, let line = result.line {
+                            Text(":\(line)")
+                                .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
+                                .foregroundStyle(LitheTheme.secondaryText)
+                                .fixedSize(horizontal: true, vertical: false)
+                        }
+                        Text(containerPath(for: result.url))
+                            .font(LitheTheme.uiFont(size: 13))
+                            .foregroundStyle(LitheTheme.secondaryText)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
                     }
 
                     Spacer(minLength: 12)
@@ -539,7 +608,7 @@ private struct SearchEverywhereContent: View {
         }
         .padding(.horizontal, 10)
         .frame(maxWidth: .infinity)
-        .frame(height: 24)
+        .frame(height: result.kind == .content ? 40 : 24)
         .litheContextMenu {
             [
                 .action("Open", systemImage: "doc.text", action: {
@@ -572,13 +641,15 @@ private struct SearchEverywhereContent: View {
         moduleLabel(url)
     }
 
-    private func actionRow(_ action: LitheAction, index: Int) -> some View {
+    private func actionRow(_ action: LitheAction, selected: Bool) -> some View {
         Button {
-            performAction(action)
+            // Native pointer dispatch can still reach the closure of a disabled
+            // row; use the same execution gate as the keyboard path.
+            if action.isEnabled { performAction(action) }
         } label: {
             HStack(spacing: 8) {
                 if let icon = actionIcon(action) {
-                    icon.foregroundStyle(index == selectedIndex ? LitheTheme.toolWindowSelectedText : LitheTheme.secondaryText)
+                    icon.foregroundStyle(selected ? LitheTheme.toolWindowSelectedText : LitheTheme.secondaryText)
                 } else {
                     Color.clear.frame(width: WorkbenchContributionIcon.Role.action.size)
                 }

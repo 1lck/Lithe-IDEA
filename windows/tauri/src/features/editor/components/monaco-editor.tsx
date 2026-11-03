@@ -72,12 +72,22 @@ import {
 import { useTranslation } from "@/i18n/locale-provider";
 import { recordStartupMilestone } from "@/features/bootstrap/startup-performance";
 import { useVimStore } from "@/features/vim/stores/vim.store";
-import { formatRelativeTime } from "@/utils/date";
+import {
+  buildGitBlameGutterEntries,
+  gitBlameColumnChars,
+  gitBlameGutterHtml,
+  type GitBlameGutterEntry,
+} from "@/features/git/utils/git-blame-gutter";
+import { openCommitDiffBuffer } from "@/features/git/utils/open-commit-diff-buffer";
+import { useGitLogRevealStore } from "@/features/git/stores/git-log-reveal.store";
+import { useRepositoryStore } from "@/features/git/stores/git-repository.store";
+import { useUIState } from "@/features/window/stores/ui-state.store";
 import { frontendTrace } from "@/utils/frontend-trace";
 import { LspOperationLog } from "@/platform/lsp-session-lifecycle";
 import { isNativeTextInputTarget } from "@/utils/keyboard/text-input-target";
 import { getRelativePath, pathStartsWithRoot } from "@/utils/path-helpers";
 import EditorContextMenu from "../context-menu/context-menu";
+import { GutterContextMenu } from "../context-menu/gutter-context-menu";
 import { EDITOR_CONSTANTS } from "../config/constants";
 import { JavaRunMarkerMenu } from "../context-menu/java-run-marker-menu";
 import { useBufferStore } from "../stores/buffer.store";
@@ -113,7 +123,10 @@ import {
 import type { MarkdownScrollMetrics } from "../markdown/scroll-sync";
 import type { EditorModelPositionResolver } from "../view-model/view-layout";
 import { syncContainedEditorFontOptions } from "../engines/monaco/contained-editors";
-import { registerMonacoDefinitionLinkGesture } from "../engines/monaco/definition-link";
+import {
+  registerMonacoDefinitionLinkGesture,
+  type MonacoDefinitionLinkGesture,
+} from "../engines/monaco/definition-link";
 import { suppressFindWidgetCloseButtonHover } from "../engines/monaco/find-widget-hover";
 import {
   consumeLocalContentSnapshot,
@@ -122,18 +135,15 @@ import {
 import {
   clampMonacoHoverWidgets,
   mutationsContainMonacoHoverWidget,
-  syncMonacoHoverBounds,
 } from "../engines/monaco/hover-widgets";
+import { registerMonacoSurface, type MonacoSurfaceRegistration } from "../engines/monaco/surface-visibility";
 import { toMonacoLanguageId } from "../engines/monaco/language";
 import { ensureMonacoLanguageTokenizer } from "../engines/monaco/language-contributions";
-import {
-  createInlineGitBlameWidget,
-  type InlineGitBlameWidget,
-} from "../engines/monaco/inline-git-blame-widget";
 import { acquireMonacoModel } from "../engines/monaco/model-lifecycle";
+import { createMonacoModelPositionResolver } from "../engines/monaco/model-position-resolver";
 import { reactivateMonacoModelLanguage } from "../engines/monaco/model-language-activation";
 import { getEditorBottomScrollPadding } from "../engines/monaco/scroll-padding";
-import { acquireEditorModelSource, sourcePositionAt } from "@lithe/editor/model-source";
+import { acquireEditorModelSource } from "@lithe/editor/model-source";
 import {
   clampMonacoPosition,
   createModelUri,
@@ -166,6 +176,8 @@ import {
 } from "../engines/monaco/java-run-markers";
 import type { JavaImplementationMarker } from "../lsp/java-navigation-models";
 import { toast } from "sonner";
+import { MONACO_INPUT_OPTIONS } from "../engines/monaco/input-options";
+import { writeClipboardText } from "@/utils/clipboard";
 
 registerMonacoLspProviders();
 registerMonacoCodeLensProvider();
@@ -178,6 +190,14 @@ interface GitGutterRenderContext {
 }
 
 /** Binds the long-lived gutter controller to the editor's latest render values. */
+/**
+ * Monaco never unregisters `addCommand` handlers, so a closure from the editor
+ * setup would keep the disposed editor and its DOM alive for the whole session.
+ */
+function createSelectAllCommand(callbacks: { current: { selectEntireModel: () => void } }) {
+  return () => callbacks.current.selectEntireModel();
+}
+
 function gitGutterControllerOptions(
   context: () => GitGutterRenderContext | null,
 ): GitGutterControllerOptions {
@@ -215,6 +235,9 @@ function gitGutterControllerOptions(
 }
 
 const EMPTY_DIAGNOSTICS: Diagnostic[] = [];
+/** Annotation-free gutter, so the line-number formatter keeps its old output. */
+const EMPTY_BLAME_GUTTER_ENTRIES: ReadonlyMap<number, GitBlameGutterEntry> = new Map();
+const DEFAULT_LINE_NUMBER_CHARS = 5;
 const INACTIVE_CURSOR_POSITION: Position = { line: 0, column: 0, offset: 0 };
 
 function monacoViewStateHandle(
@@ -311,13 +334,37 @@ export interface MonacoEditorScrollApi {
   setScrollTop: (scrollTop: number) => void;
 }
 
+/** The file a reused editor currently shows; editor-level handlers read it. */
+interface MonacoModelBinding {
+  model: Monaco.editor.ITextModel;
+  filePath: string;
+  editorBufferId: string;
+  paneId: string | undefined;
+  viewKey: string;
+}
+
 export interface MonacoEditorProps {
   bufferId?: string;
   paneId?: string;
   viewStateKey?: string;
   isActiveSurface?: boolean;
+  /** Shown in its pane, focused or not; defaults to `isActiveSurface`. */
+  isVisibleSurface?: boolean;
   isPreviewMode?: boolean;
   enableExpensiveServices?: boolean;
+  /**
+   * Whether this editor may show rich view options (code lens, glyph margin,
+   * parameter hints) at all, independent of focus. Defaults to
+   * `enableExpensiveServices`. Hosts that keep hidden editors mounted pass a
+   * focus-independent value: toggling these options rebuilds editor parts and
+   * restyles the whole editor, which made every tab switch pay that cost twice.
+   */
+  enableRichViewOptions?: boolean;
+  /**
+   * False while the buffer's text is still loading. The editor stays mounted so
+   * it can be reused, and the file is bound only once its text has arrived.
+   */
+  isContentReady?: boolean;
   readOnly?: boolean;
   scrollable?: boolean;
   alwaysConsumeMouseWheel?: boolean;
@@ -334,6 +381,8 @@ export interface MonacoEditorProps {
     previousSelection?: Range,
     options?: EditorContentChangeOptions,
   ) => void;
+  /** Focus left the editor, including its find and rename widgets. */
+  onEditorBlur?: () => void;
   onScrollOffsetChange?: (scrollTop: number, scrollLeft: number) => void;
   /** Reports viewport scroll metrics on every editor scroll event. */
   onScrollMetricsChange?: (metrics: MarkdownScrollMetrics) => void;
@@ -356,8 +405,11 @@ export function MonacoEditor({
   paneId,
   viewStateKey,
   isActiveSurface = true,
+  isVisibleSurface = isActiveSurface,
   isPreviewMode = false,
   enableExpensiveServices = true,
+  enableRichViewOptions = enableExpensiveServices,
+  isContentReady = true,
   readOnly = false,
   scrollable = true,
   alwaysConsumeMouseWheel = true,
@@ -368,6 +420,7 @@ export function MonacoEditor({
   lineNumberStart,
   lineNumberMap,
   onContentChange,
+  onEditorBlur,
   onScrollOffsetChange,
   onScrollMetricsChange,
   onEditorScrollApiReady,
@@ -392,14 +445,10 @@ export function MonacoEditor({
   );
   const implementationMarkerOwnerRef = useRef<string | null>(null);
   const implementationMarkersRef = useRef<JavaImplementationMarker[]>([]);
-  const gitBlameWidgetRef = useRef<InlineGitBlameWidget | null>(null);
-  const gitBlameRenderFrameRef = useRef<number | null>(null);
-  const renderedGitBlameKeyRef = useRef<string | null>(null);
   const javaRunMarkersRef = useRef<JavaRunMarker[]>([]);
   const runMarkerDecorationsRef = useRef<Monaco.editor.IEditorDecorationsCollection | null>(null);
   // Latest Run-marker decorations, reapplied when the Monaco instance is recreated.
   const runMarkerDecorationSpecsRef = useRef<Monaco.editor.IModelDeltaDecoration[]>([]);
-  const renderInlineGitBlameRef = useRef<() => void>(() => {});
   const gitGutterControllerRef = useRef<GitGutterController | null>(null);
   // Latest render values read by the long-lived gutter controller callbacks.
   const gitGutterContextRef = useRef<GitGutterRenderContext | null>(null);
@@ -414,6 +463,7 @@ export function MonacoEditor({
   }
   const viewStateRestoreGate = viewStateRestoreGateRef.current;
   const latestContentChangeRef = useRef(onContentChange);
+  const onEditorBlurRef = useRef(onEditorBlur);
   const isActiveSurfaceRef = useRef(isActiveSurface);
   const onScrollMetricsChangeRef = useRef(onScrollMetricsChange);
   const onEditorScrollApiReadyRef = useRef(onEditorScrollApiReady);
@@ -423,6 +473,8 @@ export function MonacoEditor({
   // editor — and re-tokenizing the file from scratch — on each switch. Option
   // changes are applied by the dedicated `updateOptions` effect instead.
   const enableExpensiveServicesRef = useRef(enableExpensiveServices);
+  const enableRichViewOptionsRef = useRef(enableRichViewOptions);
+  const surfaceRegistrationRef = useRef<MonacoSurfaceRegistration | null>(null);
   const activeBufferId = useBufferStore((state) => propBufferId ?? state.activeBufferId);
   const buffer = useBufferStore(
     useCallback(
@@ -514,7 +566,6 @@ export function MonacoEditor({
   const javaMarkerRevision = useLspStore((state) =>
     javaMarkerRefreshRevision(state.lspStatus),
   );
-  const inlineGitBlameEnabled = useSettingsStore((state) => state.settings.enableInlineGitBlame);
   const gitGutterEnabled = useSettingsStore((state) => state.settings.enableGitGutter);
   const workspaceId = useActiveWorkspaceId();
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
@@ -552,11 +603,17 @@ export function MonacoEditor({
     setScrollForBuffer,
     setViewportHeight,
   } = useEditorStateStore.use.actions();
-  const { getBlameForLine } = useGitBlame(
-    isActiveSurface && enableExpensiveServices && inlineGitBlameEnabled && filePath
-      ? filePath
-      : undefined,
-  );
+  // IDEA scopes annotate to the editor: the gutter menu turns it on per file,
+  // and only then does the file pay for a Git blame read.
+  const blameFileEligible =
+    isActiveSurface && !isPreviewMode && !editorBuffer?.isVirtual && Boolean(filePath);
+  const {
+    blame,
+    blameVisible,
+    repoPath: blameRepoPath,
+    getBlameForLine,
+    setBlameVisible,
+  } = useGitBlame(blameFileEligible ? filePath : undefined);
 
   const gitGutterActive =
     gitGutterEnabled && enableExpensiveServices && !isPreviewMode && !editorBuffer?.isVirtual;
@@ -572,57 +629,78 @@ export function MonacoEditor({
     t,
   };
 
-  const renderInlineGitBlame = useCallback(() => {
-    const editor = editorRef.current;
-    const model = modelRef.current;
-    if (!editor || !model || model.isDisposed()) return;
-    if (mouseSelectingRef.current) return;
-
-    const widget = gitBlameWidgetRef.current ?? createInlineGitBlameWidget(editor);
-    gitBlameWidgetRef.current = widget;
-
-    const hideBlame = () => {
-      renderedGitBlameKeyRef.current = null;
-      widget.hide();
-    };
-
-    if (!inlineGitBlameEnabled || !isActiveSurface || !filePath) {
-      hideBlame();
-      return;
+  // Diff editors remap line numbers, so a blame line number would no longer
+  // match the rendered line; annotate only where both agree.
+  const blameGutterEntries = useMemo(() => {
+    if (!blame || !blameVisible || lineNumberMap || lineNumberStart) {
+      return EMPTY_BLAME_GUTTER_ENTRIES;
     }
-
-    const position = editor.getPosition();
-    const lineNumber = position?.lineNumber ?? 0;
-    if (lineNumber < 1 || lineNumber > model.getLineCount()) {
-      hideBlame();
-      return;
-    }
-
-    const blameLine = getBlameForLine(lineNumber - 1);
-    if (!blameLine) {
-      hideBlame();
-      return;
-    }
-
-    const blameContent = blameLine.is_uncommitted
-      ? "  Uncommitted changes"
-      : `  ${blameLine.author}, ${formatRelativeTime(blameLine.time)}`;
-    const decorationKey = `${filePath}:${lineNumber}:${blameLine.commit_hash}:${blameContent}`;
-    if (renderedGitBlameKeyRef.current === decorationKey) return;
-
-    widget.show(lineNumber, model.getLineMaxColumn(lineNumber), blameContent);
-    renderedGitBlameKeyRef.current = decorationKey;
-  }, [filePath, getBlameForLine, inlineGitBlameEnabled, isActiveSurface]);
-  renderInlineGitBlameRef.current = renderInlineGitBlame;
-
-  const scheduleInlineGitBlameRender = useCallback(() => {
-    if (mouseSelectingRef.current) return;
-    if (gitBlameRenderFrameRef.current !== null) return;
-    gitBlameRenderFrameRef.current = requestAnimationFrame(() => {
-      gitBlameRenderFrameRef.current = null;
-      renderInlineGitBlameRef.current();
+    return buildGitBlameGutterEntries(blame, {
+      uncommittedLabel: t("git.blame.uncommitted"),
     });
-  }, []);
+  }, [blame, blameVisible, lineNumberMap, lineNumberStart, t]);
+  // The formatter is passed to editor creation, so it must keep its identity
+  // when annotations arrive: a new identity would rebuild the editor. It reads
+  // the latest entries through a ref and a dedicated effect repaints instead.
+  const blameGutterEntriesRef = useRef(EMPTY_BLAME_GUTTER_ENTRIES);
+  blameGutterEntriesRef.current = blameGutterEntries;
+  /** Gutter width in cells, sized to the longest label instead of a fixed 26. */
+  const blameColumnChars = useMemo(
+    () =>
+      blameGutterEntries.size > 0
+        ? gitBlameColumnChars(blameGutterEntries)
+        : DEFAULT_LINE_NUMBER_CHARS,
+    [blameGutterEntries],
+  );
+  const blameColumnCharsRef = useRef(DEFAULT_LINE_NUMBER_CHARS);
+  blameColumnCharsRef.current = blameColumnChars;
+  /** Annotation set already painted into the gutter, to skip redundant repaints. */
+  const appliedBlameGutterEntriesRef = useRef(EMPTY_BLAME_GUTTER_ENTRIES);
+
+  /** Opens the commit that last touched `lineNumber` as a single-file diff. */
+  const openBlameCommit = useCallback(
+    async (lineNumber: number) => {
+      if (!filePath || !blameRepoPath) return;
+      const blameLine = getBlameForLine(lineNumber - 1);
+      if (!blameLine || blameLine.is_uncommitted) return;
+      const relativePath = getRelativePath(filePath, blameRepoPath);
+      await openCommitDiffBuffer({
+        repoPath: blameRepoPath,
+        commitHash: blameLine.commit_hash,
+        author: blameLine.author,
+        pathspecs: [relativePath],
+        initialRevealRange: {
+          startLine: blameLine.line_number,
+          endLine: blameLine.line_number + Math.max(0, blameLine.total_lines - 1),
+        },
+      });
+    },
+    [blameRepoPath, filePath, getBlameForLine],
+  );
+  const openBlameCommitRef = useRef(openBlameCommit);
+  openBlameCommitRef.current = openBlameCommit;
+
+  /**
+   * IDEA answers an annotation click by selecting the commit in the log, which
+   * shows what else landed with it. The log loads older pages until the commit
+   * appears, so the editor only hands over the hash.
+   */
+  const revealBlameCommit = useCallback(
+    (lineNumber: number) => {
+      if (!blameRepoPath) return;
+      const blameLine = getBlameForLine(lineNumber - 1);
+      if (!blameLine || blameLine.is_uncommitted) return;
+      useGitLogRevealStore.getState().request(blameRepoPath, blameLine.commit_hash);
+      useRepositoryStore.getState().actions.selectRepository(blameRepoPath);
+      const uiState = useUIState.getState();
+      uiState.setBottomPaneActiveTab("gitLog");
+      uiState.setIsBottomPaneVisible(true);
+    },
+    [blameRepoPath, getBlameForLine],
+  );
+  const revealBlameCommitRef = useRef(revealBlameCommit);
+  revealBlameCommitRef.current = revealBlameCommit;
+
   const diagnosticsForFile = useDiagnosticsStore((state) =>
     filePath ? (state.diagnosticsByFile.get(filePath) ?? EMPTY_DIAGNOSTICS) : EMPTY_DIAGNOSTICS,
   );
@@ -656,10 +734,12 @@ export function MonacoEditor({
   );
 
   latestContentChangeRef.current = onContentChange;
+  onEditorBlurRef.current = onEditorBlur;
   isActiveSurfaceRef.current = isActiveSurface;
   onScrollMetricsChangeRef.current = onScrollMetricsChange;
   onEditorScrollApiReadyRef.current = onEditorScrollApiReady;
   enableExpensiveServicesRef.current = enableExpensiveServices;
+  enableRichViewOptionsRef.current = enableRichViewOptions;
 
   const isCurrentEditorSurface = useCallback(() => {
     if (!isActiveSurfaceRef.current) return false;
@@ -671,16 +751,41 @@ export function MonacoEditor({
     return !viewStateKey || !activeViewKey || activeViewKey === viewStateKey;
   }, [editorBufferId, viewStateKey]);
 
+  // Lets language providers skip models that only hidden tabs show.
+  const isVisibleSurfaceRef = useRef(isVisibleSurface);
+  isVisibleSurfaceRef.current = isVisibleSurface;
+  useEffect(() => {
+    const registration = registerMonacoSurface(modelUri.toString(), isVisibleSurfaceRef.current);
+    surfaceRegistrationRef.current = registration;
+    return () => {
+      registration.dispose();
+      if (surfaceRegistrationRef.current === registration) surfaceRegistrationRef.current = null;
+    };
+  }, [modelUri]);
+  useEffect(() => {
+    surfaceRegistrationRef.current?.setVisible(isVisibleSurface);
+  }, [isVisibleSurface]);
+
   const lineNumberFormatter = useCallback(
     (lineNumber: number) => {
       const mappedLine = lineNumberMap?.[lineNumber - 1];
-      if (typeof mappedLine === "number") return String(mappedLine);
-      if (vimModeEnabled && vimRelativeLineNumbers && !lineNumberMap) {
+      let text: string;
+      if (typeof mappedLine === "number") {
+        text = String(mappedLine);
+      } else if (vimModeEnabled && vimRelativeLineNumbers && !lineNumberMap) {
         const cursorLine = useEditorStateStore.getState().cursorPosition.line + 1;
         const distance = Math.abs(lineNumber - cursorLine);
-        if (distance > 0) return String(distance);
+        text =
+          distance > 0 ? String(distance) : String((lineNumberStart ?? 1) + lineNumber - 1);
+      } else {
+        text = String((lineNumberStart ?? 1) + lineNumber - 1);
       }
-      return String((lineNumberStart ?? 1) + lineNumber - 1);
+      if (blameGutterEntriesRef.current.size === 0) return text;
+      // Monaco injects this result as HTML, so the annotation lands left of the
+      // line number the way IDEA and the macOS workbench render it.
+      const entry = blameGutterEntriesRef.current.get(lineNumber);
+      const metadata = entry ? gitBlameGutterHtml(entry) : "";
+      return `${metadata}<span class="lithe-blame-line">${text}</span>`;
     },
     [lineNumberMap, lineNumberStart, vimModeEnabled, vimRelativeLineNumbers],
   );
@@ -880,8 +985,28 @@ export function MonacoEditor({
   const [contextMenuPosition, setContextMenuPosition] = useState<{
     x: number;
     y: number;
+    lineNumber: number;
   } | null>(null);
   const [contextMenuRunMarker, setContextMenuRunMarker] = useState<JavaRunMarker | null>(null);
+  /** Line-number right-clicks get their own short menu instead of the editor one. */
+  const [gutterMenuPosition, setGutterMenuPosition] = useState<{
+    x: number;
+    y: number;
+    lineNumber: number;
+  } | null>(null);
+  // Commit actions only exist for a line that is already annotated by a commit;
+  // uncommitted lines keep the toggle and line history but nothing to open.
+  const gutterMenuBlame =
+    gutterMenuPosition && blameVisible
+      ? getBlameForLine(gutterMenuPosition.lineNumber - 1)
+      : null;
+  const gutterMenuCommit = gutterMenuBlame?.is_uncommitted ? null : gutterMenuBlame;
+  /** Same lookup for the editor menu, which acts on the line under the cursor. */
+  const contextMenuBlame =
+    contextMenuPosition && blameVisible
+      ? getBlameForLine(contextMenuPosition.lineNumber - 1)
+      : null;
+  const contextMenuCommit = contextMenuBlame?.is_uncommitted ? null : contextMenuBlame;
   const [runMarkerMenu, setRunMarkerMenu] = useState<{
     marker: JavaRunMarker;
     position: { x: number; y: number };
@@ -1028,12 +1153,581 @@ export function MonacoEditor({
     inlineEditState.inlineEditToolbarActions.hide();
   });
 
+  // The Monaco editor outlives the file it shows. Creating an editor builds
+  // its whole DOM and runs every contribution (70-100 ms per open), so the
+  // editor is created once per surface and file switches only swap the model,
+  // as VS Code does. Everything bound to one file lives in the model effect
+  // below; editor-level handlers read the current file through this ref.
+  const modelBindingRef = useRef<MonacoModelBinding | null>(null);
+  const definitionLinkGestureRef = useRef<MonacoDefinitionLinkGesture | null>(null);
+  const releaseBoundModelRef = useRef<(() => void) | null>(null);
+  const editorCallbacksRef = useRef({
+    isCurrentEditorSurface,
+    onScrollOffsetChange,
+    selectEntireModel,
+    setContextMenuPosition,
+    setScrollForBuffer,
+    setViewportHeight,
+    syncCursorAndSelection,
+  });
+  editorCallbacksRef.current = {
+    isCurrentEditorSurface,
+    onScrollOffsetChange,
+    selectEntireModel,
+    setContextMenuPosition,
+    setScrollForBuffer,
+    setViewportHeight,
+    syncCursorAndSelection,
+  };
+  // Creation-time options; later changes go through the `updateOptions` effect.
+  const creationOptionsRef = useRef<() => Monaco.editor.IStandaloneEditorConstructionOptions>(
+    () => ({}),
+  );
+  creationOptionsRef.current = () => ({
+    ...MONACO_INPUT_OPTIONS,
+    automaticLayout: true,
+    fontFamily,
+    fontSize,
+    lineHeight,
+    tabSize,
+    insertSpaces: true,
+    readOnly: readOnly || isPreviewMode,
+    domReadOnly: readOnly || isPreviewMode,
+    minimap: { enabled: minimapEnabled },
+    fontLigatures: editorFontLigatures,
+    // Geist Mono is a variable font; Windows DPI plus Monaco's default
+    // monospace width cache places the caret one column left of the click.
+    disableMonospaceOptimizations: true,
+    selectOnLineNumbers: true,
+    glyphMargin: enableRichViewOptions && monacoLanguageId === "java",
+    stickyScroll: { enabled: editorStickyScroll },
+    bracketPairColorization: { enabled: editorBracketPairColorization },
+    smoothScrolling: editorSmoothScrolling,
+    mouseWheelScrollSensitivity: EDITOR_CONSTANTS.MOUSE_WHEEL_SCROLL_SENSITIVITY,
+    scrollBeyondLastLine: editorScrollBeyondLastLine,
+    // Annotate owns the column while it is on, the way the macOS workbench
+    // keeps numbers visible so the annotation has something to sit next to.
+    lineNumbers: lineNumbers || blameGutterEntriesRef.current.size > 0 ? lineNumberFormatter : "off",
+    lineNumbersMinChars:
+      blameGutterEntriesRef.current.size > 0
+        ? blameColumnCharsRef.current
+        : DEFAULT_LINE_NUMBER_CHARS,
+    renderWhitespace: renderWhitespace === "none" ? "none" : renderWhitespace,
+    wordWrap: wordWrap ? "on" : "off",
+    guides: {
+      indentation: renderIndentGuides,
+      highlightActiveIndentation: renderIndentGuides,
+    },
+    occurrencesHighlight: highlightOccurrences ? "singleFile" : "off",
+    selectionHighlight: highlightOccurrences,
+    quickSuggestions: autoCompletion,
+    suggestOnTriggerCharacters: autoCompletion,
+    // Word-scan suggestions are a fallback when LSP completions are unavailable.
+    // They insert plain identifiers without namespace imports, so LSP results
+    // remain the primary source for typed class completions.
+    wordBasedSuggestions: "matchingDocuments",
+    parameterHints: { enabled: enableRichViewOptions && parameterHints },
+    codeLens: enableRichViewOptions && codeLens,
+    inlayHints: { enabled: enableRichViewOptions && inlayHints ? "on" : "off" },
+    theme: defineMonacoTheme(themeId, editorItalicComments),
+    cursorStyle: vimModeEnabled && vimCurrentMode === "normal" ? "block" : editorCursorStyle,
+    cursorBlinking: vimModeEnabled && vimCurrentMode === "normal" ? "solid" : editorCursorBlinking,
+    contextmenu: false,
+    overviewRulerLanes: 0,
+    fixedOverflowWidgets: false,
+    // Full-width punctuation is normal Chinese prose; see frontend/editor workbench.ts
+    // for the rationale behind disabling Monaco's confusable-character warning.
+    unicodeHighlight: { ambiguousCharacters: false },
+    // Standalone Monaco stores every editor's options in one shared
+    // configuration, so this flag is global: it follows the setting alone and
+    // the provider decides which models get tokens.
+    "semanticHighlighting.enabled": semanticTokens,
+    scrollbar: {
+      vertical: scrollable ? "auto" : "hidden",
+      horizontal: scrollable ? "auto" : "hidden",
+      handleMouseWheel: scrollable,
+      alwaysConsumeMouseWheel: scrollable && alwaysConsumeMouseWheel,
+      verticalScrollbarSize: EDITOR_CONSTANTS.SCROLLBAR_TRACK_SIZE,
+      horizontalScrollbarSize: EDITOR_CONSTANTS.SCROLLBAR_TRACK_SIZE,
+    },
+  });
+
   useLayoutEffect(() => {
     const container = containerRef.current;
-    if (!container || !editorBufferId) return;
+    if (!container) return;
+    const callbacks = () => editorCallbacksRef.current;
+    const editor = monacoEditor.create(container, {
+      ...creationOptionsRef.current(),
+      model: null,
+      padding: { bottom: getEditorBottomScrollPadding(container.clientHeight) },
+    });
+    const restoreFindWidgetCloseButtonHover = suppressFindWidgetCloseButtonHover(container);
+
+    editorRef.current = editor;
+    const implementationDecorations = editor.createDecorationsCollection();
+    implementationDecorationsRef.current = implementationDecorations;
+    const runMarkerDecorationCollection = editor.createDecorationsCollection();
+    runMarkerDecorationsRef.current = runMarkerDecorationCollection;
+
+    let hoverClampRaf: number | null = null;
+    const scheduleMonacoHoverClamp = () => {
+      if (hoverClampRaf !== null) return;
+      hoverClampRaf = requestAnimationFrame(() => {
+        hoverClampRaf = null;
+        clampMonacoHoverWidgets(container);
+      });
+    };
+    const hoverMutationObserver = new MutationObserver((mutations) => {
+      if (mutationsContainMonacoHoverWidget(mutations)) scheduleMonacoHoverClamp();
+    });
+    hoverMutationObserver.observe(container, {
+      childList: true,
+      subtree: true,
+    });
+    const hoverResizeObserver = new ResizeObserver(scheduleMonacoHoverClamp);
+    hoverResizeObserver.observe(container);
+    scheduleMonacoHoverClamp();
+
+    let bottomScrollPadding = getEditorBottomScrollPadding(container.clientHeight);
+    const syncBottomScrollPadding = (viewportHeight: number) => {
+      const nextBottomScrollPadding = getEditorBottomScrollPadding(viewportHeight);
+      if (nextBottomScrollPadding === bottomScrollPadding) return;
+      bottomScrollPadding = nextBottomScrollPadding;
+      editor.updateOptions({ padding: { bottom: bottomScrollPadding } });
+    };
+
+    const currentFontOptions = () => {
+      const options = editor.getRawOptions();
+      return {
+        fontFamily: options.fontFamily,
+        fontSize: options.fontSize,
+        lineHeight: options.lineHeight,
+      };
+    };
+    const syncNestedEditorFonts = () =>
+      syncContainedEditorFontOptions(container, currentFontOptions());
+    const createdEditorDisposable = monacoEditor.onDidCreateEditor((createdEditor) => {
+      requestAnimationFrame(() => {
+        const editorElement = createdEditor.getDomNode();
+        if (!editorElement || !container.contains(editorElement)) return;
+        createdEditor.updateOptions(currentFontOptions());
+      });
+    });
+    requestAnimationFrame(syncNestedEditorFonts);
+
+    const scrollApi: MonacoEditorScrollApi = {
+      getMetrics: () => ({
+        scrollTop: editor.getScrollTop(),
+        scrollHeight: editor.getScrollHeight(),
+        clientHeight: editor.getLayoutInfo().height,
+      }),
+      setScrollTop: (scrollTop) => {
+        editor.setScrollTop(scrollTop);
+      },
+    };
+    onEditorScrollApiReadyRef.current?.(scrollApi);
+
+    editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyA, createSelectAllCommand(editorCallbacksRef));
+    let definitionClickIntent = 0;
+    const cursorEntryFromEditor = (): CursorHistoryEntry | null => {
+      const binding = modelBindingRef.current;
+      const position = editor.getPosition();
+      if (!binding || !position || !binding.editorBufferId || !binding.filePath) return null;
+
+      return {
+        bufferId: binding.editorBufferId,
+        filePath: binding.filePath,
+        paneId: binding.paneId,
+        ...toEditorPosition(binding.model, position),
+        scrollTop: editor.getScrollTop(),
+        scrollLeft: editor.getScrollLeft(),
+      };
+    };
+    const handleNativeMouseDownCapture = (event: MouseEvent) => {
+      if (event.button !== 0) return;
+      mouseSelectingRef.current = true;
+      mouseGestureStartRef.current = cursorEntryFromEditor();
+    };
+    container.addEventListener("mousedown", handleNativeMouseDownCapture, true);
+
+    const handleWindowSelectAllShortcut = (event: KeyboardEvent) => {
+      const isSelectAllShortcut =
+        (event.metaKey || event.ctrlKey) &&
+        !event.altKey &&
+        !event.shiftKey &&
+        event.key.toLowerCase() === "a";
+
+      if (!isSelectAllShortcut) return;
+
+      const target = event.target;
+      const activeElement = document.activeElement;
+      if (isNativeTextInputTarget(target, activeElement)) return;
+
+      const isInsideEditor =
+        editor.hasTextFocus() ||
+        (target instanceof Node && container.contains(target)) ||
+        (activeElement instanceof Node && container.contains(activeElement));
+
+      if (!isInsideEditor) {
+        const targetElement = target instanceof HTMLElement ? target : null;
+        if (targetElement?.closest(".terminal-container")) return;
+        if (!isActiveSurfaceRef.current) return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      callbacks().selectEntireModel();
+    };
+
+    window.addEventListener("keydown", handleWindowSelectAllShortcut, true);
+
+    const disposables = [
+      editor.onContextMenu((event) => {
+        event.event.preventDefault();
+        event.event.stopPropagation();
+        setContextMenuRunMarker(null);
+        // Line targets cover the gutter and the content itself: IDEA answers
+        // "this line" from both, and a menu item that silently no-ops on
+        // content right-clicks reads as broken. The range is computed from the
+        // pre-collapse selection, so content clicks may still move the caret.
+        // An open selection wins wherever the click landed; without one the
+        // clicked line is the query.
+        const gutterTypes = [
+          monacoEditor.MouseTargetType.GUTTER_GLYPH_MARGIN,
+          monacoEditor.MouseTargetType.GUTTER_LINE_NUMBERS,
+          monacoEditor.MouseTargetType.GUTTER_LINE_DECORATIONS,
+        ];
+        const isGutterTarget = gutterTypes.includes(event.target.type);
+        // Every gutter column (glyph margin, line numbers, line decorations)
+        // belongs to the line menu: IDEA answers the same actions wherever the
+        // user right-clicks inside the gutter.
+        if (isGutterTarget && event.target.position) {
+          editor.focus();
+          setContextMenuPosition(null);
+          setContextMenuRunMarker(null);
+          pendingLineHistoryRangeRef.current = null;
+          setGutterMenuPosition({
+            x: event.event.posx,
+            y: event.event.posy,
+            lineNumber: event.target.position.lineNumber,
+          });
+          return;
+        }
+        if (event.target.position) {
+          const clickedLine = event.target.position.lineNumber;
+          const currentSelection = editor.getSelection();
+          let span: Parameters<typeof gutterLineRange>[1] = null;
+          if (currentSelection && !currentSelection.isEmpty()) {
+            const firstLine = Math.min(
+              currentSelection.startLineNumber,
+              currentSelection.endLineNumber,
+            );
+            const lastLine = Math.max(
+              currentSelection.startLineNumber,
+              currentSelection.endLineNumber,
+            );
+            const lastLineColumn =
+              currentSelection.endLineNumber >= currentSelection.startLineNumber
+                ? currentSelection.endColumn
+                : currentSelection.startColumn;
+            span = { firstLine, lastLine, lastLineColumn };
+          }
+          pendingLineHistoryRangeRef.current = gutterLineRange(clickedLine, span);
+        } else {
+          pendingLineHistoryRangeRef.current = null;
+        }
+
+        // Content targets only: the gutter returned above with its own menu.
+        if (event.target.position) {
+          setContextMenuRunMarker(
+            javaRunMarkerForLine(javaRunMarkersRef.current, event.target.position.lineNumber - 1),
+          );
+          const currentSelection = editor.getSelection();
+          if (!currentSelection?.containsPosition(event.target.position)) {
+            editor.setPosition(event.target.position);
+            editor.setSelection(
+              new MonacoRange(
+                event.target.position.lineNumber,
+                event.target.position.column,
+                event.target.position.lineNumber,
+                event.target.position.column,
+              ),
+            );
+            callbacks().syncCursorAndSelection();
+          }
+        }
+
+        editor.focus();
+        callbacks().setContextMenuPosition({
+          x: event.event.posx,
+          y: event.event.posy,
+          lineNumber: event.target.position?.lineNumber ?? editor.getPosition()?.lineNumber ?? 0,
+        });
+      }),
+      editor.onDidBlurEditorWidget(() => onEditorBlurRef.current?.()),
+      editor.onKeyDown((event) => {
+        const browserEvent = event.browserEvent;
+        const isSelectAllShortcut =
+          (browserEvent.metaKey || browserEvent.ctrlKey) &&
+          !browserEvent.altKey &&
+          !browserEvent.shiftKey &&
+          browserEvent.key.toLowerCase() === "a";
+
+        if (!isSelectAllShortcut) return;
+
+        event.preventDefault();
+        event.stopPropagation();
+        callbacks().selectEntireModel();
+      }),
+      editor.onMouseDown((event) => {
+        if (!callbacks().isCurrentEditorSurface()) return;
+        const binding = modelBindingRef.current;
+        if (!binding) return;
+        const mouseEvent = event.event;
+        const markerElement = event.target.element;
+        // IDEA opens the annotated commit from the gutter label itself; the
+        // label sits in the line-number column, so it must not start a selection.
+        if (mouseEvent.leftButton && markerElement?.closest(".lithe-blame")) {
+          const lineNumber = event.target.position?.lineNumber;
+          if (lineNumber) {
+            mouseEvent.preventDefault();
+            mouseEvent.stopPropagation();
+            mouseSelectingRef.current = false;
+            mouseGestureStartRef.current = null;
+            callbacks().setContextMenuPosition(null);
+            revealBlameCommitRef.current(lineNumber);
+            return;
+          }
+        }
+        if (
+          event.target.type === monacoEditor.MouseTargetType.GUTTER_GLYPH_MARGIN &&
+          event.target.position &&
+          markerElement?.classList.contains(JAVA_RUN_GLYPH_CLASS)
+        ) {
+          const marker = runMarkerAtLine(
+            javaRunMarkersRef.current,
+            event.target.position.lineNumber,
+          );
+          if (marker) {
+            // IDEA opens a Run/Debug popup from the gutter icon instead of
+            // launching immediately, so a stray click never starts a process.
+            mouseEvent.preventDefault();
+            mouseEvent.stopPropagation();
+            mouseSelectingRef.current = false;
+            mouseGestureStartRef.current = null;
+            callbacks().setContextMenuPosition(null);
+            setRunMarkerMenu({ marker, position: { x: mouseEvent.posx, y: mouseEvent.posy } });
+            return;
+          }
+        }
+        if (
+          event.target.type === monacoEditor.MouseTargetType.GUTTER_GLYPH_MARGIN &&
+          event.target.position &&
+          markerElement?.classList.contains(JAVA_IMPLEMENTATION_GLYPH_CLASS)
+        ) {
+          const marker = implementationMarkerAtLine(
+            implementationMarkersRef.current,
+            event.target.position.lineNumber,
+            event.target.detail.glyphMarginLane,
+          );
+          if (marker) {
+            mouseEvent.preventDefault();
+            mouseEvent.stopPropagation();
+            mouseSelectingRef.current = false;
+            mouseGestureStartRef.current = null;
+            editor.setPosition({
+              lineNumber: marker.line + 1,
+              column: marker.utf16Column + 1,
+            });
+            callbacks().syncCursorAndSelection();
+            void keymapRegistry.executeCommand(
+              marker.direction === "down"
+                ? "editor.goToImplementation"
+                : "editor.goToSuperMethod",
+              { marker },
+            );
+            return;
+          }
+        }
+        if (
+          binding.filePath.toLowerCase().endsWith(".java") &&
+          !editor.getRawOptions().readOnly &&
+          event.target.type === monacoEditor.MouseTargetType.GUTTER_GLYPH_MARGIN &&
+          event.target.position &&
+          mouseEvent.leftButton
+        ) {
+          mouseEvent.preventDefault();
+          mouseEvent.stopPropagation();
+          useDebuggerStore
+            .getState()
+            .actions.toggleBreakpoint(binding.filePath, event.target.position.lineNumber - 1);
+          return;
+        }
+        if (
+          isEditorGoToDefinitionModifierClick(mouseEvent) &&
+          event.target.type === monacoEditor.MouseTargetType.CONTENT_TEXT &&
+          event.target.position
+        ) {
+          mouseEvent.preventDefault();
+          mouseEvent.stopPropagation();
+          mouseSelectingRef.current = false;
+          mouseGestureStartRef.current = null;
+          editor.setPosition(event.target.position);
+          callbacks().syncCursorAndSelection();
+          const clickedPosition = event.target.position;
+          const clickIntent = ++definitionClickIntent;
+          const definitionLinkGesture = definitionLinkGestureRef.current;
+          if (!definitionLinkGesture?.enabled) {
+            void keymapRegistry.executeCommand("editor.goToDefinition");
+            return;
+          }
+          const clickedModel = binding.model;
+          void definitionLinkGesture.resolveForClick(clickedPosition).then((definitionHint) => {
+            if (
+              clickIntent !== definitionClickIntent ||
+              !definitionHint ||
+              clickedModel.isDisposed() ||
+              editor.getModel() !== clickedModel ||
+              !isActiveSurfaceRef.current
+            ) {
+              return;
+            }
+            const currentPosition = editor.getPosition();
+            if (
+              !currentPosition ||
+              currentPosition.lineNumber !== clickedPosition.lineNumber ||
+              currentPosition.column !== clickedPosition.column
+            ) {
+              return;
+            }
+            void keymapRegistry.executeCommand("editor.goToDefinition", { definitionHint });
+          });
+          return;
+        }
+        if (mouseEvent.leftButton) {
+          mouseSelectingRef.current = true;
+          if (!mouseGestureStartRef.current) {
+            mouseGestureStartRef.current = cursorEntryFromEditor();
+          }
+        }
+      }),
+      editor.onMouseUp(() => {
+        if (!mouseSelectingRef.current) return;
+        mouseSelectingRef.current = false;
+        if (!callbacks().isCurrentEditorSurface()) {
+          mouseGestureStartRef.current = null;
+          return;
+        }
+        const entry = cursorEntryToRecordAfterMouseGesture(
+          mouseGestureStartRef.current,
+          cursorEntryFromEditor(),
+        );
+        if (entry) useJumpListStore.getState().actions.recordCursorEntry(entry);
+        mouseGestureStartRef.current = null;
+      }),
+      editor.onDidChangeCursorSelection(() => {
+        if (!modelBindingRef.current) return;
+        if (!callbacks().isCurrentEditorSurface()) return;
+        if (suppressNextCursorSelectionSyncRef.current) {
+          suppressNextCursorSelectionSyncRef.current = false;
+            return;
+        }
+        callbacks().syncCursorAndSelection();
+      }),
+      editor.onDidScrollChange((event) => {
+        const binding = modelBindingRef.current;
+        if (!binding) return;
+        if (!callbacks().isCurrentEditorSurface()) return;
+        if (viewStateRestoreGate.isRestoring()) return;
+        callbacks().setScrollForBuffer(binding.viewKey || null, event.scrollTop, event.scrollLeft);
+        callbacks().onScrollOffsetChange?.(event.scrollTop, event.scrollLeft);
+        onScrollMetricsChangeRef.current?.({
+          scrollTop: event.scrollTop,
+          scrollHeight: event.scrollHeight,
+          clientHeight: editor.getLayoutInfo().height,
+        });
+      }),
+      editor.onDidLayoutChange((info) => {
+        callbacks().setViewportHeight(info.height);
+        syncBottomScrollPadding(info.height);
+        scheduleMonacoHoverClamp();
+        const binding = modelBindingRef.current;
+        if (!binding || !viewStateRestoreGate.isRestoring()) return;
+        applyMonacoSurfaceViewport(editor, binding.viewKey);
+      }),
+    ];
+
+    const handleWindowMouseUp = () => {
+      if (!mouseSelectingRef.current) return;
+      mouseSelectingRef.current = false;
+      if (!callbacks().isCurrentEditorSurface()) {
+        mouseGestureStartRef.current = null;
+        return;
+      }
+      const entry = cursorEntryToRecordAfterMouseGesture(
+        mouseGestureStartRef.current,
+        cursorEntryFromEditor(),
+      );
+      if (entry) useJumpListStore.getState().actions.recordCursorEntry(entry);
+      mouseGestureStartRef.current = null;
+    };
+    window.addEventListener("mouseup", handleWindowMouseUp);
+
+    return () => {
+      // React runs this cleanup before the model effect's on unmount, but the
+      // model teardown saves the viewport and needs a live editor.
+      releaseBoundModelRef.current?.();
+      onModelPositionResolverChange?.(null);
+      container.removeEventListener("mousedown", handleNativeMouseDownCapture, true);
+      restoreFindWidgetCloseButtonHover();
+      window.removeEventListener("keydown", handleWindowSelectAllShortcut, true);
+      window.removeEventListener("mouseup", handleWindowMouseUp);
+      for (const disposable of disposables) {
+        disposable.dispose();
+      }
+      hoverMutationObserver.disconnect();
+      hoverResizeObserver.disconnect();
+      if (hoverClampRaf !== null) {
+        cancelAnimationFrame(hoverClampRaf);
+      }
+      mouseSelectingRef.current = false;
+      mouseGestureStartRef.current = null;
+      createdEditorDisposable.dispose();
+      onEditorScrollApiReadyRef.current?.(null);
+      try {
+        vimAdapterRef.current?.dispose();
+      } catch (error) {
+        console.error("Failed to dispose Monaco Vim adapter:", error);
+      }
+      vimAdapterRef.current = null;
+      vimStatusRef.current?.remove();
+      vimStatusRef.current = null;
+      implementationDecorations.clear();
+      if (implementationDecorationsRef.current === implementationDecorations) {
+        implementationDecorationsRef.current = null;
+      }
+      runMarkerDecorationCollection.clear();
+      if (runMarkerDecorationsRef.current === runMarkerDecorationCollection) {
+        runMarkerDecorationsRef.current = null;
+      }
+      if (editorRef.current === editor) editorRef.current = null;
+      try {
+        editor.dispose();
+      } catch (error) {
+        console.error("Failed to dispose Monaco editor:", error);
+      }
+    };
+    // The editor is created once per surface; option changes are applied by
+    // the `updateOptions` effect and file switches by the model effect below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useLayoutEffect(() => {
+    const editor = editorRef.current;
+    const container = containerRef.current;
+    if (!editor || !container || !editorBufferId || !isContentReady) return;
     const finishCreatedRestore = viewStateRestoreGate.begin();
-    const fontOptions = { fontFamily, fontSize, lineHeight };
-    syncMonacoHoverBounds(container);
     if (filePath && fileOpenBenchmark.has(filePath)) {
       fileOpenBenchmark.mark(filePath, "monaco-create-start");
     }
@@ -1047,83 +1741,19 @@ export function MonacoEditor({
     const acquiredModel = acquireMonacoModel(content, monacoLanguageId, modelUri);
     const model = acquiredModel.model;
     const source = acquireEditorModelSource(model, content);
-    const editor = monacoEditor.create(container, {
-      model,
-      automaticLayout: true,
-      fontFamily,
-      fontSize,
-      lineHeight,
-      tabSize,
-      insertSpaces: true,
-      readOnly: readOnly || isPreviewMode,
-      domReadOnly: readOnly || isPreviewMode,
-      minimap: { enabled: minimapEnabled },
-      fontLigatures: editorFontLigatures,
-      // Geist Mono is a variable font; Windows DPI plus Monaco's default
-      // monospace width cache places the caret one column left of the click.
-      disableMonospaceOptimizations: true,
-      selectOnLineNumbers: true,
-      glyphMargin: enableExpensiveServicesRef.current && monacoLanguageId === "java",
-      stickyScroll: { enabled: editorStickyScroll },
-      bracketPairColorization: { enabled: editorBracketPairColorization },
-      smoothScrolling: editorSmoothScrolling,
-      mouseWheelScrollSensitivity: EDITOR_CONSTANTS.MOUSE_WHEEL_SCROLL_SENSITIVITY,
-      scrollBeyondLastLine: editorScrollBeyondLastLine,
-      padding: { bottom: getEditorBottomScrollPadding(container.clientHeight) },
-      lineNumbers: lineNumbers ? lineNumberFormatter : "off",
-      renderWhitespace: renderWhitespace === "none" ? "none" : renderWhitespace,
-      wordWrap: wordWrap ? "on" : "off",
-      guides: {
-        indentation: renderIndentGuides,
-        highlightActiveIndentation: renderIndentGuides,
-      },
-      occurrencesHighlight: highlightOccurrences ? "singleFile" : "off",
-      selectionHighlight: highlightOccurrences,
-      quickSuggestions: autoCompletion,
-      suggestOnTriggerCharacters: autoCompletion,
-      // Word-scan suggestions are a fallback when LSP completions are unavailable.
-      // They insert plain identifiers without namespace imports, so LSP results
-      // remain the primary source for typed class completions.
-      wordBasedSuggestions: "matchingDocuments",
-      // Expensive-service options are read from the ref so this effect stays
-      // stable across active-surface flips; the dedicated `updateOptions` effect
-      // below re-applies them whenever the live value changes.
-      parameterHints: { enabled: enableExpensiveServicesRef.current && parameterHints },
-      codeLens: enableExpensiveServicesRef.current && codeLens,
-      inlayHints: { enabled: enableExpensiveServicesRef.current && inlayHints ? "on" : "off" },
-      theme: defineMonacoTheme(themeId, editorItalicComments),
-      cursorStyle: vimModeEnabled && vimCurrentMode === "normal" ? "block" : editorCursorStyle,
-      cursorBlinking:
-        vimModeEnabled && vimCurrentMode === "normal" ? "solid" : editorCursorBlinking,
-      contextmenu: false,
-      overviewRulerLanes: 0,
-      fixedOverflowWidgets: false,
-      // Full-width punctuation is normal Chinese prose; see frontend/editor workbench.ts
-      // for the rationale behind disabling Monaco's confusable-character warning.
-      unicodeHighlight: { ambiguousCharacters: false },
-      "semanticHighlighting.enabled": enableExpensiveServicesRef.current && semanticTokens,
-      scrollbar: {
-        vertical: scrollable ? "auto" : "hidden",
-        horizontal: scrollable ? "auto" : "hidden",
-        handleMouseWheel: scrollable,
-        alwaysConsumeMouseWheel: scrollable && alwaysConsumeMouseWheel,
-        verticalScrollbarSize: EDITOR_CONSTANTS.SCROLLBAR_TRACK_SIZE,
-        horizontalScrollbarSize: EDITOR_CONSTANTS.SCROLLBAR_TRACK_SIZE,
-      },
-    });
-    const restoreFindWidgetCloseButtonHover = suppressFindWidgetCloseButtonHover(container);
-
-    editorRef.current = editor;
+    editor.setModel(model);
+    const viewKey = viewStateKey ?? activeBufferId ?? "";
     modelRef.current = model;
-    const implementationDecorations = editor.createDecorationsCollection();
-    implementationDecorationsRef.current = implementationDecorations;
-    const runMarkerDecorationCollection = editor.createDecorationsCollection(
-      runMarkerDecorationSpecsRef.current,
-    );
-    runMarkerDecorationsRef.current = runMarkerDecorationCollection;
-    // The gutter controller lives exactly as long as this editor and model,
-    // so recreating the editor (file switch, option change) also disposes any
-    // open inline review. Its base arrives through `setBase`.
+    modelBindingRef.current = {
+      model,
+      filePath,
+      editorBufferId,
+      paneId,
+      viewKey,
+    };
+    // The gutter controller lives exactly as long as this model is shown, so a
+    // file switch also disposes any open inline review. Its base arrives
+    // through `setBase`.
     const gitGutterController = createGitGutterController(
       editor,
       model,
@@ -1172,13 +1802,15 @@ export function MonacoEditor({
           monacoEditor.setModelLanguage(target as Monaco.editor.ITextModel, language);
         });
       }
-      const tokenTypes = getBenchmarkTokenTypes();
-      frontendTrace(tokenTypes.length > 0 ? "info" : "error", "bench:syntax", filePath, {
-        languageId: model.getLanguageId(),
-        themeId,
-        tokenTypes,
-      });
       if (filePath && fileOpenBenchmark.has(filePath)) {
+        // Re-tokenizing the file head is benchmark-only work; ordinary opens
+        // skip it so it does not add to every tab switch.
+        const tokenTypes = getBenchmarkTokenTypes();
+        frontendTrace(tokenTypes.length > 0 ? "info" : "error", "bench:syntax", filePath, {
+          languageId: model.getLanguageId(),
+          themeId,
+          tokenTypes,
+        });
         fileOpenBenchmark.mark(
           filePath,
           "syntax-ready",
@@ -1193,56 +1825,6 @@ export function MonacoEditor({
       }
     });
 
-    let hoverClampRaf: number | null = null;
-    const scheduleMonacoHoverClamp = () => {
-      if (hoverClampRaf !== null) return;
-      hoverClampRaf = requestAnimationFrame(() => {
-        hoverClampRaf = null;
-        clampMonacoHoverWidgets(container);
-      });
-    };
-    const hoverMutationObserver = new MutationObserver((mutations) => {
-      if (mutationsContainMonacoHoverWidget(mutations)) scheduleMonacoHoverClamp();
-    });
-    hoverMutationObserver.observe(container, {
-      childList: true,
-      subtree: true,
-    });
-    const hoverResizeObserver = new ResizeObserver(scheduleMonacoHoverClamp);
-    hoverResizeObserver.observe(container);
-    scheduleMonacoHoverClamp();
-
-    let bottomScrollPadding = getEditorBottomScrollPadding(container.clientHeight);
-    const syncBottomScrollPadding = (viewportHeight: number) => {
-      const nextBottomScrollPadding = getEditorBottomScrollPadding(viewportHeight);
-      if (nextBottomScrollPadding === bottomScrollPadding) return;
-      bottomScrollPadding = nextBottomScrollPadding;
-      editor.updateOptions({ padding: { bottom: bottomScrollPadding } });
-    };
-
-    const syncNestedEditorFonts = () => syncContainedEditorFontOptions(container, fontOptions);
-    const createdEditorDisposable = monacoEditor.onDidCreateEditor((createdEditor) => {
-      requestAnimationFrame(() => {
-        const editorElement = createdEditor.getDomNode();
-        if (!editorElement || !container.contains(editorElement)) return;
-        createdEditor.updateOptions(fontOptions);
-      });
-    });
-    requestAnimationFrame(syncNestedEditorFonts);
-
-    const scrollApi: MonacoEditorScrollApi = {
-      getMetrics: () => ({
-        scrollTop: editor.getScrollTop(),
-        scrollHeight: editor.getScrollHeight(),
-        clientHeight: editor.getLayoutInfo().height,
-      }),
-      setScrollTop: (scrollTop) => {
-        editor.setScrollTop(scrollTop);
-      },
-    };
-    onEditorScrollApiReadyRef.current?.(scrollApi);
-
-    editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyA, selectEntireModel);
     const definitionLinkGesture = registerMonacoDefinitionLinkGesture({
       editor,
       model,
@@ -1250,147 +1832,11 @@ export function MonacoEditor({
       workspaceScope: rootFolderPath ? { workspaceId, root: rootFolderPath } : undefined,
       isEnabled: () => enableExpensiveServicesRef.current,
     });
-    let definitionClickIntent = 0;
-    const cursorEntryFromEditor = (): CursorHistoryEntry | null => {
-      const position = editor.getPosition();
-      if (!position || !editorBufferId || !filePath) return null;
-
-      return {
-        bufferId: editorBufferId,
-        filePath,
-        paneId,
-        ...toEditorPosition(model, position),
-        scrollTop: editor.getScrollTop(),
-        scrollLeft: editor.getScrollLeft(),
-      };
-    };
-    const handleNativeMouseDownCapture = (event: MouseEvent) => {
-      if (event.button !== 0) return;
-      mouseSelectingRef.current = true;
-      mouseGestureStartRef.current = cursorEntryFromEditor();
-    };
-    container.addEventListener("mousedown", handleNativeMouseDownCapture, true);
-
-    const handleWindowSelectAllShortcut = (event: KeyboardEvent) => {
-      const isSelectAllShortcut =
-        (event.metaKey || event.ctrlKey) &&
-        !event.altKey &&
-        !event.shiftKey &&
-        event.key.toLowerCase() === "a";
-
-      if (!isSelectAllShortcut) return;
-
-      const target = event.target;
-      const activeElement = document.activeElement;
-      if (isNativeTextInputTarget(target, activeElement)) return;
-
-      const isInsideEditor =
-        editor.hasTextFocus() ||
-        (target instanceof Node && container.contains(target)) ||
-        (activeElement instanceof Node && container.contains(activeElement));
-
-      if (!isInsideEditor) {
-        const targetElement = target instanceof HTMLElement ? target : null;
-        if (targetElement?.closest(".terminal-container")) return;
-        if (!isActiveSurfaceRef.current) return;
-      }
-
-      event.preventDefault();
-      event.stopPropagation();
-      event.stopImmediatePropagation();
-      selectEntireModel();
-    };
-
-    window.addEventListener("keydown", handleWindowSelectAllShortcut, true);
+    definitionLinkGestureRef.current = definitionLinkGesture;
 
     const disposables = [
       bindMonacoDebugDecorations(editor, filePath),
-      editor.onContextMenu((event) => {
-        event.event.preventDefault();
-        event.event.stopPropagation();
-        setContextMenuRunMarker(null);
-        // Line targets cover the gutter and the content itself: IDEA answers
-        // "this line" from both, and a menu item that silently no-ops on
-        // content right-clicks reads as broken. The range is computed from the
-        // pre-collapse selection, so content clicks may still move the caret.
-        // Line targets cover the gutter and the content itself: IDEA answers
-        // "this line" from both, and a menu item that silently no-ops on
-        // content right-clicks reads as broken. The range is computed from the
-        // pre-collapse selection, so content clicks may still move the caret.
-        // An open selection wins wherever the click landed; without one the
-        // clicked line is the query.
-        const gutterTypes = [
-          monacoEditor.MouseTargetType.GUTTER_GLYPH_MARGIN,
-          monacoEditor.MouseTargetType.GUTTER_LINE_NUMBERS,
-          monacoEditor.MouseTargetType.GUTTER_LINE_DECORATIONS,
-        ];
-        const lineTargetTypes = [
-          ...gutterTypes,
-          monacoEditor.MouseTargetType.CONTENT_TEXT,
-          monacoEditor.MouseTargetType.CONTENT_EMPTY,
-        ];
-        const isLineNumberTarget = lineTargetTypes.includes(event.target.type);
-        const isGutterTarget = gutterTypes.includes(event.target.type);
-        if (isLineNumberTarget && event.target.position) {
-          const clickedLine = event.target.position.lineNumber;
-          const currentSelection = editor.getSelection();
-          let span: Parameters<typeof gutterLineRange>[1] = null;
-          if (currentSelection && !currentSelection.isEmpty()) {
-            const firstLine = Math.min(
-              currentSelection.startLineNumber,
-              currentSelection.endLineNumber,
-            );
-            const lastLine = Math.max(
-              currentSelection.startLineNumber,
-              currentSelection.endLineNumber,
-            );
-            const lastLineColumn =
-              currentSelection.endLineNumber >= currentSelection.startLineNumber
-                ? currentSelection.endColumn
-                : currentSelection.startColumn;
-            span = { firstLine, lastLine, lastLineColumn };
-          }
-          pendingLineHistoryRangeRef.current = gutterLineRange(clickedLine, span);
-        } else {
-          pendingLineHistoryRangeRef.current = null;
-        }
-
-        if (event.target.position && !isGutterTarget) {
-          setContextMenuRunMarker(
-            javaRunMarkerForLine(javaRunMarkersRef.current, event.target.position.lineNumber - 1),
-          );
-          const currentSelection = editor.getSelection();
-          if (!currentSelection?.containsPosition(event.target.position)) {
-            editor.setPosition(event.target.position);
-            editor.setSelection(
-              new MonacoRange(
-                event.target.position.lineNumber,
-                event.target.position.column,
-                event.target.position.lineNumber,
-                event.target.position.column,
-              ),
-            );
-            syncCursorAndSelection();
-          }
-        }
-
-        editor.focus();
-        setContextMenuPosition({ x: event.event.posx, y: event.event.posy });
-      }),
-      editor.onKeyDown((event) => {
-        const browserEvent = event.browserEvent;
-        const isSelectAllShortcut =
-          (browserEvent.metaKey || browserEvent.ctrlKey) &&
-          !browserEvent.altKey &&
-          !browserEvent.shiftKey &&
-          browserEvent.key.toLowerCase() === "a";
-
-        if (!isSelectAllShortcut) return;
-
-        event.preventDefault();
-        event.stopPropagation();
-        selectEntireModel();
-      }),
+      definitionLinkGesture,
       // Listen on the model, not the editor: Monaco delivers the editor-level
       // content event before EditorModelSource's model subscription on the
       // undo/redo path, so reading `source.lastChange` here published a stale
@@ -1401,7 +1847,7 @@ export function MonacoEditor({
         // Monaco moves decorations before React publishes the new document.
         // Invalidate click/context targets synchronously, not just on rerender.
         javaRunMarkersRef.current = [];
-        runMarkerDecorationCollection.clear();
+        runMarkerDecorationsRef.current?.clear();
         setRunMarkerMenu(null);
         setContextMenuRunMarker(null);
         if (applyingExternalChangeRef.current) return;
@@ -1409,12 +1855,11 @@ export function MonacoEditor({
         if (!change || change.external) return;
         const previousContent = change.previousContent;
         const nextContent = change.content;
-        const contentChanges: EditorTextChange[] = change.changes.map(edit => {
-          const start = sourcePositionAt(previousContent, edit.offset);
-          const end = sourcePositionAt(previousContent, edit.offset + edit.length);
-          return { rangeOffset: edit.offset, rangeLength: edit.length, text: edit.text,
-            startLine: start.line, startColumn: start.column, endLine: end.line, endColumn: end.column };
-        });
+        const contentChanges: EditorTextChange[] = change.changes.map(edit => ({
+          rangeOffset: edit.offset, rangeLength: edit.length, text: edit.text,
+          startLine: edit.start.line, startColumn: edit.start.column,
+          endLine: edit.end.line, endColumn: edit.end.column,
+        }));
         const editorState = useEditorStateStore.getState();
         previousContentRef.current = nextContent;
         rememberLocalContentSnapshot(pendingLocalContentSnapshotsRef.current, nextContent);
@@ -1431,187 +1876,12 @@ export function MonacoEditor({
             contentChanges,
           },
         );
-        syncCursorAndSelection();
-      }),
-      editor.onMouseDown((event) => {
-        if (!isCurrentEditorSurface()) return;
-        const mouseEvent = event.event;
-        const markerElement = event.target.element;
-        if (
-          event.target.type === monacoEditor.MouseTargetType.GUTTER_GLYPH_MARGIN &&
-          event.target.position &&
-          markerElement?.classList.contains(JAVA_RUN_GLYPH_CLASS)
-        ) {
-          const marker = runMarkerAtLine(
-            javaRunMarkersRef.current,
-            event.target.position.lineNumber,
-          );
-          if (marker) {
-            // IDEA opens a Run/Debug popup from the gutter icon instead of
-            // launching immediately, so a stray click never starts a process.
-            mouseEvent.preventDefault();
-            mouseEvent.stopPropagation();
-            mouseSelectingRef.current = false;
-            mouseGestureStartRef.current = null;
-            setContextMenuPosition(null);
-            setRunMarkerMenu({ marker, position: { x: mouseEvent.posx, y: mouseEvent.posy } });
-            return;
-          }
-        }
-        if (
-          event.target.type === monacoEditor.MouseTargetType.GUTTER_GLYPH_MARGIN &&
-          event.target.position &&
-          markerElement?.classList.contains(JAVA_IMPLEMENTATION_GLYPH_CLASS)
-        ) {
-          const marker = implementationMarkerAtLine(
-            implementationMarkersRef.current,
-            event.target.position.lineNumber,
-            event.target.detail.glyphMarginLane,
-          );
-          if (marker) {
-            mouseEvent.preventDefault();
-            mouseEvent.stopPropagation();
-            mouseSelectingRef.current = false;
-            mouseGestureStartRef.current = null;
-            editor.setPosition({
-              lineNumber: marker.line + 1,
-              column: marker.utf16Column + 1,
-            });
-            syncCursorAndSelection();
-            void keymapRegistry.executeCommand(
-              marker.direction === "down"
-                ? "editor.goToImplementation"
-                : "editor.goToSuperMethod",
-              { marker },
-            );
-            return;
-          }
-        }
-        if (
-          filePath.toLowerCase().endsWith(".java") &&
-          !editor.getRawOptions().readOnly &&
-          event.target.type === monacoEditor.MouseTargetType.GUTTER_GLYPH_MARGIN &&
-          event.target.position &&
-          mouseEvent.leftButton
-        ) {
-          mouseEvent.preventDefault();
-          mouseEvent.stopPropagation();
-          useDebuggerStore
-            .getState()
-            .actions.toggleBreakpoint(filePath, event.target.position.lineNumber - 1);
-          return;
-        }
-        if (
-          isEditorGoToDefinitionModifierClick(mouseEvent) &&
-          event.target.type === monacoEditor.MouseTargetType.CONTENT_TEXT &&
-          event.target.position
-        ) {
-          mouseEvent.preventDefault();
-          mouseEvent.stopPropagation();
-          mouseSelectingRef.current = false;
-          mouseGestureStartRef.current = null;
-          editor.setPosition(event.target.position);
-          syncCursorAndSelection();
-          const clickedPosition = event.target.position;
-          const clickIntent = ++definitionClickIntent;
-          if (!definitionLinkGesture.enabled) {
-            void keymapRegistry.executeCommand("editor.goToDefinition");
-            return;
-          }
-          void definitionLinkGesture.resolveForClick(clickedPosition).then((definitionHint) => {
-            if (
-              clickIntent !== definitionClickIntent ||
-              !definitionHint ||
-              model.isDisposed() ||
-              !isActiveSurfaceRef.current
-            ) {
-              return;
-            }
-            const currentPosition = editor.getPosition();
-            if (
-              !currentPosition ||
-              currentPosition.lineNumber !== clickedPosition.lineNumber ||
-              currentPosition.column !== clickedPosition.column
-            ) {
-              return;
-            }
-            void keymapRegistry.executeCommand("editor.goToDefinition", { definitionHint });
-          });
-          return;
-        }
-        if (mouseEvent.leftButton) {
-          mouseSelectingRef.current = true;
-          if (!mouseGestureStartRef.current) {
-            mouseGestureStartRef.current = cursorEntryFromEditor();
-          }
-        }
-      }),
-      editor.onMouseUp(() => {
-        if (!mouseSelectingRef.current) return;
-        mouseSelectingRef.current = false;
-        if (!isCurrentEditorSurface()) {
-          mouseGestureStartRef.current = null;
-          return;
-        }
-        const entry = cursorEntryToRecordAfterMouseGesture(
-          mouseGestureStartRef.current,
-          cursorEntryFromEditor(),
-        );
-        if (entry) useJumpListStore.getState().actions.recordCursorEntry(entry);
-        mouseGestureStartRef.current = null;
-        scheduleInlineGitBlameRender();
-      }),
-      editor.onDidChangeCursorSelection(() => {
-        if (!isCurrentEditorSurface()) return;
-        if (suppressNextCursorSelectionSyncRef.current) {
-          suppressNextCursorSelectionSyncRef.current = false;
-          scheduleInlineGitBlameRender();
-          return;
-        }
-        syncCursorAndSelection();
-        scheduleInlineGitBlameRender();
-      }),
-      definitionLinkGesture,
-      editor.onDidScrollChange((event) => {
-        if (!isCurrentEditorSurface()) return;
-        if (viewStateRestoreGate.isRestoring()) return;
-        const viewKey = viewStateKey ?? activeBufferId ?? null;
-        setScrollForBuffer(viewKey, event.scrollTop, event.scrollLeft);
-        onScrollOffsetChange?.(event.scrollTop, event.scrollLeft);
-        onScrollMetricsChangeRef.current?.({
-          scrollTop: event.scrollTop,
-          scrollHeight: event.scrollHeight,
-          clientHeight: editor.getLayoutInfo().height,
-        });
-      }),
-      editor.onDidLayoutChange((info) => {
-        setViewportHeight(info.height);
-        syncBottomScrollPadding(info.height);
-        scheduleMonacoHoverClamp();
-        if (!viewStateRestoreGate.isRestoring()) return;
-        applyMonacoSurfaceViewport(editor, viewStateKey ?? activeBufferId ?? "");
+        editorCallbacksRef.current.syncCursorAndSelection();
       }),
     ];
 
-    const handleWindowMouseUp = () => {
-      if (!mouseSelectingRef.current) return;
-      mouseSelectingRef.current = false;
-      if (!isCurrentEditorSurface()) {
-        mouseGestureStartRef.current = null;
-        return;
-      }
-      const entry = cursorEntryToRecordAfterMouseGesture(
-        mouseGestureStartRef.current,
-        cursorEntryFromEditor(),
-      );
-      if (entry) useJumpListStore.getState().actions.recordCursorEntry(entry);
-      mouseGestureStartRef.current = null;
-      scheduleInlineGitBlameRender();
-    };
-    window.addEventListener("mouseup", handleWindowMouseUp);
-
     const unsubscribeCursor = editorAPI.on("cursorChange", (position) => {
-      if (!modelRef.current || editorRef.current !== editor) return;
+      if (modelRef.current !== model || editorRef.current !== editor) return;
       if (!isCurrentEditorSurface() || mouseSelectingRef.current) return;
       const monacoPosition = toClampedMonacoPosition(model, position);
       const currentPosition = editor.getPosition();
@@ -1634,7 +1904,7 @@ export function MonacoEditor({
       editor.focus();
     });
     const unsubscribeSelection = editorAPI.on("selectionChange", (selection) => {
-      if (!modelRef.current || editorRef.current !== editor) return;
+      if (modelRef.current !== model || editorRef.current !== editor) return;
       if (!isCurrentEditorSurface() || mouseSelectingRef.current) return;
       if (selection) {
         editor.setSelection(toMonacoRange(model, selection));
@@ -1652,24 +1922,32 @@ export function MonacoEditor({
         }
       }
     });
-    scheduleInlineGitBlameRender();
 
-    const createdViewKey = viewStateKey ?? activeBufferId ?? "";
-    const createdNavigationRevision = editorAPI.getOwnerNavigationRevision(createdViewKey);
-    applyMonacoSurfaceViewState(editor, createdViewKey);
+    const createdNavigationRevision = editorAPI.getOwnerNavigationRevision(viewKey);
+    applyMonacoSurfaceViewState(editor, viewKey);
     const cancelCreatedViewStateRestore = scheduleCachedViewStateRestore({
       editor,
-      cachedScroll: cachedScrollForViewKey(createdViewKey),
-      isEditorCurrent: () => editorRef.current === editor,
+      cachedScroll: cachedScrollForViewKey(viewKey),
+      isEditorCurrent: () => editorRef.current === editor && editor.getModel() === model,
       isNavigationRevisionCurrent: () =>
-        editorAPI.getOwnerNavigationRevision(createdViewKey) === createdNavigationRevision,
+        editorAPI.getOwnerNavigationRevision(viewKey) === createdNavigationRevision,
       focus: () => {
         if (isActiveSurfaceRef.current) editor.focus();
       },
       onRestoreComplete: finishCreatedRestore,
     });
 
-    return () => {
+    let released = false;
+    const releaseBoundModel = () => {
+      if (released) return;
+      released = true;
+      if (releaseBoundModelRef.current === releaseBoundModel) releaseBoundModelRef.current = null;
+      // Menus opened on this file must not survive a switch to another one.
+      setRunMarkerMenu(null);
+      setContextMenuRunMarker(null);
+      setGutterMenuPosition(null);
+      setLineHistoryMenu(null);
+      editorCallbacksRef.current.setContextMenuPosition(null);
       cancelCreatedViewStateRestore();
       finishCreatedRestore();
       if (benchmarkRafId !== null) cancelAnimationFrame(benchmarkRafId);
@@ -1677,65 +1955,34 @@ export function MonacoEditor({
       if (filePath && fileOpenBenchmark.has(filePath)) {
         fileOpenBenchmark.cancel(filePath, "editor-unmounted-before-ready");
       }
-      onModelPositionResolverChange?.(null);
       unsubscribeCursor();
       unsubscribeSelection();
-      container.removeEventListener("mousedown", handleNativeMouseDownCapture, true);
-      restoreFindWidgetCloseButtonHover();
-      window.removeEventListener("keydown", handleWindowSelectAllShortcut, true);
-      window.removeEventListener("mouseup", handleWindowMouseUp);
       for (const disposable of disposables) {
         disposable.dispose();
       }
-      hoverMutationObserver.disconnect();
-      hoverResizeObserver.disconnect();
-      if (hoverClampRaf !== null) {
-        cancelAnimationFrame(hoverClampRaf);
+      if (definitionLinkGestureRef.current === definitionLinkGesture) {
+        definitionLinkGestureRef.current = null;
       }
-      if (gitBlameRenderFrameRef.current !== null) {
-        cancelAnimationFrame(gitBlameRenderFrameRef.current);
-        gitBlameRenderFrameRef.current = null;
-      }
-      try {
-        gitBlameWidgetRef.current?.dispose();
-      } catch (error) {
-        console.error("Failed to dispose inline Git blame widget:", error);
-      }
-      gitBlameWidgetRef.current = null;
-      renderedGitBlameKeyRef.current = null;
-      mouseSelectingRef.current = false;
-      mouseGestureStartRef.current = null;
-      createdEditorDisposable.dispose();
-      onEditorScrollApiReadyRef.current?.(null);
-      try {
-        vimAdapterRef.current?.dispose();
-      } catch (error) {
-        console.error("Failed to dispose Monaco Vim adapter:", error);
-      }
-      vimAdapterRef.current = null;
-      vimStatusRef.current?.remove();
-      vimStatusRef.current = null;
-      implementationDecorations.clear();
-      if (implementationDecorationsRef.current === implementationDecorations) {
-        implementationDecorationsRef.current = null;
-      }
+      implementationDecorationsRef.current?.clear();
       implementationMarkerOwnerRef.current = null;
       implementationMarkersRef.current = [];
       gitGutterController.dispose();
       if (gitGutterControllerRef.current === gitGutterController) {
         gitGutterControllerRef.current = null;
       }
-      runMarkerDecorationCollection.clear();
-      if (runMarkerDecorationsRef.current === runMarkerDecorationCollection) {
-        runMarkerDecorationsRef.current = null;
+      runMarkerDecorationsRef.current?.clear();
+      // Save the viewport while the editor still shows this model.
+      if (editor.getModel() === model) {
+        persistMonacoSurfaceViewState(editor, viewKey);
       }
-      persistMonacoSurfaceViewState(editor, viewStateKey ?? activeBufferId ?? "");
-      if (editorRef.current === editor) editorRef.current = null;
+      if (modelBindingRef.current?.model === model) modelBindingRef.current = null;
       if (modelRef.current === model) modelRef.current = null;
+      // Detach before releasing: releasing may dispose the model, and Monaco
+      // must not keep rendering a disposed model.
       try {
-        editor.dispose();
+        if (editor.getModel() === model) editor.setModel(null);
       } catch (error) {
-        console.error("Failed to dispose Monaco editor:", error);
+        console.error("Failed to detach Monaco model:", error);
       }
       try {
         acquiredModel.release();
@@ -1743,52 +1990,21 @@ export function MonacoEditor({
         console.error("Failed to release Monaco model:", error);
       }
     };
+    releaseBoundModelRef.current = releaseBoundModel;
+    return releaseBoundModel;
   }, [
     activeBufferId,
-    autoCompletion,
-    editorBracketPairColorization,
-    editorCursorBlinking,
-    editorCursorStyle,
-    editorFontLigatures,
-    editorItalicComments,
-    editorScrollBeyondLastLine,
-    editorSmoothScrolling,
-    editorStickyScroll,
     documentTarget,
-    inlayHints,
-    setContextMenuPosition,
     filePath,
     paneId,
-    fontFamily,
-    fontSize,
-    highlightOccurrences,
-    isPreviewMode,
-    lineHeight,
-    lineNumbers,
-    lineNumberFormatter,
-    minimapEnabled,
     modelUri,
     monacoLanguageId,
-    onScrollOffsetChange,
-    parameterHints,
-    readOnly,
-    renderIndentGuides,
-    renderWhitespace,
     rootFolderPath,
     workspaceId,
-    scrollable,
-    alwaysConsumeMouseWheel,
-    scheduleInlineGitBlameRender,
-    selectEntireModel,
-    semanticTokens,
-    setScrollForBuffer,
-    setViewportHeight,
-    syncCursorAndSelection,
-    tabSize,
     themeId,
     viewStateKey,
-    wordWrap,
     editorBufferId,
+    isContentReady,
     isCurrentEditorSurface,
   ]);
 
@@ -2229,7 +2445,7 @@ export function MonacoEditor({
         monacoEditor.setModelMarkers(model, "lithe", []);
       }
     };
-  }, [diagnosticsForFile]);
+  }, [diagnosticsForFile, isContentReady]);
 
   useEffect(() => {
     const editor = editorRef.current;
@@ -2295,10 +2511,35 @@ export function MonacoEditor({
     const editor = editorRef.current;
     if (!editor) return;
 
+    editor.updateOptions({
+      lineNumbers:
+        lineNumbers || blameGutterEntriesRef.current.size > 0
+          ? lineNumberFormatter
+          : "off",
+      lineNumbersMinChars:
+        blameGutterEntriesRef.current.size > 0
+          ? blameColumnCharsRef.current
+          : DEFAULT_LINE_NUMBER_CHARS,
+    });
+    // The formatter keeps its identity, so Monaco holds the line-number HTML it
+    // rendered before. Repaint only when the annotation set actually changed.
+    if (appliedBlameGutterEntriesRef.current !== blameGutterEntries) {
+      appliedBlameGutterEntriesRef.current = blameGutterEntries;
+      editor.render(true);
+    }
+  }, [blameGutterEntries, lineNumberFormatter, lineNumbers]);
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+
     if (!vimModeEnabled || !vimRelativeLineNumbers || lineNumberMap) return;
 
     editor.updateOptions({
-      lineNumbers: lineNumbers ? lineNumberFormatter : "off",
+      lineNumbers:
+        lineNumbers || blameGutterEntriesRef.current.size > 0
+          ? lineNumberFormatter
+          : "off",
     });
   }, [
     cursorPosition.line,
@@ -2348,7 +2589,14 @@ export function MonacoEditor({
       tabSize,
       readOnly: readOnly || isPreviewMode,
       domReadOnly: readOnly || isPreviewMode,
-      lineNumbers: lineNumbers ? lineNumberFormatter : "off",
+      lineNumbers:
+        lineNumbers || blameGutterEntriesRef.current.size > 0
+          ? lineNumberFormatter
+          : "off",
+      lineNumbersMinChars:
+        blameGutterEntriesRef.current.size > 0
+          ? blameColumnCharsRef.current
+          : DEFAULT_LINE_NUMBER_CHARS,
       minimap: { enabled: minimapEnabled },
       fontLigatures: editorFontLigatures,
       disableMonospaceOptimizations: true,
@@ -2366,20 +2614,20 @@ export function MonacoEditor({
       },
       occurrencesHighlight: highlightOccurrences ? "singleFile" : "off",
       selectionHighlight: highlightOccurrences,
-      glyphMargin: enableExpensiveServices && monacoLanguageId === "java",
+      glyphMargin: enableRichViewOptions && monacoLanguageId === "java",
       quickSuggestions: autoCompletion,
       suggestOnTriggerCharacters: autoCompletion,
       // Word-scan suggestions are a fallback when LSP completions are unavailable.
       // They insert plain identifiers without namespace imports, so LSP results
       // remain the primary source for typed class completions.
       wordBasedSuggestions: "matchingDocuments",
-      parameterHints: { enabled: enableExpensiveServices && parameterHints },
-      codeLens: enableExpensiveServices && codeLens,
-      inlayHints: { enabled: enableExpensiveServices && inlayHints ? "on" : "off" },
+      parameterHints: { enabled: enableRichViewOptions && parameterHints },
+      codeLens: enableRichViewOptions && codeLens,
+      inlayHints: { enabled: enableRichViewOptions && inlayHints ? "on" : "off" },
       cursorStyle: vimModeEnabled && vimCurrentMode === "normal" ? "block" : editorCursorStyle,
       cursorBlinking:
         vimModeEnabled && vimCurrentMode === "normal" ? "solid" : editorCursorBlinking,
-      "semanticHighlighting.enabled": enableExpensiveServices && semanticTokens,
+      "semanticHighlighting.enabled": semanticTokens,
       // Full-width punctuation is normal Chinese prose; see frontend/editor workbench.ts
       // for the rationale behind disabling Monaco's confusable-character warning.
       unicodeHighlight: { ambiguousCharacters: false },
@@ -2419,7 +2667,7 @@ export function MonacoEditor({
     editorScrollBeyondLastLine,
     editorSmoothScrolling,
     editorStickyScroll,
-    enableExpensiveServices,
+    enableRichViewOptions,
     fontFamily,
     fontSize,
     highlightOccurrences,
@@ -2454,7 +2702,9 @@ export function MonacoEditor({
     vimStatusRef.current?.remove();
     vimStatusRef.current = null;
 
-    if (!editor || !container || !vimModeEnabled || readOnly || isPreviewMode) {
+    // The adapter reads the model as it attaches, and a surface waiting for its
+    // text has none yet.
+    if (!editor || !container || !isContentReady || !vimModeEnabled || readOnly || isPreviewMode) {
       return;
     }
 
@@ -2487,7 +2737,7 @@ export function MonacoEditor({
       statusNode.remove();
       if (vimStatusRef.current === statusNode) vimStatusRef.current = null;
     };
-  }, [isPreviewMode, readOnly, vimModeEnabled]);
+  }, [isContentReady, isPreviewMode, readOnly, vimModeEnabled]);
 
   useEffect(() => {
     const editor = editorRef.current;
@@ -2513,10 +2763,6 @@ export function MonacoEditor({
   }, [currentHighlightIndex, highlightMatches]);
 
   useEffect(() => {
-    scheduleInlineGitBlameRender();
-  }, [renderInlineGitBlame, scheduleInlineGitBlameRender]);
-
-  useEffect(() => {
     gitGutterControllerRef.current?.setBase(gitGutterBase?.lines ?? null);
   }, [gitGutterBase]);
 
@@ -2525,52 +2771,9 @@ export function MonacoEditor({
   }, [bufferIsDirty, readOnly]);
 
   useEffect(() => {
-    const editor = editorRef.current;
-    const model = modelRef.current;
-    if (!editor || !model) {
-      onModelPositionResolverChange?.(null);
-      return;
-    }
-
-    onModelPositionResolverChange?.((line, column) => {
-      if (model.isDisposed()) return null;
-      const position = clampMonacoPosition(model, {
-        lineNumber: line + 1,
-        column: column + 1,
-      });
-      let editorPosition: Position;
-      let top: number;
-      let left: number;
-      let lineLength: number;
-
-      try {
-        editorPosition = toEditorPosition(model, position);
-        top = editor.getTopForLineNumber(position.lineNumber);
-        left = editor.getOffsetForColumn(position.lineNumber, position.column);
-        lineLength = model.getLineLength(position.lineNumber);
-      } catch (error) {
-        if (model.isDisposed()) return null;
-        throw error;
-      }
-      const modelLine = position.lineNumber - 1;
-
-      return {
-        ...editorPosition,
-        viewLine: modelLine,
-        modelLine,
-        top,
-        left,
-        height: lineHeight,
-        segment: {
-          viewLine: modelLine,
-          modelLine,
-          startColumn: 0,
-          endColumn: lineLength,
-          top,
-          height: lineHeight,
-        },
-      };
-    });
+    onModelPositionResolverChange?.(
+      createMonacoModelPositionResolver(() => editorRef.current, lineHeight),
+    );
 
     return () => {
       onModelPositionResolverChange?.(null);
@@ -2592,7 +2795,10 @@ export function MonacoEditor({
     const navigationRevision = editorAPI.getOwnerNavigationRevision(viewStateKeyForRestore);
     const finishActivationRestore = viewStateRestoreGate.begin();
 
-    editor.layout();
+    // No synchronous layout() here: reading the container size in the middle
+    // of the commit forced a whole-window style and layout pass on every tab
+    // activation. The hidden slot keeps its cached size, automaticLayout picks
+    // up resizes, and the restore frame below lays the editor out once.
     applyMonacoSurfaceViewState(editor, viewStateKeyForRestore);
 
     const cancelCachedViewStateRestore = scheduleCachedViewStateRestore({
@@ -2684,7 +2890,7 @@ export function MonacoEditor({
               !lineHistoryFileUntracked
                 ? () => {
                     const range = pendingLineHistoryRangeRef.current;
-                    if (!range || !contextMenuPosition) return;
+                    if (!range) return;
                     const buffer = getBufferById(
                       useBufferStore.getState().buffers,
                       activeBufferId,
@@ -2697,6 +2903,39 @@ export function MonacoEditor({
                         buffer && isEditorContent(buffer) ? (buffer.contentRevision ?? 0) : 0,
                     });
                     setContextMenuPosition(null);
+                  }
+                : undefined
+            }
+            onToggleBlame={
+              blameFileEligible && !lineHistoryFileUntracked
+                ? () => {
+                    setContextMenuPosition(null);
+                    setBlameVisible(!blameVisible);
+                  }
+                : undefined
+            }
+            blameVisible={blameVisible}
+            onBlameShowDiff={
+              contextMenuCommit
+                ? () => {
+                    const lineNumber = contextMenuPosition.lineNumber;
+                    setContextMenuPosition(null);
+                    void openBlameCommitRef.current(lineNumber);
+                  }
+                : undefined
+            }
+            onBlameCopyRevision={
+              contextMenuCommit
+                ? () => {
+                    const hash = contextMenuCommit.commit_hash;
+                    setContextMenuPosition(null);
+                    void writeClipboardText(hash).then(
+                      () => toast.success(t("git.blame.revisionCopied")),
+                      (error: unknown) => {
+                        console.error("Failed to copy the revision number:", error);
+                        toast.error(t("git.operationFailed"));
+                      },
+                    );
                   }
                 : undefined
             }
@@ -2734,6 +2973,48 @@ export function MonacoEditor({
                   : undefined
             }
             runContextLabel={contextRunTarget?.label}
+          />,
+          document.body,
+        )}
+      {gutterMenuPosition &&
+        createPortal(
+          <GutterContextMenu
+            isOpen
+            position={gutterMenuPosition}
+            onClose={() => setGutterMenuPosition(null)}
+            onToggleBlame={
+              blameFileEligible && !lineHistoryFileUntracked
+                ? () => {
+                    setGutterMenuPosition(null);
+                    setBlameVisible(!blameVisible);
+                  }
+                : undefined
+            }
+            blameVisible={blameVisible}
+            onShowDiff={
+              gutterMenuCommit
+                ? () => {
+                    const lineNumber = gutterMenuPosition.lineNumber;
+                    setGutterMenuPosition(null);
+                    void openBlameCommitRef.current(lineNumber);
+                  }
+                : undefined
+            }
+            onCopyRevision={
+              gutterMenuCommit
+                ? () => {
+                    const hash = gutterMenuCommit.commit_hash;
+                    setGutterMenuPosition(null);
+                    void writeClipboardText(hash).then(
+                      () => toast.success(t("git.blame.revisionCopied")),
+                      (error: unknown) => {
+                        console.error("Failed to copy the revision number:", error);
+                        toast.error(t("git.operationFailed"));
+                      },
+                    );
+                  }
+                : undefined
+            }
           />,
           document.body,
         )}

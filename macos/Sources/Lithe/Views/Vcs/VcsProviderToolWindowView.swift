@@ -10,6 +10,8 @@ struct VcsProviderToolWindowActions {
     let revealInFinder: (URL) -> Void
     let copyPath: (URL) -> Void
     let hide: () -> Void
+    var showDiffInNewTab: ((VcsChange, String) -> Void)? = nil
+    var deleteFiles: (([VcsChange], String) -> Void)? = nil
 }
 
 /// The tool window of one plugin VCS, laid out like IDEA's Commit window:
@@ -73,7 +75,7 @@ struct VcsProviderToolWindowView: View {
         .workbenchHoverTooltipScope()
         .onAppear(perform: loadDraft)
         .onChange(of: root?.id) { _ in
-            selection = []; inclusion = [:]; notice = nil; historyPath = nil
+            selection = []; inclusion = [:]; notice = nil; historyPath = nil; pendingRollback = []
             loadDraft()
         }
         .onChange(of: message) { text in
@@ -544,15 +546,25 @@ struct VcsProviderToolWindowView: View {
         }
     }
 
-    private func contextMenu(for change: VcsChange, root: VcsRootState) -> [LitheContextMenuItem] {
-        let selected = selectedChanges(root)
+    func contextMenu(for change: VcsChange, root: VcsRootState) -> [LitheContextMenuItem] {
+        let selected = Self.actionTargets(root.snapshot?.changes ?? [], selection: selection, clicked: change)
         let url = root.url.appendingPathComponent(change.path)
         let exists = ![.deleted, .missing].contains(change.status)
         let busy = feature.runningOperation != nil
         var items: [LitheContextMenuItem] = []
+        items.append(.action("Commit Files…", isEnabled: root.supports(.checkin) && !busy && !selected.isEmpty
+            && !selected.contains(where: { Self.group(of: $0) == .conflicts })) {
+                let paths = Set(selected.map(\.path))
+                inclusion = Dictionary(uniqueKeysWithValues: (root.snapshot?.changes ?? []).map { ($0.path, paths.contains($0.path)) })
+                tab = .changes
+                messageFocused = true
+            })
         if root.supports(.baseContent) {
             items.append(.action(L10n.string("Show Diff"), localizesTitle: false, isEnabled: selected.count == 1) {
                 showDiff(change, in: root)
+            })
+            items.append(.action("Show Diff in New Tab", isEnabled: selected.count == 1 && actions.showDiffInNewTab != nil) {
+                actions.showDiffInNewTab?(change, root.id)
             })
         }
         items.append(.action(L10n.string("Open"), localizesTitle: false, isEnabled: exists) { actions.openFile(url) })
@@ -562,6 +574,15 @@ struct VcsProviderToolWindowView: View {
                 tab = .history
             })
         }
+        items.append(.separator)
+        items.append(.action("Delete…", role: .destructive,
+            isEnabled: !busy && actions.deleteFiles != nil && !selected.isEmpty
+                && (feature.canTrash(selected, in: root.id) || feature.canDelete(selected, in: root.id))) {
+                    actions.deleteFiles?(selected, root.id)
+                })
+        items.append(.action("Add to VCS", isEnabled: feature.canAdd(selected, in: root.id)) {
+            Task { _ = await feature.add(selected, in: root.id) }
+        })
         items.append(.separator)
         if root.supports(.conflicts) && !conflicted(selected).isEmpty {
             items.append(.action(L10n.string("Mark as Resolved"), localizesTitle: false, isEnabled: !busy) {
@@ -579,6 +600,10 @@ struct VcsProviderToolWindowView: View {
             actions.revealInFinder(url)
         })
         return items
+    }
+
+    static func actionTargets(_ changes: [VcsChange], selection: Set<String>, clicked: VcsChange) -> [VcsChange] {
+        changes.filter { selection.contains(clicked.path) ? selection.contains($0.path) : $0.path == clicked.path }
     }
 
     private func selectedChanges(_ root: VcsRootState) -> [VcsChange] {

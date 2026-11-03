@@ -213,7 +213,10 @@ enum WorkbenchModuleUIComposition {
                         showLocalHistory: { model.showLocalHistory(for: $0) },
                         revealInFinder: { model.revealProjectItemInFinder($0) },
                         copyPath: { model.copyProjectItemPath($0, relative: $1) },
-                        showSettings: { model.showSettings(category: $0) }
+                        showSettings: { model.showSettings(category: $0) },
+                        prepareCommitFiles: { model.prepareCommitFiles($0, feature: feature, draft: model.commitDraftFeature) },
+                        showDiffInNewTab: { model.selectChange($0, inNewTab: true) },
+                        deleteFiles: { model.requestDeleteCommitFiles($0, feature: feature) }
                     ))
                 },
                 contentIdentity: { AnyHashable([WorkbenchModuleUIRegistry.Renderer.featureIdentity($0.gitFeatureIfActive),
@@ -259,7 +262,12 @@ enum WorkbenchModuleUIComposition {
                             showChange: { [weak model] in model?.selectChange($0) },
                             openFile: { [weak model] in model?.openFile($0, displayPath: $1) },
                             commitSession: { [unowned model] in model.worktreeCommitSession(feature: feature, worktree: $0) },
-                            showCommitSettings: { [weak model] in model?.showSettings(category: .ai) }
+                            showCommitSettings: { [weak model] in model?.showSettings(category: .ai) },
+                            showDiffInNewTab: { [weak model] in model?.selectChange($0, inNewTab: true) },
+                            prepareCommitFiles: { [weak model] changes, session in
+                                model?.prepareCommitFiles(changes, feature: session.feature, draft: session.draft)
+                            },
+                            deleteFiles: { [weak model] changes, scoped in model?.requestDeleteCommitFiles(changes, feature: scoped) }
                         ),
                         presentationCache: model.gitLogPresentationCache
                     ))

@@ -169,29 +169,86 @@ struct GitWorktreeAppearanceTests {
         window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         window.contentView = host
+        // Leave the real dialog's footer on screen even though the owner is short.
+        window.center()
         window.orderFront(nil)
-        defer { window.contentView = nil; window.close() }
+        defer {
+            window.contentView = nil
+            for popup in window.childWindows ?? [] { popup.close() }
+            window.close()
+        }
+        let application = NSApplication.shared
+        let accessibility = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+        let previousAccessibility = application.accessibilityAttributeValue(accessibility)
+        application.accessibilitySetValue(true, forAttribute: accessibility)
+        defer { application.accessibilitySetValue(previousAccessibility, forAttribute: accessibility) }
         func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
         _ = try await AgentNativeControlTestSupport.frame(of: "worktree-changes-Refresh changes", in: host)
-        // Nothing is selected, yet the toolbar is not a row of dead buttons: staging and the diff
-        // work on the files as a whole, and only the irreversible discard waits for a selection.
+        // Rollback opens a reviewable inclusion draft even without a highlighted row.
         #expect(try await AgentNativeControlTestSupport.isEnabled("worktree-changes-Stage all files", in: host))
         #expect(try await AgentNativeControlTestSupport.isEnabled("worktree-changes-Show Diff", in: host))
-        #expect(try await !AgentNativeControlTestSupport.isEnabled("worktree-changes-Discard selected change", in: host))
+        #expect(try await AgentNativeControlTestSupport.isEnabled("worktree-changes-Rollback Changes", in: host))
         #expect(try await !AgentNativeControlTestSupport.isEnabled("git-commit-submit", in: host))
+        func clickControl(_ identifier: String, in view: NSView) async throws {
+            let frame = try await AgentNativeControlTestSupport.frame(of: identifier, in: view)
+            let owner = try #require(view.window)
+            let point = view.convert(NSPoint(x: frame.midX, y: frame.midY), to: nil)
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                owner.sendEvent(try #require(NSEvent.mouseEvent(with: type, location: point,
+                    modifierFlags: [], timestamp: 0, windowNumber: owner.windowNumber, context: nil,
+                    eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0)))
+            }
+        }
+        func waitForPresentation(_ visible: Bool) async -> Bool {
+            // SwiftUI schedules the real child panel after its owner has laid out.
+            func renderFrame() { CFRunLoopRunInMode(CFRunLoopMode.defaultMode, 0, true) }
+            let clock = ContinuousClock()
+            let deadline = clock.now.advanced(by: .seconds(2))
+            repeat {
+                host.layoutSubtreeIfNeeded()
+                if (window.childWindows?.contains { $0 is NSPanel && $0.isVisible } == true) == visible { return true }
+                await Task.yield()
+                renderFrame()
+            } while clock.now < deadline
+            Issue.record("Rollback panel visibility did not become \(visible) within two seconds")
+            return false
+        }
+        let beforeRollback = scoped.gitChanges
+        let beforeCommands = scoped.gitConsoleEntries.count
+        try await clickControl("worktree-changes-Rollback Changes", in: host)
+        try #require(await waitForPresentation(true))
+        #expect(scoped.pendingRollbackSelection?.includedChanges == [change])
+        let popup = try #require(window.childWindows?.first { $0 is NSPanel && $0.isVisible })
+        #expect(popup.title == "Rollback Changes" && popup.styleMask.contains(.titled))
+        let popupContent = try #require(popup.contentView)
+        _ = try nativeSRGBCapture(popupContent)
+        // Exercise Close's cancel shortcut through the real panel's responder
+        // chain; standalone dialog tests separately press its accessible button.
+        popup.sendEvent(try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+            timestamp: 0, windowNumber: popup.windowNumber, context: nil, characters: "\u{1b}",
+            charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53)))
+        try #require(await waitForPresentation(false))
+        #expect(scoped.pendingRollbackSelection == nil && scoped.gitChanges == beforeRollback)
+        #expect(scoped.gitConsoleEntries.count == beforeCommands)
+        try await clickControl("worktree-changes-Rollback Changes", in: host)
+        try #require(await waitForPresentation(true))
+        let reopened = try #require(window.childWindows?.first { $0 is NSPanel && $0.isVisible })
+        reopened.performClose(nil)
+        try #require(await waitForPresentation(false))
+        #expect(scoped.pendingRollbackSelection == nil && scoped.gitConsoleEntries.count == beforeCommands)
         let document = try #require(descendants(host).compactMap { $0 as? GitWorktreeRowsNSView }.first)
         let point = document.convert(CGPoint(x: 100, y: GitWorktreeRowsView.rowHeight * 1.5), to: nil)
         document.mouseDown(with: try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: point,
             modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
             eventNumber: 0, clickCount: 1, pressure: 1)))
         #expect(opened == [change] && opened.first?.repositoryRoot == worktree.url)
-        #expect(try await AgentNativeControlTestSupport.isEnabled("worktree-changes-Discard selected change", in: host))
+        #expect(try await AgentNativeControlTestSupport.isEnabled("worktree-changes-Rollback Changes", in: host))
         var previousDocument = document
         var previousAxis = LitheSplitAxis.horizontal
         for width: CGFloat in [850, 700, 320, 600, 850] {
             window.setContentSize(CGSize(width: width, height: 300))
             host.layoutSubtreeIfNeeded()
-            for title in ["Stage all files", "Discard selected change", "Show Diff"] {
+            for title in ["Stage all files", "Rollback Changes", "Show Diff"] {
                 let frame = try await AgentNativeControlTestSupport.frame(of: "worktree-changes-" + title, in: host)
                 #expect(host.bounds.contains(frame))
             }

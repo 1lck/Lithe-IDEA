@@ -538,6 +538,9 @@ export const ProblemsToolWindowIcon = createIconComponent(
 );
 export const RadioButtonIcon = createIconComponent(Nucleo.IconRadioOutline18, "RadioButtonIcon");
 export const RobotIcon = createIconComponent(Nucleo.IconRobotOutline18, "RobotIcon");
+// The Agent tool-window entry uses the lucide "bot" glyph on both platforms;
+// macOS bundles the same paths as toolwindows/toolWindowAgent.svg.
+export const AgentIcon = createIconComponent(lucideIcons.Bot, "AgentIcon");
 export const RocketLaunchIcon = createIconComponent(Nucleo.IconRocketOutline18, "RocketLaunchIcon");
 export const RowsIcon = createIconComponent(Nucleo.IconTableRowsOutline18, "RowsIcon");
 export const RowsPlusTopIcon = createIconComponent(

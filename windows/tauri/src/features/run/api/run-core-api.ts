@@ -1,3 +1,4 @@
+import { appCacheDir } from "@tauri-apps/api/path";
 import type { JavaEntrypoints } from "@/platform/lsp-core-adapter";
 import { executeCore } from "@/core/lithe-core-client";
 import type {
@@ -66,20 +67,36 @@ export function updateProjectToolchain(root: string, toolchain: GlobalToolchain)
   });
 }
 
+let cacheDirectory: Promise<string | undefined> | null = null;
+
+/** Application cache root; Core keeps each workspace's last detection below it. */
+function runConfigurationCacheDirectory(): Promise<string | undefined> {
+  cacheDirectory ??= appCacheDir().catch(() => undefined);
+  return cacheDirectory;
+}
+
 /**
- * Regenerates `.lithe/run/generated.json`. `javaEntrypoints` is JDT's current
- * answer; omit it while the Java service is preparing the project and Core
- * keeps the previous generation's Java entries.
+ * Identifies the project's run entries. Core keeps the result in memory (and in
+ * the application cache), never in the workspace. `javaEntrypoints` is JDT's
+ * current answer; omit it while the Java service is preparing the project and
+ * Core keeps the previous generation's Java entries.
  */
-export function generateRunConfiguration(
+export async function generateRunConfiguration(
   root: string,
   paths: string[],
   modulePaths: string[] = [],
   javaEntrypoints?: JavaEntrypoints,
 ) {
+  const cacheDirectory = await runConfigurationCacheDirectory();
   return runCore<CoreGenerateResult>(
     "runConfig.generate",
-    javaEntrypoints ? { root, paths, modulePaths, javaEntrypoints } : { root, paths, modulePaths },
+    {
+      root,
+      paths,
+      modulePaths,
+      ...(javaEntrypoints ? { javaEntrypoints } : {}),
+      ...(cacheDirectory ? { cacheDirectory } : {}),
+    },
     60_000,
   );
 }

@@ -51,6 +51,20 @@ Lithe 在两条启动路径上都用 `-Xmx1024m` 启动内置 Java 语言服务 
 4. 两端共用同一个引擎（`rust/lithe-core/src/lsp/interface/engine.rs` 的
    `start_server`），macOS 和 Windows 同时生效，平台代码不需要改。
 
+5. （2026-10-29 补充）堆上限抬到 2 GB 之后，JVM 默认的 G1 会长期持有接近上限的堆，
+   导入结束也很少还给系统。`jdt.rs` 的 `JDTLS_TUNING_ARGUMENTS` 因此在两条启动路径
+   上追加 vscode-java 和 JDT LS 上游 CI 使用的同一组默认参数：
+   `-XX:+UseParallelGC -XX:GCTimeRatio=4 -XX:AdaptiveSizePolicyWeight=90`（吞吐量
+   收集器，允许 20% 的 GC 时间，堆在导入完成后会收缩），`-Xlog:disable`（JVM 统一
+   日志的告警默认写 stdout，而 stdout 是 LSP 通道），以及
+   `-DDetectVMInstallationsJob.disabled=true`（宿主已经通过
+   `java.configuration.runtimes` 传入 JDK，不需要 JDT LS 启动时再扫描本机 JVM）。
+   插件参数里出现同一个键（`-XX:` 选项按名字，`-Xlog` 视为一个键，其余按 `=` 前的
+   部分）时用插件的值；插件选了任何收集器（`-XX:±Use*GC`）时去掉默认的 ParallelGC，
+   因为 JVM 拒绝同时指定两个收集器。与默认值完全相同的参数视为宿主所有，重复适配的
+   结果不变。用例 `java_start_lets_plugin_jvm_options_replace_the_tuning_defaults`
+   固定这条覆盖规则。
+
 正确做法：把堆上限当成"语言服务容量"的产品决定，集中在 `jdt.rs` 的适配层。
 
 不要这样做：为了降低内存占用把默认上限降回 1.5 GB 或更低，让插件设置绕过 1536 MiB
@@ -58,6 +72,13 @@ Lithe 在两条启动路径上都用 `-Xmx1024m` 启动内置 Java 语言服务 
 互相竞争的真源。
 
 ## 考虑过的备选方案
+
+- **照搬 openidea 的整套 JVM 参数（包括 `-Xms100m`、`-Daether.dependencyCollector.impl=bf`
+  和 `-Dsun.zip.disableMemoryMapping=true`）**：部分否决。`-Xms` 继续由本 Note 固定为
+  256m；`aether` 收集器会改变 Maven 依赖解析策略，m2e 是否读取这个系统属性没有核实，
+  不为可能的收益换未知的解析差异；`sun.zip.disableMemoryMapping` 在 JDK 9 以后不再
+  生效。顺带确认过：`-Dlog.protocol=true` 在 JDT LS 源码里没有读取方，是无效参数，
+  删除它没有性能收益，所以保留现状。
 
 - **升级打包的 JDT LS 到含上游修复的版本**：否决。`download.eclipse.org/jdtls/milestones/`
   当前最新仍是 1.61.0，官方只有会滚动的 snapshot，无法按 SHA-256 固定，不符合
@@ -78,6 +99,9 @@ Lithe 在两条启动路径上都用 `-Xmx1024m` 启动内置 Java 语言服务 
   自己；JDT LS 同时拿到上游文档建议的堆，索引和编译大型工程的余量更充足。
 - 代价：Java 语言服务 JVM 的堆上限从 1 GB 提到 2 GB。`-Xms` 仍是 256m，上限不是预留，
   启动开销不变，只有工程确实需要时才会增长到 2 GB；代价是大工作区可能占用更多内存。
+- GC 默认值的代价：ParallelGC 的单次停顿比 G1 长，但 JDT LS 是后台服务，编辑器的
+  界面线程不在这个 JVM 里，换来的是空闲时更低的常驻内存。插件需要别的收集器时直接在
+  参数里指定即可。
 - 残留：坐标完全相同的模块本来就无法都成为独立工程（目录名和坐标都重复），仍然只有
   一个进入 Java 模型，其余被 m2e 跳过。1.61.0 不会提示这件事，上游下一个版本会用通知
   列出被跳过的 `pom.xml`；用户需要自己修正重复坐标。
@@ -90,7 +114,8 @@ Lithe 在两条启动路径上都用 `-Xmx1024m` 启动内置 Java 语言服务 
 - 用例 `java_start_adds_runtime_memory_and_unique_data_arguments` 和
   `java_direct_start_builds_complete_shell_free_arguments_and_is_stable` 固定两条启动
   路径的完整参数列表，`java_start_keeps_the_heap_above_the_jdtls_constrained_memory_threshold`
-  固定堆上限与 1.5 GB 阈值的关系。
+  固定堆上限与 1.5 GB 阈值的关系，`java_start_lets_plugin_jvm_options_replace_the_tuning_defaults`
+  固定 GC 默认值的覆盖规则。
 
 ## 适用范围
 

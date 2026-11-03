@@ -7,12 +7,37 @@ import type {
   MavenLaunchPlan,
   MavenSettings,
   MavenStoredConfiguration,
+  MavenUserSettings,
 } from "../types/maven.types";
 
 export function loadMavenConfiguration(root: string, reactorPath: string) {
   return invoke<MavenStoredConfiguration>("maven_load_configuration", {
     root,
     reactorPath,
+  });
+}
+
+export function readMavenUserSettings() {
+  return invoke<MavenUserSettings>("maven_read_user_settings");
+}
+
+/**
+ * Host error prefixes for user-level Maven settings, mapped to their message
+ * keys. Any other error is an OS diagnostic shown as received.
+ */
+export const MAVEN_USER_SETTINGS_ERRORS = {
+  mavenUserSettingsChanged: "maven.userSettings.conflict",
+  mavenUserSettingsInvalid: "maven.userSettings.invalidFile",
+  mavenUserSettingsEmptyRepository: "maven.userSettings.emptyRepository",
+  mavenUserSettingsNoHome: "maven.userSettings.noHome",
+} as const;
+
+export function writeMavenUserLocalRepository(
+  localRepository: string,
+  expectedRevision: string | null,
+) {
+  return invoke<MavenUserSettings>("maven_write_user_local_repository", {
+    args: { localRepository, expectedRevision },
   });
 }
 

@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-Lithe 打包的 JDT LS 已内置 Buildship，因此 Gradle 工程本就能被导入、索引与补全。本次改动不改这条链路，只把原本依赖 Buildship 默认值的 Gradle 导入显式化：平台侧探测工作区根是否声明 Gradle、是否带 wrapper 描述文件，Rust Core 据此在 `settings.java` 下发 `java.import.gradle`，并把 Gradle 工程的结构文件纳入工作区指纹。下发的两个开关与上游默认值相同，对今天的导入结果是空操作，它固定的是 Lithe 依赖的行为前提，并让 Gradle 与 Maven 走同一套「平台探测 → Core 组装 → JDT LS」结构。
+Lithe 打包的 JDT LS 已内置 Buildship，因此 Gradle 工程本就能被导入、索引与补全。本次改动不改这条链路，只把原本依赖 Buildship 默认值的 Gradle 导入显式化：平台侧探测工作区根是否声明 Gradle、是否带 wrapper 描述文件，Rust Core 据此在 `settings.java` 下发 `java.import.gradle`，并把 Gradle 工程的结构文件和 wrapper 的 Gradle 版本纳入工作区指纹。下发的两个开关与上游默认值相同，对今天的导入结果是空操作，它固定的是 Lithe 依赖的行为前提，并让 Gradle 与 Maven 走同一套「平台探测 → Core 组装 → JDT LS」结构。
 
 ## 问题
 
@@ -20,7 +20,9 @@ Maven 工程有一套完整的显式设置链路：平台侧探测 `pom.xml` 与
 - `StartServerRequest` 增加 `java_gradle` 字段，`RuntimeSession` 保存它，并在构造初始化选项与工作区配置时统一复用。wrapper 是工作区根在启动时的属性，会话生命周期内不变，所以只在启动时确定一次。
 - 只下发 `enabled` 与 `wrapper.enabled` 这两项可以直接判定的布尔值。`java.home`、`version`、`offline.enabled` 等需要读取 Gradle 脚本或网络状态，Core 无法在启动时确定，一律不下发，交由 Buildship 自行解析。
 - 例外是用户自己选的构建选项（2026-10-18）：声明 `languageImport.kind: "gradle"` 的构建插件把离线和 Gradle User Home 映射到自己的选项，`build.languageImport` 解析成 `javaGradle.offline` / `userHome`，Core 只在用户设置了它们时下发 `offline.enabled` 和 `user.home`。这些是用户的选择，不是猜测，见[构建系统插件契约](../architecture/2026-10-17-build-system-plugin-contract.md)第 12 节。
-- Windows 的构建文件指纹（`windows/tauri/src-tauri/src/lsp/jdt_workspace.rs`）加入 `settings.gradle`、`settings.gradle.kts`（模块结构变化，对应 Maven 的直接模块扫描）与 `gradle/wrapper/gradle-wrapper.properties`（Gradle 版本所在）。`gradle.properties` 刻意不加入：mod 工程几乎每次版本提升都会改写它，一旦纳入指纹，每次改动都会换用新的 JDT 数据目录并冷导入一次。会话中途的构建文件变更由 Core 的 `classify_change` 负责。
+- Windows 的构建文件指纹（`windows/tauri/src-tauri/src/lsp/jdt_workspace.rs`）记录 `settings.gradle`、`settings.gradle.kts` 与 `gradle/wrapper/gradle-wrapper.properties` **是否存在**，并单独读出 wrapper 的 `distributionUrl`（也就是 Gradle 版本）交给 Core。`gradle.properties` 刻意不加入。会话中途的构建文件变更由 Core 的 `classify_change` 分类后转发给 JDT LS。
+- 指纹（决定 JDT 数据目录 `-data` 用哪个）只看结构，不看构建文件的修改时间和大小（2026-10-29 修订）。原因是 JDT LS 自己会处理内容变化：重启时它把每个 `pom.xml`、`*.gradle`、`*.gradle.kts` 的修改时间和上次保存的状态比较，只更新改过的项目（上游 `MavenProjectImporter.needsMavenUpdate`、`GradleProjectImporter.checkGradlePersistence`）；运行中则通过 `workspace/didChangeWatchedFiles` 收到变化，`updateBuildConfiguration` 为 `automatic`。如果把修改时间放进指纹，改一下 pom、切一次分支都会换新目录，整个索引从零重建，这正是打开项目时"又在重新解析"的主要来源。
+- 例外是 Gradle 版本：JDT LS 的检查不包含 wrapper 描述文件，所以 wrapper 的 `distributionUrl` 进入指纹，版本变了才换新目录。读值时去掉 properties 格式的转义（`https\://` 读成 `https://`），同一个版本总是得到同一个值。
 
 TS 侧只做透传：`JavaLspLaunch` 增加可选的 `javaGradle`，`resolve-editor-lsp-launch.ts`、`lsp-core-adapter.ts`、`lsp-client.ts` 原样转发到核心的 `lsp.startServer`，不新增判断逻辑。
 
@@ -36,16 +38,19 @@ TS 侧只做透传：`JavaLspLaunch` 增加可选的 `javaGradle`，`resolve-edi
 
 把 `gradle.properties` 与 `gradlew` 一并纳入指纹。否决：前者在 mod 工程里变动频繁，纳入后每次版本提升都会冷导入一次；后者并不携带 Gradle 版本信息。收益不足以抵消代价。
 
+用构建文件的修改时间和大小区分工作区状态（2026-10-29 前的做法）。否决：内容变化本来由 JDT LS 判断，再按时间戳换目录等于在上游之外维护第二份"是否过期"的判断，代价是每次编辑都冷导入。只有 JDT LS 看不到的 Gradle 版本由 Lithe 补上。
+
 让 macOS 侧也补 wrapper 探测与指纹扩展。本次不做：改动范围限定为 Rust 内核与 Windows；macOS 依赖 Buildship 默认值即可导入 Gradle 工程，功能不缺，只是在显式声明与指纹覆盖上暂不对称。
 
 ## 后果
 
-Gradle 与 Maven 在导入设置上结构对称，行为可预期、可扩展。Windows 下发的两个开关与 Buildship 默认值一致，导入结果不变；真正改变行为的是工作区指纹：`settings.gradle` 或 wrapper 描述文件变化会换用新的 JDT 数据目录并重新导入，而改写 `gradle.properties` 不会。macOS 在 2026-10-18 经构建插件 `languageImport` 接入显式设置：`BuildSystemService` 等待 Core 归一化后，把 `javaGradle` 经语言会话和 Rust Swift 桥传给启动请求，离线和 User Home 选项等下次会话启动生效。没有插件输入时保留 Buildship 默认行为。macOS 尚未扩展指纹（`MacJdtWorkspaceState.buildFileNames` 仍只覆盖 `pom.xml`、`build.gradle`、`build.gradle.kts`），同一工程在两个平台上的指纹含义并不相同；真实 macOS 导入验收也仍待完成。若工作区根未声明 Gradle 构建文件，Core 不会下发任何 `java.import` 设置，纯 Maven 工程不受影响。
+Gradle 与 Maven 在导入设置上结构对称，行为可预期、可扩展。Windows 下发的两个开关与 Buildship 默认值一致，导入结果不变；真正改变行为的是工作区指纹：新增或删除 `settings.gradle`、wrapper 描述文件，或 wrapper 的 Gradle 版本变化，会换用新的 JDT 数据目录并重新导入；编辑这些文件的其他内容、改写 `gradle.properties` 都不会，由 JDT LS 自己增量更新。指纹格式在 2026-10-29 修订时变化，升级后每个工作区会重建一次索引。macOS 在 2026-10-18 经构建插件 `languageImport` 接入显式设置：`BuildSystemService` 等待 Core 归一化后，把 `javaGradle` 经语言会话和 Rust Swift 桥传给启动请求，离线和 User Home 选项等下次会话启动生效。没有插件输入时保留 Buildship 默认行为。macOS 尚未扩展指纹（`MacJdtWorkspaceState.buildFileNames` 仍只覆盖 `pom.xml`、`build.gradle`、`build.gradle.kts`），同一工程在两个平台上的指纹含义并不相同；真实 macOS 导入验收也仍待完成。若工作区根未声明 Gradle 构建文件，Core 不会下发任何 `java.import` 设置，纯 Maven 工程不受影响。
 
 ## 验证
 
 - `rust/lithe-core` 单测覆盖：初始化选项在导入前即携带 Gradle 设置、无 wrapper 描述文件时省略 wrapper 字段、无 Gradle 上下文时不下发 `java.import`、按 section 查询返回对应 Gradle 取值、叶子合并保留调用方已声明的 `offline` 与 `version`。
-- `windows/tauri/src-tauri/src/lsp.rs` 单测覆盖：工作区指纹识别 Gradle 设置文件与 wrapper 描述文件且忽略 `gradle.properties`、根目录缺少构建文件时不判为 Gradle、仅有 `gradlew` 脚本时不认为存在 wrapper、Maven 工作区不产生 Gradle 上下文。
+- `windows/tauri/src-tauri/src/lsp.rs` 单测覆盖：工作区指纹识别 Gradle 设置文件与 wrapper 描述文件且忽略 `gradle.properties`、编辑构建文件不改变观测结果、wrapper 版本（含转义写法）被读出且版本变化会改变指纹、根目录缺少构建文件时不判为 Gradle、仅有 `gradlew` 脚本时不认为存在 wrapper、Maven 工作区不产生 Gradle 上下文。
+- 共享 fixture `shared/fixtures/lsp/jdt-workspace-fingerprint-v1.json` 由 `rust/lithe-core` 的 `jdt_workspace_fingerprint_matches_the_shared_compatibility_fixture` 校验，含带 wrapper 版本的用例；macOS 的 `MacJdtWorkspaceStateTests` 校验编辑 `pom.xml` 后观测结果不变。
 - `windows/tauri/src/features/editor/lsp/resolve-editor-lsp-launch.test.ts` 与 `windows/tauri/src/platform/lsp-core-adapter.test.ts` 覆盖 TS 透传：有 Gradle 上下文时原样转发，无上下文时为 `null`。
 - `scripts/rust-core/verify-rust-core.sh`、`scripts/rust-core/verify-rust-core-comments.sh`、`scripts/rust-core/verify-rust-core-layout.sh` 校验 Rust 核心的格式、注释与包布局。
 - `scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`、`scripts/platform-feature-matrix/verify-platform-feature-matrix-change.sh` 与 `scripts/agent-notes/verify-agent-notes.sh` 校验功能矩阵与 Note 记录。

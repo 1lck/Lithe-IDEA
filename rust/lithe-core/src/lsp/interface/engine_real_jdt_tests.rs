@@ -228,6 +228,7 @@ fn execute_real_command(
                 new_name: None,
                 range: None,
                 diagnostics: Vec::new(),
+                completion_context: None,
                 completion_item: None,
                 code_action: None,
                 command: Some(command.clone()),
@@ -282,6 +283,7 @@ fn request_real_entrypoints(
                 new_name: None,
                 range: None,
                 diagnostics: Vec::new(),
+                completion_context: None,
                 completion_item: None,
                 code_action: None,
                 command: None,
@@ -310,6 +312,7 @@ fn request_real_test_items(
                 new_name: None,
                 range: None,
                 diagnostics: Vec::new(),
+                completion_context: None,
                 completion_item: None,
                 code_action: None,
                 command: None,
@@ -337,6 +340,7 @@ fn real_start_request(
         provider_id: "java".to_string(),
         plugin_id: None,
         host_services: Vec::new(),
+        toolchain_providers: Vec::new(),
         executable_path: toolchain
             .root
             .join("bin")
@@ -360,6 +364,7 @@ fn real_start_request(
         // The project compiles for release 25 while JDT LS itself runs on
         // an older JDK, as in the product.
         java_runtimes: vec![JavaRuntimeCandidate {
+            is_default: true,
             home_path: toolchain.project_jdk.to_string_lossy().into_owned(),
             version: "25".to_string(),
         }],
@@ -516,6 +521,7 @@ fn real_jdtls_discovers_builds_and_launches_java_25_entrypoints() {
                     new_name: None,
                     range: None,
                     diagnostics: Vec::new(),
+                    completion_context: None,
                     completion_item: None,
                     code_action: None,
                     command: None,

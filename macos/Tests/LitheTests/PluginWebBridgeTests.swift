@@ -656,7 +656,9 @@ struct PluginWebBridgeTests {
             _ = await pendingRequest?.value
             await closingWindow?.value
             await manager.stopAllSessions()
-            if let model = manager.settingsModel { manager.releaseSettings(for: model.id) }
+            if let model = manager.settingsModel {
+                manager.releaseSettings(for: model.id, bindingID: manager.settingsBindingID)
+            }
         }) { scope in
             // Give the primary session a workspace without starting project discovery.
             manager.activeModel.workspaceSessionCoordinator.beginWorkspace(at: harness.root.appendingPathComponent("primary"))

@@ -281,6 +281,10 @@ pub(super) async fn read_quota(
         process.process_group(0);
     }
     let mut process = tokio::process::Command::from(process);
+    #[cfg(windows)]
+    {
+        process.creation_flags(crate::CREATE_NO_WINDOW);
+    }
     process.kill_on_drop(true);
     let mut child = ProbeProcess(process.spawn().map_err(|_| "unavailable")?);
     let result = async {

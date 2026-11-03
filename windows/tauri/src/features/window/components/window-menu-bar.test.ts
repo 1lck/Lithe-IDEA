@@ -22,3 +22,17 @@ test("expanded compact menu replaces its toggle with an open File menu", async (
   expect(menuSource).toContain("firstMenuTriggerRef.current?.focus()");
   expect(primitiveSource).toContain("h-5 shrink-0 select-none items-center whitespace-nowrap");
 });
+
+test("File menu offers Settings with a gear icon directly above Close Tab", async () => {
+  const menuSource = await Bun.file(new URL("./window-menu-bar.tsx", import.meta.url)).text();
+
+  const settingsItem = menuSource.search(/menu_open_settings"\)\}>\s*<span/);
+  const closeTabItem = menuSource.indexOf('handleClickEmit("menu_close_tab")');
+  const quitItem = menuSource.indexOf("requestApplicationQuit()");
+
+  expect(settingsItem).toBeGreaterThan(-1);
+  expect(settingsItem).toBeLessThan(closeTabItem);
+  expect(closeTabItem).toBeLessThan(quitItem);
+  expect(menuSource).toContain("<SettingsIcon");
+  expect(menuSource).toContain('t("menu.settings")');
+});

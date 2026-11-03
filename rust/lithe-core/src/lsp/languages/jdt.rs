@@ -152,6 +152,8 @@ pub(crate) struct JdtGradleConfiguration {
 /// A JDK JDT LS may bind a project to, keyed by its execution environment.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) struct JdtJavaRuntime {
+    /// Selected project VM; at most one runtime is the default.
+    pub is_default: bool,
     /// Execution-environment name such as `JavaSE-25` or `JavaSE-1.8`; JDT LS
     /// matches it against the release a project compiles for.
     pub name: String,
@@ -162,9 +164,13 @@ pub(crate) struct JdtJavaRuntime {
 /// Values Lithe owns in JDT LS's `settings.java`, borrowed from one session.
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct JdtSettings<'a> {
+    /// Workspace indexing policy, when the host has installed one.
+    pub indexing_root_uri: Option<&'a str>,
     /// Plugin-declared completion options from this session's initialization;
     /// all leaves survive except the provider-owned guessMethodArguments.
     pub completion: Option<&'a Value>,
+    /// Original plugin import exclusions, before Lithe overlays the workspace policy.
+    pub import_exclusions: Option<&'a Value>,
     pub maven: Option<&'a JdtMavenConfiguration>,
     /// Gradle import settings, present only for Gradle workspaces.
     pub gradle: Option<&'a JdtGradleConfiguration>,
@@ -176,31 +182,36 @@ pub(crate) struct JdtSettings<'a> {
 ///
 /// Without these, JDT LS knows only the JDK it runs on, so a project that
 /// compiles for a newer release fails with "release N is not found in the
-/// system" even though that JDK is installed. The first JDK the platform lists
-/// for a major version wins, so platforms order their candidates by
-/// preference. Versions that do not parse are skipped, not guessed.
+/// system" even though that JDK is installed. The first valid default wins its
+/// major; otherwise, the first JDK listed for that major wins. Platforms order
+/// candidates by preference. Versions that do not parse are skipped, not guessed.
 pub(crate) fn jdt_java_runtimes(candidates: &[JavaRuntimeCandidate]) -> Vec<JdtJavaRuntime> {
+    let selected = candidates.iter().find(|candidate| {
+        candidate.is_default
+            && !candidate.home_path.trim().is_empty()
+            && java_major_version(&candidate.version).is_some()
+    });
     let mut by_major = BTreeMap::new();
-    for candidate in candidates {
+    // The explicit selection wins even over another installation of the same major.
+    for candidate in selected.into_iter().chain(candidates) {
         let Some(major) = java_major_version(&candidate.version) else {
             continue;
         };
         if candidate.home_path.trim().is_empty() {
             continue;
         }
-        by_major
-            .entry(major)
-            .or_insert_with(|| candidate.home_path.trim().to_string());
+        by_major.entry(major).or_insert(candidate);
     }
     by_major
         .into_iter()
-        .map(|(major, path)| JdtJavaRuntime {
+        .map(|(major, candidate)| JdtJavaRuntime {
             name: if major == 8 {
                 "JavaSE-1.8".to_string()
             } else {
                 format!("JavaSE-{major}")
             },
-            path,
+            path: candidate.home_path.trim().to_string(),
+            is_default: selected.is_some_and(|chosen| std::ptr::eq(chosen, candidate)),
         })
         .collect()
 }
@@ -488,6 +499,25 @@ fn merge_java_settings(options: &mut Map<String, Value>, provider_settings: Valu
         // `offline.enabled`, ...) have to survive, so the owned leaves merge
         // into the declared `import` object instead of replacing it.
         if key == "import" {
+            if let Some(exclusions) = value.get("exclusions").and_then(Value::as_array) {
+                let import = java
+                    .entry("import".to_string())
+                    .or_insert_with(|| json!({}));
+                if !import.is_object() {
+                    *import = json!({});
+                }
+                let mut combined = import
+                    .get("exclusions")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
+                for exclusion in exclusions {
+                    if !combined.contains(exclusion) {
+                        combined.push(exclusion.clone());
+                    }
+                }
+                import["exclusions"] = json!(combined);
+            }
             if let Some(gradle) = value.get("gradle").and_then(Value::as_object) {
                 let import = java
                     .entry("import".to_string())
@@ -512,6 +542,9 @@ fn merge_java_settings(options: &mut Map<String, Value>, provider_settings: Valu
                 }
                 continue;
             }
+        }
+        if key == "import" && value.get("exclusions").is_some() {
+            continue;
         }
         java.insert(key, value);
     }
@@ -813,6 +846,22 @@ const MAX_HEAP_PREFIX: &str = "-Xmx";
 /// Language-server log level used when the plugin does not choose one.
 const DEFAULT_LOG_LEVEL_ARGUMENT: &str = "-Dlog.level=ALL";
 const LOG_LEVEL_PREFIX: &str = "-Dlog.level=";
+/// JVM defaults vscode-java and the JDT LS CI launch the language server with.
+///
+/// The throughput collector with a 20% GC-time budget and a slowly adapting
+/// size policy returns heap to the OS once an import settles, instead of
+/// holding the 2 GB ceiling for the life of the session. `-Xlog:disable` keeps
+/// JVM warnings off stdout, which carries the LSP stream. The installed-VM
+/// scan is redundant because the host sends `java.configuration.runtimes`.
+/// A plugin option with the same key replaces the default; see
+/// `tuning_arguments`.
+const JDTLS_TUNING_ARGUMENTS: [&str; 5] = [
+    "-XX:+UseParallelGC",
+    "-XX:GCTimeRatio=4",
+    "-XX:AdaptiveSizePolicyWeight=90",
+    "-Xlog:disable",
+    "-DDetectVMInstallationsJob.disabled=true",
+];
 
 /// Removes every argument starting with `prefix` and returns the last one
 /// that is acceptable. The JVM honors the last occurrence, so that is the one
@@ -859,6 +908,58 @@ fn is_heap_size(value: &str) -> bool {
     mebibytes > CONSTRAINED_HEAP_MEBIBYTES
 }
 
+/// Returns the tuning defaults the plugin's JVM options leave unset. An option
+/// with the same key replaces a default, and any garbage-collector selection
+/// replaces the default collector, since the JVM refuses two collectors.
+fn tuning_arguments(custom_jvm_arguments: &[String]) -> Vec<String> {
+    let chooses_collector = custom_jvm_arguments
+        .iter()
+        .any(|argument| is_collector_selection(argument));
+    JDTLS_TUNING_ARGUMENTS
+        .iter()
+        .filter(|default| !(chooses_collector && is_collector_selection(default)))
+        .filter(|default| {
+            let key = jvm_option_key(default);
+            !custom_jvm_arguments
+                .iter()
+                .any(|argument| jvm_option_key(argument) == key)
+        })
+        .map(|default| default.to_string())
+        .collect()
+}
+
+/// A tuning default exactly as the host writes it. It is host-owned, so a
+/// relaunch rebuilds it instead of reading it back as a plugin choice.
+fn is_tuning_default(argument: &str) -> bool {
+    JDTLS_TUNING_ARGUMENTS.contains(&argument)
+}
+
+fn is_collector_selection(argument: &str) -> bool {
+    argument
+        .strip_prefix("-XX:")
+        .and_then(|option| option.strip_prefix(['+', '-']))
+        .is_some_and(|option| option.starts_with("Use") && option.ends_with("GC"))
+}
+
+/// The part of a JVM option that identifies it regardless of its value:
+/// `-XX:` options by name without the `+`/`-` toggle, every `-Xlog` option as
+/// one key because they combine into a single logging configuration, and other
+/// options by the text before `=`.
+fn jvm_option_key(argument: &str) -> String {
+    if let Some(option) = argument.strip_prefix("-XX:") {
+        let option = option.trim_start_matches(['+', '-']);
+        let name = option.split_once('=').map_or(option, |(name, _)| name);
+        return format!("-XX:{name}");
+    }
+    if argument.starts_with("-Xlog") {
+        return "-Xlog".to_string();
+    }
+    argument
+        .split_once('=')
+        .map_or(argument, |(name, _)| name)
+        .to_string()
+}
+
 fn is_log_level(value: &str) -> bool {
     !value.is_empty()
         && value
@@ -878,6 +979,8 @@ fn wrapper_arguments(
         .collect();
     let max_heap = take_plugin_choice(&mut jvm_arguments, MAX_HEAP_PREFIX, is_heap_size)
         .unwrap_or_else(|| DEFAULT_MAX_HEAP_ARGUMENT.to_string());
+    jvm_arguments.retain(|argument| !is_tuning_default(argument));
+    let tuning = tuning_arguments(&jvm_arguments);
     let mut arguments = without_wrapper_owned_arguments(arguments);
     if let Some(java_executable) = java_executable {
         arguments.push("--java-executable".to_string());
@@ -886,6 +989,13 @@ fn wrapper_arguments(
     arguments.extend([
         "--jvm-arg=-Xms256m".to_string(),
         format!("--jvm-arg={max_heap}"),
+    ]);
+    arguments.extend(
+        tuning
+            .into_iter()
+            .map(|argument| format!("--jvm-arg={argument}")),
+    );
+    arguments.extend([
         format!("--jvm-arg={METADATA_AT_PROJECT_ROOT_PROPERTY}=false"),
         "-data".to_string(),
         data_directory.to_string_lossy().into_owned(),
@@ -911,6 +1021,9 @@ fn direct_java_arguments(
         ),
         "-Xms256m".to_string(),
         max_heap,
+    ];
+    adapted.extend(tuning_arguments(&custom_jvm_arguments));
+    adapted.extend([
         "--add-modules=ALL-SYSTEM".to_string(),
         "--add-opens=java.base/java.util=ALL-UNNAMED".to_string(),
         "--add-opens=java.base/java.lang=ALL-UNNAMED".to_string(),
@@ -920,7 +1033,7 @@ fn direct_java_arguments(
         "-Dlog.protocol=true".to_string(),
         log_level,
         format!("{METADATA_AT_PROJECT_ROOT_PROPERTY}=false"),
-    ];
+    ]);
     adapted.extend(custom_jvm_arguments);
     adapted.extend([
         "-jar".to_string(),
@@ -1025,6 +1138,7 @@ fn is_jdt_owned_jvm_argument(argument: &str) -> bool {
         || argument.starts_with("-Declipse.product=")
         || argument.starts_with("-Dosgi.bundles.defaultStartLevel=")
         || argument.starts_with("-Dlog.protocol=")
+        || is_tuning_default(argument)
         || is_metadata_location_argument(argument)
         || is_lombok_agent_argument(argument)
 }
@@ -1061,9 +1175,9 @@ fn without_wrapper_owned_arguments(arguments: &[String]) -> Vec<String> {
             || argument.starts_with("-data=")
             || argument.starts_with("--jvm-arg=-Xms")
             || argument.starts_with("--jvm-arg=-Xmx")
-            || argument
-                .strip_prefix("--jvm-arg=")
-                .is_some_and(is_metadata_location_argument);
+            || argument.strip_prefix("--jvm-arg=").is_some_and(|value| {
+                is_metadata_location_argument(value) || is_tuning_default(value)
+            });
         if owns_following_value {
             index += usize::from(index + 1 < arguments.len()) + 1;
         } else {
@@ -1114,6 +1228,22 @@ fn java_settings(settings: JdtSettings<'_>) -> Value {
     if let Some(section) = gradle_settings_section(gradle_configuration) {
         java["java"]["import"]["gradle"] = section;
     }
+    if settings.indexing_root_uri.is_some() || settings.import_exclusions.is_some() {
+        let mut exclusions = settings
+            .import_exclusions
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        if let Some(root_uri) = settings.indexing_root_uri {
+            for path in crate::project::indexing::java_import_exclusions(root_uri) {
+                let value = Value::String(path);
+                if !exclusions.contains(&value) {
+                    exclusions.push(value);
+                }
+            }
+        }
+        java["java"]["import"]["exclusions"] = json!(exclusions);
+    }
     if let Some(configuration) = maven_configuration {
         java["java"]["project"]["sourcePaths"] = json!(configuration.source_paths);
     }
@@ -1138,7 +1268,13 @@ fn java_runtimes_value(runtimes: &[JdtJavaRuntime]) -> Value {
     Value::Array(
         runtimes
             .iter()
-            .map(|runtime| json!({ "name": runtime.name, "path": runtime.path }))
+            .map(|runtime| {
+                let mut value = json!({ "name": runtime.name, "path": runtime.path });
+                if runtime.is_default {
+                    value["default"] = json!(true);
+                }
+                value
+            })
             .collect(),
     )
 }
@@ -1225,9 +1361,10 @@ fn java_configuration_for_section(section: Option<&str>, settings: JdtSettings<'
         Some("java.configuration.maven.globalSettings") => maven_configuration
             .and_then(|value| value.global_settings_path.as_ref())
             .map_or(Value::Null, |path| json!(path)),
-        Some("java.import") => gradle_settings_section(gradle_configuration)
-            .map(|section| json!({ "gradle": section }))
-            .unwrap_or(Value::Null),
+        Some("java.import") => java_settings(settings)["java"]["import"].clone(),
+        Some("java.import.exclusions") => {
+            java_settings(settings)["java"]["import"]["exclusions"].clone()
+        }
         Some("java.import.gradle") => {
             gradle_settings_section(gradle_configuration).unwrap_or(Value::Null)
         }
@@ -1417,6 +1554,7 @@ mod tests {
 
     fn runtime(home_path: &str, version: &str) -> JavaRuntimeCandidate {
         JavaRuntimeCandidate {
+            is_default: false,
             home_path: home_path.to_string(),
             version: version.to_string(),
         }
@@ -1438,14 +1576,17 @@ mod tests {
             runtimes,
             vec![
                 JdtJavaRuntime {
+                    is_default: false,
                     name: "JavaSE-1.8".to_string(),
                     path: "/jdks/jdk8".to_string()
                 },
                 JdtJavaRuntime {
+                    is_default: false,
                     name: "JavaSE-21".to_string(),
                     path: "/jdks/temurin-21".to_string()
                 },
                 JdtJavaRuntime {
+                    is_default: false,
                     name: "JavaSE-25".to_string(),
                     path: "/jdks/temurin-25".to_string()
                 },
@@ -1454,8 +1595,28 @@ mod tests {
     }
 
     #[test]
+    fn selected_project_vm_wins_over_discovery_order_and_duplicate_majors() {
+        let fixture: Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../shared/fixtures/lsp/java-project-runtimes-v1.json"
+        )))
+        .unwrap();
+        for case in fixture["cases"].as_array().unwrap() {
+            let candidates: Vec<JavaRuntimeCandidate> =
+                serde_json::from_value(case["candidates"].clone()).unwrap();
+            assert_eq!(
+                java_runtimes_value(&jdt_java_runtimes(&candidates)),
+                case["expected"],
+                "{}",
+                case["name"]
+            );
+        }
+    }
+
+    #[test]
     fn java_runtimes_reach_jdt_at_initialize_and_on_configuration_requests() {
         let runtimes = [JdtJavaRuntime {
+            is_default: true,
             name: "JavaSE-25".to_string(),
             path: "C:/Program Files/Java/jdk-25".to_string(),
         }];
@@ -1465,7 +1626,7 @@ mod tests {
             java_runtimes: &runtimes,
             ..Default::default()
         };
-        let expected = json!([{ "name": "JavaSE-25", "path": "C:/Program Files/Java/jdk-25" }]);
+        let expected = json!([{ "name": "JavaSE-25", "path": "C:/Program Files/Java/jdk-25", "default": true }]);
         let options = adapt_initialization_options("java", None, &[], settings).unwrap();
         assert_eq!(
             options["settings"]["java"]["configuration"]["runtimes"],
@@ -1623,11 +1784,53 @@ mod tests {
                 "/jdk/bin/java",
                 "--jvm-arg=-Xms256m",
                 "--jvm-arg=-Xmx2048m",
+                "--jvm-arg=-XX:+UseParallelGC",
+                "--jvm-arg=-XX:GCTimeRatio=4",
+                "--jvm-arg=-XX:AdaptiveSizePolicyWeight=90",
+                "--jvm-arg=-Xlog:disable",
+                "--jvm-arg=-DDetectVMInstallationsJob.disabled=true",
                 "--jvm-arg=-Djava.import.generatesMetadataFilesAtProjectRoot=false",
                 "-data",
                 data_directory.to_string_lossy().as_ref()
             ]
         );
+    }
+
+    #[test]
+    fn java_start_lets_plugin_jvm_options_replace_the_tuning_defaults() {
+        let tuning_of = |arguments: &[String]| {
+            arguments
+                .iter()
+                .filter_map(|argument| argument.strip_prefix("--jvm-arg="))
+                .filter(|argument| argument.starts_with("-XX:") || argument.starts_with("-Xlog"))
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        };
+        let mut context = java_start_context();
+        context.arguments = vec![
+            "--jvm-arg=-XX:+UseG1GC".to_string(),
+            "--jvm-arg=-XX:GCTimeRatio=9".to_string(),
+            "--jvm-arg=-Xlog:gc*:file=/tmp/gc.log".to_string(),
+        ];
+        let first = adapt_start(&context);
+        context.arguments = first.arguments.clone();
+        let second = adapt_start(&context);
+
+        assert_eq!(first, second);
+        // The plugin's collector replaces ParallelGC, and its own GC-time
+        // ratio and logging replace the host's; the untouched default stays.
+        assert_eq!(
+            tuning_of(&first.arguments),
+            vec![
+                "-XX:+UseG1GC",
+                "-XX:GCTimeRatio=9",
+                "-Xlog:gc*:file=/tmp/gc.log",
+                "-XX:AdaptiveSizePolicyWeight=90",
+            ]
+        );
+        assert!(first
+            .arguments
+            .contains(&"--jvm-arg=-DDetectVMInstallationsJob.disabled=true".to_string()));
     }
 
     #[test]
@@ -1748,6 +1951,11 @@ mod tests {
                 "-javaagent:/jdtls/lombok/lombok.jar",
                 "-Xms256m",
                 "-Xmx4g",
+                "-XX:+UseParallelGC",
+                "-XX:GCTimeRatio=4",
+                "-XX:AdaptiveSizePolicyWeight=90",
+                "-Xlog:disable",
+                "-DDetectVMInstallationsJob.disabled=true",
                 "--add-modules=ALL-SYSTEM",
                 "--add-opens=java.base/java.util=ALL-UNNAMED",
                 "--add-opens=java.base/java.lang=ALL-UNNAMED",

@@ -1,4 +1,13 @@
-import { useDirectoryMarks } from "../stores/directory-marks";
+import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
+import { useWorkspaceId } from "@/features/workspace/stores/create-workspace-scoped-store";
+import { canUseNativeFileSearch } from "@/features/file-search/utils/file-search-paths";
+import {
+  configureWorkspaceIndexing,
+  IndexingSettingsError,
+  subscribeToIndexingChanges,
+  type IndexingStatus,
+} from "../stores/workspace-indexing";
+import { directoryMarkRoot, useDirectoryMarks } from "../stores/directory-marks";
 import { ProjectDependencies } from "@/features/maven/components/project-dependencies";
 import { useMavenStore } from "@/features/maven/stores/maven.store";
 import { useUIState } from "@/features/window/stores/ui-state.store";
@@ -86,6 +95,7 @@ import {
   joinPath,
   pathStartsWithRoot,
   stripTrailingPathSeparators,
+  toRootedPath,
 } from "@/utils/path-helpers";
 import { useFileExplorerContextMenu } from "../hooks/use-file-explorer-context-menu";
 import { useFileExplorerDragDrop } from "../hooks/use-file-explorer-drag-drop";
@@ -181,8 +191,71 @@ function FileExplorerTreeComponent({
   onFileMove,
 }: FileExplorerTreeProps) {
   useJavaFileIconCacheLifecycle();
+  const workspaceId = useWorkspaceId();
   const [projectView, setProjectView] = useState("project");
-  const { marks, markDirectory } = useDirectoryMarks(rootFolderPath);
+  const workspaceFolders = useFileSystemStore((state) => state.workspaceFolders);
+  const nativeRootPaths = useMemo(
+    () => getNativeWorkspaceRootPaths(rootFolderPath, workspaceFolders),
+    [rootFolderPath, workspaceFolders],
+  );
+  const workspaceRootPaths = useMemo(
+    () => [...new Set([rootFolderPath, ...workspaceFolders.map((folder) => folder.path)].filter((path): path is string => Boolean(path)))],
+    [rootFolderPath, workspaceFolders],
+  );
+  const { markForPath, markDirectory, error: directoryMarksError } = useDirectoryMarks(workspaceRootPaths);
+  const [indexingStatuses, setIndexingStatuses] = useState<Record<string, IndexingStatus>>({});
+  useEffect(() => {
+    const roots = nativeRootPaths;
+    let disposed = false;
+    let generation = 0;
+    const refresh = () => {
+      const current = ++generation;
+      void Promise.all(
+        roots.map(async (root) => {
+          const paths: string[] = [];
+          const visit = (entries: FileEntry[]) => {
+            for (const entry of entries) {
+              if (!pathStartsWithRoot(entry.path, root)) continue;
+              if (entry.isDir)
+                paths.push(getRelativePath(entry.path, root).replace(/\\/g, "/") || ".");
+              if (entry.children) visit(entry.children);
+            }
+          };
+          visit(files);
+          return [root, await configureWorkspaceIndexing(root, paths, false, workspaceId)] as const;
+        }),
+      )
+        .then((values) => {
+          if (!disposed && current === generation) setIndexingStatuses(Object.fromEntries(values));
+        })
+        .catch((error) => {
+          if (!disposed && current === generation) toast.error(t(error instanceof IndexingSettingsError ? `indexing.${error.code}` : "indexing.configureFailed"));
+        });
+    };
+    refresh();
+    const unsubscribe = subscribeToIndexingChanges(roots, refresh);
+    return () => {
+      disposed = true;
+      unsubscribe();
+    };
+  }, [files, nativeRootPaths, workspaceId]);
+  const exclusionReason = (path: string): string | undefined => {
+    const root = Object.keys(indexingStatuses)
+      .filter((root) => pathStartsWithRoot(path, root))
+      .sort((a, b) => b.length - a.length)[0];
+    if (!root) return undefined;
+    const relative = getRelativePath(path, root).replace(/\\/g, "/") || ".";
+    const reasons = indexingStatuses[root].excludedDirectories;
+    const exact = reasons[relative];
+    return exact
+      ? t(exact === "manual" ? "indexing.manualReason" : "indexing.gitReason")
+      : Object.keys(reasons).some(
+            (directory) => directory === "." || relative.startsWith(directory + "/"),
+          )
+        ? t("indexing.inheritedReason")
+        : undefined;
+  };
+  const isIndexExcluded = (path: string) => exclusionReason(path) !== undefined;
   const [deleteCandidate, setDeleteCandidate] = useState<{
     path: string;
     isDir: boolean;
@@ -236,6 +309,7 @@ function FileExplorerTreeComponent({
   );
   const updateSetting = useSettingsStore((state) => state.actions.updateSetting);
   const { t } = useTranslation();
+  useEffect(() => { if (directoryMarksError) toast.error(t(`indexing.${directoryMarksError}`)); }, [directoryMarksError, t]);
   const cutClipboardEntries = useFileClipboardStore((state) =>
     state.clipboard?.operation === "cut" ? state.clipboard.entries : null,
   );
@@ -247,11 +321,6 @@ function FileExplorerTreeComponent({
   const addFolderToWorkspace = useFileSystemStore((state) => state.addFolderToWorkspace);
   const removeFolderFromWorkspace = useFileSystemStore((state) => state.removeFolderFromWorkspace);
   const revealPathInTree = useFileSystemStore((state) => state.revealPathInTree);
-  const workspaceFolders = useFileSystemStore((state) => state.workspaceFolders);
-  const nativeRootPaths = useMemo(
-    () => getNativeWorkspaceRootPaths(rootFolderPath, workspaceFolders),
-    [rootFolderPath, workspaceFolders],
-  );
 
   useLayoutEffect(() => {
     if (!rootFolderPath) return;
@@ -299,27 +368,9 @@ function FileExplorerTreeComponent({
     return ig;
   }, [fileTreeSettings.hiddenFilePatterns, fileTreeSettings.hiddenDirectoryPatterns]);
 
-  const workspaceRootPaths = useMemo(() => {
-    const roots: string[] = [];
-    let hasRootFolderPath = false;
-
-    for (const file of files) {
-      if (!file.isDir) continue;
-      roots.push(file.path);
-      if (file.path === rootFolderPath) {
-        hasRootFolderPath = true;
-      }
-    }
-
-    if (rootFolderPath && !hasRootFolderPath) {
-      roots.unshift(rootFolderPath);
-    }
-
-    return roots;
-  }, [files, rootFolderPath]);
 
   const getWorkspaceRootForPath = useCallback(
-    (path: string) => workspaceRootPaths.find((rootPath) => pathStartsWithRoot(path, rootPath)),
+    (path: string) => directoryMarkRoot(path, workspaceRootPaths),
     [workspaceRootPaths],
   );
 
@@ -794,6 +845,19 @@ function FileExplorerTreeComponent({
     setEditingValue("");
   };
 
+  // Rows are memoized by identity of these callbacks. Handing them the inline
+  // editors directly made every row re-render whenever the tree rendered.
+  const inlineEditingRef = useRef({ finish: finishInlineEditing, cancel: cancelInlineEditing });
+  inlineEditingRef.current = { finish: finishInlineEditing, cancel: cancelInlineEditing };
+  const submitRowInlineEditing = useCallback(
+    (value: string, file: FileEntry) => inlineEditingRef.current.finish(file, value),
+    [],
+  );
+  const cancelRowInlineEditing = useCallback(
+    (file: FileEntry) => inlineEditingRef.current.cancel(file),
+    [],
+  );
+
   const openPathInTab = useCallback(
     async (path: string) => {
       if (onFileOpen) {
@@ -1006,11 +1070,17 @@ function FileExplorerTreeComponent({
     selectedEntries,
     selectedPaths,
     markDirectory,
+    markForPath,
+    canExcludeDirectory: canUseNativeFileSearch,
+    isIndexExcluded,
     onFileSelect,
     onCreateNewFileInDirectory,
     onCreateNewFolderInDirectory,
     onGenerateImage,
-    onRefreshDirectory,
+    onRefreshDirectory: (path, options) => {
+      workspaceRuntimeRegistry.getWorkspace(workspaceId)?.invalidateIndexing?.();
+      onRefreshDirectory?.(path, options);
+    },
     onRenamePath,
     onRevealInFinder,
     onUploadFile,
@@ -1087,19 +1157,11 @@ function FileExplorerTreeComponent({
       }
       selectPath(t.path, { additive: e.ctrlKey || e.metaKey, range: e.shiftKey });
       if (e.ctrlKey || e.metaKey || e.shiftKey) return;
-      if (!t.isDir) {
-        fileOpenBenchmark.ensureStarted(t.path, "explorer-click");
-        fileOpenBenchmark.mark(t.path, "explorer-click");
-      }
-      if (t.isDir) {
-        setFocusedPath(t.path);
-        updateActivePath?.(t.path);
-      } else {
-        setFocusedPath(t.path);
-        void Promise.resolve(onFileSelect(t.path, false));
-      }
+      // A single click only selects; opening a file is the double-click (or Enter) action.
+      setFocusedPath(t.path);
+      updateActivePath?.(t.path);
     },
-    [onFileSelect, toggleDirectory, updateActivePath, pathToFile, selectPath],
+    [toggleDirectory, updateActivePath, pathToFile, selectPath],
   );
 
   const handleContainerDoubleClick = useCallback(
@@ -1433,6 +1495,26 @@ function FileExplorerTreeComponent({
             onRenamePath?.(current.path);
             break;
           }
+          case "Delete": {
+            // Shift+Delete means "permanent delete" on Windows; this tree has no such action.
+            if (!current || mod || e.altKey || e.shiftKey) break;
+            const entries = selectedEntries.length
+              ? selectedEntries
+              : workspaceRootPaths.includes(current.path)
+                ? []
+                : [{ path: current.path, is_dir: !!isDir }];
+            const [first] = entries;
+            if (!first) break;
+            e.preventDefault();
+            // A stray key press must never delete on its own, so this path always asks first,
+            // even when "confirm before delete" is off for the context menu.
+            setDeleteCandidate(
+              entries.length === 1
+                ? { path: first.path, isDir: first.is_dir }
+                : { path: first.path, isDir: first.is_dir, entries },
+            );
+            break;
+          }
         }
       }}
       onDragOver={(e) => {
@@ -1478,8 +1560,12 @@ function FileExplorerTreeComponent({
               setProjectView("project");
               setTreeSearchQuery("");
               setTreeSearchOpen(false);
-              void requestRevealPath(activePath);
-              selectPath(activePath);
+              // The editor may spell the path differently from the tree nodes it must match.
+              const treePath = rootFolderPath
+                ? toRootedPath(activePath, rootFolderPath)
+                : activePath;
+              void requestRevealPath(treePath);
+              selectPath(treePath);
             }
           }}
         >
@@ -1743,6 +1829,14 @@ function FileExplorerTreeComponent({
             const previousRow = visibleRows[index - 1];
             const nextRow = visibleRows[index + 1];
             const isEditingRow = row.file.isEditing || row.file.isRenaming;
+            // Every visible row is re-prepared on each tree render (selection,
+            // opened file), so the mark lookup runs once per row, not per prop.
+            const markedRole = markForPath(row.file.path);
+            const directoryMark = isIndexExcluded(row.file.path)
+              ? "excluded"
+              : !canUseNativeFileSearch(row.file.path) && markedRole === "excluded"
+                ? undefined
+                : markedRole;
             const guideTargets: Array<FileTreeGuideTarget | null> =
               fileTreeSettings.showIndentGuidesInFileTree
                 ? getGuideAncestorRows(visibleRows, index).map((ancestor) =>
@@ -1778,22 +1872,14 @@ function FileExplorerTreeComponent({
                     ? selectedPaths.has(row.file.path)
                     : highlightedPath === row.file.path
                 }
-                directoryMark={
-                  marks[getRelativePath(row.file.path, rootFolderPath).replace(/\\/g, "/") || "."]
-                }
+                exclusionReason={exclusionReason(row.file.path)}
+                directoryMark={directoryMark}
                 semanticKind={
-                  marks[
-                    getRelativePath(row.file.path, rootFolderPath).replace(/\\/g, "/") || "."
-                  ] === "sources"
+                  markedRole === "sources"
                     ? "folder.source-root"
-                    : marks[
-                          getRelativePath(row.file.path, rootFolderPath).replace(/\\/g, "/") || "."
-                        ] === "resources"
+                    : markedRole === "resources"
                       ? "folder.resources-root"
-                      : marks[
-                            getRelativePath(row.file.path, rootFolderPath).replace(/\\/g, "/") ||
-                              "."
-                          ] === "package"
+                      : markedRole === "package"
                         ? "folder.package"
                         : row.semanticKind
                 }
@@ -1807,8 +1893,8 @@ function FileExplorerTreeComponent({
                 isDragging={dragState.isDragging}
                 editingValue={isEditingRow ? editingValue : undefined}
                 onEditingValueChange={setEditingValue}
-                onSubmit={(value, file) => finishInlineEditing(file, value)}
-                onCancel={cancelInlineEditing}
+                onSubmit={submitRowInlineEditing}
+                onCancel={cancelRowInlineEditing}
                 getGitStatusDecoration={getGitStatusDecoration}
                 rowId={getFileTreeRowId(row.file.path)}
                 searchQuery={displayedTreeSearch?.query}

@@ -5,7 +5,6 @@ import {
   blockingToolchainDiagnosticForConfiguration,
   configurationOverrides,
   configurationUsesMaven,
-  defaultGeneratedConfigurationId,
   effectiveRuntimeExecutablePaths,
   isBlockingToolchainDiagnostic,
   mapCoreConfiguration,
@@ -119,17 +118,6 @@ describe("run configuration mapping", () => {
   test("treats missing and mismatched toolchains as blocking", () => {
     expect(isBlockingToolchainDiagnostic({ code: "missingToolchain", message: "No JDK" })).toBe(true);
     expect(isBlockingToolchainDiagnostic({ code: "staleFingerprint", message: "changed" })).toBe(false);
-  });
-
-  test("prefers a framework service as the generated default", () => {
-    expect(
-      defaultGeneratedConfigurationId({
-        configurations: [
-          { id: "current-file", provider: "java.current-file" },
-          { id: "spring-boot.maven:demo", provider: "spring-boot.maven" },
-        ],
-      }),
-    ).toBe("spring-boot.maven:demo");
   });
 
   test("converts workspace paths to core-relative identifiers", () => {

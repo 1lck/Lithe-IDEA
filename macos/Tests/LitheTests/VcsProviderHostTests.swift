@@ -2,6 +2,7 @@ import Foundation
 import AppKit
 import SwiftUI
 import LitheCoreContracts
+import LitheGitModule
 import LitheModuleAPI
 import Testing
 @testable import Lithe
@@ -128,6 +129,143 @@ struct VcsProviderHostTests {
     }
 
     // MARK: Feature model
+
+    @Test
+    func addAndDeleteDispatchExactPathsToTheOwningProviderAndRefreshStatus() async throws {
+        let fixture = try VcsFeatureFixture(roots: [("", "svn")])
+        defer { fixture.close() }
+        fixture.providers.replies["status"] = try VcsTestData.statusReply([
+            ("z.txt", "unversioned"), ("a.txt", "unversioned"), ("tracked.txt", "modified")
+        ])
+        try #require(await fixture.open())
+        let changes = try #require(fixture.feature.root("")?.snapshot?.changes)
+        let added = changes.filter { $0.status == .unversioned }
+        let tracked = changes.filter { $0.status == .modified }
+        #expect(fixture.feature.canAdd(added, in: "") && !fixture.feature.canAdd(tracked, in: ""))
+        #expect(await fixture.feature.add(added + added, in: ""))
+        try #require(await fixture.settled())
+        #expect(await fixture.feature.delete(tracked, in: ""))
+        try #require(await fixture.settled())
+        #expect(fixture.providers.requests.filter { $0.operation.name == "fileOperation" } == [
+            .init(operation: .add(paths: ["a.txt", "z.txt"]), root: fixture.workspaceURL.path),
+            .init(operation: .delete(paths: ["tracked.txt"]), root: fixture.workspaceURL.path)
+        ])
+        #expect(fixture.providers.statusCount(root: fixture.workspaceURL.path) == 3)
+        fixture.providers.failures["fileOperation"] = VcsProviderFailure(code: "vcs.operation.failed", message: "Provider refused deletion")
+        #expect(await !fixture.feature.delete(tracked, in: ""))
+        #expect(fixture.feature.failure?.message == "Provider refused deletion")
+        #expect(await fixture.settled())
+    }
+
+    @Test(arguments: [false, true])
+    func fileActionsRefuseNestedOrAmbiguousRootsAndMissingProviderCapability(ambiguous: Bool) async throws {
+        let fixture = try VcsFeatureFixture(roots: ambiguous ? [("", "svn")] : [("", "svn"), ("folder/nested", "git")],
+                                            ambiguous: ambiguous ? ["folder/nested"] : [])
+        defer { fixture.close() }
+        fixture.providers.replies["status"] = try VcsTestData.statusReply([
+            ("folder", "unversioned"), ("folder/nested/file.txt", "unversioned"), ("tracked", "modified")
+        ])
+        try #require(await fixture.open())
+        let changes = try #require(fixture.feature.root("")?.snapshot?.changes)
+        let directory = changes.filter { $0.path == "folder" }
+        let nested = changes.filter { $0.path.hasSuffix("file.txt") }
+        #expect(!fixture.feature.canAdd(directory, in: "") && !fixture.feature.canTrash(directory, in: ""))
+        #expect(await !fixture.feature.add(directory, in: ""))
+        #expect(await !fixture.feature.add(nested, in: ""))
+        fixture.providers.capabilities.removeValue(forKey: VcsCapability.fileOperations.rawValue)
+        fixture.feature.refresh("")
+        try #require(await fixture.settled())
+        #expect(!fixture.feature.canDelete(changes.filter { $0.path == "tracked" }, in: ""))
+        #expect(fixture.providers.requests.allSatisfy { $0.operation.name != "fileOperation" })
+    }
+
+    /// Native Trash removes the whole directory, so a working copy created
+    /// inside it after the last detection must stop the deletion.
+    @Test(arguments: [false, true])
+    func trashDetectsRootsAgainBeforeRemovingADirectory(nestedRootAppeared: Bool) async throws {
+        let fixture = try VcsFeatureFixture(roots: [("", "svn")])
+        defer { fixture.close() }
+        fixture.providers.replies["status"] = try VcsTestData.statusReply([("folder", "unversioned")])
+        try #require(await fixture.open())
+        let directory = try #require(fixture.feature.root("")?.snapshot?.changes)
+        try #require(fixture.feature.canTrash(directory, in: ""))
+        if nestedRootAppeared {
+            fixture.planner.detection = try VcsTestData.detection(
+                roots: [("", "svn"), ("folder/nested", "git")], workspaceURL: fixture.workspaceURL)
+        }
+        let detections = fixture.planner.detectCount
+        var trashed = 0
+        let result = await fixture.feature.trash(directory, in: "") { trashed += 1; return true }
+        #expect(result == !nestedRootAppeared && trashed == (nestedRootAppeared ? 0 : 1))
+        #expect(fixture.planner.detectCount > detections)
+        #expect((fixture.feature.failure != nil) == nestedRootAppeared)
+        try #require(await fixture.settled())
+        #expect(fixture.feature.canTrash(directory, in: "") == !nestedRootAppeared)
+    }
+
+    @Test
+    func fileActionsRejectLateOwnershipAndSerializeMutations() async throws {
+        let fixture = try VcsFeatureFixture(roots: [("", "svn")])
+        defer { fixture.close() }
+        fixture.providers.replies["status"] = try VcsTestData.statusReply([("new.txt", "unversioned")])
+        try #require(await fixture.open())
+        let changes = try #require(fixture.feature.root("")?.snapshot?.changes)
+        let entered = TestGate(), released = TestGate(), completed = TestGate()
+        fixture.planner.heldOwners = (["new.txt"], entered, released)
+        var result = true
+        let pending = Task { result = await fixture.feature.add(changes, in: ""); completed.open() }
+        defer { released.open(); pending.cancel() }
+        try #require(await entered.waitUntilOpen())
+        fixture.feature.reset(workspaceURL: nil)
+        released.open()
+        try #require(await completed.waitUntilOpen())
+        await pending.value
+        #expect(!result && !fixture.planner.ownersTimedOut)
+        #expect(fixture.providers.requests.allSatisfy { $0.operation.name != "fileOperation" })
+
+        fixture.planner.heldOwners = nil
+        try #require(await fixture.open())
+        let releaseRequest = TestGate(), finished = TestGate()
+        fixture.providers.holds["fileOperation"] = releaseRequest
+        let running = Task { _ = await fixture.feature.add(changes, in: ""); finished.open() }
+        defer { releaseRequest.open(); running.cancel() }
+        try #require(await awaitChange(on: fixture.feature) { fixture.feature.runningOperation != nil })
+        #expect(!fixture.feature.canAdd(changes, in: ""))
+        #expect(await !fixture.feature.add(changes, in: ""))
+        #expect(await !fixture.feature.delete(changes, in: ""))
+        releaseRequest.open()
+        try #require(await finished.waitUntilOpen())
+        await running.value
+        #expect(await fixture.settled())
+        #expect(fixture.providers.requests.filter { $0.operation.name == "fileOperation" }.count == 1)
+    }
+
+    @Test
+    func commitContextMenuTargetsClickedSelectionAndInvokesProviderAdd() async throws {
+        let fixture = try VcsFeatureFixture(roots: [("", "svn")])
+        defer { fixture.close() }
+        fixture.providers.replies["status"] = try VcsTestData.statusReply([("first.txt", "unversioned"), ("second.txt", "unversioned")])
+        try #require(await fixture.open())
+        let root = try #require(fixture.feature.root("")), changes = try #require(root.snapshot?.changes)
+        #expect(VcsProviderToolWindowView.actionTargets(changes, selection: ["first.txt", "second.txt"], clicked: changes[0]) == changes)
+        #expect(VcsProviderToolWindowView.actionTargets(changes, selection: ["second.txt"], clicked: changes[0]) == [changes[0]])
+        var compared: String?, deleted: [VcsChange] = []
+        let view = VcsProviderToolWindowView(feature: fixture.feature, title: "Subversion", pluginID: VcsTestData.pluginID, vcs: "svn",
+            actions: .init(openFile: { _ in }, revealInFinder: { _ in }, copyPath: { _ in }, hide: {},
+                showDiffInNewTab: { compared = $0.path; #expect($1 == "") }, deleteFiles: { deleted = $0; #expect($1 == "") }))
+        let menu = view.contextMenu(for: changes[0], root: root)
+        for title in ["Commit Files…", "Show Diff in New Tab", "Delete…", "Add to VCS"] {
+            #expect(menu.first { $0.title == title }?.isEnabled == true)
+        }
+        let diff = try #require(menu.first { $0.title == "Show Diff in New Tab" })
+        diff.action()
+        let delete = try #require(menu.first { $0.title == "Delete…" })
+        delete.action()
+        #expect(compared == changes[0].path && deleted == [changes[0]])
+        let add = try #require(menu.first { $0.title == "Add to VCS" })
+        add.action()
+        #expect(await fixture.settled { fixture.providers.requests.contains { $0.operation == .add(paths: [changes[0].path]) } })
+    }
 
     @Test
     func detectsPluginRootsReadsStatusAndColorsOnlyTheFilesTheRootOwns() async throws {
@@ -595,6 +733,62 @@ struct VcsProviderHostTests {
 @Suite("VCS providers in the app model", .serialized)
 @MainActor
 struct VcsProviderAppModelTests {
+    @Test(arguments: ["finish", "close", "workspace-close"])
+    func providerDiffTabsOwnTheirPendingRequestsWithoutStealingFocus(lifecycle: String) async throws {
+        let root = try Self.makeWorkspace()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("a.txt").standardizedFileURL
+        try Data("working content\n".utf8).write(to: file)
+        let fixture = try VcsFeatureFixture(workspaceURL: root, roots: [("", "svn")],
+                                            readFile: { try? Data(contentsOf: $0) })
+        defer { fixture.close() }
+        fixture.providers.replies["status"] = try VcsTestData.statusReply([("a.txt", "modified")])
+        fixture.providers.replies["baseContent"] = try VcsTestData.json(["content": "base content\n", "binary": false])
+        let model = Self.makeModel(fixture)
+        model.openProjectDirectly(root)
+        defer { model.workspaceFeature.reset(); model.closeAllRepositoryDiffTabs() }
+        do {
+            try #require(await awaitChange(on: model) { model.projectFiles.contains(file) })
+            model.loadVcsProviders(at: root)
+            try #require(await fixture.settled())
+            let change = try #require(fixture.feature.root("")?.snapshot?.changes.first)
+            let release = TestGate(), entered = TestGate()
+            fixture.providers.holds["baseContent"] = release
+            fixture.providers.requestEntered = { if $0.name == "baseContent" { entered.open() } }
+            defer { release.open() }
+            model.showVcsDiffInNewTab(change, rootID: "")
+            let id = try #require(model.editorTabOrderFeature.repositoryDiffIDs.last)
+            let task = try #require(model.editorTabOrderFeature.providerDiffTasks[id])
+            defer { task.cancel() }
+            try #require(await entered.waitUntilOpen())
+            #expect(model.editorTabOrderFeature.loadingProviderDiffs == [id])
+            model.documentFeature.openVirtualDocument(URL(string: "lithe-test://documents/Return.txt")!,
+                                                      text: "unsaved content", displayPath: nil)
+            let document = try #require(model.activeDocument)
+            model.selectEditorDocument(document)
+            if lifecycle == "close" { model.closeRepositoryDiffTab(id) }
+            if lifecycle == "workspace-close" { model.closeProject() }
+            if lifecycle != "finish" { #expect(task.isCancelled) }
+            release.open()
+            await task.value
+            let tabs = model.editorTabOrderFeature
+            #expect(tabs.providerDiffTasks.isEmpty && tabs.loadingProviderDiffs.isEmpty)
+            if lifecycle == "finish" {
+                #expect(tabs.repositoryDiffIDs == [id] && tabs.providerDiffs[id]?.base == "base content\n")
+                #expect(tabs.providerDiffs[id]?.current == "working content\n")
+                #expect(model.activeDocument === document && !model.isRepositoryDiffSelected)
+                model.selectRepositoryDiffTab(id)
+                #expect(model.selectedRepositoryDiffID == id)
+                model.closeRepositoryDiffTab(id)
+                #expect(model.activeDocument === document && document.text == "unsaved content")
+            } else {
+                #expect(tabs.repositoryDiffIDs.isEmpty && tabs.providerDiffs.isEmpty)
+                #expect(fixture.feature.failure == nil)
+            }
+        } catch { await model.shutdownProjectSession(); throw error }
+        await model.shutdownProjectSession()
+    }
+
     /// A tracked file goes to the provider, an unversioned one stays a plain
     /// disk move.
     @Test
@@ -672,6 +866,64 @@ struct VcsProviderAppModelTests {
         #expect(feature.workspaceURL == nil)
         #expect(feature.roots.isEmpty)
         #expect(!feature.isDetecting)
+    }
+
+    /// A Git deletion of an untracked directory keeps out of every provider
+    /// root: an ambiguous directory already known, and one that only a fresh
+    /// detection finds after the confirmation opened.
+    @Test(arguments: ["ambiguous", "created-during-confirmation"])
+    func gitDirectoryDeletionKeepsOutOfProviderRoots(nested: String) async throws {
+        let root = try Self.makeWorkspace()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try await Self.git(["init", "-q"], at: root)
+        try Data("tracked\n".utf8).write(to: root.appendingPathComponent("tracked.txt"))
+        try await Self.git(["add", "tracked.txt"], at: root)
+        try await Self.git(["commit", "-q", "-m", "initial"], at: root)
+        let folder = root.appendingPathComponent("folder", isDirectory: true).standardizedFileURL
+        try FileManager.default.createDirectory(at: folder.appendingPathComponent("nested"), withIntermediateDirectories: true)
+        try Data("content\n".utf8).write(to: folder.appendingPathComponent("nested/file.txt"))
+        // Enough files that Git reports the directory as one summary row.
+        for number in 1...101 {
+            try Data("ordinary content\n".utf8).write(to: folder.appendingPathComponent("file-\(number).txt"))
+        }
+
+        let fixture = try VcsFeatureFixture(workspaceURL: root, roots: [("", "git")],
+                                            ambiguous: nested == "ambiguous" ? ["folder/nested"] : [])
+        defer { fixture.close() }
+        let model = Self.makeModel(fixture)
+        defer { model.commitFileDeletion.reset() }
+        let git = GitFeatureModel(service: GitService(operations: RustGitOperations(core: RustCoreBridge())))
+        git.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
+        defer { git.reset() }
+        await git.refreshGit()
+        let directory = try #require(git.gitChanges.first { $0.path == "folder/" })
+        fixture.feature.reset(workspaceURL: root)
+        try #require(await awaitChange(on: fixture.feature) {
+            !fixture.feature.isDetecting && !fixture.feature.knownRootURLs.isEmpty
+        })
+
+        model.requestDeleteCommitFiles([directory], feature: git)
+        if nested == "ambiguous" {
+            #expect(model.commitFileDeletion.pending == nil)
+            return
+        }
+        let request = try #require(model.commitFileDeletion.pending)
+        // A checkout appears inside the directory before the user confirms.
+        fixture.planner.detection = try VcsTestData.detection(
+            roots: [("", "git"), ("folder/nested", "svn")], workspaceURL: root)
+        let detections = fixture.planner.detectCount
+        await model.commitFileDeletion.confirm(request)
+        #expect(fixture.planner.detectCount > detections)
+        #expect(FileManager.default.fileExists(atPath: folder.appendingPathComponent("nested/file.txt").path))
+    }
+
+    private static func git(_ arguments: [String], at directory: URL) async throws {
+        let result = try await TestProcess.run(
+            executableURL: URL(fileURLWithPath: "/usr/bin/git"),
+            arguments: ["-c", "user.email=tests@lithe.local", "-c", "user.name=Lithe Tests"] + arguments,
+            currentDirectoryURL: directory
+        )
+        try #require(result.terminationStatus == 0, "\(String(decoding: result.output, as: UTF8.self))")
     }
 
     private static func makeWorkspace() throws -> URL {
@@ -828,10 +1080,12 @@ private final class FakeVcsProviders: VcsProviderRequesting {
     }
 
     var replies: [String: ToolingJSONValue] = [:]
+    var capabilities = Dictionary(uniqueKeysWithValues: VcsCapability.allCases.map { ($0.rawValue, 1) })
     var failures: [String: VcsProviderFailure] = [:]
     /// Requests that wait for the gate before answering.
     var holds: [String: TestGate] = [:]
     var onFileOperation: ((VcsOperation, String) throws -> Void)?
+    var requestEntered: ((VcsOperation) -> Void)?
     var historyReply: ((VcsOperation) async throws -> ToolingJSONValue)?
     private(set) var requests: [Request] = []
     private(set) var retainCount = 0
@@ -843,7 +1097,7 @@ private final class FakeVcsProviders: VcsProviderRequesting {
     }
 
     func negotiation(for target: VcsProviderTarget) async throws -> VcsProviderNegotiation {
-        Self.negotiation(target.vcs)
+        negotiation(target.vcs)
     }
 
     func send(
@@ -854,15 +1108,16 @@ private final class FakeVcsProviders: VcsProviderRequesting {
     ) async throws -> VcsProviderReply {
         requests.append(Request(operation: operation, root: root))
         running.insert(target)
+        requestEntered?(operation)
         if let hold = holds[operation.name] {
             _ = await hold.waitUntilOpen(timeout: .seconds(5))
         }
         if let failure = failures[operation.name] { throw failure }
         if operation.name == "fileOperation" { try onFileOperation?(operation, root) }
         if ["history", "fileHistory"].contains(operation.name), let historyReply {
-            return VcsProviderReply(value: try await historyReply(operation), negotiation: Self.negotiation(target.vcs))
+            return VcsProviderReply(value: try await historyReply(operation), negotiation: negotiation(target.vcs))
         }
-        return VcsProviderReply(value: replies[operation.name] ?? .object([:]), negotiation: Self.negotiation(target.vcs))
+        return VcsProviderReply(value: replies[operation.name] ?? .object([:]), negotiation: negotiation(target.vcs))
     }
 
     func retainProviders(_ keep: (VcsProviderTarget) -> Bool) {
@@ -870,10 +1125,8 @@ private final class FakeVcsProviders: VcsProviderRequesting {
         running = running.filter(keep)
     }
 
-    private static func negotiation(_ vcs: String) -> VcsProviderNegotiation {
-        VcsProviderNegotiation(
-            vcs: vcs, capabilities: Dictionary(uniqueKeysWithValues: VcsCapability.allCases.map { ($0.rawValue, 1) })
-        )
+    private func negotiation(_ vcs: String) -> VcsProviderNegotiation {
+        VcsProviderNegotiation(vcs: vcs, capabilities: capabilities)
     }
 }
 
@@ -937,7 +1190,8 @@ private final class VcsFeatureFixture {
     init(
         workspaceURL: URL = URL(fileURLWithPath: "/virtual/workspace", isDirectory: true),
         roots: [(id: String, vcs: String)],
-        ambiguous: [String] = []
+        ambiguous: [String] = [],
+        readFile: @escaping @MainActor (URL) -> Data? = { _ in nil }
     ) throws {
         self.workspaceURL = workspaceURL.standardizedFileURL
         planner = FakeVcsPlanner(detection: try VcsTestData.detection(
@@ -949,6 +1203,7 @@ private final class VcsFeatureFixture {
             planner: planner,
             providers: providers,
             mappingStore: MacVcsRootMappingStore(store: keyValues),
+            readFile: readFile,
             fileExists: { files.exists($0) },
             sleep: { _ in try Task.checkCancellation() },
             now: { clock.now },

@@ -1,4 +1,5 @@
-import { migrateDirectoryMarks } from "@/features/file-explorer/stores/directory-marks";
+import { bindWorkspaceIndexingRoots } from "@/features/file-explorer/stores/workspace-indexing";
+import { migrateWorkspaceDirectoryMarks } from "@/features/file-explorer/stores/directory-marks";
 import { loadFileContent } from "../controllers/workspace-session-restore";
 import { invoke } from "@/platform/tauri-core";
 import { LspOperationLog } from "@/platform/lsp-session-lifecycle";
@@ -216,9 +217,9 @@ const getWorkspaceFolderPaths = (get: FileSystemGet) =>
     (folder) => folder.path,
   );
 
-const syncFffWorkspace = async (get: FileSystemGet): Promise<void> => {
+const syncFffWorkspace = async (get: FileSystemGet, workspaceId: string): Promise<void> => {
   try {
-    await ensureWorkspaceFileSearch(getWorkspaceFolderPaths(get));
+    await ensureWorkspaceFileSearch(getWorkspaceFolderPaths(get), workspaceId);
   } catch (error) {
     console.error("[fff] workspace sync failed:", error);
   }
@@ -551,11 +552,13 @@ const initializeLocalWorkspaceInBackground = (
           { resolveJavaWorkspacePolicy },
           { getJavaWorkspaceLanguageServerOwner },
           { loadMavenProjectForWorkspace },
+          { askToImportJavaProject, javaImportOnOpenDecision },
         ] = await Promise.all([
           import("@/utils/path-helpers"),
           import("@/platform/java-workspace-policy"),
           import("@/features/editor/lsp/java-workspace-language-server"),
           import("@/features/maven/stores/maven.store"),
+          import("@/features/editor/lsp/java-import-on-open"),
         ]);
         const workspaceFiles = projectFiles.filter(
           (entry) => !entry.isDir && pathStartsWithRoot(entry.path, path),
@@ -577,8 +580,23 @@ const initializeLocalWorkspaceInBackground = (
           return;
         }
 
-        operation.succeeded({ representativeJavaPath: policy.representativeJavaPath });
-        await getJavaWorkspaceLanguageServerOwner().prewarm({ workspaceId, root: path }, javaFile);
+        const owner = getJavaWorkspaceLanguageServerOwner();
+        const scope = { workspaceId, root: path };
+        const decision = javaImportOnOpenDecision(
+          useSettingsStore.getState().settings.javaProjectImportOnOpen,
+          owner.isImporting(scope),
+        );
+        operation.succeeded({ representativeJavaPath: policy.representativeJavaPath, decision });
+        if (decision === "start") {
+          await owner.prewarm(scope, javaFile);
+        } else if (decision === "ask") {
+          // The answer may come after switching tabs; only a closed project is dropped.
+          askToImportJavaProject(path, () => {
+            if (workspaceRuntimeRegistry.hasWorkspace(workspaceId)) {
+              void owner.prewarm(scope, javaFile);
+            }
+          });
+        }
       } catch (error) {
         operation.failed(error);
       }
@@ -617,7 +635,7 @@ const initializeLocalWorkspaceInBackground = (
         return;
       }
 
-      void syncFffWorkspace(get);
+      void syncFffWorkspace(get, workspaceId);
 
       await waitForWorkspaceIdle();
 
@@ -874,7 +892,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
   let deferredAiSession: ReturnType<typeof readPersistedAiWorkspaceSession> | undefined;
   const coordinateProjectFileScan = createProjectFileScanCoordinator<FileEntry[]>();
 
-  return createStore<ScopedFileSystemStoreState>()(
+  const store = createStore<ScopedFileSystemStoreState>()(
     immer((set, get) => ({
       // State
       files: [],
@@ -1068,7 +1086,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
             }
             state.workspaceFolders = restoredWorkspaceFolders;
           });
-          void syncFffWorkspace(get);
+          void syncFffWorkspace(get, workspaceId);
         }
 
         useTerminalTabsStore.getStore(workspaceId).getState().actions.dispatch({
@@ -1373,7 +1391,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
             state.isFileTreeLoading = false;
             state.projectFilesCache = undefined;
           });
-          void syncFffWorkspace(get);
+          void syncFffWorkspace(get, workspaceId);
 
           const fileTreeStore = useFileTreeStore.getStore(workspaceId);
           const expandedPaths = new Set(fileTreeStore.getState().actions.getExpandedPaths());
@@ -1442,7 +1460,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
           state.filesVersion++;
           state.projectFilesCache = undefined;
         });
-        void syncFffWorkspace(get);
+        void syncFffWorkspace(get, workspaceId);
 
         useFileTreeStore.getStore(workspaceId).getState().actions.collapsePath(folder.path);
         get().persistActiveProjectSession();
@@ -2453,7 +2471,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
         const { rootFolderPath } = get();
         if (rootFolderPath) {
           try {
-            migrateDirectoryMarks(rootFolderPath, oldPath, newPath);
+            migrateWorkspaceDirectoryMarks(getWorkspaceFolderPaths(get), oldPath, newPath);
           } catch (error) {
             toast.error(getCurrentTranslator()("project.markFailed"), {
               description: String(error),
@@ -2477,8 +2495,8 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
 
         if (canUseNativeFileSearch(rootFolderPath)) {
           return coordinateProjectFileScan(cachePath, async () => {
-            const nativeRootPaths = await ensureWorkspaceFileSearch(workspaceFolderPaths);
-            const indexedFiles = await fffListFiles(nativeRootPaths);
+            const nativeRootPaths = await ensureWorkspaceFileSearch(workspaceFolderPaths, workspaceId);
+            const indexedFiles = await fffListFiles(nativeRootPaths, workspaceId);
             const files = indexedFiles.map<FileEntry>((file) => ({
               name: file.name,
               path: file.path,
@@ -2710,7 +2728,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
         const { rootFolderPath } = get();
         if (rootFolderPath) {
           try {
-            migrateDirectoryMarks(rootFolderPath, path);
+            migrateWorkspaceDirectoryMarks(getWorkspaceFolderPaths(get), path);
           } catch (error) {
             toast.error(getCurrentTranslator()("project.markFailed"), {
               description: String(error),
@@ -2883,7 +2901,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
       },
 
       handleRenamePath: async (path: string, newName?: string) => {
-        const marksRoot = get().rootFolderPath;
+        const marksRoots = getWorkspaceFolderPaths(get);
         if (newName) {
           const remoteInfo = parseRemotePath(path);
           const wslInfo = parseWslPath(path);
@@ -2919,9 +2937,9 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
               await renameFile(path, targetPath);
             }
 
-            if (marksRoot) {
+            if (marksRoots.length > 0) {
               try {
-                migrateDirectoryMarks(marksRoot, path, targetPath);
+                migrateWorkspaceDirectoryMarks(marksRoots, path, targetPath);
               } catch (error) {
                 toast.error(getCurrentTranslator()("project.markFailed"), {
                   description: String(error),
@@ -3133,6 +3151,8 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
       },
     })),
   );
+  bindWorkspaceIndexingRoots(workspaceId, store);
+  return store;
 };
 
 scopedFileSystemStore = createWorkspaceScopedStore<ScopedFileSystemStoreState>(

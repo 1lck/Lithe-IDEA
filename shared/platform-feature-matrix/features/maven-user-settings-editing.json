@@ -1,0 +1,30 @@
+{
+  "id": "maven-user-settings-editing",
+  "area": "Java",
+  "group": "Java/Maven",
+  "capability": "Maven 设置页在没有打开项目时也能编辑用户级 ~/.m2/settings.xml 的本地仓库：读取并回显真实值或标注的 Maven 默认值，确认后只改写该元素，读取后被修改时拒绝覆盖并保留草稿",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/App/ProjectRuntimeSettingsView.swift"
+    ],
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src-tauri/src/maven/user_settings.rs",
+      "windows/tauri/src-tauri/src/maven/settings_xml.rs",
+      "windows/tauri/src-tauri/src/maven.rs",
+      "windows/tauri/src/features/settings/components/tabs/maven-user-settings-group.tsx",
+      "windows/tauri/src/features/settings/components/tabs/maven-settings-panel.tsx",
+      "windows/tauri/src/features/maven/api/maven-host-api.ts",
+      "rust/lithe-core/src/project/maven.rs",
+      "windows/tauri/src/features/settings/components/tabs/maven-user-settings-group.test.tsx"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Java / Maven",
+  "verification": "Windows：不打开项目进入 Maven 设置页，用户设置组显示 settings.xml 路径与状态；文件不存在时回显 Maven 默认仓库且打开页面不创建文件；保存后文件只新增或改写 <localRepository>，注释、镜像、服务器与凭据保持不变，页面回显读回的值。保存前用外部编辑器修改文件，保存被拒绝并保留输入，“重新读取”后可再保存。格式错误的文件只读且不被改写。打开项目时保存后提示重新加载 Maven，重新加载后项目使用新仓库。",
+  "notes": "Maven 可执行文件和 JDK 的应用级全局默认值未在本项实现：现有项目链路（run/local.json 与 Maven 本地文档）已回退到本机自动检测，再加一层 Lithe 默认值需要单独设计回退顺序。"
+}

@@ -282,7 +282,7 @@ struct WorkbenchView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var toolWindowDrag = ToolWindowDragState()
     @StateObject private var toolContentStore = WorkbenchToolContentStore()
-    @State private var sidebarWidth: CGFloat = 320
+    @State private var sidebarWidth = CGFloat(WorkbenchLayout.defaultSidebarWidth)
     @State private var rightSidebarWidth: CGFloat = 380
     @State private var mavenPaneWidth = CGFloat(WorkbenchLayout.defaultMavenPaneWidth)
     @State private var branchPopupHeight: CGFloat?
@@ -587,6 +587,10 @@ struct WorkbenchView: View {
                 .padding(.trailing, WorkbenchLayoutMetrics.rightActivityBarWidth + LitheTheme.Notification.edgeInset)
                 .padding(.bottom, LitheTheme.Metrics.statusBarHeight + LitheTheme.Notification.edgeInset)
             }
+        }
+        .overlay(alignment: .bottomLeading) {
+            // Messages that plugins show in this window; the host's own balloons stay on the right.
+            PluginHostMessageStack(messages: model.hostMessages)
         }
         .overlay {
             if model.isSearchEverywhereVisible, let feature = model.searchFeatureIfActive {
@@ -1541,8 +1545,8 @@ struct WorkbenchView: View {
     /// the first case can claim Run is unavailable until it completes.
     private var runConfigurationSetupMessage: String {
         model.runFeatureIfActive?.configurationStatus == .ready
-            ? L10n.string("Lithe will look for services again and refresh .lithe/run/generated.json. Project and local overrides will not be changed.")
-            : L10n.string("Lithe needs to identify the project and generate .lithe/run/generated.json before Run and Debug are available. Project and local overrides will not be changed.")
+            ? L10n.string("Lithe will look for services again. Project and local overrides will not be changed.")
+            : L10n.string("Lithe needs to identify the project before Run and Debug are available. Project and local overrides will not be changed.")
     }
 
     private func continueAfterRunConfigurationGeneration() {
@@ -1648,7 +1652,7 @@ struct WorkbenchView: View {
             GeometryReader { geometry in
                 let leading = hasVisibleTool(on: .left) ? min(sidebarWidth, geometry.size.width) : 0
                 let trailing = hasVisibleTool(on: .right) ? min(mavenPaneWidth, geometry.size.width - leading) : 0
-                let height = isBottomToolVisible ? min(topPaneHeight ?? geometry.size.height * 2 / 3, geometry.size.height)
+                let height = isBottomToolVisible ? min(topPaneHeight ?? geometry.size.height * WorkbenchLayout.defaultTopPaneFraction, geometry.size.height)
                     : geometry.size.height
                 Rectangle().fill(LitheTheme.toolWindowDropArea)
                     .overlay {
@@ -1815,18 +1819,21 @@ struct WorkbenchView: View {
                 .fixedSize()
                 .help("File encoding")
             }
-            Text("\(settings.tabWidth) spaces")
+            if let document = model.focusedEditorDocument ?? model.activeDocument {
+                EditorIndentationStatusLabel(document: document)
+            }
             Button {
                 model.saveActiveDocument()
             } label: {
                 Image(systemName: model.activeDocument?.isReadOnly == true ? "lock.fill" : "lock.open")
             }
-            .litheIconButton()
+            .litheStatusBarIconButton()
             .disabled(model.activeDocument?.isReadOnly == true)
             .help(LocalizedStringKey(
                 model.activeDocument?.isReadOnly == true ? "Read-only document" : "Save"
             ))
             ProjectPreparationStatusView(compact: true)
+            LanguageServerStatusView()
             MemoryUsageStatusView()
             FrameRateStatusView()
             gitStatus
@@ -1837,6 +1844,7 @@ struct WorkbenchView: View {
         HStack(spacing: 10) {
             EditorCaretPositionLabel(chrome: model.editorChrome) { model.showGoToLine() }
             ProjectPreparationStatusView(compact: true)
+            LanguageServerStatusView()
             MemoryUsageStatusView()
             FrameRateStatusView()
             gitStatus
@@ -2093,7 +2101,7 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
             )
             let maximumTopPaneHeight = availablePaneHeight - minimumTopPaneHeight
             let resolvedTopPaneHeight = constrained(
-                liveTopPaneHeight ?? max(255, geometry.size.height * 0.40),
+                liveTopPaneHeight ?? geometry.size.height * WorkbenchLayout.defaultTopPaneFraction,
                 minimum: minimumTopPaneHeight,
                 maximum: maximumTopPaneHeight
             )

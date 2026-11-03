@@ -1,3 +1,10 @@
+import { hasMountedLspDocument } from "./mounted-lsp-documents";
+import { canUseNativeFileSearch } from "@/features/file-search/utils/file-search-paths";
+import { configureWorkspaceIndexing } from "@/features/file-explorer/stores/workspace-indexing";
+import { getNativeWorkspaceRootPaths } from "@/features/file-search/utils/file-search-paths";
+import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
+import { closestWorkspaceRoot } from "@/features/workspace/types/workspace-root";
+import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import {
   getLspSessionSnapshot,
   getLspWorkspaceSessionSnapshot,
@@ -18,6 +25,8 @@ import {
 } from "./language-server-feedback";
 import type {
   CompletionItem,
+  CompletionList,
+  CompletionContext,
   Hover,
   PublishDiagnosticsParams,
 } from "vscode-languageserver-protocol";
@@ -33,12 +42,15 @@ import type {
 } from "@/features/diagnostics/types/diagnostics.types";
 import { hasTextContent, shouldStartLsp } from "@/features/panes/types/pane-content.types";
 import { useBufferStore } from "../stores/buffer.store";
+import { flushLspDocumentChanges } from "./pending-document-changes";
 import type { EditorTextChange } from "../types/editor.types";
+import { replayEditorTextChanges } from "../utils/editor-text-change";
 import { logger } from "../utils/logger";
-import { normalizePath, pathStartsWithRoot } from "@/utils/path-helpers";
+import { getPathIdentity, getRelativePath, joinPath, normalizePath, pathStartsWithRoot } from "@/utils/path-helpers";
 import { getLanguageDisplayName } from "../utils/language-id";
 import {
   isBuiltInLspPath,
+  isEditorLspSupported,
   JAVA_LANGUAGE_ID,
   languageIdForEditorFile,
 } from "./built-in-language-support";
@@ -84,7 +96,7 @@ export type LspWorkspaceStartOutcome =
 
 export type LspFileAttachmentOutcome =
   | { kind: "attached"; attachmentId: string }
-  | { kind: "cancelled"; reason: "superseded" | "unsupportedHost" };
+  | { kind: "cancelled"; reason: "superseded" | "unsupportedHost" | "excluded" };
 
 type LanguageServerRepairOutcome =
   | { kind: "repaired" }
@@ -241,8 +253,11 @@ export class LspClient {
   private fileStartTasks = new Map<string, PendingFileStart>();
   private workspaceStartTasks = new Map<string, PendingWorkspaceStart>();
   private documentOpenTasks = new Map<string, PendingDocumentOpen>();
+  private documentCloseTasks = new Map<string, Promise<void>>();
   private documentChangeTasks = new Map<string, Promise<void>>();
   private documents = new Map<string, TrackedLspDocument>();
+  private indexingRefreshTasks = new Map<string, Promise<void>>();
+  private indexingRefreshVersions = new Map<string, object>();
   /**
    * Unopened workspace files that currently carry diagnostics, keyed by
    * tracked-file key so lookups match the rest of the client, with the exact
@@ -255,6 +270,9 @@ export class LspClient {
     this.setupDiagnosticsListener();
     this.setupCrashListener();
     this.setupLanguageLifecycleListener();
+    void listen<string>("workspace-indexing-refreshed", ({payload}) => {
+      void this.refreshIndexingDocuments(payload).catch((error) => logger.error("LSPClient", "Could not refresh indexed documents:", error));
+    }).catch((error) => logger.error("LSPClient", "Could not observe indexing refreshes:", error));
   }
 
   /**
@@ -714,12 +732,18 @@ export class LspClient {
           if (!payload.sessionId) return;
           presentMavenProfileTask(payload, {
             toast,
-            clearProjects: (sessionId) => useLspStore.getState().actions.clearMavenProfileProjects(sessionId),
+            clearProjects: (sessionId) =>
+              useLspStore.getState().actions.clearMavenProfileProjects(sessionId),
             retry: (sessionId) => invoke("lsp_retry_maven_profiles", { sessionId }),
           });
         }),
       );
-      await listen<import("./stores/lsp.store").MavenProfileProjectResult & { workspacePath?: string; sessionId?: string }>(
+      await listen<
+        import("./stores/lsp.store").MavenProfileProjectResult & {
+          workspacePath?: string;
+          sessionId?: string;
+        }
+      >(
         "lsp://maven-profile-project",
         ownedLifecycleHandler(ownsLspSession, (payload) => {
           if (!payload?.projectUri || !payload.sessionId) return;
@@ -771,43 +795,44 @@ export class LspClient {
       }
       if (existingTask) await existingTask.task;
 
-      const task: Promise<LspWorkspaceStartOutcome> = (async (): Promise<LspWorkspaceStartOutcome> => {
-        logger.debug(
-          "LSPClient",
-          `Using LSP server: ${launch.serverPath} for language: ${launch.languageId}`,
-        );
-        useLspStore.getState().actions.updateLspStatus("connecting");
-        await invoke<void>("lsp_start", {
-          workspacePath,
-          serverPath: launch.serverPath,
-          serverArgs: launch.serverArgs,
-          languageId: launch.languageId,
-          providerId: launch.providerId,
-          pluginId: launch.pluginId,
-          tools: launch.tools || null,
-          initializationOptions: launch.initializationOptions || null,
-          workspaceConfiguration: launch.workspaceConfiguration || null,
-          runtimeExecutablePath: launch.runtimeExecutablePath || null,
-          jdtlsLaunchResources: launch.jdtlsLaunchResources || null,
-          cacheDirectory: launch.cacheDirectory || null,
-          environment: launch.environment || null,
-          workspaceFingerprint: launch.workspaceFingerprint || null,
-          mavenContext: launch.mavenContext || null,
-          javaRuntimes: launch.javaRuntimes ?? [],
-          javaGradle: launch.javaGradle ?? null,
-        });
+      const task: Promise<LspWorkspaceStartOutcome> =
+        (async (): Promise<LspWorkspaceStartOutcome> => {
+          logger.debug(
+            "LSPClient",
+            `Using LSP server: ${launch.serverPath} for language: ${launch.languageId}`,
+          );
+          useLspStore.getState().actions.updateLspStatus("connecting");
+          await invoke<void>("lsp_start", {
+            workspacePath,
+            serverPath: launch.serverPath,
+            serverArgs: launch.serverArgs,
+            languageId: launch.languageId,
+            providerId: launch.providerId,
+            pluginId: launch.pluginId,
+            tools: launch.tools || null,
+            initializationOptions: launch.initializationOptions || null,
+            workspaceConfiguration: launch.workspaceConfiguration || null,
+            runtimeExecutablePath: launch.runtimeExecutablePath || null,
+            jdtlsLaunchResources: launch.jdtlsLaunchResources || null,
+            cacheDirectory: launch.cacheDirectory || null,
+            environment: launch.environment || null,
+            workspaceFingerprint: launch.workspaceFingerprint || null,
+            mavenContext: launch.mavenContext || null,
+            javaRuntimes: launch.javaRuntimes ?? [],
+            javaGradle: launch.javaGradle ?? null,
+          });
 
-        if (representativeFilePath) {
-          this.workspaceRepresentativeFiles.set(serverKey, representativeFilePath);
-        }
-        this.registerActiveServer(serverKey, launch.languageId, scope);
-        logger.debug("LSPClient", "LSP started successfully for workspace:", workspacePath);
-        return { kind: "ready" };
-      })().finally(() => {
-        if (this.workspaceStartTasks.get(serverKey)?.task === task) {
-          this.workspaceStartTasks.delete(serverKey);
-        }
-      });
+          if (representativeFilePath) {
+            this.workspaceRepresentativeFiles.set(serverKey, representativeFilePath);
+          }
+          this.registerActiveServer(serverKey, launch.languageId, scope);
+          logger.debug("LSPClient", "LSP started successfully for workspace:", workspacePath);
+          return { kind: "ready" };
+        })().finally(() => {
+          if (this.workspaceStartTasks.get(serverKey)?.task === task) {
+            this.workspaceStartTasks.delete(serverKey);
+          }
+        });
       this.workspaceStartTasks.set(serverKey, { scope, task });
       return await task;
     } catch (error) {
@@ -874,11 +899,94 @@ export class LspClient {
     });
   }
 
+  /** Reconcile existing sessions even when their source editors are not mounted. */
+  async refreshIndexingDocuments(root: string): Promise<void> {
+    const identity = getPathIdentity(root);
+    const version = {};
+    this.indexingRefreshVersions.set(identity, version);
+    const task = (this.indexingRefreshTasks.get(identity) ?? Promise.resolve()).catch(() => {}).then(async () => {
+      for (const runtime of workspaceRuntimeRegistry.getWorkspaces()) {
+        const workspaceId = runtime.descriptor.id;
+        if (!runtime.stores.has("editor-buffer") || !runtime.stores.has("file-system")) continue;
+        const files = useFileSystemStore.getStore(workspaceId);
+        const buffers = useBufferStore.getStore(workspaceId);
+        const scopeRoot = files.getState().rootFolderPath;
+        // An initially excluded buffer may be the only source file, so no server exists yet.
+        if (!scopeRoot) continue;
+        for (const buffer of buffers.getState().buffers.filter(shouldStartLsp)) {
+          if (!isEditorLspSupported(buffer.path)) continue;
+          try {
+            const current = () => this.indexingRefreshVersions.get(identity) === version
+              && workspaceRuntimeRegistry.getWorkspace(workspaceId) === runtime
+              && !hasMountedLspDocument(runtime, buffer.path)
+              && files.getState().rootFolderPath === scopeRoot
+              && buffers.getState().buffers.some((item) => item.id === buffer.id && shouldStartLsp(item) && item.path === buffer.path)
+              && getPathIdentity(closestWorkspaceRoot(buffer.path,
+                getNativeWorkspaceRootPaths(files.getState().rootFolderPath, files.getState().workspaceFolders)) ?? "") === identity;
+            if (!current()) continue;
+            const key = trackedFileKey(buffer.path);
+            const attachment = this.fileAttachmentIds.get(key);
+            await this.documentOpenTasks.get(key)?.task;
+            await this.documentChangeTasks.get(key);
+            if (!current() || this.fileAttachmentIds.get(key) !== attachment) continue;
+            const relative = getRelativePath(buffer.path, root);
+            const parent = relative.includes("/") ? relative.slice(0, relative.lastIndexOf("/")) : ".";
+            const policy = await configureWorkspaceIndexing(root, [parent], false, workspaceId);
+            if (!current() || this.fileAttachmentIds.get(key) !== attachment) continue;
+            // Core may have withdrawn this copy in an intermediate generation. Reconcile
+            // the copy, retaining its attachment and running server instead of restarting it.
+            if (attachment) await this.notifyDocumentClose(buffer.path, attachment);
+            if (!current() || this.fileAttachmentIds.get(key) !== attachment) continue;
+            if (Object.keys(policy.excludedDirectories).some((directory) => directory === "." || pathStartsWithRoot(buffer.path, joinPath(root, directory)))) continue;
+            const outcome = await this.startForFile(buffer.path, {workspaceId, root: scopeRoot});
+            if (outcome.kind !== "attached") continue;
+            if (!current()) { if (!attachment) await this.stopForFile(buffer.path, outcome.attachmentId); continue; }
+            const latest = buffers.getState().buffers.find((item) => item.id === buffer.id);
+            if (latest && shouldStartLsp(latest)) {
+              await this.notifyDocumentOpen(buffer.path, latest.content, outcome.attachmentId);
+              const afterOpen = buffers.getState().buffers.find((item) => item.id === buffer.id);
+              if (current() && afterOpen && shouldStartLsp(afterOpen) && afterOpen.content !== latest.content)
+                await this.synchronizeDocument(buffer.path, afterOpen.content);
+            }
+          } catch (error) {
+            // One unavailable provider must not prevent other open buffers from recovering.
+            logger.error("LSPClient", `Could not reconcile indexed document ${buffer.path}:`, error);
+          }
+        }
+      }
+    });
+    this.indexingRefreshTasks.set(identity, task);
+    try { await task; } finally {
+      if (this.indexingRefreshTasks.get(identity) === task) this.indexingRefreshTasks.delete(identity);
+      if (this.indexingRefreshVersions.get(identity) === version) this.indexingRefreshVersions.delete(identity);
+    }
+  }
+
   async startForFile(
     filePath: string,
     scope: WorkspaceLaunchScope,
     intent: LspFileStartIntent = "attach",
   ): Promise<LspFileAttachmentOutcome> {
+    const policyRoot = () => {
+      if (!workspaceRuntimeRegistry.hasWorkspace(scope.workspaceId)) return undefined;
+      const state = useFileSystemStore.getStore(scope.workspaceId).getState();
+      return closestWorkspaceRoot(filePath,
+        getNativeWorkspaceRootPaths(state.rootFolderPath, state.workspaceFolders));
+    };
+    const root = canUseNativeFileSearch(filePath) ? policyRoot() : undefined;
+    if (root) {
+      const relative = getRelativePath(filePath, root);
+      const parent = relative.includes("/") ? relative.slice(0, relative.lastIndexOf("/")) : ".";
+      const indexing = await configureWorkspaceIndexing(root, [parent], false, scope.workspaceId);
+      if (policyRoot() !== root) return { kind: "cancelled", reason: "superseded" };
+      if (
+        Object.keys(indexing.excludedDirectories).some(
+          (directory) =>
+            directory === "." || pathStartsWithRoot(filePath, joinPath(root, directory)),
+        )
+      )
+        return { kind: "cancelled", reason: "excluded" };
+    }
     const attachmentKey = trackedFileKey(filePath);
     const currentAttachmentId = this.fileAttachmentIds.get(attachmentKey);
     const currentSession = getLspSessionSnapshot({ filePath });
@@ -1181,7 +1289,7 @@ export class LspClient {
     const availability = await this.ensureDocumentReady(target, scope, content, feature);
     const document = normalizeLspDocumentTarget(target);
     if (lspSessionFilePath(document) === document.filePath) {
-      await this.synchronizeDocument(document.filePath, content);
+      await this.synchronizeAfterQueuedChanges(document.filePath, content);
     }
     return availability;
   }
@@ -1361,7 +1469,8 @@ export class LspClient {
     target: LspDocumentTargetInput,
     line: number,
     character: number,
-  ): Promise<CompletionItem[]> {
+    completionContext?: CompletionContext,
+  ): Promise<CompletionList> {
     const document = normalizeLspDocumentTarget(target);
     try {
       logger.debug(
@@ -1372,20 +1481,21 @@ export class LspClient {
         "LSPClient",
         `Active language servers: ${Array.from(this.activeLanguageServers).join(", ")}`,
       );
-      const completions = await invoke<CompletionItem[]>("lsp_get_completions", {
+      const completions = await invoke<CompletionList>("lsp_get_completions", {
         ...lspDocumentRequestArgs(document),
         line,
         character,
+        completionContext,
       });
-      if (completions.length === 0) {
+      if (completions.items.length === 0) {
         logger.warn("LSPClient", "LSP returned 0 completions - checking LSP status");
       } else {
-        logger.debug("LSPClient", `Got ${completions.length} completions from LSP server`);
+        logger.debug("LSPClient", `Got ${completions.items.length} completions from LSP server`);
       }
       return completions;
     } catch (error) {
       logger.error("LSPClient", "LSP completion error:", error);
-      return [];
+      return { items: [], isIncomplete: false };
     }
   }
 
@@ -1900,6 +2010,7 @@ export class LspClient {
     attachmentId?: string,
   ): Promise<void> {
     const attachmentKey = trackedFileKey(filePath);
+    await this.documentCloseTasks?.get(attachmentKey);
     const currentAttachmentId = this.fileAttachmentIds.get(attachmentKey);
     if (attachmentId && currentAttachmentId !== attachmentId) return;
     const ownerAttachmentId = attachmentId ?? currentAttachmentId;
@@ -1907,10 +2018,15 @@ export class LspClient {
 
     const openDocument = this.documents.get(attachmentKey);
     if (openDocument?.phase === "open" && openDocument.attachmentId === ownerAttachmentId) {
+      if (openDocument.content !== content) await this.synchronizeDocument(filePath, content);
       return;
     }
     const pendingOpen = this.documentOpenTasks.get(attachmentKey);
-    if (pendingOpen?.attachmentId === ownerAttachmentId) return pendingOpen.task;
+    if (pendingOpen?.attachmentId === ownerAttachmentId) {
+      await pendingOpen.task;
+      await this.synchronizeDocument(filePath, content);
+      return;
+    }
 
     const task: Promise<void> = (async () => {
       try {
@@ -1946,7 +2062,7 @@ export class LspClient {
 
   private async notifyDocumentChange(
     filePath: string,
-    content: string | undefined,
+    content: string,
     version: number,
     contentChanges?: EditorTextChange[],
   ): Promise<void> {
@@ -1957,25 +2073,41 @@ export class LspClient {
       return;
     }
 
+    // Ranges reach the server only if they lead from the text it has to the text
+    // the editor shows; anything else, such as a reload or a save that already
+    // published them, is sent whole. Core is not given the text to compare, since
+    // that would copy a large document across IPC for every pause in typing.
+    const ranges = contentChanges?.length && replayEditorTextChanges(document.content, contentChanges) === content
+      ? contentChanges
+      : undefined;
     try {
-      await invoke<void>("lsp_document_change", {
-        filePath,
-        content,
-        version,
-        contentChanges,
-        attachmentId,
-      });
+      const sendFullText = () => invoke<void>("lsp_document_change", { filePath, content, version, attachmentId });
+      if (ranges) {
+        await invoke<void>("lsp_document_change", { filePath, version, contentChanges: ranges, attachmentId })
+          .catch(sendFullText);
+      } else {
+        await sendFullText();
+      }
       const current = this.documents.get(attachmentKey);
       if (current?.phase === "open" && current.attachmentId === attachmentId) {
-        this.documents.set(attachmentKey, {
-          ...current,
-          version,
-          content: content ?? current.content,
-        });
+        this.documents.set(attachmentKey, { ...current, version, content });
       }
     } catch (error) {
       logger.error("LSPClient", "LSP document change error:", error);
       throw error;
+    }
+  }
+
+  /**
+   * Publishes `content` once the queued ranges are out. Those usually carry the
+   * same text, which spares copying the whole document ahead of the debounce.
+   */
+  private async synchronizeAfterQueuedChanges(filePath: string, content: string): Promise<void> {
+    const attachmentKey = trackedFileKey(filePath);
+    const attachmentId = this.fileAttachmentIds.get(attachmentKey);
+    await flushLspDocumentChanges(filePath);
+    if (this.fileAttachmentIds.get(attachmentKey) === attachmentId) {
+      await this.synchronizeDocument(filePath, content);
     }
   }
 
@@ -1989,10 +2121,12 @@ export class LspClient {
     contentChanges?: EditorTextChange[],
   ): Promise<void> {
     const attachmentKey = trackedFileKey(filePath);
+    const attachmentId = this.fileAttachmentIds.get(attachmentKey);
     const previous = this.documentChangeTasks.get(attachmentKey) ?? Promise.resolve();
     const task = previous.catch(() => undefined).then(async () => {
       const document = this.documents.get(attachmentKey);
-      if (document?.phase !== "open" || document.content === content) return;
+      if (!attachmentId || document?.phase !== "open" || document.attachmentId !== attachmentId
+          || this.fileAttachmentIds.get(attachmentKey) !== attachmentId || document.content === content) return;
       await this.notifyDocumentChange(
         filePath,
         content,
@@ -2010,9 +2144,15 @@ export class LspClient {
     return task;
   }
 
-  async notifyDocumentSave(filePath: string, content: string): Promise<void> {
+  async notifyDocumentSave(filePath: string, content: string, currentContent?: string): Promise<void> {
     const attachmentKey = trackedFileKey(filePath);
     const attachmentId = this.fileAttachmentIds.get(attachmentKey);
+    if (currentContent !== undefined) {
+      await this.synchronizeAfterQueuedChanges(filePath, currentContent);
+    }
+    // Finish the editor's preceding changes before reporting the disk save.
+    // Core rejects a delayed save whose text has already been superseded.
+    await this.documentChangeTasks.get(attachmentKey);
     const document = this.documents.get(attachmentKey);
     if (!attachmentId || document?.phase !== "open" || document.attachmentId !== attachmentId) {
       return;
@@ -2030,22 +2170,24 @@ export class LspClient {
     const attachmentKey = trackedFileKey(filePath);
     const document = this.documents.get(attachmentKey);
     const attachmentId = requestedAttachmentId ?? document?.attachmentId;
-    if (!attachmentId || document?.phase !== "open" || document.attachmentId !== attachmentId) {
-      return;
-    }
+    if (!attachmentId || document?.attachmentId !== attachmentId) return;
+    if (document.phase === "closing") return this.documentCloseTasks?.get(attachmentKey);
 
     this.documents.set(attachmentKey, { ...document, phase: "closing" });
     useDiagnosticsStore.getState().actions.clearDiagnosticsForOwner(filePath, "lsp");
     useLspStore.getState().actions.markDocumentStateChanged();
-
-    try {
-      await invoke<void>("lsp_document_close", { filePath, attachmentId });
-    } catch (error) {
-      logger.error("LSPClient", "LSP document close error:", error);
-      throw error;
-    } finally {
-      const current = this.documents.get(attachmentKey);
-      if (current?.attachmentId === attachmentId) this.documents.delete(attachmentKey);
+    const task = (async () => {
+      try { await invoke<void>("lsp_document_close", { filePath, attachmentId }); }
+      catch (error) { logger.error("LSPClient", "LSP document close error:", error); throw error; }
+      finally {
+        const current = this.documents.get(attachmentKey);
+        if (current?.attachmentId === attachmentId) this.documents.delete(attachmentKey);
+      }
+    })();
+    this.documentCloseTasks ??= new Map();
+    this.documentCloseTasks.set(attachmentKey, task);
+    try { await task; } finally {
+      if (this.documentCloseTasks.get(attachmentKey) === task) this.documentCloseTasks.delete(attachmentKey);
     }
   }
 

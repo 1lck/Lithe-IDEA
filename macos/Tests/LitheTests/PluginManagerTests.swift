@@ -7,6 +7,51 @@ import Testing
 
 @MainActor
 struct PluginManagerTests {
+    @Test func bundledServersAreInjectedOnlyAfterTheirPluginIsEnabled() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let configuration = MacModuleConfigurationStore(store: PluginManagerKeyValueStore())
+        let runtime = ModuleRuntime(configurationStore: configuration, recoveryStore: configuration)
+        let plugin = try #require(BundledLanguagePluginCatalog.manifests.first {
+            $0.languageSupports?.first?.id == "clangd"
+        })
+        let declaration = try #require(plugin.modules.first)
+        try runtime.register(ModuleFactory(manifest: declaration.manifest) {
+            PluginManagerTestModule(manifest: declaration.manifest, recorder: PluginManagerModuleRecorder())
+        })
+        let manager = MacPluginManager(packageStore: makeStore(root: root), moduleRuntime: runtime,
+            configurationStore: configuration, settings: InMemoryPluginSettings(), launchMode: .normal,
+            startup: MacPluginStartupResult(installedPlugins: [], registeredPlugins: [], issues: []),
+            managedBuiltInPlugins: [plugin])
+        let catalog = RustLanguageProviderCatalogSource(core: RustCoreBridge()).load().catalog
+        #expect(manager.languageServerRegistrations(catalog: catalog).isEmpty)
+        try await manager.setEnabled(true, for: plugin.id)
+        #expect(manager.languageServerRegistrations(catalog: catalog).map(\.executableNames) == [["clangd"]])
+        try await manager.setEnabled(false, for: plugin.id)
+        #expect(manager.languageServerRegistrations(catalog: catalog).isEmpty)
+    }
+
+    @Test func serverRegistrationUsesDeclaredCommandsOrExistingServerMetadataWithoutInventingNames() throws {
+        let java = try DeclarativePluginTestSupport.officialDescriptor("JavaSupport")
+        let server = try #require(java.languageServers.first)
+        let catalog = RustLanguageProviderCatalogSource(core: RustCoreBridge()).load().catalog
+        let entry = MacPluginManager.languageServerRegistration(server, pluginID: java.id.rawValue, catalog: catalog)
+        #expect(entry.executableNames == ["jdtls"])
+        #expect(entry.pluginID == java.id.rawValue)
+        let unnamed = MacPluginManager.languageServerRegistration(server, pluginID: java.id.rawValue,
+            catalog: LanguageProviderCatalog(descriptors: []))
+        #expect(unnamed.executableNames.isEmpty)
+        let row = try #require(LSPControlCenterPresenter.statusBarServers(registrations: [unnamed],
+            states: [:], infos: [:], disabledProviderIDs: []).first)
+        #expect(row.displayName == java.id.rawValue)
+
+        let installed = try installedPlugin()
+        let direct = try #require(installed.descriptor.languageServers.first)
+        let directEntry = MacPluginManager.languageServerRegistration(direct,
+            pluginID: installed.manifest.id.rawValue, catalog: catalog)
+        #expect(directEntry.executableNames == ["fixture-language-server"])
+    }
+
     @Test
     func bundledLanguageCatalogOnlyCreatesPluginsForImplementedProcessFeatures() throws {
         let expectedIDs: Set<String> = [
@@ -106,6 +151,7 @@ struct PluginManagerTests {
         )
 
         #expect(manager.snapshots.isEmpty)
+        #expect(manager.languageServerRegistrations(catalog: .compatibilityFallback).isEmpty)
     }
 
     @Test
@@ -135,6 +181,7 @@ struct PluginManagerTests {
         let snapshot = try #require(manager.snapshots.first { $0.id == installed.manifest.id })
         #expect(snapshot.isEnabled)
         #expect(snapshot.requiresRestart)
+        #expect(manager.languageServerRegistrations(catalog: .compatibilityFallback).isEmpty)
     }
 
     /// A declarative plugin registered at launch has no code mapped in the
@@ -174,6 +221,9 @@ struct PluginManagerTests {
             invalidateWebPages: { invalidated.append($0) },
             enableWebPages: { webPagesEnabled.append($0) }
         )
+        #expect(manager.languageServerRegistrations(catalog: .compatibilityFallback) == [LanguageServerRegistration(
+            id: "fixture", pluginID: installed.manifest.id.rawValue, executableNames: ["fixture-language-server"]
+        )])
 
         try await manager.setEnabled(false, for: installed.manifest.id)
 
@@ -183,6 +233,7 @@ struct PluginManagerTests {
         let disabled = try #require(manager.snapshots.first { $0.id == installed.manifest.id })
         #expect(!disabled.isEnabled)
         #expect(!disabled.requiresRestart)
+        #expect(manager.languageServerRegistrations(catalog: .compatibilityFallback).isEmpty)
 
         try await manager.setEnabled(true, for: installed.manifest.id)
         let enabled = try #require(manager.snapshots.first { $0.id == installed.manifest.id })
@@ -190,6 +241,7 @@ struct PluginManagerTests {
         #expect(!enabled.requiresRestart)
         #expect(invalidated == [installed.manifest.id])
         #expect(webPagesEnabled == [installed.manifest.id])
+        #expect(manager.languageServerRegistrations(catalog: .compatibilityFallback).map(\.id) == ["fixture"])
     }
 
     @Test

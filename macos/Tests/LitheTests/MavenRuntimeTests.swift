@@ -9,16 +9,17 @@ struct MavenRuntimeTests {
     @MainActor
     func automaticJavaUsesProjectMinimumAndPreservesExplicitSelections() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: root.appendingPathComponent(".lithe/toolchains"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let requirements = root.appendingPathComponent(".lithe/toolchains/requirements.json")
+        // Before the Run list is identified, Core reads the minimum from the project's declaration.
+        let pom = root.appendingPathComponent("pom.xml")
         let old = JavaRuntimeCandidate(homePath: "/jdk/env", version: "1.8.0_402", vendor: "fixture")
         let current = JavaRuntimeCandidate(homePath: "/jdk/current", version: "21.0.4", vendor: "fixture")
         let locator = ChoiceRuntimeLocator(environmentValues: ["JAVA_HOME": old.homePath], validJavaHomes: [old.homePath, current.homePath], runtimeCandidates: [old, current])
         let service = ProjectRuntimeService(runtimeLocator: locator, store: EmptyKeyValueStore())
         service.openProject(at: root)
         func require(_ version: String) throws {
-            try Data("{\"version\":1,\"toolchains\":{\"project-jdk\":{\"type\":\"java\",\"minimumVersion\":\"\(version)\"}}}".utf8).write(to: requirements)
+            try Data("<project><properties><maven.compiler.release>\(version)</maven.compiler.release></properties></project>".utf8).write(to: pom)
         }
         try require("17")
         let choice = service.chooseJavaHome(overridePath: nil) { [old, current] }
@@ -34,12 +35,9 @@ struct MavenRuntimeTests {
             #expect(url.path == old.homePath)
             #expect(message.contains("25"))
         } else { Issue.record("Expected an actionable fallback warning") }
-        try FileManager.default.removeItem(at: requirements)
+        try FileManager.default.removeItem(at: pom)
         #expect(service.chooseJavaHome(overridePath: nil) { [current, old] }?.url?.path == old.homePath)
-        try Data("{".utf8).write(to: requirements)
-        if case .unavailable(_)? = service.chooseJavaHome(overridePath: nil, detected: { [old, current] }) {} else {
-            Issue.record("Invalid requirements must be visible")
-        }
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(".lithe").path))
         // Project switching cannot retain the previous workspace's requirement.
         service.closeProject()
         #expect(service.chooseJavaHome(overridePath: nil) { [current, old] }?.url?.path == old.homePath)

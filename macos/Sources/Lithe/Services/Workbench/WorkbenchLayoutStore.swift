@@ -19,6 +19,8 @@ struct WorkbenchLayout: Codable, Sendable {
     // IDEA's ide.mainSplitter.min.size applies to each outer pane and the editor.
     static let minimumPaneSize: Double = 30
     static let minimumSidebarWidth = minimumPaneSize
+    static let defaultSidebarWidth: Double = 360
+    static let defaultTopPaneFraction: Double = 0.72
     static let defaultMavenPaneWidth: Double = 360
     var toolWindows: [ToolWindowState]?
     var groupFractions: [String: Double]?
@@ -43,7 +45,7 @@ struct WorkbenchLayout: Codable, Sendable {
 
 struct WorkbenchLayoutStore {
     private static let keyPrefix = "lithe.workbench-layout."
-    private static let defaultLayout = WorkbenchLayout(sidebarWidth: 320, topPaneHeight: nil)
+    private static let defaultLayout = WorkbenchLayout(sidebarWidth: WorkbenchLayout.defaultSidebarWidth, topPaneHeight: nil)
     private let store: any KeyValueStore
 
     init(store: any KeyValueStore) {

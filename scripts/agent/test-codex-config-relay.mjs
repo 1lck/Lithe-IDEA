@@ -124,9 +124,25 @@ test('malformed protocol stops the owned child without exposing payload data', {
 
 test('Windows uses the upstream shell launcher for native npm cmd executables', { timeout: 1000 }, t => {
   const r = relay(t, 'win32');
-  assert.equal(r.launches[0][0], '"fixture-codex" app-server');
+  assert.equal(r.launches[0][0], '"fixture-codex" -c model_provider=custom-gateway -c model_providers.custom-gateway.name=ACP-gateway -c model_providers.custom-gateway.wire_api=responses app-server');
   assert.equal(r.launches[0][1].shell, true);
 });
+
+for (const platform of ['darwin', 'win32']) {
+  for (const nativeRecovery of [true, false]) {
+    test(`native provider admission matches the explicit ${nativeRecovery ? 'gateway' : 'subscription'} route on ${platform}`, { timeout: 1000 }, t => {
+      const r = relay(t, platform, null, nativeRecovery);
+      const args = ['-c', `model_provider=${nativeRecovery ? 'custom-gateway' : 'openai'}`];
+      if (nativeRecovery) args.push('-c', 'model_providers.custom-gateway.name=ACP-gateway', '-c', 'model_providers.custom-gateway.wire_api=responses');
+      args.push('app-server');
+      if (platform === 'win32') {
+        assert.equal(r.launches[0][0], `"fixture-codex" ${args.join(' ')}`);
+      } else {
+        assert.deepEqual(Array.from(r.launches[0][1]), args);
+      }
+    });
+  }
+}
 
 for (const platform of ['darwin', 'win32']) {
   test(`history replay returns only the armed native snapshot on ${platform}`, { timeout: 2000 }, async t => {

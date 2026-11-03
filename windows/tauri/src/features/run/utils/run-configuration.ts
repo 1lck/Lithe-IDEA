@@ -1,5 +1,6 @@
 import {
   CURRENT_FILE_ID,
+  PRIMARY_SESSION_ID,
   type CoreGlobalToolchain,
   type CoreLocalToolchains,
   type GenericRuntime,
@@ -16,6 +17,14 @@ import {
 } from "../types/run.types";
 
 import { runConfigurationPresentation } from "./run-configuration-presentation";
+
+/** Run and IDE automation must agree on which configurations share an output slot. */
+export function runSessionId(configuration: Pick<RunConfiguration, "id" | "execution">): string {
+  return configuration.id !== CURRENT_FILE_ID &&
+    (configuration.execution === "service" || configuration.execution === "application")
+    ? configuration.id
+    : PRIMARY_SESSION_ID;
+}
 
 export function mapCoreConfiguration(value: CoreResolvedConfiguration): RunConfiguration {
   const maven = value.extensions?.maven;
@@ -152,22 +161,10 @@ export function recoveryActionForError(code: string | undefined): RunRecoveryAct
 
 export function recoveryPathFromMessage(message: string): string | undefined {
   return [
-    ".lithe/run/generated.json",
     ".lithe/run/configurations.json",
     ".lithe/run/local.json",
-    ".lithe/toolchains/requirements.json",
     ".lithe/project.json",
   ].find((path) => message.includes(path));
-}
-
-export function defaultGeneratedConfigurationId(generated: unknown): string | undefined {
-  const configurations = Array.isArray((generated as { configurations?: unknown[] } | null)?.configurations)
-    ? ((generated as { configurations: Array<{ id?: string; provider?: string }> }).configurations)
-    : [];
-  const framework = configurations.find((configuration) =>
-    ["spring-boot.maven", "quarkus.maven", "micronaut.maven"].includes(configuration.provider ?? ""),
-  );
-  return framework?.id ?? configurations.find((configuration) => configuration.id !== CURRENT_FILE_ID)?.id;
 }
 
 export function workspaceRelativePath(root: string, filePath: string): string | undefined {

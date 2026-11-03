@@ -267,7 +267,7 @@ final class MacManagedProcess: @unchecked Sendable {
         }
 
         let argumentValues = [executableURL.path] + arguments
-        let environmentValues = (environment ?? ProcessInfo.processInfo.environment)
+        let environmentValues = (environment ?? MacLoginShellEnvironment.shared.merged(ProcessInfo.processInfo.environment))
             .sorted { $0.key < $1.key }
             .map { "\($0.key)=\($0.value)" }
         var launchedPID: pid_t = 0

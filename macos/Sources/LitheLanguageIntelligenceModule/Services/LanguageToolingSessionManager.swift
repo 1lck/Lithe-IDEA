@@ -70,6 +70,9 @@ package final class LanguageToolingSessionManager: ObservableObject,
     private var extensionLifecycles: [String: WeakLanguageServerExtensionLifecycle] = [:]
     private let runtimeFactory: (any LanguageProviderRuntimeFactory)?
     private var languageServers: [String: any LanguageServerSession] = [:]
+    /// Explicit restarts retain the old process's slot through shutdown and
+    /// resource release. A timed-out close must not admit an overlapping start.
+    private var stoppingServers: [String: (id: UUID, session: any LanguageServerSession, task: Task<Bool, Never>)] = [:]
     private var languageServerRoots: [String: URL] = [:]
     private static let maximumStartupAttempts = 3
     private var languageServerStartupAttempts: [String: (root: URL, count: Int)] = [:]
@@ -617,9 +620,10 @@ package final class LanguageToolingSessionManager: ObservableObject,
     /// by both Run and Debug. Java Debug Server owns these project-model rules.
     package func prepareJavaRunLaunchTarget(
         fileURL: URL,
-        rootURL: URL
+        rootURL: URL,
+        mainClass: String? = nil
     ) async throws -> JavaLaunchPreparation {
-        try await prepareJavaLaunchTarget(fileURL: fileURL, rootURL: rootURL)
+        try await prepareJavaLaunchTarget(fileURL: fileURL, rootURL: rootURL, mainClass: mainClass)
     }
 
     /// Rebuilds the original running target without allowing a failed build to proceed.
@@ -698,102 +702,17 @@ package final class LanguageToolingSessionManager: ObservableObject,
 
     private func prepareJavaLaunchTarget(
         fileURL: URL,
-        rootURL: URL
+        rootURL: URL,
+        mainClass: String? = nil
     ) async throws -> JavaLaunchPreparation {
         let normalizedRoot = rootURL.standardizedFileURL
         let resolvedFile = fileURL.standardizedFileURL.resolvingSymlinksInPath()
         _ = try startLanguageServer(providerID: "java", rootURL: normalizedRoot)
         try await waitUntilLanguageServerReady(providerID: "java", rootURL: normalizedRoot)
-        // JDT decides which classes are launchable; Core normalizes its answer
-        // into workspace-relative entries, so the target is the entry generated
-        // from this exact source file.
-        let entrypoints = try await javaEntrypoints(in: normalizedRoot)
-        let relativeSource = Self.workspaceRelativePath(of: resolvedFile, in: normalizedRoot)
-        let exactMatches = entrypoints.entries.filter { $0.sourcePath == relativeSource }
-        guard exactMatches.count == 1 else {
-            let message = exactMatches.isEmpty
-                ? "No Java main method was found in \(resolvedFile.lastPathComponent)."
-                : "More than one Java main method was found in \(resolvedFile.lastPathComponent)."
-            throw LanguageToolingSessionError.toolingUnavailable(message)
+        guard let session = languageServers["java"], session.isRunning else {
+            throw LanguageToolingSessionError.toolingUnavailable("Java")
         }
-        let selected = JavaDebugLaunchTarget(
-            mainClass: exactMatches[0].mainClass,
-            projectName: exactMatches[0].projectName
-        )
-        let buildPayload = JavaWorkspaceBuildRequest(
-            mainClass: selected.mainClass,
-            projectName: selected.projectName,
-            filePath: resolvedFile.path,
-            isFullBuild: false
-        )
-        let buildData = try JSONEncoder().encode(buildPayload)
-        guard let buildJSON = String(data: buildData, encoding: .utf8) else {
-            throw LanguageToolingSessionError.toolingUnavailable(
-                "The Java workspace build request could not be encoded."
-            )
-        }
-        var buildFailure: JavaLaunchBuildFailure?
-        do {
-            let buildValue = try await executeJavaCommand(
-                "vscode.java.buildWorkspace",
-                arguments: [.string(buildJSON)],
-                rootURL: normalizedRoot
-            )
-            let buildStatus: Int?
-            switch buildValue {
-            case .integer(let value): buildStatus = value
-            case .string(let value): buildStatus = Int(value)
-            default: buildStatus = nil
-            }
-            guard buildStatus == 1 else {
-                throw LanguageToolingSessionError.toolingUnavailable(
-                    "The Java language service returned an unexpected project build status."
-                )
-            }
-        } catch let failure as LanguageServerRequestFailure {
-            let error = failure.runtimeError
-            guard error.code == "javaBuildCompilationErrors" || error.code == "javaBuildFailed" else {
-                throw failure
-            }
-            buildFailure = JavaLaunchBuildFailure(
-                code: error.code,
-                message: failure.localizedDescription,
-                report: error.javaBuildReport
-            )
-        }
-        // Explicit runtime scope excludes test Main classes (issue #379).
-        // Omit it so Java Debug Server selects paths from the owning project.
-        let classpathValue = try await executeJavaCommand(
-            "vscode.java.resolveClasspath",
-            arguments: [
-                .string(selected.mainClass),
-                .string(selected.projectName ?? ""),
-            ],
-            rootURL: normalizedRoot
-        )
-        guard case .array(let pathGroups) = classpathValue,
-              pathGroups.count == 2 else {
-            throw LanguageToolingSessionError.toolingUnavailable(
-                "The Java language service returned an invalid runtime classpath."
-            )
-        }
-        let modulePaths = Self.stringValues(pathGroups[0])
-        let classPaths = Self.stringValues(pathGroups[1])
-        guard !modulePaths.isEmpty || !classPaths.isEmpty else {
-            throw LanguageToolingSessionError.toolingUnavailable(
-                "The Java language service could not resolve the runtime classpath."
-            )
-        }
-        let target = JavaDebugLaunchTarget(
-            mainClass: selected.mainClass,
-            projectName: selected.projectName,
-            modulePaths: modulePaths,
-            classPaths: classPaths
-        )
-        if let buildFailure {
-            return .buildFailed(target: target, failure: buildFailure)
-        }
-        return .ready(target)
+        return try await session.prepareJavaLaunch(fileURL: resolvedFile, mainClass: mainClass)
     }
 
     /// Resolves one Java source file or discovered test item through the Java
@@ -1098,6 +1017,18 @@ package final class LanguageToolingSessionManager: ObservableObject,
         if providerID == "java" { scheduleJavaDependencyRefresh(after: changes) }
     }
 
+    package func notifyDocumentSaved(_ fileURL: URL, text: String, currentText: String) throws {
+        let fileURL = fileURL.standardizedFileURL
+        guard let session = languageServerSession(for: fileURL),
+              let descriptor = catalog.provider(for: fileURL) else { return }
+        // Flush editor state before didSave, including edits made during the
+        // disk write. Core must see the newer revision to reject a stale save.
+        try session.synchronize(fileURL: fileURL, text: currentText,
+            languageID: extensionLanguageIdentifiers[descriptor.id]
+                ?? descriptor.languageIdentifier(for: fileURL))
+        try session.notifyDocumentSaved(fileURL, text: text)
+    }
+
     package func closeDocument(_ fileURL: URL) {
         let standardizedURL = fileURL.standardizedFileURL
         clearDiagnostics(for: standardizedURL)
@@ -1160,6 +1091,11 @@ package final class LanguageToolingSessionManager: ObservableObject,
     }
 
     package func stopLanguageServer(providerID: String) {
+        guard stoppingServers[providerID] == nil else { return }
+        removeLanguageServer(providerID: providerID, stopSession: true)
+    }
+
+    private func removeLanguageServer(providerID: String, stopSession: Bool) {
         languageServerStartupAttempts[providerID] = nil
         if providerID == "java" { projectPreparation = nil }
         if providerID == "java" {
@@ -1188,22 +1124,24 @@ package final class LanguageToolingSessionManager: ObservableObject,
         clearDiagnostics(providerID: providerID)
         if providerID == "java" { mavenProfileProjectResults.removeAll() }
         languageServerSessionIdentities[providerID] = nil
-        languageServers.removeValue(forKey: providerID)?.stop()
+        let removed = languageServers.removeValue(forKey: providerID)
+        if stopSession { removed?.stop() }
         languageServerRoots[providerID] = nil
         languageServerMavenContexts[providerID] = nil
         languageServerWorkspaceFingerprints[providerID] = nil
         languageServerFeatures[providerID] = nil
         languageServerInfos[providerID] = nil
         languageServerFeatureProviders[providerID] = nil
-        languageServerStates[providerID] = .stopped
+        let state: LanguageServerSessionState = stopSession ? .stopped : .stopping
+        languageServerStates[providerID] = state
         resumeLanguageServerReadyWaiters(
             providerID: providerID,
-            state: .stopped,
+            state: state,
             rootURL: nil
         )
         onLanguageServerStateChange?(
             providerID,
-            .stopped,
+            state,
             operationID
         )
         languageServerOperationIDs[providerID] = nil
@@ -1225,6 +1163,44 @@ package final class LanguageToolingSessionManager: ObservableObject,
         languageServerStates = [:]
         languageServerStartupAttempts = [:]
         languageServerOperationIDs = [:]
+    }
+
+    /// The ordinary stop API initiates shutdown. Restart callers additionally
+    /// wait for the old process and its package/workspace resources to release.
+    package func stopLanguageServerAndWait(providerID: String) async -> Bool {
+        let retiring: any LanguageServerSession
+        if let stopping = stoppingServers[providerID] {
+            if await stopping.task.value { return true }
+            guard !Task.isCancelled else { return false }
+            // A previous wait can time out before the process finally exits.
+            // An explicit retry waits on that same process, never starts over.
+            retiring = stopping.session
+        } else {
+            guard let session = languageServers[providerID] else {
+                stopLanguageServer(providerID: providerID)
+                return true
+            }
+            retiring = session
+        }
+        let id = UUID()
+        let task = Task { @MainActor [weak self] in
+            let ended = await retiring.stopAndWait()
+            guard let self, self.stoppingServers[providerID]?.id == id else { return ended }
+            if ended { self.stoppingServers[providerID] = nil }
+            // Full workspace teardown may already have cleared the projection.
+            if self.languageServerStates[providerID] == .stopping {
+                let state: LanguageServerSessionState = ended ? .stopped : .failed(.init(
+                    code: "shutdownTimeout", stage: "shutdown",
+                    message: L10n.string("The language server is still stopping. Try again after it has stopped.")
+                ))
+                self.languageServerStates[providerID] = state
+                self.onLanguageServerStateChange?(providerID, state, nil)
+            }
+            return ended
+        }
+        stoppingServers[providerID] = (id, retiring, task)
+        removeLanguageServer(providerID: providerID, stopSession: false)
+        return await task.value
     }
 
     /// Stops one provider and removes only its current workspace-state directory.
@@ -1331,17 +1307,27 @@ package final class LanguageToolingSessionManager: ObservableObject,
     }
 
     package func completions(
+        fileURL: URL, text: String, position: LanguageServerPosition, rootURL: URL,
+        completion: @escaping (Result<[LanguageServerCompletionItem], Error>) -> Void
+    ) throws {
+        try completionList(fileURL: fileURL, text: text, position: position, rootURL: rootURL) {
+            completion($0.map(\.items))
+        }
+    }
+
+    package func completionList(
         fileURL: URL,
         text: String,
         position: LanguageServerPosition,
         rootURL: URL,
-        completion: @escaping (Result<[LanguageServerCompletionItem], Error>) -> Void
+        completionContext: LanguageServerCompletionContext? = nil,
+        completion: @escaping (Result<LanguageServerCompletionList, Error>) -> Void
     ) throws {
         let context = featureContext(
             fileURL: fileURL,
             text: text,
             position: position,
-            rootURL: rootURL
+            rootURL: rootURL, completionContext: completionContext
         )
         let providers = featureProviders(for: .completion, context: context)
         guard !providers.isEmpty else {
@@ -1352,6 +1338,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
             index: 0,
             context: context,
             items: [],
+            isIncomplete: false,
             seenLabels: [],
             completion: completion
         )
@@ -1641,6 +1628,11 @@ package final class LanguageToolingSessionManager: ObservableObject,
         rootURL: URL,
         operationID requestedOperationID: UUID?
     ) throws -> any LanguageServerSession {
+        guard stoppingServers[descriptor.id] == nil else {
+            throw LanguageToolingSessionError.toolingUnavailable(
+                L10n.string("The language server is still stopping. Try again after it has stopped.")
+            )
+        }
         // All entry points, including Maven reload, testing, and debugging, must
         // recheck the current workspace preference before creating or reusing a session.
         guard isLanguageServerEnabled(descriptor.id, rootURL) else {
@@ -1921,7 +1913,8 @@ package final class LanguageToolingSessionManager: ObservableObject,
         fileURL: URL,
         text: String,
         position: LanguageServerPosition,
-        rootURL: URL?
+        rootURL: URL?,
+        completionContext: LanguageServerCompletionContext? = nil
     ) -> LanguageFeatureRequestContext {
         let descriptor = catalog.provider(for: fileURL)
         return LanguageFeatureRequestContext(
@@ -1929,7 +1922,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
             text: text,
             position: position,
             languageID: descriptor?.languageIdentifier(for: fileURL),
-            workspaceURL: rootURL
+            workspaceURL: rootURL, completionContext: completionContext
         )
     }
 
@@ -1952,20 +1945,21 @@ package final class LanguageToolingSessionManager: ObservableObject,
         index: Int,
         context: LanguageFeatureRequestContext,
         items: [LanguageServerCompletionItem],
+        isIncomplete: Bool,
         seenLabels: Set<String>,
-        completion: @escaping (Result<[LanguageServerCompletionItem], Error>) -> Void
+        completion: @escaping (Result<LanguageServerCompletionList, Error>) -> Void
     ) {
         guard index < providers.count else {
-            completion(.success(items))
+            completion(.success(LanguageServerCompletionList(items: items, isIncomplete: isIncomplete)))
             return
         }
         do {
-            try providers[index].completions(in: context) { [self] result in
+            try providers[index].completionList(in: context) { [self] result in
                 switch result {
                 case .success(let providerItems):
                     var merged = items
                     var labels = seenLabels
-                    for item in providerItems where labels.insert(item.label).inserted {
+                    for item in providerItems.items where labels.insert(item.label).inserted {
                         merged.append(item)
                     }
                     routeCompletions(
@@ -1973,6 +1967,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
                         index: index + 1,
                         context: context,
                         items: merged,
+                        isIncomplete: isIncomplete || providerItems.isIncomplete,
                         seenLabels: labels,
                         completion: completion
                     )

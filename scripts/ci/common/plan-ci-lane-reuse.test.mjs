@@ -355,6 +355,7 @@ test('planning failures and non pull request events run every selected lane', as
 });
 
 test('CI infrastructure paths are recognised', () => {
+  assert.equal(isCiInfrastructure('scripts/plugins/plugin-settings-schema.test.mjs'), true);
   for (const path of ['.github/workflows/ci-macos.yml', 'scripts/ci/common/classify-ci-changes.sh', 'scripts/macos/test/test-macos.sh', 'Package.resolved', 'rust/Cargo.lock', 'rust/lithe-core/Cargo.toml', 'windows/tauri/crates/project/Cargo.toml', 'windows/tauri/rust-toolchain.toml', '.agents/skills/write-stable-tests/scripts/x.sh']) {
     assert.equal(isCiInfrastructure(path), true, path);
   }
@@ -398,6 +399,7 @@ test('CI infrastructure reaches only the workflows that read it', () => {
     'scripts/ide-mcp/build-windows-ide-mcp.mjs': ['windows'],
     // A "windows" substring in the name of a cross-platform script does not make it Windows infrastructure.
     'scripts/plugins/windows-compat-check.mjs': [],
+    'scripts/plugins/plugin-settings-schema.test.mjs': [],
     '.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1': ['windows'],
     // `.github/` paths follow the given references, whichever workflow asks.
     '.github/workflows/ci-macos.yml': shared,

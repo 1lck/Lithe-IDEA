@@ -7,6 +7,7 @@ import { replaceAllInSources, replaceNextInSource } from "@/features/global-sear
 import type { EditorContent } from "@/features/panes/types/pane-content.types";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import { saveWorkspaceBeforeLaunch } from "../services/save-workspace-before-launch";
+import { LspClient } from "../lsp/lsp-client";
 import { getBufferById } from "../utils/buffer-index";
 import { useBufferStore } from "./buffer.store";
 import { createEditorAppStore, useEditorAppStore } from "./editor-app.store";
@@ -66,6 +67,48 @@ afterEach(() => {
 });
 
 describe("workspace-scoped editor actions", () => {
+  test.each(["edited", "saved", "closed"] as const)(
+    "launch save rechecks a later buffer after it is %s during another notification",
+    async (change) => {
+      const first = editorBuffer("first", "first", { isVirtual: false });
+      const second = editorBuffer("second", "old", { isVirtual: false });
+      setWorkspaceBuffers(WORKSPACE_A, [first, second], first.id);
+      const save = spyOn(LspClient.getInstance(), "notifyDocumentSave")
+        .mockImplementation(async (path) => {
+          if (path !== first.path) return;
+          // The first notification yields; the next buffer changes before its turn.
+          const updated = { ...second, content: "new", savedContent: change === "saved" ? "new" : "old",
+            isDirty: change === "edited" };
+          setWorkspaceBuffers(WORKSPACE_A, change === "closed" ? [first] : [first, updated], first.id);
+        });
+      try {
+        if (change === "edited") {
+          await expect(saveWorkspaceBeforeLaunch(WORKSPACE_A)).rejects.toThrow(second.name);
+        } else {
+          await saveWorkspaceBeforeLaunch(WORKSPACE_A);
+        }
+        expect(save.mock.calls).toEqual(change === "saved"
+          ? [[first.path, "first", "first"], [second.path, "new", "new"]]
+          : [[first.path, "first", "first"]]);
+      } finally {
+        save.mockRestore();
+      }
+    },
+    1000,
+  );
+
+  test("a clean disk buffer still blocks launch when its language-server save fails", async () => {
+    const buffer = editorBuffer("main", "saved", { isVirtual: false, path: "C:/workspace/Main.java" });
+    setWorkspaceBuffers(WORKSPACE_A, [buffer], buffer.id);
+    const save = spyOn(LspClient.getInstance(), "notifyDocumentSave")
+      .mockRejectedValue(new Error("save transport failed"));
+    try {
+      await expect(saveWorkspaceBeforeLaunch(WORKSPACE_A)).rejects.toThrow("save transport failed");
+      expect(save).toHaveBeenCalledWith(buffer.path, "saved", "saved");
+      expect(getEditorBuffer(WORKSPACE_A, buffer.id).isDirty).toBe(false);
+    } finally { save.mockRestore(); }
+  });
+
   for (const operation of ["rename", "replace-all", "replace-next"] as const) {
     test(`${operation} rejects unloaded targets before changing other documents`, async () => {
       const a = editorBuffer("a", "old name", { path: "C:/fixture/a.txt", isVirtual: false });
@@ -426,6 +469,8 @@ async function startAutosaveHarness(options: {
    * the re-read afterwards no longer sees an owner.
    */
   onClaimRefusedWhileSaving?: (writes: PendingWrite[]) => Promise<void>;
+  /** Holds a claim that will succeed, so a test can act between timer and write. */
+  onClaim?: () => Promise<void>;
 } = {}) {
   const documentFiles = await import("@/platform/document-files");
   const lifecycle = await import("@/platform/document-lifecycle");
@@ -458,6 +503,7 @@ async function startAutosaveHarness(options: {
           }
           return { state, action: state.status === "conflict" ? "showConflict" : "none" };
         }
+        await options.onClaim?.();
         return {
           state: {
             status: "saving",
@@ -630,6 +676,70 @@ describe("editor autosave continuation", () => {
     }
   }, 1_000);
 
+  test("flushAutoSaves writes the queued text without waiting for the debounce", async () => {
+    const harness = await startAutosaveHarness();
+    try {
+      setWorkspaceBuffers(
+        WORKSPACE_A,
+        [editorBuffer("a", "first line", { path: "C:/fixture/a.txt", isVirtual: false })],
+        "a",
+      );
+      const { actions } = harness.store.getState();
+      await actions.handleContentChange("a", "first line!");
+      await flushUntil(() => harness.timer.size === 1, "the autosave debounce");
+
+      actions.flushAutoSaves();
+      actions.flushAutoSaves();
+      await flushUntil(() => harness.writes.length === 1, "the flushed write");
+
+      expect(harness.timer.size).toBe(0);
+      expect(harness.writes[0].content).toBe("first line!");
+      harness.writes[0].resolve();
+      await flushUntil(() => !getEditorBuffer(WORKSPACE_A, "a").isDirty, "the save to settle");
+      expect(harness.writes).toHaveLength(1);
+    } finally {
+      harness.restore();
+    }
+  }, 1_000);
+
+  test("a focus change while the fired autosave claims the document does not start it again", async () => {
+    let claims = 0;
+    let releaseClaim = () => {};
+    const claimHeld = new Promise<void>((resolve) => {
+      releaseClaim = resolve;
+    });
+    const harness = await startAutosaveHarness({
+      onClaim: async () => {
+        claims += 1;
+        await claimHeld;
+      },
+    });
+    try {
+      setWorkspaceBuffers(
+        WORKSPACE_A,
+        [editorBuffer("a", "first line", { path: "C:/fixture/a.txt", isVirtual: false })],
+        "a",
+      );
+      const { actions } = harness.store.getState();
+      await actions.handleContentChange("a", "first line!");
+      await flushUntil(() => harness.timer.size === 1, "the autosave debounce");
+      await harness.timer.fireNext();
+      await flushUntil(() => claims === 1, "the fired autosave to claim the document");
+
+      actions.flushAutoSaves();
+      releaseClaim();
+      await flushUntil(() => harness.writes.length > 0, "the write after the claim");
+      harness.writes[0].resolve();
+      await flushUntil(() => !getEditorBuffer(WORKSPACE_A, "a").isDirty, "the save to settle");
+
+      expect(claims).toBe(1);
+      expect(harness.writes).toHaveLength(1);
+    } finally {
+      releaseClaim();
+      harness.restore();
+    }
+  }, 1_000);
+
   test("drops the queued continuation when a manual save fails", async () => {
     const harness = await startAutosaveHarness();
     try {
@@ -654,6 +764,7 @@ describe("editor autosave continuation", () => {
             timeoutId: 1 as unknown as ReturnType<typeof setTimeout>,
             context: { bufferId: "a", path: "C:/workspace/a.txt", operationId: "continuation" },
             continuesOperationId: lifecycle.operationId,
+            run: () => undefined,
           },
         },
       }));

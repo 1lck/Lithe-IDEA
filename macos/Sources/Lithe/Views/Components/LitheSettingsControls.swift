@@ -1062,6 +1062,10 @@ struct LitheSettingsStepper<Value>: View where Value: Strideable & Comparable, V
     private let width: CGFloat
     private let accessibilityLabel: Text
     private let title: (Value) -> String
+    /// Turns typed text into a value; nil keeps the value read-only.
+    private let parse: ((String) -> Value?)?
+    @State private var draft = ""
+    @FocusState private var isEditing: Bool
 
     init(
         value: Binding<Value>,
@@ -1069,7 +1073,8 @@ struct LitheSettingsStepper<Value>: View where Value: Strideable & Comparable, V
         step: Value.Stride,
         width: CGFloat,
         accessibilityLabel: LocalizedStringKey,
-        title: @escaping (Value) -> String
+        title: @escaping (Value) -> String,
+        parse: ((String) -> Value?)? = nil
     ) {
         _value = value
         self.range = range
@@ -1077,6 +1082,7 @@ struct LitheSettingsStepper<Value>: View where Value: Strideable & Comparable, V
         self.width = width
         self.accessibilityLabel = Text(accessibilityLabel)
         self.title = title
+        self.parse = parse
     }
 
     init(
@@ -1089,11 +1095,12 @@ struct LitheSettingsStepper<Value>: View where Value: Strideable & Comparable, V
         self.width = width
         accessibilityLabel = Text(verbatim: verbatimAccessibilityLabel)
         self.title = title
+        parse = nil
     }
 
     var body: some View {
         HStack(spacing: 0) {
-            Text(title(value))
+            valueLabel
                 .font(LitheTheme.settingsFont)
                 .foregroundStyle(LitheTheme.primaryText)
                 .monospacedDigit()
@@ -1117,6 +1124,30 @@ struct LitheSettingsStepper<Value>: View where Value: Strideable & Comparable, V
         .clipShape(RoundedRectangle(cornerRadius: SettingsSelectMetrics.controlCornerRadius))
         .accessibilityElement(children: .contain)
         .accessibilityLabel(accessibilityLabel)
+    }
+
+    @ViewBuilder
+    private var valueLabel: some View {
+        if parse != nil {
+            TextField(text: $draft) { accessibilityLabel }
+                .textFieldStyle(.plain)
+                .multilineTextAlignment(.trailing)
+                .focused($isEditing)
+                .onSubmit(commitDraft)
+                .onAppear { draft = title(value) }
+                .onChange(of: isEditing) { editing in if !editing { commitDraft() } }
+                .onChange(of: value) { newValue in if !isEditing { draft = title(newValue) } }
+        } else {
+            Text(title(value))
+        }
+    }
+
+    /// Typed values are clamped to the range; text that does not parse restores the value.
+    private func commitDraft() {
+        if let parsed = parse?(draft) {
+            value = min(range.upperBound, max(range.lowerBound, parsed))
+        }
+        draft = title(value)
     }
 
     private func stepButton(

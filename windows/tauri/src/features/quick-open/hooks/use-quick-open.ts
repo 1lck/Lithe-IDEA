@@ -15,12 +15,32 @@ import { SEARCH_DEBOUNCE_DELAY } from "../constants/limits";
 import { useFileLoader } from "./use-file-loader";
 import { useFileSearch } from "./use-file-search";
 import { useKeyboardNavigation } from "./use-keyboard-navigation";
+import { useEndpointSearch } from "./use-endpoint-search";
 import { type SymbolItem, useSymbolSearch } from "./use-symbol-search";
 import {
   getWorkspaceSymbolKey,
   type WorkspaceSymbolItem,
   useWorkspaceSymbolSearch,
 } from "./use-workspace-symbol-search";
+import type { QuickOpenEndpointResult } from "../utils/endpoint-results";
+
+function pushActiveEditorToJumpList() {
+  const bufferStore = useBufferStore.getState();
+  const activeBuffer = bufferStore.buffers.find((b) => b.id === bufferStore.activeBufferId);
+  if (activeBuffer?.type !== "editor" || !activeBuffer.path) return;
+
+  const editorState = useEditorStateStore.getState();
+  useJumpListStore.getState().actions.pushEntry({
+    bufferId: activeBuffer.id,
+    filePath: activeBuffer.path,
+    paneId: usePaneStore.getState().activePaneId,
+    line: editorState.cursorPosition.line,
+    column: editorState.cursorPosition.column,
+    offset: editorState.cursorPosition.offset,
+    scrollTop: editorState.scrollTop,
+    scrollLeft: editorState.scrollLeft,
+  });
+}
 
 export const useQuickOpen = () => {
   const isQuickOpenVisible = useUIState((state) => state.isQuickOpenVisible);
@@ -66,6 +86,12 @@ export const useQuickOpen = () => {
   const { symbols: workspaceSymbols, isLoading: isLoadingWorkspaceSymbols } =
     useWorkspaceSymbolSearch(query, isWorkspaceSymbolMode);
 
+  // Spring endpoints are matched against the same query as files in the default mode.
+  const endpointResults = useEndpointSearch(
+    query,
+    isQuickOpenVisible && !isSymbolMode && !isWorkspaceSymbolMode,
+  );
+
   const handleSymbolSelect = useCallback(
     (symbol: SymbolItem) => {
       onClose();
@@ -98,22 +124,7 @@ export const useQuickOpen = () => {
   const handleWorkspaceSymbolSelect = useCallback(
     (symbol: WorkspaceSymbolItem) => {
       onClose();
-
-      const bufferStore = useBufferStore.getState();
-      const activeBuffer = bufferStore.buffers.find((b) => b.id === bufferStore.activeBufferId);
-      if (activeBuffer?.type === "editor" && activeBuffer.path) {
-        const editorState = useEditorStateStore.getState();
-        useJumpListStore.getState().actions.pushEntry({
-          bufferId: activeBuffer.id,
-          filePath: activeBuffer.path,
-          paneId: usePaneStore.getState().activePaneId,
-          line: editorState.cursorPosition.line,
-          column: editorState.cursorPosition.column,
-          offset: editorState.cursorPosition.offset,
-          scrollTop: editorState.scrollTop,
-          scrollLeft: editorState.scrollLeft,
-        });
-      }
+      pushActiveEditorToJumpList();
 
       // handleFileSelect expects 1-indexed line/column; LSP/FlatWorkspaceSymbol positions
       // are 0-indexed.
@@ -127,6 +138,15 @@ export const useQuickOpen = () => {
       );
     },
     [onClose, handleFileSelect],
+  );
+
+  const handleEndpointSelect = useCallback(
+    (result: QuickOpenEndpointResult) => {
+      onClose();
+      pushActiveEditorToJumpList();
+      void handleFileSelect(result.filePath, false, result.line, result.column, undefined, false);
+    },
+    [handleFileSelect, onClose],
   );
 
   const handleItemSelect = useCallback(
@@ -145,6 +165,35 @@ export const useQuickOpen = () => {
   const allResults = useMemo(
     () => [...openBufferFiles, ...recentFilesInResults, ...otherFiles],
     [openBufferFiles, recentFilesInResults, otherFiles],
+  );
+
+  const endpointResultsAsFiles = useMemo(
+    () =>
+      endpointResults.map((result) => ({
+        name: result.endpoint.route,
+        path: result.key,
+        isDir: false,
+      })),
+    [endpointResults],
+  );
+  const endpointByKey = useMemo(
+    () => new Map(endpointResults.map((result) => [result.key, result])),
+    [endpointResults],
+  );
+  const defaultResults = useMemo(
+    () => [...endpointResultsAsFiles, ...allResults],
+    [allResults, endpointResultsAsFiles],
+  );
+  const handleDefaultSelect = useCallback(
+    (path: string) => {
+      const endpoint = endpointByKey.get(path);
+      if (endpoint) {
+        handleEndpointSelect(endpoint);
+        return;
+      }
+      handleItemSelect(path);
+    },
+    [endpointByKey, handleEndpointSelect, handleItemSelect],
   );
 
   // In symbol mode, keyboard nav operates on symbols; in file mode, on files
@@ -210,13 +259,13 @@ export const useQuickOpen = () => {
         ? symbolResultsAsFiles
         : isWorkspaceSymbolMode
           ? workspaceSymbolResultsAsFiles
-          : allResults,
+          : defaultResults,
       onClose,
       onSelect: isSymbolMode
         ? symbolSelectAdapter
         : isWorkspaceSymbolMode
           ? workspaceSymbolSelectAdapter
-          : handleItemSelect,
+          : handleDefaultSelect,
     });
 
   const handleItemHover = useCallback(
@@ -263,5 +312,7 @@ export const useQuickOpen = () => {
     workspaceSymbols,
     isLoadingWorkspaceSymbols,
     handleWorkspaceSymbolSelect,
+    endpointResults,
+    handleEndpointSelect,
   };
 };

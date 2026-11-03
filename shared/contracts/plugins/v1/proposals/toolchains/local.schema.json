@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Lithe-IDEA/lithe-plugin-docs/main/contract/v1/proposals/toolchains/local.schema.json",
+  "title": "Proposed local toolchain pins extension (not implemented)",
+  "description": "Review-only complete document shape for .lithe/toolchains/local.json. The active toolchain-local-v1.schema.json remains unchanged and does not accept pins.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "toolchains"
+  ],
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "toolchains": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "home": {
+            "type": "string",
+            "minLength": 1
+          },
+          "executable": {
+            "type": "string",
+            "minLength": 1
+          },
+          "javaHome": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "description": "Existing v1 entries are preserved byte-semantically; new resolution does not manufacture aliases to legacy project-jdk/project-maven IDs."
+    },
+    "pins": {
+      "type": "object",
+      "maxProperties": 1024,
+      "propertyNames": {
+        "$ref": "#/$defs/directory"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "maxProperties": 64,
+        "propertyNames": {
+          "$ref": "#/$defs/toolID"
+        },
+        "additionalProperties": {
+          "$ref": "#/$defs/pin"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "directory": {
+      "type": "string",
+      "maxLength": 2048,
+      "pattern": "^(?:\\.|(?!\\.\\.?(?:/|$))[^/\\\\:]+(?:/(?!\\.\\.?(?:/|$))[^/\\\\:]+)*)$",
+      "not": {
+        "pattern": "[\\u0000-\\u001f\\u007f]"
+      }
+    },
+    "toolID": {
+      "$ref": "manifest-contributions.schema.json#/$defs/toolID"
+    },
+    "nativePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^(?:/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+      "not": {
+        "pattern": "[\\u0000-\\u001f\\u007f]"
+      }
+    },
+    "pin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "home",
+        "version",
+        "provider"
+      ],
+      "properties": {
+        "home": {
+          "$ref": "#/$defs/nativePath"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "not": {
+            "pattern": "[\\u0000-\\u001f\\u007f]"
+          }
+        },
+        "provider": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[a-z][a-z0-9.-]*:[a-z][a-z0-9-]*$",
+          "description": "Qualified pluginID:providerID, or reserved host:manual / host:system; not an activation instruction."
+        }
+      }
+    }
+  }
+}

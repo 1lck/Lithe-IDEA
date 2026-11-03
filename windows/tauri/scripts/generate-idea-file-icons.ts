@@ -10,6 +10,11 @@
  * Dark appearance uses the `<name>_dark.svg` sibling when present; the light
  * appearance always uses the base file. Copied SVGs keep their embedded
  * Apache-2.0 copyright comments untouched.
+ *
+ * A `lithe:<file>` source names an original Lithe icon in
+ * scripts/lithe-file-icons for file kinds the IntelliJ Community set has no
+ * glyph for (for example Makefile and LICENSE). Its shorthand asset lands in
+ * `lithe/fileTypes/` so it never collides with an upstream path.
  */
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -42,6 +47,8 @@ interface ResolvedIconMapping {
 }
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
+const LITHE_SOURCE_PREFIX = "lithe:";
+const LITHE_SOURCE_DIR = join(import.meta.dir, "lithe-file-icons");
 const MAPPING_PATH = join(import.meta.dir, "idea-file-icon-mappings.json");
 const THEME_DIR = join(REPO_ROOT, "src/extensions/bundled/icon-themes/idea");
 const MANIFEST_PATH = join(THEME_DIR, "extension.json");
@@ -67,11 +74,19 @@ function sha(buffer: Buffer): string {
 
 function definitionName(asset: string): string {
   const file = asset.split("/").pop() ?? asset;
-  return `idea-${file.replace(/\.svg$/, "")}`;
+  const prefix = asset.startsWith("lithe/") ? "lithe" : "idea";
+  return `${prefix}-${file.replace(/\.svg$/, "")}`;
+}
+
+function shorthandAsset(source: string): string {
+  return source.startsWith(LITHE_SOURCE_PREFIX)
+    ? `lithe/fileTypes/${source.slice(LITHE_SOURCE_PREFIX.length)}`
+    : source;
 }
 
 function resolveIconMapping(mapping: IconMapping): ResolvedIconMapping {
-  const spec = typeof mapping === "string" ? { source: mapping, asset: mapping } : mapping;
+  const spec =
+    typeof mapping === "string" ? { source: mapping, asset: shorthandAsset(mapping) } : mapping;
   if (spec.asset.startsWith("/") || spec.asset.split("/").includes("..")) {
     throw new Error(`Icon asset path must stay inside the bundled theme: ${spec.asset}`);
   }
@@ -86,6 +101,9 @@ function resolveIconMapping(mapping: IconMapping): ResolvedIconMapping {
 }
 
 function sourcePath(source: string): string {
+  if (source.startsWith(LITHE_SOURCE_PREFIX)) {
+    return join(LITHE_SOURCE_DIR, source.slice(LITHE_SOURCE_PREFIX.length));
+  }
   return resolve(sourceRoot!, source);
 }
 

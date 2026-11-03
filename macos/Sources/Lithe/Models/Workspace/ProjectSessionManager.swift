@@ -128,13 +128,22 @@ final class ProjectSessionManager: ObservableObject {
         settingsModel = session(for: sessionID)
     }
 
+    /// AppKit can restore the settings scene without sending an open-settings command.
+    /// Keep an existing owner's draft and binding when this is an ordinary presentation.
+    func prepareSettingsForPresentation() {
+        if let model = settingsModel, session(for: model.id) === model { return }
+        bindSettings(to: activeSessionID)
+        settingsModel?.isSettingsPresented = true
+    }
+
     func closeSettingsIfCurrent(for sessionID: UUID, bindingID: UUID, close: () -> Void) {
         guard settingsModel?.id == sessionID, settingsBindingID == bindingID else { return }
         close()
     }
 
-    func releaseSettings(for sessionID: UUID) {
-        guard settingsModel?.id == sessionID else { return }
+    func releaseSettings(for sessionID: UUID, bindingID: UUID) {
+        guard settingsModel?.id == sessionID, settingsBindingID == bindingID else { return }
+        settingsModel?.isSettingsPresented = false
         settingsModel = nil
     }
 

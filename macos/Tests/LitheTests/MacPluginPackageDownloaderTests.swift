@@ -239,7 +239,7 @@ struct MacPluginPackageDownloaderTests {
         configuration.protocolClasses = [FixedBodyURLProtocol.self]
         let session = URLSession(configuration: configuration)
         defer { session.invalidateAndCancel() }
-        let transport = MacURLSessionPluginMarketplaceTransport(session: session, temporaryDirectory: root)
+        let transport = MacURLSessionPluginMarketplaceTransport(sessionProvider: { MacNetworkSessionLease(session: session) }, temporaryDirectory: root)
 
         let small = try await transport.download(from: FixedBodyURLProtocol.url(bytes: 512), maximumBytes: 1024)
         #expect(try Data(contentsOf: small).count == 512)

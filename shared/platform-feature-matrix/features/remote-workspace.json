@@ -19,7 +19,9 @@
       "rust/lithe-remote/src/server/connection/tests.rs",
       "rust/lithe-remote/src/server/run_directory.rs",
       "rust/lithe-remote/tests/run_directories.rs",
-      "rust/lithe-remote/src/server/upload/tests.rs"
+      "rust/lithe-remote/src/server/upload/tests.rs",
+      "rust/lithe-remote/src/server/daemon.rs",
+      "rust/lithe-remote/tests/persistence.rs"
     ],
     "implementationStatus": "partial",
     "verificationStatus": "pending"
@@ -33,5 +35,5 @@
     "verificationStatus": "pending"
   },
   "owner": "Remote",
-  "verification": "Windows 验证连接、密码提示、远程路径、断线和重连；macOS 从欢迎页远程开发入口连接 Linux SSH 主机，验证文件树、编辑保存冲突、断线通知与重连。macOS 路由与断线 fixture 已有自动测试，真实 SSH 流程仍待验收；完整远程开发进度见 remote-development-workspace。 文件树新建、目录、复制、重命名与主机废纸篓已接入，14 项 Swift 路由/监听 fixture 通过；真实 SSH 验证外部创建、编辑、移动、删除、溢出重扫和 watcher 取消后无资源残留。 构建与插件接入进度同步至 remote-development-workspace；本行保持 partial/pending，不能以本机 fixture 替代真实 SSH 验收。 通用资源启动在读取请求时预留身份，启动期间的关闭由创建者保留最终清理责任；验证清理早于注册、工作线程饱和、失败启动、无效关闭参数，以及不同资源独立性；区分常驻会话断线保留、非驻留断线清理和会话关闭/空闲到期后的迟到资源清理。RemotePluginLaunchPreparerTests 使用真实声明覆盖目标架构、远端状态目录、缺失资源、准备中重连和取消清理；本机 fixture 不替代 SSH/Linux 验收。Java/JDT 等语言专属集成不在本轮通用能力续作范围。 会话拥有完整插件快照：验证分配回复丢失后按原身份释放、重复释放不接管已有目录、跨会话隔离、父目录权限与链接拒绝、删除失败（包括等待创建者清理）保留原身份供重试、普通断线清理、常驻断线保留及关闭/空闲到期回收；服务端强杀后的回收仍未实现。上传验证同文件并发 BUSY、不同文件独立提交，以及取消/到期不等待文件锁。Agent 后续单独处理，本轮不扩展。"
+  "verification": "Windows 验证连接、密码提示、远程路径、断线和重连；macOS 从欢迎页远程开发入口连接 Linux SSH 主机，验证文件树、编辑保存冲突、断线通知与重连。macOS 路由与断线 fixture 已有自动测试，真实 SSH 流程仍待验收；完整远程开发进度见 remote-development-workspace。 文件树新建、目录、复制、重命名与主机废纸篓已接入，14 项 Swift 路由/监听 fixture 通过；真实 SSH 验证外部创建、编辑、移动、删除、溢出重扫和 watcher 取消后无资源残留。 构建与插件接入进度同步至 remote-development-workspace；本行保持 partial/pending，不能以本机 fixture 替代真实 SSH 验收。 通用资源启动在读取请求时预留身份，启动期间的关闭由创建者保留最终清理责任；验证清理早于注册、工作线程饱和、失败启动、无效关闭参数，以及不同资源独立性；区分常驻会话断线保留、非驻留断线清理和会话关闭/空闲到期后的迟到资源清理。RemotePluginLaunchPreparerTests 使用真实声明覆盖目标架构、远端状态目录、缺失资源、准备中重连和取消清理；本机 fixture 不替代 SSH/Linux 验收。Java/JDT 等语言专属集成不在本轮通用能力续作范围。 会话拥有完整插件快照：验证分配回复丢失后按原身份释放、重复释放不接管已有目录、跨会话隔离、父目录权限与链接拒绝、删除失败（包括等待创建者清理）保留原身份供重试、普通断线清理、常驻断线保留及关闭/空闲到期回收；服务端强杀后的回收仍未实现。上传验证同文件并发 BUSY、不同文件独立提交，以及取消/到期不等待文件锁。Agent 后续单独处理，本轮不扩展。 常驻服务并发启动按身份先取得有界.start文件锁，重新检查socket后才创建daemon；锁覆盖至socket就绪，关闭描述符释放，inode保留。验证互斥、立即期限、释放后可重取，以及竞争连接收到server.shutdown确认后daemon不重新启动。macOS真实进程回归与Linux/macOS编译检查分别记录，Linux运行结果以CI为准。"
 }

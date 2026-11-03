@@ -51,7 +51,16 @@ enum DocumentFeatureComposition {
             onDocumentOpened: { [weak coordinator] in coordinator?.documentOpened($0) },
             onDocumentChanged: { [weak coordinator] in coordinator?.documentChanged($0) },
             onDocumentClosed: { [weak coordinator] in coordinator?.documentClosed($0) },
-            onRecordSave: { [weak model] in model?.recordSave($0, previousText: $1) },
+            onRecordSave: { [weak model] document, previousText in
+                guard let model else { return }
+                model.recordSave(document, previousText: previousText)
+                do {
+                    try model.languageToolingSessionsIfActive?.notifyDocumentSaved(
+                        document.url, text: document.savedText, currentText: document.text)
+                } catch {
+                    model.showNotification(error.localizedDescription)
+                }
+            },
             onRecordDiscard: { [weak model] in model?.recordDiscardedEditorText($0) },
             onRecordExternalChanges: { [weak model] paths in
                 model?.withHistoryModule { $0.recordExternalChanges(paths) }

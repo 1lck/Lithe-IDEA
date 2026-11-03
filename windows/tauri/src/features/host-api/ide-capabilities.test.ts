@@ -4,6 +4,7 @@ import { createRunStore } from "@/features/run/stores/run.store";
 import { createMavenStore } from "@/features/maven/stores/maven.store";
 import { EMPTY_GLOBAL_TOOLCHAIN, PRIMARY_SESSION_ID } from "@/features/run/types/run.types";
 import type { MavenWorkspaceReloadOutcome } from "@/features/maven/services/reload-maven-workspace";
+import { mapCoreConfiguration } from "@/features/run/utils/run-configuration";
 
 function fixture() {
   const root = "C:/fixture/project";
@@ -51,6 +52,34 @@ function fixture() {
     dependencies,
   );
   return { api, run, maven, dependencies };
+}
+
+for (const execution of ["application", "service", "task"] as const) {
+  test(`${execution} respects its own output slot when primary is busy`, async () => {
+    const { api, run } = fixture();
+    const configuration = mapCoreConfiguration({ id: "selected", name: "Selected", provider: "shell", execution });
+    const start = mock(async () => ({ sessionId: "selected", executionId: "new" }));
+    run.setState({
+      configurations: [configuration],
+      primaryExecutionId: "existing", primaryConfigurationId: "other-task", primaryRunning: true,
+      actions: { ...run.getState().actions, runConfigurationInstance: start },
+    });
+    const result = await api.call("lithe_run_start", { configurationID: configuration.id });
+    if (execution === "task") {
+      expect(result).toMatchObject({ error: { code: "BUSY" } });
+      expect(start).not.toHaveBeenCalled();
+    } else {
+      expect(result).toMatchObject({ operationID: "run:new" });
+      expect(start).toHaveBeenCalledTimes(1);
+      run.setState({ sessions: [{ id: "selected", configurationId: "selected", executionId: "pending",
+        title: "Selected", output: "", isRunning: false, isPreparing: true, exitCode: null }] });
+      expect(await api.call("lithe_run_start", { configurationID: configuration.id }))
+        .toMatchObject({ error: { code: "BUSY" } });
+      expect(start).toHaveBeenCalledTimes(1);
+    }
+    expect(run.getState().primaryExecutionId).toBe("existing");
+    expect(run.getState().primaryRunning).toBe(true);
+  });
 }
 
 test("API output follows an execution identity, and an old stop cannot target its replacement", async () => {

@@ -1,0 +1,30 @@
+{
+  "id": "windows-startup-feedback",
+  "area": "工作台",
+  "group": "窗口管理",
+  "capability": "Windows 启动和新窗口在页面渲染前就用当前主题背景色，不再闪白屏；Agent 面板探测、订阅和 MCP 检查启动的子进程不再弹出控制台窗口",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Workbench/WorkbenchView.swift"
+    ],
+    "implementationStatus": "platform-specific",
+    "verificationStatus": "not-applicable"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src-tauri/src/window_background.rs",
+      "windows/tauri/src-tauri/src/main.rs",
+      "windows/tauri/src-tauri/src/host.rs",
+      "windows/tauri/src/features/window/utils/native-window-background.ts",
+      "windows/tauri/src/features/settings/lib/settings-effects.ts",
+      "rust/lithe-agent-host/src/environment.rs",
+      "rust/lithe-agent-host/src/subscription.rs",
+      "rust/lithe-agent-host/src/mcp_probe.rs"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Windows Shell",
+  "verification": "Windows：分别用深色、浅色和自定义主题冷启动（含上次最大化退出），从启动到页面渲染不出现白屏；新建项目窗口同样使用主题背景。切换主题后重启，首帧背景随之变化；删除应用本地数据目录下的 window-background.json 后以 Lithe Dark 背景启动。打开 Agent 面板、刷新订阅额度、检测 MCP，全程不出现控制台窗口闪烁。确认背景文件只写入应用本地数据目录，安装目录文件清单不变。",
+  "notes": "不采用先隐藏窗口再显示的方案：window-state 插件恢复最大化时 tao 会调用 ShowWindow(SW_MAXIMIZE)，隐藏的窗口会被直接显示。改为原生窗口创建时即使用上次保存的主题背景色。macOS 原生窗口没有 WebView2 白底问题。"
+}

@@ -40,3 +40,29 @@ export function reconcileMountedEditorBuffers(
       : nextRecentIds,
   };
 }
+
+/**
+ * Gives each mounted editor buffer a stable surface key. A buffer that leaves
+ * the mounted set frees its key, and the next buffer to mount takes it over, so
+ * React keeps that editor surface and only swaps the file it shows instead of
+ * destroying one Monaco editor and creating another. Keys are created only
+ * when no freed key is available.
+ */
+export function assignEditorSurfaceKeys(
+  previous: ReadonlyMap<string, string>,
+  bufferIds: readonly string[],
+  createKey: () => string,
+): Map<string, string> {
+  const wanted = new Set(bufferIds);
+  const next = new Map<string, string>();
+  const freeKeys: string[] = [];
+  for (const [bufferId, key] of previous) {
+    if (wanted.has(bufferId)) next.set(bufferId, key);
+    else freeKeys.push(key);
+  }
+  for (const bufferId of bufferIds) {
+    if (next.has(bufferId)) continue;
+    next.set(bufferId, freeKeys.shift() ?? createKey());
+  }
+  return next;
+}

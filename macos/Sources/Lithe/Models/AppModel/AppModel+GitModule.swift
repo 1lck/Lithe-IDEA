@@ -28,7 +28,7 @@ extension AppModel {
                     self?.workspaceFeature.beginGitOperationFreeze()
                 },
                 operationEnded: { [weak self] in
-                    await self?.workspaceFeature.endGitOperationFreeze()
+                    await self?.workspaceFeature.endGitOperationFreeze(waitForRefresh: false)
                 },
                 commitUndone: { [weak self] message in
                     guard let self else { return }

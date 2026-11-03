@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import { promises as fs } from "node:fs";
 import os from "node:os";
@@ -64,6 +65,30 @@ function reuse(extraArguments = []) {
 }
 
 try {
+  await test("offline Markdown preview assets come from Git, never another bundle", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "markdown-preview-assets");
+    assert.equal(resource.reusable, false);
+    assert.ok(resource.locations.includes("macos/Sources/Lithe/Resources/MarkdownPreview/"));
+    assert.match(resource.identity, /SHA-256/);
+    const refused = reuse(["--resource", resource.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /markdown-preview-assets is isolated.*cannot be reused/);
+  });
+
+  await test("offline PlantUML assets and live renderer state cannot cross worktrees", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "markdown-plantuml-assets");
+    assert.equal(resource.reusable, false);
+    assert.match(resource.identity, /@plantuml\/core 1\.2026\.9/);
+    assert.match(resource.identity, /SHA-256/);
+    const engine = await fs.readFile(path.join(scriptDirectory, "../../macos/Sources/Lithe/Resources/MarkdownPreview/vendor/plantuml/plantuml.js"));
+    assert.equal(createHash("sha256").update(engine).digest("hex"), "21c049ce47d087eff61ae0836f9c62a2b0c0d2528a5f16c2247057544228fae7");
+    const refused = reuse(["--resource", resource.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /markdown-plantuml-assets is isolated.*cannot be reused/);
+  });
+
   await test("remote host resources and session snapshots cannot cross worktrees", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const listed = run(process.execPath, [reuseScript, "--list"]);
@@ -107,6 +132,27 @@ try {
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /swiftpm-build-state is isolated.*cannot be reused/);
     await assert.rejects(fs.access(targetRoot), { code: "ENOENT" });
+  });
+  await test("editor palettes and licenses cannot be copied from another checkout", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "editor-theme-assets");
+    assert.equal(resource.reusable, false);
+    assert.ok(resource.locations.includes(".artifacts/editor/macos/"));
+    assert.ok(resource.locations.includes("frontend/editor/vendor/"));
+    assert.ok(resource.locations.includes("<editor-memory>/bundled-textmate-workers-and-tokens"));
+    const refused = reuse(["--resource", resource.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /editor-theme-assets.*cannot be reused/);
+  });
+  await test("plugin grammar tokens and action leases cannot cross worktrees", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "editor-theme-assets");
+    assert.equal(resource.reusable, false);
+    assert.ok(resource.locations.includes("<editor-memory>/plugin-grammar-workers-and-tokens"));
+    assert.ok(resource.locations.includes("<editor-memory>/plugin-editor-action-leases"));
+    const refused = reuse(["--resource", resource.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /editor-theme-assets.*cannot be reused/);
   });
   await test("shared translations are regenerated locally rather than reused", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
@@ -254,6 +300,7 @@ try {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const resource = registry.excludedResources.find(item => item.id === "codex-retry-relay");
     assert.match(resource.identity, /context reports.*per-load tickets/);
+    assert.match(resource.identity, /explicit provider admission route/);
     const refused = reuse(["--resource", "codex-retry-relay"]);
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /codex-retry-relay.*lithe-codex-retry.*cannot be reused/);
@@ -300,7 +347,7 @@ try {
   await test("plugin packages and marketplace state stay isolated in each worktree", { timeout: 15000 }, () => {
     const listed = run(process.execPath, [reuseScript, "--list"]);
     assertSucceeded(listed);
-    for (const id of ["official-plugin-packages", "plugin-marketplace-state", "mcp-registry-metadata", "mcp-tool-probe-state", "agent-instruction-library-state", "agent-hook-library-state"]) {
+    for (const id of ["official-plugin-packages", "plugin-marketplace-state", "plugin-host-runtime-state", "mcp-registry-metadata", "mcp-tool-probe-state", "agent-instruction-library-state", "agent-hook-library-state"]) {
       assert.ok(!listed.stdout.includes(id));
       const refused = reuse(["--resource", id]);
       assert.notEqual(refused.status, 0);

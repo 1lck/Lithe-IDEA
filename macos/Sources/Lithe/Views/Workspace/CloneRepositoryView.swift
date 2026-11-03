@@ -3,18 +3,13 @@ import SwiftUI
 
 struct CloneRepositoryView: View {
     @EnvironmentObject private var model: AppModel
-    @Environment(\.dismiss) private var dismiss
 
     @State private var remoteURL = ""
     @State private var parentFolder = NSHomeDirectory()
     @State private var folderName = ""
     @State private var errorMessage: String?
-    @FocusState private var focusedField: Field?
-
-    private enum Field: Hashable {
-        case remote
-        case folder
-    }
+    @FocusState private var remoteFocused: Bool
+    @FocusState private var folderFocused: Bool
 
     private var destinationURL: URL {
         let expandedParent = (parentFolder as NSString).expandingTildeInPath
@@ -25,43 +20,34 @@ struct CloneRepositoryView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
-
             VStack(alignment: .leading, spacing: 18) {
-                field("Repository URL") {
-                    TextField("https://github.com/example/project.git", text: $remoteURL)
-                        .textFieldStyle(.plain)
-                        .focused($focusedField, equals: .remote)
-                        .onSubmit { focusedField = .folder }
+                LitheFormField(title: Text("Repository URL")) {
+                    LitheTextField("https://github.com/example/project.git", text: $remoteURL, focus: $remoteFocused)
+                        .onSubmit { folderFocused = true }
                 }
 
-                field("Destination folder") {
+                LitheFormField(title: Text("Destination folder")) {
                     HStack(spacing: 7) {
-                        TextField("~/Projects", text: $parentFolder)
-                            .textFieldStyle(.plain)
+                        LitheTextField("~/Projects", text: $parentFolder)
                         Button("Choose…") {
                             chooseParentFolder()
                         }
                         .buttonStyle(LitheActionButtonStyle())
-                        .lithePointer()
                     }
                 }
 
-                field("Folder name") {
-                    TextField("project-name", text: $folderName)
-                        .textFieldStyle(.plain)
-                        .focused($focusedField, equals: .folder)
+                LitheFormField(title: Text("Folder name")) {
+                    LitheTextField("project-name", text: $folderName, focus: $folderFocused)
                 }
 
                 Text("Lithe will clone the repository into \(destinationDescription).")
-                    .font(LitheTheme.uiFont(size: 11.5))
+                    .font(LitheTheme.settingsFont)
                     .foregroundStyle(LitheTheme.secondaryText)
                     .lineLimit(2)
 
                 if let errorMessage {
                     Label(errorMessage, systemImage: "exclamationmark.triangle")
-                        .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
+                        .font(LitheTheme.settingsFont)
                         .foregroundStyle(LitheTheme.error)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -71,10 +57,11 @@ struct CloneRepositoryView: View {
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             footer
         }
-        .frame(width: 560, height: 360)
+        .frame(width: 560)
+        .fixedSize(horizontal: false, vertical: true)
         .background(LitheTheme.window)
         .onAppear {
-            focusedField = .remote
+            remoteFocused = true
         }
         .onChange(of: remoteURL) { value in
             guard folderName.isEmpty else { return }
@@ -82,40 +69,13 @@ struct CloneRepositoryView: View {
         }
     }
 
-    private var header: some View {
-        HStack(spacing: 9) {
-            LitheIDEAIcon(
-                resourcePath: "toolwindows/toolWindowVcs.svg",
-                size: 16,
-                fallbackSystemImage: "point.3.connected.trianglepath.dotted"
-            )
-            Text("Clone Repository")
-                .font(LitheTheme.uiFont(size: 14, weight: .semibold))
-            Spacer()
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(LitheTheme.uiFont(size: 11, weight: .semibold))
-            }
-            .litheIconButton()
-            .disabled(model.isCloningRepository)
-            .help("Cancel")
-        }
-        .foregroundStyle(LitheTheme.primaryText)
-        .padding(.horizontal, 14)
-        .frame(height: 44)
-        .background(LitheTheme.toolHeader)
-    }
-
     private var footer: some View {
         HStack(spacing: LitheTheme.ActionButton.spacing) {
             Spacer()
             Button("Cancel") {
-                dismiss()
+                model.workbenchFeature.isCloneRepositoryPresented = false
             }
             .buttonStyle(LitheActionButtonStyle())
-            .lithePointer()
             .disabled(model.isCloningRepository)
 
             Button {
@@ -125,7 +85,7 @@ struct CloneRepositoryView: View {
                         destination: destinationURL
                     )
                     if errorMessage == nil {
-                        dismiss()
+                        model.workbenchFeature.isCloneRepositoryPresented = false
                     }
                 }
             } label: {
@@ -137,32 +97,10 @@ struct CloneRepositoryView: View {
                 }
             }
             .buttonStyle(LitheActionButtonStyle(isPrimary: true))
-            .lithePointer()
             .disabled(model.isCloningRepository || !canClone)
         }
         .padding(14)
         .background(LitheTheme.toolHeader)
-    }
-
-    private func field<Content: View>(
-        _ title: String,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(LocalizedStringKey(title))
-                .font(LitheTheme.uiFont(size: 11.5, weight: .semibold))
-                .foregroundStyle(LitheTheme.secondaryText)
-            content()
-                .font(LitheTheme.uiFont(size: 12.5))
-                .padding(.horizontal, 9)
-                .frame(height: 30)
-                .background(LitheTheme.inputBackground)
-                .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius))
-                .overlay {
-                    RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                        .stroke(LitheTheme.inputBorder, lineWidth: 1)
-                }
-        }
     }
 
     private var canClone: Bool {

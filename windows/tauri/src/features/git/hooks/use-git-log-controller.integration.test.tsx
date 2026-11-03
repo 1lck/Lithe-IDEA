@@ -233,6 +233,39 @@ describe("Git Log controller repository lifecycle", () => {
     }
   });
 
+  test("pagination reports whether a page advanced the visible history", async () => {
+    getGitHistoryPage.mockImplementation((...args) =>
+      args[2] === 5_000
+        ? Promise.resolve({ commits: [], hasMore: false })
+        : Promise.resolve({
+            commits: [{ ...commitFor(args[0]), hash: args[1] ? "older" : "tip" }],
+            hasMore: !args[1],
+            nextCursor: args[1] ? undefined : "visible-cursor",
+          }),
+    );
+    const harness = mountController();
+    try {
+      await harness.render("C:/repo-a");
+      let progressed = false;
+      await act(async () => {
+        progressed = await harness.read().loadMore();
+      });
+      expect(progressed).toBe(true);
+
+      // Nothing left to page through: the caller can stop waiting for a commit
+      // that will never arrive instead of parking a pending reveal.
+      let exhausted = true;
+      await act(async () => {
+        exhausted = await harness.read().loadMore();
+      });
+      expect(exhausted).toBe(false);
+    } finally {
+      await act(async () => {
+        harness.root.unmount();
+      });
+    }
+  });
+
   test("pagination keeps the in-flight graph read and visible cursor independent", async () => {
     const gate = graphGate();
     getGitHistoryPage.mockImplementation((...args) =>

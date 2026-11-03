@@ -14,7 +14,6 @@ struct GitWorktreeChangesView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.locale) private var locale
     @State private var selection = GitChangeSelection()
-    @State private var pendingDiscard: [GitChange] = []
     @State private var collapsedLists: Set<String> = []
     @State private var sectionsCache = GitChangeSectionsCache()
 
@@ -33,6 +32,7 @@ struct GitWorktreeChangesView: View {
     /// does not flash them grey. Only a refresh or operation the user started greys them.
     private var checkboxesLookEnabled: Bool {
         !feature.isPerformingWorktreeOperation && !feature.isCommitting
+            && !rollbackFeature.isRollingBackChanges
             && commitSession?.feature.isCommitting != true && commitSession?.feature.changelistStorageFailed != true
             && !(feature.isRefreshingWorktreeChanges && !feature.isMutatingWorktreeChanges)
     }
@@ -67,19 +67,27 @@ struct GitWorktreeChangesView: View {
     }
 
     private var fileList: some View {
+        fileListContent.modifier(GitRollbackPresentation(feature: rollbackFeature))
+    }
+
+    private var rollbackFeature: GitFeatureModel { commitSession?.feature ?? feature.commitFeature(for: worktree) }
+
+    private var fileListContent: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 2) {
                 toolbarButton("Refresh changes", icon: "expui/general/refresh.svg", enabled: enabled) {
                     Task { await feature.refreshWorktreeChanges(worktree) }
                 }
-                // Same set as the Commit toolbar. Only discarding needs a selection, because it cannot
-                // be undone; the rest work on every file when nothing is selected.
+                // Rollback reviews its own inclusion draft before any file is changed.
                 toolbarButton("Stage all files", icon: "expui/general/download.svg",
                     enabled: enabled && activeChanges.contains { GitFileContextMenuPlan(change: $0).showsAdd }) {
                     setStaging(activeChanges, true)
                 }
-                toolbarButton("Discard selected change", icon: "expui/vcs/revert.svg",
-                    enabled: enabled && targets.contains(where: \.hasWorkingTreeChange)) { pendingDiscard = targets }
+                toolbarButton("Rollback Changes", icon: "expui/vcs/revert.svg",
+                    enabled: enabled && rollbackFeature.canRollbackChanges && !activeChanges.isEmpty) {
+                    rollbackFeature.requestRollbackChanges(activeChanges, included: GitRollbackSelection.initialTargets(
+                        changes: activeChanges, selectedIDs: selection.ids))
+                }
                 toolbarButton("Show Diff", icon: "expui/general/show.svg",
                     enabled: diffTarget != nil && actions.showChange != nil) {
                     if let diffTarget { actions.showChange?(diffTarget) }
@@ -135,19 +143,6 @@ struct GitWorktreeChangesView: View {
             }
         }
         .onChange(of: changes) { selection.retain($0.map(\.id)) }
-        .confirmationDialog("Discard changes to selected files?",
-            isPresented: Binding(get: { !pendingDiscard.isEmpty }, set: { if !$0 { pendingDiscard = [] } }),
-            titleVisibility: .visible) {
-            Button("Discard Changes", role: .destructive) {
-                let captured = pendingDiscard
-                pendingDiscard = []
-                Task { await feature.discardWorktreeChanges(captured, in: worktree) }
-            }
-            Button("Cancel", role: .cancel) { pendingDiscard = [] }
-        } message: {
-            Text(worktree.path + "\n" + pendingDiscard.map(\.path).joined(separator: "\n"))
-            Text("This action cannot be undone by Lithe. Untracked files will be deleted.")
-        }
     }
 
     private var targets: [GitChange] { selection.actionTargets(in: changes) }
@@ -198,17 +193,34 @@ struct GitWorktreeChangesView: View {
     func menu(for change: GitChange) -> [LitheContextMenuItem] {
         let targets = selection.actionTargets(in: changes, clicked: change)
         return [
+            .action("Commit Files…", isEnabled: enabled && actions.prepareCommitFiles != nil
+                && commitSession != nil && rollbackFeature.canPrepareCommitFiles(targets)) {
+                    if let commitSession { actions.prepareCommitFiles?(targets, commitSession) }
+                },
+            .action("Rollback Changes", role: .destructive, isEnabled: enabled && rollbackFeature.canRollbackChanges && !targets.isEmpty) {
+                rollbackFeature.requestRollbackChanges(changes, included: targets)
+            },
+            .separator,
             .action("Open", isEnabled: !change.isUntrackedDirectory && change.kind != .deleted && actions.openFile != nil) {
                 actions.openFile?(change.url, change.path)
             },
             .action("Show Diff", isEnabled: !change.isUntrackedDirectory && actions.showChange != nil) { actions.showChange?(change) },
+            .action("Show Diff in New Tab", isEnabled: !change.isUntrackedDirectory && actions.showDiffInNewTab != nil) {
+                actions.showDiffInNewTab?(change)
+            },
             .submenu("Move to ChangeList", items: commitSession?.feature.changelists.lists.map { list in
                 .action(list.displayName, isEnabled: enabled) { commitSession?.feature.moveChanges(targets, toChangelist: list.id) }
             } ?? []),
             .separator,
             .action("Stage Files", isEnabled: enabled && targets.contains { GitFileContextMenuPlan(change: $0).showsAdd }) { setStaging(targets, true) },
             .action("Unstage Files", isEnabled: enabled && targets.contains(where: \.isStaged)) { setStaging(targets, false) },
-            .action("Discard Changes", role: .destructive, isEnabled: enabled && targets.contains(where: \.hasWorkingTreeChange)) { pendingDiscard = targets },
+            .action("Delete…", role: .destructive, isEnabled: enabled && actions.deleteFiles != nil
+                && !targets.isEmpty && targets.allSatisfy { $0.kind != .deleted }) {
+                    actions.deleteFiles?(targets, rollbackFeature)
+                },
+            .action("Add to VCS", isEnabled: enabled && targets.contains(where: \.isUntracked)) {
+                setStaging(targets.filter(\.isUntracked), true)
+            },
             .separator,
             .action("Show in Finder") { actions.reveal(change.kind == .deleted ? change.url.deletingLastPathComponent() : change.url) },
             .action("Copy Path") { actions.copyPath(change.url) }

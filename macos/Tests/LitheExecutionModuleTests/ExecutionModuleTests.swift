@@ -1017,10 +1017,10 @@ struct ExecutionModuleTests {
         )
     }
 
-    /// A broken configuration must stay regenerable. Inventory readiness and
-    /// configuration validity are separate concerns, so an unreadable
-    /// `generated.json` must not make the project un-ready and lock the user out
-    /// of the only action that repairs it.
+    /// A broken configuration must not block identification. Inventory
+    /// readiness and configuration validity are separate concerns, so an
+    /// unreadable `configurations.json` must not make the project un-ready and
+    /// lock the user out of identifying it again.
     @Test
     func unreadableConfigurationStillAllowsRegeneration() async throws {
         let operations = FailingInspectionRunConfigurationOperations()
@@ -1041,7 +1041,7 @@ struct ExecutionModuleTests {
 
         await service.loadProject(at: root, files: [], mavenProject: nil, snapshotID: snapshotID)
 
-        #expect(service.configurationStatus == .invalid("generated.json is invalid"))
+        #expect(service.configurationStatus == .invalid("configurations.json is invalid"))
         #expect(service.isProjectReady(for: root, snapshotID: snapshotID))
 
         await service.generateRunConfigurations()
@@ -3839,7 +3839,7 @@ private final class RecordingRunConfigurationOperations: RunConfigurationOperati
 private struct FailingInspectionRunConfigurationOperations: RunConfigurationOperations {
     func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {
         ProjectRunConfigurationInspection(
-            status: .invalid("generated.json is invalid"),
+            status: .invalid("configurations.json is invalid"),
             diagnostics: [],
             recoveryAction: .editConfiguration
         )

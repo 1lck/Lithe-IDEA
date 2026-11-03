@@ -52,9 +52,14 @@ const PERMISSION_VCS: &str = "process.vcs";
 const PERMISSION_PROJECT_GENERATE: &str = "project.generate";
 /// Starting the plugin's own backend process. `backend` 1.
 const PERMISSION_BACKEND: &str = "backend.launch";
+/// Supplying facts that can change the executable selected for a defined tool.
+const PERMISSION_TOOLCHAINS: &str = "toolchains.provide";
 /// Letting the backend keep secrets in the host's credential store, private
 /// to the plugin. `backend` 1.
 const PERMISSION_CREDENTIALS: &str = "credentials.store";
+/// Letting the backend list the open workspaces and read their folders and
+/// its per-workspace state directory. `backend` 2.
+const PERMISSION_WORKSPACE_METADATA: &str = "workspace.metadata";
 /// Starting a debug session the plugin's adapter serves. `debugAdapters` 1.
 const PERMISSION_DEBUG_LAUNCH: &str = "debug.launch";
 /// Attaching the plugin's adapter to a running process. `debugAdapters` 1.
@@ -69,9 +74,11 @@ const KNOWN_PERMISSIONS: &[&str] = &[
     PERMISSION_PROJECT_GENERATE,
     PERMISSION_RUN,
     PERMISSION_TEST,
+    PERMISSION_TOOLCHAINS,
     PERMISSION_UI,
     PERMISSION_UI_WEB,
     PERMISSION_VCS,
+    PERMISSION_WORKSPACE_METADATA,
 ];
 /// Runtime tools the host knows how to discover and pass to a language
 /// server. The host exports each as `LITHE_<TOOL>_PATH` and puts its
@@ -203,6 +210,12 @@ pub struct DeclarativePluginManifest {
     /// `super::backend`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     backend: Option<super::backend::BackendDeclaration>,
+    /// Tool policies owned by plugins, never a host-maintained definition table.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    tool_definitions: Vec<Value>,
+    /// Fact providers served by the plugin's existing backend process.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    toolchain_providers: Vec<Value>,
 }
 
 /// UI supplied by plugins. The host owns every window shell: docking, title,
@@ -271,8 +284,13 @@ enum UIDock {
 struct UICommand {
     id: String,
     title: String,
-    #[serde(rename = "toolWindowID")]
-    tool_window_id: String,
+    /// Absent for a backend command from `ui` 4 on.
+    #[serde(
+        default,
+        rename = "toolWindowID",
+        skip_serializing_if = "Option::is_none"
+    )]
+    tool_window_id: Option<String>,
     #[serde(default)]
     order: i32,
     placements: Vec<UICommandPlacement>,
@@ -412,6 +430,13 @@ struct LanguageDeclaration {
     project_file_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     dependencies: Option<DependencyDeclaration>,
+    /// Syntax highlighting from a package file. `languages` 2; see
+    /// `super::grammar`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    grammar: Option<super::grammar::GrammarDeclaration>,
+    /// Comment and bracket behavior of the editor. `languages` 2.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    configuration: Option<super::grammar::LanguageConfiguration>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -784,6 +809,18 @@ pub fn validate_manifest_value(value: Value) -> Validation<DeclarativePluginMani
         }
         capabilities::check_manifest_requires(&value, version)?;
     }
+    for (field, limit) in [("toolDefinitions", 32), ("toolchainProviders", 8)] {
+        if value.get(field).is_some_and(|section| {
+            !section
+                .as_array()
+                .is_some_and(|items| !items.is_empty() && items.len() <= limit)
+        }) {
+            return Err(invalid(
+                field,
+                "A declared toolchain section must be nonempty and bounded.",
+            ));
+        }
+    }
     let manifest: DeclarativePluginManifest = serde_json::from_value(value).map_err(|error| {
         PluginRejection::new(
             "plugin.manifest.invalid",
@@ -842,13 +879,22 @@ impl DeclarativePluginManifest {
             && self.vcs_providers.is_empty()
             && self.debug_adapters.is_empty()
             && self.project_generators.is_empty()
+            && self.tool_definitions.is_empty()
+            && self.toolchain_providers.is_empty()
+            // A backend 2 may be the whole plugin: it starts on a workspace.
+            && self.backend.is_none()
         {
             return Err(invalid("languages", "The plugin declares no languages."));
         }
 
+        let languages_version = self
+            .requires
+            .get(capabilities::LANGUAGES)
+            .copied()
+            .unwrap_or(1);
         let mut language_ids = BTreeSet::new();
         for (index, language) in self.languages.iter_mut().enumerate() {
-            language.normalize(index)?;
+            language.normalize(index, languages_version)?;
             if !language_ids.insert(language.id.clone()) {
                 return Err(invalid(
                     format!("languages[{index}].id"),
@@ -857,6 +903,17 @@ impl DeclarativePluginManifest {
             }
         }
         self.languages.sort_by(|left, right| left.id.cmp(&right.id));
+        if languages_version >= super::grammar::GRAMMAR_LANGUAGES_VERSION
+            && !self
+                .languages
+                .iter()
+                .any(LanguageDeclaration::uses_version_2)
+        {
+            return Err(invalid(
+                "requires.languages",
+                "The declared languages version must be used: languages 2 adds grammar and configuration.",
+            ));
+        }
 
         let declared_settings = self.validate_settings()?;
 
@@ -971,6 +1028,11 @@ impl DeclarativePluginManifest {
             && self.vcs_providers.is_empty()
             && self.debug_adapters.is_empty()
             && self.project_generators.is_empty()
+            && self.tool_definitions.is_empty()
+            && self.toolchain_providers.is_empty()
+            && self.backend.is_none()
+            // A grammar alone is a complete highlighting plugin.
+            && !self.languages.iter().any(LanguageDeclaration::uses_version_2)
         {
             return Err(invalid(
                 "languages",
@@ -1007,14 +1069,22 @@ impl DeclarativePluginManifest {
             },
         )?;
         self.validate_debug_adapters(&declared_settings)?;
+        self.validate_toolchains()?;
         if let Some(backend) = &self.backend {
             backend.validate(&super::backend::DeclarationContext {
                 plugin_api_version: self.plugin_api_version,
+                version: self.backend_version(),
                 declared_settings: &declared_settings,
                 has_web_window: self
                     .ui
                     .as_ref()
                     .is_some_and(|ui| ui.tool_windows.iter().any(|window| window.web.is_some())),
+                has_command: self.ui.as_ref().is_some_and(|ui| !ui.commands.is_empty()),
+                activates_on_workspace_open: self
+                    .activation_events
+                    .iter()
+                    .any(|event| event == super::backend::ON_WORKSPACE_OPEN),
+                toolchain_query_trigger: !self.toolchain_providers.is_empty(),
             })?;
         }
         self.validate_permissions()?;
@@ -1032,20 +1102,21 @@ impl DeclarativePluginManifest {
             ),
             (
                 capabilities::EXECUTABLE_RESOLUTION,
-                self.build_systems.iter().any(|system| {
-                    system
-                        .invocation
-                        .executables
-                        .iter()
-                        .chain(
-                            system
-                                .invocation
-                                .runtime_dependencies
-                                .iter()
-                                .flat_map(|runtime| &runtime.executables),
-                        )
-                        .any(|candidate| candidate.uses_resolution())
-                }),
+                !self.tool_definitions.is_empty()
+                    || self.build_systems.iter().any(|system| {
+                        system
+                            .invocation
+                            .executables
+                            .iter()
+                            .chain(
+                                system
+                                    .invocation
+                                    .runtime_dependencies
+                                    .iter()
+                                    .flat_map(|runtime| &runtime.executables),
+                            )
+                            .any(|candidate| candidate.uses_resolution())
+                    }),
             ),
             (capabilities::LANGUAGES, !self.languages.is_empty()),
             (
@@ -1095,6 +1166,14 @@ impl DeclarativePluginManifest {
                 !self.debug_adapters.is_empty(),
             ),
             (capabilities::BACKEND, self.backend.is_some()),
+            (
+                capabilities::TOOL_DEFINITIONS,
+                !self.tool_definitions.is_empty(),
+            ),
+            (
+                capabilities::TOOLCHAIN_PROVIDERS,
+                !self.toolchain_providers.is_empty(),
+            ),
         ];
         sections
             .into_iter()
@@ -1157,6 +1236,66 @@ impl DeclarativePluginManifest {
         Ok(())
     }
 
+    fn validate_toolchains(&self) -> Validation<()> {
+        if self.tool_definitions.is_empty()
+            && self.requires.get(capabilities::EXECUTABLE_RESOLUTION) == Some(&2)
+        {
+            return Err(invalid(
+                "requires.executableResolution",
+                "Executable resolution 2 is reserved to tool definitions.",
+            ));
+        }
+        if self.tool_definitions.is_empty() && self.toolchain_providers.is_empty() {
+            return Ok(());
+        }
+        if self.plugin_api_version < CAPABILITIES_API_VERSION {
+            return Err(invalid(
+                "toolDefinitions",
+                "Toolchain declarations require plugin API level 3.",
+            ));
+        }
+        if !self.tool_definitions.is_empty()
+            && self.requires.get(capabilities::EXECUTABLE_RESOLUTION) != Some(&2)
+        {
+            return Err(invalid(
+                "requires.executableResolution",
+                "Tool definitions require executable resolution 2.",
+            ));
+        }
+        crate::toolchain::definitions::validate_declarations(
+            &self.id,
+            &self.tool_definitions,
+            &self.toolchain_providers,
+        )?;
+        if !self.toolchain_providers.is_empty() {
+            if self.backend_version() != 2 {
+                return Err(invalid(
+                    "requires.backend",
+                    "Toolchain providers require backend 2.",
+                ));
+            }
+            let backend = self.backend.as_ref().ok_or_else(|| {
+                invalid(
+                    "backend",
+                    "A toolchain provider requires the plugin backend.",
+                )
+            })?;
+            let value = serde_json::to_value(backend)
+                .map_err(|_| invalid("backend", "The backend cannot be encoded."))?;
+            let launch = &value["launch"];
+            let packaged = launch["kind"] == "packaged"
+                || (launch["kind"] == "runtime" && launch["packagedRuntime"].as_str().is_some());
+            if !packaged
+                || value["runtimeDependencies"]
+                    .as_array()
+                    .is_some_and(|values| !values.is_empty())
+            {
+                return Err(invalid("backend.launch", "Provider backends must bootstrap from packaged executables or packaged runtimes without discovered dependencies."));
+            }
+        }
+        Ok(())
+    }
+
     fn validate_ui(&mut self) -> Validation<()> {
         let Some(ui) = &mut self.ui else {
             return Ok(());
@@ -1167,14 +1306,17 @@ impl DeclarativePluginManifest {
                 "UI contributions require plugin API level 2.",
             ));
         }
-        if ui.tool_windows.is_empty() || ui.tool_windows.len() > 64 || ui.commands.len() > 128 {
+        let version = self.requires.get(capabilities::UI).copied().unwrap_or(1);
+        if (ui.tool_windows.is_empty() && (version < 4 || ui.commands.is_empty()))
+            || ui.tool_windows.len() > 64
+            || ui.commands.len() > 128
+        {
             return Err(invalid(
                 "ui",
                 "UI requires 1-64 tool windows and at most 128 commands.",
             ));
         }
         // Below level 3 there is no `requires`, and the section means `ui` 1.
-        let version = self.requires.get(capabilities::UI).copied().unwrap_or(1);
         let prefix = format!("{}.", self.id);
         let mut ids = BTreeSet::new();
         let mut windows = BTreeSet::new();
@@ -1224,7 +1366,19 @@ impl DeclarativePluginManifest {
                 || command.title.len() > 256
                 || !ids.insert(command.id.clone())
                 || !action_ids.insert(command.id.clone())
-                || !windows.contains(&command.tool_window_id)
+                || match &command.tool_window_id {
+                    Some(id) => !windows.contains(id),
+                    None => {
+                        version < 4
+                            || self.backend.is_none()
+                            || self
+                                .requires
+                                .get(capabilities::BACKEND)
+                                .copied()
+                                .unwrap_or(1)
+                                < 2
+                    }
+                }
                 || command.placements.is_empty()
             {
                 return Err(invalid(
@@ -1256,6 +1410,11 @@ impl DeclarativePluginManifest {
         // the plugin from hosts that could run it.
         if (version == 2 && ui.tool_windows.iter().all(|window| window.web.is_none()))
             || (version == 3 && ui.tool_windows.iter().all(|window| window.native.is_none()))
+            || (version == 4
+                && ui
+                    .commands
+                    .iter()
+                    .all(|command| command.tool_window_id.is_some()))
         {
             return Err(invalid(
                 "requires.ui",
@@ -1271,7 +1430,10 @@ impl DeclarativePluginManifest {
 
     fn validate_permissions(&mut self) -> Validation<()> {
         for permission in &self.permissions {
-            if !KNOWN_PERMISSIONS.contains(&permission.as_str()) {
+            if !KNOWN_PERMISSIONS.contains(&permission.as_str())
+                && !crate::lsp::interface::plugin_function::HOST_PERMISSIONS
+                    .contains(&permission.as_str())
+            {
                 return Err(PluginRejection::at(
                     "plugin.permission.unknown",
                     "permissions",
@@ -1309,6 +1471,18 @@ impl DeclarativePluginManifest {
         if !self.build_systems.is_empty() {
             required.insert(PERMISSION_BUILD);
         }
+        if !self.toolchain_providers.is_empty() {
+            required.insert(PERMISSION_TOOLCHAINS);
+        } else if self
+            .permissions
+            .iter()
+            .any(|permission| permission == PERMISSION_TOOLCHAINS)
+        {
+            return Err(invalid(
+                "permissions",
+                "toolchains.provide requires a toolchain provider.",
+            ));
+        }
         if !self.vcs_providers.is_empty() {
             required.insert(PERMISSION_VCS);
         }
@@ -1338,6 +1512,45 @@ impl DeclarativePluginManifest {
             return Err(invalid(
                 "permissions",
                 "credentials.store is used by a plugin backend; declare one or remove the permission.",
+            ));
+        }
+        // Only a backend 2 process receives workspace contexts; an older
+        // backend could never exercise the grant the user reviewed.
+        if self
+            .permissions
+            .iter()
+            .any(|p| p == PERMISSION_WORKSPACE_METADATA)
+            && (self.backend.is_none()
+                || self.backend_version() < super::backend::WORKSPACE_CONTEXT_VERSION)
+        {
+            return Err(invalid(
+                "permissions",
+                "workspace.metadata is used by a plugin backend 2; require backend 2 or remove the permission.",
+            ));
+        }
+        if self
+            .permissions
+            .iter()
+            .any(|p| crate::lsp::interface::plugin_function::HOST_PERMISSIONS.contains(&p.as_str()))
+            && (self.backend.is_none() || self.backend_version() < 2)
+        {
+            return Err(invalid(
+                "permissions",
+                "Host API permissions require backend 2.",
+            ));
+        }
+        if self
+            .permissions
+            .iter()
+            .any(|permission| permission == "editor.actions")
+            && !self
+                .permissions
+                .iter()
+                .any(|permission| permission == "documents.read")
+        {
+            return Err(invalid(
+                "permissions",
+                "Editor actions require documents.read for live snapshots.",
             ));
         }
         for permission in required {
@@ -1387,7 +1600,15 @@ impl DeclarativePluginManifest {
             }
         }
         self.activation_events = sorted_unique(std::mem::take(&mut self.activation_events));
-        let declared: BTreeSet<String> = self.activation_events.iter().cloned().collect();
+        let mut declared: BTreeSet<String> = self.activation_events.iter().cloned().collect();
+        // A backend 2 may start once a workspace opens. The event is optional
+        // because pages and commands can start it too, so it is checked here
+        // and kept out of the exact provider match below.
+        if self.backend.is_some()
+            && self.backend_version() >= super::backend::WORKSPACE_CONTEXT_VERSION
+        {
+            declared.remove(super::backend::ON_WORKSPACE_OPEN);
+        }
         // Every provider needs an event, and every event needs a provider:
         // an event without one would promise activation the host cannot do.
         if let Some(missing) = expected.difference(&declared).next() {
@@ -1466,10 +1687,35 @@ impl DeclarativePluginManifest {
     /// a backend. Each is granted by one permission.
     pub(crate) fn backend_host_services(&self) -> Vec<&'static str> {
         let mut services = Vec::new();
-        if self.backend.is_some() && self.permissions.iter().any(|p| p == PERMISSION_CREDENTIALS) {
+        if self.backend.is_none() {
+            return services;
+        }
+        if self.permissions.iter().any(|p| p == PERMISSION_CREDENTIALS) {
             services.push(super::backend::HOST_SERVICE_CREDENTIALS);
         }
+        if self.backend_version() >= super::backend::WORKSPACE_CONTEXT_VERSION
+            && self
+                .permissions
+                .iter()
+                .any(|p| p == PERMISSION_WORKSPACE_METADATA)
+        {
+            services.push(super::backend::HOST_SERVICE_WORKSPACE);
+        }
+        for permission in &self.permissions {
+            services
+                .extend(crate::lsp::interface::plugin_function::methods_for_permission(permission));
+        }
+        services.sort_unstable();
+        services.dedup();
         services
+    }
+
+    /// `requires.backend`, or 1 for a manifest that does not list it.
+    pub(crate) fn backend_version(&self) -> u32 {
+        self.requires
+            .get(capabilities::BACKEND)
+            .copied()
+            .unwrap_or(1)
     }
 
     /// Checks the declared settings, sorts them by ID, and returns the IDs
@@ -1651,8 +1897,29 @@ impl DeclarativePluginManifest {
 }
 
 impl LanguageDeclaration {
-    fn normalize(&mut self, index: usize) -> Validation<()> {
+    /// Whether the language uses a field `languages` 2 adds.
+    fn uses_version_2(&self) -> bool {
+        self.grammar.is_some() || self.configuration.is_some()
+    }
+
+    fn normalize(&mut self, index: usize, capability_version: u32) -> Validation<()> {
         let field = format!("languages[{index}]");
+        if self.uses_version_2() && capability_version < super::grammar::GRAMMAR_LANGUAGES_VERSION {
+            return Err(invalid(
+                if self.grammar.is_some() {
+                    format!("{field}.grammar")
+                } else {
+                    format!("{field}.configuration")
+                },
+                "grammar and configuration require version 2 of the languages capability.",
+            ));
+        }
+        if let Some(grammar) = &self.grammar {
+            grammar.validate(&format!("{field}.grammar"))?;
+        }
+        if let Some(configuration) = &self.configuration {
+            configuration.validate(&format!("{field}.configuration"))?;
+        }
         let id = self.id.trim().to_lowercase();
         if id.is_empty()
             || id != self.id
@@ -3079,7 +3346,10 @@ fn backend_launch_plan(
         )
     })?;
     let mut plan = server_launch_plan(manifest, &backend.process, None, request)?;
-    plan["backend"] = super::backend::plan_descriptor(&manifest.backend_host_services());
+    plan["backend"] = super::backend::plan_descriptor(
+        manifest.backend_version(),
+        &manifest.backend_host_services(),
+    );
     Ok(plan)
 }
 
@@ -4017,6 +4287,62 @@ pub fn workspace_configuration_command(payload: Value) -> Result<Value, CoreErro
             Ok(("configuration", configuration))
         }),
     ))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct GrammarPayload {
+    manifest: Value,
+    #[serde(rename = "languageID")]
+    language_id: String,
+    /// Text of the grammar file the host read from the package.
+    grammar: String,
+}
+
+/// `plugins.declarative.decodeGrammar`: validates the grammar file of one
+/// language and returns what the editor registers for it.
+pub fn decode_grammar_command(payload: Value) -> Result<Value, CoreError> {
+    let payload: GrammarPayload = decode_payload(payload, "plugins.declarative.decodeGrammar")?;
+    Ok(outcome(validate_manifest_value(payload.manifest).and_then(
+        |manifest| {
+            let language = manifest
+                .languages
+                .iter()
+                .find(|language| language.id == payload.language_id)
+                .filter(|language| language.grammar.is_some() || language.configuration.is_some())
+                .ok_or_else(|| {
+                    PluginRejection::new(
+                        "plugin.grammar.unavailable",
+                        format!(
+                            "The plugin declares no grammar for {}.",
+                            payload.language_id
+                        ),
+                    )
+                })?;
+            let grammar = language
+                .grammar
+                .as_ref()
+                .map(|grammar| match grammar.kind {
+                    super::grammar::GrammarKind::Monarch => {
+                        // Monarch cases are ordered. Keep the validated source
+                        // opaque across JSON maps and platform dictionaries.
+                        super::grammar::decode_monarch(&payload.grammar)
+                            .map(|_| json!({"kind": grammar.kind, "source": payload.grammar}))
+                    }
+                })
+                .transpose()?;
+            Ok((
+                "language",
+                json!({
+                    "id": language.id,
+                    "fileExtensions": language.file_extensions,
+                    "fileNames": language.file_names,
+                    "grammar": grammar,
+                    "configuration": language.configuration,
+                }),
+            ))
+        },
+    )))
 }
 
 /// `plugins.declarative.checkRuntimeVersion`: decides whether a launch

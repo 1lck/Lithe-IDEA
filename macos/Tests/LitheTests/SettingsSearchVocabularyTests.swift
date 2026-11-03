@@ -11,6 +11,14 @@ import Testing
 @Suite("Settings search vocabulary")
 @MainActor
 struct SettingsSearchVocabularyTests {
+    @Test func gitIgnoreExclusionQueriesFindGitSettings() throws {
+        let translations = try simplifiedChineseTranslations()
+        for query in ["Project Indexing", "index", "ignore", "exclude", "索引", "忽略", "排除", "根据 Git 忽略规则自动排除目录"] {
+            #expect(SettingsSearchVocabulary.matches(query: query, category: .git, localize: { translations[$0] ?? $0 }))
+            #expect(!SettingsSearchVocabulary.matches(query: query, category: .project, localize: { translations[$0] ?? $0 }))
+        }
+    }
+
     @Test func globalInstructionsAreSearchableByNativeFileAndChineseName() throws {
         let translations = try simplifiedChineseTranslations()
         for query in ["Global instructions", "AGENTS.md", "AGENTS.override.md", "CLAUDE.md", "全局指令"] {
@@ -126,6 +134,9 @@ struct SettingsSearchVocabularyTests {
         #expect(SettingsSearchVocabulary.matches(query: "字体", category: .editor, localize: localize))
         #expect(SettingsSearchVocabulary.matches(query: "搜索字体", category: .editor, localize: localize))
         #expect(SettingsSearchVocabulary.matches(query: "缩进", category: .editor, localize: localize))
+        for query in ["行间距", "配色", "空白符", "光标", "连字", "滚动"] {
+            #expect(SettingsSearchVocabulary.matches(query: query, category: .editor, localize: localize))
+        }
         #expect(!SettingsSearchVocabulary.matches(query: "字体", category: .terminal, localize: localize))
     }
 

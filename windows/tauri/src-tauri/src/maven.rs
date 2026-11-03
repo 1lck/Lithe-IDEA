@@ -18,8 +18,10 @@ use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
 mod settings_xml;
+mod user_settings;
 
 use settings_xml::parse_local_repository;
+pub use user_settings::{MavenUserSettings, WriteMavenUserLocalRepositoryArgs};
 
 const MAVEN_CONFIGURATION_VERSION: u32 = 1;
 /// Cache subdirectory holding one dependency-tree file per active session.
@@ -145,6 +147,25 @@ pub struct MavenEffectiveConfiguration {
 ///
 /// The Maven executable and JDK come from the same resolution the launch path
 /// uses, which keeps the reported values identical to the launched ones.
+/// Reads the user-level Maven settings; works without an open project.
+#[tauri::command]
+pub async fn maven_read_user_settings() -> Result<MavenUserSettings, String> {
+    run_blocking(|| user_settings::read(&required_user_home()?)).await
+}
+
+/// Writes `<localRepository>` to the user-level Maven settings after the user
+/// confirmed it, then returns the settings as read back from disk.
+#[tauri::command]
+pub async fn maven_write_user_local_repository(
+    args: WriteMavenUserLocalRepositoryArgs,
+) -> Result<MavenUserSettings, String> {
+    run_blocking(move || user_settings::write_local_repository(&required_user_home()?, args)).await
+}
+
+fn required_user_home() -> Result<PathBuf, String> {
+    user_home_directory().ok_or_else(|| user_settings::NO_HOME_ERROR.to_string())
+}
+
 #[tauri::command]
 pub async fn maven_resolve_effective_configuration(
     args: ResolveEffectiveConfigurationArgs,

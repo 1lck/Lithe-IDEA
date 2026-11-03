@@ -5655,28 +5655,46 @@ fn failed_git_result(error: CoreError) -> GitCommandResponse {
 fn discard_all(root: &str, paths: &[String]) -> Result<GitCommandResponse, CoreError> {
     let mut tracked = Vec::new();
     let mut untracked = Vec::new();
-    let status_arguments = vec![
-        "status".to_string(),
-        "--porcelain=v1".to_string(),
-        "-z".to_string(),
-        "--untracked-files=all".to_string(),
-    ];
-    let status = execute_git(root, &status_arguments, None)?;
-    if status.exit_code != 0 {
-        return Ok(status);
+    let mut tracked_paths = HashSet::new();
+    let mut untracked_paths = HashSet::new();
+    let literal_paths = [("GIT_LITERAL_PATHSPECS".to_string(), "1".to_string())];
+    let mut final_response = successful_git_result();
+    // Rollback is often called once per selected file. Never enumerate unrelated
+    // untracked trees for every file, and keep path arguments below Windows limits.
+    for batch in pathspec_batches(paths, LS_FILES_PATHSPEC_BUDGET) {
+        let mut arguments = vec![
+            "status".to_string(),
+            "--porcelain=v2".to_string(),
+            "-z".to_string(),
+            "--untracked-files=all".to_string(),
+            "--".to_string(),
+        ];
+        arguments.extend_from_slice(batch);
+        let status = execute_git_with_environment(root, &arguments, None, true, &literal_paths)?;
+        if status.exit_code != 0 {
+            return Ok(status);
+        }
+        // The shared parser consumes rename source records too; a source name
+        // beginning with `?? ` must not be mistaken for an untracked path.
+        for change in parse_status(status.stdout.as_bytes(), true) {
+            if change.untracked {
+                untracked_paths.insert(change.path);
+            } else {
+                tracked_paths.insert(change.path);
+            }
+        }
+        final_response = status;
     }
-    let untracked_paths = status
-        .output
-        .split('\0')
-        .filter_map(|record| record.strip_prefix("?? "))
-        .collect::<HashSet<_>>();
     for path in paths {
         // A summarized untracked directory (`dir/`) is reported file by file.
-        let is_untracked = untracked_paths.contains(path.as_str())
-            || (path.ends_with('/')
-                && untracked_paths
-                    .iter()
-                    .any(|untracked| untracked.starts_with(path.as_str())));
+        // A staged deletion can coexist with an untracked disk copy at the
+        // same path. Restore HEAD rather than cleaning that retained copy.
+        let is_untracked = !tracked_paths.contains(path.as_str())
+            && (untracked_paths.contains(path.as_str())
+                || (path.ends_with('/')
+                    && untracked_paths
+                        .iter()
+                        .any(|untracked| untracked.starts_with(path.as_str()))));
         if is_untracked {
             untracked.push(path.clone());
         } else {
@@ -5684,7 +5702,6 @@ fn discard_all(root: &str, paths: &[String]) -> Result<GitCommandResponse, CoreE
         }
     }
 
-    let mut final_response = status;
     if !tracked.is_empty() {
         let arguments = vec![
             "restore".to_string(),
@@ -5700,21 +5717,31 @@ fn discard_all(root: &str, paths: &[String]) -> Result<GitCommandResponse, CoreE
             .iter()
             .flat_map(|path| [path.as_str(), "\0"])
             .collect::<String>();
-        let restored = execute_git(root, &arguments, Some(pathspec_input))?;
+        let restored = execute_git_with_environment(
+            root,
+            &arguments,
+            Some(pathspec_input),
+            false,
+            &literal_paths,
+        )?;
         if restored.exit_code != 0 {
             return Ok(restored);
         }
         final_response = restored;
     }
-    if !untracked.is_empty() {
+    for batch in pathspec_batches(&untracked, LS_FILES_PATHSPEC_BUDGET) {
         let mut arguments = vec![
             "clean".to_string(),
             "-f".to_string(),
             "-d".to_string(),
             "--".to_string(),
         ];
-        arguments.extend(untracked);
-        return execute_git(root, &arguments, None);
+        arguments.extend_from_slice(batch);
+        let cleaned = execute_git_with_environment(root, &arguments, None, false, &literal_paths)?;
+        if cleaned.exit_code != 0 {
+            return Ok(cleaned);
+        }
+        final_response = cleaned;
     }
     Ok(final_response)
 }

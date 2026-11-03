@@ -407,7 +407,7 @@ final class WorkbenchFeatureModel: ObservableObject {
         layoutSessionEnded = false
         let priorLeft = activeLeftToolWindow
         let layout = layoutStore?.load(for: workspaceURL)
-            ?? WorkbenchLayout(sidebarWidth: 320, topPaneHeight: nil)
+            ?? WorkbenchLayout(sidebarWidth: WorkbenchLayout.defaultSidebarWidth, topPaneHeight: nil)
         layoutWorkspaceURL = nil
         contributionPreferences = layout.contributionPreferences ?? [:]
         var states = Self().toolWindowStates

@@ -5,11 +5,15 @@ public struct AgentSessionSummary: Identifiable, Equatable, Sendable {
     public let id: String
     public var title: String?
     public var updatedAt: String?
+    /// Opaque provider reported by upstream history; never inferred from the current route.
+    public var modelProvider: String?
 
-    public init(id: String, title: String? = nil, updatedAt: String? = nil) {
+    public init(id: String, title: String? = nil, updatedAt: String? = nil, modelProvider: String? = nil) {
         self.id = id
         self.title = title
         self.updatedAt = updatedAt
+        let provider = modelProvider?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.modelProvider = provider?.isEmpty == false ? provider : nil
     }
 }
 

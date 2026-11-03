@@ -50,10 +50,12 @@ package struct WorkspaceSnapshot: Sendable {
     /// leaves them out of `root` and `files`, and watcher events below them are
     /// ignored instead of triggering refreshes.
     package let nestedWorktrees: [URL]
-    package init(root: FileNode, files: [URL], nestedWorktrees: [URL] = [], id: UUID = UUID()) {
+    package let incompleteDirectories: [String]
+    package init(root: FileNode, files: [URL], nestedWorktrees: [URL] = [], incompleteDirectories: [String] = [], id: UUID = UUID()) {
         self.id = id
         self.root = root
         self.files = files
         self.nestedWorktrees = nestedWorktrees
+        self.incompleteDirectories = incompleteDirectories
     }
 }

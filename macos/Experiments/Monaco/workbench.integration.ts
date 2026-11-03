@@ -1,3 +1,10 @@
+import { MONACO_HIGHLIGHT_LANGUAGE_IDS } from "@lithe/editor/language";
+import { StandardKeyboardEvent } from "monaco-editor/esm/vs/base/browser/keyboardEvent.js";
+import { configureBasicTextMateResources, ensureMonacoLanguageTokenizer } from "@lithe/editor/language-contributions";
+import { ContentHoverController } from "monaco-editor/esm/vs/editor/contrib/hover/browser/contentHoverController.js";
+import { encodeMonacoSemanticTokens, MONACO_SEMANTIC_TOKEN_MODIFIERS } from "@lithe/editor/semantic-tokens";
+import { deepClone } from "monaco-editor/esm/vs/base/common/objects.js";
+import { EditorOptions } from "monaco-editor/esm/vs/editor/common/config/editorOptions.js";
 import { LightBulbWidget } from "monaco-editor/esm/vs/editor/contrib/codeAction/browser/lightBulbWidget.js";
 import { runEditorCommand } from "@lithe/editor/editor-commands";
 import { ICommandService } from "monaco-editor/esm/vs/platform/commands/common/commands.js";
@@ -11,12 +18,19 @@ import { StandaloneServices } from "monaco-editor/esm/vs/editor/standalone/brows
 import { ILanguageFeaturesService } from "monaco-editor/esm/vs/editor/common/services/languageFeatures.js";
 import { CancellationTokenSource, CancellationToken } from "monaco-editor/esm/vs/base/common/cancellation.js";
 import { ready } from "./workbench";
-import { acquireEditorModelSource, sourcePositionAt } from "@lithe/editor/model-source";
+import { IStandaloneThemeService } from "monaco-editor/esm/vs/editor/standalone/common/standaloneTheme.js";
+import { TokenMetadata } from "monaco-editor/esm/vs/editor/common/encodedTokenAttributes.js";
+import { acquireEditorModelSource } from "@lithe/editor/model-source";
 import { editor as monacoEditor, languages, Range, Selection, Uri } from "monaco-editor/esm/vs/editor/editor.api.js";
 import { mouseInputCases } from "./mouse-input.integration";
 import { contextMenuCases } from "./context-menu.integration";
 import { IContextMenuService } from "monaco-editor/esm/vs/platform/contextview/browser/contextView.js";
+import { installPluginGrammar } from "@lithe/editor/plugin-grammar-tokenizer";
+import { attachPluginEditorActions } from "@lithe/editor/plugin-editor-actions";
+import httpGrammarSource from "../../../shared/contracts/plugins/v1/fixtures/grammars/http.monarch.json" with { type: "text" };
 import { imeInputCases } from "./ime-input.integration";
+import basicHighlighting from "../../../shared/fixtures/editor/basic-file-highlighting-v1.json";
+import { toMonacoLanguageId } from "@lithe/editor/language";
 
 // Real WebKit integration, using the exact workbench bundle and the existing
 // bounded native probe host. No DOM-based imitation of Monaco input.
@@ -37,6 +51,9 @@ const withDeadline = async <T>(operation: Promise<T>, message: string): Promise<
 
 async function verify() {
   await ready;
+  const initialEditor = monacoEditor.getEditors()[0];
+  assert(!initialEditor.getAction("lithe.goToDefinition"), "definition navigation was registered while default-off");
+  window.lithe.configure({ dark: true, fontFamily: "monospace", fontSize: 13, wrap: false });
   const cases: { name: string; durationMs: number }[] = [];
   async function check(name: string, operation: () => Promise<void>) {
     await send({ type: "progress", name });
@@ -44,6 +61,310 @@ async function verify() {
     await operation();
     cases.push({ name, durationMs: performance.now() - started });
   }
+  await check("withdrawing a first-open same-ID plugin restores bundled syntax in the existing model", async () => {
+    const previous = initialEditor.getModel();
+    const text = "# comment\nall:";
+    try {
+      await window.lithe.setPluginLanguages({ languages: [{ id: "makefile", fileExtensions: ["mk"],
+        grammar: { kind: "monarch", source: '{"tokenizer":{"root":[[".*","string"]]}}' } }] });
+      await send({ type: "open", id: "plugin-first-make", text });
+      await window.lithe.activate({ id: "plugin-first-make", filename: "rules.mk", text, revision: 0, readonly: false });
+      const model = initialEditor.getModel()!;
+      await window.lithe.setPluginLanguages({ languages: [] });
+      assert(initialEditor.getModel() === model && model.getLanguageId() === "makefile", "withdrawal replaced the existing model");
+      (model as any).tokenization.forceTokenization(1);
+      assert((model as any).tokenization.getLineTokens(1).getStandardTokenType(0) === 1,
+        "withdrawal did not restore bundled Makefile comments");
+      assert(model.getValue() === text, "withdrawal changed source");
+    } finally {
+      await window.lithe.setPluginLanguages({ languages: [] });
+      await window.lithe.retain([]);
+      await send({ type: "closeFixtureDocument", documentID: "plugin-first-make" });
+      initialEditor.setModel(previous);
+    }
+  });
+  await check("a plugin enabled during worker startup wins and cancels the pending builtin", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const review = mountDiffReview(container);
+    const source = await (await fetch("textmate-worker.js")).text();
+    const workerURL = URL.createObjectURL(new Blob([source], { type: "text/javascript" }));
+    let reached!: () => void;
+    const ready = new Promise<void>(resolve => { reached = resolve; });
+    let held: unknown, released = false, terminations = 0, worker: Worker | undefined;
+    class ObservedWorker extends Worker {
+      terminate() { terminations++; super.terminate(); }
+    }
+    configureBasicTextMateResources(async language => ({ grammarURL: `${language}.tmLanguage.json`, createWorker: () => {
+      worker = new ObservedWorker(workerURL);
+      worker.addEventListener("message", event => {
+        if (event.data.type === "ready" && !released) {
+          event.stopImmediatePropagation(); held = event.data; reached();
+        }
+      }, { capture: true });
+      return worker;
+    } }));
+    const pending = review.update({ language: "groovy", rows: [{ id: "comment", oldLine: 1, newLine: 1,
+      left: "// before", right: "// after", kind: "changed" }] });
+    const release = () => {
+      released = true;
+      if (held) { worker!.dispatchEvent(new MessageEvent("message", { data: held })); held = undefined; }
+    };
+    try {
+      await withDeadline(ready, "real TextMate worker did not reach its ready event");
+      await window.lithe.setPluginLanguages({ languages: [{ id: "groovy", fileExtensions: ["groovy"],
+        grammar: { kind: "monarch", source: '{"tokenizer":{"root":[[".*","string"]]}}' } }] });
+      release();
+      await withDeadline(pending, "superseded diff initialization did not finish");
+      assert(terminations === 1, "superseded builtin worker was retained");
+      // Plugin tokenization is asynchronous; its foreground fallback remains plain.
+      // A late builtin registration would synchronously report a comment here.
+      assert(!monacoEditor.tokenize("// comment", "groovy")[0][0].type.startsWith("comment"),
+        "pending builtin replaced the enabled plugin grammar");
+      const model = review.editor.getModifiedEditor().getModel()!;
+      let listener: { dispose(): void } | undefined;
+      try {
+        const colored = new Promise<void>(resolve => {
+          const check = () => {
+            if ((model as any).tokenization.getLineTokens(1).getStandardTokenType(0) === 2) resolve();
+          };
+          listener = model.onDidChangeTokens(check); check();
+        });
+        await withDeadline(colored, "enabled plugin did not publish its string tokens into the diff model");
+      } finally { listener?.dispose(); }
+      await window.lithe.setPluginLanguages({ languages: [] });
+      configureBasicTextMateResources(undefined);
+      await ensureMonacoLanguageTokenizer("groovy");
+      assert(monacoEditor.tokenize("// comment", "groovy")[0][0].type.startsWith("comment"),
+        "cancelled installation poisoned subsequent builtin loading");
+    } finally {
+      release();
+      await withDeadline(pending, "pending diff did not clean up").catch(() => undefined);
+      configureBasicTextMateResources(undefined);
+      await window.lithe.setPluginLanguages({ languages: [] });
+      review.dispose(); container.remove(); worker?.terminate(); URL.revokeObjectURL(workerURL);
+    }
+  });
+  await check("a first-open diff uses the host's bundled grammar resources", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const review = mountDiffReview(container);
+    let requested = "";
+    configureBasicTextMateResources(async language => {
+      requested = language;
+      return { grammarURL: `${language}.tmLanguage.json` };
+    });
+    try {
+      await withDeadline(review.update({ language: "cmake", rows: [{ id: "comment", oldLine: 1, newLine: 1,
+        left: "# before", right: "# after", kind: "changed" }] }), "diff tokenizer did not load");
+      assert(requested === "cmake", "diff bypassed the host's grammar URL provider");
+      assert(monacoEditor.tokenize("# comment", "cmake")[0][0].type.startsWith("comment"), "diff opened without CMake syntax");
+    } finally {
+      configureBasicTextMateResources(undefined);
+      review.dispose(); container.remove();
+    }
+  });
+  await check("basic build and script files select bundled syntax without plugins", async () => {
+    const previous = initialEditor.getModel();
+    try {
+      for (const { filename, language } of basicHighlighting.associations) {
+        await send({ type: "open", id: "basic-syntax", text: "" });
+        await window.lithe.activate({ id: "basic-syntax", filename, text: "", revision: 0, readonly: false });
+        assert(initialEditor.getModel()!.getLanguageId() === toMonacoLanguageId(language), `wrong syntax: ${filename}`);
+      }
+      for (const example of basicHighlighting.syntax) {
+        const id = toMonacoLanguageId(example.language);
+        await ensureMonacoLanguageTokenizer(id);
+        await window.lithe.retain([]);
+        await send({ type: "open", id: "basic-syntax", text: example.text });
+        await window.lithe.activate({ id: "basic-syntax", filename: example.filename, text: example.text, revision: 0, readonly: false });
+        assert(initialEditor.getModel()!.getLanguageId() === id, `wrong model language: ${example.filename}`);
+        const lines = monacoEditor.tokenize(example.text, id);
+        for (const token of example.tokens) {
+          const column = example.text.split("\n")[token.line - 1].indexOf(token.text);
+          const actual = [...lines[token.line - 1]].reverse().find(value => value.offset <= column)?.type ?? "";
+          assert(actual.startsWith(token.role), `${example.filename}: ${token.text} has ${actual}, expected ${token.role}`);
+        }
+        const model = initialEditor.getModel()!;
+        model.pushStackElement();
+        initialEditor.executeEdits("basic-syntax", [{ range: new Range(1, 1, 1, 1), text: "# editable" }]);
+        model.pushStackElement();
+        assert(model.getValue().includes("editable"), "syntax activation prevented editing");
+        await model.undo();
+        assert(model.getValue() === example.text, "syntax activation corrupted undo");
+      }
+    } finally {
+      await window.lithe.retain([]);
+      await send({ type: "closeFixtureDocument", documentID: "basic-syntax" });
+      initialEditor.setModel(previous);
+    }
+  });
+  await check("bundled TextMate workers publish multiline comments after edits", async () => {
+    const previous = initialEditor.getModel();
+    try {
+      for (const [filename, source, edited] of [
+        ["rules.mk", "NAME = value\nall:", "# 中文 😀\nall:"],
+        ["toolchain.cmake", "set(NAME value)\nproject(Example)", "#[[ 中文 😀\ncomment\n]]"],
+        ["build.gradle", "def name = 'value'\nplugins {}", "/* 中文 😀\ncomment\n*/"],
+      ]) {
+        await window.lithe.retain([]);
+        await send({ type: "open", id: "basic-worker", text: source });
+        await window.lithe.activate({ id: "basic-worker", filename, text: source, revision: 0, readonly: false });
+        const model = initialEditor.getModel()!;
+        let listener: { dispose(): void } | undefined;
+        try {
+          const colored = new Promise<void>(resolve => {
+            listener = model.onDidChangeTokens(() => {
+              const token = (model as any).tokenization.getLineTokens(filename === "rules.mk" ? 1 : 2);
+              if (model.getValue() === edited && token.getStandardTokenType(0) === 1) resolve();
+            });
+          });
+          initialEditor.executeEdits("basic-worker", [{ range: model.getFullModelRange(), text: edited }]);
+          await withDeadline(colored, `worker did not publish comment state: ${filename}`);
+        } finally { listener?.dispose(); }
+      }
+    } finally {
+      await window.lithe.retain([]);
+      await send({ type: "closeFixtureDocument", documentID: "basic-worker" });
+      initialEditor.setModel(previous);
+    }
+  });
+  await check("ordinary plugin grammar runs in a worker and preserves Monaco editing", async () => {
+    if (!languages.getLanguages().some(language => language.id === "fixture-http")) languages.register({ id: "fixture-http" });
+    const installation = installPluginGrammar("fixture-http", JSON.stringify({ tokenizer: { root: [["#.*$", "comment"]] } }));
+    const previous = initialEditor.getModel();
+    const model = monacoEditor.createModel("# request\nGET /orders", "fixture-http");
+    let listener: { dispose(): void } | undefined;
+    try {
+      const colored = new Promise<void>(resolve => {
+        listener = model.onDidChangeTokens(() => {
+          const tokens = (model as any).tokenization.getLineTokens(1);
+          if (tokens.getStandardTokenType(0) === 1) resolve();
+        });
+      });
+      initialEditor.setModel(model);
+      await withDeadline(colored, "plugin worker never published comment tokens");
+      initialEditor.executeEdits("plugin-worker-fixture", [{ range: new Range(2, 5, 2, 5), text: " /new" }]);
+      assert(model.getValue().includes("/new"), "plugin tokenization blocked editing");
+    } finally { listener?.dispose(); initialEditor.setModel(previous); model.dispose(); installation.dispose(); }
+  });
+  await check("worker grammar preserves ordered cases and defaults to root after a host roundtrip", async () => {
+    const id = "fixture-ordered-http";
+    if (!languages.getLanguages().some(language => language.id === id)) languages.register({ id });
+    // Sorted host dictionaries must not reorder anything inside the source string.
+    const source = '{"tokenizer":{"comment":[[".*","comment"]],"root":[["[A-Z]+",{"cases":{"GET":"string","[A-Z]+":"comment","@default":"identifier"}}]]}}';
+    const payload = JSON.parse(JSON.stringify({ grammar: { kind: "monarch", source } }));
+    const installation = installPluginGrammar(id, payload.grammar.source);
+    const previous = initialEditor.getModel(), model = monacoEditor.createModel("GET", id);
+    let listener: { dispose(): void } | undefined;
+    try {
+      const colored = new Promise<void>(resolve => {
+        listener = model.onDidChangeTokens(() => {
+          if ((model as any).tokenization.getLineTokens(1).getStandardTokenType(0) === 2) resolve();
+        });
+      });
+      initialEditor.setModel(model);
+      await withDeadline(colored, "worker lost root or the first matching case");
+    } finally { listener?.dispose(); initialEditor.setModel(previous); model.dispose(); installation.dispose(); }
+  });
+  await check("configuration-only aliases retain syntax and withdraw without changing their sibling language", async () => {
+    const previous = initialEditor.getModel();
+    try {
+      await window.lithe.setPluginLanguages({ languages: [{ id: "properties", fileExtensions: ["properties"],
+        configuration: { lineComment: "!" } }] });
+      await send({ type: "open", id: "plugin-properties", text: "# comment\nkey=value" });
+      await window.lithe.activate({ id: "plugin-properties", filename: "example.properties", text: "# comment\nkey=value", revision: 0, readonly: false });
+      const model = initialEditor.getModel()!;
+      assert(model.getLanguageId() === "properties", "plugin identity was replaced by its tokenizer alias");
+      (model as any).tokenization.forceTokenization(1);
+      assert((model as any).tokenization.getLineTokens(1).getStandardTokenType(0) === 1,
+        "configuration-only properties lost the ini tokenizer");
+      initialEditor.setPosition(new Position(2, 1));
+      await initialEditor.getAction("editor.action.commentLine")!.run();
+      assert(model.getLineContent(2).startsWith("!"), "alias did not use its independent comment configuration");
+      await window.lithe.setPluginLanguages({ languages: [] });
+      assert(model.getLanguageId() === "ini", "withdrawing the configuration did not restore the tokenizer alias");
+      (model as any).tokenization.forceTokenization(1);
+      assert((model as any).tokenization.getLineTokens(1).getStandardTokenType(0) === 1, "withdrawing alias disposed the base engine");
+    } finally {
+      await window.lithe.setPluginLanguages({ languages: [] });
+      await window.lithe.retain([]);
+      await send({ type: "closeFixtureDocument", documentID: "plugin-properties" });
+      initialEditor.setModel(previous);
+    }
+  });
+  await check("plugin action refresh acknowledges scheduling while collection is pending and editing still drains", async () => {
+    const previous = initialEditor.getModel();
+    await send({ type: "open", id: "plugin-slow-actions", text: "GET /orders" });
+    await window.lithe.activate({ id: "plugin-slow-actions", filename: "orders.http", text: "GET /orders", revision: 0, readonly: false });
+    await send({ type: "holdPluginActions" });
+    try {
+      await withDeadline(window.lithe.refreshPluginEditorActions(), "refresh waited for plugin collection");
+      await withDeadline(send({ type: "awaitPluginActions" }), "collector did not start");
+      // Grammar/config updates must not wait for pending actions either.
+      await withDeadline(window.lithe.setPluginLanguages({ languages: [{ id: "fixture-source", fileExtensions: ["orderedhttp"],
+        grammar: { kind: "monarch", source: httpGrammarSource } }] }), "static language update waited for plugin collection");
+      initialEditor.executeEdits("slow-plugin", [{ range: new Range(1, 1, 1, 1), text: "# edited\n" }]);
+      const snapshot = await withDeadline(window.lithe.freeze("plugin-slow-actions"), "slow plugin blocked save barrier");
+      assert(snapshot.text.startsWith("# edited"), "save barrier lost input while plugin was pending");
+      window.lithe.unlock("plugin-slow-actions");
+    } finally {
+      await send({ type: "releasePluginActions" });
+      await window.lithe.setPluginLanguages({ languages: [] });
+      await window.lithe.retain([]);
+      await send({ type: "closeFixtureDocument", documentID: "plugin-slow-actions" });
+      initialEditor.setModel(previous);
+    }
+  });
+  await check("tool actions share a gutter menu and reject superseded batches", async () => {
+    const previous = initialEditor.getModel();
+    const model = monacoEditor.createModel("GET /orders", "plaintext");
+    const entry = { model, revision: 0, chain: Promise.resolve(), readonly: false, frozen: false, closingHolds: 0 };
+    let active = true, collections = 0;
+    const calls: any[] = [];
+    const service = StandaloneServices.get(IContextMenuService), originalMenu = service.showContextMenu;
+    let menu: any[] = [];
+    service.showContextMenu = delegate => { menu = [...delegate.getActions()]; };
+    const entries = new Map([["tool", entry]]);
+    const binding = attachPluginEditorActions({
+      entries: () => entries, editors: () => [initialEditor], lineNumbersFirst: true,
+      current: () => { const version = model.getVersionId(); return () => active && !model.isDisposed() && model.getVersionId() === version; },
+      request: async payload => {
+        if ((payload as any).type === "pluginEditorAction") { calls.push(payload); return { ok: true }; }
+        return { batch: String(++collections), actions: [
+          { id: "send", line: 1, endLine: 1, title: "Send request", icon: "run" },
+          { id: "preview", line: 1, endLine: 1, title: "Preview request", icon: "run" },
+        ] };
+      },
+    });
+    try {
+      initialEditor.setModel(model);
+      binding.attach(initialEditor);
+      await binding.refresh();
+      assert(model.getAllDecorations().filter(value => value.options.linesDecorationsClassName?.includes("lithe-plugin-editor-action")).length === 1,
+        "same-line actions created competing gutter decorations");
+      const target = document.createElement("span");
+      target.className = "lithe-plugin-editor-action";
+      (initialEditor as any)._onMouseDown.fire({
+        target: { element: target, position: new Position(1, 1) },
+        event: { leftButton: true, posx: 10, posy: 10, preventDefault() {}, stopPropagation() {} },
+      });
+      assert(menu.length === 2 && menu[0].label === "Send request" && menu[1].label === "Preview request",
+        "same-line plugin actions lost their separate menu labels");
+      await menu[0].run();
+      assert(calls.length === 1 && calls[0].action === "send" && calls[0].batch === "1",
+        "explicit click did not preserve the opaque action/batch identity");
+      entry.revision++;
+      binding.schedule("tool", entry);
+      assert(!model.getAllDecorations().some(value => value.options.linesDecorationsClassName?.includes("lithe-plugin-editor-action")),
+        "edited document kept its old action clickable");
+      await menu[0].run();
+      assert(calls.length === 1, "retained menu executed an action after its batch was revoked");
+    } finally {
+      service.showContextMenu = originalMenu;
+      active = false; binding.dispose(); initialEditor.setModel(previous); model.dispose();
+    }
+  });
   for (const test of contextMenuCases) await check(test.name, async () => test.run());
   for (const test of mouseInputCases) await check(test.name, async () => test.run());
   for (const test of imeInputCases) await check(test.name, async () => test.run());
@@ -208,8 +529,9 @@ async function verify() {
       assert(acquireEditorModelSource(model, text) === source, "multiple views created competing source mirrors");
       model.pushEditOperations([], [{ range: new Range(2, 1, 2, 6), text: "new" }], () => null);
       assert(source.content === "first\r\nnew\nlast\rtail", "Windows mirror normalized untouched source newlines");
-      const position = sourcePositionAt(source.content, source.content.indexOf("tail"));
-      assert(position.line === 3 && position.column === 0, "Windows LSP source position ignored CR");
+      model.pushEditOperations([], [{ range: new Range(4, 2, 4, 2), text: "!" }], () => null);
+      const position = source.lastChange?.changes[0]?.start;
+      assert(position?.line === 3 && position.column === 0, "Windows LSP source position ignored CR");
       source.replace("external\rnew\n");
       assert(source.lastChange?.external, "external replacement escaped source suppression");
       model.pushEditOperations([], [{ range: new Range(2, 1, 2, 4), text: "edited" }], () => null);
@@ -285,6 +607,35 @@ async function verify() {
   await send({ type: "open", text: source });
   await window.lithe.activate({ id: "A", text: source, revision: 0, language: "java", readonly: false, focus: false });
   const editor = monacoEditor.getEditors()[0];
+  await check("plugin edit bridge preserves dirty Unicode, CRLF and a single real undo", async () => {
+    const id = "plugin-edit", text = "dirty 😀\r\n中文";
+    await send({ type: "open", id, text });
+    await window.lithe.activate({ id, text, revision: 0, language: "plaintext", readonly: false });
+    const target = editor.getModel()!;
+    try {
+      editor.setSelections([new Selection(1, 1, 1, 6), new Selection(2, 1, 2, 3)]);
+      const selected = await withDeadline(window.lithe.pluginSelections({ id }), "plugin selections timed out") as any;
+      assert(selected.status === "ok" && selected.selections.length === 2, "plugin lost multiple selections");
+      const edits = [
+        { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 6, text: "DONE\n!" },
+        { startLineNumber: 2, startColumn: 1, endLineNumber: 2, endColumn: 3, text: "文字" },
+      ];
+      const applied = await withDeadline(window.lithe.applyPluginEdits({ id, revision: selected.revision,
+        token: "plugin-batch", eol: "\r\n", edits }), "plugin edits timed out") as any;
+      assert(applied.status === "applied", `plugin edits rejected: ${applied.status}`);
+      const native = await send({ type: "fixtureSnapshot", id });
+      assert(native.text === "DONE\r\n! 😀\r\n文字", "plugin edits diverged from exact native source");
+      const stale = await window.lithe.applyPluginEdits({ id, revision: selected.revision, token: "stale", eol: "\r\n", edits });
+      assert(stale.status === "versionConflict", "stale plugin edit overwrote current input");
+      await target.undo();
+      const undone = await withDeadline(window.lithe.freeze(id), "plugin undo timed out") as any;
+      assert(undone.text === text, "one real Monaco undo did not restore the whole plugin batch");
+    } finally {
+      window.lithe.unlock(id);
+      await window.lithe.retain(["A"]);
+      await window.lithe.activate({ id: "A", text: source, revision: 0, language: "java", readonly: false });
+    }
+  });
   await check("editor context menu routes existing Monaco actions to the native host", async () => {
     const service = StandaloneServices.get(IContextMenuService) as any;
     let listener: { dispose(): void } | undefined;
@@ -543,6 +894,64 @@ async function verify() {
     } finally {
       window.lithe.detachSurface("right");
       container.remove();
+    }
+  });
+  await check("hidden line numbers retain breakpoint icons and clicks in existing and new splits", async () => {
+    const id = "hidden-number-breakpoints";
+    const configure = (lineNumbers: string) => window.lithe.configure({ dark: true,
+      fontFamily: "monospace", fontSize: 13, wrap: false, minimap: true, appearance: { lineNumbers } });
+    await window.lithe.activate({ id, text: "class Demo {\n  int a = 1;\n  int b = 2;\n}",
+      revision: 0, language: "java", readonly: false });
+    try {
+      await window.lithe.debugState(id, { muted: false, canToggleBreakpoints: true, revision: 0,
+        breakpoints: [{ line: 2, enabled: true, verified: true, logpoint: false }] });
+      configure("off");
+      await window.lithe.showSecondary({ id, readonly: false });
+      const secondary = monacoEditor.getEditors().find(view => view !== editor)!;
+      for (const view of [editor, secondary]) {
+        view.render(true);
+        const root = view.getDomNode()!;
+        assert(root.hasAttribute("data-lithe-breakpoints-editable"), "hidden numbers disabled breakpoint hover");
+        assert(!!root.querySelector(".line-numbers.lithe-breakpoint"), "hidden numbers removed the breakpoint icon");
+        const numbers = [...root.querySelectorAll(".line-numbers")];
+        assert(numbers.length > 0 && numbers.every(node => !/[0-9]/.test(node.textContent ?? "")),
+          "hidden numbers still display digits");
+        for (const line of [2, 3]) {
+          view.render(true);
+          const node = [...root.querySelectorAll(".line-numbers")].find(node => {
+            const rect = node.getBoundingClientRect();
+            return view.getTargetAtClientPoint(rect.right - 4, rect.top + rect.height / 2)?.position?.lineNumber === line;
+          });
+          assert(!!node, `line ${line} has no clickable breakpoint region`);
+          const rect = node!.getBoundingClientRect();
+          const event = { bubbles: true, button: 0, buttons: 1,
+            clientX: rect.right - 4, clientY: rect.top + rect.height / 2 };
+          assert(view.getTargetAtClientPoint(event.clientX, event.clientY)?.type === monacoEditor.MouseTargetType.GUTTER_LINE_NUMBERS,
+            "hidden gutter no longer receives breakpoint clicks");
+          const before = (await send({ type: "debugRequests" })).requests.length;
+          let listener: { dispose(): void } | undefined;
+          try {
+            const observed = new Promise<void>(resolve => { listener = view.onMouseDown(() => resolve()); });
+            node!.dispatchEvent(new MouseEvent("mousedown", event));
+            document.dispatchEvent(new MouseEvent("mouseup", { ...event, buttons: 0 }));
+            await withDeadline(observed, "hidden gutter click did not reach Monaco");
+            const requests = (await send({ type: "debugRequests" })).requests;
+            assert(requests.length === before + 1 && requests.at(-1)?.type === "toggleBreakpoint"
+              && requests.at(-1)?.id === id && requests.at(-1)?.line === line,
+              "hidden gutter did not toggle the existing or new breakpoint");
+          } finally { listener?.dispose(); }
+        }
+      }
+      configure("relative");
+      for (const view of [editor, secondary]) {
+        view.render(true);
+        assert(view.getRawOptions().lineNumbers === "relative", "restoring numbers lost relative mode");
+        assert(!!view.getDomNode()!.querySelector(".line-numbers.lithe-breakpoint"), "restoring numbers removed the breakpoint");
+      }
+    } finally {
+      window.lithe.hideSecondary();
+      configure("on");
+      await window.lithe.retain([]);
     }
   });
   await check("native gutter places line numbers before Run icons and preserves hit targets", async () => {
@@ -929,6 +1338,376 @@ async function verify() {
     } finally {
       if (!disposed) review.dispose();
       container.remove();
+      await window.lithe.retain([]);
+    }
+  });
+  await check("IDEA YAML distinguishes keys, plain scalars and quoted scalars in both appearances", async () => {
+    await withDeadline(ensureMonacoLanguageTokenizer("yaml"), "YAML tokenizer did not load");
+    const text = 'name: lithe-database-validation\nservices:\n  restart: unless-stopped\n  ports: ["3306", plain, 30, true]\n  options: {key: plain, quoted: "green"}\n  script: |\n    echo hello\n  quoted: "green"\n  number: 1.5\n  # comment\n  alias: &db value';
+    const model = monacoEditor.createModel(text, "yaml");
+    const service = StandaloneServices.get(IStandaloneThemeService);
+    const previous = service.getColorTheme().themeName;
+    try {
+      for (const dark of [true, false]) {
+        window.lithe.configure({ fontFamily: "monospace", fontSize: 15, wrap: false, minimap: false,
+          theme: { id: `yaml-${dark}`, dark, syntaxScheme: "idea" } });
+        (model as any).tokenization.forceTokenization(model.getLineCount());
+        const colorAt = (lineNumber: number, word: string) => {
+          const line = (model as any).tokenization.getLineTokens(lineNumber);
+          const offset = model.getLineContent(lineNumber).lastIndexOf(word);
+          assert(offset >= 0, `missing YAML sample ${word}`);
+          const rgba = service.getColorTheme().tokenTheme.getColorMap()[line.getForeground(line.findTokenIndexAtOffset(offset))].rgba;
+          return [rgba.r, rgba.g, rgba.b].map(value => value.toString(16).padStart(2, "0")).join("").toUpperCase();
+        };
+        const foreground = dark ? "BCBEC4" : "080808", keyword = dark ? "CF8E6D" : "0033B3", string = dark ? "6AAB73" : "067D17";
+        for (const [line, word] of [[1, "name"], [2, "services"], [5, "key"], [5, "quoted"]] as const)
+          assert(colorAt(line, word) === keyword, `${dark}: YAML key ${word} is not IDEA keyword color`);
+        for (const [line, word] of [[1, "lithe"], [3, "unless"], [4, "plain"], [4, "30"], [4, "true"], [5, "plain"], [7, "echo"], [9, "1.5"]] as const)
+          assert(colorAt(line, word) === foreground, `${dark}: YAML plain scalar ${word} is not IDEA text color`);
+        assert(colorAt(11, "&db") === (dark ? foreground : "0000E6"), "YAML anchor ignored scheme override");
+        for (const [line, word] of [[4, "3306"], [5, "green"], [8, "green"]] as const)
+          assert(colorAt(line, word) === string, `${dark}: YAML quoted scalar ${word} lost string color`);
+      }
+      for (const dark of [true, false]) {
+        for (const syntaxScheme of ["lithe", "github", "one", "vscode"]) {
+          window.lithe.configure({ fontFamily: "monospace", fontSize: 15, wrap: false, minimap: false,
+            theme: { id: `yaml-regression-${syntaxScheme}-${dark}`, dark, syntaxScheme } });
+          const theme = service.getColorTheme().tokenTheme;
+          assert(theme.match(0, "string.yaml.plain") === theme.match(0, "string.yaml"),
+            `${syntaxScheme}: refining YAML tokens changed the existing scalar style`);
+        }
+      }
+    } finally {
+      model.dispose();
+      monacoEditor.setTheme(previous);
+    }
+  });
+  await check("IDEA SQL overrides inherited colors and keeps keyword operators distinct from symbols", async () => {
+    await withDeadline(ensureMonacoLanguageTokenizer("sql"), "SQL tokenizer did not load");
+    const text = "CREATE TABLE IF NOT EXISTS records (title VARCHAR(120) NOT NULL);\nALTER DATABASE sample COLLATE utf8mb4_unicode_ci;\nINSERT INTO records VALUES ('中文 🚀', 'don''t', 1234.50, NULL, TRUE);\nSELECT COUNT(id) FROM records WHERE id = 1 + 2;\n-- comment";
+    const model = monacoEditor.createModel(text, "sql");
+    const service = StandaloneServices.get(IStandaloneThemeService);
+    const previous = service.getColorTheme().themeName;
+    try {
+      for (const dark of [true, false]) {
+        window.lithe.configure({ fontFamily: "monospace", fontSize: 15, wrap: false, minimap: false,
+          appearance: { bracketPairColorization: { enabled: true } },
+          theme: { id: `sql-${dark}`, dark, syntaxScheme: "idea" } });
+        assert(!editor.getOption(monacoEditor.EditorOption.bracketPairColorization).enabled,
+          "IDEA scheme accepted a stale bracket-color preference");
+        (model as any).tokenization.forceTokenization(model.getLineCount());
+        const colorAt = (lineNumber: number, word: string) => {
+          const line = (model as any).tokenization.getLineTokens(lineNumber);
+          const offset = model.getLineContent(lineNumber).indexOf(word);
+          assert(offset >= 0, `missing SQL sample ${word}`);
+          const rgba = service.getColorTheme().tokenTheme.getColorMap()[line.getForeground(line.findTokenIndexAtOffset(offset))].rgba;
+          return [rgba.r, rgba.g, rgba.b].map(value => value.toString(16).padStart(2, "0")).join("").toUpperCase();
+        };
+        for (const [line, word] of [[1, "CREATE"], [1, "NOT"], [1, "EXISTS"], [1, "NULL"], [2, "COLLATE"]] as const)
+          assert(colorAt(line, word) === (dark ? "CF8E6D" : "0033B3"), `${word}: SQL keyword color mismatch`);
+        for (const word of ["中文", "don", "''", "🚀"])
+          assert(colorAt(3, word) === (dark ? "6AAB73" : "067D17"), "SQL string inherited Monaco red");
+        for (const [line, word] of [[1, "("], [4, "="], [4, "+"], [4, "COUNT"]] as const)
+          assert(colorAt(line, word) === (dark ? "BCBEC4" : "080808"), `${word}: SQL symbol/builtin color mismatch`);
+        assert(colorAt(3, "1234.50") === (dark ? "2AACB8" : "1750EB"), "SQL numeric color mismatch");
+      }
+      for (const dark of [true, false]) for (const syntaxScheme of ["lithe", "github", "one", "vscode"]) {
+        window.lithe.configure({ fontFamily: "monospace", fontSize: 15, wrap: false, minimap: false,
+          theme: { id: `sql-regression-${syntaxScheme}-${dark}`, dark, syntaxScheme } });
+        const theme = service.getColorTheme().tokenTheme;
+        assert(theme.match(0, "operator.sql.word") === theme.match(0, "operator.sql")
+          && theme.match(0, "predefined.sql.keyword") === theme.match(0, "predefined.sql"),
+          "SQL refinement changed another scheme");
+      }
+    } finally { model.dispose(); monacoEditor.setTheme(previous); }
+  });
+  await check("every mapped source language retains string highlighting under IDEA dark and light", async () => {
+    const samples: Record<string, string> = Object.fromEntries([
+      "c", "cpp", "csharp", "dart", "elixir", "elisp", "elm", "go", "hcl", "java", "javascript", "kotlin",
+      "lua", "nix", "objective-c", "ocaml", "python", "r", "ruby", "rust", "scala", "scheme", "sol", "swift", "typescript", "zig",
+    ].map(language => [language, '"hello"']));
+    Object.assign(samples, {
+      css: 'a { content: "hello"; }', less: 'a { content: "hello"; }', scss: 'a { content: "hello"; }',
+      html: '<a title="hello">a</a>', xml: '<a title="hello"/>',
+      ini: 'name="hello"', toml: 'name="hello"', dotenv: 'NAME="hello"', shell: 'echo "hello"',
+      dockerfile: 'ENV NAME="hello"', graphql: 'query { field(arg: "hello") }',
+      proto: 'syntax = "hello";', sql: "SELECT 'hello';", yaml: 'name: "hello"',
+      json: '{"name":"hello"}', php: '<?php echo "hello";',
+      diff: '+hello', gitignore: 'hello', gitattributes: 'hello text', lockfile: 'name: "hello"',
+      markdown: '<a title="hello">a</a>',
+      makefile: 'NAME = $(subst a,b,hello)', cmake: 'set(NAME "hello")', groovy: 'def name = "hello"',
+      powershell: 'Write-Host "hello"', bat: 'echo "hello"',
+    });
+    assert(Object.keys(samples).length === MONACO_HIGHLIGHT_LANGUAGE_IDS.size
+      && [...MONACO_HIGHLIGHT_LANGUAGE_IDS].every(id => id in samples), "language inventory changed without a highlighting sample");
+    const service = StandaloneServices.get(IStandaloneThemeService);
+    const previous = service.getColorTheme().themeName;
+    try {
+      for (const [language, text] of Object.entries(samples)) {
+        await withDeadline(ensureMonacoLanguageTokenizer(language), `${language} tokenizer did not load`);
+        const model = monacoEditor.createModel(text, language);
+        try {
+          assert(model.getLanguageId() === language, `${language} was silently treated as plaintext`);
+          for (const dark of [true, false]) {
+            window.lithe.configure({ fontFamily: "monospace", fontSize: 15, wrap: false,
+              theme: { id: `inventory-${language}-${dark}`, dark, syntaxScheme: "idea" } });
+            (model as any).tokenization.forceTokenization(1);
+            const line = (model as any).tokenization.getLineTokens(1);
+            const rgba = service.getColorTheme().tokenTheme.getColorMap()[line.getForeground(line.findTokenIndexAtOffset(text.indexOf("hello")))].rgba;
+            const actual = [rgba.r, rgba.g, rgba.b].map(v => v.toString(16).padStart(2, "0")).join("").toUpperCase();
+            assert(actual === (dark ? "6AAB73" : "067D17"), `${language}/${dark}: string color ${actual}`);
+          }
+        } finally { model.dispose(); }
+      }
+    } finally { monacoEditor.setTheme(previous); }
+  });
+  await check("IDEA language colors override VS defaults and retain language roles in both appearances", async () => {
+    const samples: [string, string, [string, string, string][]][] = [
+      ["xml", '<root name="value">&amp;</root>', [["root", "D5B778", "0033B3"], ["<", "D5B778", "080808"], ["name", "BCBEC4", "174AD4"], ["value", "6AAB73", "067D17"]]],
+      ["html", '<div title="value">text</div>', [["div", "D5B778", "0033B3"], ["title", "BABABA", "174AD4"], ["value", "6AAB73", "067D17"], ["text", "BCBEC4", "080808"]]],
+      ["json", '{"name": "value", "enabled": true, "n": 12}', [["name", "C77DBB", "871094"], ["value", "6AAB73", "067D17"], ["true", "CF8E6D", "0033B3"], ["12", "2AACB8", "1750EB"]]],
+      ["css", 'p { color: #ffffff; width: 12px; }', [["12", "2AACB8", "1750EB"], ["px", "2AACB8", "1750EB"]]],
+      ["scss", '@if $enabled { a { width: 12px; } }', [["@if", "CF8E6D", "0033B3"], ["12", "2AACB8", "1750EB"]]],
+      ["swift", 'if ready { let value = "hello" }', [["if", "CF8E6D", "0033B3"], ["=", "BCBEC4", "080808"], ["hello", "6AAB73", "067D17"]]],
+      ["python", '@decorator\nx = "hello\\n"', [["@decorator", "B3AE60", "9E880D"], ['"', "6AAB73", "067D17"], ["hello", "6AAB73", "067D17"], ["\\n", "CF8E6D", "0037A6"]]],
+      ["markdown", '# Heading\n`code`\n[link](target)', [["#", "CF8E6D", "0033B3"], ["Heading", "C77DBB", "871094"], ["code", "BCBEC4", "067D17"], ["link", "56A8F5", "0000FF"]]],
+      ["toml", '[server]\nport = 12\nactive = true', [["server", "CF8E6D", "0033B3"], ["port", "CF8E6D", "0033B3"], ["12", "2AACB8", "1750EB"], ["true", "BCBEC4", "080808"]]],
+    ];
+    const service = StandaloneServices.get(IStandaloneThemeService);
+    const previous = service.getColorTheme().themeName;
+    try {
+      for (const [language, text, expectations] of samples) {
+        await withDeadline(ensureMonacoLanguageTokenizer(language), `${language} tokenizer did not load`);
+        const model = monacoEditor.createModel(text, language);
+        try {
+          for (const dark of [true, false]) {
+            window.lithe.configure({ fontFamily: "monospace", fontSize: 15, wrap: false,
+              theme: { id: `language-${language}-${dark}`, dark, syntaxScheme: "idea" } });
+            (model as any).tokenization.forceTokenization(model.getLineCount());
+            for (const [word, darkColor, lightColor] of expectations) {
+              const position = model.getPositionAt(text.indexOf(word));
+              const line = (model as any).tokenization.getLineTokens(position.lineNumber);
+              const rgba = service.getColorTheme().tokenTheme.getColorMap()[line.getForeground(line.findTokenIndexAtOffset(position.column - 1))].rgba;
+              const actual = [rgba.r, rgba.g, rgba.b].map(v => v.toString(16).padStart(2, "0")).join("").toUpperCase();
+              assert(actual === (dark ? darkColor : lightColor), `${language}/${dark}/${word}: ${actual}, expected ${dark ? darkColor : lightColor}`);
+            }
+          }
+        } finally { model.dispose(); }
+      }
+      for (const dark of [true, false]) for (const syntaxScheme of ["lithe", "github", "one", "vscode"]) {
+        window.lithe.configure({ fontFamily: "monospace", fontSize: 15, wrap: false,
+          theme: { id: `language-preservation-${syntaxScheme}-${dark}`, dark, syntaxScheme } });
+        const theme = service.getColorTheme().tokenTheme;
+        for (const [refined, parent] of [["keyword.md.heading", "keyword.md"], ["md.link", ""], ["string.python.escape", "string.python"], ["key.toml", "key"]])
+          assert(theme.match(0, refined) === theme.match(0, parent), `${syntaxScheme}: ${refined} changed its original color`);
+      }
+    } finally { monacoEditor.setTheme(previous); }
+  });
+  await check("imported IDEA theme colors real Java comments and survives live splits until removed", async () => {
+    const text = "// purple\n/* green */\n/** orange */\nclass Example {}";
+    await send({ type: "open", text });
+    await window.lithe.activate({ id: "import-colors", text, revision: 0, language: "java", readonly: false });
+    const model = editor.getModel()!;
+    const custom = { name: "Purple", dark: true, colors: { background: "#202030", foreground: "#BBDDFF", cursor: "#AA44CC" }, tokens: {
+      "comment.line": { foreground: "#AA44CC", fontStyle: "italic" },
+      "comment.block": { foreground: "#00FF00", fontStyle: "" },
+      "comment.documentation": { foreground: "#FF8800", fontStyle: "bold" },
+      "method.declaration": { foreground: "#CC88FF", fontStyle: "bold" },
+    } };
+    const configure = (value: string) => window.lithe.configure({ fontFamily: "monospace", fontSize: 13, wrap: false, minimap: false,
+      appearance: { customTheme: value }, theme: { id: "import-colors", dark: true, syntaxScheme: "idea", colors: { background: "#191A1C" } } });
+    const service = StandaloneServices.get(IStandaloneThemeService);
+    const color = (token: string) => {
+      const theme = service.getColorTheme().tokenTheme;
+      const rgba = theme.getColorMap()[TokenMetadata.getForeground(theme.match(0, token))].rgba;
+      return [rgba.r, rgba.g, rgba.b].map(n => n.toString(16).padStart(2, "0")).join("").toUpperCase();
+    };
+    try {
+      configure(JSON.stringify({ ...custom, tokens: { "comment.line": custom.tokens["comment.line"] } }));
+      const isolated = monacoEditor.tokenize(text, "java").slice(0, 3).map(line => line[0].type);
+      assert(color(isolated[0]) === "AA44CC" && color(isolated[1]) !== "AA44CC" && color(isolated[2]) !== "AA44CC",
+        "line-comment customization leaked into block or documentation comments");
+      configure(JSON.stringify(custom));
+      const roles = monacoEditor.tokenize(text, "java").slice(0, 3).map(line => line[0].type);
+      assert(roles.every(role => role.startsWith("comment")), "Java comments lost their lexical classification");
+      assert(color(roles[0]) === "AA44CC" && color(roles[1]) === "00FF00" && color(roles[2]) === "FF8800",
+        "custom line/block/documentation comments were not applied to real tokenizer output");
+      assert(color("method.declaration") === "CC88FF" && color("method.readonly.deprecated.declaration") === "CC88FF", "custom semantic method declaration color was lost");
+      assert(color("") === "BBDDFF", "custom default text color was lost");
+      assert(TokenMetadata.getFontStyle(service.getColorTheme().tokenTheme.match(0, "method.readonly.deprecated.declaration")) & 8, "custom font style erased deprecation");
+      assert(TokenMetadata.getFontStyle(service.getColorTheme().tokenTheme.match(0, roles[0])) & 1, "imported comment italic was lost");
+      await window.lithe.showSecondary({ id: "import-colors", readonly: false });
+      assert(model.getValue() === text && monacoEditor.getEditors().some(view => view !== editor && view.getModel() === model), "custom theme replaced split model");
+      custom.tokens["comment.line"].foreground = "#BB55DD";
+      configure(JSON.stringify(custom));
+      assert(color(roles[0]) === "BB55DD", "same-name theme update retained stale colors");
+      custom.dark = false;
+      configure(JSON.stringify({ ...custom, colors: {} }));
+      assert(service.getColorTheme().getColor("editor.background")?.toString() !== "#191a1c", "light imported scheme retained dark native background");
+      configure("");
+      assert(color(roles[0]) !== "BB55DD", "removing custom theme did not restore built-in colors");
+    } finally {
+      configure("");
+      await window.lithe.hideSecondary();
+      await window.lithe.retain([]);
+    }
+  });
+
+  await check("imported indentation updates existing and new models without changing text or undo", async () => {
+    const text = "if (true) {\n  one();\n  two();\n}\n";
+    await send({ type: "open", text });
+    await window.lithe.activate({ id: "import-indent", text, revision: 0, language: "javascript", readonly: false });
+    const model = editor.getModel()!;
+    const previous = editor.getRawOptions();
+    const configure = (tabSize: number, insertSpaces: boolean, detectIndentation: boolean) => window.lithe.configure({
+      fontSize: previous.fontSize, fontFamily: previous.fontFamily, wrap: false, minimap: false,
+      appearance: { tabSize, insertSpaces, detectIndentation },
+    });
+    try {
+      editor.pushUndoStop();
+      editor.executeEdits("indent-test", [{ range: new Range(2, 3, 2, 6), text: "first" }]);
+      editor.pushUndoStop();
+      const edited = model.getValue();
+      configure(8, false, false);
+      assert(model.getOptions().tabSize === 8 && !model.getOptions().insertSpaces, "existing model ignored explicit indentation");
+      let reports = await send({ type: "indentationReports" });
+      assert(reports["import-indent"].tabSize === 8 && reports["import-indent"].insertSpaces === false,
+        "host status did not receive explicit Tab indentation");
+      assert(model.getValue() === edited, "indentation import rewrote content");
+      await window.lithe.showSecondary({ id: "import-indent", readonly: false });
+      const secondary = monacoEditor.getEditors().find(view => view !== editor)!;
+      assert(secondary.getModel()!.getOptions().tabSize === 8, "split did not use imported indentation");
+      configure(4, true, true);
+      assert(model.getOptions().tabSize === 2 && model.getOptions().indentSize === 2 && model.getOptions().insertSpaces, "automatic indentation ignored document content");
+      await window.lithe.activate({ id: "import-indent-new", text: "", revision: 0, language: "javascript", readonly: false });
+      assert(editor.getModel()!.getOptions().tabSize === 4, "new model ignored fallback indentation");
+      reports = await send({ type: "indentationReports" });
+      assert(reports["import-indent"].tabSize === 2 && reports["import-indent"].insertSpaces === true,
+        "host status received global fallback instead of detected indentation");
+      assert(reports["import-indent-new"].tabSize === 4,
+        "new document status reused the other split's indentation");
+      await window.lithe.activate({ id: "import-indent", text: edited, revision: 1, language: "javascript", readonly: false });
+      editor.trigger("indent-test", "undo", null);
+      assert(model.getValue() === text, "indentation import damaged undo history");
+    } finally {
+      await window.lithe.hideSecondary();
+      configure(4, true, true);
+      await window.lithe.retain([]);
+    }
+  });
+
+  await check("global appearance updates live and future splits without replacing documents or undo", async () => {
+    const text = "const sample = 1;\n  // comment\n";
+    await send({ type: "open", text });
+    await window.lithe.activate({ id: "appearance", text, revision: 0, language: "javascript", readonly: false });
+    const model = editor.getModel()!;
+    const appearance = {
+      lineHeight: 1.8, lineNumbers: "relative", renderWhitespace: "all", fontLigatures: true,
+      cursorStyle: "block", cursorBlinking: "solid", guides: { indentation: false, highlightActiveIndentation: false },
+      bracketPairColorization: { enabled: false }, stickyScroll: { enabled: false },
+      smoothScrolling: true, scrollBeyondLastLine: true, renderLineHighlight: "none",
+    };
+    // Monaco mutates raw options in place. Snapshot only touched display fields,
+    // including defaults, so later input tests cannot inherit this test's layout.
+    const previous = Object.fromEntries([...Object.keys(appearance), "fontFamily", "fontSize"].map(key =>
+      [key, deepClone(editor.getRawOptions()[key] ?? Object.values(EditorOptions).find(option => option.name === key)!.defaultValue)]));
+    try {
+      editor.pushUndoStop();
+      editor.executeEdits("appearance-test", [{ range: new Range(1, 16, 1, 17), text: "2" }]);
+      editor.pushUndoStop();
+      const position = editor.getPosition();
+      const configure = (dark: boolean, syntaxScheme: string, italicComments: boolean) => window.lithe.configure({
+        fontFamily: "monospace", fontSize: 18, wrap: true, minimap: false,
+        appearance: { ...appearance, bracketPairColorization: { enabled: syntaxScheme !== "idea" } },
+        theme: { id: `appearance-${syntaxScheme}-${dark}-${italicComments}`, dark, syntaxScheme, italicComments },
+      });
+      configure(true, "github", true);
+      await window.lithe.showSecondary({ id: "appearance", readonly: false });
+      const secondary = monacoEditor.getEditors().find(view => view !== editor)!;
+      for (const view of [editor, secondary]) {
+        const option = monacoEditor.EditorOption;
+        assert(view.getOption(option.fontSize) === 18 && view.getOption(option.lineHeight) === 32,
+          "font size or multiplier did not reach a live/new view");
+        assert(view.getRawOptions().lineNumbers === "relative" && view.getOption(option.renderWhitespace) === "all",
+          "line numbers or whitespace ignored the preference");
+        assert(!view.getOption(option.guides).indentation && view.getOption(option.bracketPairColorization).enabled,
+          "guides or bracket colors ignored the preference");
+        assert(view.getRawOptions().cursorStyle === "block" && view.getRawOptions().cursorBlinking === "solid",
+          "cursor preferences were not applied");
+        assert(view.getRawOptions().fontLigatures === true && !view.getOption(option.stickyScroll).enabled,
+          "ligatures or sticky scroll were not applied");
+        assert(view.getOption(option.smoothScrolling) && view.getOption(option.scrollBeyondLastLine)
+          && view.getOption(option.renderLineHighlight) === "none", "scroll/current-line preferences were not applied");
+        assert(!view.getOption(option.readOnly), "appearance made an editable document read-only");
+      }
+      const themeService = StandaloneServices.get(IStandaloneThemeService);
+      const tokenColor = (token: string) => {
+        const theme = themeService.getColorTheme().tokenTheme;
+        const color = theme.getColorMap()[TokenMetadata.getForeground(theme.match(0, token))].rgba;
+        return [color.r, color.g, color.b].map(value => value.toString(16).padStart(2, "0")).join("").toUpperCase();
+      };
+      assert(tokenColor("keyword") === "FF7B72" && tokenColor("functionCall") === "D2A8FF",
+        "GitHub dark did not map lexical/native token roles");
+      assert(TokenMetadata.getFontStyle(themeService.getColorTheme().tokenTheme.match(0, "comment")) & 1,
+        "italic comments were not applied");
+      configure(false, "github", false);
+      assert(tokenColor("keyword") === "CF222E" && tokenColor("typeParameter") === "8250DF",
+        "GitHub light did not update semantic aliases");
+      assert(!(TokenMetadata.getFontStyle(themeService.getColorTheme().tokenTheme.match(0, "comment")) & 1),
+        "turning italic comments off retained italic style");
+      configure(true, "one", false);
+      assert(tokenColor("keyword") === "C678DD", "One dark was not selected");
+      configure(false, "one", false);
+      assert(tokenColor("keyword") === "A626A4", "One light was not selected");
+      for (const [scheme, dark, keyword, method, field] of [
+        ["vscode", true, "FF7B72", "D2A8FF", "79C0FF"],
+        ["vscode", false, "CF222E", "8250DF", "0550AE"],
+        ["idea", true, "CF8E6D", "56A8F5", "C77DBB"],
+        ["idea", false, "0033B3", "00627A", "871094"],
+      ] as const) {
+        configure(dark, scheme, false);
+        assert(tokenColor("keyword") === keyword && tokenColor("functionDeclaration") === method
+          && tokenColor("field") === field, `${scheme} ${dark} lost lexical/semantic palette colors`);
+        assert(editor.getOption(monacoEditor.EditorOption.bracketPairColorization).enabled === (scheme !== "idea"),
+          "bracket coloring did not follow the selected scheme");
+        if (scheme === "idea") {
+          const foreground = dark ? "BCBEC4" : "080808";
+          for (const token of ["functionCall", "function.java", "method", "method.static", "method.declaration.static", "method.deprecated.declaration.static"])
+            assert(tokenColor(token) === foreground, `${token} incorrectly uses the declaration color`);
+          assert(tokenColor("method.declaration") === method, "instance declaration lost its distinct color");
+          const java = monacoEditor.createModel("class Demo { static void main(String[] args) { new Demo().getOrder(); } }", "java");
+          try {
+            (java as any).tokenization.forceTokenization(1);
+            const line = (java as any).tokenization.getLineTokens(1);
+            const colors = themeService.getColorTheme().tokenTheme.getColorMap();
+            for (const name of ["main", "getOrder"]) {
+              const index = line.findTokenIndexAtOffset(java.getValue().indexOf(name));
+              const color = colors[line.getForeground(index)].rgba;
+              const hex = [color.r, color.g, color.b].map(v => v.toString(16).padStart(2, "0")).join("").toUpperCase();
+              assert(hex === foreground, `${name} lexical color differs from IDEA`);
+            }
+            const data = encodeMonacoSemanticTokens({
+              tokenTypes: ["method"], tokenModifiers: ["static", "declaration"],
+              tokens: [{ line: 0, startChar: 25, length: 4, tokenType: 0, tokenModifiers: 3 }],
+            }, java);
+            const bits = (1 << MONACO_SEMANTIC_TOKEN_MODIFIERS.indexOf("static")) |
+              (1 << MONACO_SEMANTIC_TOKEN_MODIFIERS.indexOf("declaration"));
+            assert(data[4] === bits, "semantic adapter dropped method classification");
+          } finally { java.dispose(); }
+        }
+      }
+
+      assert(editor.getModel() === model && secondary.getModel() === model, "appearance replaced a model");
+      assert(editor.getPosition()?.equals(position), "appearance moved the caret");
+      await model.undo();
+      assert(model.getValue() === text, "appearance discarded undo history");
+      const snapshot = await window.lithe.freeze("appearance");
+      await send({ type: "save", revision: snapshot.revision, expected: text });
+      window.lithe.unlock("appearance");
+    } finally {
+      window.lithe.hideSecondary();
+      window.lithe.configure({ dark: false, fontFamily: previous.fontFamily, fontSize: previous.fontSize,
+        wrap: false, minimap: true, appearance: previous });
       await window.lithe.retain([]);
     }
   });
@@ -1478,15 +2257,29 @@ async function verify() {
       await window.lithe.attachSurface("blame-split", container, { id: "blame" });
       const split = monacoEditor.getEditors().find(value => value !== editor)!;
       assert(typeof split.getRawOptions().lineNumbers === "function", "new split did not inherit blame state");
+      const configureNumbers = (lineNumbers: string) => window.lithe.configure({ dark: false,
+        fontFamily: "monospace", fontSize: 15, wrap: false, minimap: true, appearance: { lineNumbers } });
+      configureNumbers("off");
+      assert(typeof editor.getRawOptions().lineNumbers === "function", "font/display update removed blame metadata");
+      repeated.innerHTML = (editor.getRawOptions().lineNumbers as (line: number) => string)(1);
+      assert(repeated.querySelector(".lithe-blame") && repeated.querySelector(".lithe-blame-line")?.textContent === "",
+        "hidden line numbers also hid blame or left numbers visible");
+      configureNumbers("relative");
+      editor.setPosition({ lineNumber: 3, column: 1 });
+      repeated.innerHTML = (editor.getRawOptions().lineNumbers as (line: number) => string)(1);
+      assert(repeated.querySelector(".lithe-blame-line")?.textContent === "2", "blame ignored relative line numbers");
       await window.lithe.activate({ id: "blame-other", text: "other", revision: 0, language: "plaintext", readonly: false });
-      assert(editor.getRawOptions().lineNumbers === "on", "blame metadata leaked into another tab");
+      assert(editor.getRawOptions().lineNumbers === "relative", "tab switch lost the line-number preference");
       assert(typeof split.getRawOptions().lineNumbers === "function", "switching the primary cleared the split's blame");
       await window.lithe.gitState("blame", { revision: 0, markers: [], blameVisible: false, blame: [] });
-      assert(split.getRawOptions().lineNumbers === "on" && split.getRawOptions().lineNumbersMinChars === 1, "closing blame left a wide gutter");
+      assert(split.getRawOptions().lineNumbers === "relative" && split.getRawOptions().lineNumbersMinChars === 1,
+        "closing blame lost the preference or left a wide gutter");
       await split.getAction("lithe.git.blameCommit")!.run();
       assert((await send({ type: "blameCommits" })).commits.length === 1, "hidden blame remained actionable");
     } finally {
       window.lithe.detachSurface("blame-split"); container.remove();
+      window.lithe.configure({ dark: false, fontFamily: "monospace", fontSize: 13, wrap: false,
+        minimap: true, appearance: { lineNumbers: "on" } });
       await window.lithe.retain([]);
     }
   });
@@ -1574,6 +2367,36 @@ async function verify() {
         const edits = await formatter.provideDocumentFormattingEdits(model, { tabSize: 4, insertSpaces: true }, CancellationToken.None);
         assert(edits?.length, `host formatting missing for ${language}`);
       } finally { await window.lithe.retain([]); }
+    }
+  });
+  await check("typing after an incomplete list asks the host for new candidates", async () => {
+    const id = "completion-refresh", text = "a";
+    await send({ type: "open", id, text });
+    await window.lithe.activate({ id, text, revision: 0, language: "java", readonly: false });
+    editor.setPosition(new Position(1, 2));
+    const controller = SuggestController.get(editor)!;
+    const suggestModel = (controller as any).model;
+    const listeners: { dispose(): void }[] = [];
+    const candidate = (label: string) => new Promise<void>((resolve) => {
+      const listener = suggestModel.onDidSuggest((event: any) => {
+        if (event.completionModel.items.some((item: any) => item.completion.label === label)) {
+          listener.dispose(); resolve();
+        }
+      });
+      listeners.push(listener);
+    });
+    try {
+      const initial = candidate("alpha");
+      suggestModel.trigger({ auto: false });
+      await withDeadline(initial, "initial completion was not displayed");
+      const refreshed = candidate("abacus");
+      editor.trigger("keyboard", "type", { text: "b" });
+      await withDeadline(refreshed, "continued typing reused an incomplete list instead of requesting new candidates");
+      assert(editor.getModel()!.getValue() === "ab", "completion refresh changed the buffer");
+    } finally {
+      for (const listener of listeners) listener.dispose();
+      suggestModel.cancel();
+      await window.lithe.retain([]);
     }
   });
   await check("accepted completion expands snippets imports and tab stops in one undo", async () => {
@@ -1747,6 +2570,394 @@ async function verify() {
       await window.lithe.markdownScroll(null); // Cancels the queued old-document report.
       assert(model.getVersionId() === version && model.getValue() === text, "scroll synchronization mutated source or undo");
     } finally { await window.lithe.markdownScroll(null); await window.lithe.retain([]); }
+  });
+  await check("Java first visible frame waits for import folding without exposing expanded lines", async () => {
+    const id = "first-frame-fold", text = "package demo;\n\nimport java.util.List;\nimport java.util.Map;\nclass Probe {}";
+    let release!: () => void, arrived!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const requested = new Promise<void>(resolve => { arrived = resolve; });
+    const provider = languages.registerFoldingRangeProvider("java", {
+      async provideFoldingRanges(model) {
+        if (model.getValue() !== text) return null;
+        arrived(); await gate;
+        return [{ start: 3, end: 4, kind: languages.FoldingRangeKind.Imports }];
+      },
+    });
+    let opening: Promise<unknown> | undefined;
+    try {
+      await send({ type: "open", id, text });
+      opening = window.lithe.activate({ id, text, revision: 0, filename: "Probe.java", readonly: false });
+      await withDeadline(requested, "initial folding was not requested");
+      assert(getComputedStyle(editor.getContainerDomNode()).opacity === "0" && editor.getContainerDomNode().inert, "expanded imports leaked before initial folding");
+      release();
+      await withDeadline(opening!, "opening did not finish after folding");
+      assert(getComputedStyle(editor.getContainerDomNode()).opacity === "1" && !editor.getContainerDomNode().inert, "editor remained hidden after folding");
+      const folding = await (editor.getContribution("editor.contrib.folding") as any).getFoldingModel();
+      assert(folding.getRegionAtLine(3)?.isCollapsed, "first visible frame did not contain collapsed imports");
+    } finally { release(); await opening; provider.dispose(); await window.lithe.retain([]); }
+  });
+  await check("Java imports fold on first open and preserve manual expansion across tabs", async () => {
+    const id = "default-import-fold", text = "package demo;\n\nimport java.util.List;\nimport java.util.Map;\nimport static java.util.Collections.emptyList;\n\nclass Probe {\n  void run() {}\n}";
+    await send({ type: "open", id, text });
+    await window.lithe.activate({ id, text, revision: 0, filename: "Probe.java", readonly: false });
+    const controller = editor.getContribution("editor.contrib.folding") as any;
+    try {
+      const folding = await withDeadline(controller.getFoldingModel(), "initial import folds did not finish") as any;
+      const imports = folding.getRegionAtLine(3);
+      assert(imports?.isCollapsed && imports.endLineNumber === 5, "imports were not folded on open");
+      assert(!folding.getRegionAtLine(7)?.isCollapsed, "class body was automatically folded");
+      await runEditorCommand(editor, { type: "unfoldAll" }, false);
+      assert(!imports.isCollapsed, "imports could not be expanded");
+      await send({ type: "open", id: "fold-other", text: "plain" });
+      await window.lithe.activate({ id: "fold-other", text: "plain", revision: 0, filename: "note.txt", readonly: false });
+      await window.lithe.activate({ id, text, revision: 0, filename: "Probe.java", readonly: false });
+      const restored = await withDeadline(controller.getFoldingModel(), "restored import folds did not finish") as any;
+      assert(!restored.getRegionAtLine(3)?.isCollapsed, "tab switch discarded manual expansion");
+      assert(editor.getModel()!.getValue() === text, "folding altered source text");
+    } finally { await window.lithe.retain([]); }
+  });
+  await check("macOS documentation hover uses shared popup chrome and IDEA delay", async () => {
+    const id = "popup-theme", text = "class Probe {}";
+    await send({ type: "open", id, text });
+    await window.lithe.activate({ id, text, revision: 0, filename: "Probe.java", readonly: false });
+    const controller = ContentHoverController.get(editor)!;
+    const previous = document.documentElement.style.cssText;
+    let observer: MutationObserver | undefined;
+    try {
+      assert(editor.getOption(monacoEditor.EditorOption.hover).delay === 500, "macOS hover delay differs from IDEA default");
+      for (const dark of [false, true]) {
+        controller.hideContentHover();
+        window.lithe.configure({ fontFamily: "monospace", fontSize: 13, wrap: false,
+          theme: { id: `popup-${dark}`, dark, colors: { background: "#00000000" }, popupStyles: {
+            background: dark ? "#28292C" : "#FFFFFF", foreground: dark ? "#D1D3D9" : "#000000",
+            border: dark ? "#43454A" : "#C9CCD2", radius: "10px", shadow: "0 14px 30px #00000088", font: "13px sans-serif",
+          } } });
+        const shown = new Promise<HTMLElement>(resolve => {
+          observer = new MutationObserver(() => {
+            const popup = document.querySelector<HTMLElement>(".monaco-hover");
+            if (popup?.textContent?.includes("Host hover") && popup.getBoundingClientRect().height > 0) resolve(popup);
+          });
+          observer.observe(document.body, { subtree: true, childList: true, attributes: true });
+        });
+        controller.showContentHover(new Range(1, 7, 1, 12), 1, 2, false);
+        const popup = await withDeadline(shown, "documentation hover did not render");
+        observer!.disconnect(); observer = undefined;
+        const style = getComputedStyle(popup);
+        assert(style.backgroundColor === (dark ? "rgb(40, 41, 44)" : "rgb(255, 255, 255)"), "hover retained Monaco default background");
+        assert(style.borderRadius === "10px", "hover did not use shared popup radius");
+        assert(getComputedStyle(popup.parentElement!).boxShadow.includes("14px 30px"), "hover lost shared popup shadow");
+      }
+    } finally {
+      observer?.disconnect(); controller.hideContentHover();
+      document.documentElement.style.cssText = previous;
+      window.lithe.configure({ dark: false, fontFamily: "monospace", fontSize: 13, wrap: false });
+      await window.lithe.retain([]);
+    }
+  });
+  await check("Command hover decorates the symbol, clears on release, and never navigates", async () => {
+    const id = "definition-hover", text = "class Probe {}";
+    await send({ type: "open", id, text });
+    await window.lithe.activate({ id, text, revision: 0, filename: "Probe.java", readonly: false });
+    const model = editor.getModel()!, version = model.getVersionId();
+    const controller = ContentHoverController.get(editor)!;
+    const originalShow = controller.showContentHover;
+    let startMode: number | undefined, scheduled!: () => void;
+    const hintScheduled = new Promise<void>(resolve => { scheduled = resolve; });
+    controller.showContentHover = function (...args) {
+      startMode = args[1];
+      originalShow.apply(this, args);
+      scheduled();
+    };
+    const before = (await send({ type: "definitionRequests" })).requests.length;
+    let listener: { dispose(): void } | undefined;
+    const links = () => model.getAllDecorations().filter(value => value.options.inlineClassName === "goto-definition-link");
+    try {
+      const highlighted = new Promise<void>(resolve => {
+        listener = model.onDidChangeDecorations(() => { if (links().length) resolve(); });
+      });
+      // Deliver Monaco's normalized input events to the real contribution. No
+      // frame delay is needed: model decorations are the observable boundary.
+      const input = editor as any;
+      input._onMouseMove.fire({ event: { metaKey: true, leftButton: false, detail: 0 },
+        target: { type: monacoEditor.MouseTargetType.CONTENT_TEXT, position: new Position(1, 9), range: new Range(1, 9, 1, 10), detail: {} } });
+      await withDeadline(highlighted, "Command hover did not highlight the definition");
+      await withDeadline(hintScheduled, "Command hint was not scheduled after validation");
+      assert(startMode === 0, "Command hint bypassed Monaco's configured hover delay");
+      assert(!controller.isHoverVisible, "Command hint appeared immediately with the link feedback");
+      assert(links()[0].range.equalsRange(new Range(1, 7, 1, 12)), "link did not cover the whole identifier");
+      editor.render(true);
+      const link = editor.getDomNode()!.querySelector(".goto-definition-link");
+      assert(link && getComputedStyle(link).textDecorationLine.includes("underline") &&
+        getComputedStyle(link).cursor === "pointer", "definition link lost Monaco's underline/cursor style");
+      input._onKeyUp.fire({ keyCode: 57, metaKey: false });
+      assert(links().length === 0, "releasing Command left a link decoration");
+      assert((await send({ type: "definitionRequests" })).requests.length === before,
+        "hover opened a definition/results panel");
+      assert(model.getVersionId() === version && model.getValue() === text, "hover changed the document");
+      const click = { event: { metaKey: true, leftButton: true, detail: 1 },
+        target: { type: monacoEditor.MouseTargetType.CONTENT_TEXT, position: new Position(1, 9), range: new Range(1, 9, 1, 10), detail: {} } };
+      input._onMouseDown.fire(click);
+      input._onMouseUp.fire(click);
+      // navigate drains the already synchronized edit chain before dispatch.
+      await Promise.resolve();
+      const requests = (await send({ type: "definitionRequests" })).requests;
+      assert(requests.length === before + 1 && requests[before].id === id && requests[before].column === 8,
+        "Command click did not dispatch exactly one navigation at the hovered symbol");
+
+    } finally { controller.showContentHover = originalShow; listener?.dispose(); await window.lithe.retain([]); }
+  });
+  await check("leaving a symbol cancels its delayed Command hint", async () => {
+    const id = "pending-command-hint", text = "class Probe {}";
+    await send({ type: "open", id, text });
+    await window.lithe.activate({ id, text, revision: 0, filename: "Probe.java", readonly: false });
+    const controller = ContentHoverController.get(editor)!, input = editor as any;
+    const originalShow = controller.showContentHover, originalHide = controller.hideContentHover;
+    let scheduled!: () => void, hideCount = 0;
+    const requested = new Promise<void>(resolve => { scheduled = resolve; });
+    controller.showContentHover = function (...args) { originalShow.apply(this, args); scheduled(); };
+    controller.hideContentHover = function () { hideCount++; originalHide.call(this); };
+    try {
+      input._onMouseMove.fire({ event: { metaKey: true, leftButton: false, detail: 0 },
+        target: { type: monacoEditor.MouseTargetType.CONTENT_TEXT, position: new Position(1, 9), range: new Range(1, 9, 1, 10), detail: {} } });
+      await withDeadline(requested, "Command hint was not scheduled");
+      assert(!controller.isHoverVisible, "hint appeared before the dwell delay");
+      const before = hideCount;
+      input._onMouseLeave.fire({});
+      assert(hideCount > before, "leaving the editor did not cancel the pending hover operation");
+      assert(!editor.getDomNode()!.classList.contains("lithe-command-hover"), "pending hint retained its owner after leaving");
+    } finally {
+      controller.showContentHover = originalShow; controller.hideContentHover = originalHide;
+      controller.hideContentHover(); await window.lithe.retain([]);
+    }
+  });
+  await check("Command navigation ignores comments and strings using lexical state", async () => {
+    const id = "comment-navigation";
+    const text = 'class Probe {\n// formatOrder\n/* multiline\nformatOrder */\nString text = "formatOrder";\nvoid formatOrder() {}\n}';
+    await send({ type: "open", id, text });
+    await window.lithe.activate({ id, text, revision: 0, filename: "Probe.java", readonly: false });
+    await withDeadline(window.lithe.tokenizationReady(), "lexical state was not ready");
+    const model = editor.getModel()!, input = editor as any;
+    const before = (await send({ type: "definitionRequests" })).requests.length;
+    try {
+      for (const [line, column] of [[2, 5], [4, 3], [5, 18]]) {
+        const target = { type: monacoEditor.MouseTargetType.CONTENT_TEXT,
+          position: new Position(line, column), range: new Range(line, column, line, column + 1), detail: {} };
+        input._onMouseMove.fire({ event: { metaKey: true, leftButton: false, detail: 0 }, target });
+        assert(!editor.getDomNode()!.classList.contains("lithe-definition-pointer"), "non-code word received a navigation pointer");
+        assert(!model.getAllDecorations().some(value => value.options.inlineClassName === "goto-definition-link"),
+          "non-code word received a navigation link");
+        const click = { event: { metaKey: true, leftButton: true, detail: 1 }, target };
+        input._onMouseDown.fire(click); input._onMouseUp.fire(click);
+      }
+      await Promise.resolve();
+      assert((await send({ type: "definitionRequests" })).requests.length === before, "Command click navigated from a comment/string");
+    } finally { await window.lithe.retain([]); }
+  });
+  await check("default Java link feedback preserves XML configuration and other language navigation", async () => {
+    try {
+      for (const filename of ["Mapper.xml", "application.properties", "application.yaml", "module.py"]) {
+        const id = "legacy-" + filename, text = filename.endsWith("xml") ? '<select id="findOrder" />' : "findOrder";
+        await send({ type: "open", id, text });
+        await window.lithe.activate({ id, text, revision: 0, filename, readonly: false });
+        const input = editor as any, column = filename.endsWith("xml") ? 14 : 3;
+        const target = { type: monacoEditor.MouseTargetType.CONTENT_TEXT, position: new Position(1, column),
+          range: new Range(1, column, 1, column + 1), detail: {} };
+        const before = await send({ type: "definitionRequests" });
+        input._onMouseMove.fire({ event: { metaKey: true, leftButton: false, detail: 0 }, target });
+        input._onMouseDown.fire({ event: { metaKey: true, leftButton: true, detail: 1,
+          preventDefault() {}, stopPropagation() {} }, target });
+        const action = editor.getAction("lithe.goToDefinition");
+        assert(action, "Java opt-out removed another provider's definition action: " + filename);
+        await action!.run();
+        const after = await send({ type: "definitionRequests" });
+        assert(after.requests.length === before.requests.length + 2, "click/F12 stopped reaching the host: " + filename);
+        assert(after.hoverRequests === before.hoverRequests, "legacy provider acquired unsolicited hover queries");
+      }
+    } finally {
+      await window.lithe.retain([]);
+    }
+  });
+  await check("Java links are enabled by default and query only during Command hover", async () => {
+    const id = "default-navigation", text = "class Probe {}";
+    await send({ type: "open", id, text });
+    await window.lithe.activate({ id, text, revision: 0, filename: "Probe.java", readonly: false });
+    const input = editor as any, root = editor.getDomNode()!;
+    const move = (metaKey: boolean) => input._onMouseMove.fire({ event: { metaKey, leftButton: false, detail: 0 },
+      target: { type: monacoEditor.MouseTargetType.CONTENT_TEXT, position: new Position(1, 9), range: new Range(1, 9, 1, 10), detail: {} } });
+    try {
+      assert(!!editor.getAction("lithe.goToDefinition"), "default navigation action is missing");
+      const before = await send({ type: "definitionRequests" });
+      move(false);
+      assert((await send({ type: "definitionRequests" })).hoverRequests === before.hoverRequests, "ordinary movement queried definitions");
+      await send({ type: "holdDefinitionHover", hold: true });
+      move(true);
+      await withDeadline(send({ type: "waitDefinitionHover" }), 3000, "default hover request");
+      assert(root.classList.contains("lithe-definition-pointer"), "default Java hover has no pointer");
+      // Closing the document must revoke a held response and release its gestures.
+      await window.lithe.retain([]);
+      assert(!editor.getAction("lithe.goToDefinition"), "closed document retained its action");
+      await send({ type: "holdDefinitionHover", hold: false });
+      assert(!root.classList.contains("lithe-definition-pointer"), "closed document revived a late pointer");
+    } finally {
+      await send({ type: "holdDefinitionHover", hold: false });
+      await window.lithe.retain([]);
+    }
+  });
+  await check("repeated document and split lifetimes release navigation listeners", async () => {
+    await window.lithe.retain([]);
+    const input = editor as any;
+    const listenerCounts = () => Object.fromEntries(Object.entries(input)
+      .filter(([key, value]: [string, any]) => key.startsWith("_on") && typeof value?._size === "number")
+      .map(([key, value]: [string, any]) => [key, value._size]));
+    const baseline = JSON.stringify(listenerCounts());
+    const models = monacoEditor.getModels().length, editors = monacoEditor.getEditors().length;
+    const originalAdd = window.addEventListener, originalRemove = window.removeEventListener;
+    const blurListeners = new Set<EventListenerOrEventListenerObject>();
+    window.addEventListener = function(type: any, listener: any, options: any) {
+      if (type === "blur") blurListeners.add(listener);
+      return originalAdd.call(this, type, listener, options);
+    } as typeof window.addEventListener;
+    window.removeEventListener = function(type: any, listener: any, options: any) {
+      if (type === "blur") blurListeners.delete(listener);
+      return originalRemove.call(this, type, listener, options);
+    } as typeof window.removeEventListener;
+    const container = document.createElement("div"); document.body.append(container);
+    try {
+      for (let cycle = 0; cycle < 20; cycle++) {
+        const id = `default-lifetime-${cycle}`, text = "class Probe {}";
+        await send({ type: "open", id, text });
+        await window.lithe.activate({ id, text, revision: 0, filename: "Probe.java", readonly: false });
+        await window.lithe.attachSurface("default-split", container, { id });
+        assert(monacoEditor.getEditors().every(view => !!view.getAction("lithe.goToDefinition")), "new split missed default navigation");
+        window.lithe.detachSurface("default-split");
+        await window.lithe.retain([]);
+        assert(blurListeners.size === 0, "closed views retained window listeners");
+        assert(JSON.stringify(listenerCounts()) === baseline, "document navigation listeners accumulated");
+        assert(monacoEditor.getModels().length === models && monacoEditor.getEditors().length === editors, "closed views retained models/editors");
+      }
+    } finally {
+      window.lithe.detachSurface("default-split"); await window.lithe.retain([]); container.remove();
+      window.addEventListener = originalAdd; window.removeEventListener = originalRemove;
+    }
+  });
+  await check("Command pointer stays stable during slow definition lookup and repaint", async () => {
+    const id = "slow-definition-hover", text = "class Probe {}";
+    await send({ type: "open", id, text });
+    await window.lithe.activate({ id, text, revision: 0, filename: "Probe.java", readonly: false });
+    const input = editor as any, root = editor.getDomNode()!;
+    const move = () => input._onMouseMove.fire({ event: { metaKey: true, leftButton: false, detail: 0 },
+      target: { type: monacoEditor.MouseTargetType.CONTENT_TEXT, position: new Position(1, 9), range: new Range(1, 9, 1, 10), detail: {} } });
+    let observer: MutationObserver | undefined;
+    try {
+      await send({ type: "holdDefinitionHover", hold: true });
+      move(); editor.render(true);
+      const link = root.querySelector(".goto-definition-link");
+      assert(link && getComputedStyle(link).textDecorationLine.includes("underline"),
+        "candidate link feedback waited for the held native lookup");
+      assert(!ContentHoverController.get(editor)!.isHoverVisible, "candidate feedback bypassed popup dwell");
+      const line = root.querySelector(".view-line span")!;
+      assert(root.classList.contains("lithe-definition-pointer") && getComputedStyle(line).cursor === "pointer",
+        "slow semantic lookup left the candidate under an editing cursor");
+      for (let i = 0; i < 5; i++) {
+        move(); editor.render(true);
+        assert(getComputedStyle(root.querySelector(".view-line span")!).cursor === "pointer", "repaint/pixel movement reset the pointer");
+      }
+      await withDeadline(send({ type: "waitDefinitionHover" }), "definition request never reached the held host");
+      const rejected = new Promise<void>(resolve => {
+        observer = new MutationObserver(() => { if (!root.classList.contains("lithe-definition-pointer")) resolve(); });
+        observer.observe(root, { attributes: true, attributeFilter: ["class"] });
+      });
+      await send({ type: "holdDefinitionHover", hold: false, available: false });
+      await withDeadline(rejected, "unavailable target did not restore normal cursor");
+      observer.disconnect(); observer = undefined;
+      assert(!editor.getModel()!.getAllDecorations().some(value => value.options.inlineClassName === "goto-definition-link"),
+        "unavailable candidate retained a link decoration");
+      move();
+      assert(!root.classList.contains("lithe-definition-pointer"), "negative result restarted the cursor flicker on pixel movement");
+      input._onKeyUp.fire({ keyCode: 57, metaKey: false });
+      await send({ type: "holdDefinitionHover", hold: true });
+      move();
+      assert(root.classList.contains("lithe-definition-pointer"), "new gesture could not retry a transient miss");
+      await withDeadline(send({ type: "waitDefinitionHover" }), "retry never reached the held host");
+      input._onKeyUp.fire({ keyCode: 57, metaKey: false });
+      await send({ type: "holdDefinitionHover", hold: false });
+      assert(!root.classList.contains("lithe-definition-pointer"), "late resolution restored a released pointer");
+    } finally {
+      observer?.disconnect();
+      await send({ type: "holdDefinitionHover", hold: false });
+      await window.lithe.retain([]);
+    }
+  });
+  await check("hover lifecycle distinguishes Command hints from ordinary documentation", async () => {
+    const id = "hover-lifecycle", text = "class Probe {}";
+    await send({ type: "open", id, text });
+    await window.lithe.activate({ id, text, revision: 0, filename: "Probe.java", readonly: false });
+    const controller = ContentHoverController.get(editor)!, input = editor as any;
+    let observer: MutationObserver | undefined;
+    const move = () => input._onMouseMove.fire({ event: { metaKey: true, leftButton: false, detail: 0 },
+      target: { type: monacoEditor.MouseTargetType.CONTENT_TEXT, position: new Position(1, 9), range: new Range(1, 9, 1, 10), detail: {} } });
+    let showAttempt = 0;
+    const show = async (command: boolean) => {
+      showAttempt++;
+      const visible = new Promise<void>(resolve => {
+        observer = new MutationObserver(() => { if (controller.isHoverVisible) resolve(); });
+        observer.observe(editor.getDomNode()!, { childList: true, subtree: true, attributes: true });
+      });
+      if (command) move(); else controller.showContentHover(new Range(1, 7, 1, 12), 1, 2, false);
+      try { await withDeadline(visible, `hover did not become visible (attempt ${showAttempt}, command ${command})`); }
+      finally { observer?.disconnect(); observer = undefined; }
+    };
+    try {
+      for (const close of [
+        () => input._onKeyUp.fire({ keyCode: 57, metaKey: false }),
+        () => input._onKeyDown.fire(new StandardKeyboardEvent(new KeyboardEvent("keydown", { key: "Escape", keyCode: 27 }))),
+        () => input._onDidScrollChange.fire({ scrollTopChanged: true }),
+        () => window.dispatchEvent(new Event("blur")),
+      ]) {
+        await show(true);
+        const contents = editor.getDomNode()!.querySelector(".monaco-hover .hover-contents")!;
+        assert(getComputedStyle(contents).padding === "6px 6px 5px", "Command hint lost IDEA insets");
+        const bounds = contents.getBoundingClientRect();
+        input._onMouseMove.fire({ event: { metaKey: true, leftButton: false, detail: 0,
+          posx: bounds.x + 2, posy: bounds.y + 2, browserEvent: { view: window } },
+          target: { type: monacoEditor.MouseTargetType.CONTENT_WIDGET, element: contents, detail: {} } });
+        assert(controller.isHoverVisible, "moving into the hint dismissed its clickable content");
+        close();
+        assert(!controller.isHoverVisible, "Command hint survived dismissal");
+        assert(!editor.getDomNode()!.classList.contains("lithe-command-hover"), "Command style leaked after close");
+      }
+      await show(false);
+      move();
+      await send({ type: "definitionRequests" });
+      input._onKeyUp.fire({ keyCode: 57, metaKey: false });
+      assert(controller.isHoverVisible, "Command release closed pre-existing ordinary documentation");
+      window.dispatchEvent(new Event("blur"));
+      assert(!controller.isHoverVisible, "ordinary hover survived window deactivation");
+      move(); window.dispatchEvent(new Event("blur"));
+      await send({ type: "definitionRequests" });
+      assert(!controller.isHoverVisible, "cancelled Command resolution reopened the popup");
+      await show(true);
+      editor.executeEdits("hover-dismiss", [{ range: new Range(1, 15, 1, 15), text: " " }]);
+      assert(!controller.isHoverVisible, "editing left stale hover documentation");
+      await show(true);
+      editor.setModel(null);
+      assert(!controller.isHoverVisible, "switching models left hover documentation");
+    } finally { observer?.disconnect(); controller.hideContentHover(); await window.lithe.retain([]); }
+  });
+  await check("Java contextual keyword identifiers remain navigable", async () => {
+    const id = "contextual-keyword-navigation", text = "class Probe { void record() { } void test() { record(); } }";
+    await send({ type: "open", id, text });
+    await window.lithe.activate({ id, text, revision: 0, filename: "Probe.java", readonly: false });
+    try {
+      const action = editor.getAction("lithe.goToDefinition")!;
+      const before = (await send({ type: "definitionRequests" })).requests.length;
+      editor.setPosition({ lineNumber: 1, column: text.lastIndexOf("record") + 1 });
+      await action.run();
+      assert((await send({ type: "definitionRequests" })).requests.length === before + 1, "record identifier was filtered");
+      editor.setPosition({ lineNumber: 1, column: 2 });
+      await action.run();
+      assert((await send({ type: "definitionRequests" })).requests.length === before + 1, "class keyword was not filtered");
+    } finally { await window.lithe.retain([]); }
   });
   await check("definition navigation drains edits and routes the owning split document", async () => {
     const id = "definition-source", text = "class Probe {}";
@@ -2364,6 +3575,43 @@ async function verify() {
         if (!model.isDisposed()) await window.lithe.freeze(id);
         await window.lithe.retain([]);
       }
+    }
+  });
+  await check("Java comment delimiters use the same color as their comment text", async () => {
+    const id = "comment-colors", text = '// text\n/* text */\n/** text */\nint value = 4 / 2;\nString s = "hello\\n";\n@Override';
+    await send({ type: "open", id, text });
+    await window.lithe.activate({ id, text, revision: 0, language: "java", readonly: false });
+    try {
+      for (const dark of [false, true]) {
+        window.lithe.configure({ dark, fontFamily: "monospace", fontSize: 13, wrap: false });
+        await withDeadline(window.lithe.tokenizationReady(), "comment tokens did not become ready");
+        const model = editor.getModel()!;
+        for (const lineNumber of [1, 2, 3]) {
+          const tokens = (model as any).tokenization.getLineTokens(lineNumber);
+          const line = model.getLineContent(lineNumber);
+          const body = tokens.findTokenIndexAtOffset(line.indexOf("text"));
+          for (const offset of [0, ...(lineNumber > 1 ? [line.length - 2, line.length - 1] : [1])]) {
+            const delimiter = tokens.findTokenIndexAtOffset(offset);
+            assert(tokens.getForeground(delimiter) === tokens.getForeground(body), "comment delimiter has a different foreground");
+            assert(tokens.getStandardTokenType(delimiter) === 1, "comment delimiter was classified as ordinary punctuation");
+          }
+        }
+        window.lithe.configure({ fontFamily: "monospace", fontSize: 13, wrap: false,
+          theme: { id: `java-role-${dark}`, dark, syntaxScheme: "idea" } });
+        await withDeadline(window.lithe.tokenizationReady(), "IDEA Java token refresh did not complete");
+        const theme = StandaloneServices.get(IStandaloneThemeService).getColorTheme().tokenTheme;
+        for (const [lineNumber, offset, role] of [[3, 0, "comment.documentation"], [5, 17, "string.escape"], [6, 1, "annotation"]] as const) {
+          const tokens = (model as any).tokenization.getLineTokens(lineNumber);
+          assert(tokens.getForeground(tokens.findTokenIndexAtOffset(offset)) === TokenMetadata.getForeground(theme.match(0, role)),
+            `Java ${role} lost its TextMate scope`);
+        }
+        const code = (model as any).tokenization.getLineTokens(4);
+        assert(code.getStandardTokenType(code.findTokenIndexAtOffset(model.getLineContent(4).indexOf("/"))) === 0,
+          "division operator became a comment");
+      }
+    } finally {
+      window.lithe.configure({ dark: false, fontFamily: "monospace", fontSize: 13, wrap: false });
+      await window.lithe.retain([]);
     }
   });
   await check("TextMate worker updates multiline state after Unicode edits and releases models", async () => {

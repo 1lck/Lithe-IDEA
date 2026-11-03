@@ -4,6 +4,16 @@ import Testing
 @Suite("Commit draft")
 @MainActor
 struct CommitDraftFeatureModelTests {
+    @Test func commitFilesOnlyRequestsFocusAndPreservesTheDraft() {
+        let draft = CommitDraftFeatureModel()
+        draft.message = "Keep my existing message"
+        draft.amend = true
+        draft.requestCommitEditor()
+        draft.requestCommitEditor()
+        #expect(draft.commitEditorRequestVersion == 2)
+        #expect(draft.message == "Keep my existing message" && draft.amend)
+    }
+
     @Test
     func undoRestoresTheFullMessageOnlyIntoAnEmptyDraft() {
         let draft = CommitDraftFeatureModel()

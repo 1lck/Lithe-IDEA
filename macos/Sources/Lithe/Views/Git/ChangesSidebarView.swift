@@ -20,6 +20,9 @@ struct ChangesSidebarView: View {
     let revealInFinder: (URL) -> Void
     let copyPath: (URL, Bool) -> Void
     let showSettings: (SettingsCategory) -> Void
+    var prepareCommitFiles: (([GitChange]) -> Void)? = nil
+    var showDiffInNewTab: ((GitChange) -> Void)? = nil
+    var deleteFiles: (([GitChange]) -> Void)? = nil
     @Environment(\.controlActiveState) private var controlActiveState
     @State private var selectedTab = CommitTab.commit
     @State private var commitToolActive = false
@@ -27,7 +30,6 @@ struct ChangesSidebarView: View {
     @State private var repositoryExpanded: [String: Bool] = [:]
     @State private var pendingDropStash: GitStash?
     @State private var pendingDropShelf: GitShelfEntry?
-    @State private var pendingDiscardSelection: [GitChange] = []
     @State private var selection = GitChangeSelection()
     @State private var sectionsCache = GitChangeSectionsCache()
 
@@ -84,22 +86,7 @@ struct ChangesSidebarView: View {
         .onChange(of: feature.requestedStashReference) { _ in
             selectRequestedStashIfNeeded()
         }
-        .confirmationDialog(
-            "Discard changes to selected files?",
-            isPresented: Binding(get: { !pendingDiscardSelection.isEmpty },
-                                 set: { if !$0 { pendingDiscardSelection = [] } }),
-            titleVisibility: .visible
-        ) {
-            Button("Discard Changes", role: .destructive) {
-                let changes = pendingDiscardSelection
-                pendingDiscardSelection = []
-                Task { await feature.discardChanges(changes) }
-            }
-            Button("Cancel", role: .cancel) { pendingDiscardSelection = [] }
-        } message: {
-            Text(pendingDiscardSelection.map(\.path).joined(separator: "\n")
-                 + "\nThis action cannot be undone by Lithe. Untracked files will be deleted.")
-        }
+        .modifier(GitRollbackPresentation(feature: feature))
         .confirmationDialog(
             "Drop \(pendingDropStash?.reference ?? "stash")?",
             isPresented: Binding(
@@ -237,7 +224,9 @@ struct ChangesSidebarView: View {
             .help("Refresh changes")
 
             Button {
-                pendingDiscardSelection = selectedChanges
+                let changes = displayedChanges.filter { feature.changelists.listID(for: $0) == feature.changelists.activeID }
+                feature.requestRollbackChanges(changes, included: GitRollbackSelection.initialTargets(
+                    changes: changes, selectedIDs: selection.ids))
             } label: {
                 LitheIDEAIcon(
                     resourcePath: "expui/vcs/revert.svg",
@@ -246,8 +235,10 @@ struct ChangesSidebarView: View {
                     preservesOriginalColors: true
                 )
             }
-            .litheToolbarIconButton(isEnabled: !selectedChanges.isEmpty)
-            .help("Discard selected change")
+            .litheToolbarIconButton(isEnabled: !feature.activeChangelistChanges.isEmpty && feature.canRollbackChanges)
+            .help("Rollback Changes")
+            .accessibilityLabel("Rollback Changes")
+            .accessibilityIdentifier("git-rollback")
 
             Button {
                 Task { await feature.stageAllChanges() }
@@ -504,10 +495,6 @@ struct ChangesSidebarView: View {
         return name.isEmpty ? root.path : name
     }
 
-    private var selectedChanges: [GitChange] {
-        selection.actionTargets(in: displayedChanges)
-    }
-
     private var visibleChangeIDs: [String] {
         changeRows.compactMap { row in
             if case .change(let change, _) = row.content { return change.id }
@@ -520,6 +507,14 @@ struct ChangesSidebarView: View {
         let shouldStage = !targets.allSatisfy(isEffectivelyStaged)
         var items: [LitheContextMenuItem] = []
         let isFile = !change.isUntrackedDirectory
+        items.append(.action("Commit Files…", isEnabled: prepareCommitFiles != nil && feature.canPrepareCommitFiles(targets)) {
+            prepareCommitFiles?(targets)
+        })
+        items.append(.action("Rollback Changes", role: .destructive,
+            isEnabled: feature.canRollbackChanges && !targets.isEmpty) {
+                feature.requestRollbackChanges(displayedChanges, included: targets)
+            })
+        items.append(.separator)
         if change.kind != .deleted && isFile {
             items.append(.action("Open", systemImage: "doc.text", action: {
                 openFile(change.url, change.path)
@@ -529,6 +524,9 @@ struct ChangesSidebarView: View {
             items.append(.action("Show Diff", systemImage: "doc.text.magnifyingglass", action: {
                 selectChange(change)
             }))
+            items.append(.action("Show Diff in New Tab", isEnabled: showDiffInNewTab != nil) {
+                showDiffInNewTab?(change)
+            })
         }
         items.append(.submenu("Move to ChangeList", items: feature.changelists.lists.map { list in
             .action(list.displayName, isEnabled: !feature.changelistEditingDisabled,
@@ -541,14 +539,14 @@ struct ChangesSidebarView: View {
             isEnabled: !feature.isCommitting && !feature.changelistStorageFailed,
             action: { setStaging(targets, shouldStage) }
         ))
-        if targets.contains(where: \.hasWorkingTreeChange) {
-            items.append(.action(
-                "Discard Changes",
-                systemImage: "trash",
-                role: .destructive,
-                action: { pendingDiscardSelection = targets }
-            ))
-        }
+        items.append(.action("Delete…", role: .destructive,
+            isEnabled: deleteFiles != nil && feature.canRollbackChanges
+                && !targets.isEmpty && targets.allSatisfy { $0.kind != .deleted && $0.repositoryRoot == change.repositoryRoot }) {
+                    deleteFiles?(targets)
+                })
+        items.append(.action("Add to VCS", isEnabled: feature.canRollbackChanges && targets.contains(where: \.isUntracked)) {
+            setStaging(targets.filter(\.isUntracked), true)
+        })
         items += [
             .separator,
             .action(

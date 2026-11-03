@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "context": {
+        "triggerKind": 1
+      },
+      "response": [
+        {
+          "label": "alpha"
+        }
+      ],
+      "isIncomplete": false
+    },
+    {
+      "context": {
+        "triggerKind": 2,
+        "triggerCharacter": "."
+      },
+      "response": {
+        "items": [
+          {
+            "label": "beta"
+          }
+        ],
+        "isIncomplete": true
+      },
+      "isIncomplete": true
+    },
+    {
+      "context": {
+        "triggerKind": 3
+      },
+      "response": {
+        "items": [],
+        "isIncomplete": true
+      },
+      "isIncomplete": true
+    },
+    {
+      "context": {
+        "triggerKind": 3
+      },
+      "response": null,
+      "isIncomplete": false
+    }
+  ]
+}

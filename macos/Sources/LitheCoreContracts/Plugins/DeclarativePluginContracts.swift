@@ -319,16 +319,20 @@ public struct DeclarativePluginSetting: Equatable, Identifiable, Sendable {
 public struct DeclarativePluginLanguage: Equatable, Hashable, Sendable {
     public let id: String
     public let displayName: String
+    /// Package-relative grammar file (`languages` 2). The host reads it from
+    /// the installed package and has Rust Core validate it.
+    public let grammarPath: String?
+    public let hasEditorResources: Bool
 
-    public init(id: String, displayName: String) {
+    public init(id: String, displayName: String, grammarPath: String? = nil, hasEditorResources: Bool = false) {
         self.id = id
         self.displayName = displayName
+        self.grammarPath = grammarPath
+        self.hasEditorResources = hasEditorResources || grammarPath != nil
     }
 }
 
-/// A button a plugin adds to a settings page. The host draws it and invokes
-/// the named plugin function of the same plugin; what it does is the
-/// plugin's business.
+/// A settings button binds a function of the same plugin; its business stays private.
 public struct DeclarativePluginSettingAction: Equatable, Identifiable, Sendable {
     public let id: String
     public let title: String
@@ -603,7 +607,7 @@ public struct DeclarativeUIContributions: Equatable, Codable, Sendable {
     public struct Command: Equatable, Codable, Sendable {
         public let id: String
         public let title: String
-        public let toolWindowID: String
+        public let toolWindowID: String?
         public let order: Int
         public let placements: [ModuleContributionPlacement]
         public let icon: PluginUIIcon?
@@ -624,7 +628,7 @@ public struct DeclarativeUIContributions: Equatable, Codable, Sendable {
                 ModuleContribution(
                     id: command.id + "." + placement.rawValue, kind: .command,
                     title: command.title, placement: placement, order: command.order,
-                    actionID: command.id, visibility: ["toolWindowID": command.toolWindowID], uiIcon: command.icon
+                    actionID: command.id, visibility: command.toolWindowID.map { ["toolWindowID": $0] } ?? [:], uiIcon: command.icon
                 )
             }
         }
@@ -714,7 +718,10 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
         declaresBackend = decoded.backend != nil
         settings = try decoded.settings.map { try $0.declaration() }
         settingActions = decoded.settingActions.map { $0.declaration() }
-        languages = decoded.languages.map { DeclarativePluginLanguage(id: $0.id, displayName: $0.displayName) }
+        languages = decoded.languages.map {
+            DeclarativePluginLanguage(id: $0.id, displayName: $0.displayName, grammarPath: $0.grammar?.path,
+                                      hasEditorResources: $0.grammar != nil || $0.configuration != nil)
+        }
         permissions = decoded.permissions
         activationEvents = decoded.activationEvents
         self.normalizedManifest = normalizedManifest
@@ -786,6 +793,16 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 )
             ))
         }
+        if languages.contains(where: \.hasEditorResources) {
+            // Enablement only: the editor applies the grammars while it is on.
+            modules.append(PluginModuleDeclaration(
+                manifest: LanguageExtensionModuleManifests.grammars(
+                    pluginID: decoded.id,
+                    displayName: decoded.displayName,
+                    enabledByDefault: enabledByDefault
+                )
+            ))
+        }
         if !projectGenerators.isEmpty {
             modules.append(PluginModuleDeclaration(
                 manifest: LanguageExtensionModuleManifests.projectGenerators(
@@ -803,6 +820,22 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 ),
                 contributions: ui.contributions
             ))
+        }
+        if decoded.backend != nil && decoded.ui == nil {
+            modules.append(PluginModuleDeclaration(manifest: ModuleManifest(
+                id: .backendExtension(decoded.id), displayName: decoded.displayName,
+                scope: .application, defaultState: enabledByDefault ? .enabled : .disabled,
+                activationPolicy: .onDemand
+            )))
+        }
+        if decoded.hasToolDefinitions && modules.isEmpty {
+            // Definitions are valid on their own. Give them an enablement owner
+            // so plugin management can expose them to the settings loader.
+            modules.append(PluginModuleDeclaration(manifest: ModuleManifest(
+                id: .toolchainsExtension(decoded.id), displayName: decoded.displayName,
+                scope: .application, defaultState: enabledByDefault ? .enabled : .disabled,
+                activationPolicy: .onDemand
+            )))
         }
         let debuggedLanguages = Set(debugAdapters.flatMap(\.languageIDs))
         let languageSupports = decoded.languages.map { language in
@@ -833,6 +866,8 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 debugModuleID: debuggedLanguages.contains(language.id)
                     ? .debugAdaptersExtension(decoded.id)
                     : nil,
+                editorModuleID: language.grammar != nil || language.configuration != nil
+                    ? .grammarsExtension(decoded.id) : nil,
                 hostCapabilities: hostCapabilitiesByLanguage[language.id] ?? []
             )
         }
@@ -858,16 +893,18 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
     }
 
     /// Whether the plugin can take effect in a running session. That holds when
-    /// debug adapters are its only contribution: the host reads them on demand
-    /// when a debug session starts, so the module graph, the language-server and
-    /// run/test modules, backend processes and UI composition built at launch do
-    /// not change. Anything else waits for the next launch.
+    /// debug adapters and language grammars are its only contributions: the
+    /// host reads adapters on demand when a debug session starts and hands
+    /// grammars to open editors when the registry changes, so the module graph,
+    /// the language-server and run/test modules, backend processes and UI
+    /// composition built at launch do not change. Anything else waits for the
+    /// next launch.
     public var canActivateWithoutRestart: Bool {
         let modules = pluginManifest.modules
-        return !debugAdapters.isEmpty
+        let live: Set<ModuleID> = [.debugAdaptersExtension(id.rawValue), .grammarsExtension(id.rawValue)]
+        return !modules.isEmpty
             && !declaresBackend
-            && modules.map(\.manifest.id) == [.debugAdaptersExtension(id.rawValue)]
-            && modules.allSatisfy { $0.contributions.isEmpty }
+            && modules.allSatisfy { live.contains($0.manifest.id) && $0.contributions.isEmpty }
     }
 
     private static func launch(_ launch: NormalizedManifest.Launch) -> DeclarativeLanguageServer.Launch {
@@ -918,6 +955,12 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             let fileNames: [String]
             let projectFileNames: [String]
             let dependencies: Dependencies?
+            let grammar: Grammar?
+            let configuration: ToolingJSONValue?
+
+            struct Grammar: Decodable {
+                let path: String
+            }
 
             init(from decoder: Decoder) throws {
                 let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -927,10 +970,12 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 fileNames = try values.decodeIfPresent([String].self, forKey: .fileNames) ?? []
                 projectFileNames = try values.decodeIfPresent([String].self, forKey: .projectFileNames) ?? []
                 dependencies = try values.decodeIfPresent(Dependencies.self, forKey: .dependencies)
+                grammar = try values.decodeIfPresent(Grammar.self, forKey: .grammar)
+                configuration = try values.decodeIfPresent(ToolingJSONValue.self, forKey: .configuration)
             }
 
             private enum CodingKeys: String, CodingKey {
-                case id, displayName, fileExtensions, fileNames, projectFileNames, dependencies
+                case id, displayName, fileExtensions, fileNames, projectFileNames, dependencies, grammar, configuration
             }
         }
         struct Launch: Decodable {
@@ -1349,6 +1394,8 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
         /// Launch fields stay with Rust Core; the host only needs to know
         /// a backend exists.
         let backend: ToolingJSONValue?
+        /// Core owns definition semantics; this bit only supplies an enablement module.
+        let hasToolDefinitions: Bool
 
         /// What plugin management lists. Fields and steps stay with Rust Core,
         /// which evaluates the New Project form and plans every step.
@@ -1378,12 +1425,13 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             settingActions = try values.decodeIfPresent([SettingAction].self, forKey: .settingActions) ?? []
             projectGenerators = try values.decodeIfPresent([ProjectGenerator].self, forKey: .projectGenerators) ?? []
             backend = try values.decodeIfPresent(ToolingJSONValue.self, forKey: .backend)
+            hasToolDefinitions = !(try values.decodeIfPresent([ToolingJSONValue].self, forKey: .toolDefinitions) ?? []).isEmpty
         }
 
         private enum CodingKeys: String, CodingKey {
             case id, displayName, version, pluginAPIVersion, vendor, permissions, activationEvents
             case languages, languageServers, executionProviders, buildSystems, vcsProviders, ui, settings, settingActions
-            case projectGenerators, backend, debugAdapters
+            case projectGenerators, backend, debugAdapters, toolDefinitions
         }
     }
 }
@@ -1506,8 +1554,13 @@ public struct ResolvedPluginSetting: Equatable, Sendable {
     }
 }
 
-/// Rust Core's view of plugin settings: the values a launch would use and the
-/// workspace configuration an `immediate` change sends to a running server.
+/// Core validates package-owned editor resources; the host only reads files.
+public protocol DeclarativeEditorContributionDecoding: Sendable {
+    /// The registered file type, optional grammar, and editor configuration.
+    func decodeGrammar(manifest: Data, languageID: String, grammar: String) throws -> ToolingJSONValue
+}
+
+/// Settings values for launches and immediate workspace configuration changes.
 public protocol DeclarativePluginSettingsResolving: Sendable {
     func resolveSettings(
         manifest: Data,

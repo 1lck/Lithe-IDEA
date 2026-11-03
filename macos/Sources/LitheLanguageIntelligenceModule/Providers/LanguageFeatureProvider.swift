@@ -52,19 +52,22 @@ package struct LanguageFeatureRequestContext: Sendable {
     package let position: LanguageServerPosition
     package let languageID: String?
     package let workspaceURL: URL?
+    package let completionContext: LanguageServerCompletionContext?
 
     package init(
         fileURL: URL,
         text: String,
         position: LanguageServerPosition,
         languageID: String? = nil,
-        workspaceURL: URL? = nil
+        workspaceURL: URL? = nil,
+        completionContext: LanguageServerCompletionContext? = nil
     ) {
         self.fileURL = fileURL.standardizedFileURL
         self.text = text
         self.position = position
         self.languageID = languageID
         self.workspaceURL = workspaceURL?.standardizedFileURL
+        self.completionContext = completionContext
     }
 }
 
@@ -74,6 +77,10 @@ package protocol LanguageFeatureProvider: AnyObject {
     var priority: LanguageFeatureProviderPriority { get }
 
     func supports(_ feature: LanguageFeature, in context: LanguageFeatureRequestContext) -> Bool
+    func completionList(
+        in context: LanguageFeatureRequestContext,
+        completion: @escaping (Result<LanguageServerCompletionList, Error>) -> Void
+    ) throws
     func completions(
         in context: LanguageFeatureRequestContext,
         completion: @escaping (Result<[LanguageServerCompletionItem], Error>) -> Void
@@ -87,6 +94,15 @@ package protocol LanguageFeatureProvider: AnyObject {
         in context: LanguageFeatureRequestContext,
         completion: @escaping (Result<[LanguageServerLocation], Error>) -> Void
     ) throws
+}
+
+package extension LanguageFeatureProvider {
+    func completionList(
+        in context: LanguageFeatureRequestContext,
+        completion: @escaping (Result<LanguageServerCompletionList, Error>) -> Void
+    ) throws {
+        try completions(in: context) { completion($0.map { LanguageServerCompletionList(items: $0) }) }
+    }
 }
 
 @MainActor
@@ -196,6 +212,14 @@ package final class LanguageServerFeatureProvider: LanguageFeatureProvider {
         case .navigation(let method):
             return features.contains(Self.navigationFeature(for: method))
         }
+    }
+
+    package func completionList(
+        in context: LanguageFeatureRequestContext,
+        completion: @escaping (Result<LanguageServerCompletionList, Error>) -> Void
+    ) throws {
+        try session.completionList(fileURL: context.fileURL, position: context.position,
+                                   context: context.completionContext, completion: completion)
     }
 
     package func completions(

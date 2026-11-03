@@ -74,6 +74,14 @@ unknown. See the
 
 Agent history lists can expose matching summaries as pages arrive while the remaining scan stays loading. Partial results prove presence only; final snapshots reconcile removals, and later failures retain visible rows. History surfaces share connection-local recent snapshots and in-flight requests; manual refresh remains immediate. Workspace/Agent isolation, stale-token rejection and upstream history ownership apply to both partial and final results.
 
+History provider filtering defaults to all providers and uses only upstream-reported
+`modelProvider` identities. Choices span active and archived records; missing metadata
+has an explicit unknown choice. A provider selection composes with title/ID search,
+favorites and local removal, including archive results. It is transient presentation
+state, not a routing or account setting, and never narrows the upstream history scan
+or infers provenance from the active model. Bulk actions remain limited to visible
+eligible records. Empty filtered results do not establish that no history exists.
+
 An Agent that advertises steering can accept supplementary user input while its
 logical turn is active. Input delivery has a separate pending/received/failed
 outcome and does not replace turn ownership, permissions, timing, or Stop.
@@ -695,10 +703,18 @@ source target, Java Debug Server builds the owning project and resolves its
 runtime classpath/module path, Core projects those structured paths into a
 direct JDK launch, and the Run host starts that one JVM. Maven still defines the
 project model, but Run never sends either target through a reactor-wide Java
-launch goal. A Spring Boot service without a resolved Java entry source retains
+launch goal. A user-authored or legacy Spring Boot service without a resolved Java entry source retains
 its Maven-goal compatibility path. Run and Debug share the Java preparation path
 so module selection, generated sources, test-source mains, and dependency paths
 do not drift.
+
+Both platforms use `java.prepareLaunch` for source-specific entry selection,
+the serialized JDT build, and runtime path resolution. One operation ID owns all
+three phases and their cancellation; a cancelled or timed-out attempt cannot
+advance on a late upstream reply. Hosts save dirty workspace documents before
+preparation and abort on any save failure. JDT remains the authority for project
+membership and paths; Core retains only the current attempt's intermediate
+results. Native adapters still own JDK discovery and process execution.
 
 An unsuccessful Java launch build is evidence, not an unconditional host veto.
 For `javaBuildCompilationErrors` and `javaBuildFailed`, the language boundary
@@ -872,3 +888,12 @@ queries keep one execution identity. Stop targets the owned preparation ID befor
 launch and the owned native process ID afterward. Missing or stale references fail without a CLI or old domain fallback.
 A Provider application's native output remains visible even without generated
 Run configurations. See `../fixtures/run-configuration/build-provider.json`.
+
+### Project Java runtime and language-server runtime
+
+Platforms supply the selected project JDK with `javaRuntimes[].isDefault`, reusing
+Run's project configuration and requirement-aware selection. The JDT host JVM may
+remain the bundled supported JVM. Core projects the selected project home to JDT's
+`java.configuration.runtimes[].default`; it must not infer the project VM from the
+server executable. An invalid explicit selection must not mark an unrelated discovered candidate as the default;
+Windows reports the invalid setting before launch.

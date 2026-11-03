@@ -90,29 +90,6 @@ private struct EditorDocumentTabIcon: View {
     }
 }
 
-enum DocumentPreviewMode: String, CaseIterable, Identifiable, Equatable {
-    case editor
-    case split
-    case preview
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .editor: "Editor"
-        case .split: "Editor and Preview"
-        case .preview: "Preview"
-        }
-    }
-
-    var symbolName: String {
-        switch self {
-        case .editor: "pencil.line"
-        case .split: "rectangle.split.2x1"
-        case .preview: "doc.richtext"
-        }
-    }
-}
 
 struct EditorAreaView: View {
     var groupID: UUID? = nil
@@ -132,7 +109,7 @@ struct EditorAreaView: View {
     @State private var tabReorderTarget: EditorTabReorderTarget?
     @State private var isTerminalTabBarDropTargeted = false
     @State private var resolvedTabIcons: [UUID: LitheIconKind] = [:]
-    @State private var documentPreviewModes: [UUID: DocumentPreviewMode] = [:]
+    private var documentPreviewModes: [UUID: DocumentPreviewMode] { model.editorTabOrderFeature.documentPreviewModes }
     @State private var markdownScrollPositions: [UUID: MarkdownScrollPosition] = [:]
     @State private var hoveredPreviewMode: DocumentPreviewMode?
 
@@ -150,12 +127,18 @@ struct EditorAreaView: View {
                     }
                 }
             }
-
-            if model.isImplementationChooserVisible && groupID == nil {
-                LanguageImplementationChooserView()
+        }
+        .overlay(alignment: .topLeading) {
+            if groupID == nil {
+                Color.clear.frame(width: 1, height: 1)
+                    .litheDropdown(isPresented: Binding(
+                        get: { model.isImplementationChooserVisible },
+                        set: { if !$0 { model.dismissImplementationChooser() } }
+                    ), searchOnTyping: true) {
+                        LanguageImplementationChooserView().environmentObject(model)
+                    }
                     .padding(.top, 48)
-                    .padding(.horizontal, 24)
-                    .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
+                    .padding(.leading, 24)
             }
         }
         .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.editor)
@@ -168,11 +151,12 @@ struct EditorAreaView: View {
         }
         .onAppear { if groupID == nil, let activeItem { model.editorTabOrderFeature.focus(activeItem) } }
         .onChange(of: activeItem) { item in
+            if groupID == nil, model.isImplementationChooserVisible { model.closeLanguageNavigationResults() }
             if groupID == nil, let item { model.editorTabOrderFeature.focus(item) }
         }
         .onChange(of: model.openDocuments.map(\.id)) { ids in
             resolvedTabIcons = resolvedTabIcons.filter { ids.contains($0.key) }
-            documentPreviewModes = documentPreviewModes.filter { ids.contains($0.key) }
+            model.editorTabOrderFeature.documentPreviewModes = documentPreviewModes.filter { ids.contains($0.key) }
             markdownScrollPositions = markdownScrollPositions.filter { ids.contains($0.key) }
         }
         .onChange(of: model.editorTabItems) { items in
@@ -194,6 +178,7 @@ struct EditorAreaView: View {
 
 
     private var activeItem: EditorTabItem? {
+        if model.editorTabOrderFeature.focusedItem == .languageLogs { return .languageLogs }
         if let tab = model.focusedAgentEditorTab { return .agentConversation(tab) }
         if let id = model.selectedRepositoryDiffID { return .repositoryDiff(id) }
         return model.activeEditorTerminalSession.map { .terminal($0.id) }
@@ -225,6 +210,10 @@ struct EditorAreaView: View {
     }
     private var paneDiffSelected: Bool { paneDiffID != nil }
     private func focusRepositoryDiffPaneIfNeeded() {
+        if groupID != nil, paneItem == .languageLogs, model.editorTabOrderFeature.focusedItem != .languageLogs {
+            model.selectLanguageServerLogsTab()
+            return
+        }
         guard groupID != nil, let id = paneDiffID, model.selectedRepositoryDiffID != id else { return }
         model.selectRepositoryDiffTab(id)
     }
@@ -357,6 +346,8 @@ struct EditorAreaView: View {
         ForEach(displayedTabItems) { item in
             Group {
                 switch item {
+                case .languageLogs:
+                    languageServerLogsTab
                 case .agentConversation(let tab):
                     agentConversationTab(tab)
                 case .repositoryDiff(let id):
@@ -417,6 +408,28 @@ struct EditorAreaView: View {
                 .accessibilityAddTraits(.isButton)
                 .accessibilityAction { model.selectEditorTab(item) }
             LitheToolWindowTabCloseButton { model.closeAgentEditorTab(tab) }
+                .opacity(selected || hoveredTabItem == item ? 1 : 0)
+                .allowsHitTesting(selected || hoveredTabItem == item)
+        }
+        .foregroundStyle(selected ? LitheTheme.primaryText : LitheTheme.secondaryText)
+        .modifier(LitheToolWindowTabStyle(isSelected: selected, isActive: editorGroupIsActive))
+        .padding(.horizontal, 4).padding(.vertical, 4)
+        .onHover { updateHoveredTab(item, isHovering: $0) }
+        .background { editorTabFrameReader(for: item) }
+        .zIndex(tabDragState.draggedItem == item ? 1 : 0)
+    }
+
+    private var languageServerLogsTab: some View {
+        let item = EditorTabItem.languageLogs
+        let selected = paneItem == item
+        return HStack(spacing: 0) {
+            Text("LSP Logs")
+                .font(LitheTheme.uiFont(size: 13))
+                .padding(.leading, 8).frame(height: 28).contentShape(Rectangle())
+                .onTapGesture { model.selectEditorTab(item) }
+                .accessibilityAddTraits(.isButton)
+                .accessibilityAction { model.selectEditorTab(item) }
+            LitheToolWindowTabCloseButton { model.closeLanguageServerLogsTab() }
                 .opacity(selected || hoveredTabItem == item ? 1 : 0)
                 .allowsHitTesting(selected || hoveredTabItem == item)
         }
@@ -612,20 +625,11 @@ struct EditorAreaView: View {
             .padding(.leading, 8)
             .frame(height: 28)
             .contentShape(Rectangle())
-            .onTapGesture {
-                model.selectEditorTerminalSession(session)
-                session.focus()
-            }
-            // Terminal sessions retain their native cross-container transfer.
-            .onDrag {
-                TerminalTabDragPayload.provider(for: session.id)
-            } preview: {
-                Image(systemName: "terminal")
-                    .font(LitheTheme.uiFont(size: 10, weight: .medium))
-                    .foregroundStyle(LitheTheme.accent)
-                    .frame(width: 20, height: 20)
-                    .background(LitheTheme.activeTabBackground)
-                    .clipShape(RoundedRectangle(cornerRadius: 4))
+            .overlay {
+                TerminalTabInteraction(sessionID: session.id, title: model.terminalTitle(for: session)) {
+                    model.selectEditorTerminalSession(session)
+                    session.focus()
+                }
             }
             .accessibilityElement(children: .combine)
             .accessibilityLabel(model.terminalTitle(for: session))
@@ -775,6 +779,7 @@ struct EditorAreaView: View {
 
     private func closeEditorTab(_ item: EditorTabItem) {
         switch item {
+        case .languageLogs: model.closeLanguageServerLogsTab()
         case .agentConversation(let tab): model.closeAgentEditorTab(tab)
         case .repositoryDiff(let id):
             model.closeRepositoryDiffTab(id)
@@ -818,6 +823,7 @@ struct EditorAreaView: View {
     @ViewBuilder
     private func tabDragLabel(_ item: EditorTabItem) -> some View {
         switch item {
+        case .languageLogs: Text("LSP Logs")
         case .agentConversation(let tab): AgentEditorTabTitle(model: model, tab: tab)
         case .document(let id):
             if let document = model.openDocuments.first(where: { $0.id == id }) {
@@ -861,7 +867,7 @@ struct EditorAreaView: View {
         tabDragPreview.move(by: translation)
         if let groupID {
             let destination = drag.destination(at: location, sourceGroup: groupID)
-            if drag.target != destination { drag.target = destination }
+            drag.updateTarget(destination)
         }
         guard tabReorderTarget != plan.target else { return }
         tabReorderTarget = plan.target
@@ -1112,7 +1118,7 @@ struct EditorAreaView: View {
 
     private func selectDocumentPreviewMode(_ mode: DocumentPreviewMode) {
         guard let document = paneDocument else { return }
-        documentPreviewModes[document.id] = mode
+        model.editorTabOrderFeature.documentPreviewModes[document.id] = mode
     }
 
     private func isSVGFile(_ document: EditorDocument) -> Bool {
@@ -1151,7 +1157,9 @@ struct EditorAreaView: View {
                         .allowsHitTesting(paneDiffID == id)
                         .accessibilityHidden(paneDiffID != id)
                 }
-                if case .agentConversation(let tab) = paneItem {
+                if paneItem == .languageLogs {
+                    LanguageServerLogsView(feature: model.languageToolingFeature.logs)
+                } else if case .agentConversation(let tab) = paneItem {
                     if tab == model.focusedAgentEditorTab {
                         AgentConversationView(model: model, isEditor: true)
                     } else {
@@ -1168,6 +1176,9 @@ struct EditorAreaView: View {
     }
 
     private func repositoryDiffTitle(_ id: UUID) -> String {
+        if let diff = model.editorTabOrderFeature.providerDiffs[id] {
+            return L10n.string("Repository Diff: \(diff.fileURL.lastPathComponent)")
+        }
         guard let session = model.gitFeatureIfActive?.repositoryDiffSessions[id] else { return L10n.string("Repository Diff") }
         if let comparison = session.branchComparison {
             let target = comparison.targetReference?.shortName ?? L10n.string("Working Tree")
@@ -1182,7 +1193,9 @@ struct EditorAreaView: View {
 
     @ViewBuilder
     private func repositoryDiffContent(_ id: UUID) -> some View {
-        if let feature = model.gitFeatureIfActive, let session = feature.repositoryDiffSessions[id] {
+        if let diff = model.editorTabOrderFeature.providerDiffs[id] {
+            VcsFileDiffContent(diff: diff, fontFamily: settings.editorFontFamily)
+        } else if let feature = model.gitFeatureIfActive, let session = feature.repositoryDiffSessions[id] {
             RepositoryDiffSessionView(feature: feature, session: session, fontFamily: settings.editorFontFamily)
         } else {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1369,6 +1382,7 @@ struct EditorAreaView: View {
             .offset(y: geometry.size.height * 0.375 - LitheTheme.uiNSFont(size: 16).ascender)
         }
         .clipped()
+        .overlay { TerminalEmptyEditorDropOverlay(model: model) }
     }
 
     @ViewBuilder

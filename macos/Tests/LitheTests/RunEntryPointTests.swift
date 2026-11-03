@@ -12,6 +12,57 @@ import Testing
 @Suite("Run entry points", .serialized)
 @MainActor
 struct RunEntryPointTests {
+    @Test(arguments: [false, true])
+    func javaPreparationSavesDirtyDependenciesAndStopsOnSaveFailure(saveFails: Bool) async throws {
+        let workspace = try JavaWorkspaceFixture()
+        defer { workspace.remove() }
+        let model = makeAppModel(workspaceOperations: SequencedWorkspaceOperations.neverScans())
+        defer { model.closeProject() }
+        model.settings.autoSave = false
+        model.openProjectDirectly(workspace.root)
+        let identity = try #require(model.currentWorkspaceIdentity)
+        await model.documentFeature.openFileAsync(
+            workspace.sourceURL, isReadOnly: false, displayPath: nil, activateWhenReady: true
+        )
+        let main = try #require(model.activeDocument)
+        main.text += "\n// edited main"
+        let dependencyURL = workspace.root.appendingPathComponent("Dependency.java")
+        try "class Dependency {}".write(to: dependencyURL, atomically: true, encoding: .utf8)
+        await model.documentFeature.openFileAsync(
+            dependencyURL, isReadOnly: false, displayPath: nil, activateWhenReady: true
+        )
+        let dependency = try #require(model.activeDocument)
+        dependency.text += "\n// edited dependency"
+        if saveFails {
+            try FileManager.default.removeItem(at: dependencyURL)
+            try FileManager.default.createDirectory(at: dependencyURL, withIntermediateDirectories: false)
+        }
+        // A removed module ends preparation after saving, before any language
+        // server starts. A failed save must stop even before source resolution.
+        let configuration = RunConfiguration(
+            id: "fixture-java", name: "Missing", kind: .javaMain,
+            modulePath: "removed-module", mainClass: "demo.Missing", mavenReactorPath: "."
+        )
+        do {
+            _ = try await model.prepareJavaRunLaunch(for: configuration, identity: identity)
+            Issue.record("A removed module must not produce a Java target")
+        } catch {
+            let sourceFailure = error as? RunConfigurationOperationFailure
+            let failure = try #require(sourceFailure)
+            #expect(failure.message == (saveFails
+                ? "Java launch stopped because modified files could not be saved."
+                : "The Java source for Missing could not be resolved."))
+        }
+        if saveFails {
+            #expect(dependency.isDirty)
+        } else {
+            #expect(!main.isDirty && !dependency.isDirty)
+            #expect(try String(contentsOf: workspace.sourceURL, encoding: .utf8) == main.text)
+            #expect(try String(contentsOf: dependencyURL, encoding: .utf8) == dependency.text)
+        }
+        await model.shutdownProjectSession()
+    }
+
     @Test(arguments: [AppLanguage.english, .simplifiedChinese], [false, true])
     func javaBuildDecisionButtonsStayInsideTheDialog(language: AppLanguage, offersRecovery: Bool) async throws {
         let model = makeAppModel(workspaceOperations: SequencedWorkspaceOperations.neverScans())
@@ -151,8 +202,8 @@ struct RunEntryPointTests {
     /// Run activates the execution module on demand, so it can reach a run
     /// feature before the workspace snapshot has been applied. Binding the
     /// workspace there is not enough: generation scans the file inventory the
-    /// run service holds, so identifying a provisional inventory would write a
-    /// `generated.json` that omits entry points the workspace contains.
+    /// run service holds, so identifying a provisional inventory would publish
+    /// a Run list that omits entry points the workspace contains.
     ///
     /// The snapshot is held until after Run is pressed, then released with a
     /// real Java entry point, so the test observes both halves of the contract.
@@ -178,10 +229,9 @@ struct RunEntryPointTests {
         let runFeature = try #require(model.runFeatureIfActive)
         await runFeature.generateRunConfigurations()
         #expect(runFeature.generationState == .projectNotReady)
-        #expect(!workspace.hasGeneratedConfiguration, "a partial inventory must not be written")
+        #expect(runFeature.configurationStatus != .ready, "a partial inventory must not be identified")
 
-        operations.publish(workspace.snapshot)
-        await model.workspaceFeature.refreshCurrent()
+        try await publishFirstCompleteSnapshot(workspace.snapshot, using: operations, in: model)
 
         let ready = await awaitLoadDrivenChange(on: model) {
             model.runFeatureIfActive?.isProjectReady(
@@ -213,8 +263,7 @@ struct RunEntryPointTests {
         let deferred = await awaitLoadDrivenChange(on: model) { model.pendingRunAction?.kind == .run }
         #expect(deferred, "Run must be deferred while the inventory is provisional")
 
-        operations.publish(workspace.snapshot)
-        await model.workspaceFeature.refreshCurrent()
+        try await publishFirstCompleteSnapshot(workspace.snapshot, using: operations, in: model)
 
         let ready = await awaitLoadDrivenChange(on: model) {
             model.runFeatureIfActive?.isProjectReady(
@@ -267,8 +316,7 @@ struct RunEntryPointTests {
         #expect(model.pendingRunAction?.kind == .run)
         #expect(runConfigurations.launchPlanCallCount == 0)
 
-        workspaceOperations.publish(workspace.snapshot)
-        await model.workspaceFeature.refreshCurrent()
+        try await publishFirstCompleteSnapshot(workspace.snapshot, using: workspaceOperations, in: model)
 
         // Production clears the deferred action before it re-issues Run, so
         // waiting for the action to clear would pass even if the relaunch were
@@ -325,7 +373,9 @@ struct RunEntryPointTests {
         // The snapshot lands and is fully consumed while that load is suspended.
         // The refresh cannot be awaited here: the load it drives suspends on the
         // inspection this test releases further down.
-        workspaceOperations.publish(workspace.snapshot)
+        try await publishFirstCompleteSnapshot(
+            workspace.snapshot, using: workspaceOperations, in: model, refresh: false
+        )
         let refreshTask = Task { await model.workspaceFeature.refreshCurrent() }
         #expect(
             await runConfigurations.inspectionEntered(2),
@@ -373,8 +423,7 @@ struct RunEntryPointTests {
         #expect(bound, "the Debug entry point never bound the workspace")
         #expect(model.runFeatureIfActive?.isProjectReady(for: workspace.root, snapshotID: model.workspaceSnapshotID) == false)
 
-        operations.publish(workspace.snapshot)
-        await model.workspaceFeature.refreshCurrent()
+        try await publishFirstCompleteSnapshot(workspace.snapshot, using: operations, in: model)
 
         let ready = await awaitLoadDrivenChange(on: model) {
             model.runFeatureIfActive?.isProjectReady(
@@ -436,8 +485,7 @@ struct RunEntryPointTests {
             "direct start must not build a launch plan from a provisional inventory"
         )
 
-        workspaceOperations.publish(workspace.snapshot)
-        await model.workspaceFeature.refreshCurrent()
+        try await publishFirstCompleteSnapshot(workspace.snapshot, using: workspaceOperations, in: model)
 
         let relaunched = await runConfigurations.launchPlanRequested(1)
         #expect(relaunched, "the deferred direct start was never actually re-issued")
@@ -459,8 +507,7 @@ struct RunEntryPointTests {
         #expect(model.pendingRunAction?.kind == .startConfigurations(ids.sorted()))
         #expect(runConfigurations.launchPlanCallCount == 0)
 
-        operations.publish(workspace.snapshot)
-        await model.workspaceFeature.refreshCurrent()
+        try await publishFirstCompleteSnapshot(workspace.snapshot, using: operations, in: model)
         #expect(await runConfigurations.launchPlanRequested(2))
         #expect(model.pendingRunAction == nil)
         #expect(runConfigurations.launchPlanCallCount == 2)
@@ -498,8 +545,7 @@ struct RunEntryPointTests {
             "run-all-services must not build a launch plan from a provisional inventory"
         )
 
-        workspaceOperations.publish(workspace.snapshot)
-        await model.workspaceFeature.refreshCurrent()
+        try await publishFirstCompleteSnapshot(workspace.snapshot, using: workspaceOperations, in: model)
 
         let relaunched = await runConfigurations.launchPlanRequested(1)
         #expect(relaunched, "the deferred run-all-services was never actually re-issued")
@@ -533,8 +579,7 @@ struct RunEntryPointTests {
         #expect(deferred)
         #expect(runConfigurations.launchPlanCallCount == 0)
 
-        workspaceOperations.publish(workspace.snapshot)
-        await model.workspaceFeature.refreshCurrent()
+        try await publishFirstCompleteSnapshot(workspace.snapshot, using: workspaceOperations, in: model)
         let relaunched = await runConfigurations.launchPlanRequested(2)
         #expect(relaunched)
         #expect(model.pendingRunAction == nil)
@@ -585,7 +630,7 @@ struct RunEntryPointTests {
         // Each refresh is held at its watch-configuration fetch, so it runs as a
         // task the test releases; a refresh must also finish before the next one
         // starts, or the workspace feature would drop it as already refreshing.
-        workspaceOperations.publish(first)
+        try await publishFirstCompleteSnapshot(first, using: workspaceOperations, in: model, refresh: false)
         let firstRefresh = Task { await model.workspaceFeature.refreshCurrent() }
         #expect(await watchContext.entered(1))
         watchContext.release(1)
@@ -921,6 +966,42 @@ private func awaitLoadDrivenChange(
     await awaitChange(on: model, timeout: .seconds(30), until: isSatisfied)
 }
 
+/// Releases the first complete inventory only after the opening scan has
+/// reported its provisional result. Publishing while the workspace is idle
+/// ensures any subsequent scan sees the released inventory, even if a watcher
+/// starts before the caller's explicit refresh. Gated service loads keep their
+/// refresh in a caller-owned task instead of awaiting it here.
+@MainActor
+private func publishFirstCompleteSnapshot(
+    _ snapshot: WorkspaceSnapshot,
+    using operations: SequencedWorkspaceOperations,
+    in model: AppModel,
+    refresh: Bool = true
+) async throws {
+    let deadline = DispatchTime.now() + .seconds(30)
+    let openingScanFinished: @MainActor @Sendable () -> Bool = {
+        model.workspaceLoadErrorMessage != nil
+            && !model.workspaceFeature.isLoadingWorkspace
+            && !model.workspaceFeature.isRefreshingWorkspace
+    }
+    // A queued refresh can begin before an observation's continuation resumes.
+    // Recheck on this actor, retaining one deadline across those state changes.
+    while !openingScanFinished() {
+        let now = DispatchTime.now()
+        try #require(now < deadline, "the provisional opening scan did not finish")
+        let remaining = DispatchTimeInterval.nanoseconds(Int(deadline.uptimeNanoseconds - now.uptimeNanoseconds))
+        try #require(await awaitChange(
+            on: model.workspaceFeature, timeout: remaining, until: openingScanFinished
+        ))
+    }
+    operations.publish(snapshot)
+    guard refresh else { return }
+    await model.workspaceFeature.refreshCurrent()
+    try #require(await awaitChange(on: model.workspaceFeature, timeout: .seconds(30)) {
+        model.workspaceSnapshotID == snapshot.id
+    }, "the released inventory must be applied before checking deferred Run")
+}
+
 /// A real workspace on disk holding one Java entry point, so generation runs
 /// through the shared Core instead of a stubbed result.
 @MainActor
@@ -948,12 +1029,6 @@ private struct JavaWorkspaceFixture {
         WorkspaceSnapshot(
             root: FileNode(url: root, isDirectory: true, children: []),
             files: [sourceURL]
-        )
-    }
-
-    var hasGeneratedConfiguration: Bool {
-        FileManager.default.fileExists(
-            atPath: root.appendingPathComponent(".lithe/run/generated.json").path
         )
     }
 

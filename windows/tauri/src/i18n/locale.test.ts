@@ -74,7 +74,7 @@ describe("Windows display language", () => {
     expect(translate("terminal.copySelection")).toBe("复制所选内容");
     expect(translate("files.reveal")).toBe("在资源管理器中显示");
     expect(createTranslator("en-US")("files.reveal")).toBe("Reveal in File Explorer");
-    expect(translate("quickOpen.searchFiles")).toBe("输入以搜索文件...");
+    expect(translate("quickOpen.searchFiles")).toBe("输入以搜索文件或接口路由...");
     expect(translate("quickOpen.filesCount", { count: 66 })).toBe("66 个文件");
     expect(translate("tabs.pin")).toBe("固定标签页");
     expect(translate("tabs.closeOthers")).toBe("关闭其他");

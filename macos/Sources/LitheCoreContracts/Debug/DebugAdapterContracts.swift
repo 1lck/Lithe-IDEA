@@ -228,7 +228,7 @@ public struct DebugSteppingFilters: Codable, Equatable, Sendable {
 
 /// JDT LS-owned identity for one Java launch target. `mainClass` may include
 /// the JPMS module prefix (`module/name.Type`) required by Java Debug Server.
-public struct JavaDebugLaunchTarget: Hashable, Sendable {
+public struct JavaDebugLaunchTarget: Codable, Hashable, Sendable {
     public let mainClass: String
     public let projectName: String?
     public let modulePaths: [String]

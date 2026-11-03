@@ -1,0 +1,33 @@
+{
+  "id": "java-import-progress-feedback",
+  "area": "Java",
+  "group": "语言服务",
+  "capability": "状态栏显示 Java 导入百分比、细进度条、当前模块与正在下载的依赖，就绪后列出语言服务器后台任务；导入期间跳转提示导入进度并按语法定位类型与本文件成员，较慢的跳转请求显示“正在查找”",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Application/Composition/JavaLanguageServerPreparationCoordinator.swift"
+    ],
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/run/stores/language-server-progress.store.ts",
+      "windows/tauri/src/features/run/components/project-preparation-status.tsx",
+      "windows/tauri/src/features/run/components/language-server-tasks-status.tsx",
+      "windows/tauri/src/platform/lsp-core-adapter.ts",
+      "windows/tauri/src/features/keymaps/commands/navigation-command-actions.ts",
+      "windows/tauri/src/features/editor/lsp/slow-request-notice.ts",
+      "rust/lithe-core/src/lsp/languages/jdt_progress.rs",
+      "windows/tauri/src/features/run/stores/language-server-progress.store.test.ts",
+      "windows/tauri/src/features/editor/lsp/slow-request-notice.test.ts",
+      "windows/tauri/src/features/editor/lsp/java-syntax-definition.ts",
+      "windows/tauri/src/features/editor/lsp/java-syntax-definition.test.ts"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Language Tooling",
+  "verification": "Windows：清空 JDT 缓存后打开多模块 Maven 工程，状态栏随导入推进显示百分比和进度条，展开后显示当前模块与下载中的依赖；就绪后进度消失，构建等后台任务出现在状态栏并在结束后消失。导入期间按 F12/Ctrl+点击跳转，提示包含导入百分比；光标在导入过的类型或本文件成员上时直接跳转并提示“仅按语法定位”，嵌套类型里的调用跳到当前类型自己的同名成员；在 `other.save()` 这类成员访问、局部变量、被局部变量遮蔽的字段和可能继承来的名字上不跳转，只保留导入提示；就绪后在后台构建期间跳转，超过 300ms 出现“正在查找定义”并在完成或失败后消失。停止或重启语言服务后不残留任务。",
+  "notes": "后台任务不提供取消：Core 不发送 window/workDoneProgress/cancel，按钮只能隐藏任务而服务器仍在运行。导入期间的跳转仍不会在就绪后自动执行，避免用户已切换上下文时编辑器突然移动。语法定位只用 Core 现有的 java.sourceDefinition 和 workspace.snapshot，不建索引、不缓存，语言服务就绪后不再使用；无法确定的名字不猜测。"
+}

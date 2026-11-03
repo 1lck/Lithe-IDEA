@@ -22,12 +22,27 @@ struct MacHTMLBrowserOpener {
         }
         guard try isRegularFile(url) else { throw CocoaError(.fileReadNoSuchFile) }
         // This URL is only used to query Launch Services; no request is made.
-        guard let probe = URL(string: "https://example.invalid"),
-              let browser = applicationForURL(probe) else {
+        guard let probe = URL(string: "https://example.invalid") else { throw CocoaError(.fileReadUnsupportedScheme) }
+        try await openURLs([url], browser(handling: probe))
+    }
+
+    /// Opens an http or https address in the web browser. Other schemes, and
+    /// addresses without a host, are refused so a caller cannot reach another
+    /// application through this entry.
+    func openWeb(_ url: URL) async throws {
+        guard let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
+              url.host?.isEmpty == false else {
+            throw CocoaError(.fileReadUnsupportedScheme)
+        }
+        try await openURLs([url], browser(handling: url))
+    }
+
+    private func browser(handling url: URL) throws -> URL {
+        guard let browser = applicationForURL(url) else {
             throw CocoaError(.serviceApplicationNotFound, userInfo: [
                 NSLocalizedDescriptionKey: L10n.string(key: "Choose a default web browser in System Settings, then retry.")
             ])
         }
-        try await openURLs([url], browser)
+        return browser
     }
 }

@@ -10,6 +10,57 @@ import Testing
 /// receives, how its credential requests are answered, and when it stops.
 @MainActor
 struct MacPluginBackendSessionsTests {
+    @Test
+    func anOlderNegotiatedProtocolSkipsNotificationsWithoutStoppingTheBackend() async throws {
+        let fixture = try BackendFixture(backendVersion: 2)
+        defer { fixture.remove() }
+        _ = try await fixture.sessions.pluginFunctions(ofPlugin: BackendFixture.pluginID)
+        fixture.core.notificationSupported = false
+        fixture.sessions.runCommand("query.run", owner: ModuleID("\(BackendFixture.pluginID).ui"), context: nil)
+        try #require(await fixture.core.waitForNotifications(1))
+        _ = try await fixture.sessions.pluginFunctions(ofPlugin: BackendFixture.pluginID)
+        #expect(fixture.core.starts.count == 1)
+        #expect(fixture.core.stops.isEmpty)
+    }
+
+    @Test
+    func commandsWaitForInitializeAndRestartAfterExit() async throws {
+        let fixture = try BackendFixture(backendVersion: 2, commandActivation: true)
+        defer { fixture.remove() }
+        fixture.core.delayReady = true
+        let owner = ModuleID("\(BackendFixture.pluginID).ui")
+        fixture.sessions.runCommand("dev.lithe.fixture.backend.open", owner: owner, context: nil)
+        try #require(await fixture.core.started.waitUntilOpen())
+        fixture.sessions.runCommand("dev.lithe.fixture.backend.open", owner: owner, context: nil)
+        #expect(fixture.core.notifications.isEmpty)
+        fixture.core.finishInitialize()
+        try #require(await fixture.core.waitForNotifications(2))
+        #expect(fixture.core.starts.count == 1)
+
+        let disposed = TestGate()
+        _ = fixture.sessions.hostDispatcher.subscriptions.add(pluginID: BackendFixture.pluginID, contextID: nil) { disposed.open() }
+        fixture.core.exit()
+        try #require(await disposed.waitUntilOpen())
+        fixture.core.delayReady = false
+        fixture.sessions.runCommand("dev.lithe.fixture.backend.open", owner: owner, context: nil)
+        try #require(await fixture.core.waitForNotifications(3))
+        #expect(fixture.core.starts.count == 2)
+        #expect(fixture.core.notifications.last?.sessionID == "backend-2")
+    }
+
+    @Test
+    func stoppingABlockedNotificationReleasesTheWriteOffMainActor() async throws {
+        let fixture = try BackendFixture(backendVersion: 2)
+        defer { fixture.core.releaseWrite.open(); fixture.remove() }
+        _ = try await fixture.sessions.pluginFunctions(ofPlugin: BackendFixture.pluginID)
+        fixture.core.blockNotification = true
+        fixture.sessions.runCommand("query.run", owner: ModuleID("\(BackendFixture.pluginID).ui"), context: nil)
+        try #require(await fixture.core.writeStarted.waitUntilOpen())
+        fixture.sessions.disable(BackendFixture.pluginID)
+        try #require(await fixture.core.forcedStop.waitUntilOpen())
+        try #require(await fixture.core.writeFinished.waitUntilOpen())
+    }
+
     /// The first page call starts the backend in its own state directory,
     /// outside the package, with the services its permissions grant; later
     /// calls reuse the process.
@@ -111,6 +162,57 @@ struct MacPluginBackendSessionsTests {
         }
     }
 
+    /// A command run from the plugin's UI and the events of its
+    /// subscriptions reach the running backend as host notifications, in
+    /// the order the host sent them.
+    @Test
+    func commandsAndSubscriptionEventsReachTheRunningBackendInOrder() async throws {
+        let fixture = try BackendFixture(backendVersion: 2)
+        defer { fixture.remove() }
+        _ = try await fixture.sessions.pluginFunctions(ofPlugin: BackendFixture.pluginID)
+        let owner = ModuleID("\(BackendFixture.pluginID).ui")
+        let subscriptions = fixture.sessions.hostDispatcher.subscriptions
+        let subscriptionID = subscriptions.add(pluginID: BackendFixture.pluginID, contextID: nil) {}
+        let window = NSObject()
+        let context = fixture.sessions.hostDispatcher.contexts.open(owner: window, rootURL: URL(fileURLWithPath: "/fixture/project"), remote: nil)
+        defer { fixture.sessions.hostDispatcher.contexts.close(owner: window) }
+
+        fixture.sessions.runCommand(
+            "query.run", owner: owner,
+            context: context.reference
+        )
+        subscriptions.notify(pluginID: BackendFixture.pluginID, subscriptionID: subscriptionID, event: ["kind": .string("changed")])
+        fixture.sessions.runCommand("query.stop", owner: owner, context: nil)
+
+        #expect(await fixture.core.waitForNotifications(3))
+        #expect(fixture.core.notifications.map(\.method) == [
+            "lithe/host/commands/didRun", "lithe/host/subscriptions/notify", "lithe/host/commands/didRun",
+        ])
+        #expect(fixture.core.notifications.first?.params == .object([
+            "commandID": .string("query.run"),
+            "context": .object(["contextID": .string(context.contextID), "generation": .integer(context.generation)]),
+        ]))
+        #expect(fixture.core.notifications.last?.params == .object(["commandID": .string("query.stop")]))
+    }
+
+    /// A version 1 backend has no command notification, and a command that
+    /// is not an activation event does not start a stopped backend.
+    @Test
+    func aCommandReachesNoBackendThatCannotReceiveIt() async throws {
+        let first = try BackendFixture()
+        defer { first.remove() }
+        _ = try await first.sessions.pluginFunctions(ofPlugin: BackendFixture.pluginID)
+        first.sessions.runCommand("query.run", owner: ModuleID("\(BackendFixture.pluginID).ui"), context: nil)
+        #expect(first.core.notifications.isEmpty)
+
+        let stopped = try BackendFixture(backendVersion: 2)
+        defer { stopped.remove() }
+        stopped.sessions.runCommand("query.run", owner: ModuleID("\(BackendFixture.pluginID).ui"), context: nil)
+        stopped.sessions.runCommand("query.run", owner: ModuleID("dev.example.other.ui"), context: nil)
+        #expect(stopped.core.starts.isEmpty)
+        #expect(stopped.core.notifications.isEmpty)
+    }
+
     /// The answer never echoes a secret, and a request outside the
     /// credentials service is refused even if Core forwarded it.
     @Test
@@ -174,16 +276,32 @@ private struct BackendFixture {
     let core = ScriptedBackendCore()
     let sessions: MacPluginBackendSessions
 
-    init(prepareState: @escaping @Sendable (_ installation: PluginInstallationRecord, _ stateDirectory: URL) -> Void = { _, _ in }) throws {
+    init(
+        backendVersion: Int = 1,
+        commandActivation: Bool = false,
+        prepareState: @escaping @Sendable (_ installation: PluginInstallationRecord, _ stateDirectory: URL) -> Void = { _, _ in }
+    ) throws {
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("lithe-plugin-backend-\(UUID().uuidString)", isDirectory: true)
         packageURL = root.appendingPathComponent("package", isDirectory: true)
         stateRoot = root.appendingPathComponent("state", isDirectory: true)
         let fixtureURL = DeclarativePluginTestSupport.repositoryRoot
             .appendingPathComponent("shared/contracts/plugins/v1/fixtures/backend.plugin.json")
-        let object = try #require(
+        var object = try #require(
             try JSONSerialization.jsonObject(with: Data(contentsOf: fixtureURL)) as? [String: Any]
         )
+        if var requires = object["requires"] as? [String: Any] {
+            requires["backend"] = backendVersion
+            object["requires"] = requires
+        }
+        if commandActivation {
+            var ui = object["ui"] as? [String: Any] ?? [:]
+            let windows = ui["toolWindows"] as? [[String: Any]] ?? []
+            let commandID = "dev.lithe.fixture.backend.open"
+            ui["commands"] = [["id": commandID, "title": "Open", "toolWindowID": windows[0]["id"]!, "placements": ["commandPalette"]]]
+            object["ui"] = ui
+            object["activationEvents"] = (object["activationEvents"] as? [String] ?? []) + ["onCommand:\(commandID)"]
+        }
         _ = try DeclarativePluginTestSupport.writePackage(at: packageURL, manifest: object)
         let executable = packageURL.appendingPathComponent("bin/backend")
         try FileManager.default.createDirectory(at: executable.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -206,7 +324,10 @@ private struct BackendFixture {
             processRegistry: nil,
             credentials: credentials,
             prepareState: prepareState,
-            endBackendProcesses: { _, _ in }
+            stuckSendGrace: .milliseconds(20),
+            endBackendProcesses: { [core] _, immediately in
+                if immediately { core.forcedStop.open(); core.releaseWrite.open() }
+            }
         )
         sessions.register([InstalledPluginPackage(
             descriptor: descriptor,
@@ -238,17 +359,45 @@ private final class ScriptedBackendCore: LanguageServerRuntimeCore, @unchecked S
         let outcome: Result<ToolingJSONValue, PluginHostRequestFailure>
     }
 
+    struct Notification: Equatable {
+        let sessionID: String
+        let method: String
+        let params: ToolingJSONValue
+    }
+
     private let lock = NSLock()
     private var nextSession = 0
     private var events: [String: [LanguageServerRuntimeEvent]] = [:]
     private var _starts: [Start] = []
     private var _stops: [String] = []
     private var _responses: [Response] = []
+    private var _notifications: [Notification] = []
     private var waiters: [UUID: (count: Int, continuation: CheckedContinuation<Bool, Never>)] = [:]
+    private var notificationWaiters: [UUID: (count: Int, continuation: CheckedContinuation<Bool, Never>)] = [:]
+    private var _delayReady = false
+    private var _blockNotification = false
+    private var _notificationSupported = true
+    let started = TestGate()
+    let writeStarted = TestGate()
+    let releaseWrite = TestGate()
+    let writeFinished = TestGate()
+    let forcedStop = TestGate()
+    var delayReady: Bool { get { lock.withLock { _delayReady } } set { lock.withLock { _delayReady = newValue } } }
+    var blockNotification: Bool { get { lock.withLock { _blockNotification } } set { lock.withLock { _blockNotification = newValue } } }
+    var notificationSupported: Bool { get { lock.withLock { _notificationSupported } } set { lock.withLock { _notificationSupported = newValue } } }
+
+    func finishInitialize() {
+        lock.withLock { events["backend-\(nextSession)", default: []].append(LanguageServerRuntimeEvent(type: "stateChanged", state: "ready")) }
+    }
+
+    func exit() {
+        lock.withLock { events["backend-\(nextSession)", default: []].append(LanguageServerRuntimeEvent(type: "stateChanged", state: "stopped")) }
+    }
 
     var starts: [Start] { lock.withLock { _starts } }
     var stops: [String] { lock.withLock { _stops } }
     var responses: [Response] { lock.withLock { _responses } }
+    var notifications: [Notification] { lock.withLock { _notifications } }
 
     func startPluginLanguageServer(
         pluginID: String, providerID _: String, executableURL _: URL, arguments: [String],
@@ -265,8 +414,9 @@ private final class ScriptedBackendCore: LanguageServerRuntimeCore, @unchecked S
                     type: "functionsChanged",
                     result: .object(["functions": .array([.string("query.run")]), "removed": .array([])])
                 ),
-                LanguageServerRuntimeEvent(type: "stateChanged", state: "ready"),
             ]
+            if !_delayReady { events[sessionID, default: []].append(LanguageServerRuntimeEvent(type: "stateChanged", state: "ready")) }
+            started.open()
             return .success(LanguageServerRuntimeStart(sessionID: sessionID, state: "initializing", processID: nil))
         }
     }
@@ -312,6 +462,45 @@ private final class ScriptedBackendCore: LanguageServerRuntimeCore, @unchecked S
         }
     }
 
+    func notifyPluginBackend(
+        sessionID: String, method: String, params: ToolingJSONValue
+    ) -> Result<Bool, LanguageServerRuntimeFailure> {
+        if blockNotification {
+            writeStarted.open()
+            defer { writeFinished.open() }
+            // Native synchronous transport is exercised on its owned worker.
+            guard releaseWrite.waitSynchronously(timeout: 5) else {
+                return .failure(LanguageServerRuntimeFailure(code: "timeout", message: "write watchdog did not terminate"))
+            }
+            return .failure(LanguageServerRuntimeFailure(code: "processFailed", message: "backend ended"))
+        }
+        let satisfied = lock.withLock {
+            _notifications.append(Notification(sessionID: sessionID, method: method, params: params))
+            let ready = notificationWaiters.filter { $0.value.count <= _notifications.count }
+            ready.keys.forEach { notificationWaiters.removeValue(forKey: $0) }
+            return ready.values.map(\.continuation)
+        }
+        satisfied.forEach { $0.resume(returning: true) }
+        return .success(notificationSupported)
+    }
+
+    /// Notifications are sent off the main actor; like `waitForResponses`,
+    /// a watchdog fails the wait after five seconds instead of hanging.
+    func waitForNotifications(_ count: Int) async -> Bool {
+        await withCheckedContinuation { continuation in
+            let id = UUID()
+            let ready: Bool = lock.withLock {
+                guard _notifications.count < count else { return true }
+                notificationWaiters[id] = (count, continuation)
+                return false
+            }
+            if ready { return continuation.resume(returning: true) }
+            DispatchQueue.global().asyncAfter(deadline: .now() + 5) { [self] in
+                lock.withLock { notificationWaiters.removeValue(forKey: id) }?.continuation.resume(returning: false)
+            }
+        }
+    }
+
     func startLanguageServer(
         providerID _: String, executableURL _: URL, arguments _: [String], environment _: [String: String],
         rootURL _: URL, workingDirectoryURL _: URL, initializationOptions _: ToolingJSONValue?,
@@ -344,7 +533,7 @@ private final class ScriptedBackendCore: LanguageServerRuntimeCore, @unchecked S
     func requestLanguageServerOperation(
         sessionID _: String, operation _: LanguageServerOperation, fileURL _: URL?, virtualURI _: String?,
         position _: LanguageServerPosition?, newName _: String?, range _: LanguageServerRange?,
-        diagnostics _: [LanguageServerDiagnostic], completionItem _: LanguageServerCompletionItem?,
+        diagnostics _: [LanguageServerDiagnostic], completionContext: LanguageServerCompletionContext?, completionItem _: LanguageServerCompletionItem?,
         codeAction _: LanguageServerCodeAction?, command _: LanguageServerCommand?
     ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
         .success(LanguageServerRuntimeOperation(operationID: "unused"))

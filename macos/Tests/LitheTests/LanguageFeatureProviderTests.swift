@@ -53,6 +53,21 @@ struct LanguageFeatureProviderTests {
         #expect(items.contains { $0.label == "for" && $0.detail == "Go keyword" })
     }
 
+    @Test(arguments: [true, false])
+    func emptyProviderListPreservesRefreshStateWhenMergedWithLocalKeywords(incomplete: Bool) throws {
+        let remote = CompletionFeatureProvider(items: [], isIncomplete: incomplete)
+        let manager = LanguageToolingSessionManager(languageFeatureProviders: [remote])
+        let fileURL = URL(fileURLWithPath: "/tmp/main.go")
+        var result: Result<LanguageServerCompletionList, Error>?
+        try manager.completionList(fileURL: fileURL, text: "f",
+            position: .init(line: 0, utf16Column: 1), rootURL: fileURL.deletingLastPathComponent(),
+            completionContext: .init(triggerKind: 3)) { result = $0 }
+        let list = try #require(result).get()
+        #expect(list.isIncomplete == incomplete)
+        #expect(list.items.contains { $0.label == "func" })
+        #expect(remote.context?.triggerKind == 3)
+    }
+
     private static func item(label: String, detail: String) -> LanguageServerCompletionItem {
         LanguageServerCompletionItem(
             label: label,
@@ -74,13 +89,22 @@ private final class CompletionFeatureProvider: LanguageFeatureProvider {
     let id = "test.remote"
     let priority: LanguageFeatureProviderPriority = .languageServer
     private let items: [LanguageServerCompletionItem]
+    private let isIncomplete: Bool
+    private(set) var context: LanguageServerCompletionContext?
 
-    init(items: [LanguageServerCompletionItem]) {
+    init(items: [LanguageServerCompletionItem], isIncomplete: Bool = false) {
         self.items = items
+        self.isIncomplete = isIncomplete
     }
 
     func supports(_ feature: LanguageFeature, in _: LanguageFeatureRequestContext) -> Bool {
         feature == .completion
+    }
+
+    func completionList(in context: LanguageFeatureRequestContext,
+        completion: @escaping (Result<LanguageServerCompletionList, Error>) -> Void) throws {
+        self.context = context.completionContext
+        completion(.success(.init(items: items, isIncomplete: isIncomplete)))
     }
 
     func completions(

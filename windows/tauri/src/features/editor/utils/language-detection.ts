@@ -1,4 +1,5 @@
 import { extensionRegistry } from "@/extensions/registry/extension-registry";
+import { basicLanguageForFilename } from "@lithe/editor/basic-file-associations";
 import {
   ANGULAR_TEMPLATE_LANGUAGE_ID,
   isAngularTemplatePath,
@@ -25,6 +26,8 @@ export function detectLanguageFromPath(filePath: string): string {
   if (languageProvider) {
     return languageProvider.id;
   }
+  const basic = basicLanguageForFilename(filePath);
+  if (basic) return basic;
 
   // Fallback to static map. Keep in sync with EXTENSION_TO_LANGUAGE in language-id.ts.
   const languageMap: Record<string, string> = {
@@ -127,17 +130,8 @@ export function detectLanguageFromFileName(fileName: string): string {
   }
 
   // Special files without extensions
-  if (lowercaseName === "dockerfile" || lowercaseName.startsWith("dockerfile.")) {
-    return "dockerfile";
-  }
-
-  if (lowercaseName === "makefile" || lowercaseName.startsWith("makefile.")) {
-    return "makefile";
-  }
-
-  if (lowercaseName === "cmakelists.txt") {
-    return "cmake";
-  }
+  const basic = basicLanguageForFilename(fileName);
+  if (basic) return detectLanguageFromPath(fileName);
 
   if (normalizedPath.endsWith("/.git/info/exclude")) {
     return "gitignore";

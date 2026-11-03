@@ -11,6 +11,6 @@ type LineGrammar<State, Result> = {
 export function tokenizeLineWithinLimit<State, Result>(grammar: LineGrammar<State, Result>, line: string, state: State) {
   const result = grammar.tokenizeLine(line, state, LINE_TIME_LIMIT_MS);
   if (!result.stoppedEarly) return result;
-  console.warn(`Java tokenization reached the ${LINE_TIME_LIMIT_MS} ms line limit: ${line.slice(0, 100)}`);
+  console.warn(`TextMate tokenization reached the ${LINE_TIME_LIMIT_MS} ms line limit: ${line.slice(0, 100)}`);
   return { ...result, ruleStack: state };
 }

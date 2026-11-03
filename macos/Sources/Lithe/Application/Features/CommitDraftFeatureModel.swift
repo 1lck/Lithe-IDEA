@@ -16,6 +16,10 @@ final class CommitDraftFeatureModel: ObservableObject {
     @Published private(set) var pendingGeneratedMessage: String?
     @Published private(set) var commitEditorRequestVersion = 0
 
+    func requestCommitEditor() {
+        commitEditorRequestVersion &+= 1
+    }
+
     /// Undo returns to normal committing without overwriting a draft the user is already writing.
     func prepareForUndoneCommit(message originalMessage: String) {
         if message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

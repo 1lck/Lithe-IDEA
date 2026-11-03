@@ -60,6 +60,7 @@ jobs:
             --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/sparkle-baseline.junit.xml \
             scripts/release/sparkle/test-download-sparkle-baseline.mjs scripts/release/autobuild/test-publish-autobuild.mjs scripts/resources/test-reuse-worktree-resources.mjs scripts/macos/test/test-markdown-preview.mjs \
             scripts/agent/test-codex-config-relay.mjs scripts/release/sparkle/verify-release-signature.test.mjs \
+            scripts/plugins/plugin-settings-schema.test.mjs \
             scripts/ci/common/plan-ci-lane-reuse.test.mjs scripts/ci/common/verify-reused-ci-jobs.test.mjs scripts/ci/common/ci-workflow-gates.test.mjs scripts/ci/cancel-closed-pr-runs/cancel-closed-pr-runs.test.mjs
 
       - name: Generate Sparkle download timing report
@@ -340,8 +341,9 @@ jobs:
         if: needs.changes.outputs.git_validation == 'true'
         timeout-minutes: 3
         run: |
-          ./scripts/macos/test/test-macos.sh \
-            --skip-build \
+          ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh \
+            --report .artifacts/test-stability/macos-git-observation.json \
+            --suite-timeout-seconds 120 -- --skip-build \
             --filter GitStatusObservationTests
 
       - name: Run stable rollback disk image integration tests

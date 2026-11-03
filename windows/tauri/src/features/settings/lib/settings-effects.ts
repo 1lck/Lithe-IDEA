@@ -7,6 +7,7 @@ import {
   subscribeSystemThemePreference,
 } from "@/features/settings/lib/theme-resolution";
 import { invoke } from "@/platform/tauri-core";
+import { nativeWindowBackground } from "@/features/window/utils/native-window-background";
 import type { Settings, Theme } from "@/features/settings/types/settings.types";
 import { getUiRootAttributes } from "@/features/settings/lib/ui-preferences";
 
@@ -87,6 +88,7 @@ async function applyTheme(theme: Theme, syncSystemTheme: boolean) {
         cacheThemeForBootstrap(appliedTheme);
         return syncNativeWindowAppearance(
           syncSystemTheme ? "system" : appliedTheme.isDark ? "dark" : "light",
+          nativeWindowBackground(appliedTheme.cssVariables["--background"]),
         );
       }
     };
@@ -126,13 +128,25 @@ async function applyTheme(theme: Theme, syncSystemTheme: boolean) {
   }
 }
 
-function syncNativeWindowAppearance(themeType: "system" | "light" | "dark") {
+/**
+ * Also hands the host the theme's background: WebView2 paints the native
+ * background until the page renders, and the host starts the next windows
+ * with it instead of white.
+ */
+function syncNativeWindowAppearance(
+  themeType: "system" | "light" | "dark",
+  backgroundColor: string | null,
+) {
   const transparencyEnabled =
     typeof document === "undefined"
       ? true
       : document.documentElement.getAttribute("data-window-transparency") !== "disabled";
 
-  return invoke("set_native_window_appearance", { themeType, transparencyEnabled }).catch((error) => {
+  return invoke("set_native_window_appearance", {
+    themeType,
+    transparencyEnabled,
+    backgroundColor,
+  }).catch((error) => {
     console.warn("Failed to sync native window appearance", error);
   });
 }

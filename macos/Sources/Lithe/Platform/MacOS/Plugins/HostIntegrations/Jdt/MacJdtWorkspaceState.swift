@@ -90,20 +90,11 @@ struct MacJdtWorkspaceState {
 
         for name in Self.buildFileNames {
             let path = root.appendingPathComponent(name).path
+            // Only presence counts; JDT LS detects edits itself (see the
+            // `java.jdtWorkspaceFingerprint` contract).
             do {
-                let attributes = try fileManager.attributesOfItem(atPath: path)
-                guard let modified = attributes[.modificationDate] as? Date,
-                      let size = attributes[.size] as? NSNumber else {
-                    throw MacJdtWorkspaceStateError.invalidBuildFileMetadata(name)
-                }
-                buildFiles.append(RustCoreBridge.JdtBuildFileObservation(
-                    path: name,
-                    modifiedUnixMilliseconds: UInt64(max(
-                        0,
-                        (modified.timeIntervalSince1970 * 1_000).rounded(.down)
-                    )),
-                    sizeBytes: size.uint64Value
-                ))
+                _ = try fileManager.attributesOfItem(atPath: path)
+                buildFiles.append(RustCoreBridge.JdtBuildFileObservation(path: name))
             } catch where isMissingFileError(error) {
                 continue
             }
@@ -378,7 +369,6 @@ struct MacJdtCacheCleanupResult: Equatable {
 
 private enum MacJdtWorkspaceStateError: LocalizedError {
     case workspaceFingerprintUnavailable
-    case invalidBuildFileMetadata(String)
     case invalidLanguageServerManifest(String)
     case languageServerVersionUnavailable
     case languageServerInstallationUnavailable
@@ -391,8 +381,6 @@ private enum MacJdtWorkspaceStateError: LocalizedError {
         switch self {
         case .workspaceFingerprintUnavailable:
             L10n.string("Rust Core workspace-fingerprint resolution is unavailable.")
-        case .invalidBuildFileMetadata(let path):
-            L10n.string("Could not read Java build-file metadata for \(path).")
         case .invalidLanguageServerManifest(let path):
             L10n.string("The bundled JDT LS manifest is invalid at \(path).")
         case .languageServerVersionUnavailable:

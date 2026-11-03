@@ -7,6 +7,51 @@ import Testing
 @MainActor
 @Suite("Commit action button chrome", .serialized)
 struct CommitActionButtonStyleTests {
+    @Test(arguments: [ColorScheme.dark, .light], ["en", "zh-Hans"])
+    func defaultSidebarKeepsAmendOnOneLineBesideTheOtherActions(scheme: ColorScheme, language: String) async throws {
+        MacBundledFontRegistry.registerFonts()
+        let feature = GitFeatureModel(service: GitService(operations: RustGitOperations(core: RustCoreBridge())))
+        defer { feature.reset() }
+        let draft = CommitDraftFeatureModel()
+        let workflow = CommitWorkflowCoordinator(draft: draft, activateGit: { nil }, workspaceGeneration: { 0 },
+            generate: { _ in "" }, notify: { _ in })
+        let host = NSHostingView(rootView: CommitAreaView(feature: feature, draft: draft, commitWorkflow: workflow,
+            hasBackgroundImage: false, showSettings: { _ in })
+            .environment(\.colorScheme, scheme).environment(\.locale, Locale(identifier: language)))
+        host.sizingOptions = []
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: WorkbenchLayout.defaultSidebarWidth, height: 240),
+            styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host; window.orderBack(nil)
+        defer { window.contentView = nil; window.close() }
+        host.layoutSubtreeIfNeeded()
+        let amend = try await AgentNativeControlTestSupport.frame(of: "git-commit-amend", in: host)
+        let ai = try await AgentNativeControlTestSupport.frame(of: "git-commit-ai", in: host)
+        #expect(amend.height <= 22, "Amend must occupy a single line: \(amend)")
+        #expect(amend.minX >= 0 && amend.maxX < ai.minX && ai.maxX <= host.bounds.maxX)
+        #expect(abs(amend.midY - ai.midY) < 2)
+        if let folder = ProcessInfo.processInfo.environment["LITHE_COMMIT_LAYOUT_CAPTURE_DIR"] {
+            #expect(Bundle.main.path(forResource: language, ofType: "lproj") != nil)
+            #expect(LitheIcons.ideaImage(resourcePath: "expui/general/history.svg") != nil)
+            let application = NSApplication.shared
+            let attribute = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+            let previous = application.accessibilityAttributeValue(attribute)
+            application.accessibilitySetValue(true, forAttribute: attribute)
+            defer { application.accessibilitySetValue(previous, forAttribute: attribute) }
+            func elements(_ value: Any) -> [AnyObject] {
+                let object = value as AnyObject
+                let children = object.accessibilityChildren?() ?? []
+                let descendants: [Any] = children.isEmpty ? ((value as? NSView)?.subviews ?? []) : children
+                return [object] + descendants.flatMap(elements)
+            }
+            let control = try #require(elements(host).first { $0.accessibilityIdentifier?() == "git-commit-amend" })
+            #expect(control.accessibilityLabel?() == (language == "zh-Hans" ? "修订提交（上一次）" : "Amend last commit"))
+            try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+            let bitmap = try nativeSRGBCapture(host)
+            try #require(bitmap.representation(using: .png, properties: [:])).write(to:
+                URL(fileURLWithPath: folder).appendingPathComponent("commit-default-\(language)-\(scheme).png"))
+        }
+    }
+
     @Test(arguments: [ColorScheme.dark, .light], [false, true])
     func commitFormStaysInsideItsSplitPaneWhenTheFooterStacks(scheme: ColorScheme, hasResults: Bool) async throws {
         MacBundledFontRegistry.registerFonts()

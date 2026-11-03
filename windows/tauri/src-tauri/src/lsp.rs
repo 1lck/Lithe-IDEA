@@ -10,12 +10,12 @@
 mod jdt_workspace;
 
 use crate::{blocking::run_blocking, logging::LogManager, run};
-#[cfg(test)]
-use jdt_workspace::JDT_CACHE_LAST_USED_MARKER;
 use jdt_workspace::{
     cleanup_expired_java_index_directories, clear_java_index_directory,
     collect_workspace_fingerprint_inputs, now_unix_seconds, resolve_workspace_fingerprint,
 };
+#[cfg(test)]
+use jdt_workspace::{gradle_wrapper_distribution, JDT_CACHE_LAST_USED_MARKER};
 use serde::Serialize;
 use serde_json::json;
 use std::ffi::OsStr;
@@ -63,6 +63,7 @@ pub struct JavaLspLaunch {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JavaLspRuntime {
+    pub is_default: bool,
     pub home_path: String,
     pub version: String,
 }
@@ -146,15 +147,25 @@ struct ResolvedJdtlsLaunchResources {
 pub async fn lsp_resolve_java_launch(
     app: AppHandle,
     workspace_path: String,
+    project_java_home: Option<String>,
     log_manager: State<'_, Arc<LogManager>>,
 ) -> Result<JavaLspLaunch, String> {
     let log_manager = Arc::clone(&log_manager);
-    run_blocking(move || resolve_java_launch(&app, &workspace_path, &log_manager)).await
+    run_blocking(move || {
+        resolve_java_launch(
+            &app,
+            &workspace_path,
+            project_java_home.as_deref().unwrap_or(""),
+            &log_manager,
+        )
+    })
+    .await
 }
 
 fn resolve_java_launch(
     app: &AppHandle,
     workspace_path: &str,
+    project_java_home: &str,
     log_manager: &LogManager,
 ) -> Result<JavaLspLaunch, String> {
     let workspace = PathBuf::from(workspace_path);
@@ -247,13 +258,7 @@ fn resolve_java_launch(
             java_home: Some(normalize_path(&resolution.java_home)),
         },
         workspace_fingerprint,
-        java_runtimes: run::discover_java_runtimes(project_root)
-            .into_iter()
-            .map(|runtime| JavaLspRuntime {
-                home_path: runtime.home_path,
-                version: runtime.version,
-            })
-            .collect(),
+        java_runtimes: run::language_service_java_runtimes(&workspace, project_java_home)?,
         java_gradle: project_root.and_then(detect_gradle_context),
     })
 }
@@ -1070,20 +1075,59 @@ mod tests {
         fs::remove_dir_all(workspace).ok();
     }
 
+    // JDT LS updates the projects whose build files changed when it restarts,
+    // so an edit must keep the imported workspace instead of forcing a cold
+    // re-import into a new state directory.
     #[test]
-    fn workspace_fingerprint_observes_root_build_file_metadata() {
+    fn editing_a_root_build_file_keeps_the_workspace_observations() {
         let workspace = temp_dir();
         let pom = workspace.join("pom.xml");
         fs::write(&pom, "a").expect("initial pom");
         let first = collect_workspace_fingerprint_inputs(&workspace).expect("first observations");
 
         fs::write(&pom, "a larger project descriptor").expect("updated pom");
-        let changed =
-            collect_workspace_fingerprint_inputs(&workspace).expect("changed observations");
+        let edited = collect_workspace_fingerprint_inputs(&workspace).expect("edited observations");
 
         assert_eq!(first.build_files.len(), 1);
         assert_eq!(first.build_files[0].path, "pom.xml");
-        assert!(changed.build_files[0].size_bytes > first.build_files[0].size_bytes);
+        assert_eq!(edited, first);
+        fs::remove_dir_all(workspace).ok();
+    }
+
+    // JDT LS does not check the wrapper descriptor, so the Gradle version is
+    // what moves a workspace to a fresh state directory.
+    #[test]
+    fn the_gradle_wrapper_version_selects_the_workspace_state() {
+        let workspace = temp_dir();
+        fs::write(workspace.join("build.gradle"), "plugins {}").expect("build file");
+        assert_eq!(
+            gradle_wrapper_distribution(&workspace).expect("no wrapper"),
+            None
+        );
+
+        write_gradle_wrapper_descriptor(&workspace);
+        let inputs = collect_workspace_fingerprint_inputs(&workspace).expect("observations");
+        assert_eq!(
+            inputs.gradle_wrapper_distribution.as_deref(),
+            Some("https://services.gradle.org/distributions/gradle-8.10-bin.zip")
+        );
+        let first = resolve_workspace_fingerprint(inputs, "9.4.1", "test-fingerprint")
+            .expect("Core fingerprint");
+
+        fs::write(
+            workspace.join("gradle").join("wrapper").join("gradle-wrapper.properties"),
+            "# upgraded\ndistributionUrl = https\\://services.gradle.org/distributions/gradle-8.11-bin.zip\n",
+        )
+        .expect("upgraded wrapper descriptor");
+        let upgraded = collect_workspace_fingerprint_inputs(&workspace).expect("observations");
+        assert_eq!(
+            upgraded.gradle_wrapper_distribution.as_deref(),
+            Some("https://services.gradle.org/distributions/gradle-8.11-bin.zip")
+        );
+        let second = resolve_workspace_fingerprint(upgraded, "9.4.1", "test-fingerprint")
+            .expect("Core fingerprint");
+
+        assert_ne!(first, second);
         fs::remove_dir_all(workspace).ok();
     }
 

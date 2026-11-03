@@ -22,7 +22,14 @@
       "macos/Tests/LitheTests/AppModelLanguageSessionShutdownTests.swift",
       "macos/Tests/LitheTests/RustLanguageServerLaunchTests.swift",
       "docs/assets/java-startup-navigation/java-ready.png",
-      "docs/assets/java-startup-navigation/get-order-definition.png"
+      "docs/assets/java-startup-navigation/get-order-definition.png",
+      "rust/lithe-core/src/lsp/languages/java_workspace.rs",
+      "shared/fixtures/lsp/jdt-workspace-fingerprint-v1.json",
+      ".agents/notes/implemented/feature/2026-10-11-gradle-project-import-settings.md",
+      "rust/lithe-core/src/lsp/interface/engine.rs",
+      "macos/Sources/Lithe/Platform/MacOS/Plugins/HostIntegrations/Jdt/MacJdtWorkspaceState.swift",
+      "macos/Tests/LitheTests/MacJdtWorkspaceStateTests.swift",
+      "macos/Tests/LitheTests/MacBuildProviderSessionsTests.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -36,12 +43,17 @@
       "shared/fixtures/lsp",
       "rust/lithe-core/src/lsp/languages/jdt_progress.rs",
       "shared/fixtures/lsp/jdt-readiness-v1.json",
-      ".agents/notes/implemented/bug-fix/2026-10-09-jdtls-heap-ceiling-and-duplicate-maven-coordinates.md"
+      ".agents/notes/implemented/bug-fix/2026-10-09-jdtls-heap-ceiling-and-duplicate-maven-coordinates.md",
+      "rust/lithe-core/src/lsp/languages/java_workspace.rs",
+      "shared/fixtures/lsp/jdt-workspace-fingerprint-v1.json",
+      ".agents/notes/implemented/feature/2026-10-11-gradle-project-import-settings.md",
+      "rust/lithe-core/src/lsp/interface/engine.rs",
+      "windows/tauri/src-tauri/src/lsp/jdt_workspace.rs"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
   },
   "owner": "Language Tooling",
-  "verification": "在两端启动真实 JDTLS，验证项目准备、重启、超时、取消和资源清理，并确认典型工作流后已安装程序包（macOS app bundle、Windows 安装目录）的文件清单不变。 验证 Maven 导入连续 45 秒无进度只警告、之后 ServiceReady 可正常就绪，且 10 分钟总期限、显式失败和取消仍有效。 检查 JDT LS 启动参数的最大堆高于 1.5 GB，并在待导入模块超过 50 个、且子模块 Maven 坐标重复的聚合工程中确认工作区准备不再以 serviceReadyFailed 终止整个 Java 服务。 macOS #1524：暂停旧模块图清理后请求普通语言能力、后台 Java 维护及文档激活，确认等待结束后才读取缓存或启动新会话；等待期间取消不得重新激活；匹配 operation 的停止应清除 preparing，旧 operation 的停止不得影响新准备。 macOS #1523：通过插件入口启动 Java，确认宿主集成、Maven/Gradle 与缓存参数不丢失，连续失败最多自动启动三次，显式重启可恢复，且包内文件哈希保持不变。 macOS 最终关闭场景：暂停旧模块清理、排队文档和维护激活、关闭项目会话、释放清理；即使 AppModel 保留工作区 URL 与打开文档，也不能重新发布语言能力或启动 LSP。 macOS 生产 RustCoreBridge 与本地协议进程验证插件身份、host services、配置值和 JDT 缓存启动上下文；修复后的 Java ready 与 getOrder 定义导航截图见 evidence。",
-  "notes": "JDT LS 统一以 -Xmx2048m 启动（#1156）：打包的 1.61.0 在待导入模块超过 50 个且最大堆不超过 1.5 GB 时会走带缺陷的分批导入，重复 Maven 坐标会让 null 工程进入 IProject.open 并终止整个 Java 服务；上游修复进入下个里程碑前用这条堆上限规避。代价是语言服务 JVM 的堆上限从 1 GB 提到 2 GB，-Xms 仍为 256m。坐标完全相同的模块仍只有第一个成为 Java 工程，其余由 m2e 跳过。"
+  "verification": "在两端启动真实 JDTLS，验证项目准备、重启、超时、取消和资源清理，并确认典型工作流后已安装程序包（macOS app bundle、Windows 安装目录）的文件清单不变。 验证 Maven 导入连续 45 秒无进度只警告、之后 ServiceReady 可正常就绪，且 10 分钟总期限、显式失败和取消仍有效。 检查 JDT LS 启动参数的最大堆高于 1.5 GB，并在待导入模块超过 50 个、且子模块 Maven 坐标重复的聚合工程中确认工作区准备不再以 serviceReadyFailed 终止整个 Java 服务。 macOS #1524：暂停旧模块图清理后请求普通语言能力、后台 Java 维护及文档激活，确认等待结束后才读取缓存或启动新会话；等待期间取消不得重新激活；匹配 operation 的停止应清除 preparing，旧 operation 的停止不得影响新准备。 macOS #1523：通过插件入口启动 Java，确认宿主集成、Maven/Gradle 与缓存参数不丢失，连续失败最多自动启动三次，显式重启可恢复，且包内文件哈希保持不变。 macOS 最终关闭场景：暂停旧模块清理、排队文档和维护激活、关闭项目会话、释放清理；即使 AppModel 保留工作区 URL 与打开文档，也不能重新发布语言能力或启动 LSP。 macOS 生产 RustCoreBridge 与本地协议进程验证插件身份、host services、配置值和 JDT 缓存启动上下文；修复后的 Java ready 与 getOrder 定义导航截图见 evidence。 PR #1573：在两端打开已导入的 Maven 工程，修改 pom.xml（如增加依赖）后确认 JDT -data 目录不变、jdtls 增量更新而不是重新导入整个工作区；Windows 修改 gradle-wrapper.properties 的 distributionUrl 后确认切换到新的 -data 目录。检查 JDT LS 进程参数包含 -XX:+UseParallelGC、-XX:GCTimeRatio=4、-XX:AdaptiveSizePolicyWeight=90、-Xlog:disable 与 -DDetectVMInstallationsJob.disabled=true，导入完成后常驻内存回落。macOS 在大型工程导入期间打字、滚动与补全不掉帧（事件 drain 已移出主线程）。",
+  "notes": "JDT LS 统一以 -Xmx2048m 启动（#1156）：打包的 1.61.0 在待导入模块超过 50 个且最大堆不超过 1.5 GB 时会走带缺陷的分批导入，重复 Maven 坐标会让 null 工程进入 IProject.open 并终止整个 Java 服务；上游修复进入下个里程碑前用这条堆上限规避。代价是语言服务 JVM 的堆上限从 1 GB 提到 2 GB，-Xms 仍为 256m。坐标完全相同的模块仍只有第一个成为 Java 工程，其余由 m2e 跳过。 JDT -data 工作区 key 只按构建文件是否存在、直接 Maven 模块、JDT LS 版本（以及 Windows 的 Gradle wrapper distributionUrl）计算，不再包含修改时间与大小：jdtls 自己检测 pom 与 Gradle 脚本的修改并增量更新。升级到该版本后每个 Java 工程首次打开会重建一次索引。JDT LS 额外以 vscode-java 与上游 CI 的 GC/日志默认值启动，插件同键参数优先。"
 }

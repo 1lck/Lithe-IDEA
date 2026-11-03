@@ -69,9 +69,10 @@ const CANCEL_TIMEOUT: Duration = Duration::from_secs(10);
 const MODEL_CALL_SETTLE_TIMEOUT: Duration = Duration::from_secs(2);
 /// Upper bound on `session/list` pages so a misbehaving cursor cannot loop forever.
 const MAX_SESSION_LIST_PAGES: usize = 50;
-/// Windows flag that runs the adapter with a console it cannot display. The
-/// desktop shell is a GUI process without a console, so a console-subsystem
-/// adapter would otherwise open a visible console window on every launch.
+/// Windows flag that runs a child with a console it cannot display. The
+/// desktop shell is a GUI process without a console, so every console-subsystem
+/// child this crate starts (adapters, version probes, installers, quota and MCP
+/// probes) would otherwise open a visible console window.
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 /// Bytes of agent stderr kept for failure reports; older output is discarded.
@@ -559,6 +560,10 @@ pub struct AgentSessionSummary {
     /// ISO 8601 history timestamp, if known. Codex uses conversation activity,
     /// never the metadata update caused by merely resuming a session.
     pub updated_at: Option<String>,
+    /// Opaque upstream provider identity, not the currently selected billing route.
+    /// Missing metadata stays unknown; older consumers can ignore this field.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_provider: Option<String>,
 }
 
 /// Events emitted from the connection worker thread.
@@ -2214,6 +2219,7 @@ async fn list_sessions(
                     .title
                     .and_then(|title| workspace.present_title(&title)),
                 updated_at: session.updated_at,
+                model_provider: None,
             })
             .collect();
         // Keep the final aggregate compatible with clients that do not consume pages.

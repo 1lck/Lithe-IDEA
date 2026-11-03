@@ -106,7 +106,7 @@ struct TerminalPlacementFeatureModelTests {
             session.update(ownerID: owner, document: document, secondaryDocument: nil, preview: nil,
                 markdownScrollPosition: nil, model: model, fontSize: 14, fontFamily: "monospace",
                 theme: .init(colorTheme: .lithe, isDark: true, revealsWorkbenchBackground: false),
-                wrap: false, minimap: false, markers: [], secondaryMarkers: [])
+                wrap: false, minimap: false, javaKeywordNavigationFilter: true, markers: [], secondaryMarkers: [])
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 300),
                                   styleMask: [.borderless], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
@@ -523,6 +523,97 @@ struct TerminalPlacementFeatureModelTests {
         model.terminalPlacementFeature.registerSession(session.id)
         model.terminalPlacementFeature.moveToEditor(session.id)
         return (model, session, transport)
+    }
+
+    @Test func droppingAToolWindowTerminalIntoAnEditorEdgeCreatesASplitWithoutRestartingTheProcess() async throws {
+        let context = makeTerminalCloseContext()
+        let model = context.model
+        do {
+            let url = URL(string: "lithe-test://terminal-split/A.swift")!
+            model.documentFeature.openVirtualDocument(url, text: "A", displayPath: nil)
+            model.moveTerminalToTool(context.session.id)
+            let group = try #require(model.editorTabOrderFeature.groupLayout.groups.first)
+            let nativeViewID = ObjectIdentifier(context.session.nativeView)
+
+            #expect(model.moveTerminalToEditor(context.session.id, into: group, side: .bottom))
+
+            let terminalItem = EditorTabItem.terminal(context.session.id)
+            let terminalGroup = try #require(model.editorTabOrderFeature.group(containing: terminalItem))
+            #expect(terminalGroup != group)
+            #expect(model.editorTabOrderFeature.groupLayout.groups.count == 2)
+            #expect(model.editorTabOrderFeature.items(in: terminalGroup) == [terminalItem])
+            #expect(model.editorTerminalSessions.contains { $0.id == context.session.id })
+            #expect(model.toolTerminalSessions.isEmpty)
+            #expect(context.transport.startCount == 1)
+            #expect(context.transport.stopCount == 0)
+            #expect(ObjectIdentifier(context.session.nativeView) == nativeViewID)
+        } catch {
+            await model.shutdownProjectSession()
+            throw error
+        }
+        await model.shutdownProjectSession()
+    }
+
+    @Test
+    func terminalDragPasteboardKeepsTheSessionPrivateAndTracksTheGesture() {
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("lithe-terminal-drag-\(UUID())"))
+        pasteboard.clearContents()
+        let sessionID = UUID()
+        let item = NSPasteboardItem()
+        item.setString(sessionID.uuidString, forType: TerminalTabDragPayload.pasteboardType)
+        #expect(pasteboard.writeObjects([item]))
+        #expect(TerminalTabDragPayload.sessionID(from: pasteboard) == sessionID)
+        // A text representation would be inserted by the embedded editor.
+        #expect(pasteboard.string(forType: .string) == nil)
+
+        #expect(!TerminalTabDragPayload.isDragging)
+        TerminalTabDragPayload.beginDrag(sessionID)
+        #expect(TerminalTabDragPayload.isDragging)
+        #expect(TerminalTabDragPayload.activeSessionID == sessionID)
+        TerminalTabDragPayload.endDrag()
+        #expect(!TerminalTabDragPayload.isDragging)
+        #expect(TerminalTabDragPayload.activeSessionID == nil)
+    }
+
+    @Test(arguments: [CGFloat(180), 420])
+    func toolTerminalDropOverlayLeavesTheTabBarAvailable(height: CGFloat) async throws {
+        let context = makeTerminalCloseContext(), model = context.model
+        do {
+            let feature = try #require(model.terminalFeature)
+            model.moveTerminalToEditor(context.session.id)
+            let toolSession = feature.createSession(in: URL(fileURLWithPath: "/workspace/drop-routing"), shellPath: "/bin/zsh")
+            model.terminalPlacementFeature.registerSession(toolSession.id)
+            let host = NSHostingView(rootView: TerminalView(feature: feature)
+                .environmentObject(model).environmentObject(model.settings))
+            host.sizingOptions = []
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: height),
+                                  styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = host
+            defer { window.contentView = nil; window.close() }
+            func overlay(in view: NSView) -> TerminalToolDropOverlayView? {
+                if let view = view as? TerminalToolDropOverlayView { return view }
+                return view.subviews.lazy.compactMap { overlay(in: $0) }.first
+            }
+            let clock = ContinuousClock(), deadline = clock.now.advanced(by: .seconds(3))
+            while (overlay(in: host)?.bounds.height ?? 0) == 0 && clock.now < deadline {
+                host.layoutSubtreeIfNeeded()
+                await Task.yield()
+            }
+            let target = try #require(overlay(in: host))
+            let parent = try #require(target.superview)
+            #expect(abs(target.bounds.height - (height - 41)) < 1)
+            let toolbarPoint = NSPoint(x: host.bounds.midX,
+                y: host.isFlipped ? host.bounds.minY + 20 : host.bounds.maxY - 20)
+            let canvasPoint = NSPoint(x: target.bounds.midX, y: target.bounds.midY)
+
+            TerminalTabDragPayload.beginDrag(context.session.id)
+            defer { TerminalTabDragPayload.endDrag() }
+            #expect(target.hitTest(parent.convert(toolbarPoint, from: host)) == nil,
+                    "The native canvas must not intercept the toolbar's before/after drop targets")
+            #expect(target.hitTest(target.convert(canvasPoint, to: parent)) === target)
+        } catch { await model.shutdownProjectSession(); throw error }
+        await model.shutdownProjectSession()
     }
 
     @Test

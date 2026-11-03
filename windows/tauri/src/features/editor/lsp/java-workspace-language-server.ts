@@ -92,6 +92,12 @@ export class JavaWorkspaceLanguageServerOwner {
     ) => void = showLanguageServerFailure,
   ) {}
 
+  /** Whether this workspace's import is running or done. */
+  isImporting(scope: WorkspaceLaunchScope): boolean {
+    const phase = this.owners.get(workspaceKey(scope))?.state.phase;
+    return phase === "starting" || phase === "ready";
+  }
+
   prewarm(
     scope: WorkspaceLaunchScope,
     representativeJavaFile: string,

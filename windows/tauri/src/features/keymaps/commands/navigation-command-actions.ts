@@ -12,6 +12,7 @@ import {
   languageServerNavigationBlock,
   type LanguageServerNavigationBlock,
 } from "@/features/editor/lsp/language-server-navigation";
+import { resolveJavaSyntaxDefinitions } from "@/features/editor/lsp/java-syntax-definition";
 import { resolveLombokAccessorDefinition } from "@/features/editor/lsp/lombok-accessor-navigation";
 import { openLspNavigationLocation } from "@/features/editor/lsp/navigation-target";
 import {
@@ -21,6 +22,11 @@ import {
 } from "@/features/editor/lsp/lsp-document-target";
 import { definitionLocationsFromCommandArgs } from "@/features/editor/lsp/definition-navigation-hint";
 import { navigationLocationPresentation } from "@/features/editor/lsp/navigation-location-presentation";
+import {
+  sharedSlowRequestNotice,
+  withSlowRequestNotice,
+} from "@/features/editor/lsp/slow-request-notice";
+import { getImportProgress } from "@/features/run/stores/language-server-progress.store";
 import type { LspDocumentAvailability, LspLocation } from "@/features/editor/lsp/lsp-client";
 import {
   normalizeJavaImplementationMarkers,
@@ -81,6 +87,10 @@ type LspNavigationClient = {
 };
 
 const NAVIGATION_LANGUAGE_SERVER_TOAST_ID = "navigation-language-server-readiness";
+const NAVIGATION_PENDING_TOAST_ID = "navigation-request-pending";
+const navigationPendingNotice = sharedSlowRequestNotice(() =>
+  toast.dismiss(NAVIGATION_PENDING_TOAST_ID),
+);
 
 const getCurrentTranslator = () =>
   createTranslator(useSettingsStore.getState().settings.displayLanguage);
@@ -92,6 +102,17 @@ function translateNavigationLabel(label: string): string {
   if (label === "type definition") return t("navigation.typeDefinition");
   if (label === "reference") return t("navigation.reference");
   return label;
+}
+
+function pendingNavigationNotice(label: string) {
+  return navigationPendingNotice(() =>
+    toast.loading(
+      getCurrentTranslator()("navigation.resolving", {
+        target: translateNavigationLabel(label),
+      }),
+      { id: NAVIGATION_PENDING_TOAST_ID },
+    ),
+  );
 }
 
 function activeEditorNavigationContext() {
@@ -129,8 +150,14 @@ function navigationBlockMessage(
   const t = getCurrentTranslator();
   const name = languageDisplayName(block.languageId);
   switch (block.reason) {
-    case "preparing":
-      return t("lsp.preparingNamed", { name });
+    case "preparing": {
+      const root = useProjectStore.getState().rootFolderPath;
+      const percent =
+        root && block.languageId ? getImportProgress(root, block.languageId)?.percent : undefined;
+      return percent === undefined
+        ? t("lsp.preparingNamed", { name })
+        : t("navigation.waitingForImport", { name, percent });
+    }
     case "failed":
       return t("lsp.failedNamed", { name });
     case "unsupported":
@@ -197,6 +224,38 @@ async function ensureNavigationLanguageServer(
       logger.warn("LSPNavigation", "Background document attachment failed", error);
     });
   return "deferred";
+}
+
+/**
+ * Answers a Java definition request while the language server cannot, leaving
+ * the import notice in place when syntax has nothing certain to offer.
+ */
+async function syntaxDefinitionLocations(
+  buffer: EditorContent,
+  languageId: string | undefined,
+  line: number,
+  character: number,
+): Promise<LspLocation[]> {
+  const workspaceRoot = useProjectStore.getState().rootFolderPath;
+  if (languageId !== "java" || !workspaceRoot) return [];
+  try {
+    const locations = await resolveJavaSyntaxDefinitions({
+      source: buffer.content,
+      sourceFilePath: buffer.path,
+      workspaceRoot,
+      line,
+      character,
+    });
+    if (useBufferStore.getState().activeBufferId !== buffer.id || locations.length === 0) return [];
+    toast.info(getCurrentTranslator()("navigation.syntaxFallback", { name: languageDisplayName(languageId) }), {
+      id: NAVIGATION_LANGUAGE_SERVER_TOAST_ID,
+      duration: 3500,
+    });
+    return locations;
+  } catch (error) {
+    logger.warn("LSPNavigation", "Syntax definition lookup failed", error);
+    return [];
+  }
 }
 
 function mybatisLocationsForActiveFile(): SpringNavigationLocation[] {
@@ -402,13 +461,23 @@ async function goToActiveLspLocation(
   if (!activeBuffer || activeBuffer.type !== "editor" || !activeBuffer.path) return;
   const documentTarget = lspDocumentTargetForEditor(activeBuffer);
 
+  let syntaxLocations: LspLocation[] | undefined;
   if (options.requireLanguageServer !== false) {
     const readiness = await ensureNavigationLanguageServer(
       activeBuffer,
       options.feature ?? label,
       lspClient,
     );
-    if (readiness !== "proceed") return;
+    if (readiness !== "proceed") {
+      if (label !== "definition") return;
+      syntaxLocations = await syntaxDefinitionLocations(
+        activeBuffer,
+        documentTarget.languageId,
+        requestLine,
+        requestCharacter,
+      );
+      if (syntaxLocations.length === 0) return;
+    }
   }
 
   const preResolvedLocations =
@@ -420,9 +489,12 @@ async function goToActiveLspLocation(
         })
       : undefined;
   const hasPreResolvedLocations = preResolvedLocations !== undefined;
-  let locations = hasPreResolvedLocations
+  let locations = syntaxLocations ?? (hasPreResolvedLocations
     ? preResolvedLocations
-    : await resolveLocations(lspClient, documentTarget, requestLine, requestCharacter);
+    : await withSlowRequestNotice(
+        resolveLocations(lspClient, documentTarget, requestLine, requestCharacter),
+        pendingNavigationNotice(label),
+      ));
 
   if (
     (!locations || locations.length === 0) &&
@@ -467,7 +539,8 @@ async function goToActiveLspLocation(
     scrollLeft: editorState.scrollLeft,
   });
 
-  if (navigationLocationPresentation(locations.length, options.showMultipleResults) === "list") {
+  const showMultipleResults = options.showMultipleResults || syntaxLocations !== undefined;
+  if (navigationLocationPresentation(locations.length, showMultipleResults) === "list") {
     await presentLspLocations(
       locations,
       translateNavigationLabel(label),

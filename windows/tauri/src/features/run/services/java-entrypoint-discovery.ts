@@ -34,20 +34,23 @@ function failureMessage(error: unknown): string {
  * Asks JDT for launchable classes once it finished preparing the project.
  *
  * Asking earlier would return a partial list mid-import, so an unprepared
- * workspace reports `pending` and the caller keeps its previous list. The
- * Java service is started here when nothing started it yet, through the same
- * workspace owner the launch path uses.
+ * workspace reports `pending` and the caller keeps its previous list. Unless
+ * `startService` is false, the Java service is started here when nothing
+ * started it yet, through the same workspace owner the launch path uses.
+ * Background discovery passes false when the user chose not to import on
+ * open, and picks the list up once something else starts the import.
  */
 export async function discoverJavaEntrypoints(
   scope: WorkspaceLaunchScope,
   javaSources: string[],
+  options: { startService?: boolean } = {},
 ): Promise<JavaEntrypointDiscovery> {
   const preparation = getProjectPreparation(scope.root);
   if (preparationFailed(preparation)) {
     return { kind: "failed", message: "The Java language service failed to prepare the project." };
   }
   if (!preparationSettled(preparation)) {
-    if (!preparation && javaSources.length > 0) {
+    if (!preparation && javaSources.length > 0 && options.startService !== false) {
       void getJavaWorkspaceLanguageServerOwner().prewarm(
         scope,
         normalizePath(joinPath(scope.root, javaSources[0])),

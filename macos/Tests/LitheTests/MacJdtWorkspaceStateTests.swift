@@ -52,17 +52,18 @@ struct MacJdtWorkspaceStateTests {
             at: fixture.workspaceURL,
             languageServerExecutableURL: fixture.executableURL
         )
-        let initialPomSize = capture.last?.buildFiles.first?.sizeBytes
-        #expect(capture.last?.buildFiles.map(\.path) == ["pom.xml"])
-        try write(
-            "a larger project descriptor",
-            to: fixture.workspaceURL.appendingPathComponent("pom.xml")
-        )
+        let beforeEdit = capture.last?.buildFiles
+        #expect(beforeEdit?.map(\.path) == ["pom.xml"])
+        // Editing a descriptor keeps the JDT LS state: JDT LS updates the
+        // changed projects itself instead of reimporting the workspace.
+        let pomURL = fixture.workspaceURL.appendingPathComponent("pom.xml")
+        try write("a larger project descriptor", to: pomURL)
+        try setModificationDate(Date(timeIntervalSince1970: 2_000_000_000), for: pomURL)
         _ = try state.fingerprint(
             at: fixture.workspaceURL,
             languageServerExecutableURL: fixture.executableURL
         )
-        #expect((capture.last?.buildFiles.first?.sizeBytes ?? 0) > (initialPomSize ?? 0))
+        #expect(capture.last?.buildFiles == beforeEdit)
 
         for moduleName in ["zeta", "alpha"] {
             let moduleURL = fixture.workspaceURL.appendingPathComponent(

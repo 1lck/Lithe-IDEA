@@ -321,6 +321,14 @@ fn run_bounded_streams(
         // stop Lithe with SIGTTIN, and so the whole tree can be killed.
         command.process_group(0);
     }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // Every bounded probe (`node --version`, `npm.cmd`, CLI update checks)
+        // is a console program started by a GUI host; without this flag each
+        // one opens a visible console window while the Agent panel loads.
+        command.creation_flags(crate::CREATE_NO_WINDOW);
+    }
     let mut child = command
         .spawn()
         .map_err(|error| RunError::Start(error.to_string()))?;

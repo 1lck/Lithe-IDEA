@@ -307,13 +307,14 @@ private struct ActiveSessionChrome: View {
                 }
                 openWindow(id: LitheWindowID.settings)
             }
-            .sheet(isPresented: Binding(
+            .background(LitheCenteredPopup(isPresented: Binding(
                 get: { session.workbenchFeature.isCloneRepositoryPresented },
                 set: { session.workbenchFeature.isCloneRepositoryPresented = $0 }
-            )) {
+            ), allowsDismiss: !session.isCloningRepository,
+               dialogTitle: L10n.string("Clone Repository"), resizesToContent: true) {
                 CloneRepositoryView()
                     .environmentObject(session)
-            }
+            }.frame(width: 0, height: 0).allowsHitTesting(false))
             .sheet(isPresented: Binding(
                 get: { session.workbenchFeature.isNewProjectPresented },
                 set: { session.workbenchFeature.isNewProjectPresented = $0 }
@@ -331,14 +332,16 @@ private struct ActiveSessionChrome: View {
                         .environmentObject(session)
                 }
             }
-            .sheet(isPresented: Binding(
+            .background(LitheCenteredPopup(isPresented: Binding(
                 get: { session.workbenchFeature.isRemoteConnectionsPresented },
                 set: { session.workbenchFeature.isRemoteConnectionsPresented = $0 }
-            )) {
+            ), dialogTitle: L10n.string("Remote Development")) {
                 if session.canManageRemoteConnections {
-                    RemoteConnectionsSheet(feature: session.makeRemoteConnectionsFeature()!)
+                    RemoteConnectionsSheet(feature: session.makeRemoteConnectionsFeature()!, onDismiss: {
+                        session.workbenchFeature.isRemoteConnectionsPresented = false
+                    })
                 }
-            }
+            }.frame(width: 0, height: 0).allowsHitTesting(false))
             .sheet(isPresented: Binding(
                 get: { session.diagnosticsFeature.isPresented },
                 set: { session.diagnosticsFeature.isPresented = $0 }
@@ -357,6 +360,7 @@ private struct ActiveSessionChrome: View {
                 feature: session.vcsProvidersFeature, fontFamily: session.settings.editorFontFamily,
                 openFile: { [weak session] in session?.openFile($0, allowsOutsideWorkspace: true) }
             ))
+            .modifier(CommitFileDeletionPresentation(feature: session.commitFileDeletion))
 
     }
 
@@ -399,7 +403,7 @@ private struct ActiveSessionChrome: View {
     }
 }
 
-private struct WindowCloseGuard: NSViewRepresentable {
+struct WindowCloseGuard: NSViewRepresentable {
     let windowHandler: any ProjectWindowSessionHandling
     let layout: LitheWindowLayout
     let title: String?
@@ -429,6 +433,7 @@ private struct WindowCloseGuard: NSViewRepresentable {
 }
 
 enum LitheWindowLayout: Equatable {
+    case settingsImport
     case welcome
     case workspace
     case standalone
@@ -442,6 +447,7 @@ enum LitheWindowLayout: Equatable {
 
     var contentSize: NSSize {
         switch self {
+        case .settingsImport: NSSize(width: 640, height: 467)
         case .welcome: Self.welcomeContentSize
         case .workspace: Self.workspaceContentSize
         case .standalone: Self.standaloneContentSize
@@ -450,6 +456,7 @@ enum LitheWindowLayout: Equatable {
 
     var minimumContentSize: NSSize {
         switch self {
+        case .settingsImport: contentSize
         case .welcome: Self.welcomeContentSize
         case .workspace: .zero
         case .standalone: Self.standaloneMinimumContentSize
@@ -733,7 +740,8 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
             return
         }
 
-        let shouldAnimate = self.layout != nil && window.isVisible
+        var shouldAnimate = self.layout != nil && window.isVisible
+        if case .settingsImport = layout { shouldAnimate = false }
         self.layout = layout
         restoredWorkspaceFrame = nil
         // SwiftUI also measures the native minimum. Reset the role baseline

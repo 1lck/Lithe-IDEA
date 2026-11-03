@@ -266,3 +266,200 @@ fn summarized_directory_diff_fails_instead_of_dropping_a_file_it_cannot_export()
     assert_eq!(response["ok"], false, "{response}");
     assert!(repository.0.join("generated/bad:name.txt").exists());
 }
+
+#[test]
+fn rollback_status_scans_only_selected_paths_and_restores_both_versions() {
+    let repository = Repository::new("rollback-scoped-status");
+    repository.write_many("unrelated", 201);
+    repository.write("tracked/kept.txt", "staged\n");
+    repository.git(&["add", "tracked/kept.txt"]);
+    repository.write("tracked/kept.txt", "working\n");
+    let result = data(
+        "git.write",
+        json!({"root": repository.0, "operation": "discardAll", "paths": ["tracked/kept.txt"]}),
+    );
+    assert_eq!(result["exitCode"], 0, "{result}");
+    let status = &result["invocations"][0];
+    assert_eq!(
+        status["arguments"],
+        json!([
+            "status",
+            "--porcelain=v2",
+            "-z",
+            "--untracked-files=all",
+            "--",
+            "tracked/kept.txt"
+        ])
+    );
+    assert!(!status["stdout"].as_str().unwrap().contains("unrelated"));
+    assert_eq!(
+        fs::read_to_string(repository.0.join("tracked/kept.txt")).unwrap(),
+        "kept\n"
+    );
+    let index = data(
+        "git.command",
+        json!({"root": repository.0, "arguments": ["show", ":tracked/kept.txt"]}),
+    );
+    assert_eq!(index["stdout"], "kept\n");
+    assert_eq!(
+        fs::read_dir(repository.0.join("unrelated/deps"))
+            .unwrap()
+            .count(),
+        201
+    );
+}
+
+#[test]
+fn rollback_restores_staged_deletion_with_a_retained_untracked_copy() {
+    let repository = Repository::new("rollback-retained-deletion");
+    repository.git(&["rm", "--cached", "tracked/kept.txt"]);
+    repository.write("tracked/kept.txt", "retained edit\n");
+    let before = status(&repository.0, true);
+    assert_eq!(before["changes"].as_array().unwrap().len(), 2);
+    let result = data(
+        "git.write",
+        json!({"root": repository.0, "operation": "discardAll", "paths": ["tracked/kept.txt"]}),
+    );
+    assert_eq!(result["exitCode"], 0, "{result}");
+    assert_eq!(
+        fs::read_to_string(repository.0.join("tracked/kept.txt")).unwrap(),
+        "kept\n"
+    );
+    assert!(status(&repository.0, true)["changes"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    assert!(!result["invocations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|call| call["arguments"][0] == "clean"));
+}
+
+#[test]
+fn rollback_batches_large_selections_without_cleaning_unselected_files() {
+    let repository = Repository::new("rollback-path-batches");
+    let paths: Vec<_> = (0..200)
+        .map(|index| format!("{}-{index:03}.txt", "selected".repeat(13)))
+        .collect();
+    for path in &paths {
+        repository.write(path, "selected\n");
+    }
+    repository.write("unselected.txt", "keep\n");
+    let result = data(
+        "git.write",
+        json!({"root": repository.0, "operation": "discardAll", "paths": paths}),
+    );
+    assert_eq!(result["exitCode"], 0, "{result}");
+    let calls = result["invocations"].as_array().unwrap();
+    for command in ["status", "clean"] {
+        let batches: Vec<_> = calls
+            .iter()
+            .filter(|call| call["arguments"][0] == command)
+            .collect();
+        assert!(
+            batches.len() > 1,
+            "{command} must have bounded path batches"
+        );
+        let selected: Vec<_> = batches
+            .iter()
+            .flat_map(|call| {
+                let arguments = call["arguments"].as_array().unwrap();
+                let start = arguments.iter().position(|value| value == "--").unwrap() + 1;
+                arguments[start..]
+                    .iter()
+                    .map(|value| value.as_str().unwrap())
+            })
+            .collect();
+        assert_eq!(
+            selected,
+            paths.iter().map(String::as_str).collect::<Vec<_>>()
+        );
+    }
+    assert!(paths.iter().all(|path| !repository.0.join(path).exists()));
+    assert_eq!(
+        fs::read_to_string(repository.0.join("unselected.txt")).unwrap(),
+        "keep\n"
+    );
+}
+
+#[test]
+fn rollback_treats_bracketed_paths_literally() {
+    let repository = Repository::new("rollback-literal-paths");
+    for path in ["literal[ab].txt", "literala.txt"] {
+        repository.write(path, "base\n");
+    }
+    repository.git(&["add", "."]);
+    repository.git(&[
+        "-c",
+        "user.name=Fixture",
+        "-c",
+        "user.email=fixture@example.invalid",
+        "-c",
+        "commit.gpgsign=false",
+        "commit",
+        "-qm",
+        "literal names",
+    ]);
+    for path in ["literal[ab].txt", "literala.txt"] {
+        repository.write(path, "edit\n");
+    }
+    repository.write("new[ab].txt", "remove\n");
+    repository.write("newa.txt", "keep\n");
+    let result = data(
+        "git.write",
+        json!({"root": repository.0, "operation": "discardAll", "paths": ["literal[ab].txt", "new[ab].txt"]}),
+    );
+    assert_eq!(result["exitCode"], 0, "{result}");
+    assert_eq!(
+        fs::read_to_string(repository.0.join("literal[ab].txt")).unwrap(),
+        "base\n"
+    );
+    assert_eq!(
+        fs::read_to_string(repository.0.join("literala.txt")).unwrap(),
+        "edit\n"
+    );
+    assert!(!repository.0.join("new[ab].txt").exists());
+    assert_eq!(
+        fs::read_to_string(repository.0.join("newa.txt")).unwrap(),
+        "keep\n"
+    );
+}
+
+// Question marks are valid Unix file names but are rejected by Windows.
+#[cfg(not(windows))]
+#[test]
+fn rollback_does_not_parse_a_rename_source_as_an_untracked_status_record() {
+    let repository = Repository::new("rollback-rename-record");
+    for path in ["?? decoy.txt", "decoy.txt"] {
+        repository.write(path, "base\n");
+    }
+    repository.git(&["add", "."]);
+    repository.git(&[
+        "-c",
+        "user.name=Fixture",
+        "-c",
+        "user.email=fixture@example.invalid",
+        "-c",
+        "commit.gpgsign=false",
+        "commit",
+        "-qm",
+        "rename source",
+    ]);
+    repository.git(&["mv", "?? decoy.txt", "renamed.txt"]);
+    repository.write("decoy.txt", "independent edit\n");
+    let result = data(
+        "git.write",
+        json!({"root": repository.0, "operation": "discardAll", "paths": ["renamed.txt", "?? decoy.txt", "decoy.txt"]}),
+    );
+    assert_eq!(result["exitCode"], 0, "{result}");
+    assert_eq!(
+        fs::read_to_string(repository.0.join("?? decoy.txt")).unwrap(),
+        "base\n"
+    );
+    assert_eq!(
+        fs::read_to_string(repository.0.join("decoy.txt")).unwrap(),
+        "base\n"
+    );
+    assert!(!repository.0.join("renamed.txt").exists());
+}

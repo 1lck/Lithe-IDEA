@@ -223,7 +223,7 @@ export default function IndependentCommitDiff(props: Props) {
     return () => stop.forEach((fn) => fn());
   }, [settings.themeId, settings.editorItalicComments]);
   return (
-    <div className="relative h-full min-h-0 overflow-hidden">
+    <div data-readonly-diff="true" className="relative h-full min-h-0 overflow-hidden">
       <div ref={host} className="absolute inset-0" />
       {error && (
         <div role="alert" className="absolute inset-0 bg-background p-4 text-destructive">

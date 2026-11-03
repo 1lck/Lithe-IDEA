@@ -11,6 +11,7 @@
     "desktop:dev": "tauri dev --config src-tauri/tauri.windows.conf.json",
     "desktop:build": "tauri build --config src-tauri/tauri.windows.conf.json",
     "typecheck": "tsc --noEmit",
+    "perf": "node ../../scripts/windows/perf/run-windows-perf.mjs",
     "lint": "bunx vp lint .",
     "format": "bunx vp fmt --write ."
   },
@@ -87,8 +88,8 @@
     "@lithe/editor": "workspace:*"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.8.0",
     "@tailwindcss/vite": "^4.3.1",
+    "@tauri-apps/cli": "^2.8.0",
     "@tree-sitter-grammars/tree-sitter-markdown": "^0.3.2",
     "@tree-sitter-grammars/tree-sitter-vue": "github:tree-sitter-grammars/tree-sitter-vue",
     "@tree-sitter-grammars/tree-sitter-yaml": "^0.7.1",
@@ -102,6 +103,7 @@
     "code-inspector-plugin": "^1.6.2",
     "concurrently": "^10.0.3",
     "happy-dom": "^20.11.6",
+    "playwright-core": "1.62.1",
     "tailwindcss": "^4.3.1",
     "tree-sitter-astro": "github:virchau13/tree-sitter-astro",
     "tree-sitter-bash": "^0.25.1",

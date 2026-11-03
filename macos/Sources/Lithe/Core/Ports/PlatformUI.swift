@@ -12,6 +12,9 @@ protocol PlatformUI: AnyObject {
     func revealInFileBrowser(_ url: URL)
     func open(_ url: URL)
     func openHTMLInBrowser(_ url: URL) async throws
+    /// Opens an http or https address in the web browser. The platform
+    /// refuses any other scheme.
+    func openWebURLInBrowser(_ url: URL) async throws
     func copyToClipboard(_ value: String)
     func copyFilesToClipboard(_ urls: [URL]) -> Bool
     func fileURLsFromClipboard() -> [URL]
@@ -27,6 +30,10 @@ extension PlatformUI {
     }
 
     func openHTMLInBrowser(_ url: URL) async throws {
+        throw CocoaError(.featureUnsupported)
+    }
+
+    func openWebURLInBrowser(_ url: URL) async throws {
         throw CocoaError(.featureUnsupported)
     }
 

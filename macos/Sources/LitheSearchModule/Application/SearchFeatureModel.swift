@@ -17,13 +17,20 @@ public final class SearchFeatureModel: ObservableObject {
         contentMatches: []
     )
     @Published public private(set) var isSearchingEverywhere = false
+    @Published public private(set) var searchEverywhereFailed = false
+    @Published public private(set) var searchEverywherePageByID: [String: Int] = [:]
+    private var nextSearchPage: (@MainActor () async -> Void)?
+    private var searchPageNumber = 0
     @Published public private(set) var projectReplacementFiles: [ProjectReplacementFile] = []
     @Published public private(set) var isLoadingProjectReplacement = false
 
     private let operations: any SearchOperations
     private var indexTask: Task<Void, Never>?
     private var indexTaskGeneration = 0
+    // Queries wait for watcher/settings mutations, never speculative content warming.
+    private var indexMutationTask: Task<Void, Never>?
     private var everywhereSearchGeneration = 0
+    private var everywhereSearchTask: Task<Void, Never>?
     private var replacementPreviewGeneration = 0
 
     public var hasActiveModuleWork: Bool {
@@ -38,16 +45,16 @@ public final class SearchFeatureModel: ObservableObject {
         indexTaskGeneration += 1
         indexTask?.cancel()
         indexTask = nil
+        indexMutationTask = nil
         searchResults = []
         isSearching = false
-        searchEverywhereResults = SearchEverywhereResults(fileMatches: [], contentMatches: [])
-        isSearchingEverywhere = false
+        clearSearchEverywhere()
         projectReplacementFiles = []
         isLoadingProjectReplacement = false
     }
 
     public func warmIndex(at workspaceURL: URL, visibilityRules: SearchVisibilityRules) {
-        replaceIndexTask { operations in
+        replaceIndexTask(isWarmup: true) { operations in
             operations.warmSearchIndex(at: workspaceURL, visibilityRules: visibilityRules)
         }
     }
@@ -71,11 +78,12 @@ public final class SearchFeatureModel: ObservableObject {
                 visibilityRules: visibilityRules
             )
         }
-        await indexTask?.value
+        await indexMutationTask?.value
     }
 
     private func replaceIndexTask(
         mustComplete: Bool = false,
+        isWarmup: Bool = false,
         operation: @escaping @Sendable (any SearchOperations) -> Void
     ) {
         let previousTask = indexTask
@@ -103,7 +111,9 @@ public final class SearchFeatureModel: ObservableObject {
             }
             guard let self, self.indexTaskGeneration == generation else { return }
             self.indexTask = nil
+            self.indexMutationTask = nil
         }
+        if !isWarmup { indexMutationTask = indexTask }
     }
 
     public func clearProjectSearch() {
@@ -124,7 +134,7 @@ public final class SearchFeatureModel: ObservableObject {
         }
 
         isSearching = true
-        await indexTask?.value
+        await indexMutationTask?.value
         let operations = self.operations
         let results = await Task.detached(priority: .userInitiated) {
             operations.search(
@@ -143,10 +153,20 @@ public final class SearchFeatureModel: ObservableObject {
         isSearching = false
     }
 
-    public func clearSearchEverywhere() {
-        everywhereSearchGeneration += 1
-        searchEverywhereResults = SearchEverywhereResults(fileMatches: [], contentMatches: [])
+    public func cancelSearchEverywhere() {
+        everywhereSearchGeneration &+= 1
+        everywhereSearchTask?.cancel()
+        everywhereSearchTask = nil
+        nextSearchPage = nil
+        searchEverywhereFailed = false
         isSearchingEverywhere = false
+    }
+
+    public func clearSearchEverywhere() {
+        cancelSearchEverywhere()
+        searchPageNumber = 0
+        searchEverywherePageByID = [:]
+        searchEverywhereResults = SearchEverywhereResults(fileMatches: [], contentMatches: [])
     }
 
     public func searchEverywhere(
@@ -157,38 +177,91 @@ public final class SearchFeatureModel: ObservableObject {
         kinds: Set<SearchResultKind> = [.file, .type, .symbol, .content],
         isCurrent: @escaping @MainActor () -> Bool
     ) async {
-        everywhereSearchGeneration += 1
+        clearSearchEverywhere()
+        guard !kinds.isEmpty, !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         let generation = everywhereSearchGeneration
-        guard !kinds.isEmpty, !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            clearSearchEverywhere()
-            return
+        nextSearchPage = { [weak self] in
+            guard let self else { return }
+            await self.loadSearchPage(at: workspaceURL, query: query, options: options,
+                visibilityRules: visibilityRules, kinds: kinds, generation: generation, isCurrent: isCurrent)
         }
+        await nextSearchPage?()
+    }
 
+    public func loadNextSearchPage(retry: Bool = false) async {
+        guard !isSearchingEverywhere, retry || !searchEverywhereFailed,
+              searchEverywhereResults.nextCursor != nil || (retry && searchEverywhereFailed) else { return }
+        await nextSearchPage?()
+    }
+
+    private func loadSearchPage(at workspaceURL: URL, query: String, options: ProjectSearchOptions,
+        visibilityRules: SearchVisibilityRules, kinds: Set<SearchResultKind>, generation: Int,
+        isCurrent: @escaping @MainActor () -> Bool
+    ) async {
+        guard generation == everywhereSearchGeneration, !Task.isCancelled, isCurrent() else { return }
         isSearchingEverywhere = true
-        await indexTask?.value
-        let operations = self.operations
-        let indexedResults = await Task.detached(priority: .userInitiated) {
-            operations.searchEverywhere(
-                at: workspaceURL,
-                query: query,
-                options: options,
-                visibilityRules: visibilityRules,
-                includeGeneratedFileNames: true,
-                kinds: kinds
-            ) ?? SearchEverywhereResults()
-        }.value
-
-        guard generation == everywhereSearchGeneration, isCurrent() else {
-            isSearchingEverywhere = false
-            return
+        searchEverywhereFailed = false
+        defer {
+            if generation == everywhereSearchGeneration {
+                everywhereSearchTask = nil
+                isSearchingEverywhere = false
+            }
         }
-        searchEverywhereResults = SearchEverywhereResults(
-            fileMatches: indexedResults.fileMatches,
-            classMatches: indexedResults.classMatches,
-            symbolMatches: indexedResults.symbolMatches,
-            contentMatches: indexedResults.contentMatches
-        )
-        isSearchingEverywhere = false
+        await indexMutationTask?.value
+        guard generation == everywhereSearchGeneration, !Task.isCancelled, isCurrent() else { return }
+        let operations = self.operations
+        let cursor = searchEverywhereResults.nextCursor
+        let previous = cursor == nil ? SearchEverywhereResults() : searchEverywhereResults
+        let pageNumber = searchPageNumber
+        // Only the first page streams replacement snapshots. Continuations are
+        // appended atomically so later ranking cannot move the visible viewport.
+        let (updates, continuation) = AsyncStream.makeStream(
+            of: Result<(SearchEverywhereResults, Bool), Error>.self, bufferingPolicy: .bufferingNewest(1))
+        let worker = Task {
+            defer { continuation.finish() }
+            do {
+                let results = try await operations.searchEverywherePage(
+                    at: workspaceURL, query: query, options: options, visibilityRules: visibilityRules,
+                    includeGeneratedFileNames: true, kinds: kinds, cursor: cursor,
+                    onResults: { if cursor == nil { continuation.yield(.success(($0, false))) } })
+                continuation.yield(.success((results, true)))
+            } catch { continuation.yield(.failure(error)) }
+        }
+        everywhereSearchTask = worker
+        await withTaskCancellationHandler {
+            for await update in updates {
+                guard generation == everywhereSearchGeneration, !Task.isCancelled, isCurrent() else {
+                    worker.cancel()
+                    break
+                }
+                switch update {
+                case .failure:
+                    searchEverywhereFailed = true
+                case .success(let (results, finished)):
+                    func append(_ old: [FileSearchResult], _ incoming: [FileSearchResult]) -> [FileSearchResult] {
+                        var ids = Set(old.map(\.id))
+                        return old + incoming.filter { ids.insert($0.id).inserted }
+                    }
+                    let files = append(previous.fileMatches, results.fileMatches)
+                    let types = append(previous.classMatches, results.classMatches)
+                    let symbols = append(previous.symbolMatches, results.symbolMatches)
+                    let contents = append(previous.contentMatches, results.contentMatches)
+                    let count = files.count + types.count + symbols.count + contents.count
+                    let progressed = count > previous.totalCount && results.nextCursor != cursor
+                    let nextCursor = finished ? (progressed ? results.nextCursor : nil) : cursor
+                    searchEverywhereResults = .init(fileMatches: files, classMatches: types,
+                        symbolMatches: symbols, contentMatches: contents, nextCursor: nextCursor)
+                    var pageByID = cursor == nil ? [:] : searchEverywherePageByID
+                    for item in results.allMatches where pageByID[item.id] == nil { pageByID[item.id] = pageNumber }
+                    searchEverywherePageByID = pageByID
+                    if finished { searchPageNumber += 1 }
+                }
+            }
+            await worker.value
+        } onCancel: {
+            worker.cancel()
+            continuation.finish()
+        }
     }
 
     /// File-name matches for a completion list. Unlike Search Everywhere this
@@ -198,7 +271,7 @@ public final class SearchFeatureModel: ObservableObject {
         query: String,
         visibilityRules: SearchVisibilityRules
     ) async -> [URL] {
-        await indexTask?.value
+        await indexMutationTask?.value
         let operations = self.operations
         let results = await Task.detached(priority: .userInitiated) {
             operations.searchEverywhere(
@@ -289,7 +362,7 @@ public final class SearchFeatureModel: ObservableObject {
         }
 
         isLoadingProjectReplacement = true
-        await indexTask?.value
+        await indexMutationTask?.value
         let operations = self.operations
         let results = await Task.detached(priority: .userInitiated) {
             operations.previewReplacement(

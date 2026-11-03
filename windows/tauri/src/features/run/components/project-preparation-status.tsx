@@ -1,9 +1,11 @@
 import { Spinner } from "@/ui/spinner";
+import { Progress } from "@/ui/progress";
 import { CaretRightIcon, CheckCircleIcon, WarningIcon } from "@/ui/icons";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { useTranslation } from "@/i18n/locale-provider";
 import { useProjectPreparation } from "../stores/project-preparation.store";
+import { useLanguageServerProgress } from "../stores/language-server-progress.store";
 import { runWorkspacePreferenceKey, useRunPreferencesStore } from "../stores/run-preferences.store";
 
 /** The footer is compact; the Run panel retains the current stage and recovery entry. */
@@ -20,12 +22,18 @@ export function ProjectPreparationStatus({ compact = false }: { compact?: boolea
   const setJavaBuildFailurePolicy = useRunPreferencesStore(
     (state) => state.actions.setJavaBuildFailurePolicy,
   );
+  const importProgress = useLanguageServerProgress(root).find(
+    (entry) => entry.languageId === "java" && entry.importProgress,
+  )?.importProgress;
   if (!preparation || preparation.phase === "stopped") return null;
   if (compact && preparation.status === "ready") return null;
+  const importing = preparation.status === "loading" ? importProgress : undefined;
   const label =
     preparation.status === "failed"
       ? t("preparation.failed")
-      : t(`preparation.${preparation.phase}`);
+      : importing?.percent !== undefined
+        ? t("preparation.importingPercent", { percent: importing.percent })
+        : t(`preparation.${preparation.phase}`);
   return (
     <details
       className={
@@ -55,6 +63,9 @@ export function ProjectPreparationStatus({ compact = false }: { compact?: boolea
           )}
           {label}
         </span>
+        {compact && importing?.percent !== undefined ? (
+          <Progress aria-hidden value={importing.percent} className="w-16 shrink-0" />
+        ) : null}
       </summary>
       <div
         className={
@@ -81,6 +92,23 @@ export function ProjectPreparationStatus({ compact = false }: { compact?: boolea
             </li>
           ))}
         </ol>
+        {importing ? (
+          <div className="space-y-1">
+            {importing.currentProject ? (
+              <p className="truncate">
+                {t("preparation.currentProject", { name: importing.currentProject })}
+              </p>
+            ) : null}
+            {importing.downloadArtifact ? (
+              <p className="truncate text-subtle-foreground">
+                {t("preparation.downloading", { artifact: importing.downloadArtifact })}
+              </p>
+            ) : null}
+            {importing.percent !== undefined ? (
+              <Progress aria-label={label} value={importing.percent} />
+            ) : null}
+          </div>
+        ) : null}
         <p className="text-subtle-foreground">{t("preparation.explanation")}</p>
         <button type="button" className="mt-2 underline" onClick={() => openSettings("language")}>
           {t("preparation.settings")}

@@ -19,6 +19,19 @@ final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable 
         }
     }
 
+    struct Indentation: Equatable {
+        let tabSize: Int
+        let insertSpaces: Bool
+    }
+    /// Runtime model state, not a second persisted preference.
+    @Published private(set) var indentation: Indentation?
+
+    func updateIndentation(tabSize: Int, insertSpaces: Bool) {
+        guard tabSize > 0 else { return }
+        let value = Indentation(tabSize: tabSize, insertSpaces: insertSpaces)
+        if indentation != value { indentation = value }
+    }
+
     let id = UUID()
     private(set) var url: URL
     /// Invalidates asynchronous requests even after a rename away and back.
@@ -68,6 +81,16 @@ final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable 
             actions.forEach { $0(result) }
         }
     }
+    /// Live editor surface for plugin reads/edits; installed and cleared by the
+    /// same adapter session that owns ``synchronizeEditor``.
+    var editorSurface: (any EditorDocumentSurface)?
+    /// Monotonic version of ``text``. It increases on every buffer change,
+    /// including undo, external replacement and reload, and never decreases, so
+    /// equal versions always mean identical text. Unlike `lifecycleState.revision`
+    /// it is not rewritten by save/conflict decisions, and unlike a Monaco
+    /// version it exists for buffers without a web view and survives web view
+    /// reloads. Plugin edits name this version to detect concurrent input.
+    private(set) var contentVersion: UInt64 = 1
     private var storedText: String
     var text: String {
         get { storedText }
@@ -269,6 +292,7 @@ final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable 
             objectWillChange.send()
         }
         storedText = newText
+        contentVersion &+= 1
         lifecycleState = nextLifecycle
         textDidChange.send()
     }
@@ -310,6 +334,7 @@ final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable 
     }
 
     func replaceWithDiskContent(_ contents: String, encoding: DocumentEncoding? = nil, identity: String? = nil) {
+        if storedText != contents { contentVersion &+= 1 }
         storedText = contents
         textDidChange.send()
         savedText = contents

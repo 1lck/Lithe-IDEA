@@ -12,7 +12,7 @@ extension AppModel {
     var rootNode: FileNode? { workspaceFeature.rootNode }
     var projectFiles: [URL] { workspaceFeature.projectFiles }
     var projectDirectoryMarks: [String: WorkspaceDirectoryMark] {
-        workspaceFeature.directoryMarks
+        workspaceFeature.indexingStatus.excludedDirectories.keys.reduce(into: workspaceFeature.directoryMarks) { marks, path in marks[path] = .excluded }
     }
     var javaEnvironmentReport: JavaEnvironmentReport? {
         runtimeFeature.javaEnvironmentReport
@@ -109,7 +109,9 @@ extension AppModel {
             editorTabOrderFeature.repositoryDiffReturnTabs[id] = previous
         }
         editorTabOrderFeature.focus(.repositoryDiff(id))
-        gitFeatureIfActive?.activateRepositoryDiffSession(id)
+        if editorTabOrderFeature.providerDiffs[id] == nil && !editorTabOrderFeature.loadingProviderDiffs.contains(id) {
+            gitFeatureIfActive?.activateRepositoryDiffSession(id)
+        }
         terminalPlacementFeature.activateDocument()
         mediaFeature.deactivate()
         activeDocumentID = nil
@@ -149,6 +151,7 @@ extension AppModel {
     func selectEditorTab(_ item: EditorTabItem) {
         editorTabOrderFeature.focus(item)
         switch item {
+        case .languageLogs: selectLanguageServerLogsTab()
         case .agentConversation(let tab): showAgentChatsInEditor(tab: tab)
         case .repositoryDiff(let id):
             selectRepositoryDiffTab(id)

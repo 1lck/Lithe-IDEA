@@ -17,6 +17,9 @@ struct CommitAreaView: View {
                 }
                     .toggleStyle(.checkbox)
                     .font(LitheTheme.uiFont(size: LitheTheme.Commit.amendFontSize))
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .accessibilityIdentifier("git-commit-amend")
                 LitheIDEAIcon(resourcePath: "expui/general/history.svg", size: LitheTheme.Commit.actionIconSize,
                               fallbackSystemImage: "clock", preservesOriginalColors: true)
                 Spacer()
@@ -46,6 +49,7 @@ struct CommitAreaView: View {
                 Text("\(stagedChanges.count) staged")
                     .font(LitheTheme.uiFont(size: LitheTheme.Commit.metadataFontSize))
                     .foregroundStyle(LitheTheme.secondaryText)
+                    .lineLimit(1)
             }
             .padding(.horizontal, LitheTheme.Commit.contentInset)
             .padding(.top, LitheTheme.Commit.messageVerticalGap)
@@ -119,6 +123,7 @@ struct CommitAreaView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .background(hasBackgroundImage ? Color.clear : LitheTheme.toolHeader)
+        .onChange(of: draft.commitEditorRequestVersion) { _ in commitMessageFocused = true }
         .confirmationDialog(
             "Replace current commit message?",
             isPresented: Binding(

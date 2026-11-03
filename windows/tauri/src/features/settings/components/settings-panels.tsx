@@ -16,7 +16,10 @@ import { themeRegistry } from "@/extensions/themes/theme-registry";
 import { useRegisteredThemes } from "@/extensions/themes/use-registered-themes";
 import { useUpdater } from "@/features/settings/hooks/use-updater";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
-import type { EditorTabLayoutMode } from "@/features/settings/types/settings.types";
+import type {
+  EditorTabLayoutMode,
+  JavaProjectImportOnOpen,
+} from "@/features/settings/types/settings.types";
 import {
   getSystemThemePreference,
   resolveEffectiveTheme,
@@ -493,6 +496,27 @@ function LspPanel() {
             checked={settings.semanticTokens}
             onChange={(checked) => void updateSetting("semanticTokens", checked)}
             size="sm"
+          />
+        </SettingsRow>
+        <SettingsRow
+          label={t("javaImport.onOpen")}
+          description={t("javaImport.onOpenDescription")}
+        >
+          <SettingsSelect
+            aria-label={t("javaImport.onOpen")}
+            className="w-40"
+            value={settings.javaProjectImportOnOpen}
+            onChange={(selectedValue) =>
+              void updateSetting(
+                "javaProjectImportOnOpen",
+                selectedValue as JavaProjectImportOnOpen,
+              )
+            }
+            options={[
+              { value: "automatic", label: t("javaImport.automatic") },
+              { value: "ask", label: t("javaImport.ask") },
+              { value: "manual", label: t("javaImport.manual") },
+            ]}
           />
         </SettingsRow>
       </SettingsGroup>

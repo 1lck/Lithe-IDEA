@@ -1,36 +1,62 @@
 import { useCallback, useEffect } from "react";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
-import { isGitChangeRelevant, subscribeToGitChanges } from "../events/git-events";
+import { type GitChange, isGitChangeRelevant, subscribeToGitChanges } from "../events/git-events";
 import { getGitBlameCacheKey, useGitBlameStore } from "../stores/git-blame.store";
-import type { GitBlameLine } from "../types/git.types";
+import type { GitBlame, GitBlameLine } from "../types/git.types";
 import { findGitBlameLine } from "../utils/git-blame-lines";
+
+/**
+ * Whether `change` can alter the blame of `filePath`: a write to the file
+ * itself, or a repository change that may move its history. Index-only writes
+ * (`working-tree`) leave both the commits and the file untouched; reacting to
+ * them reran `git blame` for every open editor whenever the index was
+ * rewritten, which is constant while a project imports.
+ */
+export function changeAffectsBlame(
+  change: GitChange,
+  repoPath: string | null | undefined,
+  filePath: string,
+): boolean {
+  if (!isGitChangeRelevant(change, repoPath, filePath)) return false;
+  if (change.filePath) return true;
+  return !change.scopes || change.scopes.includes("history");
+}
 
 export function useGitBlame(filePath: string | undefined) {
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
   const loadBlameForFile = useGitBlameStore((state) => state.actions.loadBlameForFile);
-  const clearBlameForFile = useGitBlameStore((state) => state.actions.clearBlameForFile);
+  const toggleBlameForFile = useGitBlameStore((state) => state.actions.toggleBlameForFile);
   const blameRevision = useGitBlameStore((state) => state.revision);
   const cacheKey =
     filePath && rootFolderPath ? getGitBlameCacheKey(rootFolderPath, filePath) : null;
   const blameData = useGitBlameStore((state) =>
     cacheKey ? state.blameData.get(cacheKey) : undefined,
   );
+  // Annotate is a per-file action: the data is only worth reading while the
+  // annotation is on, so a file never pays for blame it will not display.
+  const blameVisible = useGitBlameStore((state) =>
+    filePath ? state.visibleFiles.has(filePath) : false,
+  );
+  const repoPath = useGitBlameStore((state) =>
+    filePath ? (state.fileToRepo.get(filePath) ?? null) : null,
+  );
 
   useEffect(() => {
-    if (!filePath || !rootFolderPath) return;
+    if (!filePath || !rootFolderPath || !blameVisible) return;
     void loadBlameForFile(rootFolderPath, filePath);
-  }, [blameRevision, filePath, loadBlameForFile, rootFolderPath]);
+  }, [blameRevision, blameVisible, filePath, loadBlameForFile, rootFolderPath]);
 
   useEffect(() => {
-    if (!filePath) return;
+    if (!filePath || !rootFolderPath || !blameVisible) return;
 
     const unsubscribe = subscribeToGitChanges((change) => {
-      if (!isGitChangeRelevant(change, rootFolderPath, filePath)) return;
-      clearBlameForFile(filePath);
+      if (!changeAffectsBlame(change, rootFolderPath, filePath)) return;
+      // Keep the shown annotation until the new blame replaces it.
+      void loadBlameForFile(rootFolderPath, filePath, { refresh: true });
     });
 
     return unsubscribe;
-  }, [clearBlameForFile, filePath, rootFolderPath]);
+  }, [blameVisible, filePath, loadBlameForFile, rootFolderPath]);
 
   const getBlameForLine = useCallback(
     (lineNumber: number): GitBlameLine | null => {
@@ -40,5 +66,18 @@ export function useGitBlame(filePath: string | undefined) {
     [filePath, blameData],
   );
 
-  return { getBlameForLine };
+  const setBlameVisible = useCallback(
+    (visible: boolean) => {
+      if (filePath) toggleBlameForFile(filePath, visible);
+    },
+    [filePath, toggleBlameForFile],
+  );
+
+  return {
+    blame: blameData,
+    blameVisible,
+    repoPath,
+    getBlameForLine,
+    setBlameVisible,
+  };
 }

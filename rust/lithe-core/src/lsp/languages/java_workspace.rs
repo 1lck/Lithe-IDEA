@@ -142,20 +142,29 @@ pub(crate) struct JdtWorkspaceFingerprintRequest {
     /// Names of direct child directories that contain a Maven descriptor.
     #[serde(default)]
     pub direct_maven_modules: Vec<String>,
+    /// `distributionUrl` of the root `gradle/wrapper/gradle-wrapper.properties`,
+    /// when present. Unlike edits to build scripts, which JDT LS notices on
+    /// restart, a Gradle version change is invisible to its import check, so
+    /// the version itself selects a fresh state directory.
+    #[serde(default)]
+    pub gradle_wrapper_distribution: Option<String>,
     /// JDT LS version resolved by the platform package adapter.
     pub jdtls_version: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-/// Filesystem metadata for one root-level Java build descriptor.
+/// One root-level Java build descriptor that exists in the workspace.
+///
+/// Only its presence counts. Edits to a descriptor are JDT LS's to detect: on a
+/// restart it compares each POM and Gradle file's timestamp with the state it
+/// saved and updates only the projects that changed, and while running it
+/// receives the change through `workspace/didChangeWatchedFiles`. Mixing the
+/// timestamp into the state-directory name would discard the whole index after
+/// any touch of the file, a `git checkout` included.
 pub(crate) struct JdtBuildFileObservation {
     /// Workspace-relative build descriptor path with `/` separators.
     pub path: String,
-    /// Last modification time expressed as Unix epoch milliseconds.
-    pub modified_unix_milliseconds: u64,
-    /// File size in bytes.
-    pub size_bytes: u64,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize)]
@@ -215,31 +224,36 @@ pub(crate) fn jdt_workspace_fingerprint(
         ));
     }
 
-    let mut build_files = BTreeMap::new();
-    for observation in request.build_files {
-        let path = normalize_relative_path(&observation.path)?;
-        build_files.insert(
-            path,
-            (
-                observation.modified_unix_milliseconds,
-                observation.size_bytes,
-            ),
-        );
-    }
+    let build_files = request
+        .build_files
+        .into_iter()
+        .map(|observation| normalize_relative_path(&observation.path))
+        .collect::<Result<BTreeSet<_>, _>>()?;
     let modules = request
         .direct_maven_modules
         .into_iter()
         .map(|module| normalize_module_name(&module))
         .collect::<Result<BTreeSet<_>, _>>()?;
-    let build_files = build_files
-        .into_iter()
-        .map(|(path, (modified, size))| format!("{path}@{modified}:{size}"))
-        .collect::<Vec<_>>()
-        .join(",");
+    let build_files = build_files.into_iter().collect::<Vec<_>>().join(",");
     let modules = modules.into_iter().collect::<Vec<_>>().join(",");
+    let mut workspace_fingerprint =
+        format!("build={build_files}|modules={modules}|jdtls={version}");
+    if let Some(distribution) = request.gradle_wrapper_distribution {
+        let distribution = distribution.trim();
+        if distribution.is_empty() {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "The Gradle wrapper distribution must not be empty.",
+            ));
+        }
+        // Appended only when present, so workspaces without a wrapper keep
+        // the state directory they already have.
+        workspace_fingerprint.push_str("|gradle=");
+        workspace_fingerprint.push_str(distribution);
+    }
 
     Ok(JdtWorkspaceFingerprintResponse {
-        workspace_fingerprint: format!("build={build_files}|modules={modules}|jdtls={version}"),
+        workspace_fingerprint,
     })
 }
 
@@ -491,21 +505,28 @@ mod tests {
             JdtWorkspaceFingerprintRequest {
                 build_files: vec![JdtBuildFileObservation {
                     path: "../pom.xml".to_string(),
-                    modified_unix_milliseconds: 1,
-                    size_bytes: 1,
                 }],
                 direct_maven_modules: Vec::new(),
+                gradle_wrapper_distribution: None,
                 jdtls_version: "1.38.0".to_string(),
             },
             JdtWorkspaceFingerprintRequest {
                 build_files: Vec::new(),
                 direct_maven_modules: vec!["nested/core".to_string()],
+                gradle_wrapper_distribution: None,
                 jdtls_version: "1.38.0".to_string(),
             },
             JdtWorkspaceFingerprintRequest {
                 build_files: Vec::new(),
                 direct_maven_modules: Vec::new(),
+                gradle_wrapper_distribution: None,
                 jdtls_version: "  ".to_string(),
+            },
+            JdtWorkspaceFingerprintRequest {
+                build_files: Vec::new(),
+                direct_maven_modules: Vec::new(),
+                gradle_wrapper_distribution: Some(" ".to_string()),
+                jdtls_version: "1.38.0".to_string(),
             },
         ] {
             let error = jdt_workspace_fingerprint(request)

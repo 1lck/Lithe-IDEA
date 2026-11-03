@@ -14,13 +14,28 @@ interface GitBlameState {
   isLoading: Map<string, boolean>;
   errors: Map<string, string>;
   fileToRepo: Map<string, string>;
+  /**
+   * Files whose annotation the user turned on from the gutter menu. IDEA scopes
+   * annotate to the editor, not to a global preference, so visibility lives
+   * with the file instead of the settings.
+   */
+  visibleFiles: Set<string>;
 
   actions: {
-    loadBlameForFile: (repoPath: string, filePath: string) => Promise<void>;
-    clearBlameForFile: (filePath: string) => void;
+    /**
+     * Loads blame once per file. `refresh` reloads a file whose blame is already
+     * shown: the current lines stay until the new result replaces them, so a
+     * repository change never blanks the annotation while Git runs.
+     */
+    loadBlameForFile: (
+      repoPath: string,
+      filePath: string,
+      options?: { refresh?: boolean },
+    ) => Promise<void>;
     clearAllBlame: () => void;
     getBlameForLine: (filePath: string, lineNumber: number) => GitBlameLine | null;
     getRepoPath: (filePath: string) => string | null;
+    toggleBlameForFile: (filePath: string, visible?: boolean) => void;
   };
 }
 
@@ -37,16 +52,19 @@ export const createGitBlameStore = () =>
     isLoading: new Map(),
     errors: new Map(),
     fileToRepo: new Map(),
+    visibleFiles: new Set(),
 
     actions: {
-      loadBlameForFile: async (repoPath: string, filePath: string) => {
+      loadBlameForFile: async (repoPath: string, filePath: string, options) => {
         const state = get();
         const cacheKey = getGitBlameCacheKey(repoPath, filePath);
-        if (state.blameData.has(cacheKey) && !state.errors.has(cacheKey)) {
-          return;
-        }
-        if (state.isLoading.get(cacheKey)) {
-          return;
+        if (!options?.refresh) {
+          if (state.blameData.has(cacheKey) && !state.errors.has(cacheKey)) {
+            return;
+          }
+          if (state.isLoading.get(cacheKey)) {
+            return;
+          }
         }
 
         const previousOperationId = state.operationIds.get(cacheKey);
@@ -94,47 +112,6 @@ export const createGitBlameStore = () =>
         }
       },
 
-      clearBlameForFile: (filePath: string) => {
-        const state = get();
-        const blameData = new Map(state.blameData);
-        const requestIds = new Map(state.requestIds);
-        const operationIds = new Map(state.operationIds);
-        const isLoading = new Map(state.isLoading);
-        const errors = new Map(state.errors);
-        const fileToRepo = new Map(state.fileToRepo);
-
-        const suffix = `\0${filePath}`;
-        for (const key of new Set([
-          ...blameData.keys(),
-          ...requestIds.keys(),
-          ...operationIds.keys(),
-          ...isLoading.keys(),
-          ...errors.keys(),
-        ])) {
-          if (!key.endsWith(suffix)) continue;
-          const operationId = operationIds.get(key);
-          if (operationId) {
-            void cancelCoreOperation(operationId);
-          }
-          blameData.delete(key);
-          requestIds.delete(key);
-          operationIds.delete(key);
-          isLoading.delete(key);
-          errors.delete(key);
-        }
-        fileToRepo.delete(filePath);
-
-        set({
-          blameData,
-          requestIds,
-          operationIds,
-          revision: state.revision + 1,
-          isLoading,
-          errors,
-          fileToRepo,
-        });
-      },
-
       clearAllBlame: () => {
         for (const operationId of get().operationIds.values()) {
           void cancelCoreOperation(operationId);
@@ -147,7 +124,33 @@ export const createGitBlameStore = () =>
           isLoading: new Map(),
           errors: new Map(),
           fileToRepo: new Map(),
+          visibleFiles: new Set(),
         });
+      },
+
+      toggleBlameForFile: (filePath: string, visible?: boolean) => {
+        const state = get();
+        const nextVisible = visible ?? !state.visibleFiles.has(filePath);
+        if (nextVisible === state.visibleFiles.has(filePath)) return;
+
+        const visibleFiles = new Set(state.visibleFiles);
+        let blameData = state.blameData;
+        if (nextVisible) {
+          visibleFiles.add(filePath);
+          // Blame cached while the annotation was off can be older than the
+          // working tree, so turning annotate on reads it again.
+          const suffix = `\0${filePath}`;
+          const staleKeys = [...blameData.keys()].filter((key) => key.endsWith(suffix));
+          if (staleKeys.length > 0) {
+            blameData = new Map(blameData);
+            for (const key of staleKeys) blameData.delete(key);
+          }
+        } else {
+          visibleFiles.delete(filePath);
+        }
+        // The revision re-runs the load effect for the file that just became
+        // visible; the shown lines stay until the new result replaces them.
+        set({ blameData, visibleFiles, revision: state.revision + 1 });
       },
 
       getBlameForLine: (filePath: string, lineNumber: number) => {

@@ -51,6 +51,8 @@ export async function buildEditorAssets(options: EditorAssetBuild): Promise<void
   }
   await copyFile(options.html, join(output, "index.html"));
   await copyFile(join(monaco, "LICENSE"), join(output, "MONACO-LICENSE.txt"));
+  for (const license of ["vscode-LICENSE.txt", "idea-LICENSE.txt", "idea-NOTICE.txt"])
+    await copyFile(join(editorRoot, "themes", license), join(output, license));
   await writeFile(join(output, "version.json"), JSON.stringify({ monaco: version, bun: Bun.version }));
   console.log(`Monaco ${version}: ${output}`);
 
@@ -58,6 +60,11 @@ export async function buildEditorAssets(options: EditorAssetBuild): Promise<void
     for (const [source, target] of [
       ["node_modules/vscode-oniguruma/release/onig.wasm", "onig.wasm"],
       ["vendor/java.tmLanguage.json", "java.tmLanguage.json"],
+      ["vendor/make.tmLanguage.json", "makefile.tmLanguage.json"],
+      ["vendor/cmake.tmLanguage.json", "cmake.tmLanguage.json"],
+      ["vendor/groovy.tmLanguage.json", "groovy.tmLanguage.json"],
+      ["vendor/LICENSE.cmake.txt", "CMAKE-LICENSE.txt"],
+      ["vendor/LICENSE.make.txt", "MAKE-LICENSE.txt"],
       ["vendor/LICENSE.vscode.txt", "VSCODE-LICENSE.txt"],
       ["vendor/NOTICE.txt", "TEXTMATE-NOTICE.txt"],
       ["node_modules/vscode-oniguruma/LICENSE.txt", "ONIGURUMA-LICENSE.txt"],

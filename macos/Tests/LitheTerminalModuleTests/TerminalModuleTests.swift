@@ -5,6 +5,23 @@ import Testing
 @MainActor
 struct TerminalModuleTests {
     @Test
+    func backgroundProcessCreationPreservesEmptyAndExistingSelection() async throws {
+        let feature = TerminalFeatureModel(terminalFactory: { TestTransport() })
+        defer { feature.stopAllSessions() }
+        let root = URL(fileURLWithPath: "/workspace")
+        let launch = TerminalProcessLaunch(title: "Background client", executablePath: "/fixture/client", arguments: [], workingDirectory: root.path)
+        let background = try await feature.createProcessSessionAsync(launch, workspaceURL: root, selectsSession: false)
+        #expect(feature.activeTerminalSessionID == nil)
+        #expect(feature.activeTerminalSession == nil)
+        #expect(feature.terminalSessions.map(\.id) == [background.session.id])
+        let user = feature.createSession(in: root, shellPath: "/bin/zsh")
+        _ = try await feature.createProcessSessionAsync(launch, workspaceURL: root, selectsSession: false)
+        #expect(feature.activeTerminalSession === user)
+        let foreground = try await feature.createProcessSessionAsync(launch, workspaceURL: root)
+        #expect(feature.activeTerminalSession === foreground.session)
+    }
+
+    @Test
     func explicitlyChosenShellNamesToolTabsWithoutRenamingDefaultSessions() {
         let feature = TerminalFeatureModel(terminalFactory: { TestTransport() })
         defer { feature.stopAllSessions() }

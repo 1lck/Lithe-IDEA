@@ -19,6 +19,11 @@ socket, lock and log under `<dir>` (default `$HOME/.lithe-server`) in
 directories only the user can access, and rejects peers with another user
 id. A session has one client at a time: a new connection replaces the
 current one. A session without a client ends after its idle timeout.
+Launchers serialize socket rechecking and daemon creation with a per-identity
+`.start` advisory lock in the private `run/` directory, bounded by the existing
+startup deadline. The lock is released when its owning descriptor closes; its
+inode is retained so concurrent waiters cannot lock different files. This keeps
+a redundant launcher from restarting an explicitly closed session.
 
 ## Stream
 

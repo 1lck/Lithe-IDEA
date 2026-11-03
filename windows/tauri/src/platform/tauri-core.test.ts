@@ -37,6 +37,8 @@ test("Maven host commands route directly instead of through the platform dispatc
     "maven_remove_dependency_output",
     "maven_resolve_installation",
     "maven_resolve_effective_configuration",
+    "maven_read_user_settings",
+    "maven_write_user_local_repository",
     "run_execute_prelaunch",
   ]) {
     tauriInvoke.mockClear();

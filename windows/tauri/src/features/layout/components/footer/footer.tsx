@@ -1,4 +1,5 @@
 import { ProjectPreparationStatus } from "@/features/run/components/project-preparation-status";
+import { LanguageServerTasksStatus } from "@/features/run/components/language-server-tasks-status";
 import { GitFetchStatus } from "@/features/git/components/git-fetch-status";
 import { useMemo } from "react";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
@@ -50,6 +51,7 @@ const Footer = () => {
     >
       <ChromeGroup gap="tight" grow className="min-w-0">
         <ProjectPreparationStatus compact />
+        <LanguageServerTasksStatus />
         {filePathItem ? (
           <div className="flex min-h-(--lithe-chrome-control-height) min-w-0 flex-1 items-center overflow-hidden">
             {filePathItem.content}

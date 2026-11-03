@@ -396,15 +396,6 @@ fn stop_sessions(
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct WriteGeneratedArgs {
-    pub root: PathBuf,
-    pub generated: Value,
-    pub toolchain_requirements: Value,
-    pub default_run_configuration: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct WriteDocumentsArgs {
     pub root: PathBuf,
     pub documents: Vec<RunDocumentWrite>,
@@ -540,19 +531,6 @@ fn list_java_sources(root: &Path) -> Result<Vec<String>, String> {
     let root = existing_directory(root)?;
     lithe_core::execution::list_run_java_sources(&root, MAX_JAVA_SOURCES)
         .map_err(|error| error.message)
-}
-
-#[tauri::command]
-pub async fn run_write_generated(args: WriteGeneratedArgs) -> Result<(), String> {
-    run_blocking(move || {
-        write_generated_documents(
-            &args.root,
-            &args.generated,
-            &args.toolchain_requirements,
-            args.default_run_configuration.as_deref(),
-        )
-    })
-    .await
 }
 
 #[tauri::command]
@@ -1219,43 +1197,6 @@ pub fn cleanup_legacy_appdata(app: &AppHandle) {
     }
 }
 
-fn write_generated_documents(
-    root: &Path,
-    generated: &Value,
-    requirements: &Value,
-    default_run_configuration: Option<&str>,
-) -> Result<(), String> {
-    let _transaction = configuration_transaction();
-    let root = existing_directory(root)?;
-    let lithe_directory = root.join(".lithe");
-    let run_directory = lithe_directory.join("run");
-    let toolchain_directory = lithe_directory.join("toolchains");
-    let generated_path = run_directory.join("generated.json");
-    let requirements_path = toolchain_directory.join("requirements.json");
-    let ignore_path = lithe_directory.join(".gitignore");
-    let manifest_path = lithe_directory.join("project.json");
-    for path in [
-        &generated_path,
-        &requirements_path,
-        &ignore_path,
-        &manifest_path,
-    ] {
-        validate_write_target(&root, path)?;
-    }
-    fs::create_dir_all(&run_directory).map_err(|error| error.to_string())?;
-    fs::create_dir_all(&toolchain_directory).map_err(|error| error.to_string())?;
-    atomic_write(&requirements_path, pretty_json(requirements)?.as_bytes())?;
-    ensure_lithe_gitignore(&ignore_path)?;
-    if !manifest_path.exists() {
-        let mut manifest = json!({ "version": 1 });
-        if let Some(default_id) = default_run_configuration.filter(|value| !value.is_empty()) {
-            manifest["defaultRunConfiguration"] = json!(default_id);
-        }
-        atomic_write(&manifest_path, pretty_json(&manifest)?.as_bytes())?;
-    }
-    atomic_write(&generated_path, pretty_json(generated)?.as_bytes())
-}
-
 fn workspace_relative(root: &Path, path: &Path) -> Option<String> {
     path.strip_prefix(root)
         .ok()
@@ -1442,14 +1383,38 @@ fn join_relative(root: &Path, relative: &str) -> PathBuf {
         .fold(root.to_path_buf(), |path, part| path.join(part))
 }
 
-fn pretty_json(value: &Value) -> Result<String, String> {
-    serde_json::to_string_pretty(value).map_err(|error| error.to_string())
-}
-
 /// Installed JDKs for the Java language service, which binds each project to
 /// the JDK matching the release it compiles for.
 pub(crate) fn discover_java_runtimes(project_root: Option<&Path>) -> Vec<JavaRuntime> {
     probe_java_homes(java_home_candidates(project_root))
+}
+
+/// Uses the same explicit/project-aware selection as Run without probing Maven or Node.
+pub(crate) fn language_service_java_runtimes(
+    root: &Path,
+    configured_home: &str,
+) -> Result<Vec<crate::lsp::JavaLspRuntime>, String> {
+    let mut runtimes = discover_java_runtimes(Some(root));
+    let selected = if configured_home.trim().is_empty() {
+        select_project_java(Some(root), &runtimes)?.id
+    } else {
+        let selected = resolve_java_home(root, configured_home)
+            .map_err(|_| "PROJECT_JDK_INVALID".to_string())?;
+        if let Some(home) = &selected {
+            let runtime = probe_java_home(Path::new(home))
+                .ok_or_else(|| "PROJECT_JDK_INVALID".to_string())?;
+            runtimes.insert(0, runtime);
+        }
+        selected
+    };
+    Ok(runtimes
+        .into_iter()
+        .map(|runtime| crate::lsp::JavaLspRuntime {
+            is_default: selected.as_deref() == Some(runtime.home_path.as_str()),
+            home_path: runtime.home_path,
+            version: runtime.version,
+        })
+        .collect())
 }
 
 fn java_selection_candidates(
@@ -1702,6 +1667,8 @@ fn java_home_candidates(project_root: Option<&Path>) -> Vec<PathBuf> {
                 let path = entry.path();
                 if path.is_dir() {
                     homes.push(path.join("Contents").join("Home"));
+                    // Scoop keeps each app's active version under `current`.
+                    homes.push(path.join("current"));
                     homes.push(path);
                 }
             }
@@ -1730,16 +1697,79 @@ fn well_known_java_roots() -> Vec<PathBuf> {
             }
         }
     }
+    for key in ["ProgramFiles", "LOCALAPPDATA"] {
+        if let Ok(base) = std::env::var(key) {
+            let base = PathBuf::from(base);
+            roots.push(base.join("Semeru"));
+            roots.push(base.join("OpenJDK"));
+        }
+    }
     if let Ok(profile) = std::env::var("USERPROFILE") {
         let profile = PathBuf::from(profile);
         roots.push(profile.join(".jdks"));
         roots.push(profile.join(".sdkman").join("candidates").join("java"));
+        roots.push(profile.join("scoop").join("apps"));
+    }
+    roots.extend(version_manager_install_roots("java"));
+    roots
+}
+
+/// Install directories of `tool` (`java`, `maven`) kept by mise and asdf, whose
+/// shims are not real homes. Mirrors OpenIDEA's version-manager detection
+/// (https://github.com/l0ng-ai/openidea, Apache-2.0); see the repository NOTICE.
+fn version_manager_install_roots(tool: &str) -> Vec<PathBuf> {
+    let variable = |key: &str| {
+        std::env::var_os(key)
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+    };
+    let mut roots = Vec::new();
+    if let Some(mise) =
+        variable("MISE_DATA_DIR").or_else(|| variable("LOCALAPPDATA").map(|base| base.join("mise")))
+    {
+        roots.push(mise.join("installs").join(tool));
+    }
+    if let Some(asdf) =
+        variable("ASDF_DATA_DIR").or_else(|| variable("USERPROFILE").map(|home| home.join(".asdf")))
+    {
+        roots.push(asdf.join("installs").join(tool));
     }
     roots
 }
 
+/// Maven homes installed by version managers and Scoop, after every explicit and
+/// `PATH` candidate so they never shadow a project wrapper or a configured Maven.
+fn version_manager_maven_executables() -> Vec<PathBuf> {
+    let mut roots = version_manager_install_roots("maven");
+    if let Some(profile) = std::env::var_os("USERPROFILE").filter(|value| !value.is_empty()) {
+        let profile = PathBuf::from(profile);
+        roots.push(profile.join(".sdkman").join("candidates").join("maven"));
+        roots.push(profile.join("scoop").join("apps").join("maven"));
+    }
+    let mut executables = Vec::new();
+    for root in roots {
+        let Ok(entries) = fs::read_dir(&root) else {
+            continue;
+        };
+        let mut homes = entries
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| path.is_dir())
+            .collect::<Vec<_>>();
+        homes.sort();
+        for home in homes {
+            executables.extend(
+                MAVEN_LAUNCHERS
+                    .iter()
+                    .map(|name| home.join("bin").join(name)),
+            );
+        }
+    }
+    executables
+}
+
 fn maven_executable_candidates(project_root: Option<&Path>) -> Vec<PathBuf> {
-    maven_executable_candidates_with_sources(
+    let mut executables = maven_executable_candidates_with_sources(
         project_root,
         |key| {
             std::env::var_os(key)
@@ -1747,7 +1777,9 @@ fn maven_executable_candidates(project_root: Option<&Path>) -> Vec<PathBuf> {
                 .map(PathBuf::from)
         },
         lookup_on_path,
-    )
+    );
+    executables.extend(version_manager_maven_executables());
+    executables
 }
 
 fn maven_executable_candidates_with_sources(
@@ -2918,47 +2950,7 @@ mod tests {
     }
 
     #[test]
-    fn write_generated_creates_lithe_documents() {
-        let root = temp_project();
-        let generated = json!({
-            "version": 2,
-            "configurations": [{ "id": "spring-boot.maven:demo", "provider": "spring-boot.maven" }]
-        });
-        let requirements = json!({ "version": 1, "toolchains": {} });
-        write_generated_documents(
-            &root,
-            &generated,
-            &requirements,
-            Some("spring-boot.maven:demo"),
-        )
-        .expect("write");
-        assert!(root
-            .join(".lithe")
-            .join("run")
-            .join("generated.json")
-            .is_file());
-        assert!(root
-            .join(".lithe")
-            .join("toolchains")
-            .join("requirements.json")
-            .is_file());
-        assert_eq!(
-            fs::read_to_string(root.join(".lithe").join(".gitignore")).expect("gitignore"),
-            LITHE_GITIGNORE_ENTRIES.join("\n") + "\n"
-        );
-        let manifest: Value = serde_json::from_str(
-            &fs::read_to_string(root.join(".lithe").join("project.json")).expect("manifest"),
-        )
-        .expect("json");
-        assert_eq!(
-            manifest["defaultRunConfiguration"],
-            "spring-boot.maven:demo"
-        );
-        fs::remove_dir_all(root).ok();
-    }
-
-    #[test]
-    fn write_generated_refuses_paths_outside_the_project() {
+    fn write_targets_refuse_paths_outside_the_project() {
         let root = temp_project();
         let outside = std::env::temp_dir().join("lithe-run-outside.json");
         let result = validate_write_target(&root, &outside);
@@ -3526,26 +3518,25 @@ mod tests {
                 vendor: "fixture".into(),
             },
         ];
-        fs::create_dir_all(root.join(".lithe/toolchains")).unwrap();
-        let requirements = root.join(".lithe/toolchains/requirements.json");
+        // Before the Run list is identified, Core reads the minimum from the
+        // project's own declaration.
+        let pom = root.join("pom.xml");
         fs::write(
-            &requirements,
-            r#"{"version":1,"toolchains":{"project-jdk":{"type":"java","minimumVersion":"17"}}}"#,
+            &pom,
+            "<project><properties><maven.compiler.release>17</maven.compiler.release></properties></project>",
         )
         .unwrap();
         let selected = select_project_java(Some(&root), &runtimes).unwrap();
         assert_eq!(selected.id.as_deref(), Some(runtimes[1].home_path.as_str()));
         assert!(selected.warning.is_none());
         fs::write(
-            &requirements,
-            r#"{"version":1,"toolchains":{"project-jdk":{"type":"java","minimumVersion":"25"}}}"#,
+            &pom,
+            "<project><properties><maven.compiler.release>25</maven.compiler.release></properties></project>",
         )
         .unwrap();
         let fallback = select_project_java(Some(&root), &runtimes).unwrap();
         assert_eq!(fallback.id, selected.id);
         assert!(fallback.warning.unwrap().contains("25"));
-        fs::write(&requirements, "{").unwrap();
-        assert!(select_project_java(Some(&root), &runtimes).is_err());
         // Explicit paths never pass through requirement-based auto selection.
         fs::create_dir_all(root.join("jdk8/bin")).unwrap();
         fs::write(root.join("jdk8/bin/java.exe"), b"fixture").unwrap();
@@ -3808,7 +3799,7 @@ mod tests {
         use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_SYNCHRONIZE};
         let mut command = Command::new("cmd");
         command
-            .args(["/C", "ping -n 30 127.0.0.1"])
+            .args(["/D", "/C", "ping -n 30 127.0.0.1"])
             .stdout(Stdio::piped());
         ProcessTree::prepare(&mut command);
         let mut child = command.spawn().expect("spawn service");
@@ -3854,9 +3845,10 @@ mod tests {
         reader.join().expect("join ready fixture reader");
         fixture.output = Some(stdout);
         result.expect("service descendant output");
-        let descendant = *child_process_ids(fixture.root.id())
-            .first()
-            .expect("service descendant");
+        // A parent PID can also match console helpers. Select the
+        // fixture's ping explicitly, independently of snapshot iteration order.
+        let descendant = fixture_descendant_pid(&child_processes(fixture.root.id()))
+            .expect("unique service descendant");
         // Capture identity before stopping the job: PID snapshots can still list
         // an exited process, and a later lookup can race PID reuse.
         // SAFETY: PROCESS_SYNCHRONIZE grants only waiting; this opens a
@@ -3873,15 +3865,48 @@ mod tests {
     }
 
     #[cfg(windows)]
-    fn child_process_ids(parent: u32) -> Vec<u32> {
+    fn child_processes(parent: u32) -> Vec<(u32, String)> {
         let mut system = sysinfo::System::new();
         system.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
         system
             .processes()
             .values()
             .filter(|process| process.parent() == Some(sysinfo::Pid::from_u32(parent)))
-            .map(|process| process.pid().as_u32())
+            .map(|process| {
+                (
+                    process.pid().as_u32(),
+                    process.name().to_string_lossy().into_owned(),
+                )
+            })
             .collect()
+    }
+
+    #[cfg(windows)]
+    fn fixture_descendant_pid(children: &[(u32, String)]) -> Result<u32, String> {
+        let matches = children
+            .iter()
+            .filter(|(_, name)| name.eq_ignore_ascii_case("ping.exe"))
+            .map(|(pid, _)| *pid)
+            .collect::<Vec<_>>();
+        match matches.as_slice() {
+            [pid] => Ok(*pid),
+            _ => Err(format!(
+                "expected one ping.exe child, found {matches:?}; child processes: {children:?}"
+            )),
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn fixture_descendant_selection_requires_a_unique_ping_process() {
+        let mut children = vec![(41, "conhost.exe".into()), (42, "PING.EXE".into())];
+        assert_eq!(fixture_descendant_pid(&children).unwrap(), 42);
+        children.reverse();
+        assert_eq!(fixture_descendant_pid(&children).unwrap(), 42);
+        assert!(fixture_descendant_pid(&[]).is_err());
+        assert!(fixture_descendant_pid(&[(41, "conhost.exe".into())]).is_err());
+        children.push((43, "ping.exe".into()));
+        assert!(fixture_descendant_pid(&children).is_err());
     }
 
     #[cfg(windows)]

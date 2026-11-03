@@ -239,6 +239,8 @@ enum LitheTheme {
         case sidebar
         case toolHeader
         case popupBackground
+        case panelBorder
+        case popupShadow
         case primaryText
         case secondaryText
         case accent
@@ -264,6 +266,8 @@ enum LitheTheme {
         case .sidebar: palette.sidebar.nsColor
         case .toolHeader: palette.toolHeader.nsColor
         case .popupBackground: palette.popupBackground.nsColor
+        case .panelBorder: palette.panelBorder.nsColor
+        case .popupShadow: palette.popupShadow.nsColor
         case .primaryText: palette.primaryText.nsColor
         case .secondaryText: palette.secondaryText.nsColor
         case .accent: palette.accent.nsColor
@@ -982,7 +986,12 @@ enum LitheTheme {
         static let toolbarHeight: CGFloat = 40
         static let toolWindowHeaderHeight: CGFloat = 41
         static let statusBarHeight: CGFloat = 24
+        // Status bar icon widgets stay inside the 24pt bar so neighbouring
+        // items do not inherit the 28pt tool-window hit box as empty gaps.
+        static let statusBarIconButtonSize: CGFloat = 18
         static let cornerRadius: CGFloat = 5
+        static let popupShadowRadius: CGFloat = 30
+        static let popupShadowOffsetY: CGFloat = 14
         static let popupCornerRadius: CGFloat = 10
         static let contextMenuCornerRadius: CGFloat = 8
         static let controlCornerRadius: CGFloat = 6
@@ -1041,6 +1050,17 @@ extension View {
     func litheIconButton() -> some View {
         self
             .buttonStyle(LitheIconButtonStyle())
+            .lithePointer()
+    }
+
+    /// Compact icon button for status bar widgets; inherits the bar's
+    /// secondary text color instead of the tool-window foreground.
+    func litheStatusBarIconButton() -> some View {
+        self
+            .buttonStyle(LitheIconButtonStyle(
+                size: LitheTheme.Metrics.statusBarIconButtonSize,
+                foreground: LitheTheme.secondaryText,
+                cornerRadius: 4))
             .lithePointer()
     }
 
@@ -1521,7 +1541,7 @@ extension View {
                 RoundedRectangle(cornerRadius: cornerRadius)
                     .stroke(LitheTheme.panelBorder, lineWidth: 1)
             }
-            .shadow(color: LitheTheme.popupShadow, radius: 30, y: 14)
+            .shadow(color: LitheTheme.popupShadow, radius: LitheTheme.Metrics.popupShadowRadius, y: LitheTheme.Metrics.popupShadowOffsetY)
     }
 }
 

@@ -176,7 +176,6 @@ function capabilityForCommand(command: string): BackendCapability | null {
     command === "run_start_process" ||
     command === "run_stop_process" ||
     command === "run_write_documents" ||
-    command === "run_write_generated" ||
     command === "run_write_stdin"
   ) {
     return "run";

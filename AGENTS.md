@@ -76,9 +76,9 @@
 
 ## 脚本放置与分类
 
-新增、移动脚本前，先阅读 `develop-lithe` Skill 的“脚本放置与分类”一节。脚本必须放在 `scripts/` 下，
+新增、移动脚本前，先阅读 `develop-lithe` Skill 的参考页 `.agents/skills/develop-lithe/references/scripts.md`（脚本放置与分类）。脚本必须放在 `scripts/` 下，
 并按作用语义放进对应子目录（CI 脚本在 `scripts/ci/<工作流名>/` 下），不得直接放在 `scripts/` 根目录。
-入口文件只保留这条提醒，目录表和同步清单以 Skill 为准。
+入口文件只保留这条提醒，目录表和同步清单以该参考页为准。
 
 ## 工作树资源复用与文档维护
 
@@ -106,7 +106,7 @@
 
 插件契约在本仓库的 `shared/contracts/plugins/v1/` 定义，和执行它的 Rust Core 一起修改。
 公开仓库 [Lithe-IDEA/lithe-plugin-docs](https://github.com/Lithe-IDEA/lithe-plugin-docs)
-的 `contract/v1/` 保存这个目录的逐字节副本，连同开发指南、教程和两个官方插件后端 SDK（Node、Java）的
+的 `contract/v1/` 保存这个目录的逐字节副本，连同开发指南、教程和三个官方插件后端 SDK（Node、Java、Rust）的
 源码、发版和端到端测试。插件开发者只看 lithe-plugin-docs 就能开发，不需要克隆本仓库，所以两个仓库的契约
 必须保持一致：
 
@@ -117,7 +117,7 @@
   会拒绝离开该目录的相对链接。
 - 面向插件开发者的新说明写进 lithe-plugin-docs，不写进本仓库或 Lithe Store。
 - 本仓库不保存 SDK。修改插件后端协议（例如 `rust/lithe-core/src/lsp/interface/plugin_function.rs`）时，
-  合并前在 lithe-plugin-docs 运行 `node scripts/sdk-e2e.mjs --source <本仓库路径> --ref <分支>`，确认两个
+  合并前在 lithe-plugin-docs 运行 `node scripts/sdk-e2e.mjs --source <本仓库路径> --ref <分支>`，确认三个
   SDK 的示例后端仍能跑通。
 
 决策原因、同步工具和被否方案见

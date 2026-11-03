@@ -19,4 +19,56 @@ extension AppModel {
     func handleVcsProviderFileChanges(_ changes: [WorkspaceFileChange]) {
         vcsProvidersFeature?.workspaceFilesChanged(changes)
     }
+
+    func showVcsDiffInNewTab(_ change: VcsChange, rootID: String) {
+        guard let feature = vcsProvidersFeature else { return }
+        let generation = workspaceFeature.workspaceGeneration
+        let id = beginRepositoryDiffRequest(isProvider: true)
+        let tabs = editorTabOrderFeature
+        tabs.providerDiffTasks[id] = Task { [weak self, weak tabs] in
+            defer { tabs?.providerDiffTasks[id] = nil }
+            do {
+                let diff = try await feature.diff(for: change, in: rootID)
+                guard let self, self.workspaceFeature.workspaceGeneration == generation, !Task.isCancelled,
+                      self.editorTabOrderFeature.contains(.repositoryDiff(id)) else { return }
+                self.editorTabOrderFeature.providerDiffs[id] = diff
+                self.editorTabOrderFeature.loadingProviderDiffs.remove(id)
+            } catch is CancellationError {
+                if let self, self.workspaceFeature.workspaceGeneration == generation { self.closeRepositoryDiffTab(id) }
+            } catch {
+                guard let self, self.workspaceFeature.workspaceGeneration == generation, !Task.isCancelled,
+                      self.editorTabOrderFeature.contains(.repositoryDiff(id)) else { return }
+                self.closeRepositoryDiffTab(id)
+                feature.report(VcsProvidersFeatureModel.message(for: error), rootID: rootID)
+            }
+        }
+    }
+
+    func requestDeleteVcsFiles(_ changes: [VcsChange], rootID: String) {
+        guard let feature = vcsProvidersFeature, let root = feature.root(rootID) else { return }
+        let unversioned = changes.allSatisfy { $0.status == .unversioned }
+        guard feature.canTrash(changes, in: rootID) || feature.canDelete(changes, in: rootID) else { return }
+        let generation = workspaceFeature.workspaceGeneration
+        let deletion = commitFileDeletion
+        let isCurrent: @MainActor () -> Bool = { [weak self, weak feature] in
+            self?.workspaceFeature.workspaceGeneration == generation && feature?.root(rootID)?.root == root.root
+        }
+        let delete: @MainActor ([URL]) async -> Bool
+        if unversioned {
+            delete = { [weak feature, weak deletion] urls in
+                guard let feature, let deletion else { return false }
+                return await feature.trash(changes, in: rootID) {
+                    await deletion.trash(urls, root: root.url, isCurrent: isCurrent)
+                }
+            }
+        } else {
+            delete = { [weak feature] _ in await feature?.delete(changes, in: rootID) ?? false }
+        }
+        commitFileDeletion.request(changes.map { root.url.appendingPathComponent($0.path) }, root: root.url,
+            usesVcs: !unversioned, isCurrent: isCurrent,
+            isEligible: { [weak feature] in
+                (unversioned ? feature?.canTrash(changes, in: rootID) : feature?.canDelete(changes, in: rootID)) == true
+            }, delete: delete,
+            refresh: { [weak self] in await self?.workspaceFeature.refreshCurrent() })
+    }
 }
