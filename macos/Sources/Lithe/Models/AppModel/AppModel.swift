@@ -726,7 +726,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
 
     func shutdownProjectSession() async {
         isProjectSessionClosed = true
-        toolchainSettingsFeature.close()
+        await toolchainSettingsFeature.closeAndDrain()
         commitFileDeletion.reset()
         // Native window close can retain this model through Settings without
         // closing its workspace. Revoke page requests before teardown can yield.

@@ -17,6 +17,23 @@ const MAX_TOOLS: usize = 64;
 /// Inheritance stays symbolic: changing the workspace default affects the
 /// next resolution without rewriting every consumer or directory.
 pub(super) fn resolve(input: &Value) -> Validation<Value> {
+    let mut choice = resolve_choice(input)?;
+    let document = &input["document"];
+    let directory = input["directory"].as_str().expect("validated directory");
+    let tool = input["tool"].as_str().expect("validated tool");
+    let scope = if directory == "." {
+        &document["workspace"]
+    } else {
+        &document["directories"][directory]
+    };
+    let tools = input["consumer"]
+        .as_str()
+        .map_or(&scope["tools"], |consumer| &scope["consumers"][consumer]);
+    choice["stored"] = tools.get(tool).cloned().unwrap_or(Value::Null);
+    Ok(choice)
+}
+
+fn resolve_choice(input: &Value) -> Validation<Value> {
     let request = object(
         input,
         "input",
@@ -94,6 +111,70 @@ pub(super) fn resolve(input: &Value) -> Validation<Value> {
         Some(binding) => resolved(binding, "workspace", ".", None, workspace, tool),
         None => Ok(automatic(Vec::new())),
     }
+}
+
+/// Edits exactly one local preference; a null value removes only that override.
+/// Empty containers on the edited path are pruned without touching siblings.
+pub(super) fn edit(input: &Value) -> Validation<Value> {
+    let request = object(
+        input,
+        "input",
+        &["document", "directory", "consumer", "tool", "value"],
+    )?;
+    let value = request.get("value").ok_or_else(|| invalid("value"))?;
+    let mut context = input.clone();
+    context
+        .as_object_mut()
+        .expect("validated input")
+        .remove("value");
+    let before = resolve(&context)?;
+    if before["stored"] == *value {
+        return Ok(json!({"document":input["document"],"preferences":before}));
+    }
+    let directory = input["directory"].as_str().expect("validated directory");
+    let tool = input["tool"].as_str().expect("validated tool");
+    let mut path = if directory == "." {
+        vec!["workspace"]
+    } else {
+        vec!["directories", directory]
+    };
+    if let Some(consumer) = input["consumer"].as_str() {
+        path.extend(["consumers", consumer]);
+    } else {
+        path.push("tools");
+    }
+    path.push(tool);
+    let mut document = input["document"].clone();
+    edit_path(&mut document, &path, (!value.is_null()).then_some(value))?;
+    validate(&document)?;
+    context["document"] = document.clone();
+    Ok(json!({"document":document,"preferences":resolve(&context)?}))
+}
+
+fn edit_path(document: &mut Value, path: &[&str], value: Option<&Value>) -> Validation<()> {
+    let (key, remaining) = path.split_first().expect("nonempty preference path");
+    let object = document
+        .as_object_mut()
+        .ok_or_else(|| invalid("document"))?;
+    if remaining.is_empty() {
+        if let Some(value) = value {
+            object.insert((*key).into(), value.clone());
+        } else {
+            object.remove(*key);
+        }
+        return Ok(());
+    }
+    if value.is_none() && !object.contains_key(*key) {
+        return Ok(());
+    }
+    let child = object
+        .entry((*key).to_string())
+        .or_insert_with(|| json!({}));
+    edit_path(child, remaining, value)?;
+    if child.as_object().is_some_and(Map::is_empty) {
+        object.remove(*key);
+    }
+    Ok(())
 }
 
 fn resolved(
@@ -265,6 +346,59 @@ mod tests {
         assert_eq!(response["ok"], true, "{response}");
         assert_eq!(
             response["data"]["preferences"]["fixed"],
+            json!({"home":"/fixture/sdk-one"})
+        );
+    }
+
+    #[test]
+    fn explicit_preference_edit_preserves_siblings_and_reset_exposes_live_inheritance() {
+        let original = document();
+        let edited = edit(&json!({"document":original,"directory":"nested/child","consumer":"dev.example.build/engine",
+            "tool":"dev.example.runtime:sdk","value":{"home":"/fixture/explicit-sdk"}})).unwrap();
+        assert_eq!(
+            edited["preferences"]["stored"],
+            json!({"home":"/fixture/explicit-sdk"})
+        );
+        assert_eq!(edited["document"]["workspace"], original["workspace"]);
+        assert_eq!(
+            edited["document"]["directories"]["nested"],
+            original["directories"]["nested"]
+        );
+        let inherited = edit(&json!({"document":edited["document"],"directory":"nested/child","consumer":"dev.example.build/engine",
+            "tool":"dev.example.runtime:sdk","value":null})).unwrap();
+        assert!(inherited["preferences"]["stored"].is_null());
+        assert_eq!(
+            inherited["preferences"]["fixed"],
+            json!({"home":"/fixture/sdk-one"})
+        );
+        assert_eq!(inherited["document"], original);
+        assert_eq!(edit(&json!({"document":{"version":1},"directory":"missing","consumer":null,"tool":"fixture","value":null})).unwrap()["document"],json!({"version":1}));
+        let empty = json!({"version":1,"workspace":{"consumers":{"dev.example.build/engine":{}}}});
+        assert_eq!(edit(&json!({"document":empty,"directory":".","consumer":"dev.example.build/engine","tool":"fixture","value":null})).unwrap()["document"],empty);
+        assert_eq!(edit(&json!({"document":original,"directory":".","tool":"dev.example.runtime:sdk","value":{"home":"/fixture/sdk-one"}})).unwrap()["document"],original);
+    }
+
+    #[test]
+    fn preference_editor_rejects_missing_values_and_cyclic_scope_references() {
+        for value in [
+            json!({"inherit":"consumer"}),
+            json!({"inherit":"workspace"}),
+            json!({"home":"relative"}),
+        ] {
+            assert!(edit(
+                &json!({"document":{"version":1},"directory":".","tool":"fixture","value":value})
+            )
+            .is_err());
+        }
+        assert!(edit(&json!({"document":{"version":1},"directory":".","tool":"fixture"})).is_err());
+        let edited=edit(&json!({"document":document(),"directory":"nested/child","consumer":"dev.example.build/engine",
+            "tool":"dev.example.runtime:sdk","value":{"inherit":"consumer"}})).unwrap();
+        assert_eq!(
+            edited["preferences"]["stored"],
+            json!({"inherit":"consumer"})
+        );
+        assert_eq!(
+            edited["preferences"]["fixed"],
             json!({"home":"/fixture/sdk-one"})
         );
     }

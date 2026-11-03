@@ -9989,7 +9989,21 @@
     "build.options.conflict": "构建选项已更改。请重新加载后保存，草稿已保留。",
     "build.options.invalid": "无法读取、保存或验证构建选项，请重新加载后重试。",
     "build.targets.saveAndDebug": "保存并调试",
-    "build.debug.unavailable": "已安装的兼容调试适配器不可用，或存在多个匹配项。请启用一个匹配的适配器并重新加载项目。"
+    "build.debug.unavailable": "已安装的兼容调试适配器不可用，或存在多个匹配项。请启用一个匹配的适配器并重新加载项目。",
+    "native.toolchainPreferences.allBuildConsumers": "所有构建使用方",
+    "native.toolchainPreferences.automaticSelection": "自动选择",
+    "native.toolchainPreferences.buildToolDefaults": "构建工具默认值",
+    "native.toolchainPreferences.consumer": "使用方",
+    "native.toolchainPreferences.editDefaults": "编辑默认值",
+    "native.toolchainPreferences.executableFile": "可执行文件",
+    "native.toolchainPreferences.installationDirectory": "安装目录",
+    "native.toolchainPreferences.localBuildPreferencesInfo": "这些本机选择会在构建提供者及其运行配置的下一次操作中生效。保存不会探测或执行工具。继承项会随默认值的后续变化更新。",
+    "native.toolchainPreferences.nextBuildInput": "下次构建输入",
+    "native.toolchainPreferences.savedInput": "已保存的输入",
+    "native.toolchainPreferences.savedInputInfo": "使用方运行时会由现有工具链解析器重新校验此输入。它不代表已验证的当前安装。",
+    "native.toolchainPreferences.useConsumerDefault": "使用方的工作区默认值",
+    "native.toolchainPreferences.useInheritedChoice": "沿用继承选择",
+    "native.toolchainPreferences.useWorkspaceDefault": "使用工作区默认值"
   },
   "overrides": {
     "macos": {

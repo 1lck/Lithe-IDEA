@@ -68,6 +68,20 @@ struct ToolchainSettingsLoaderTests {
         #expect(files.readPaths == [localPath])
     }
 
+    @Test func buildConsumersComeFromTheCurrentCoreInvocationAndDisappearWhenDisabled() async throws {
+        let definition = try source()
+        let fixture = DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("shared/contracts/plugins/v1/fixtures/build-toolchains.plugin.json")
+        let data = Data(try String(contentsOf: fixture, encoding: .utf8)
+            .replacingOccurrences(of: "dev.lithe.fixture.build-toolchains:compiler", with: "compiler").utf8)
+        let build = ToolchainSettingsPluginSource(pluginID: "dev.lithe.fixture.build-toolchains", name: "Build fixture",
+            manifest: data, isEnabled: true)
+        let snapshot = try await loader(sources: { [definition, build] }).load(workspace: workspace)
+        #expect(snapshot.tools.first?.consumers == [.init(id: build.pluginID + "/cargo", title: "Cargo", pluginName: "Build fixture")])
+        let disabled = ToolchainSettingsPluginSource(pluginID: build.pluginID, name: build.name, manifest: data, isEnabled: false)
+        let withdrawn = try await loader(sources: { [definition, disabled] }).load(workspace: workspace)
+        #expect(withdrawn.tools.first?.consumers.isEmpty == true)
+    }
+
     @Test func versionFilesListTheirDirectoriesAndRowsInheritTheNearestFirst() async throws {
         let source = try source(watchFiles: [".fixture-version", "*.fixture"])
         let files = ToolchainLoaderFiles(existing: [

@@ -367,6 +367,8 @@ Swift 单元和插件 CI 通道复用已有 Cargo 下载缓存。先通过
 每次运行重新解析，运行前 native adapter 读取文档并在探测后核对原始内容，不写应用或
 插件资源，不影响代码签名/Sparkle delta。它没有可靠构建 identity stamp，资源清单
 `consumer-tool-preferences` 和复用脚本在所有校验/复制阶段拒绝共享，包括相邻原子替换文件。
+macOS Build 偏好编辑复用同一文档，只在明确 Save/Reset 后条件原子替换并保留元数据；
+打开、取消和空重置不创建资源，外部冲突保留原始草稿。工作区关闭等待原生保存回执。
 
 
 Windows 注册表 stdio 调试器状态位于

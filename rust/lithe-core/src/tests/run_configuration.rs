@@ -7,6 +7,120 @@ use std::fs;
 use std::path::PathBuf;
 
 #[test]
+fn generic_preference_edits_preserve_run_metadata_without_creating_legacy_defaults_or_files() {
+    let root = temporary_root("generic-preference-editor");
+    fs::create_dir_all(&root).unwrap();
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    let call = |command: &str, payload: Value| -> Value {
+        serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id":"generic-preference-editor", "command":command, "payload":payload
+            })
+            .to_string(),
+        ))
+        .unwrap()
+    };
+    let edited = call(
+        "toolchains.editConsumerPreferences",
+        serde_json::json!({
+            "document":{"version":1}, "directory":"services/api", "consumer":"dev.example.build/compile",
+            "tool":"dev.example.runtime:sdk", "value":{"inherit":"consumer"}
+        }),
+    );
+    assert_eq!(edited["ok"], true, "{edited}");
+    assert_eq!(
+        edited["data"]["edit"]["preferences"]["stored"],
+        serde_json::json!({"inherit":"consumer"})
+    );
+    for original in [
+        serde_json::json!({"version":2,"configurations":[]}),
+        serde_json::json!({"version":1,"configurations":[{"id":"user:legacy","type":"java.main","mainClass":"fixture.Main","workingDirectory":".","future":"preserve"}]}),
+        serde_json::json!({"version":2,"configurations":[{"id":"user:task","env":{"TOKEN":"fixture-value"},"future":[1,2]}],
+            "futureMetadata":{"keep":true},"toolchain":{"java":{"homePath":"/fixture/legacy-jdk"},"futureToolchain":{"keep":true}}}),
+    ] {
+        let result = call(
+            "runConfig.updateToolPreferences",
+            serde_json::json!({
+                "localDocument":original,"preferences":edited["data"]["edit"]["document"]
+            }),
+        );
+        assert_eq!(result["ok"], true, "{result}");
+        let saved: Value =
+            serde_json::from_str(result["data"]["document"].as_str().unwrap()).unwrap();
+        assert_eq!(
+            saved["toolchain"]["preferences"],
+            edited["data"]["edit"]["document"]
+        );
+        let mut without_preferences = saved;
+        without_preferences["toolchain"]
+            .as_object_mut()
+            .unwrap()
+            .remove("preferences");
+        if original.get("toolchain").is_none() {
+            without_preferences
+                .as_object_mut()
+                .unwrap()
+                .remove("toolchain");
+        }
+        assert_eq!(without_preferences, original);
+    }
+    assert!(!root.join(".lithe").exists());
+}
+
+#[test]
+fn generic_preference_editor_rejects_invalid_documents_and_references_without_writing() {
+    let root = temporary_root("invalid-generic-preference-editor");
+    fs::create_dir_all(&root).unwrap();
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    for (local, preferences) in [
+        (
+            serde_json::json!({"version":4294967298_u64,"configurations":[]}),
+            serde_json::json!({"version":1}),
+        ),
+        (
+            serde_json::json!({"version":999,"configurations":[]}),
+            serde_json::json!({"version":1}),
+        ),
+        (
+            serde_json::json!({"version":2,"configurations":{}}),
+            serde_json::json!({"version":1}),
+        ),
+        (
+            serde_json::json!({"version":2,"configurations":[],"toolchain":42}),
+            serde_json::json!({"version":1}),
+        ),
+        (
+            serde_json::json!({"version":2,"configurations":[]}),
+            serde_json::json!({"version":1,"workspace":{"tools":{"java":{"inherit":"workspace"}}}}),
+        ),
+    ] {
+        let result: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id":"invalid-generic-preferences", "command":"runConfig.updateToolPreferences",
+                "payload":{"localDocument":local,"preferences":preferences}
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(result["ok"], false, "{result}");
+        assert!(result["data"].is_null());
+    }
+    assert!(!root.join(".lithe").exists());
+}
+
+#[test]
 fn project_tool_preferences_preserve_symbolic_choices_across_legacy_editor_saves_and_explicit_reset(
 ) {
     let root = temporary_root("project-tool-preferences");

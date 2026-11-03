@@ -542,7 +542,7 @@
         "<native-document-adapter>/.lithe/run/local.json adjacent atomic replacement files"
       ],
       "identity": "Machine-local user choices and symbolic workspace/consumer inheritance, not a generated resource; no version/platform/architecture/toolchain build identity stamp.",
-      "reason": "The existing Run document owns these preferences until explicit reset or workspace removal. Native operations capture and recheck the source after discovery; only guarded explicit Run/settings saves may replace it. Never copy, share, symlink or hardlink this state between worktrees at any validation or publication stage. App/plugin resources and code signatures/Sparkle delta remain unchanged. References are re-resolved at use time and do not become reusable execution evidence."
+      "reason": "The existing Run document owns these preferences until explicit reset or workspace removal. Native operations capture and recheck the source after discovery; only guarded explicit Run/settings saves may replace it. Never copy, share, symlink or hardlink this state between worktrees at any validation or publication stage. App/plugin resources and code signatures/Sparkle delta remain unchanged. References are re-resolved at use time and do not become reusable execution evidence. The macOS Build editor keeps inert drafts in memory, preserves existing file metadata on explicit conditional publication and drains native writes on workspace shutdown; opening, cancelling and resetting an absent value create no resource."
     }
   ]
 }

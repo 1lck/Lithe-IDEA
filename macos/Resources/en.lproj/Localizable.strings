@@ -177,6 +177,7 @@
 "A rebase cannot start with any uncommitted changes, including these unrelated to '%@':" = "A rebase cannot start with any uncommitted changes, including these unrelated to '%@':";
 "A removed Hook cannot be saved." = "A removed Hook cannot be saved.";
 "A running local JVM and its JDK jstat tool are required." = "A running local JVM and its JDK jstat tool are required.";
+"A saved input is revalidated by the existing toolchain resolver when the consumer runs. It is not a verified current installation." = "A saved input is revalidated by the existing toolchain resolver when the consumer runs. It is not a verified current installation.";
 "A secure connection to %@ could not be established. Check TLS inspection, proxy, VPN, or system certificate settings." = "A secure connection to %@ could not be established. Check TLS inspection, proxy, VPN, or system certificate settings.";
 "A secure connection to GitHub could not be established. Check TLS inspection, proxy, VPN, or system certificate settings." = "A secure connection to GitHub could not be established. Check TLS inspection, proxy, VPN, or system certificate settings.";
 "A secure connection to the MCP Registry could not be established. Check the proxy or retry directly." = "A secure connection to the MCP Registry could not be established. Check the proxy or retry directly.";
@@ -311,6 +312,7 @@
 "Agents run on the Node.js installed on this Mac. Install or update Node.js yourself, then check again." = "Agents run on the Node.js installed on this Mac. Install or update Node.js yourself, then check again.";
 "All" = "All";
 "All Branches" = "All Branches";
+"All Build consumers" = "All Build consumers";
 "All References" = "All References";
 "All Repositories" = "All Repositories";
 "All Users" = "All Users";
@@ -440,6 +442,7 @@
 "Automatic" = "Automatic";
 "Automatic discovery" = "Automatic discovery";
 "Automatic query ×%lld, identical results" = "Automatic query ×%lld, identical results";
+"Automatic selection" = "Automatic selection";
 "Automatic tries your SSH agent and keys first, then asks for a password. Lithe asks in a dialog whenever the server needs an answer, such as a password, a passphrase, or a verification code." = "Automatic tries your SSH agent and keys first, then asks for a password. Lithe asks in a dialog whenever the server needs an answer, such as a password, a passphrase, or a verification code.";
 "Automatic uses a project mvnw first, then detected Maven, then mvnd." = "Automatic uses a project mvnw first, then detected Maven, then mvnd.";
 "Automatically accept all file edits" = "Automatically approve file edits; other actions follow permission rules.";
@@ -518,6 +521,7 @@
 "Build provider" = "Build provider";
 "Build provider model changed. Regenerate Run configurations before running." = "Build provider model changed. Regenerate Run configurations before running.";
 "Build system" = "Build system";
+"Build tool defaults" = "Build tool defaults";
 "Build, Execution, Deployment" = "Build, Execution, Deployment";
 "Build, run and debug" = "Build, run and debug";
 "Build-system language import is still preparing. Retry when project loading completes." = "Build-system language import is still preparing. Retry when project loading completes.";
@@ -932,6 +936,7 @@
 "Connection timeout" = "Connection timeout";
 "Connections: %lld" = "Connections: %lld";
 "Console" = "Console";
+"Consumer" = "Consumer";
 "Consumers" = "Consumers";
 "Content" = "Content";
 "Content SHA-256" = "Content SHA-256";
@@ -1356,6 +1361,7 @@
 "Edit Shortcuts" = "Edit Shortcuts";
 "Edit Watch" = "Edit Watch";
 "Edit configuration text" = "Edit configuration text";
+"Edit defaults" = "Edit defaults";
 "Edit exception breakpoint" = "Edit exception breakpoint";
 "Edit files and stage the changes you want to include. Amend and Continue updates this commit; Continue keeps the existing commit." = "Edit files and stage the changes you want to include. Amend and Continue updates this commit; Continue keeps the existing commit.";
 "Edit message" = "Edit message";
@@ -1481,6 +1487,7 @@
 "Excluded from indexing by a parent directory" = "Excluded from indexing by a parent directory";
 "Exclusion list" = "Exclusion list";
 "Executable" = "Executable";
+"Executable file" = "Executable file";
 "Execute Maven Goal" = "Execute Maven Goal";
 "Execute Maven goal" = "Execute Maven goal";
 "Execute the next source line" = "Execute the next source line";
@@ -1896,6 +1903,7 @@
 "Install the selected channel" = "Install the selected channel";
 "Install the tool on the remote host, add it to the login PATH, and refresh the available runtimes." = "Install the tool on the remote host, add it to the login PATH, and refresh the available runtimes.";
 "Installation" = "Installation";
+"Installation directory" = "Installation directory";
 "Installation: %@" = "Installation: %@";
 "Installations found in the locations this tool's plugin declares. Each version comes from the tool's own version command, and the highest one is used. Installations inside the project are never run." = "Installations found in the locations this tool's plugin declares. Each version comes from the tool's own version command, and the highest one is used. Installations inside the project are never run.";
 "Installations of %@ could not be checked." = "Installations of %@ could not be checked.";
@@ -2425,6 +2433,7 @@
 "New terminal session" = "New terminal session";
 "New terminal with shell" = "New terminal with shell";
 "New window" = "New window";
+"Next Build input" = "Next Build input";
 "Next File" = "Next File";
 "Next Match" = "Next Match";
 "Next console expression" = "Next console expression";
@@ -3486,6 +3495,7 @@
 "Saved in .lithe/run/configurations.json for the whole team. Local JDK paths are never shared." = "Saved in .lithe/run/configurations.json for the whole team. Local JDK paths are never shared.";
 "Saved in .lithe/run/local.json and excluded from Git." = "Saved in .lithe/run/local.json and excluded from Git.";
 "Saved in Keychain" = "Saved in Keychain";
+"Saved input" = "Saved input";
 "Saved only for this project on this computer in .lithe/run/local.json and excluded from Git." = "Saved only for this project on this computer in .lithe/run/local.json and excluded from Git.";
 "Saved to %@" = "Saved to %@";
 "Saved, not verified" = "Saved, not verified";
@@ -4348,6 +4358,7 @@
 "These choices apply to this Fetch only. Git configuration and credentials remain unchanged." = "These choices apply to this Fetch only. Git configuration and credentials remain unchanged.";
 "These defaults apply only to this project on this computer. Run configurations inherit them unless overridden. Use the Project save scope in a run configuration to share settings with your team." = "These defaults apply only to this project on this computer. Run configurations inherit them unless overridden. Use the Project save scope in a run configuration to share settings with your team.";
 "These files will be moved to the macOS Trash." = "These files will be moved to the macOS Trash.";
+"These machine-local choices apply to Build providers and their Run configurations on the next operation. Saving does not probe or execute a tool. Inherited choices follow later default changes." = "These machine-local choices apply to Build providers and their Run configurations on the next operation. Saving does not probe or execute a tool. Inherited choices follow later default changes.";
 "These overrides affect only this run configuration. Clear a path to inherit the project environment." = "These overrides affect only this run configuration. Clear a path to inherit the project environment.";
 "These processes left their terminal or tool to keep running in the background, like daemons and dev servers. Checked items end when Lithe quits; unchecked items keep running." = "These processes left their terminal or tool to keep running in the background, like daemons and dev servers. Checked items end when Lithe quits; unchecked items keep running.";
 "These programs were started in Lithe before it closed unexpectedly. Checked items are ended now; unchecked items keep running and are not tracked anymore." = "These programs were started in Lithe before it closed unexpectedly. Checked items are ended now; unchecked items keep running and are not tracked anymore.";
@@ -4651,11 +4662,13 @@
 "Use a valid file or directory name" = "Use a valid file or directory name";
 "Use an Agent in your project" = "Use an Agent in your project";
 "Use automatic value" = "Use automatic value";
+"Use consumer default" = "Use consumer default";
 "Use credential helper" = "Use credential helper";
 "Use detected JDK" = "Use detected JDK";
 "Use fast processing" = "Use fast processing";
 "Use form" = "Use form";
 "Use full HTTP path for credentials" = "Use full HTTP path for credentials";
+"Use inherited choice" = "Use inherited choice";
 "Use letters, digits, dots, dashes or underscores. The name must start with a letter or digit." = "Use letters, digits, dots, dashes or underscores. The name must start with a letter or digit.";
 "Use local configuration or add your own provider." = "Use local configuration or add your own provider.";
 "Use mvnw or detected Maven" = "Use mvnw or detected Maven";
@@ -4674,6 +4687,7 @@
 "Use the standard response speed" = "Use the standard response speed";
 "Use this when a repository or Git default needs a one-off adjustment." = "Use this when a repository or Git default needs a one-off adjustment.";
 "Use up to 64 lowercase letters, digits and single hyphens for the skill name." = "Use up to 64 lowercase letters, digits and single hyphens for the skill name.";
+"Use workspace default" = "Use workspace default";
 "Use your local ChatGPT account. No API key or URL is needed." = "Use your local ChatGPT account. No API key or URL is needed.";
 "Used" = "Used";
 "Used %@" = "Used %@";
@@ -9316,6 +9330,20 @@
 "native.toolWindow" = "Tool Window";
 "native.toolWindows" = "Tool Windows";
 "native.toolbarActions" = "Toolbar Actions";
+"native.toolchainPreferences.allBuildConsumers" = "All Build consumers";
+"native.toolchainPreferences.automaticSelection" = "Automatic selection";
+"native.toolchainPreferences.buildToolDefaults" = "Build tool defaults";
+"native.toolchainPreferences.consumer" = "Consumer";
+"native.toolchainPreferences.editDefaults" = "Edit defaults";
+"native.toolchainPreferences.executableFile" = "Executable file";
+"native.toolchainPreferences.installationDirectory" = "Installation directory";
+"native.toolchainPreferences.localBuildPreferencesInfo" = "These machine-local choices apply to Build providers and their Run configurations on the next operation. Saving does not probe or execute a tool. Inherited choices follow later default changes.";
+"native.toolchainPreferences.nextBuildInput" = "Next Build input";
+"native.toolchainPreferences.savedInput" = "Saved input";
+"native.toolchainPreferences.savedInputInfo" = "A saved input is revalidated by the existing toolchain resolver when the consumer runs. It is not a verified current installation.";
+"native.toolchainPreferences.useConsumerDefault" = "Use consumer default";
+"native.toolchainPreferences.useInheritedChoice" = "Use inherited choice";
+"native.toolchainPreferences.useWorkspaceDefault" = "Use workspace default";
 "native.toolchainSettings.answeredIn" = "Answered in %1$lld ms";
 "native.toolchainSettings.automaticDiscovery" = "Automatic discovery";
 "native.toolchainSettings.automaticStepInfo" = "Installations found in the locations this tool's plugin declares. Each version comes from the tool's own version command, and the highest one is used. Installations inside the project are never run.";

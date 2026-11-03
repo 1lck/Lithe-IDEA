@@ -1291,6 +1291,10 @@ final class MacServiceContainer {
             discover: { request in await toolchainDiscovery.discover(request) }
         )
         services.toolchainInputWatcher = MacToolchainInputWatcher()
+        services.toolchainPreferences = MacToolchainPreferencesStore(core: rustCore, storage: fileStorage,
+            immutableRoots: { [pluginPackageStore] in
+                [Bundle.main.bundleURL] + pluginPackageStore.runtimeReadOnlyDirectories + installedPlugins.map(\.packageURL)
+            })
         services.projectGeneratorSources = { [pluginManager] in
             // Enablement is read on every call, so a plugin enabled from the
             // window shows its entries and satisfies requirements at once.

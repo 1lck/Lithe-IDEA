@@ -177,6 +177,7 @@
 "A rebase cannot start with any uncommitted changes, including these unrelated to '%@':" = "变基无法在存在任何未提交更改时开始，包括下列与“%@”无关的更改：";
 "A removed Hook cannot be saved." = "无法保存已移除的 Hook。";
 "A running local JVM and its JDK jstat tool are required." = "需要运行中的本地 JVM 及其 JDK jstat 工具。";
+"A saved input is revalidated by the existing toolchain resolver when the consumer runs. It is not a verified current installation." = "使用方运行时会由现有工具链解析器重新校验此输入。它不代表已验证的当前安装。";
 "A secure connection to %@ could not be established. Check TLS inspection, proxy, VPN, or system certificate settings." = "无法与 %@ 建立安全连接。请检查 TLS 检查、代理、VPN 或系统证书设置。";
 "A secure connection to GitHub could not be established. Check TLS inspection, proxy, VPN, or system certificate settings." = "无法与 GitHub 建立安全连接。请检查 TLS 检查、代理、VPN 或系统证书设置。";
 "A secure connection to the MCP Registry could not be established. Check the proxy or retry directly." = "无法与 MCP Registry 建立安全连接。请检查代理，或使用直连重试。";
@@ -311,6 +312,7 @@
 "Agents run on the Node.js installed on this Mac. Install or update Node.js yourself, then check again." = "Agent 运行在这台 Mac 上已安装的 Node.js 之上。请自行安装或升级 Node.js，然后重新检测。";
 "All" = "全部";
 "All Branches" = "全部分支";
+"All Build consumers" = "所有构建使用方";
 "All References" = "所有引用";
 "All Repositories" = "全部仓库";
 "All Users" = "所有用户";
@@ -440,6 +442,7 @@
 "Automatic" = "自动";
 "Automatic discovery" = "自动检测";
 "Automatic query ×%lld, identical results" = "自动查询 %lld 次，结果相同";
+"Automatic selection" = "自动选择";
 "Automatic tries your SSH agent and keys first, then asks for a password. Lithe asks in a dialog whenever the server needs an answer, such as a password, a passphrase, or a verification code." = "“自动”会先尝试 SSH Agent 和密钥，再询问密码。服务器需要回答时（例如密码、私钥口令或验证码），Lithe 会弹窗询问。";
 "Automatic uses a project mvnw first, then detected Maven, then mvnd." = "自动模式会优先使用项目 mvnw，其次使用检测到的 Maven，最后使用 mvnd。";
 "Automatically accept all file edits" = "自动批准文件编辑，其他操作仍按权限规则处理。";
@@ -518,6 +521,7 @@
 "Build provider" = "构建 Provider";
 "Build provider model changed. Regenerate Run configurations before running." = "构建 Provider 模型已更改。请重新生成运行配置后再运行。";
 "Build system" = "构建系统";
+"Build tool defaults" = "构建工具默认值";
 "Build, Execution, Deployment" = "构建、执行、部署";
 "Build, run and debug" = "构建、运行与调试";
 "Build-system language import is still preparing. Retry when project loading completes." = "构建系统的语言导入仍在准备中。请在项目加载完成后重试。";
@@ -932,6 +936,7 @@
 "Connection timeout" = "连接超时";
 "Connections: %lld" = "连接：%lld";
 "Console" = "控制台";
+"Consumer" = "使用方";
 "Consumers" = "使用方";
 "Content" = "内容";
 "Content SHA-256" = "内容 SHA-256";
@@ -1356,6 +1361,7 @@
 "Edit Shortcuts" = "编辑快捷键";
 "Edit Watch" = "编辑监视";
 "Edit configuration text" = "编辑配置文本";
+"Edit defaults" = "编辑默认值";
 "Edit exception breakpoint" = "编辑异常断点";
 "Edit files and stage the changes you want to include. Amend and Continue updates this commit; Continue keeps the existing commit." = "修改文件并暂存需要包含的更改。“修订并继续”会更新当前提交；“继续”会保留现有提交。";
 "Edit message" = "编辑消息";
@@ -1481,6 +1487,7 @@
 "Excluded from indexing by a parent directory" = "继承父目录的索引排除";
 "Exclusion list" = "排除列表";
 "Executable" = "可执行文件";
+"Executable file" = "可执行文件";
 "Execute Maven Goal" = "执行 Maven 目标";
 "Execute Maven goal" = "执行 Maven 目标";
 "Execute the next source line" = "执行下一行源代码";
@@ -1896,6 +1903,7 @@
 "Install the selected channel" = "安装所选渠道版本";
 "Install the tool on the remote host, add it to the login PATH, and refresh the available runtimes." = "请在远程主机上安装工具并加入登录环境的 PATH，然后刷新可用运行环境。";
 "Installation" = "安装来源";
+"Installation directory" = "安装目录";
 "Installation: %@" = "安装来源：%@";
 "Installations found in the locations this tool's plugin declares. Each version comes from the tool's own version command, and the highest one is used. Installations inside the project are never run." = "在插件为该工具声明的位置中找到的安装。每个版本来自该工具自己的版本命令，使用其中最高的版本。项目内的安装永远不会运行。";
 "Installations of %@ could not be checked." = "无法检查 %@ 的安装。";
@@ -2425,6 +2433,7 @@
 "New terminal session" = "新建终端会话";
 "New terminal with shell" = "使用 Shell 新建终端";
 "New window" = "新窗口";
+"Next Build input" = "下次构建输入";
 "Next File" = "下一个文件";
 "Next Match" = "下一个匹配项";
 "Next console expression" = "下一条表达式";
@@ -3486,6 +3495,7 @@
 "Saved in .lithe/run/configurations.json for the whole team. Local JDK paths are never shared." = "保存在 .lithe/run/configurations.json，供整个团队使用。本机 JDK 路径不会共享。";
 "Saved in .lithe/run/local.json and excluded from Git." = "保存在 .lithe/run/local.json，并已从 Git 中排除。";
 "Saved in Keychain" = "已保存在钥匙串中";
+"Saved input" = "已保存的输入";
 "Saved only for this project on this computer in .lithe/run/local.json and excluded from Git." = "仅为这台电脑上的此项目保存在 .lithe/run/local.json，并已从 Git 中排除。";
 "Saved to %@" = "已保存到 %@";
 "Saved, not verified" = "已保存，未验证";
@@ -4348,6 +4358,7 @@
 "These choices apply to this Fetch only. Git configuration and credentials remain unchanged." = "这些选项仅用于本次获取。Git 配置和凭据保持不变。";
 "These defaults apply only to this project on this computer. Run configurations inherit them unless overridden. Use the Project save scope in a run configuration to share settings with your team." = "这些默认设置仅作用于这台电脑上的此项目。运行配置默认继承，单独设置时可覆盖。需要与团队共享的设置，请在运行配置中选择“项目”保存范围。";
 "These files will be moved to the macOS Trash." = "这些文件将移到 macOS 废纸篓。";
+"These machine-local choices apply to Build providers and their Run configurations on the next operation. Saving does not probe or execute a tool. Inherited choices follow later default changes." = "这些本机选择会在构建提供者及其运行配置的下一次操作中生效。保存不会探测或执行工具。继承项会随默认值的后续变化更新。";
 "These overrides affect only this run configuration. Clear a path to inherit the project environment." = "以下覆盖值仅影响当前运行配置。清空路径可恢复继承项目环境。";
 "These processes left their terminal or tool to keep running in the background, like daemons and dev servers. Checked items end when Lithe quits; unchecked items keep running." = "这些进程已脱离所在的终端或工具，在后台独立运行，例如守护进程和开发服务器。勾选的项目会在 Lithe 退出时结束；未勾选的项目继续运行。";
 "These programs were started in Lithe before it closed unexpectedly. Checked items are ended now; unchecked items keep running and are not tracked anymore." = "这些程序是 Lithe 意外关闭前在 Lithe 中启动的。勾选的项目会立即结束；未勾选的项目继续运行，Lithe 之后不再管理它们。";
@@ -4651,11 +4662,13 @@
 "Use a valid file or directory name" = "请输入有效的文件或目录名称";
 "Use an Agent in your project" = "在项目中使用 Agent";
 "Use automatic value" = "使用自动值";
+"Use consumer default" = "使用方的工作区默认值";
 "Use credential helper" = "使用凭据助手";
 "Use detected JDK" = "使用检测到的 JDK";
 "Use fast processing" = "使用快速处理模式";
 "Use form" = "使用表单";
 "Use full HTTP path for credentials" = "凭据使用完整 HTTP 路径";
+"Use inherited choice" = "沿用继承选择";
 "Use letters, digits, dots, dashes or underscores. The name must start with a letter or digit." = "只能使用字母、数字、点、短横线或下划线，且必须以字母或数字开头。";
 "Use local configuration or add your own provider." = "使用本机配置或添加自定义供应商。";
 "Use mvnw or detected Maven" = "使用 mvnw 或检测到的 Maven";
@@ -4674,6 +4687,7 @@
 "Use the standard response speed" = "使用标准响应速度";
 "Use this when a repository or Git default needs a one-off adjustment." = "仅在需要临时调整仓库或 Git 默认值时使用。";
 "Use up to 64 lowercase letters, digits and single hyphens for the skill name." = "技能名称最多 64 个字符，请使用小写字母、数字和单个连字符。";
+"Use workspace default" = "使用工作区默认值";
 "Use your local ChatGPT account. No API key or URL is needed." = "使用本机已登录的 ChatGPT 账号，无需 API Key 或 URL。";
 "Used" = "已用";
 "Used %@" = "已使用 %@";
@@ -9316,6 +9330,20 @@
 "native.toolWindow" = "工具窗口";
 "native.toolWindows" = "工具窗口";
 "native.toolbarActions" = "工具栏操作";
+"native.toolchainPreferences.allBuildConsumers" = "所有构建使用方";
+"native.toolchainPreferences.automaticSelection" = "自动选择";
+"native.toolchainPreferences.buildToolDefaults" = "构建工具默认值";
+"native.toolchainPreferences.consumer" = "使用方";
+"native.toolchainPreferences.editDefaults" = "编辑默认值";
+"native.toolchainPreferences.executableFile" = "可执行文件";
+"native.toolchainPreferences.installationDirectory" = "安装目录";
+"native.toolchainPreferences.localBuildPreferencesInfo" = "这些本机选择会在构建提供者及其运行配置的下一次操作中生效。保存不会探测或执行工具。继承项会随默认值的后续变化更新。";
+"native.toolchainPreferences.nextBuildInput" = "下次构建输入";
+"native.toolchainPreferences.savedInput" = "已保存的输入";
+"native.toolchainPreferences.savedInputInfo" = "使用方运行时会由现有工具链解析器重新校验此输入。它不代表已验证的当前安装。";
+"native.toolchainPreferences.useConsumerDefault" = "使用方的工作区默认值";
+"native.toolchainPreferences.useInheritedChoice" = "沿用继承选择";
+"native.toolchainPreferences.useWorkspaceDefault" = "使用工作区默认值";
 "native.toolchainSettings.answeredIn" = "%1$lld 毫秒内已回答";
 "native.toolchainSettings.automaticDiscovery" = "自动检测";
 "native.toolchainSettings.automaticStepInfo" = "在插件为该工具声明的位置中找到的安装。每个版本来自该工具自己的版本命令，使用其中最高的版本。项目内的安装永远不会运行。";

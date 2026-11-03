@@ -293,6 +293,11 @@ fn execute(request: &str) -> CoreResponse {
             parsed.payload,
             crate::toolchain::resolve_consumer_preferences_command,
         ),
+        CoreCommand::ToolchainsEditConsumerPreferences => plugin_response(
+            id,
+            parsed.payload,
+            crate::toolchain::edit_consumer_preferences_command,
+        ),
         CoreCommand::ToolchainsResolve => {
             plugin_response(id, parsed.payload, crate::toolchain::resolve_command)
         }
@@ -2289,6 +2294,14 @@ fn execute(request: &str) -> CoreResponse {
             {
                 Ok(data) => CoreResponse::success(id, data),
                 Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::RunConfigUpdateToolPreferences => {
+            match serde_json::from_value::<crate::execution::UpdateToolPreferencesRequest>(parsed.payload)
+                .map_err(|error| CoreError::new(ErrorCode::InvalidRequest,"Invalid tool preferences request").with_details(error.to_string()))
+                .and_then(crate::execution::update_tool_preferences) {
+                Ok(data) => CoreResponse::success(id,data),
+                Err(error) => CoreResponse::failure(id,error),
             }
         }
         CoreCommand::RunConfigSaveEditorChanges => {

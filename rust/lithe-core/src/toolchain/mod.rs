@@ -58,6 +58,11 @@ pub fn resolve_consumer_preferences_command(input: Value) -> Result<Value, CoreE
     command(input, preferences::resolve, "preferences")
 }
 
+/// Changes one inert consumer preference without native writes or side effects.
+pub fn edit_consumer_preferences_command(input: Value) -> Result<Value, CoreError> {
+    command(input, preferences::edit, "edit")
+}
+
 /// Resolves one tool using the same validated registry and candidate snapshot.
 pub fn resolve_command(input: Value) -> Result<Value, CoreError> {
     command(input, resolution::resolve, "resolution")

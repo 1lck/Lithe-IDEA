@@ -95902,6 +95902,160 @@
       "platforms": [
         "windows"
       ]
+    },
+    {
+      "id": "native.toolchainPreferences.buildToolDefaults",
+      "description": "Machine-local Build tool preference editor: Build tool defaults",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Build tool defaults",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainPreferences.editDefaults",
+      "description": "Machine-local Build tool preference editor: Edit defaults",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Edit defaults",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainPreferences.localBuildPreferencesInfo",
+      "description": "Machine-local Build tool preference editor: These machine-local choices apply to Build providers and their Run configurations on the next operation. Saving does not probe or execute a tool. Inherited choices follow later default changes.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "These machine-local choices apply to Build providers and their Run configurations on the next operation. Saving does not probe or execute a tool. Inherited choices follow later default changes.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainPreferences.consumer",
+      "description": "Machine-local Build tool preference editor: Consumer",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Consumer",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainPreferences.allBuildConsumers",
+      "description": "Machine-local Build tool preference editor: All Build consumers",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "All Build consumers",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainPreferences.savedInput",
+      "description": "Machine-local Build tool preference editor: Saved input",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Saved input",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainPreferences.savedInputInfo",
+      "description": "Machine-local Build tool preference editor: A saved input is revalidated by the existing toolchain resolver when the consumer runs. It is not a verified current installation.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "A saved input is revalidated by the existing toolchain resolver when the consumer runs. It is not a verified current installation.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainPreferences.nextBuildInput",
+      "description": "Machine-local Build tool preference editor: Next Build input",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Next Build input",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainPreferences.automaticSelection",
+      "description": "Machine-local Build tool preference editor: Automatic selection",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Automatic selection",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainPreferences.useInheritedChoice",
+      "description": "Machine-local Build tool preference editor: Use inherited choice",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Use inherited choice",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainPreferences.useWorkspaceDefault",
+      "description": "Machine-local Build tool preference editor: Use workspace default",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Use workspace default",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainPreferences.useConsumerDefault",
+      "description": "Machine-local Build tool preference editor: Use consumer default",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Use consumer default",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainPreferences.installationDirectory",
+      "description": "Machine-local Build tool preference editor: Installation directory",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Installation directory",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainPreferences.executableFile",
+      "description": "Machine-local Build tool preference editor: Executable file",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Executable file",
+        "arguments": []
+      }
     }
   ]
 }

@@ -9989,7 +9989,21 @@
     "build.options.conflict": "Build options changed. Reload before saving; your draft has been kept.",
     "build.options.invalid": "Build options could not be read, saved or verified. Reload before retrying.",
     "build.targets.saveAndDebug": "Save and Debug",
-    "build.debug.unavailable": "A compatible installed debug adapter is unavailable or ambiguous. Enable one matching adapter and reload the project."
+    "build.debug.unavailable": "A compatible installed debug adapter is unavailable or ambiguous. Enable one matching adapter and reload the project.",
+    "native.toolchainPreferences.allBuildConsumers": "All Build consumers",
+    "native.toolchainPreferences.automaticSelection": "Automatic selection",
+    "native.toolchainPreferences.buildToolDefaults": "Build tool defaults",
+    "native.toolchainPreferences.consumer": "Consumer",
+    "native.toolchainPreferences.editDefaults": "Edit defaults",
+    "native.toolchainPreferences.executableFile": "Executable file",
+    "native.toolchainPreferences.installationDirectory": "Installation directory",
+    "native.toolchainPreferences.localBuildPreferencesInfo": "These machine-local choices apply to Build providers and their Run configurations on the next operation. Saving does not probe or execute a tool. Inherited choices follow later default changes.",
+    "native.toolchainPreferences.nextBuildInput": "Next Build input",
+    "native.toolchainPreferences.savedInput": "Saved input",
+    "native.toolchainPreferences.savedInputInfo": "A saved input is revalidated by the existing toolchain resolver when the consumer runs. It is not a verified current installation.",
+    "native.toolchainPreferences.useConsumerDefault": "Use consumer default",
+    "native.toolchainPreferences.useInheritedChoice": "Use inherited choice",
+    "native.toolchainPreferences.useWorkspaceDefault": "Use workspace default"
   },
   "overrides": {
     "windows": {

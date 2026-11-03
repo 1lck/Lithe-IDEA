@@ -187,6 +187,43 @@ pub struct ToolchainPaths {
     pub preferences: Option<Value>,
 }
 
+/// Replaces only generic preferences in a captured machine-local Run document.
+/// Legacy fields remain owned by their existing consumers until cutover.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UpdateToolPreferencesRequest {
+    /// Required captured local layer; this command never reads native files.
+    pub local_document: Value,
+    /// Inert v1 preferences already edited by the shared preference command.
+    pub preferences: Value,
+}
+
+/// Produces a Run-document replacement without materializing legacy defaults.
+pub fn update_tool_preferences(request: UpdateToolPreferencesRequest) -> Result<Value, CoreError> {
+    let mut document = request.local_document;
+    // A preference edit must not trigger legacy Run migration or silently
+    // narrow an unknown 64-bit version into a supported document version.
+    if !matches!(document["version"].as_u64(), Some(1 | 2)) {
+        return Err(CoreError::new(
+            ErrorCode::NotSupported,
+            "Unsupported run configuration version",
+        ));
+    }
+    configuration_ids(&document)?;
+    validate_toolchain_path_overrides(&document)?;
+    crate::toolchain::preferences::validate(&request.preferences)
+        .map_err(|error| CoreError::new(ErrorCode::InvalidRequest, error.message))?;
+    let object = document
+        .as_object_mut()
+        .ok_or_else(|| CoreError::new(ErrorCode::InvalidRequest, "Invalid local Run document"))?;
+    let toolchain = object.entry("toolchain").or_insert_with(|| json!({}));
+    let toolchain = toolchain.as_object_mut().ok_or_else(|| {
+        CoreError::new(ErrorCode::InvalidRequest, "Invalid local tool preferences")
+    })?;
+    toolchain.insert("preferences".into(), request.preferences);
+    Ok(json!({"document":serde_json::to_string_pretty(&document).expect("validated Run document")}))
+}
+
 /// Tool paths owned by a subproject; empty fields inherit the project defaults.
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

@@ -63,6 +63,24 @@ Debug service 14、LSP 86、错误映射 2 项均通过。同一宿主的
 适配器/Build 完整准入与旧 Maven/Java/Agent 生产消费者切换；正式 SDK/插件发行；两端
 完整 GUI 与发行组合验收。连接调试接线缩小了 Windows 缺口，没有完成阶段 D。
 
+### macOS Build 偏好显式编辑（2026-11-02，实现中）
+
+设置页从当前启用插件的 Core invocation 列出真实 Build 使用方，可编辑通用目录默认
+或特定消费者的安装目录、可执行文件与 workspace/consumer 符号继承。Core 的精确
+作用域编辑和 Run 文档替换只改 preferences，打开/取消/无变化重置不建文件；原生保存
+检查草稿最初版本，保留文件元数据并回读。草稿重开不能悄悄吸收外部版本，关闭取消
+保存并排除晚到发布。只有偏好的文档不阻断旧 Project 默认迁移。
+
+新增回归捕获并修复了最终文件缺失时父目录别名被整路径规范化漏过的问题，现复用
+逐目录不跟随链接校验。Core 1635 项逐项计时全通过，4 项新增编辑/JSON 回归为 4–5ms；
+macOS 扩展 240 项相关回归通过，包含深浅主题原生 Save/Reset 按钮、使用方撤回及
+工作区关闭回执等待；新增按钮 133ms，新增存储回归为 1–5ms。随后继续补严格捕获
+文档编辑：v1 Run 项原样保留，不触发旧格式迁移；超大未知版本号拒绝；来源读失败
+仍保留当前草稿；Core 1635 项与直接受影响的 macOS 171 项再次通过。最终补充
+保留已有空容器的无修改 Reset 后，当前源码 10 项偏好/Run JSON 定向计时全通过。报告前缀
+`stage-d-preference-editor-*`。这些是本机偏好与组件证据；Windows 编辑、全局默认、
+旧默认动态迁移、完整产品与正式包仍保留为退出条件。
+
 ### 通用工具偏好与两端消费（2026-11-02，实现中）
 
 Core 新增无 I/O 的 `toolchains.resolveConsumerPreferences`：按 Run 明确值、当前消费者、
@@ -77,14 +95,16 @@ macOS Build invocation 与 Windows native Build 使用当前插件/构建系统�
 没有增加 Maven/Java 名字分支，也没有改变公开 Build invocation JSON。资源清单新增
 现有 Run 偏好的拒绝项；不写安装包、签名资源或跨 worktree 共享缓存。
 
-本批只接通存储协议与两端运行前读取；设置页写入、全局默认及旧 Project/Maven 默认的
-一次性无损转换尚未接通，旧数据没有删改。不能把这项基础标成工具迁移全部完成。
+该批先接通存储协议与两端运行前读取；后续 macOS 显式编辑见下。全局默认及旧
+Project/Maven 默认的一次性无损转换尚未接通，不能把这项基础标成工具迁移全部完成。
 本批 Core 1631 项全量通过，消费者 ID 按实际插件清单语法校验后的 8 项定向计时也通过
 （6–12ms）；原生 Project 107 项全通过，新默认变化/探测期失效/无效文档为 27/11/7ms。
 macOS 166 项回归通过（默认重读/来源变化/越界输入为 56/14/2ms）；随后补充 Run 文档
 2MiB 上限与大型无关元数据后，最终 macOS 186 项扩展回归全部通过，报告为
 `stage-d-tool-preferences-macos-complete`。host 生产/测试检查仍只有
-macOS 上既有的两处 Windows API 错误，不能算本批原生 Windows 通过。
+macOS 上既有的两处 Windows API 错误。随后 aa8a4a7e 的 Windows CI 41466245542
+全部通过：host 398/3 跳过、Project 107/1 跳过、Core 与真实 JDT 各 1595；SDK
+41466252742 与 Maven 41466259510 的固定组合也通过。
 
 验证报告前缀 `stage-d-tool-preferences-*`；首次 Core golden 因多加公开 consumerID 字段
 失败，移除该字段并让平台从当前已安装贡献提供身份；首次 Swift 夹具每次重新编码清单

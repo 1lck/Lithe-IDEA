@@ -1,5 +1,6 @@
 import LitheModuleAPI
 import Foundation
+import Darwin
 
 enum MacRunConfigurationStoreError: LocalizedError, Sendable {
     case invalidProject
@@ -73,7 +74,10 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
                 status: payload.status == "ready" ? .ready : .missing,
                 diagnostics: diagnostics(from: payload.diagnostics),
                 recoveryAction: payload.status == "ready" ? .none : .regenerate,
-                projectToolchain: payload.toolchain.map { toolchain in
+                projectToolchain: payload.toolchain.flatMap { toolchain -> ProjectToolchainSelection? in
+                    // Generic preferences do not prove legacy defaults were migrated.
+                    guard toolchain.java != nil || toolchain.maven != nil || toolchain.pathOverrides != nil else { return nil }
+                    return
                     ProjectToolchainSelection(
                         javaHomePath: toolchain.java?.homePath ?? "",
                         mavenExecutablePath: toolchain.maven?.executablePath ?? "",
@@ -328,6 +332,7 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
     }
 
     func saveProjectToolchain(_ toolchain: ProjectToolchainSelection, at projectURL: URL, expecting expected: Data?) throws {
+        try Task.checkCancellation()
         let root = projectURL.standardizedFileURL
         let url = root.appendingPathComponent(".lithe/run/local.json")
         let current = storage.fileExists(at: url) ? try storage.readData(from: url, options: []) : nil
@@ -344,13 +349,71 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
         }
         // Settings can be saved before generation creates the normal ignore file.
         // Protect machine paths before making the local document visible to Git.
+        try Task.checkCancellation()
         try ensureLocalRunIgnored(at: root)
         try validateWriteTarget(url, root: root)
         try storage.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        guard try storage.replaceData(data, at: url, expecting: expected) else {
+        try Task.checkCancellation()
+        guard try storage.replaceDataPreservingMetadata(data, at: url, expecting: expected) else {
             throw ProjectRuntimeSettingsStoreError.conflict
         }
         MacFileWriteEventSuppression.markWritten(url)
+    }
+
+    /// The generic editor replaces only preferences; it must not generate any
+    /// legacy language/build defaults or claim those sources were migrated.
+    func saveToolPreferences(_ preferences: ToolingJSONValue, at projectURL: URL, expecting expected: Data?) throws {
+        try Task.checkCancellation()
+        let root = projectURL.standardizedFileURL
+        let url = root.appendingPathComponent(".lithe/run/local.json")
+        try Self.validateLocalPreferenceTarget(url, root: root, immutableRoots: immutableRoots)
+        let current = try MacToolchainSettingsLoader.safeNativeRead(url, maximumBytes: 2_097_152)
+        guard current == expected else { throw ProjectRuntimeSettingsStoreError.conflict }
+        let local = try expected.map { try JSONDecoder().decode(ToolingJSONValue.self, from: $0) }
+            ?? .object(["version": .integer(2), "configurations": .array([])])
+        struct Mutation: Decodable { let document: String }
+        let payload: ToolingJSONValue = .object(["localDocument": local, "preferences": preferences])
+        let result: Result<Mutation, RustCoreBridge.CoreCallError> = core.executeResult(command: "runConfig.updateToolPreferences", payload: payload)
+        let data = Data(try result.get().document.utf8)
+        guard data.count <= 2_097_152 else { throw ToolchainPreferenceError.invalid }
+        if data == expected { return }
+        try Task.checkCancellation()
+        try ensureLocalRunIgnored(at: root)
+        try Self.validateLocalPreferenceTarget(url, root: root, immutableRoots: immutableRoots)
+        try storage.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Task.checkCancellation()
+        try Self.validateLocalPreferenceTarget(url, root: root, immutableRoots: immutableRoots)
+        guard try storage.replaceDataPreservingMetadata(data, at: url, expecting: expected) else { throw ProjectRuntimeSettingsStoreError.conflict }
+        MacFileWriteEventSuppression.markWritten(url)
+    }
+
+    /// Foundation does not resolve an existing parent link when the leaf is
+    /// absent. Inspect each existing component through the shared no-follow
+    /// path adapter so a missing `run` directory cannot hide such an alias.
+    static func validateLocalPreferenceTarget(_ url: URL, root: URL, immutableRoots: [URL]) throws {
+        let root = root.standardizedFileURL
+        let canonical = root.resolvingSymlinksInPath().path
+        let source = url.standardizedFileURL.path
+        guard source.hasPrefix(root.path + "/") else { throw ToolchainPreferenceError.invalid }
+        let relative = String(source.dropFirst(root.path.count + 1))
+        let components = try MacWorkspaceSecurePath.components(of: relative)
+        let target = canonical + "/" + relative
+        guard !immutableRoots.contains(where: {
+            let path = $0.standardizedFileURL.resolvingSymlinksInPath().path
+            return canonical == path || canonical.hasPrefix(path + "/") || target == path || target.hasPrefix(path + "/")
+        }) else { throw ToolchainPreferenceError.invalid }
+        var descriptor = try MacWorkspaceSecurePath.openRoot(root)
+        defer { Darwin.close(descriptor) }
+        do {
+            for component in components.dropLast() {
+                let next = try MacWorkspaceSecurePath.openDirectory([component][...], below: descriptor)
+                Darwin.close(descriptor); descriptor = next
+            }
+            if let name = components.last {
+                let status = try MacWorkspaceSecurePath.status(of: name, in: descriptor)
+                guard MacWorkspaceSecurePath.kind(of: status) == .file else { throw ToolchainPreferenceError.invalid }
+            }
+        } catch PluginWorkspaceFileError.notFound { return }
     }
 
     func saveEditorChanges(
@@ -667,6 +730,12 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
                 "Refusing to write outside the project directory."
             )
         }
+        let resolvedTarget = url.standardizedFileURL.resolvingSymlinksInPath().path
+        guard resolvedTarget.hasPrefix(resolvedRoot + "/"), !immutableRoots.contains(where: {
+            let immutable = $0.standardizedFileURL.resolvingSymlinksInPath().path
+            return resolvedRoot == immutable || resolvedRoot.hasPrefix(immutable + "/")
+                || resolvedTarget == immutable || resolvedTarget.hasPrefix(immutable + "/")
+        }) else { throw ProjectRuntimeSettingsStoreError.conflict }
     }
 
     private func configurationKind(_ value: String) -> RunConfigurationKind {

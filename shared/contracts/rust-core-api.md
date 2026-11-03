@@ -1096,6 +1096,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `runConfig.generate` | Generate deterministic Java/Maven configurations and toolchain requirements |
 | `runConfig.resolve` | Merge generated, project, and local layers and return diagnostics |
 | `runConfig.updateOptions` | Apply typed option edits and return an updated project or local document |
+| `runConfig.updateToolPreferences` | Replace only generic preferences in a captured local Run document, preserving legacy defaults and unrelated metadata |
 | `runConfig.saveEditorChanges` | Prepare the local and optional project documents for one editor save |
 | `runConfig.createUserConfiguration` | Validate a typed user configuration and return an updated document |
 | `runConfig.createLaunchPlan` | Project one effective configuration into a platform-neutral Run or Debug plan |
@@ -1168,6 +1169,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `toolchains.failureReply` | Build the JSON-RPC error reply for a query that missed its deadline or found no backend, so the host passes it to `toolchains.decodeReply` like a provider's own error; cancellation has none |
 | `toolchains.resolvePins` | Validate a captured local document and find the nearest ancestor directory pin, retaining dormant and legacy entries without probing or writing |
 | `toolchains.resolveConsumerPreferences` | Validate an inert consumer preference document and resolve one tool's explicit Run, consumer, directory or workspace choice while keeping workspace/consumer inheritance symbolic; no native files or launch authority |
+| `toolchains.editConsumerPreferences` | Edit or reset one exact consumer/directory tool preference; return the document and effective input without native writes |
 | `toolchains.resolve` | Resolve the fixed/project/global/automatic layers from one generation-bound snapshot, retaining unmet requirements, unavailable providers with their cause, conflicts and terminal fixed-value failures |
 | `toolchains.checkVersion` | Match captured output with an enabled plugin definition's version expression and compare generic numeric components with an optional minimum; never starts a probe |
 | `toolchains.discoveryPlan` | Return platform-filtered definition-owned scan declarations, layouts, probes, PATH entries, login-shell home variables and budgets; never scans native directories |
@@ -4937,7 +4939,7 @@ consumer's workspace preference and then the workspace tool. References cannot t
 scopes or themselves, so they cannot form cycles. Missing workspace tools return `fixed: null`,
 which means the normal toolchain resolver still owns automatic/project/global selection.
 
-The response is `{status: ok, preferences: {fixed, source, inheritance}}`, or the standard rejected
+The response is `{status: ok, preferences: {fixed, source, inheritance, stored}}`, or the standard rejected
 `plugin.toolchain.invalidParams` / `plugin.toolchain.limitExceeded` envelope. Fixed values remain
 inert inputs to the existing resolver; this command cannot register a tool, prove package trust,
 resolve a version, write preferences or grant permission to run a program. Native consumers must
@@ -4946,5 +4948,20 @@ recheck their source bytes and active definitions after discovery. The shared fi
 preserve, or pass an empty v1 document to reset. `runConfig.projectToolchain` returns the inert
 `toolPreferences` alongside existing fields. The native host supplies the current
 installed plugin/build-system contribution identity; both native Build consumers read these preferences
-before the existing proof pipeline and recheck their bytes afterwards. Settings UI, global defaults
-and one-time legacy migration remain incomplete; this API alone does not complete Stage D.
+before the existing proof pipeline and recheck their bytes afterwards. `stored` is the value at exactly
+the requested scope, or null when that scope inherits. It is separate from the resolved `fixed` input.
+
+`toolchains.editConsumerPreferences` accepts `{document, directory, consumer?, tool, value}`.
+`value` is required: null removes only that scope's override; otherwise it is a fixed selection or
+an allowed symbolic inheritance reference. The command validates both the original and edited
+documents, preserves siblings, prunes empty containers along the edited path, and returns
+`{status: ok, edit: {document, preferences}}`. Resetting an absent value is a no-op.
+
+`runConfig.updateToolPreferences` accepts `{localDocument, preferences}` and returns
+`{document}` containing the replacement local Run JSON. It replaces only `toolchain.preferences`;
+it does not materialize legacy language/build defaults, migrate v1 Run entries or modify other fields.
+The captured `localDocument` is required; this command performs no native I/O. Unknown document
+versions are rejected without numeric narrowing. The native adapter owns bounded reads, cancellation,
+read-only package boundaries, optimistic comparison, metadata-preserving atomic replacement and
+read-back. No editor command discovers or executes tools. Global defaults and complete one-time
+legacy migration remain incomplete; these APIs alone do not complete Stage D.

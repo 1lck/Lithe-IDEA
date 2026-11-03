@@ -165,6 +165,26 @@ struct MacToolchainSettingsLoader: ToolchainSettingsLoading {
         }
         guard definitions.count <= 256 else { throw ToolchainSettingsLoadError.invalidDeclarations }
         definitions.sort { $0.id < $1.id }
+        var consumers: [String: [ToolchainSettingsSnapshot.Tool.Consumer]] = [:]
+        for source in enabled {
+            let manifest = try JSONSerialization.jsonObject(with: source.manifest) as? [String: Any] ?? [:]
+            for build in try contribution(manifest, key: "buildSystems", maximum: 32) {
+                guard let id = text(build["id"], maximum: 64), let title = text(build["displayName"], maximum: 128) else {
+                    throw ToolchainSettingsLoadError.invalidDeclarations
+                }
+                let target = BuildSystemTarget(manifest: source.manifest, buildSystemID: id)
+                // The shared invocation plan owns platform filtering and tool
+                // references. Reading metadata must never probe or start a task.
+                guard let plan = try? RustBuildSystemOperations(core: RustCoreBridge()).invocationPlan(target, root: ".") else { continue }
+                let tools = Set((plan.executables + plan.runtimeDependencies.flatMap(\.executables)).compactMap { candidate -> String? in
+                    if case .toolchain(let id, _) = candidate { return id }
+                    return nil
+                })
+                for tool in tools where knownTools.contains(tool) {
+                    consumers[tool, default: []].append(.init(id: source.pluginID + "/" + id, title: title, pluginName: source.name))
+                }
+            }
+        }
         // Disabled definitions also disappear from provider tool capsules; no provider is invoked.
         providers = providers.map { provider in
             var result = provider
@@ -246,7 +266,7 @@ struct MacToolchainSettingsLoader: ToolchainSettingsLoading {
                     versionFiles: files, requirements: discovered.requirements[queried]?[definition.id] ?? [],
                     globalRequirements: discovered.globalRequirements[definition.id] ?? [],
                     candidate: candidate, detection: discovered.detections[definition.id],
-                    resolution: discovered.resolutions[resolved]?[definition.id]))
+                    resolution: discovered.resolutions[resolved]?[definition.id], consumers: consumers[definition.id] ?? []))
             }
         }
         let queried = providers.map { provider in

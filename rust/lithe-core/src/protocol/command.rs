@@ -118,6 +118,8 @@ pub enum CoreCommand {
     ToolchainsResolvePins,
     /// Resolves consumer defaults while keeping workspace inheritance symbolic.
     ToolchainsResolveConsumerPreferences,
+    /// Edits one machine-local consumer preference and returns its effective input.
+    ToolchainsEditConsumerPreferences,
     /// Resolves the four toolchain layers from a captured value snapshot.
     ToolchainsResolve,
     /// Checks a plugin-defined version probe without per-tool parsing.
@@ -423,6 +425,8 @@ pub enum CoreCommand {
     RunConfigResolve,
     /// Persists editable run options (`runConfig.updateOptions`).
     RunConfigUpdateOptions,
+    /// Replaces generic local tool preferences while preserving existing Run data.
+    RunConfigUpdateToolPreferences,
     /// Prepares one complete run-configuration editor save (`runConfig.saveEditorChanges`).
     RunConfigSaveEditorChanges,
     /// Adds a user-authored run configuration (`runConfig.createUserConfiguration`).
@@ -639,6 +643,7 @@ impl CoreCommand {
             "toolchains.resolveConsumerPreferences" => {
                 Some(Self::ToolchainsResolveConsumerPreferences)
             }
+            "toolchains.editConsumerPreferences" => Some(Self::ToolchainsEditConsumerPreferences),
             "toolchains.resolve" => Some(Self::ToolchainsResolve),
             "toolchains.checkVersion" => Some(Self::ToolchainsCheckVersion),
             "toolchains.discoveryPlan" => Some(Self::ToolchainsDiscoveryPlan),
@@ -788,6 +793,7 @@ impl CoreCommand {
             "runConfig.generate" => Some(Self::RunConfigGenerate),
             "runConfig.resolve" => Some(Self::RunConfigResolve),
             "runConfig.updateOptions" => Some(Self::RunConfigUpdateOptions),
+            "runConfig.updateToolPreferences" => Some(Self::RunConfigUpdateToolPreferences),
             "runConfig.saveEditorChanges" => Some(Self::RunConfigSaveEditorChanges),
             "runConfig.createUserConfiguration" => Some(Self::RunConfigCreateUserConfiguration),
             "runConfig.createLaunchPlan" => Some(Self::RunConfigCreateLaunchPlan),
