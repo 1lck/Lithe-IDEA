@@ -4119,6 +4119,8 @@ dependencies = [
  "lithe-ui",
  "lsp-types",
  "memory-stats",
+ "quick-xml 0.37.5",
+ "reqwest",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -4199,6 +4201,7 @@ dependencies = [
  "lithe-features",
  "lithe-platform",
  "lithe-ui",
+ "serde_json",
 ]
 
 [[package]]

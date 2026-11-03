@@ -9,6 +9,7 @@
 //! 只负责合并结果并 `notify`。
 
 pub mod agent;
+pub mod bug_report;
 mod console;
 pub mod editor;
 pub mod git;
@@ -18,6 +19,7 @@ pub mod logging;
 pub mod markdown_preview;
 pub mod maven;
 pub mod memory;
+pub mod plugins;
 pub mod quick_open;
 pub mod run;
 pub mod search;

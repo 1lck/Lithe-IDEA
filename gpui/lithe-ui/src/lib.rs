@@ -23,6 +23,7 @@ mod tokens;
 
 pub mod components;
 pub mod i18n;
+pub mod links;
 pub mod shortcut;
 
 pub use assets::{APP_LOGO_PATH, LitheAssets};
@@ -32,5 +33,5 @@ pub use fonts::{
 pub use i18n::{language, set_language, tr};
 pub use icons::{LitheIcon, icon};
 pub use metrics::LitheMetrics;
-pub use theme::{current_tokens, install_theme, toggle_dark};
+pub use theme::{current_tokens, install_theme, registered_themes, toggle_dark};
 pub use tokens::{LitheThemeKind, LitheTokens};

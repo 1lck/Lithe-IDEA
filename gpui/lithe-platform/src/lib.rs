@@ -10,8 +10,11 @@ mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
 mod recent_projects;
+mod system;
 #[cfg(target_os = "windows")]
 mod windows;
+
+pub use system::{DarkMode, system_appearance};
 
 use std::future::Future;
 use std::path::{Path, PathBuf};

@@ -11,3 +11,4 @@ lithe-ui = { path = "../lithe-ui" }
 lithe-core-client = { path = "../lithe-core-client" }
 lithe-platform = { path = "../lithe-platform" }
 lithe-features = { path = "../lithe-features" }
+serde_json = { workspace = true }
