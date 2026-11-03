@@ -1,7 +1,7 @@
 //! 编辑区标签条。
 //!
-//! 与 IDEA 一致使用多行换行（`flex_wrap`）而不是单行滚动：标签超出宽度后
-//! 换到下一行，每行 34pt。活动标签有 3pt 主题下划线。
+//! 布局由 [`EditorTabLayout`] 决定：单行（超出横向滚动）或多行换行；默认
+//! 单行，对齐 Tauri `editorTabLayoutMode` 的默认值。活动标签有 3pt 主题下划线。
 
 use std::rc::Rc;
 
@@ -34,6 +34,25 @@ impl EditorTabItem {
     }
 }
 
+/// 标签条布局：单行（超出横向滚动）或多行换行。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum EditorTabLayout {
+    #[default]
+    SingleLine,
+    MultipleRows,
+}
+
+impl EditorTabLayout {
+    /// 从设置字符串解析；未知值退回默认单行。
+    pub fn from_setting(value: &str) -> Self {
+        if value.eq_ignore_ascii_case("multipleRows") {
+            Self::MultipleRows
+        } else {
+            Self::SingleLine
+        }
+    }
+}
+
 type SelectHandler = Rc<dyn Fn(SharedString, &mut Window, &mut App) + 'static>;
 type CloseHandler = Rc<dyn Fn(SharedString, &mut Window, &mut App) + 'static>;
 type ContextMenuHandler =
@@ -44,6 +63,7 @@ pub struct EditorTabs {
     id: ElementId,
     tabs: Vec<EditorTabItem>,
     active: Option<SharedString>,
+    layout: EditorTabLayout,
     on_select: Option<SelectHandler>,
     on_close: Option<CloseHandler>,
     on_context_menu: Option<ContextMenuHandler>,
@@ -55,10 +75,17 @@ impl EditorTabs {
             id: id.into(),
             tabs: Vec::new(),
             active: None,
+            layout: EditorTabLayout::default(),
             on_select: None,
             on_close: None,
             on_context_menu: None,
         }
+    }
+
+    /// 标签条布局；默认单行横向滚动。
+    pub fn tab_layout(mut self, layout: EditorTabLayout) -> Self {
+        self.layout = layout;
+        self
     }
 
     pub fn tabs(mut self, tabs: impl IntoIterator<Item = EditorTabItem>) -> Self {
@@ -103,18 +130,21 @@ impl RenderOnce for EditorTabs {
             id,
             tabs,
             active,
+            layout,
             on_select,
             on_close,
             on_context_menu,
         } = self;
 
+        let single_line = layout == EditorTabLayout::SingleLine;
         let root_id = id.to_string();
         let mut bar = div()
             .id(id)
             .w_full()
             .flex()
             .flex_row()
-            .flex_wrap()
+            .when(single_line, |this| this.overflow_x_scroll())
+            .when(!single_line, |this| this.flex_wrap())
             .items_center()
             .flex_shrink_0()
             // 对齐 macOS `multipleRowsEditorTabLayout`：标签条四周留 2pt

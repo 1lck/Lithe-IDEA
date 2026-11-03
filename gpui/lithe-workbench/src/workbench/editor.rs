@@ -8,7 +8,7 @@ use gpui_kit::{
 };
 use lithe_features::EditorSurface;
 use lithe_features::editor::EditorEvent;
-use lithe_ui::components::editor_tabs::{EditorTabItem, EditorTabs};
+use lithe_ui::components::editor_tabs::{EditorTabItem, EditorTabLayout, EditorTabs};
 use lithe_ui::i18n::tr;
 use lithe_ui::{LitheMetrics, LitheTokens, current_tokens};
 
@@ -64,6 +64,10 @@ impl Workbench {
                 EditorTabs::new("lithe-editor-tabs")
                     .tabs(items)
                     .active(self.active_tab.clone().unwrap_or_default())
+                    // 标签页布局跟随设置：singleLine（横向滚动）/ multipleRows。
+                    .tab_layout(EditorTabLayout::from_setting(
+                        &self.settings.editor_tab_layout,
+                    ))
                     .on_select(select)
                     .on_close(close)
                     .on_context_menu(move |id, position, window, cx| {
@@ -174,6 +178,39 @@ impl Workbench {
         diff.update(cx, |view, diff_cx| {
             view.set_root(root, diff_cx);
             view.show(commit, path, diff_cx);
+        });
+        self.commit_diff_visible = true;
+        cx.notify();
+    }
+
+    /// 在中央编辑区打开工作区 / 暂存维度的文件差异。
+    ///
+    /// 对齐 Tauri `viewFileDiff`（`commitHash: "working-tree"` 差异页）：
+    /// Core `git.diff` 不带 commit/reference 时按 `staged` / `untracked`
+    /// 返回未提交差异。
+    pub(super) fn open_diff_source(
+        &mut self,
+        source: lithe_features::git::GitDiffSource,
+        path: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let root = self.project_root.clone();
+        let diff = self.commit_diff.clone();
+        diff.update(cx, |view, diff_cx| {
+            view.set_root(root, diff_cx);
+            match source {
+                lithe_features::git::GitDiffSource::Commit(commit) => {
+                    view.show(commit, path, diff_cx);
+                }
+                lithe_features::git::GitDiffSource::WorkingTree { staged, untracked } => {
+                    // 未跟踪文件叠加在未提交维度里展示（Core 的 untracked
+                    // 展开会把新增文件渲染成全绿行）；CommitDiffView 的
+                    // staged 参数即工作区维度开关。
+                    let _ = untracked;
+                    view.show_working_tree(staged, path, diff_cx);
+                }
+            }
         });
         self.commit_diff_visible = true;
         cx.notify();
@@ -357,6 +394,7 @@ impl Workbench {
         let auto_completion = settings.auto_completion;
         let parameter_hints = settings.parameter_hints;
         let semantic_tokens = settings.semantic_tokens;
+        let font_family = settings.editor_font_family.clone();
 
         self.editor.update(cx, |editor, editor_cx| {
             editor.set_preferences(
@@ -368,6 +406,7 @@ impl Workbench {
                 window,
                 editor_cx,
             );
+            editor.set_font_family(font_family.clone(), editor_cx);
             editor.set_render_whitespace(render_whitespace, window, editor_cx);
             editor.set_editor_extras(font_ligatures, code_lens, tab_size, editor_cx);
             editor.set_language_service_preferences(
@@ -389,6 +428,7 @@ impl Workbench {
                     window,
                     editor_cx,
                 );
+                editor.set_font_family(font_family.clone(), editor_cx);
                 editor.set_render_whitespace(render_whitespace, window, editor_cx);
                 editor.set_editor_extras(font_ligatures, code_lens, tab_size, editor_cx);
                 editor.set_language_service_preferences(

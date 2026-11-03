@@ -5,7 +5,7 @@
 //! 同步这些副本并刷新窗口；不要直接改 `Theme::global_mut`。
 
 use gpui_kit::component::{Theme, ThemeColor, ThemeMode};
-use gpui_kit::{App, Global, px, white};
+use gpui_kit::{App, Global, SharedString, px, white};
 
 use crate::fonts::{mono_font_family, ui_font_family};
 use crate::{LitheMetrics, LitheThemeKind, LitheTokens};
@@ -65,6 +65,37 @@ pub fn current_tokens(cx: &App) -> LitheTokens {
     cx.try_global::<LitheThemeState>()
         .map(|state| state.tokens)
         .unwrap_or_else(|| LitheTokens::for_theme(LitheThemeKind::Lithe, true))
+}
+
+/// 已注册的主题列表：`(稳定 id, 显示名)`。
+///
+/// 对齐 Tauri `useRegisteredThemes` 的固定内置主题表。稳定 id 与设置里的
+/// 主题名以及菜单命令 `view.theme.{id}` 一致；显示名是数据（主题名不做
+/// i18n 翻译），View > Theme 子菜单直接消费这一列表。
+pub fn registered_themes() -> Vec<(SharedString, SharedString)> {
+    vec![
+        (
+            SharedString::from(theme_id(LitheThemeKind::Lithe)),
+            SharedString::from("Lithe"),
+        ),
+        (
+            SharedString::from(theme_id(LitheThemeKind::Codex)),
+            SharedString::from("Codex"),
+        ),
+        (
+            SharedString::from(theme_id(LitheThemeKind::Linear)),
+            SharedString::from("Linear"),
+        ),
+    ]
+}
+
+/// 主题类型的稳定 id；与 `theme_kind_for` 的解析端约定一致。
+fn theme_id(kind: LitheThemeKind) -> &'static str {
+    match kind {
+        LitheThemeKind::Lithe => "lithe",
+        LitheThemeKind::Codex => "codex",
+        LitheThemeKind::Linear => "linear",
+    }
 }
 
 /// Lithe token 到 gpui-kit `ThemeColor` 的语义映射。

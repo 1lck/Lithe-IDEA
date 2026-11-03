@@ -112,13 +112,22 @@ pub(crate) enum DockAnchor {
 /// 提交工具窗标题栏操作菜单里的动作。
 ///
 /// 标题栏在 `commit_header` 里渲染，真正的 Git 写操作由 `GitPanel` 执行，
-/// 两者通过这个枚举传递意图，避免布局层直接拼命令。
+/// 两者通过这个枚举传递意图，避免布局层直接拼命令。管理器对话框只传意图
+/// （`Dialog`），职开 gpui-kit 对话框由工作台覆盖层完成。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[allow(dead_code)]
 pub(crate) enum CommitHeaderAction {
     StageAll,
     UnstageAll,
     DiscardSelected,
+    /// 丢弃全部（Core `git.write discardAll`，确认受 confirmBeforeDiscard）。
+    DiscardAll,
+    /// Fetch 直执行（对齐 Tauri handleFetch，无对话框）。
+    Fetch,
+    /// 无仓库态的初始化（Core `git.initialize`）。
+    Initialize,
+    /// 打开 Git 管理器对话框（Push / Pull / Branch / …）。
+    Dialog(lithe_features::git::GitDialogKind),
 }
 
 /// 工作台支持的工具窗。
@@ -328,13 +337,13 @@ impl Workbench {
         cx.notify();
     }
 
+    /// 头栏「隐藏文件」开关。对齐 Tauri `showHiddenFilesInFileTree`：真实
+    /// 落点是项目树的点前缀行投影过滤；勾选状态只本会话记忆。
     pub(crate) fn toggle_show_hidden_files(&mut self, cx: &mut Context<Self>) {
         self.project_show_hidden = !self.project_show_hidden;
-        cx.notify();
-    }
-
-    pub(crate) fn toggle_show_ignored_files(&mut self, cx: &mut Context<Self>) {
-        self.project_show_ignored = !self.project_show_ignored;
+        let visible = self.project_show_hidden;
+        self.project_tree
+            .update(cx, |tree, tree_cx| tree.set_show_dotfiles(visible, tree_cx));
         cx.notify();
     }
 
@@ -631,17 +640,62 @@ impl Workbench {
     /// 提交工具窗标题栏操作菜单的转发入口。
     ///
     /// 标题栏只负责呈现，真正的 Git 写操作仍由 `GitPanel` 拥有；这里把菜单
-    /// 请求转给同一个实体，避免在布局层复制业务规则。
+    /// 请求转给同一个实体，避免在布局层复制业务规则。管理器对话框在这里
+    /// 创建（`Window` 可用的唯一路径）并交给 gpui-kit 的对话框层。
     pub(crate) fn commit_header_action(
         &mut self,
         action: CommitHeaderAction,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.git.update(cx, |panel, panel_cx| match action {
-            CommitHeaderAction::StageAll => panel.stage_all_changes(panel_cx),
-            CommitHeaderAction::UnstageAll => panel.unstage_all_changes(panel_cx),
-            CommitHeaderAction::DiscardSelected => panel.discard_selected_change(panel_cx),
-        });
+        match action {
+            CommitHeaderAction::StageAll => {
+                self.git
+                    .update(cx, |panel, panel_cx| panel.stage_all_changes(panel_cx));
+            }
+            CommitHeaderAction::UnstageAll => {
+                self.git
+                    .update(cx, |panel, panel_cx| panel.unstage_all_changes(panel_cx));
+            }
+            CommitHeaderAction::DiscardSelected => {
+                self.git
+                    .update(cx, |panel, panel_cx| panel.discard_selected_change(panel_cx));
+            }
+            CommitHeaderAction::DiscardAll => {
+                self.git
+                    .update(cx, |panel, panel_cx| panel.discard_all_changes(panel_cx));
+            }
+            CommitHeaderAction::Fetch => {
+                self.git
+                    .update(cx, |panel, panel_cx| panel.fetch_changes(panel_cx));
+            }
+            CommitHeaderAction::Initialize => {
+                self.git
+                    .update(cx, |panel, panel_cx| panel.initialize_repository(panel_cx));
+            }
+            CommitHeaderAction::Dialog(kind) => {
+                let panel = self.git.clone();
+                let root = self.git.read(cx).repository_root().clone();
+                let patch_paths: Vec<String> = match kind {
+                    lithe_features::git::GitDialogKind::CreatePatch => {
+                        self.git.read(cx).patch_selection().to_vec()
+                    }
+                    _ => Vec::new(),
+                };
+                let client = self.client;
+                let workbench_owner = cx.weak_entity();
+                crate::workbench::overlays::git_dialogs::GitDialogView::open(
+                    kind,
+                    client,
+                    root,
+                    patch_paths,
+                    panel.downgrade(),
+                    workbench_owner,
+                    window,
+                    cx,
+                );
+            }
+        }
     }
 
     pub(super) fn render_dock_panel(
@@ -665,7 +719,6 @@ impl Workbench {
                 &self.project_search_query,
                 self.project_options_open,
                 self.project_show_hidden,
-                self.project_show_ignored,
                 self.project_view_dependencies,
                 window,
                 cx,
@@ -673,6 +726,7 @@ impl Workbench {
         } else if tool == ToolWindow::Changes {
             Some(crate::commit_header::render_commit_tool_header(
                 self.commit_tab,
+                self.git.read(cx).has_repository(),
                 tokens,
                 cx.weak_entity(),
                 cx,
@@ -753,13 +807,10 @@ impl Workbench {
     ) -> AnyElement {
         match tool {
             ToolWindow::Project => self.project_tree.clone().into_any_element(),
-            ToolWindow::Changes => {
-                if self.commit_tab == crate::commit_header::CommitTab::Stash {
-                    self.render_stash_placeholder(cx)
-                } else {
-                    self.git.clone().into_any_element()
-                }
-            }
+            // 提交 / Stash 两个分段都由同一个 `GitPanel` 渲染：分段切换经
+            // `set_commit_tab` 同步到面板的 `stash_visible`，面板自己决定渲染
+            // 变更树还是 stash 列表（不再需要工作台侧的占位页）。
+            ToolWindow::Changes => self.git.clone().into_any_element(),
             ToolWindow::GitLog => self.git_log.clone().into_any_element(),
             ToolWindow::Search => self.search.clone().into_any_element(),
             ToolWindow::Problems => self.render_problems(cx),
@@ -810,26 +861,6 @@ impl Workbench {
                     .text_size(px(LitheMetrics::SMALL_FONT_SIZE))
                     .text_color(tokens.secondary_text)
                     .child(tool.unavailable_reason()),
-            )
-            .into_any_element()
-    }
-
-    /// Stash 分段占位。Core 尚未暴露 stash 列表命令，这里明确说明未接入，
-    /// 不伪造列表内容。
-    pub(super) fn render_stash_placeholder(&self, cx: &mut Context<Self>) -> AnyElement {
-        let tokens = current_tokens(cx);
-        v_flex()
-            .size_full()
-            .min_h(px(0.))
-            .min_w(px(0.))
-            .items_center()
-            .justify_center()
-            .px(px(16.))
-            .child(
-                div()
-                    .text_size(px(LitheMetrics::SMALL_FONT_SIZE))
-                    .text_color(tokens.secondary_text)
-                    .child(tr("Stash is not available in this build yet")),
             )
             .into_any_element()
     }
