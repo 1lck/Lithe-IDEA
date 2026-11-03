@@ -870,6 +870,7 @@ jobs:
             --test-budget tests::git_patch_exchange::patch_metadata_can_list_an_oversized_export_before_selecting_a_small_subset=30000 `
             --build-timeout-ms 600000 `
             --suite-timeout-ms 1200000 `
+            --test-prefix lsp::interface::engine::real_jdt_tests:: `
             --report .artifacts/test-stability/windows-real-jdt.json
 
       - name: Upload real JDT test report

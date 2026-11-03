@@ -29,7 +29,8 @@ test.each(["en-US", "zh-CN"] as const)(
       previousRoles: { vendor: "sources" },
     };
     const configure = spyOn(indexing, "configureWorkspaceIndexing").mockImplementation(
-      async () => ({
+      async (root) => ({
+        effectiveGitIgnoreEnabled: root ? indexing.readIndexingSettings(root).gitIgnoreEnabled ?? false : false,
         revision: 1,
         excludedDirectories: {},
         gitIgnoreFailed: false,
@@ -87,11 +88,11 @@ test.each(["en-US", "zh-CN"] as const)(
       await act(async () => checkbox().click());
 
       await act(async () => fileSystem.setState({ rootFolderPath: second }));
-      expect(checkbox().getAttribute("aria-checked")).toBe("true");
+      expect(checkbox().getAttribute("aria-checked")).toBe("false");
       // Reading a default value on the Git page must not create a saved preference.
       expect(window.localStorage.getItem(indexing.indexingSettingsStorageKey(second))).toBeNull();
       await act(async () => checkbox().click());
-      expect(indexing.readIndexingSettings(second).gitIgnoreEnabled).toBe(false);
+      expect(indexing.readIndexingSettings(second).gitIgnoreEnabled).toBe(true);
       expect(indexing.readIndexingSettings(first)).toEqual({ ...settings, gitIgnoreEnabled: true });
 
       await act(async () => fileSystem.setState({ rootFolderPath: undefined }));
@@ -120,13 +121,24 @@ test.each(["en-US", "zh-CN"] as const)(
         failedWrite.mockRestore();
       }
 
+      configure.mockImplementation(async () => { throw new Error("fixture configure failed"); });
+      await act(async () => checkbox().click());
+      expect(indexing.readIndexingSettings(first).gitIgnoreEnabled).toBe(false);
+      expect(checkbox().getAttribute("aria-disabled")).toBe("true");
+      expect(checkbox().getAttribute("aria-checked")).toBe("true");
+      expect(host.querySelector('[role="alert"]')?.textContent).toBe(t("indexing.configureFailed"));
+      configure.mockImplementation(async (root) => ({revision: 1, excludedDirectories: {}, gitIgnoreFailed: false, effectiveGitIgnoreEnabled: root ? indexing.readIndexingSettings(root).gitIgnoreEnabled ?? false : false}));
+      await act(async () => window.dispatchEvent(new window.CustomEvent(indexing.indexingEvent, {detail: first})));
+      expect(checkbox().getAttribute("aria-disabled")).not.toBe("true");
+      expect(checkbox().getAttribute("aria-checked")).toBe("false");
+
       for (const remote of ["remote://fixture/project", "wsl://fixture/project"]) {
         const raw = JSON.stringify({ ...settings, gitIgnoreEnabled: false });
         window.localStorage.setItem(indexing.indexingSettingsStorageKey(remote), raw);
         const calls = configure.mock.calls.length;
         await act(async () => fileSystem.setState({ rootFolderPath: remote }));
         expect(checkbox().getAttribute("aria-disabled")).toBe("true");
-        expect(checkbox().getAttribute("aria-checked")).toBe("false");
+        expect(checkbox().getAttribute("aria-checked")).toBe("mixed");
         expect(host.textContent).toContain(t("indexing.remoteUnsupported"));
         await act(async () => checkbox().click());
         expect(configure.mock.calls.length).toBe(calls);
@@ -181,6 +193,8 @@ test("a late local configuration cannot replace the remote capability state", as
     environment.IS_REACT_ACT_ENVIRONMENT = true;
     document.body.append(host);
     await act(async () => render("C:/fixture"));
+    expect(host.querySelector('[role="checkbox"]')?.getAttribute("aria-checked")).toBe("mixed");
+    expect(host.querySelector('[role="checkbox"]')?.getAttribute("aria-disabled")).toBe("true");
     await act(async () => render("remote://fixture/project"));
     await act(async () => finish({ revision: 1, excludedDirectories: {}, gitIgnoreFailed: true }));
     expect(configure).toHaveBeenCalledTimes(1);

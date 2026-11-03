@@ -24220,6 +24220,18 @@
       }
     },
     {
+      "id": "indexing.effectiveUnknown",
+      "description": "Effective indexing preference has not been confirmed by Core",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Indexing preference not confirmed",
+        "arguments": []
+      }
+    },
+    {
       "id": "indexing.dismissNotice",
       "description": "Ignored directory editor notice and explicit exclusion actions",
       "platforms": [

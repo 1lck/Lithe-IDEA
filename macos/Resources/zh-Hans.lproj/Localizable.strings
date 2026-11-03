@@ -375,7 +375,7 @@
 "Applies immediately" = "立即生效";
 "Applies immediately to source editors in all projects." = "立即应用于所有项目的源码编辑器。";
 "Applies the next time the language server starts." = "下次启动语言服务器时生效。";
-"Applies to the current project. Excluded directories remain browsable. Cancel Exclusion creates a project exception without changing Git rules." = "仅作用于当前项目，不受 Git 配置范围影响。已排除目录仍可浏览；取消排除会保存项目例外，不修改 Git 规则。\n\n已合并 Java 导入、Rust 和 Go 的原生排除配置。Java 已导入资源仍可能被扫描；Python 项目配置可覆盖服务端排除。其他服务保持运行，尚未保证其后台扫描排除效果。";
+"Applies to the current project. Excluded directories remain browsable. Cancel Exclusion creates a project exception without changing Git rules." = "仅作用于当前项目，不受 Git 配置范围影响。已排除目录仍可浏览；取消排除会保存项目例外，不修改 Git 规则。\n\n部分语言服务仍可能扫描已排除的目录。";
 "Apply" = "应用";
 "Apply %@ to the current branch." = "将提交 %@ 应用到当前分支。";
 "Apply AI-generated content?" = "要应用 AI 生成的内容吗？";
@@ -1878,6 +1878,7 @@
 "Indent guides" = "缩进引导线";
 "Indentation" = "缩进";
 "Index and working tree" = "暂存区和工作树";
+"Indexing preference not confirmed" = "未确认";
 "Info" = "信息";
 "Information" = "信息";
 "Inherit" = "继承";
@@ -5027,8 +5028,9 @@
 "indexing.autoGit" = "根据 Git 忽略规则自动排除目录";
 "indexing.cancelExclusion" = "取消排除";
 "indexing.configureFailed" = "无法应用项目索引排除策略，请重新打开项目后重试。";
-"indexing.description" = "仅作用于当前项目，不受 Git 配置范围影响。已排除目录仍可浏览；取消排除会保存项目例外，不修改 Git 规则。\n\n已合并 Java 导入、Rust 和 Go 的原生排除配置。Java 已导入资源仍可能被扫描；Python 项目配置可覆盖服务端排除。其他服务保持运行，尚未保证其后台扫描排除效果。";
+"indexing.description" = "仅作用于当前项目，不受 Git 配置范围影响。已排除目录仍可浏览；取消排除会保存项目例外，不修改 Git 规则。\n\n部分语言服务仍可能扫描已排除的目录。";
 "indexing.dismissNotice" = "不再显示";
+"indexing.effectiveUnknown" = "未确认";
 "indexing.excludeSelected" = "排除所选目录";
 "indexing.gitFailed" = "无法完整解析 Git 忽略规则，手动排除仍然生效。";
 "indexing.gitReason" = "根据 Git 忽略规则排除索引";

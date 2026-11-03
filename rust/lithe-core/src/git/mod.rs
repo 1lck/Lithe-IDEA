@@ -8123,30 +8123,39 @@ pub(crate) fn untracked_candidates(directory: &Path, candidates: &[String]) -> O
     )
 }
 
-/// Returns immediate child directories without any tracked descendant or gitlink.
-/// Native literal pathspec batches keep process count proportional to argument bytes.
-pub(crate) fn untracked_directory_candidates(
+/// Strict tracked-directory query preserving native failure and cancellation categories.
+pub(crate) fn untracked_directory_candidates_checked(
     directory: &Path,
     candidates: &[String],
-) -> Option<HashSet<String>> {
+) -> Result<HashSet<String>, CoreError> {
     let mut untracked = candidates.iter().cloned().collect::<HashSet<_>>();
     for batch in pathspec_batches(candidates, LS_FILES_PATHSPEC_BUDGET) {
         let mut arguments = vec!["--literal-pathspecs", "ls-files", "-z", "--"];
         arguments.extend(batch.iter().map(String::as_str));
-        let output = run_git(directory, &arguments).ok()?;
-        if !output.status.success() {
-            return None;
+        let output = execute_git_readonly(
+            &directory.to_string_lossy(),
+            &arguments
+                .iter()
+                .map(|value| (*value).to_owned())
+                .collect::<Vec<_>>(),
+            None,
+        )?;
+        if output.exit_code != 0 {
+            return Err(CoreError::new(
+                ErrorCode::ProcessFailed,
+                "Could not inspect tracked repository directories",
+            )
+            .with_details(output.stderr));
         }
         for record in output
             .stdout
-            .split(|byte| *byte == 0)
+            .split('\0')
             .filter(|record| !record.is_empty())
         {
-            let path = String::from_utf8_lossy(record);
-            untracked.remove(path.split('/').next().unwrap_or(&path));
+            untracked.remove(record.split('/').next().unwrap_or(record));
         }
     }
-    Some(untracked)
+    Ok(untracked)
 }
 
 /// Splits `paths` into consecutive non-empty batches whose summed byte length

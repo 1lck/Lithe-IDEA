@@ -375,7 +375,7 @@
 "Applies immediately" = "Applies immediately";
 "Applies immediately to source editors in all projects." = "Applies immediately to source editors in all projects.";
 "Applies the next time the language server starts." = "Applies the next time the language server starts.";
-"Applies to the current project. Excluded directories remain browsable. Cancel Exclusion creates a project exception without changing Git rules." = "Applies only to the current project, regardless of the Git configuration scope. Excluded directories remain browsable. Cancel Exclusion creates a project exception without changing Git rules.\n\nNative exclusion settings are merged for Java imports, Rust and Go. Java resources already imported may still be scanned. Python project configuration can override server exclusions; other providers remain active without a verified scan-exclusion guarantee.";
+"Applies to the current project. Excluded directories remain browsable. Cancel Exclusion creates a project exception without changing Git rules." = "Applies only to the current project, regardless of the Git configuration scope. Excluded directories remain browsable. Cancel Exclusion creates a project exception without changing Git rules.\n\nSome language services may still scan excluded directories.";
 "Apply" = "Apply";
 "Apply %@ to the current branch." = "Apply %@ to the current branch.";
 "Apply AI-generated content?" = "Apply AI-generated content?";
@@ -1878,6 +1878,7 @@
 "Indent guides" = "Indent guides";
 "Indentation" = "Indentation";
 "Index and working tree" = "Index and working tree";
+"Indexing preference not confirmed" = "Not confirmed";
 "Info" = "Info";
 "Information" = "Information";
 "Inherit" = "Inherit";
@@ -5027,8 +5028,9 @@
 "indexing.autoGit" = "Automatically exclude Git-ignored directories";
 "indexing.cancelExclusion" = "Cancel Exclusion";
 "indexing.configureFailed" = "Could not apply project indexing exclusions. Try reopening the project.";
-"indexing.description" = "Applies only to the current project, regardless of the Git configuration scope. Excluded directories remain browsable. Cancel Exclusion creates a project exception without changing Git rules.\n\nNative exclusion settings are merged for Java imports, Rust and Go. Java resources already imported may still be scanned. Python project configuration can override server exclusions; other providers remain active without a verified scan-exclusion guarantee.";
+"indexing.description" = "Applies only to the current project, regardless of the Git configuration scope. Excluded directories remain browsable. Cancel Exclusion creates a project exception without changing Git rules.\n\nSome language services may still scan excluded directories.";
 "indexing.dismissNotice" = "Don't Show Again";
+"indexing.effectiveUnknown" = "Not confirmed";
 "indexing.excludeSelected" = "Exclude Selected";
 "indexing.gitFailed" = "Git ignore exclusions could not be fully resolved. Manual exclusions remain active.";
 "indexing.gitReason" = "Excluded from indexing by Git ignore rules";

@@ -20,6 +20,21 @@ beforeEach(() => {
 });
 afterEach(() => restore());
 
+test("missing preferences remain unset through read and directory preference writes", () => {
+  const key = indexingSettingsStorageKey("C:/unset");
+  const settings = readIndexingSettings("C:/unset");
+  expect(settings.gitIgnoreEnabled).toBeUndefined();
+  expect(window.localStorage.getItem(key)).toBeNull();
+  writeIndexingSettings("C:/unset", {...settings, includedDirectories: ["keep"]});
+  expect(JSON.parse(window.localStorage.getItem(key)!)).not.toHaveProperty("gitIgnoreEnabled");
+  expect(readIndexingSettings("C:/unset").includedDirectories).toEqual(["keep"]);
+});
+
+test.each([true, false])("saved Git preference %s survives reads", (enabled) => {
+  writeIndexingSettings("C:/saved", {gitIgnoreEnabled: enabled, includedDirectories: [], previousRoles: {}});
+  expect(readIndexingSettings("C:/saved").gitIgnoreEnabled).toBe(enabled);
+});
+
 test.each([
   "",
   "broken",

@@ -4613,7 +4613,11 @@ Fixture: `shared/fixtures/lsp/java-project-runtimes-v1.json`.
 ### Workspace indexing policy
 
 `workspace.configureIndexing` accepts `root`, `manualExcludedDirectories`,
-`includedDirectories`, `gitIgnoreEnabled`, optional `refresh` and `paths`.
+`includedDirectories`, optional `gitIgnoreEnabled`, `refresh` and `paths`.
+Omitting `gitIgnoreEnabled` resolves to `false` in Core. Explicit saved booleans retain
+their value. Configure and refresh responses include `effectiveGitIgnoreEnabled`; hosts
+display that successful result without persisting defaults during reads. Older responses
+without the field remain decodable, but do not establish a known effective switch value.
 Directory identifiers are workspace-relative `/` paths; `.` names the root.
 Manual ancestor exclusions take precedence over every include exception. An include
 exception disables automatic Git exclusion for its subtree, while allowing a
