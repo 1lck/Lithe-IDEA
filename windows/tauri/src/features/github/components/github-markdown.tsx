@@ -3,7 +3,7 @@ import "../styles/github-markdown.css";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { memo, startTransition, useCallback, useEffect, useMemo, useState } from "react";
 import { highlightMarkdownCodeBlocks } from "@/features/editor/markdown/code-highlight";
-import { parseMarkdown } from "@/features/editor/markdown/parser";
+import { renderMarkdown } from "@/features/editor/markdown/render";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useTranslation } from "@/i18n/locale-provider";
 import { isGitHubEntityLinkForRepository, parseGitHubEntityLink } from "../utils/github-link-utils";
@@ -33,7 +33,8 @@ async function getCachedRenderedMarkdown(content: string): Promise<string> {
   const cached = getRenderedMarkdownSnapshot(content);
   if (cached) return cached;
 
-  const rendered = await highlightMarkdownCodeBlocks(stripRedundantBreaks(parseMarkdown(content)));
+  const parsed = stripRedundantBreaks(await renderMarkdown(content));
+  const rendered = await highlightMarkdownCodeBlocks(parsed).catch(() => parsed);
   markdownRenderCache.set(content, rendered);
 
   if (markdownRenderCache.size > MARKDOWN_RENDER_CACHE_LIMIT) {
@@ -66,8 +67,10 @@ const GitHubMarkdown = memo(
     const [renderedHtml, setRenderedHtml] = useState<string | null>(() =>
       getRenderedMarkdownSnapshot(normalizedContent),
     );
+    const [renderFailed, setRenderFailed] = useState(false);
 
     useEffect(() => {
+      setRenderFailed(false);
       const cached = getRenderedMarkdownSnapshot(normalizedContent);
       if (cached) {
         setRenderedHtml(cached);
@@ -84,9 +87,11 @@ const GitHubMarkdown = memo(
       const schedule = idleApi.requestIdleCallback;
 
       const render = async () => {
-        const nextHtml = await getCachedRenderedMarkdown(normalizedContent);
-        if (!cancelled) {
-          setRenderedHtml(nextHtml);
+        try {
+          const nextHtml = await getCachedRenderedMarkdown(normalizedContent);
+          if (!cancelled) setRenderedHtml(nextHtml);
+        } catch {
+          if (!cancelled) setRenderFailed(true);
         }
       };
 
@@ -173,6 +178,7 @@ const GitHubMarkdown = memo(
         onClick={handleClick}
       >
         <div className={`markdown-content ${contentClassName ?? ""}`.trim()}>
+          {renderFailed && <p role="alert">{t("markdown.renderFailed")}</p>}
           {renderedHtml !== null ? (
             <div dangerouslySetInnerHTML={{ __html: renderedHtml }} />
           ) : (
