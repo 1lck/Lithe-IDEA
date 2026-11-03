@@ -9,7 +9,9 @@ const capacityWaiters = new Set<() => void>();
 const aborted = () => new DOMException("Markdown render cancelled", "AbortError");
 class MarkdownQueueFull extends Error {}
 function notifyCapacity(): void {
-  for (const notify of [...capacityWaiters]) notify();
+  // One freed slot admits one waiting view. Waking every view on each
+  // completion would repeatedly reschedule an entire large notebook.
+  capacityWaiters.values().next().value?.();
 }
 function waitForCapacity(signal?: AbortSignal): Promise<void> {
   if (signal?.aborted) return Promise.reject(aborted());
