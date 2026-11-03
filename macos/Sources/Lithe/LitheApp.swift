@@ -58,6 +58,7 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
             pendingURLs.forEach { projectSessions.openStandaloneFile($0) }
         }
     }
+    var logSink: (any LogSink)?
     var flushApplicationLogs: (() async -> Void)?
     var prepareStableRollbackTermination: (() -> Bool)?
     var cancelStableRollbackTermination: (() -> Bool)?
@@ -103,12 +104,13 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
         let currentScope = instance.scope.id
         let excluded = instance.excludedProcessIDs
         let settings = settings?.processTermination ?? ProcessTerminationSettings()
+        let logSink = self.logSink
         let leftovers = await Task.detached {
             MacStartupProcessSweep.leftovers(
                 store: store,
                 currentScope: currentScope,
                 excluding: excluded,
-                settings: settings
+                settings: settings, logSink: logSink
             )
         }.value
         guard !leftovers.isEmpty else { return }
@@ -485,7 +487,7 @@ struct LitheApp: App {
     @StateObject private var memoryUsageMonitor: MemoryUsageMonitor
     @StateObject private var frameRateMonitor = FrameRateMonitor()
     @StateObject private var updateChecker: UpdateChecker
-    private let applicationLogWriter: MacApplicationLogWriter
+    private let applicationLogWriter: MacLogStore
 
     init() {
         do {
@@ -499,11 +501,6 @@ struct LitheApp: App {
             exit(1)
         }
         let store = MacUserDefaultsStore()
-        if LithePerformanceBaseline.isEnabled || LitheSignpost.settingsLatencyTracingEnabled {
-            LitheSignpost.configureBaselineOutput { line in
-                FileHandle.standardError.write(Data(line.utf8))
-            }
-        }
         let settings = AppSettings(
             store: store,
             logDirectoryProvider: MacServiceContainer.makeLogDirectoryProvider()
@@ -532,12 +529,13 @@ struct LitheApp: App {
             }
         }
         self.applicationLogWriter = applicationLogWriter
-        applicationLogWriter.record(level: "info", scope: "session", message: "session started")
+        applicationLogWriter.emit(AppSessionStarted())
+        if let error = SyntaxHighlightingRegistry.loadError { applicationLogWriter.emit(EditorSyntaxConfigurationFailed(error: error, kind: "formats")) }
+        if let error = SyntaxHighlightingColorConfiguration.loadError { applicationLogWriter.emit(EditorSyntaxConfigurationFailed(error: error, kind: "colors")) }
         MacLoginShellEnvironment.shared.attach(logging: applicationLogWriter)
-        let gitPerformanceLogger = MacGitPerformanceLogger(writer: applicationLogWriter)
-        MacBundledFontRegistry.registerFonts { message in
-            Self.appendApplicationLog(applicationLogWriter, message: message)
-        }
+        MacProcessInstance.current?.attach(logSink: applicationLogWriter)
+        let gitPerformanceLogger = applicationLogWriter
+        MacBundledFontRegistry.registerFonts(logSink: applicationLogWriter)
         let processRegistry = ManagedProcessRegistry()
         let moduleStore = MacModuleConfigurationStore(store: store)
         _settings = StateObject(wrappedValue: settings)
@@ -575,8 +573,8 @@ struct LitheApp: App {
         _projectSessions = StateObject(wrappedValue: projectSessions)
         _memoryUsageMonitor = StateObject(wrappedValue: MemoryUsageMonitor(
             startedAt: litheProcessLaunchDate,
-            baselineReporter: { marker in
-                Self.appendApplicationLog(applicationLogWriter, message: marker + "\n")
+            baselineReporter: { event, marker in
+                applicationLogWriter.emit(event)
                 Self.emitPerformanceBaselineMarker(marker)
             },
             logsPerformanceBaseline: ProcessInfo.processInfo.environment["LITHE_PERFORMANCE_BASELINE"] == "1",
@@ -585,15 +583,14 @@ struct LitheApp: App {
         ))
         Self.emitPerformanceBaselineMarker(LithePerformanceBaseline.configurationMarker())
         let updateChecker = UpdateChecker(
-            diagnosticSink: { message in
-                Self.appendApplicationLog(applicationLogWriter, message: message)
-            },
+            logSink: applicationLogWriter,
             sessionFactory: { [networkSessionProvider] configuration in
                 networkSessionProvider.makeSession(configuration: configuration)
             }
         )
         _updateChecker = StateObject(wrappedValue: updateChecker)
         appDelegate.projectSessions = projectSessions
+        appDelegate.logSink = applicationLogWriter
         appDelegate.flushApplicationLogs = { await applicationLogWriter.finishSession() }
         appDelegate.settings = settings
         let appDelegate = appDelegate
@@ -616,29 +613,16 @@ struct LitheApp: App {
     }
 
     private static func redirectApplicationLogs(
-        _ writer: MacApplicationLogWriter,
+        _ writer: MacLogStore,
         to directory: URL
     ) -> Bool {
         do {
             try writer.redirect(to: directory)
             return true
         } catch {
-            let message = "Could not redirect Lithe logs to \(directory.path): \(error.localizedDescription)\n"
-            if let data = message.data(using: .utf8) {
-                FileHandle.standardError.write(data)
-            }
+            writer.emit(AppLoggingRedirectFailed(directory: directory, error: error))
             return false
         }
-    }
-
-    // `App` makes this type main-actor isolated, but the writer is thread-safe and
-    // update diagnostics arrive from background tasks.
-    private nonisolated static func appendApplicationLog(
-        _ writer: MacApplicationLogWriter,
-        message: String
-    ) {
-        writer.record(level: "info", scope: "application", message: message)
-
     }
 
     private static func emitPerformanceBaselineMarker(_ marker: String) {
@@ -660,6 +644,7 @@ struct LitheApp: App {
             EditorSettingsImportStartup(feature: model.editorSettingsImport,
                 windowHandler: PrimaryProjectWindowSessions(manager: projectSessions)) {
                 RootView(scope: .primary)
+                    .environment(\.applicationLogSink, applicationLogWriter)
             }
                 .environmentObject(model)
                 .environmentObject(projectSessions)
@@ -854,10 +839,11 @@ struct LitheApp: App {
             if let windowID {
                 let scopedSessions = projectSessions.sessions(in: .dedicated(windowID))
                 if scopedSessions.isEmpty {
-                    ProjectWindowMissingSessionView(windowID: windowID)
+                    ProjectWindowMissingSessionView(logSink: applicationLogWriter, windowID: windowID)
                         .environmentObject(projectWindowLauncher)
                 } else {
                     RootView(scope: .dedicated(windowID))
+                        .environment(\.applicationLogSink, applicationLogWriter)
                         .environmentObject(projectSessions.activeModel(in: .dedicated(windowID)))
                         .environmentObject(projectSessions)
                         .environmentObject(projectWindowLauncher)
@@ -917,6 +903,7 @@ struct LitheApp: App {
 }
 
 private struct ProjectWindowMissingSessionView: View {
+    var logSink: (any LogSink)?
     let windowID: UUID
     @EnvironmentObject private var projectWindowLauncher: ProjectWindowLauncher
 
@@ -935,10 +922,7 @@ private struct ProjectWindowMissingSessionView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(24)
         .onAppear {
-            let message = "Lithe project window \(windowID.uuidString) has no matching session.\n"
-            if let data = message.data(using: .utf8) {
-                FileHandle.standardError.write(data)
-            }
+            if let window = LogSegment(windowID.uuidString.lowercased()) { logSink?.emit(AppWindowSessionMissing(window: window)) }
         }
     }
 }

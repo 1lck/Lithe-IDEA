@@ -879,6 +879,9 @@ package protocol LanguageServerSession: AnyObject {
     var javaTestRunnerURL: URL? { get }
     var onDiagnostics: ((URL, [LanguageServerDiagnostic]) -> Void)? { get set }
     var onLog: ((LanguageServerLogLevel, String, String?, String?) -> Void)? { get set }
+    /// Controlled issue facts: isWarning, source stage, stable code, exit status, operation ID.
+    /// No message/detail payload crosses this persistence callback.
+    var onLogIssue: ((Bool, String, String, Int?, String?) -> Void)? { get set }
     var onStateChange: ((LanguageServerSessionState) -> Void)? { get set }
     var features: LanguageServerFeatureSet { get }
     var onFeaturesChange: ((LanguageServerFeatureSet) -> Void)? { get set }
@@ -1166,6 +1169,10 @@ package extension LanguageServerSession {
         set {}
     }
     var onLog: ((LanguageServerLogLevel, String, String?, String?) -> Void)? {
+        get { nil }
+        set {}
+    }
+    var onLogIssue: ((Bool, String, String, Int?, String?) -> Void)? {
         get { nil }
         set {}
     }

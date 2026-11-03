@@ -119,6 +119,28 @@ struct PluginEditorLanguagesTests {
     }
 
     @Test
+    func legalCppAndLongLanguageIDsLoadRegardlessOfLogging() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        for languageID in ["c++", String(repeating: "c", count: 65)] {
+            var object = try #require(JSONSerialization.jsonObject(with: Data(contentsOf:
+                Self.fixtures.appendingPathComponent("language-grammar.plugin.json"))) as? [String: Any])
+            var declarations = try #require(object["languages"] as? [[String: Any]])
+            declarations[0]["id"] = languageID
+            object["languages"] = declarations
+            let descriptor = try DeclarativePluginTestSupport.operations.validate(manifest: JSONSerialization.data(withJSONObject: object))
+            _ = try ValidatedPluginCatalog(manifests: BuiltInPluginCatalog.manifests + [descriptor.pluginManifest],
+                hostVersion: BuiltInPluginCatalog.hostVersion)
+            let original = try fixture.package("language-grammar-" + UUID().uuidString, descriptor: descriptor)
+            for sink in [nil, TypedLogRecorder()] as [TypedLogRecorder?] {
+                let set = fixture.languages(livePackages: { [original] }, logSink: sink).current()
+                #expect(set.languages.count == 1)
+                #expect(set.pluginIDs[languageID] == descriptor.id.rawValue)
+            }
+        }
+    }
+
+    @Test
     func staticEditorResourcesFollowTheirOwnEnablement() throws {
         let fixture = try Fixture()
         defer { fixture.cleanUp() }
@@ -143,14 +165,15 @@ struct PluginEditorLanguagesTests {
         #expect(MacPluginEditorLanguages.packageFile("grammars/http.monarch.json", in: package.packageURL) == nil)
         #expect(MacPluginEditorLanguages.packageFile("../outside.json", in: package.packageURL) == nil)
 
-        var messages: [String] = []
-        let languages = fixture.languages(livePackages: { [package] }, log: { message, _ in messages.append(message) })
+        let messages = TypedLogRecorder()
+        let languages = fixture.languages(livePackages: { [package] }, logSink: messages)
         #expect(languages.current().languages.isEmpty)
         try FileManager.default.removeItem(at: grammar)
         try Data(repeating: 0x20, count: MacPluginEditorLanguages.maximumGrammarBytes + 1).write(to: grammar)
         #expect(languages.current().languages.isEmpty)
         #expect(languages.current().languages.isEmpty)
-        #expect(messages == ["plugin grammar is outside its package", "plugin grammar refused"])
+        #expect(messages.events.count == 2)
+        #expect(messages.events.allSatisfy { type(of: $0).id == "plugins.grammar.rejected" })
     }
 
     private static func descriptor(_ name: String) throws -> DeclarativePluginDescriptor {
@@ -168,8 +191,8 @@ struct PluginEditorLanguagesTests {
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         }
 
-        func package(_ name: String) throws -> InstalledPluginPackage {
-            let descriptor = try PluginEditorLanguagesTests.descriptor(name)
+        func package(_ name: String, descriptor supplied: DeclarativePluginDescriptor? = nil) throws -> InstalledPluginPackage {
+            let descriptor = try supplied ?? PluginEditorLanguagesTests.descriptor(name)
             let packageURL = root.appendingPathComponent(name, isDirectory: true)
             let grammars = packageURL.appendingPathComponent("grammars", isDirectory: true)
             try FileManager.default.createDirectory(at: grammars, withIntermediateDirectories: true)
@@ -192,11 +215,11 @@ struct PluginEditorLanguagesTests {
             launchRegistered: [InstalledPluginPackage] = [],
             isModuleUsable: @escaping @MainActor (ModuleID) -> Bool = { _ in true },
             livePackages: @escaping @MainActor () -> [InstalledPluginPackage] = { [] },
-            log: @escaping @MainActor (String, [String: String]) -> Void = { _, _ in }
+            logSink: (any LogSink)? = nil
         ) -> MacPluginEditorLanguages {
             MacPluginEditorLanguages(
                 launchRegistered: launchRegistered, isModuleUsable: isModuleUsable, livePackages: livePackages,
-                decoder: DeclarativePluginTestSupport.operations, triggers: [], log: log
+                decoder: DeclarativePluginTestSupport.operations, triggers: [], logSink: logSink
             )
         }
 

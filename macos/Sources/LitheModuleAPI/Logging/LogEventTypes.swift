@@ -54,6 +54,14 @@ public enum LogFieldValue: Sendable {
     case text(String)
 }
 
+/// A source-owned machine failure with no upstream prose or command output.
+/// The persistence adapter preserves string codes instead of inventing an NSError number.
+public struct LogFailure: Error, Sendable {
+    public let domain: String
+    public let code: String
+    public init(domain: String, code: String) { self.domain = domain; self.code = code }
+}
+
 /// Typed event input; it performs no I/O and does not change existing logging.
 public protocol LogEvent: Sendable {
     static var id: String { get }

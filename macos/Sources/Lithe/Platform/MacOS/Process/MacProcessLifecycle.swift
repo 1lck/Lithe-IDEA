@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Darwin
 import Foundation
 
@@ -17,6 +18,8 @@ final class MacProcessInstance: @unchecked Sendable {
     private let lock = NSLock()
     private var record: MacProcessInstanceRecord
     private var retentionTracker: MacRetainedProcessTracker?
+    private var logSink: (any LogSink)?
+    private var pendingLogs: [any LogEvent] = []
     private var approvedTermination: Set<MacProcessIdentity> = []
 
     init(scope: MacProcessScope, store: MacProcessInstanceRecordStore, record: MacProcessInstanceRecord) {
@@ -24,9 +27,9 @@ final class MacProcessInstance: @unchecked Sendable {
         self.store = store
         self.applicationSessionID = record.applicationSessionID
         self.record = record
-        retentionTracker = MacRetainedProcessTracker { [weak self] identities in
+        retentionTracker = MacRetainedProcessTracker(report: { [weak self] in self?.report($0) }, discovered: { [weak self] identities in
             self?.persistRetained(identities)
-        }
+        })
         retentionTracker?.refresh(adding: record.retained)
     }
 
@@ -50,6 +53,23 @@ final class MacProcessInstance: @unchecked Sendable {
             instance.mutate { $0.supervisor = supervisor }
         }
         return instance
+    }
+
+    /// The process lifecycle starts before logging. Keep at most eight typed startup failures.
+    func attach(logSink: any LogSink) {
+        lock.withLock {
+            self.logSink = logSink
+            pendingLogs.forEach { logSink.emit($0) }
+            pendingLogs.removeAll()
+        }
+    }
+    private func report(_ event: any LogEvent) { lock.withLock { reportLocked(event) } }
+    private func reportLocked(_ event: any LogEvent) {
+        if let logSink { logSink.emit(event) }
+        else {
+            if pendingLogs.count == 8 { pendingLogs.removeFirst() }
+            pendingLogs.append(event)
+        }
     }
 
     var supervisor: MacProcessIdentity? { lock.withLock { record.supervisor } }
@@ -130,7 +150,7 @@ final class MacProcessInstance: @unchecked Sendable {
         do {
             try store.save(record)
         } catch {
-            FileHandle.standardError.write(Data("Could not save the process lifecycle record: \(error)\n".utf8))
+            reportLocked(AppProcessJournalFailed(error: error, stage: "save"))
         }
     }
 }
@@ -275,7 +295,8 @@ struct MacStartupProcessSweep: Sendable {
         currentScope: String,
         excluding excluded: Set<pid_t>,
         settings: ProcessTerminationSettings,
-        reader: MacProcessInventoryReader = MacProcessInventoryReader()
+        reader: MacProcessInventoryReader = MacProcessInventoryReader(),
+        logSink: (any LogSink)? = nil
     ) -> [Leftovers] {
         var leftovers: [Leftovers] = []
         let snapshot = MacProcessTable.snapshot()
@@ -288,7 +309,7 @@ struct MacStartupProcessSweep: Sendable {
                 do {
                     try store.save(record)
                 } catch {
-                    FileHandle.standardError.write(Data("Could not save retained startup descendants: \(error)\n".utf8))
+                    logSink?.emit(AppProcessJournalFailed(error: error, stage: "startup_descendants"))
                 }
             }
             guard let inventory = try? reader.inventory(

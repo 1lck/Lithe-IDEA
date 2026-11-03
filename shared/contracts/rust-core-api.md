@@ -3742,7 +3742,10 @@ parser diagnostics; hosts localize codes for presentation.
   `lsp`, `vcs`, `run`, `debug`, `terminal`, `remote`, `agent`, `update`, `plugins`.
   Channels are `root`, `root/segment`, or `plugins/<id>/host`. Segments match
   `[a-z0-9][a-z0-9._-]{0,63}`. Paths are `app.log`, `vcs/git.log`, or
-  `plugins/<id>/host.log`; positive rotation indices produce `git.1.log` siblings.
+  `plugins/<id>/host.log`; positive rotation indices produce `git~1.log` siblings.
+  `~` is forbidden in every legal channel segment, so rotation paths cannot alias
+  any active channel (for example `lsp/foo.1.log` remains channel `lsp/foo.1`).
+  Queries and retention use this same namespace; numeric dot suffixes are ordinary IDs.
   After 128 admitted channels a new identity maps to `_overflow.log`; existing
   channels retain their paths. Rust `plugin_files_path` returns
   `plugins/<id>/files/`. `session_directory_name`,
@@ -3750,7 +3753,7 @@ parser diagnostics; hosts localize codes for presentation.
   RFC3339 start time/full UUID to `sessions/YYYY-MM-DDTHH-MM-SS_<8 lowercase
   hex>`. Native adapters join these relative paths only to platform-owned
   writable storage, never a bundle or installation directory.
-- `diagnostics.encodeLogBatch` accepts `{events:[{ts,level,seq,event,op?,msg,
+- `diagnostics.encodeLogBatch` accepts `{validateCatalog?:false,deduplicate?:false,previousEvent?:event,headers?:[],events:[{ts,level,seq,event,op?,msg,
   fields?:{key:scalar}}]}`. `level` is `DEBUG|INFO|WARN|ERROR`, `seq` is `u64`,
   and `ts` is RFC3339 normalized to UTC milliseconds. Scalars become text;
   arrays and objects fail per item. Malformed event shapes also fail per item.
@@ -3770,6 +3773,32 @@ parser diagnostics; hosts localize codes for presentation.
   `decode_line` returns a typed header or record and rejects invalid lines with
   reasons. `repeated_event` and `dropped_event` create ordinary `log.repeated`
   records with `count,first,last,of`, and `log.dropped` records with `count`.
+  With `deduplicate:true`, adjacent facts with equal event ID, fields, channel,
+  level, message and op merge within a batch into `log.repeated`; structural hashing
+  is followed by equality comparison. Results then correspond to retained records,
+  and the repeated record uses the last omitted event sequence. `previousEvent`
+  carries the prior batch’s last input for bounded cross-batch comparison; it is
+  validated again and never emitted by itself.
+  With `validateCatalog:true`, every ordinary event must exist in `catalog::EVENTS`;
+  required/unknown/invalid fields and a mismatched level fail before encoding.
+  Messages and channels are derived from the catalog, never trusted from input.
+  Before strict field validation, Core redacts declared error/text messages, removes
+  control characters, and truncates to at most 1024 bytes at a UTF-8 boundary.
+  `catalog::validate_fields` still rejects unnormalized strings, invalid types, unknown
+  keys, incomplete error components, and invalid code/domain tokens.
+  Path fields are redacted before template interpolation; unrecognized absolute
+  paths become `<PATH>`. Item results additionally contain `channel` on success.
+  Codes: `-32053` unknown event, `-32054` missing field, `-32055` invalid field,
+  `-32056` unknown field, `-32057` catalog level mismatch.
+  Catalog validation rejects `event:legacy` as an unknown event. macOS collects only v2
+  session files; its v1 files participate solely in age retention. The public v1
+  APIs, old commands and shared v1 query compatibility remain available to Windows.
+  `log.dropped` and `log.repeated` accept only their documented field shapes and
+  an optional validated `channel`. No other identity bypasses catalog validation.
+  Optional `headers:[{session,pid,app,channel,started}]` returns ordered `headers`
+  results and `sessionPath`, using the same Core header/session grammar. These
+  fields are additive; the default generic PR1 batch remains compatible.
+  Overflow rotation paths are `_overflow~1.log` and `_overflow~2.log`.
 - `diagnostics.queryLogsV2` accepts `{sources:[{relativePath,text,
   startsMidLine?:false,firstLineNumber?:1}],channelPrefixes?:[],minimumLevel?,
   since?,until?,search?,fields?:{key:value},op?,limit?}`. The adapter marks a
@@ -3788,6 +3817,8 @@ parser diagnostics; hosts localize codes for presentation.
   are skipped and counted. V1 records use `event:legacy`, preserve available
   sequence/op/context, and map application→app, language→lsp, git→vcs,
   performance→perf, run→run, plugins→plugins. Queries redact decoded evidence.
+  Each returned record also includes `line`, the canonical, redacted v2 line for
+  presentation and frozen export (without a newline).
 - `diagnostics.planLogRetention` accepts `{sessions:[{name,files:[{
   relativePath,sizeBytes,modifiedAt}]}],legacyFiles?:[same file shape],
   currentSession,now,limits?:{maxAgeMs,totalBytes,perfBytes,pluginFilesBytes},
@@ -4810,3 +4841,25 @@ indexing policies or retired roots. Hosts discard in-flight results when their
 workspace root set changes. Removing a nested root restores parent scanning.
 An unavailable non-current root does not fail a scoped request for an accessible
 root; a missing descendant retains its ownership boundary until removed by the host.
+
+### Structured logging of recoverable LSP maintenance warnings
+
+`lsp.pollEvents` log observations may carry the existing `error` object even at
+WARN severity. Its code and stage describe a recoverable diagnostic; `type:log`
+does not transition session state. Codes have one meaning:
+
+| code | stage | meaning |
+| --- | --- | --- |
+| `mavenSettingsUnchanged` | `mavenSettings` | Maven settings could not be normalized and were forwarded unchanged |
+| `configurationCleanupFailed` | `configurationCleanup` | Unused language-server configuration areas could not be removed |
+| `mavenProfileStartFailed` | `mavenProfileStart` | The pending Maven profile update could not start |
+
+The existing Core log sources additionally classify `upstreamStderr` (stderr
+observation), `stderrReadFailed` (stderr I/O), `navigationLimited` (batch cap),
+`navigationMarkerFailed` (marker verification), `workspaceImportStalled`
+(no import progress), `mavenProfileUpdateFailed` (project update failure),
+`shutdownTimeout` (forced termination after shutdown deadline), and
+`mavenProfileTimeout` (profile application deadline). Each code names exactly
+that observation; arbitrary upstream messages retain `upstreamDiagnostic`.
+
+Hosts persist these controlled identities, never the raw detail, URL, output or argv.

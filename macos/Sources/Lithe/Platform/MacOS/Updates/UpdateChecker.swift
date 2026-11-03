@@ -204,7 +204,7 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
     static let releasePageURL = AppUpdateChannel.stableReleaseURL
 
     init(bundle: Bundle = .main, preferences: UserDefaults = .standard,
-         diagnosticSink: @escaping @Sendable (String) -> Void = { NSLog("%@", $0) },
+         logSink: (any LogSink)? = nil,
          sessionFactory: @escaping @Sendable (URLSessionConfiguration) -> MacNetworkSessionLease = {
              MacNetworkSessionProvider.makeSession(configuration: $0, plan: nil)
          },
@@ -218,8 +218,8 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
         let storage = MacFileStorage(identity: MacAppIdentity(bundleIdentifier: bundle.bundleIdentifier))
         self.downloadRelay = downloadRelay ?? UpdateDownloadRelay(store: UpdateDownloadPartialStore(
             directory: storage.cacheDirectory().appendingPathComponent("Lithe/UpdateDownloads", isDirectory: true)),
-            diagnosticSink: diagnosticSink)
-        stableRollback = MacStableRollback(diagnosticSink: diagnosticSink, sessionFactory: sessionFactory)
+            logSink: logSink)
+        stableRollback = MacStableRollback(logSink: logSink, sessionFactory: sessionFactory)
         self.bundle = bundle
         buildIdentity = UpdateBuildIdentity(info: bundle.infoDictionary ?? [:])
         customUpdateSourceBase = AppUpdateChannel.stable.feedURL(info: bundle.infoDictionary ?? [:],
@@ -231,7 +231,7 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
         if bundle.bundleURL.pathExtension == "app", let identifier = bundle.bundleIdentifier {
             let target = bundle.bundleURL
             DispatchQueue.global(qos: .utility).async {
-                StableRollbackPackage.removeLeftoverStaging(beside: target, identifier: identifier)
+                StableRollbackPackage.removeLeftoverStaging(beside: target, identifier: identifier, logSink: logSink)
             }
         }
     }

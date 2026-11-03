@@ -2,220 +2,34 @@
   "version": 1,
   "entries": [
     {
-      "file": "macos/Sources/Lithe/Application/Features/DocumentFeatureModel.swift",
-      "rule": "swift.nslog",
-      "count": 4,
-      "reason": "待 PR2/PR3 迁移"
-    },
-    {
-      "file": "macos/Sources/Lithe/Core/Rust/RustTextContentPolicy.swift",
-      "rule": "swift.nslog",
-      "count": 1,
-      "reason": "待 PR2/PR3 迁移"
-    },
-    {
-      "file": "macos/Sources/Lithe/LitheApp.swift",
-      "rule": "swift.record",
-      "count": 2,
-      "reason": "待 PR2/PR3 迁移"
-    },
-    {
-      "file": "macos/Sources/Lithe/LitheApp.swift",
-      "rule": "swift.stderr",
-      "count": 3,
-      "reason": "待 PR2/PR3 迁移"
-    },
-    {
-      "file": "macos/Sources/Lithe/Models/AppModel/AppModel.swift",
-      "rule": "swift.nslog",
-      "count": 1,
-      "reason": "待 PR2/PR3 迁移"
-    },
-    {
-      "file": "macos/Sources/Lithe/Platform/MacOS/FileSystem/MacWorkspaceFileOperations.swift",
-      "rule": "swift.nslog",
-      "count": 1,
-      "reason": "待 PR2/PR3 迁移"
-    },
-    {
-      "file": "macos/Sources/Lithe/Platform/MacOS/FileWatching/MacDocumentObservation.swift",
-      "rule": "swift.nslog",
-      "count": 2,
-      "reason": "待 PR2/PR3 迁移"
-    },
-    {
-      "file": "macos/Sources/Lithe/Platform/MacOS/Logging/MacApplicationLogWriter.swift",
-      "rule": "swift.record",
-      "count": 1,
-      "reason": "待 PR2/PR3 迁移"
-    },
-    {
-      "file": "macos/Sources/Lithe/Platform/MacOS/MacServiceContainer.swift",
-      "rule": "swift.nslog",
-      "count": 1,
-      "reason": "待 PR2/PR3 迁移"
-    },
-    {
-      "file": "macos/Sources/Lithe/Platform/MacOS/MacServiceContainer.swift",
-      "rule": "swift.record",
-      "count": 7,
-      "reason": "待 PR2/PR3 迁移"
-    },
-    {
-      "file": "macos/Sources/Lithe/Platform/MacOS/MonacoWorkbenchEditor.swift",
-      "rule": "swift.nslog",
-      "count": 10,
-      "reason": "待 PR2/PR3 迁移"
-    },
-    {
-      "file": "macos/Sources/Lithe/Platform/MacOS/MonacoWorkbenchEditor.swift",
-      "rule": "swift.stderr",
-      "count": 2,
-      "reason": "待 PR2/PR3 迁移"
-    },
-    {
-      "file": "macos/Sources/Lithe/Platform/MacOS/Persistence/MacMavenDependencyOutputStore.swift",
-      "rule": "swift.nslog",
-      "count": 2,
-      "reason": "待 PR2/PR3 迁移"
-    },
-    {
-      "file": "macos/Sources/Lithe/Platform/MacOS/Plugins/MacLivePluginRegistry.swift",
-      "rule": "swift.nslog",
-      "count": 1,
-      "reason": "待 PR2/PR3 迁移"
-    },
-    {
-      "file": "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginStartupLoader.swift",
-      "rule": "swift.nslog",
-      "count": 1,
-      "reason": "待 PR2/PR3 迁移"
-    },
-    {
-      "file": "macos/Sources/Lithe/Platform/MacOS/ProblemsDemo.swift",
-      "rule": "swift.stderr",
-      "count": 2,
-      "reason": "待 PR2/PR3 迁移"
-    },
-    {
-      "file": "macos/Sources/Lithe/Platform/MacOS/Process/MacProcessLifecycle.swift",
-      "rule": "swift.stderr",
-      "count": 2,
-      "reason": "待 PR2/PR3 迁移"
-    },
-    {
-      "file": "macos/Sources/Lithe/Platform/MacOS/Process/MacProcessRunner.swift",
-      "rule": "swift.record",
-      "count": 3,
-      "reason": "待 PR2/PR3 迁移"
-    },
-    {
-      "file": "macos/Sources/Lithe/Platform/MacOS/Process/MacRetainedProcessTracker.swift",
-      "rule": "swift.stderr",
-      "count": 3,
-      "reason": "待 PR2/PR3 迁移"
-    },
-    {
-      "file": "macos/Sources/Lithe/Platform/MacOS/Remote/MacRemoteBuildStateLocator.swift",
-      "rule": "swift.nslog",
-      "count": 1,
-      "reason": "待 PR2/PR3 迁移"
-    },
-    {
-      "file": "macos/Sources/Lithe/Platform/MacOS/Remote/MacRemotePluginPackageDeployer.swift",
-      "rule": "swift.nslog",
-      "count": 2,
-      "reason": "待 PR2/PR3 迁移"
-    },
-    {
-      "file": "macos/Sources/Lithe/Platform/MacOS/Runtime/MacLoginShellEnvironment.swift",
-      "rule": "swift.record",
-      "count": 2,
-      "reason": "待 PR2/PR3 迁移"
-    },
-    {
-      "file": "macos/Sources/Lithe/Platform/MacOS/Terminal/MacTerminalShellDiscovery.swift",
-      "rule": "swift.nslog",
-      "count": 1,
-      "reason": "待 PR2/PR3 迁移"
-    },
-    {
-      "file": "macos/Sources/Lithe/Platform/MacOS/Terminal/MacTerminalTransport.swift",
-      "rule": "swift.nslog",
-      "count": 1,
-      "reason": "待 PR2/PR3 迁移"
-    },
-    {
-      "file": "macos/Sources/Lithe/Platform/MacOS/UI/MacBundledFontRegistry.swift",
-      "rule": "swift.stderr",
-      "count": 1,
-      "reason": "待 PR2/PR3 迁移"
-    },
-    {
-      "file": "macos/Sources/Lithe/Platform/MacOS/Updates/MacStableRollback.swift",
-      "rule": "swift.nslog",
-      "count": 4,
-      "reason": "待 PR2/PR3 迁移"
-    },
-    {
-      "file": "macos/Sources/Lithe/Platform/MacOS/Updates/UpdateChecker.swift",
-      "rule": "swift.nslog",
-      "count": 1,
-      "reason": "待 PR2/PR3 迁移"
-    },
-    {
-      "file": "macos/Sources/Lithe/Platform/MacOS/Updates/UpdateDownloadRelay.swift",
-      "rule": "swift.nslog",
-      "count": 1,
-      "reason": "待 PR2/PR3 迁移"
-    },
-    {
-      "file": "macos/Sources/Lithe/Services/Remote/RemoteDirectoryObservation.swift",
-      "rule": "swift.nslog",
-      "count": 1,
-      "reason": "待 PR2/PR3 迁移"
-    },
-    {
-      "file": "macos/Sources/Lithe/Views/Editor/SyntaxHighlightingColorConfiguration.swift",
-      "rule": "swift.nslog",
-      "count": 1,
-      "reason": "待 PR2/PR3 迁移"
-    },
-    {
-      "file": "macos/Sources/Lithe/Views/Editor/SyntaxHighlightingConfiguration.swift",
-      "rule": "swift.nslog",
-      "count": 1,
-      "reason": "待 PR2/PR3 迁移"
-    },
-    {
       "file": "rust/lithe-core/src/lsp/interface/remote_process.rs",
       "rule": "rust.eprintln",
       "count": 1,
-      "reason": "待 PR2/PR3 迁移"
+      "reason": "PR3：经运行时事件流交给宿主"
     },
     {
       "file": "rust/lithe-core/src/project/files.rs",
       "rule": "rust.eprintln",
       "count": 2,
-      "reason": "待 PR2/PR3 迁移"
+      "reason": "PR3：经运行时事件流交给宿主"
     },
     {
       "file": "rust/lithe-core/src/project/search_index.rs",
       "rule": "rust.eprintln",
       "count": 1,
-      "reason": "待 PR2/PR3 迁移"
+      "reason": "PR3：经运行时事件流交给宿主"
     },
     {
       "file": "rust/lithe-core/src/remote/upload.rs",
       "rule": "rust.eprintln",
       "count": 1,
-      "reason": "待 PR2/PR3 迁移"
+      "reason": "PR3：经运行时事件流交给宿主"
     },
     {
       "file": "rust/lithe-core/src/remote/workspace_io.rs",
       "rule": "rust.eprintln",
       "count": 1,
-      "reason": "待 PR2/PR3 迁移"
+      "reason": "PR3：经运行时事件流交给宿主"
     }
   ]
 }

@@ -22,6 +22,7 @@ public final class ModuleRuntime: ModuleCapabilityResolver, ModuleEventPublishin
     private var capabilities: [ModuleCapabilityID: (provider: ModuleID, value: AnyObject)] = [:]
     private var eventObservers: [UUID: @MainActor (ModuleEvent) -> Void] = [:]
     private var moduleContributions: [ModuleID: [ModuleContribution]] = [:]
+    private let logSink: (any LogSink)?
     private let workspaceURL: URL?
     private let configurationStore: (any ModuleConfigurationStore)?
     private let recoveryStore: (any ModuleRecoveryStore)?
@@ -31,8 +32,10 @@ public final class ModuleRuntime: ModuleCapabilityResolver, ModuleEventPublishin
         workspaceURL: URL? = nil,
         configurationStore: (any ModuleConfigurationStore)? = nil,
         recoveryStore: (any ModuleRecoveryStore)? = nil,
-        launchMode: ModuleLaunchMode = .normal
+        launchMode: ModuleLaunchMode = .normal,
+        logSink: (any LogSink)? = nil
     ) {
+        self.logSink = logSink
         self.workspaceURL = workspaceURL
         self.configurationStore = configurationStore
         self.recoveryStore = recoveryStore
@@ -208,7 +211,8 @@ public final class ModuleRuntime: ModuleCapabilityResolver, ModuleEventPublishin
                 events: self,
                 resources: entry.resources,
                 leases: entry.resources,
-                contributions: self
+                contributions: self,
+                logSink: logSink
             )
             try await instance.activate(context: context)
             try Task.checkCancellation()

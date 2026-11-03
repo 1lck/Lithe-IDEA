@@ -2,14 +2,20 @@
   "id": "diagnostics-export",
   "area": "可观测性",
   "group": "诊断与日志",
-  "capability": "模块日志筛选、限额与快照诊断包导出",
+  "capability": "类型化会话日志筛选、保留与快照诊断包导出",
   "macos": {
     "evidence": [
       "macos/Sources/Lithe/Views/Diagnostics/DiagnosticsExportSheet.swift",
       "macos/Sources/Lithe/Services/Diagnostics",
-      "macos/Sources/Lithe/Platform/MacOS/Logging/MacApplicationLogWriter.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Logging/MacLogStore.swift",
       "macos/Sources/Lithe/Views/Diagnostics/ApplicationLogSettingsView.swift",
-      "macos/Tests/LitheTests/DiagnosticsWorkflowTests.swift"
+      "macos/Tests/LitheTests/DiagnosticsWorkflowTests.swift",
+      "macos/Sources/LitheModuleAPI/Logging/LogSink.swift",
+      "macos/Tests/LitheTests/MacLogStoreTests.swift",
+      "shared/logging/events/",
+      "macos/Sources/Lithe/Platform/MacOS/Logging/MacGitLifecycleLog.swift",
+      "macos/Tests/LitheTests/MacGitLifecycleLogTests.swift",
+      "macos/Tests/LitheTests/MonacoFreezeLogTests.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -25,5 +31,5 @@
     "verificationStatus": "pending"
   },
   "owner": "Diagnostics",
-  "verification": "双端记录 language/git/run/performance 事件，按模块、当前/上次会话、级别、UTC 时间与文本筛选；确认诊断 15 分钟到期、过载不阻塞调用线程、日志受限额控制、目录切换后收集实际位置、嵌套与转义凭据不落盘；确认预览后修改源文件不改变导出快照，取消/失败清理暂存，并检查旧日志兼容与收集缺失计数。 验证自定义目录中无关的 lithe.*.log 不被收集或删除、刷新期间修改条件后按钮恢复、UTC 小数精度及等价时区边界正确、200 文件上限在模块/会话筛选后应用且遗漏明确标记。 两端从设置→工具→日志与诊断进入同一流程，核对中英文名称、顺序、实际诊断范围、清理全模块会话范围、目录/清理后刷新、预览条件冻结，以及取消/失败后按钮和快照恢复；原生 macOS 明暗页面与实际 ZIP 链路、Windows 前端界面交互分别验证。"
+  "verification": "双端记录 language/git/run/performance 事件，按模块、当前/上次会话、级别、UTC 时间与文本筛选；确认诊断 15 分钟到期、过载不阻塞调用线程、日志受限额控制、目录切换后收集实际位置、嵌套与转义凭据不落盘；确认预览后修改源文件不改变导出快照，取消/失败清理暂存，并检查 macOS v1 日志不进入时间线和导出、仅按 30 天过期清理与收集缺失计数。 验证自定义目录中无关的 lithe.*.log 不被收集或删除、刷新期间修改条件后按钮恢复、UTC 小数精度及等价时区边界正确、200 文件上限在模块/会话筛选后应用且遗漏明确标记。 两端从设置→工具→日志与诊断进入同一流程，核对中英文名称、顺序、实际诊断范围、清理全模块会话范围、目录/清理后刷新、预览条件冻结，以及取消/失败后按钮和快照恢复；原生 macOS 明暗页面与实际 ZIP 链路、Windows 前端界面交互分别验证。 macOS v2 按 sessions 会话目录查询并冻结导出，检查 Core 目录字段校验、100 ms/256 条批量、保留容量、log.dropped/log.repeated、32 个句柄 LRU、三段轮转、超时控制与跟随广播；Windows 仍使用 v1。 PR2b 回归覆盖合法 c++ 插件编辑器资源不受日志身份约束、点号活动通道与 ~N 轮转文件互不覆盖、控制取消不丢已接纳批次与丢弃汇总、退出无条件关闭订阅和句柄、多行错误经 Core 规范化后严格校验，以及 LSP/Git/下载/freeze 失败分类和数值证据。"
 }

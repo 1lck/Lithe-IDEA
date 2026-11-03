@@ -126,7 +126,7 @@ pub fn relative_log_path(channel: &LogChannel, rotation_index: u32) -> String {
     if rotation_index == 0 {
         format!("{}.log", channel.as_str())
     } else {
-        format!("{}.{rotation_index}.log", channel.as_str())
+        format!("{}~{rotation_index}.log", channel.as_str())
     }
 }
 
@@ -145,7 +145,11 @@ pub fn bounded_log_path(
     rotation_index: u32,
 ) -> String {
     if existing.len() >= MAX_SESSION_CHANNELS && !existing.contains(channel.as_str()) {
-        "_overflow.log".into()
+        if rotation_index == 0 {
+            "_overflow.log".into()
+        } else {
+            format!("_overflow~{rotation_index}.log")
+        }
     } else {
         relative_log_path(channel, rotation_index)
     }
@@ -263,6 +267,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn rotations_never_alias_legal_active_channels() {
+        for name in ["foo", "foo.1", "foo.2", "foo.1.2"] {
+            let channel = LogChannel::parse(&format!("lsp/{name}")).unwrap();
+            for index in 1..=3 {
+                let rotated = relative_log_path(&channel, index);
+                assert_eq!(rotated, format!("lsp/{name}~{index}.log"));
+                assert!(LogChannel::parse(rotated.strip_suffix(".log").unwrap()).is_err());
+            }
+        }
+    }
+
+    #[test]
     fn session_names_roundtrip_and_overflow_preserves_existing_channels() {
         let name = session_directory_name(
             "2026-11-03T10:00:00+02:00",
@@ -282,7 +298,7 @@ mod tests {
         );
         assert_eq!(
             bounded_log_path(&LogChannel::parse("vcs/git0").unwrap(), &existing, 1),
-            "vcs/git0.1.log"
+            "vcs/git0~1.log"
         );
         assert_eq!(
             plugin_files_path("io.example.plugin").unwrap(),

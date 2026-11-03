@@ -56,6 +56,8 @@ pub struct LogQueryV2Request {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QueriedLogRecord {
+    /// Canonical redacted disk line for native presentation and frozen exports.
+    pub line: String,
     /// Logical channel, resolved from metadata or the validated source path.
     pub channel: String,
     /// Source file relative to the host log root or session.
@@ -103,7 +105,7 @@ fn source_channel(path: &str) -> Result<(String, bool), LogError> {
     let parts: Vec<_> = path.split('/').collect();
     if parts.len() == 2
         && LOG_CATEGORIES.contains(&parts[0])
-        && parts[1].starts_with("lithe.")
+        && (parts[1] == "lithe.log" || parts[1].starts_with("lithe."))
         && parts[1].ends_with(".log")
     {
         let channel = match parts[0] {
@@ -124,14 +126,15 @@ fn source_channel(path: &str) -> Result<(String, bool), LogError> {
     } else {
         path.into()
     };
-    if relative == "_overflow.log" {
+    if relative == "_overflow.log" || relative == "_overflow~1.log" || relative == "_overflow~2.log"
+    {
         return Ok(("_overflow".into(), false));
     }
     let stem = relative
         .strip_suffix(".log")
         .ok_or_else(|| LogError::new(-32050, "Invalid query source path"))?;
-    // A numeric final suffix is the reserved rotation namespace.
-    let stem = if let Some((base, suffix)) = stem.rsplit_once('.') {
+    // The separator cannot occur in any legal channel segment.
+    let stem = if let Some((base, suffix)) = stem.rsplit_once('~') {
         if !suffix.is_empty() && suffix.bytes().all(|b| b.is_ascii_digit()) {
             base
         } else {
@@ -413,6 +416,7 @@ pub fn query_logs_v2(request: LogQueryV2Request) -> Result<LogQueryV2Response, L
             records.insert(
                 key,
                 QueriedLogRecord {
+                    line: super::record::render(&record),
                     channel: channel.clone(),
                     relative_path: source.relative_path.clone(),
                     line_number,
@@ -431,6 +435,19 @@ pub fn query_logs_v2(request: LogQueryV2Request) -> Result<LogQueryV2Response, L
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn dotted_active_and_rotated_sources_have_distinct_channels() {
+        for (path, expected) in [
+            ("lsp/foo.1.log", "lsp/foo.1"),
+            ("lsp/foo~1.log", "lsp/foo"),
+            ("lsp/foo.1~2.log", "lsp/foo.1"),
+            ("_overflow~2.log", "_overflow"),
+        ] {
+            assert_eq!(super::source_channel(path).unwrap().0, expected);
+        }
+        assert!(super::source_channel("lsp/foo~invalid.log").is_err());
+    }
+
     use super::*;
     use serde_json::json;
 
@@ -438,7 +455,7 @@ mod tests {
     fn query_headers_filters_and_invalid_arguments_preserve_source_evidence() {
         let header = "#lithe-log v2 session=abcdef12-3456-7890-abcd-ef1234567890 pid=42 app=1.0 channel=vcs/git started=2026-11-03T08:00:00.000Z";
         let line = "2026-11-03T08:00:01.123Z ERROR seq=9 event=vcs.git.failed op=op1 msg=failed exit_code=128";
-        let response = query_logs_v2(serde_json::from_value(json!({"sources":[{"relativePath":"vcs/git.2.log","text":format!("{header}\n{line}\n{header}\n"),"firstLineNumber":1}],"fields":{"exit_code":"128"},"search":"FAILED"})).unwrap()).unwrap();
+        let response = query_logs_v2(serde_json::from_value(json!({"sources":[{"relativePath":"vcs/git~2.log","text":format!("{header}\n{line}\n{header}\n"),"firstLineNumber":1}],"fields":{"exit_code":"128"},"search":"FAILED"})).unwrap()).unwrap();
         assert_eq!(response.records.len(), 1);
         assert_eq!(response.records[0].line_number, 2);
         assert_eq!(response.channel_counts["vcs/git"].error, 1);

@@ -91,16 +91,29 @@ pub fn event_by_id(id: &str) -> Option<&'static EventMetadata> {
         .map(|index| &EVENTS[index])
 }
 
+/// Closed catalog failure classifications; each has a distinct host error code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CatalogErrorCode {
+    /// No declaration owns the supplied event identity.
+    UnknownEvent,
+    /// A required encoded field component is absent.
+    MissingField,
+    /// An encoded value violates its declaration.
+    InvalidField,
+    /// An undeclared encoded key was supplied.
+    UnknownField,
+}
+
 /// A field-contract violation. The value itself is deliberately excluded.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CatalogError {
     /// Stable machine-readable classification.
-    pub code: &'static str,
+    pub code: CatalogErrorCode,
     /// Logical or encoded key; absent for unknown event IDs.
     pub field: Option<String>,
 }
 
-fn invalid(code: &'static str, field: &str) -> CatalogError {
+fn invalid(code: CatalogErrorCode, field: &str) -> CatalogError {
     CatalogError {
         code,
         field: Some(field.to_owned()),
@@ -142,7 +155,7 @@ fn scalar_matches(kind: FieldType, value: &Value) -> bool {
 /// callers must still use Core redaction before persistence. No values are logged.
 pub fn validate_fields(id: &str, fields: &BTreeMap<String, Value>) -> Result<(), CatalogError> {
     let event = event_by_id(id).ok_or(CatalogError {
-        code: "unknown_event",
+        code: CatalogErrorCode::UnknownEvent,
         field: None,
     })?;
     let mut allowed = BTreeSet::new();
@@ -163,13 +176,15 @@ pub fn validate_fields(id: &str, fields: &BTreeMap<String, Value>) -> Result<(),
         for (key, kind) in &encoded {
             allowed.insert(key.clone());
             match fields.get(key) {
-                None if field.required || present > 0 => return Err(invalid("missing_field", key)),
+                None if field.required || present > 0 => {
+                    return Err(invalid(CatalogErrorCode::MissingField, key))
+                }
                 Some(value) => {
                     let numeric_code = field.field_type == FieldType::Error
                         && key.ends_with("_code")
                         && value.as_i64().is_some();
                     if !numeric_code && !scalar_matches(*kind, value) {
-                        return Err(invalid("invalid_field", key));
+                        return Err(invalid(CatalogErrorCode::InvalidField, key));
                     }
                 }
                 None => {}
@@ -177,7 +192,7 @@ pub fn validate_fields(id: &str, fields: &BTreeMap<String, Value>) -> Result<(),
         }
     }
     if let Some(key) = fields.keys().find(|key| !allowed.contains(*key)) {
-        return Err(invalid("unknown_field", key));
+        return Err(invalid(CatalogErrorCode::UnknownField, key));
     }
     Ok(())
 }
@@ -212,20 +227,20 @@ mod tests {
             invalid.insert(key.into(), value);
             assert_eq!(
                 validate_fields(event.id, &invalid).unwrap_err().code,
-                "invalid_field"
+                CatalogErrorCode::InvalidField
             );
         }
         let mut missing = fields.clone();
         missing.remove("error_domain");
         assert_eq!(
             validate_fields(event.id, &missing).unwrap_err().code,
-            "missing_field"
+            CatalogErrorCode::MissingField
         );
         let mut extra = fields;
         extra.insert("raw".into(), json!("forbidden"));
         assert_eq!(
             validate_fields(event.id, &extra).unwrap_err().code,
-            "unknown_field"
+            CatalogErrorCode::UnknownField
         );
     }
 
@@ -241,7 +256,7 @@ mod tests {
             validate_fields("lsp.stderr.received", &fields)
                 .unwrap_err()
                 .code,
-            "invalid_field"
+            CatalogErrorCode::InvalidField
         );
         let mut fields = BTreeMap::from([("connection".into(), json!("connection-1"))]);
         assert!(validate_fields("remote.upload.abort_failed", &fields).is_ok());
@@ -250,7 +265,7 @@ mod tests {
             validate_fields("remote.upload.abort_failed", &fields)
                 .unwrap_err()
                 .code,
-            "missing_field"
+            CatalogErrorCode::MissingField
         );
     }
 }

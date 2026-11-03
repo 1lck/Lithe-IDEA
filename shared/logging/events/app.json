@@ -176,7 +176,7 @@
       "rate": 60,
       "owner": "Lithe",
       "span": {
-        "failureLevel": "error"
+        "failureLevel": "warn"
       }
     },
     {

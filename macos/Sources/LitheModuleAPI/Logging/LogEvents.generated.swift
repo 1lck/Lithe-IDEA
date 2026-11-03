@@ -170,7 +170,7 @@ public struct AppSessionStarted: LogEvent {
 
 public struct AppShellEnvironmentFailed: LogEvent {
     public static let id = "app.shell.environment.failed"
-    public static let level: LogLevel = .error
+    public static let level: LogLevel = .warn
     public static let messageTemplate = "Login shell {shell} environment read from {source} failed"
     public static let ratePerMinute = 60
     public static let owner = "Lithe"
@@ -320,7 +320,7 @@ public struct AppWorkspaceScratchCleanupFailed: LogEvent {
 
 public struct EditorDocumentOpenFailed: LogEvent {
     public static let id = "editor.document.open_failed"
-    public static let level: LogLevel = .warn
+    public static let level: LogLevel = .error
     public static let messageTemplate = "Document open failed: {reason}"
     public static let ratePerMinute = 60
     public static let owner = "Lithe"
@@ -362,7 +362,7 @@ public struct EditorDocumentRecoveryFailed: LogEvent {
 
 public struct EditorDocumentSaveFailed: LogEvent {
     public static let id = "editor.document.save_failed"
-    public static let level: LogLevel = .warn
+    public static let level: LogLevel = .error
     public static let messageTemplate = "Document {document} revision {revision} save failed at {stage}"
     public static let ratePerMinute = 60
     public static let owner = "Lithe"
@@ -385,7 +385,7 @@ public struct EditorDocumentSaveFailed: LogEvent {
 
 public struct EditorDocumentSaveSuperseded: LogEvent {
     public static let id = "editor.document.save_superseded"
-    public static let level: LogLevel = .warn
+    public static let level: LogLevel = .debug
     public static let messageTemplate = "Document {document} revision {revision} save superseded"
     public static let ratePerMinute = 60
     public static let owner = "Lithe"
@@ -480,7 +480,7 @@ public struct EditorSyncFreezeFailed: LogEvent {
     public let fields: [String: LogFieldValue]
     public let operationID: String?
 
-    public init(`barrierDrained`: (Bool)? = nil, `browserRevision`: (Int64)? = nil, `document`: LogSegment, `duration`: Duration, `error`: any Error, `inputPasses`: (Int64)? = nil, `modelVersion`: (Int64)? = nil, `nativeUtf16Length`: (Int64)? = nil, `pendingEdits`: (Int64)? = nil, `revision`: Int64, `snapshotRevision`: (Int64)? = nil, `snapshotUtf16Length`: (Int64)? = nil, `status`: (String)? = nil, operationID: String? = nil) {
+    public init(`barrierDrained`: (Bool)? = nil, `browserRevision`: (Int64)? = nil, `document`: LogSegment, `duration`: Duration, `error`: any Error, `inputPasses`: (Int64)? = nil, `modelVersion`: (Int64)? = nil, `nativeRevision`: (Int64)? = nil, `nativeUtf16Length`: (Int64)? = nil, `pendingEdits`: (Int64)? = nil, `revision`: Int64, `snapshotRevision`: (Int64)? = nil, `snapshotUtf16Length`: (Int64)? = nil, `status`: (String)? = nil, operationID: String? = nil) {
         self.operationID = operationID
         self.channel = LogChannel(.editor, segments: [])
         var _logValues: [String: LogFieldValue] = [:]
@@ -491,6 +491,7 @@ public struct EditorSyncFreezeFailed: LogEvent {
         _logValues["error"] = .error(`error`)
         if let value = `inputPasses` { _logValues["input_passes"] = .int(value) }
         if let value = `modelVersion` { _logValues["model_version"] = .int(value) }
+        if let value = `nativeRevision` { _logValues["native_revision"] = .int(value) }
         if let value = `nativeUtf16Length` { _logValues["native_utf16_length"] = .int(value) }
         if let value = `pendingEdits` { _logValues["pending_edits"] = .int(value) }
         _logValues["revision"] = .int(`revision`)
@@ -512,7 +513,7 @@ public struct EditorSyncFreezeFinished: LogEvent {
     public let fields: [String: LogFieldValue]
     public let operationID: String?
 
-    public init(`barrierDrained`: (Bool)? = nil, `browserRevision`: (Int64)? = nil, `document`: LogSegment, `duration`: Duration, `inputPasses`: (Int64)? = nil, `modelVersion`: (Int64)? = nil, `nativeUtf16Length`: (Int64)? = nil, `pendingEdits`: (Int64)? = nil, `revision`: Int64, `snapshotRevision`: (Int64)? = nil, `snapshotUtf16Length`: (Int64)? = nil, `status`: (String)? = nil, operationID: String? = nil) {
+    public init(`barrierDrained`: (Bool)? = nil, `browserRevision`: (Int64)? = nil, `document`: LogSegment, `duration`: Duration, `inputPasses`: (Int64)? = nil, `modelVersion`: (Int64)? = nil, `nativeRevision`: (Int64)? = nil, `nativeUtf16Length`: (Int64)? = nil, `pendingEdits`: (Int64)? = nil, `revision`: Int64, `snapshotRevision`: (Int64)? = nil, `snapshotUtf16Length`: (Int64)? = nil, `status`: (String)? = nil, operationID: String? = nil) {
         self.operationID = operationID
         self.channel = LogChannel(.editor, segments: [])
         var _logValues: [String: LogFieldValue] = [:]
@@ -522,6 +523,7 @@ public struct EditorSyncFreezeFinished: LogEvent {
         _logValues["duration"] = .duration(`duration`)
         if let value = `inputPasses` { _logValues["input_passes"] = .int(value) }
         if let value = `modelVersion` { _logValues["model_version"] = .int(value) }
+        if let value = `nativeRevision` { _logValues["native_revision"] = .int(value) }
         if let value = `nativeUtf16Length` { _logValues["native_utf16_length"] = .int(value) }
         if let value = `pendingEdits` { _logValues["pending_edits"] = .int(value) }
         _logValues["revision"] = .int(`revision`)
@@ -543,7 +545,7 @@ public struct EditorSyncFreezeStarted: LogEvent {
     public let fields: [String: LogFieldValue]
     public let operationID: String?
 
-    public init(`barrierDrained`: (Bool)? = nil, `browserRevision`: (Int64)? = nil, `document`: LogSegment, `inputPasses`: (Int64)? = nil, `modelVersion`: (Int64)? = nil, `nativeUtf16Length`: (Int64)? = nil, `pendingEdits`: (Int64)? = nil, `revision`: Int64, `snapshotRevision`: (Int64)? = nil, `snapshotUtf16Length`: (Int64)? = nil, `status`: (String)? = nil, operationID: String? = nil) {
+    public init(`barrierDrained`: (Bool)? = nil, `browserRevision`: (Int64)? = nil, `document`: LogSegment, `inputPasses`: (Int64)? = nil, `modelVersion`: (Int64)? = nil, `nativeRevision`: (Int64)? = nil, `nativeUtf16Length`: (Int64)? = nil, `pendingEdits`: (Int64)? = nil, `revision`: Int64, `snapshotRevision`: (Int64)? = nil, `snapshotUtf16Length`: (Int64)? = nil, `status`: (String)? = nil, operationID: String? = nil) {
         self.operationID = operationID
         self.channel = LogChannel(.editor, segments: [])
         var _logValues: [String: LogFieldValue] = [:]
@@ -552,6 +554,7 @@ public struct EditorSyncFreezeStarted: LogEvent {
         _logValues["document"] = .id(`document`)
         if let value = `inputPasses` { _logValues["input_passes"] = .int(value) }
         if let value = `modelVersion` { _logValues["model_version"] = .int(value) }
+        if let value = `nativeRevision` { _logValues["native_revision"] = .int(value) }
         if let value = `nativeUtf16Length` { _logValues["native_utf16_length"] = .int(value) }
         if let value = `pendingEdits` { _logValues["pending_edits"] = .int(value) }
         _logValues["revision"] = .int(`revision`)
@@ -1222,6 +1225,73 @@ public struct LspResponseSkipped: LogEvent {
     }
 }
 
+public struct LspSessionDegradationReceived: LogEvent {
+    public static let id = "lsp.session.degradation_received"
+    public static let level: LogLevel = .warn
+    public static let messageTemplate = "Language server {server} operation degraded"
+    public static let ratePerMinute = 60
+    public static let owner = "LanguageToolingSessionManager"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+
+    public init(`exitCode`: (Int64)? = nil, `failureCode`: String, `server`: LogSegment, `stage`: String, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.lsp, segments: [`server`])
+        var _logValues: [String: LogFieldValue] = [:]
+        if let value = `exitCode` { _logValues["exit_code"] = .int(value) }
+        _logValues["failure_code"] = .token(`failureCode`)
+        _logValues["server"] = .id(`server`)
+        _logValues["stage"] = .token(`stage`)
+        self.fields = _logValues
+    }
+}
+
+public struct LspSessionIssueFailed: LogEvent {
+    public static let id = "lsp.session.issue_failed"
+    public static let level: LogLevel = .error
+    public static let messageTemplate = "Language server {server} operation failed"
+    public static let ratePerMinute = 60
+    public static let owner = "LanguageToolingSessionManager"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+
+    public init(`exitCode`: (Int64)? = nil, `failureCode`: String, `server`: LogSegment, `stage`: String, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.lsp, segments: [`server`])
+        var _logValues: [String: LogFieldValue] = [:]
+        if let value = `exitCode` { _logValues["exit_code"] = .int(value) }
+        _logValues["failure_code"] = .token(`failureCode`)
+        _logValues["server"] = .id(`server`)
+        _logValues["stage"] = .token(`stage`)
+        self.fields = _logValues
+    }
+}
+
+public struct LspSessionUpdated: LogEvent {
+    public static let id = "lsp.session.updated"
+    public static let level: LogLevel = .debug
+    public static let messageTemplate = "Language server session state changed"
+    public static let ratePerMinute = 60
+    public static let owner = "LanguageToolingSessionManager"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+
+    public init(`server`: LogSegment, `state`: String, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.lsp, segments: [`server`])
+        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["server"] = .id(`server`)
+        _logValues["state"] = .token(`state`)
+        self.fields = _logValues
+    }
+}
+
 public struct LspShutdownTimedOut: LogEvent {
     public static let id = "lsp.shutdown.timed_out"
     public static let level: LogLevel = .warn
@@ -1434,10 +1504,31 @@ public struct PerfAppSampled: LogEvent {
     }
 }
 
+public struct PerfAppSignpostMeasured: LogEvent {
+    public static let id = "perf.app.signpost_measured"
+    public static let level: LogLevel = .debug
+    public static let messageTemplate = "Native signpost measured"
+    public static let ratePerMinute = 60
+    public static let owner = "Lithe.Monitoring"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+
+    public init(`duration`: Duration, `name`: String, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.perf, segments: [])
+        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["duration"] = .duration(`duration`)
+        _logValues["name"] = .token(`name`)
+        self.fields = _logValues
+    }
+}
+
 public struct PerfEditorOpenMeasured: LogEvent {
     public static let id = "perf.editor.open_measured"
     public static let level: LogLevel = .debug
-    public static let messageTemplate = "Document {document} editor open measured"
+    public static let messageTemplate = "Editor opening measured"
     public static let ratePerMinute = 60
     public static let owner = "Lithe"
     public static let debugOnly = false
@@ -1445,12 +1536,19 @@ public struct PerfEditorOpenMeasured: LogEvent {
     public let fields: [String: LogFieldValue]
     public let operationID: String?
 
-    public init(`document`: LogSegment, `duration`: Duration, operationID: String? = nil) {
+    public init(`attach`: (Duration)? = nil, `firstFrame`: (Duration)? = nil, `frames`: (Int64)? = nil, `lines`: (Int64)? = nil, `maxFrameGap`: (Duration)? = nil, `model`: (Duration)? = nil, `reused`: (Bool)? = nil, `settled`: (Duration)? = nil, `utf16Length`: (Int64)? = nil, operationID: String? = nil) {
         self.operationID = operationID
         self.channel = LogChannel(.perf, segments: [])
         var _logValues: [String: LogFieldValue] = [:]
-        _logValues["document"] = .id(`document`)
-        _logValues["duration"] = .duration(`duration`)
+        if let value = `attach` { _logValues["attach"] = .duration(value) }
+        if let value = `firstFrame` { _logValues["first_frame"] = .duration(value) }
+        if let value = `frames` { _logValues["frames"] = .int(value) }
+        if let value = `lines` { _logValues["lines"] = .int(value) }
+        if let value = `maxFrameGap` { _logValues["max_frame_gap"] = .duration(value) }
+        if let value = `model` { _logValues["model"] = .duration(value) }
+        if let value = `reused` { _logValues["reused"] = .bool(value) }
+        if let value = `settled` { _logValues["settled"] = .duration(value) }
+        if let value = `utf16Length` { _logValues["utf16_length"] = .int(value) }
         self.fields = _logValues
     }
 }
@@ -1544,7 +1642,7 @@ public struct PerfGitReadFinished: LogEvent {
 public struct PerfGitWorktreeInspected: LogEvent {
     public static let id = "perf.git.worktree_inspected"
     public static let level: LogLevel = .debug
-    public static let messageTemplate = "Git worktree {worktree} inspection measured at {phase}"
+    public static let messageTemplate = "Git worktree inspection measured"
     public static let ratePerMinute = 60
     public static let owner = "LitheGitModule"
     public static let debugOnly = false
@@ -1552,13 +1650,39 @@ public struct PerfGitWorktreeInspected: LogEvent {
     public let fields: [String: LogFieldValue]
     public let operationID: String?
 
-    public init(`duration`: Duration, `phase`: String, `worktree`: LogSegment, operationID: String? = nil) {
+    public init(`duration`: Duration, `phase`: String, `worktree`: URL, operationID: String? = nil) {
         self.operationID = operationID
         self.channel = LogChannel(.perf, segments: [])
         var _logValues: [String: LogFieldValue] = [:]
         _logValues["duration"] = .duration(`duration`)
         _logValues["phase"] = .token(`phase`)
-        _logValues["worktree"] = .id(`worktree`)
+        _logValues["worktree"] = .path(`worktree`)
+        self.fields = _logValues
+    }
+}
+
+public struct PerfSettingsLatencyMeasured: LogEvent {
+    public static let id = "perf.settings.latency_measured"
+    public static let level: LogLevel = .debug
+    public static let messageTemplate = "Settings latency measured"
+    public static let ratePerMinute = 60
+    public static let owner = "Lithe.Monitoring"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+
+    public init(`category`: String, `eventId`: Int64, `inputNs`: Int64, `phase`: String, `receivedNs`: Int64, `selectedNs`: Int64, `timeNs`: Int64, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.perf, segments: [])
+        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["category"] = .token(`category`)
+        _logValues["event_id"] = .int(`eventId`)
+        _logValues["input_ns"] = .int(`inputNs`)
+        _logValues["phase"] = .token(`phase`)
+        _logValues["received_ns"] = .int(`receivedNs`)
+        _logValues["selected_ns"] = .int(`selectedNs`)
+        _logValues["time_ns"] = .int(`timeNs`)
         self.fields = _logValues
     }
 }
@@ -1649,7 +1773,7 @@ public struct PluginsEditorActionsFailed: LogEvent {
 public struct PluginsEditorRefreshFailed: LogEvent {
     public static let id = "plugins.editor.refresh_failed"
     public static let level: LogLevel = .warn
-    public static let messageTemplate = "Plugin {plugin} editor action refresh failed"
+    public static let messageTemplate = "Plugin editor actions refresh failed"
     public static let ratePerMinute = 60
     public static let owner = "Lithe"
     public static let debugOnly = false
@@ -1657,12 +1781,11 @@ public struct PluginsEditorRefreshFailed: LogEvent {
     public let fields: [String: LogFieldValue]
     public let operationID: String?
 
-    public init(`error`: any Error, `plugin`: LogSegment, operationID: String? = nil) {
+    public init(`error`: any Error, operationID: String? = nil) {
         self.operationID = operationID
-        self.channel = LogChannel(.plugins, segments: [`plugin`, LogSegment("host")!])
+        self.channel = LogChannel(.plugins, segments: [])
         var _logValues: [String: LogFieldValue] = [:]
         _logValues["error"] = .error(`error`)
-        _logValues["plugin"] = .id(`plugin`)
         self.fields = _logValues
     }
 }
@@ -1692,7 +1815,7 @@ public struct PluginsGrammarLoadFailed: LogEvent {
 public struct PluginsGrammarRejected: LogEvent {
     public static let id = "plugins.grammar.rejected"
     public static let level: LogLevel = .warn
-    public static let messageTemplate = "Plugin {plugin} grammar for {language} rejected: {reason}"
+    public static let messageTemplate = "Plugin {plugin} grammar rejected: {reason}"
     public static let ratePerMinute = 60
     public static let owner = "Lithe"
     public static let debugOnly = false
@@ -1700,12 +1823,12 @@ public struct PluginsGrammarRejected: LogEvent {
     public let fields: [String: LogFieldValue]
     public let operationID: String?
 
-    public init(`error`: (any Error)? = nil, `language`: LogSegment, `plugin`: LogSegment, `reason`: String, operationID: String? = nil) {
+    public init(`error`: (any Error)? = nil, `language`: (String)? = nil, `plugin`: LogSegment, `reason`: String, operationID: String? = nil) {
         self.operationID = operationID
         self.channel = LogChannel(.plugins, segments: [`plugin`, LogSegment("host")!])
         var _logValues: [String: LogFieldValue] = [:]
         if let value = `error` { _logValues["error"] = .error(value) }
-        _logValues["language"] = .id(`language`)
+        if let value = `language` { _logValues["language"] = .version(value) }
         _logValues["plugin"] = .id(`plugin`)
         _logValues["reason"] = .token(`reason`)
         self.fields = _logValues
@@ -2102,11 +2225,12 @@ public struct UpdateDownloadInterrupted: LogEvent {
     public let fields: [String: LogFieldValue]
     public let operationID: String?
 
-    public init(`error`: any Error, operationID: String? = nil) {
+    public init(`httpStatus`: (Int64)? = nil, `reason`: String, operationID: String? = nil) {
         self.operationID = operationID
         self.channel = LogChannel(.update, segments: [])
         var _logValues: [String: LogFieldValue] = [:]
-        _logValues["error"] = .error(`error`)
+        if let value = `httpStatus` { _logValues["http_status"] = .int(value) }
+        _logValues["reason"] = .token(`reason`)
         self.fields = _logValues
     }
 }
@@ -2163,11 +2287,13 @@ public struct UpdateRollbackPreparationFailed: LogEvent {
     public let fields: [String: LogFieldValue]
     public let operationID: String?
 
-    public init(`error`: any Error, operationID: String? = nil) {
+    public init(`error`: any Error, `exitCode`: (Int64)? = nil, `stage`: (String)? = nil, operationID: String? = nil) {
         self.operationID = operationID
         self.channel = LogChannel(.update, segments: [])
         var _logValues: [String: LogFieldValue] = [:]
         _logValues["error"] = .error(`error`)
+        if let value = `exitCode` { _logValues["exit_code"] = .int(value) }
+        if let value = `stage` { _logValues["stage"] = .token(value) }
         self.fields = _logValues
     }
 }
@@ -2183,7 +2309,7 @@ public struct VcsGitCommandFailed: LogEvent {
     public let fields: [String: LogFieldValue]
     public let operationID: String?
 
-    public init(`command`: String, `duration`: Duration, `error`: any Error, `exitCode`: (Int64)? = nil, `provider`: LogSegment, operationID: String? = nil) {
+    public init(`command`: String, `duration`: Duration, `error`: any Error, `exitCode`: (Int64)? = nil, `failureCode`: (String)? = nil, `provider`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
         self.channel = LogChannel(.vcs, segments: [`provider`])
         var _logValues: [String: LogFieldValue] = [:]
@@ -2191,6 +2317,7 @@ public struct VcsGitCommandFailed: LogEvent {
         _logValues["duration"] = .duration(`duration`)
         _logValues["error"] = .error(`error`)
         if let value = `exitCode` { _logValues["exit_code"] = .int(value) }
+        if let value = `failureCode` { _logValues["failure_code"] = .token(value) }
         _logValues["provider"] = .id(`provider`)
         self.fields = _logValues
     }
@@ -2207,13 +2334,14 @@ public struct VcsGitCommandFinished: LogEvent {
     public let fields: [String: LogFieldValue]
     public let operationID: String?
 
-    public init(`command`: String, `duration`: Duration, `exitCode`: (Int64)? = nil, `provider`: LogSegment, operationID: String? = nil) {
+    public init(`command`: String, `duration`: Duration, `exitCode`: (Int64)? = nil, `failureCode`: (String)? = nil, `provider`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
         self.channel = LogChannel(.vcs, segments: [`provider`])
         var _logValues: [String: LogFieldValue] = [:]
         _logValues["command"] = .token(`command`)
         _logValues["duration"] = .duration(`duration`)
         if let value = `exitCode` { _logValues["exit_code"] = .int(value) }
+        if let value = `failureCode` { _logValues["failure_code"] = .token(value) }
         _logValues["provider"] = .id(`provider`)
         self.fields = _logValues
     }
@@ -2230,12 +2358,13 @@ public struct VcsGitCommandStarted: LogEvent {
     public let fields: [String: LogFieldValue]
     public let operationID: String?
 
-    public init(`command`: String, `exitCode`: (Int64)? = nil, `provider`: LogSegment, operationID: String? = nil) {
+    public init(`command`: String, `exitCode`: (Int64)? = nil, `failureCode`: (String)? = nil, `provider`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
         self.channel = LogChannel(.vcs, segments: [`provider`])
         var _logValues: [String: LogFieldValue] = [:]
         _logValues["command"] = .token(`command`)
         if let value = `exitCode` { _logValues["exit_code"] = .int(value) }
+        if let value = `failureCode` { _logValues["failure_code"] = .token(value) }
         _logValues["provider"] = .id(`provider`)
         self.fields = _logValues
     }
@@ -2252,7 +2381,7 @@ public struct VcsGitRequestFailed: LogEvent {
     public let fields: [String: LogFieldValue]
     public let operationID: String?
 
-    public init(`command`: String, `duration`: Duration, `error`: any Error, `exitCode`: (Int64)? = nil, `provider`: LogSegment, operationID: String? = nil) {
+    public init(`command`: String, `duration`: Duration, `error`: any Error, `exitCode`: (Int64)? = nil, `failureCode`: (String)? = nil, `provider`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
         self.channel = LogChannel(.vcs, segments: [`provider`])
         var _logValues: [String: LogFieldValue] = [:]
@@ -2260,6 +2389,7 @@ public struct VcsGitRequestFailed: LogEvent {
         _logValues["duration"] = .duration(`duration`)
         _logValues["error"] = .error(`error`)
         if let value = `exitCode` { _logValues["exit_code"] = .int(value) }
+        if let value = `failureCode` { _logValues["failure_code"] = .token(value) }
         _logValues["provider"] = .id(`provider`)
         self.fields = _logValues
     }
@@ -2276,13 +2406,14 @@ public struct VcsGitRequestFinished: LogEvent {
     public let fields: [String: LogFieldValue]
     public let operationID: String?
 
-    public init(`command`: String, `duration`: Duration, `exitCode`: (Int64)? = nil, `provider`: LogSegment, operationID: String? = nil) {
+    public init(`command`: String, `duration`: Duration, `exitCode`: (Int64)? = nil, `failureCode`: (String)? = nil, `provider`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
         self.channel = LogChannel(.vcs, segments: [`provider`])
         var _logValues: [String: LogFieldValue] = [:]
         _logValues["command"] = .token(`command`)
         _logValues["duration"] = .duration(`duration`)
         if let value = `exitCode` { _logValues["exit_code"] = .int(value) }
+        if let value = `failureCode` { _logValues["failure_code"] = .token(value) }
         _logValues["provider"] = .id(`provider`)
         self.fields = _logValues
     }
@@ -2299,12 +2430,13 @@ public struct VcsGitRequestStarted: LogEvent {
     public let fields: [String: LogFieldValue]
     public let operationID: String?
 
-    public init(`command`: String, `exitCode`: (Int64)? = nil, `provider`: LogSegment, operationID: String? = nil) {
+    public init(`command`: String, `exitCode`: (Int64)? = nil, `failureCode`: (String)? = nil, `provider`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
         self.channel = LogChannel(.vcs, segments: [`provider`])
         var _logValues: [String: LogFieldValue] = [:]
         _logValues["command"] = .token(`command`)
         if let value = `exitCode` { _logValues["exit_code"] = .int(value) }
+        if let value = `failureCode` { _logValues["failure_code"] = .token(value) }
         _logValues["provider"] = .id(`provider`)
         self.fields = _logValues
     }
@@ -2361,14 +2493,14 @@ public struct EditorSyncFreezeSpan: Sendable {
         return span
     }
 
-    public mutating func finish(`barrierDrained`: (Bool)? = nil, `browserRevision`: (Int64)? = nil, `inputPasses`: (Int64)? = nil, `modelVersion`: (Int64)? = nil, `nativeUtf16Length`: (Int64)? = nil, `pendingEdits`: (Int64)? = nil, `snapshotRevision`: (Int64)? = nil, `snapshotUtf16Length`: (Int64)? = nil, `status`: (String)? = nil) {
+    public mutating func finish(`barrierDrained`: (Bool)? = nil, `browserRevision`: (Int64)? = nil, `inputPasses`: (Int64)? = nil, `modelVersion`: (Int64)? = nil, `nativeRevision`: (Int64)? = nil, `nativeUtf16Length`: (Int64)? = nil, `pendingEdits`: (Int64)? = nil, `snapshotRevision`: (Int64)? = nil, `snapshotUtf16Length`: (Int64)? = nil, `status`: (String)? = nil) {
         guard let duration = state.end() else { return }
-        emit(EditorSyncFreezeFinished(barrierDrained: `barrierDrained`, browserRevision: `browserRevision`, document: `document`, duration: `duration`, inputPasses: `inputPasses`, modelVersion: `modelVersion`, nativeUtf16Length: `nativeUtf16Length`, pendingEdits: `pendingEdits`, revision: `revision`, snapshotRevision: `snapshotRevision`, snapshotUtf16Length: `snapshotUtf16Length`, status: `status`, operationID: state.operationID))
+        emit(EditorSyncFreezeFinished(barrierDrained: `barrierDrained`, browserRevision: `browserRevision`, document: `document`, duration: `duration`, inputPasses: `inputPasses`, modelVersion: `modelVersion`, nativeRevision: `nativeRevision`, nativeUtf16Length: `nativeUtf16Length`, pendingEdits: `pendingEdits`, revision: `revision`, snapshotRevision: `snapshotRevision`, snapshotUtf16Length: `snapshotUtf16Length`, status: `status`, operationID: state.operationID))
     }
 
-    public mutating func fail(_ error: any Error, `barrierDrained`: (Bool)? = nil, `browserRevision`: (Int64)? = nil, `inputPasses`: (Int64)? = nil, `modelVersion`: (Int64)? = nil, `nativeUtf16Length`: (Int64)? = nil, `pendingEdits`: (Int64)? = nil, `snapshotRevision`: (Int64)? = nil, `snapshotUtf16Length`: (Int64)? = nil, `status`: (String)? = nil) {
+    public mutating func fail(_ error: any Error, `barrierDrained`: (Bool)? = nil, `browserRevision`: (Int64)? = nil, `inputPasses`: (Int64)? = nil, `modelVersion`: (Int64)? = nil, `nativeRevision`: (Int64)? = nil, `nativeUtf16Length`: (Int64)? = nil, `pendingEdits`: (Int64)? = nil, `snapshotRevision`: (Int64)? = nil, `snapshotUtf16Length`: (Int64)? = nil, `status`: (String)? = nil) {
         guard let duration = state.end() else { return }
-        emit(EditorSyncFreezeFailed(barrierDrained: `barrierDrained`, browserRevision: `browserRevision`, document: `document`, duration: `duration`, error: `error`, inputPasses: `inputPasses`, modelVersion: `modelVersion`, nativeUtf16Length: `nativeUtf16Length`, pendingEdits: `pendingEdits`, revision: `revision`, snapshotRevision: `snapshotRevision`, snapshotUtf16Length: `snapshotUtf16Length`, status: `status`, operationID: state.operationID))
+        emit(EditorSyncFreezeFailed(barrierDrained: `barrierDrained`, browserRevision: `browserRevision`, document: `document`, duration: `duration`, error: `error`, inputPasses: `inputPasses`, modelVersion: `modelVersion`, nativeRevision: `nativeRevision`, nativeUtf16Length: `nativeUtf16Length`, pendingEdits: `pendingEdits`, revision: `revision`, snapshotRevision: `snapshotRevision`, snapshotUtf16Length: `snapshotUtf16Length`, status: `status`, operationID: state.operationID))
     }
 }
 
@@ -2452,14 +2584,14 @@ public struct VcsGitCommandSpan: Sendable {
         return span
     }
 
-    public mutating func finish(`exitCode`: (Int64)? = nil) {
+    public mutating func finish(`exitCode`: (Int64)? = nil, `failureCode`: (String)? = nil) {
         guard let duration = state.end() else { return }
-        emit(VcsGitCommandFinished(command: `command`, duration: `duration`, exitCode: `exitCode`, provider: `provider`, operationID: state.operationID))
+        emit(VcsGitCommandFinished(command: `command`, duration: `duration`, exitCode: `exitCode`, failureCode: `failureCode`, provider: `provider`, operationID: state.operationID))
     }
 
-    public mutating func fail(_ error: any Error, `exitCode`: (Int64)? = nil) {
+    public mutating func fail(_ error: any Error, `exitCode`: (Int64)? = nil, `failureCode`: (String)? = nil) {
         guard let duration = state.end() else { return }
-        emit(VcsGitCommandFailed(command: `command`, duration: `duration`, error: `error`, exitCode: `exitCode`, provider: `provider`, operationID: state.operationID))
+        emit(VcsGitCommandFailed(command: `command`, duration: `duration`, error: `error`, exitCode: `exitCode`, failureCode: `failureCode`, provider: `provider`, operationID: state.operationID))
     }
 }
 
@@ -2483,13 +2615,13 @@ public struct VcsGitRequestSpan: Sendable {
         return span
     }
 
-    public mutating func finish(`exitCode`: (Int64)? = nil) {
+    public mutating func finish(`exitCode`: (Int64)? = nil, `failureCode`: (String)? = nil) {
         guard let duration = state.end() else { return }
-        emit(VcsGitRequestFinished(command: `command`, duration: `duration`, exitCode: `exitCode`, provider: `provider`, operationID: state.operationID))
+        emit(VcsGitRequestFinished(command: `command`, duration: `duration`, exitCode: `exitCode`, failureCode: `failureCode`, provider: `provider`, operationID: state.operationID))
     }
 
-    public mutating func fail(_ error: any Error, `exitCode`: (Int64)? = nil) {
+    public mutating func fail(_ error: any Error, `exitCode`: (Int64)? = nil, `failureCode`: (String)? = nil) {
         guard let duration = state.end() else { return }
-        emit(VcsGitRequestFailed(command: `command`, duration: `duration`, error: `error`, exitCode: `exitCode`, provider: `provider`, operationID: state.operationID))
+        emit(VcsGitRequestFailed(command: `command`, duration: `duration`, error: `error`, exitCode: `exitCode`, failureCode: `failureCode`, provider: `provider`, operationID: state.operationID))
     }
 }

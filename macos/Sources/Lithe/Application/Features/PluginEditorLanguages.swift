@@ -5,6 +5,7 @@ import LitheCoreContracts
 /// Static editor resources are independent of language-server and Run providers.
 struct PluginEditorLanguageSet: Equatable {
     var languages: [ToolingJSONValue] = []
+    var pluginIDs: [String: String] = [:]
 
     var editorPayload: [String: Any] {
         let values = (try? JSONSerialization.jsonObject(with: JSONEncoder().encode(languages))) ?? []

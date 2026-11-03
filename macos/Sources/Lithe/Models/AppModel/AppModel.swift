@@ -318,7 +318,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     lazy var workbenchUIRegistry: WorkbenchModuleUIRegistry = {
         do { return try WorkbenchModuleUIComposition.registry(for: services.pluginCatalog, iconResources: services.pluginUIIconResources) }
         catch {
-            NSLog("Lithe workbench UI registration failed: %@", error.localizedDescription)
+            services.logSink?.emit(AppWorkbenchRegistrationFailed(error: error))
             // External metadata cannot terminate the application shell.
             do {
                 return try WorkbenchModuleUIRegistry(registrations: WorkbenchModuleUIComposition.registrations)
@@ -484,7 +484,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         if affectsSettings { pendingRelayAffectsSettings = true }
         guard !isObjectWillChangeRelayScheduled else { return }
         isObjectWillChangeRelayScheduled = true
-        let signpost = LitheSignpost.begin("appmodel.relay")
+        let signpost = LitheSignpost.begin("appmodel.relay", logSink: services.logSink)
         Task { @MainActor [weak self] in
             defer { LitheSignpost.end("appmodel.relay", signpost) }
             guard let self else { return }
