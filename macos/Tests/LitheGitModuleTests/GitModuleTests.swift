@@ -219,8 +219,10 @@ struct GitModuleTests {
         let typed = scenario & 1 != 0, blockRows = scenario & 2 != 0, reset = scenario & 4 != 0
         let root = URL(fileURLWithPath: "/workspace")
         let source = GitReference(fullName: "refs/heads/main", shortName: "main", kind: .local,
+            peelsToCommit: true,
             isCurrent: true, upstreamShortName: nil)
         let target = GitReference(fullName: "refs/heads/topic", shortName: "topic", kind: .local,
+            peelsToCommit: true,
             isCurrent: false, upstreamShortName: nil)
         let comparison = GitBranchComparison(reference: source, files: [GitBranchComparisonFile(status: "M", path: "file.txt")])
         let started = GitModuleTestGate(), release = GitModuleTestGate()
@@ -1885,6 +1887,7 @@ struct GitModuleTests {
         defer { feature.reset() }
         await feature.refreshGit()
         let reference = GitReference(fullName: "refs/heads/feature/topic", shortName: "feature/topic", kind: .local,
+            peelsToCommit: true,
             isCurrent: true, upstreamShortName: "origin/feature/topic")
 
         guard case .success(let resolved) = await feature.previewPush(reference, pushTarget: .upstream) else {
@@ -1912,6 +1915,7 @@ struct GitModuleTests {
         defer { feature.reset() }
         await feature.refreshGit()
         let reference = GitReference(fullName: "refs/heads/main", shortName: "main", kind: .local,
+            peelsToCommit: true,
             isCurrent: true, upstreamShortName: "origin/main")
 
         let failure = await feature.pushReviewed(reference, preview: preview, pushTarget: nil)
@@ -2127,6 +2131,7 @@ struct GitModuleTests {
             fullName: "refs/heads/main",
             shortName: "main",
             kind: .local,
+            peelsToCommit: true,
             isCurrent: true,
             upstreamShortName: nil
         )
@@ -2134,6 +2139,7 @@ struct GitModuleTests {
             fullName: "refs/heads/feature/x",
             shortName: "feature/x",
             kind: .local,
+            peelsToCommit: true,
             isCurrent: false,
             upstreamShortName: nil
         )
@@ -2141,6 +2147,7 @@ struct GitModuleTests {
             fullName: "refs/heads/develop",
             shortName: "develop",
             kind: .local,
+            peelsToCommit: true,
             isCurrent: true,
             upstreamShortName: nil
         )
@@ -2185,6 +2192,7 @@ struct GitModuleTests {
             fullName: "refs/heads/main",
             shortName: "main",
             kind: .local,
+            peelsToCommit: true,
             isCurrent: true,
             upstreamShortName: nil
         )
@@ -2223,10 +2231,12 @@ struct GitModuleTests {
         let secondRoot = workspace.appendingPathComponent("service-b", isDirectory: true)
         let main = GitReference(
             fullName: "refs/heads/main", shortName: "main", kind: .local,
+            peelsToCommit: true,
             isCurrent: true, upstreamShortName: nil
         )
         let develop = GitReference(
             fullName: "refs/heads/develop", shortName: "develop", kind: .local,
+            peelsToCommit: true,
             isCurrent: true, upstreamShortName: nil
         )
         let probe = GitReferencesLoadProbe(blocking: secondRoot)
@@ -2295,14 +2305,17 @@ struct GitModuleTests {
         let secondRoot = workspace.appendingPathComponent("service-b", isDirectory: true)
         let main = GitReference(
             fullName: "refs/heads/main", shortName: "main", kind: .local,
+            peelsToCommit: true,
             isCurrent: true, upstreamShortName: nil
         )
         let releaseBranch = GitReference(
             fullName: "refs/heads/release", shortName: "release", kind: .local,
+            peelsToCommit: true,
             isCurrent: false, upstreamShortName: nil
         )
         let develop = GitReference(
             fullName: "refs/heads/develop", shortName: "develop", kind: .local,
+            peelsToCommit: true,
             isCurrent: true, upstreamShortName: nil
         )
         let probe = GitReferencesLoadProbe(blocking: secondRoot)
@@ -2398,6 +2411,7 @@ struct GitModuleTests {
             fullName: "refs/heads/main",
             shortName: "main",
             kind: .local,
+            peelsToCommit: true,
             isCurrent: true,
             upstreamShortName: "origin/main"
         )
@@ -2405,6 +2419,7 @@ struct GitModuleTests {
             fullName: "refs/heads/feature/recent",
             shortName: "feature/recent",
             kind: .local,
+            peelsToCommit: true,
             isCurrent: false,
             upstreamShortName: nil
         )
@@ -2746,6 +2761,7 @@ struct GitModuleTests {
             fullName: "refs/remotes/origin/feature/demo",
             shortName: "origin/feature/demo",
             kind: .remote,
+            peelsToCommit: true,
             isCurrent: false,
             upstreamShortName: nil
         )
@@ -3684,6 +3700,7 @@ struct GitModuleTests {
             fullName: "refs/tags/v1.0",
             shortName: "v1.0",
             kind: .tag,
+            peelsToCommit: true,
             isCurrent: false,
             upstreamShortName: nil
         )
@@ -3721,6 +3738,7 @@ struct GitModuleTests {
             fullName: "refs/tags/v1.0",
             shortName: "v1.0",
             kind: .tag,
+            peelsToCommit: true,
             isCurrent: false,
             upstreamShortName: nil
         )
@@ -3766,6 +3784,7 @@ struct GitModuleTests {
                 fullName: "refs/tags/\(name)",
                 shortName: name,
                 kind: .tag,
+                peelsToCommit: true,
                 isCurrent: false,
                 upstreamShortName: nil
             ))
@@ -3803,6 +3822,7 @@ struct GitModuleTests {
             fullName: "refs/tags/v1.0",
             shortName: "v1.0",
             kind: .tag,
+            peelsToCommit: true,
             isCurrent: false,
             upstreamShortName: nil
         )
@@ -3855,6 +3875,7 @@ struct GitModuleTests {
             fullName: "refs/tags/v1.0",
             shortName: "v1.0",
             kind: .tag,
+            peelsToCommit: true,
             isCurrent: false,
             upstreamShortName: nil
         )
@@ -3895,6 +3916,7 @@ struct GitModuleTests {
             fullName: "refs/tags/v1.0",
             shortName: "v1.0",
             kind: .tag,
+            peelsToCommit: true,
             isCurrent: false,
             upstreamShortName: nil
         )
@@ -3932,6 +3954,7 @@ struct GitModuleTests {
             fullName: "refs/tags/v1.0",
             shortName: "v1.0",
             kind: .tag,
+            peelsToCommit: true,
             isCurrent: false,
             upstreamShortName: nil
         )
@@ -3970,6 +3993,7 @@ struct GitModuleTests {
             fullName: "refs/heads/feature/short-lived",
             shortName: "feature/short-lived",
             kind: .local,
+            peelsToCommit: true,
             isCurrent: false,
             upstreamShortName: nil
         )
@@ -4015,6 +4039,7 @@ struct GitModuleTests {
             fullName: "refs/heads/feature/short-lived",
             shortName: "feature/short-lived",
             kind: .local,
+            peelsToCommit: true,
             isCurrent: false,
             upstreamShortName: nil
         )
@@ -4057,6 +4082,7 @@ struct GitModuleTests {
             fullName: "refs/heads/feature/a",
             shortName: "feature/a",
             kind: .local,
+            peelsToCommit: true,
             isCurrent: false,
             upstreamShortName: nil
         ))
@@ -4066,6 +4092,7 @@ struct GitModuleTests {
             fullName: "refs/heads/feature/b",
             shortName: "feature/b",
             kind: .local,
+            peelsToCommit: true,
             isCurrent: false,
             upstreamShortName: nil
         ))
@@ -4102,6 +4129,7 @@ struct GitModuleTests {
             fullName: "refs/tags/v1.0",
             shortName: "v1.0",
             kind: .tag,
+            peelsToCommit: true,
             isCurrent: false,
             upstreamShortName: nil
         ))
@@ -4109,6 +4137,7 @@ struct GitModuleTests {
             fullName: "refs/heads/feature/a",
             shortName: "feature/a",
             kind: .local,
+            peelsToCommit: true,
             isCurrent: false,
             upstreamShortName: nil
         ))
@@ -4140,6 +4169,7 @@ struct GitModuleTests {
         )
         await feature.refreshGit()
         await feature.updateBranch(GitReference(fullName: "refs/heads/feature/a", shortName: "feature/a", kind: .local,
+                                                peelsToCommit: true,
                                                 isCurrent: false, upstreamShortName: "origin/feature/a",
                                                 ahead: ahead, behind: 2))
 
@@ -4170,6 +4200,7 @@ struct GitModuleTests {
         // The Worktrees tab never loaded, so the published list is empty.
         #expect(feature.gitWorktrees.isEmpty)
         await feature.updateBranch(GitReference(fullName: "refs/heads/feature/a", shortName: "feature/a", kind: .local,
+                                                peelsToCommit: true,
                                                 isCurrent: false, upstreamShortName: "origin/feature/a", behind: 2))
 
         #expect(recorder.recorded.isEmpty)
@@ -4189,6 +4220,7 @@ struct GitModuleTests {
         )
         await feature.refreshGit()
         await feature.updateBranch(GitReference(fullName: "refs/heads/local-only", shortName: "local-only", kind: .local,
+                                                peelsToCommit: true,
                                                 isCurrent: false, upstreamShortName: nil))
 
         #expect(recorder.recorded.isEmpty)
@@ -4221,6 +4253,7 @@ struct GitModuleTests {
             fullName: "refs/heads/feature/short-lived",
             shortName: "feature/short-lived",
             kind: .local,
+            peelsToCommit: true,
             isCurrent: false,
             upstreamShortName: nil
         )
@@ -4990,6 +5023,7 @@ struct GitModuleTests {
             fullName: "refs/heads/preview",
             shortName: "preview",
             kind: .local,
+            peelsToCommit: true,
             isCurrent: true,
             upstreamShortName: nil
         )
@@ -4997,6 +5031,7 @@ struct GitModuleTests {
             fullName: "refs/heads/maim",
             shortName: "maim",
             kind: .local,
+            peelsToCommit: true,
             isCurrent: false,
             upstreamShortName: nil
         )
@@ -5073,6 +5108,7 @@ struct GitModuleTests {
             fullName: "refs/heads/main",
             shortName: "main",
             kind: .local,
+            peelsToCommit: true,
             isCurrent: true,
             upstreamShortName: "origin/main"
         )
@@ -5127,6 +5163,7 @@ struct GitModuleTests {
             fullName: "refs/heads/main",
             shortName: "main",
             kind: .local,
+            peelsToCommit: true,
             isCurrent: true,
             upstreamShortName: nil
         )
@@ -5180,6 +5217,7 @@ struct GitModuleTests {
             fullName: "refs/heads/main",
             shortName: "main",
             kind: .local,
+            peelsToCommit: true,
             isCurrent: true,
             upstreamShortName: nil
         )
@@ -5187,6 +5225,7 @@ struct GitModuleTests {
             fullName: "refs/remotes/origin/main",
             shortName: "origin/main",
             kind: .remote,
+            peelsToCommit: true,
             isCurrent: false,
             upstreamShortName: nil
         )
@@ -6181,6 +6220,7 @@ private final class GitRepositoryHistoryProbe: @unchecked Sendable {
     func reference(for root: URL) -> GitReference {
         GitReference(fullName: "refs/heads/\(root.lastPathComponent)-only",
             shortName: "\(root.lastPathComponent)-only", kind: .local,
+            peelsToCommit: true,
             isCurrent: true, upstreamShortName: nil)
     }
 

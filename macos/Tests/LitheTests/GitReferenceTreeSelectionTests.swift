@@ -7,7 +7,7 @@ struct GitReferenceTreeSelectionTests {
     @Test(arguments: [false, true], [false, true])
     func headAndCurrentBranchNeverShareSelection(headSelected: Bool, showingAll: Bool) {
         let current = GitReference(fullName: "refs/heads/main", shortName: "main",
-                                   kind: .local, isCurrent: true, upstreamShortName: nil)
+                                   kind: .local, peelsToCommit: true, isCurrent: true, upstreamShortName: nil)
         for selectedID in [nil, current.id] {
             let head = GitReferenceTreeSelection.isSelected(
                 isHead: true, headSelected: headSelected, reference: current,
@@ -24,9 +24,9 @@ struct GitReferenceTreeSelectionTests {
     @Test
     func selectingAnotherBranchDoesNotHighlightCurrentOrHead() {
         let current = GitReference(fullName: "refs/heads/main", shortName: "main",
-                                   kind: .local, isCurrent: true, upstreamShortName: nil)
+                                   kind: .local, peelsToCommit: true, isCurrent: true, upstreamShortName: nil)
         let other = GitReference(fullName: "refs/heads/feature", shortName: "feature",
-                                 kind: .local, isCurrent: false, upstreamShortName: nil)
+                                 kind: .local, peelsToCommit: true, isCurrent: false, upstreamShortName: nil)
         #expect(GitReferenceTreeSelection.isSelected(isHead: false, headSelected: false, reference: other,
                                                      selectedReferenceID: other.id, showingAll: false))
         #expect(!GitReferenceTreeSelection.isSelected(isHead: false, headSelected: false, reference: current,
