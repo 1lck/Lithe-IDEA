@@ -89,6 +89,21 @@
       "owner": "Lithe"
     },
     {
+      "id": "vcs.history_date_query.failed",
+      "channel": "vcs",
+      "level": "error",
+      "message": "Git history date filter failed",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Stable failure category for the shared date filter"
+        }
+      },
+      "rate": 60,
+      "owner": "LitheGitModule"
+    },
+    {
       "id": "vcs.shelf.operation_failed",
       "channel": "vcs",
       "level": "error",

@@ -8,7 +8,12 @@ const MS_PER_MINUTE = 60_000;
 export function parseGitLogDate(
   dateString: string,
   utcOffsetMinutes: number | null | undefined,
+  unixSeconds?: number | null,
 ): Date | null {
+  if (unixSeconds != null) {
+    const date = new Date(unixSeconds * 1000);
+    return Number.isFinite(unixSeconds) && Number.isFinite(date.getTime()) ? date : null;
+  }
   const match = GIT_LOG_DATE_PATTERN.exec(dateString);
   if (!match) return null;
   const [year, month, day, hours, minutes] = match.slice(1).map(Number);
@@ -45,8 +50,9 @@ export function formatGitLogDate(
   utcOffsetMinutes: number | null | undefined,
   now: Date = new Date(),
   presentation?: DateTimePresentation,
+  unixSeconds?: number | null,
 ): string {
-  const date = parseGitLogDate(dateString, utcOffsetMinutes);
+  const date = parseGitLogDate(dateString, utcOffsetMinutes, unixSeconds);
   if (!date) return dateString;
   const { date: calendarDate, time } = presentation ?? formatLocaleDateTime(date);
   const absolute = `${calendarDate} ${time}`;

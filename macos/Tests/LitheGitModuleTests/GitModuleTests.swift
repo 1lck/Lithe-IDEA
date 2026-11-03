@@ -1106,13 +1106,13 @@ struct GitModuleTests {
         )
         let query = GitLogQuery.parse("me author:ada fix path:AuthController")
 
-        #expect(query.matchesMetadata(
+        #expect(query.matchesNonDateMetadata(
             commit,
             identity: GitIdentity(name: nil, email: "ada@example.com")
         ))
         #expect(query.matchesPaths(["src/main/java/demo/AuthController.java"]))
         #expect(!query.matchesPaths(["src/main/java/demo/HomeController.java"]))
-        #expect(!query.matchesMetadata(
+        #expect(!query.matchesNonDateMetadata(
             commit,
             identity: GitIdentity(name: "Grace Hopper", email: "grace@example.com")
         ))
@@ -1147,8 +1147,8 @@ struct GitModuleTests {
         )
 
         #expect(query.paths == [path])
-        #expect(query.matchesMetadata(selectedAuthor, identity: nil))
-        #expect(!query.matchesMetadata(similarAuthor, identity: nil))
+        #expect(query.matchesNonDateMetadata(selectedAuthor, identity: nil))
+        #expect(!query.matchesNonDateMetadata(similarAuthor, identity: nil))
         #expect(query.matchesPaths([path]))
         #expect(!query.matchesPaths([#"Sources/Its a "quoted" file.swift"#]))
     }
@@ -1177,39 +1177,54 @@ struct GitModuleTests {
         )
         let query = GitLogQuery(exactAuthor: GitIdentity(name: "Alice", email: nil))
 
-        #expect(query.matchesMetadata(exactName, identity: nil))
-        #expect(!query.matchesMetadata(similarName, identity: nil))
+        #expect(query.matchesNonDateMetadata(exactName, identity: nil))
+        #expect(!query.matchesNonDateMetadata(similarName, identity: nil))
     }
 
     @Test
-    func gitLogQueryMatchesInclusiveAfterAndExclusiveBeforeDates() {
-        let insideRange = GitCommit(
-            hash: "1111111111111111",
-            shortHash: "1111111",
-            parentHashes: [],
-            authorName: "Ada Lovelace",
-            authorEmail: "ada@example.com",
-            date: "2026-08-16T09:30:00+08:00",
-            subject: "Inside range",
-            decorations: ""
-        )
-        let atExclusiveEnd = GitCommit(
-            hash: "2222222222222222",
-            shortHash: "2222222",
-            parentHashes: [],
-            authorName: "Ada Lovelace",
-            authorEmail: "ada@example.com",
-            date: "2026-08-18T00:00:00Z",
-            subject: "Outside range",
-            decorations: ""
-        )
-        let query = GitLogQuery.parse("after:2026-08-16 before:2026-08-18")
+    func historyDateFilterRejectsLateResultsAndPreservesSelectionOnFailure() async throws {
+        let root = URL(fileURLWithPath: "/workspace")
+        let entered = GitModuleTestGate(), release = GitModuleTestGate()
+        let commit = makeTestCommit(hash: "first", subject: "First")
+        let history = GitHistorySnapshot(references: [], commits: [commit], hasMore: false, identity: nil)
+        let operations = TestGitOperations(snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: []),
+            historyValue: history, historyDateHandler: { request in
+                switch request.afterUnixSeconds {
+                case 1:
+                    entered.open(); guard release.waitSynchronously() else { return nil }
+                    return ["first"]
+                case 2: return []
+                default: return nil
+                }
+            })
+        var notifications: [String] = []
+        let feature = GitFeatureModel(service: GitService(operations: operations))
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { true },
+            notify: { notifications.append($0) }, onStateRefreshed: {})
+        await feature.refreshGit()
+        let pending = Task { @MainActor in
+            await feature.applyGitLogFilter(GitLogQuery(afterDate: Date(timeIntervalSince1970: 1)))
+        }
+        defer { release.open(); pending.cancel(); feature.reset() }
+        try #require(await entered.waitUntilOpen())
+        await feature.applyGitLogFilter(GitLogQuery(afterDate: Date(timeIntervalSince1970: 2)))
+        #expect(feature.gitLogMatchedCommitHashes == [])
+        release.open()
+        try #require(await waitForGitTaskCompletion(pending))
+        #expect(feature.gitLogMatchedCommitHashes == [])
+        await feature.applyGitLogFilter(GitLogQuery(afterDate: Date(timeIntervalSince1970: 3)))
+        #expect(feature.gitLogMatchedCommitHashes == [])
+        #expect(!feature.isFilteringGitLog)
+        #expect(notifications.count == 1)
+    }
 
+    @Test
+    func gitLogQueryKeepsExplicitDateBoundaries() {
+        let query = GitLogQuery.parse("after:2026-08-16 before:2026-08-18")
         #expect(!query.isEmpty)
         #expect(query.afterDate != nil)
         #expect(query.beforeDate != nil)
-        #expect(query.matchesMetadata(insideRange, identity: nil))
-        #expect(!query.matchesMetadata(atExclusiveEnd, identity: nil))
+        #expect(query.afterDate! < query.beforeDate!)
     }
 
     @Test
@@ -6293,6 +6308,7 @@ private struct TestGitOperations: GitOperations {
     private let comparisonDiffDocumentValue: DiffDocument?
     private let typedComparisonDiffDocumentValue: DiffDocument?
     private let historyValue: GitHistorySnapshot?
+    private let historyDateHandler: (@Sendable (GitHistoryDateQuery) -> [String]?)?
     private let referencesValue: GitReferenceSnapshot?
     private let referencesByRoot: [String: GitReferenceSnapshot]?
     private let referencesProbe: GitReferencesLoadProbe?
@@ -6347,6 +6363,7 @@ private struct TestGitOperations: GitOperations {
         comparisonRead: (@Sendable () -> GitBranchComparison?)? = nil,
         comparisonRowsRead: (@Sendable () -> DiffDocument?)? = nil,
         historyValue: GitHistorySnapshot? = nil,
+        historyDateHandler: (@Sendable (GitHistoryDateQuery) -> [String]?)? = nil,
         referencesValue: GitReferenceSnapshot? = nil,
         referencesByRoot: [String: GitReferenceSnapshot]? = nil,
         referencesProbe: GitReferencesLoadProbe? = nil,
@@ -6404,6 +6421,7 @@ private struct TestGitOperations: GitOperations {
         self.comparisonRead = comparisonRead
         self.comparisonRowsRead = comparisonRowsRead
         self.historyValue = historyValue
+        self.historyDateHandler = historyDateHandler
         self.referencesValue = referencesValue
         self.referencesByRoot = referencesByRoot
         self.referencesProbe = referencesProbe
@@ -6508,6 +6526,7 @@ private struct TestGitOperations: GitOperations {
     func applyPatch(_ patch: String, at rootURL: URL, mode: String) -> GitProcessResult? {
         applyPatchHandler?(patch, rootURL, mode)
     }
+    func historyDateMatches(_ query: GitHistoryDateQuery) -> [String]? { historyDateHandler?(query) }
     func history(at rootURL: URL, reference: GitReference?, limit: Int) -> GitHistorySnapshot? {
         if let historyController {
             return historyController.history(at: rootURL, reference: reference, limit: limit)

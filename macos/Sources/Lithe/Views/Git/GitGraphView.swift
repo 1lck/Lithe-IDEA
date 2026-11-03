@@ -19,8 +19,11 @@ enum GitLogDatePresentation {
         return formatter
     }
 
-    static func components(_ value: String, locale: Locale) -> (text: String, period: String?) {
-        guard let date = GitLogQuery.parseCommitDate(value) else { return (value, nil) }
+    static func components(_ value: String, utcOffsetMinutes: Int? = nil, unixSeconds: Int64? = nil, locale: Locale) -> (text: String, period: String?) {
+        if utcOffsetMinutes != nil && unixSeconds == nil { return (value, nil) }
+        let instant = unixSeconds.map { Date(timeIntervalSince1970: TimeInterval($0)) }
+            ?? GitLogQuery.parseCommitDate(value)
+        guard let date = instant else { return (value, nil) }
         if locale.language.languageCode?.identifier == "en" {
             let text = twelveHour.string(from: date)
             return (String(text.dropLast(3)), String(text.suffix(2)))
@@ -28,8 +31,8 @@ enum GitLogDatePresentation {
         return (twentyFourHour.string(from: date), nil)
     }
 
-    static func string(_ value: String, locale: Locale) -> String {
-        let parts = components(value, locale: locale)
+    static func string(_ value: String, utcOffsetMinutes: Int? = nil, unixSeconds: Int64? = nil, locale: Locale) -> String {
+        let parts = components(value, utcOffsetMinutes: utcOffsetMinutes, unixSeconds: unixSeconds, locale: locale)
         return parts.text + (parts.period.map { " " + $0 } ?? "")
     }
 }
@@ -657,7 +660,7 @@ final class GitGraphScrollDocumentView: NSView {
             let element = GitGraphAccessibilityRow()
             element.setAccessibilityParent(self)
             element.setAccessibilityRole(.button)
-            element.setAccessibilityLabel("\(row.commit.subject), \(row.commit.authorName), \(commitRowsView.dateString(row.commit.date))")
+            element.setAccessibilityLabel("\(row.commit.subject), \(row.commit.authorName), \(commitRowsView.dateString(row.commit.date, utcOffsetMinutes: row.commit.dateUtcOffsetMinutes, unixSeconds: row.commit.dateUnixSeconds))")
             element.setAccessibilitySelected(commitRowsView.isSelected(row.commit.hash))
             element.setAccessibilityFrameInParentSpace(CGRect(x: 0, y: CGFloat(index) * rowHeight, width: bounds.width, height: rowHeight))
             element.onPress = { [weak self] in self?.commitRowsView.select(rowIndex: index) }
@@ -721,7 +724,12 @@ final class GitGraphCommitRowsNSView: NSView, NSViewToolTipOwner {
     private var selectedHashes: Set<String>? = nil
     private var isFocused = true
     private var referenceGroups: [String: GitGraphReferenceGroup] = [:]
-    private var dateTextCache: [String: (text: String, period: String?)] = [:]
+    private struct DateCacheKey: Hashable {
+        let value: String
+        let utcOffsetMinutes: Int?
+        let unixSeconds: Int64?
+    }
+    private var dateTextCache: [DateCacheKey: (text: String, period: String?)] = [:]
 
     override var isFlipped: Bool { true }
 
@@ -773,15 +781,16 @@ final class GitGraphCommitRowsNSView: NSView, NSViewToolTipOwner {
         needsDisplay = true
     }
 
-    private func dateComponents(_ value: String) -> (text: String, period: String?) {
-        if let cached = dateTextCache[value] { return cached }
-        let result = GitLogDatePresentation.components(value, locale: locale)
-        dateTextCache[value] = result
+    private func dateComponents(_ value: String, utcOffsetMinutes: Int? = nil, unixSeconds: Int64? = nil) -> (text: String, period: String?) {
+        let key = DateCacheKey(value: value, utcOffsetMinutes: utcOffsetMinutes, unixSeconds: unixSeconds)
+        if let cached = dateTextCache[key] { return cached }
+        let result = GitLogDatePresentation.components(value, utcOffsetMinutes: utcOffsetMinutes, unixSeconds: unixSeconds, locale: locale)
+        dateTextCache[key] = result
         return result
     }
 
-    func dateString(_ value: String) -> String {
-        let parts = dateComponents(value)
+    func dateString(_ value: String, utcOffsetMinutes: Int? = nil, unixSeconds: Int64? = nil) -> String {
+        let parts = dateComponents(value, utcOffsetMinutes: utcOffsetMinutes, unixSeconds: unixSeconds)
         return parts.text + (parts.period.map { " " + $0 } ?? "")
     }
 
@@ -915,7 +924,7 @@ final class GitGraphCommitRowsNSView: NSView, NSViewToolTipOwner {
                 font: style.meta,
                 color: foreground
             )
-            let date = dateComponents(row.commit.date)
+            let date = dateComponents(row.commit.date, utcOffsetMinutes: row.commit.dateUtcOffsetMinutes, unixSeconds: row.commit.dateUnixSeconds)
             let periodWidth = date.period == nil ? 0 : style.meridiemWidth + 4
             drawText(date.text,
                 in: CGRect(x: max(0, rect.maxX - dateWidth - 8), y: rect.minY, width: dateWidth - periodWidth, height: rowHeight),
@@ -1127,7 +1136,7 @@ private struct GitGraphRowView: View, Equatable {
                     .lineLimit(1)
                     .frame(width: 104, alignment: .leading)
 
-                let date = GitLogDatePresentation.components(row.commit.date, locale: locale)
+                let date = GitLogDatePresentation.components(row.commit.date, utcOffsetMinutes: row.commit.dateUtcOffsetMinutes, unixSeconds: row.commit.dateUnixSeconds, locale: locale)
                 HStack(spacing: 4) {
                     Text(verbatim: date.text)
                     if let period = date.period {

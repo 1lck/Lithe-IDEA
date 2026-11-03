@@ -376,11 +376,26 @@ package struct GitCommit: Identifiable, Hashable, Sendable {
     package let authorName: String
     package let authorEmail: String
     package let date: String
+    package let dateUtcOffsetMinutes: Int?
+    package let dateUnixSeconds: Int64?
     package let subject: String
     package let decorations: String
-    package init(hash: String, shortHash: String, parentHashes: [String], authorName: String, authorEmail: String, date: String, subject: String, decorations: String) { self.hash = hash; self.shortHash = shortHash; self.parentHashes = parentHashes; self.authorName = authorName; self.authorEmail = authorEmail; self.date = date; self.subject = subject; self.decorations = decorations }
+    package init(hash: String, shortHash: String, parentHashes: [String], authorName: String, authorEmail: String, date: String, dateUtcOffsetMinutes: Int? = nil, dateUnixSeconds: Int64? = nil, subject: String, decorations: String) { self.hash = hash; self.shortHash = shortHash; self.parentHashes = parentHashes; self.authorName = authorName; self.authorEmail = authorEmail; self.date = date; self.dateUtcOffsetMinutes = dateUtcOffsetMinutes; self.dateUnixSeconds = dateUnixSeconds; self.subject = subject; self.decorations = decorations }
 
     package var id: String { hash }
+}
+
+/// Inputs for Core's bounded, timezone-aware date filter.
+package struct GitHistoryDateQuery: Encodable, Sendable {
+    package struct Entry: Encodable, Sendable {
+        package let id: String
+        package let date: String
+        package let utcOffsetMinutes: Int?
+        package let fallbackUnixSeconds: Double?
+    }
+    package let entries: [Entry]
+    package let afterUnixSeconds: Double?
+    package let beforeUnixSeconds: Double?
 }
 
 package struct GitCommitFile: Identifiable, Hashable, Sendable {
@@ -713,12 +728,7 @@ package struct GitLogQuery: Equatable, Sendable {
         )
     }
 
-    package func matchesMetadata(_ commit: GitCommit, identity: GitIdentity?) -> Bool {
-        if afterDate != nil || beforeDate != nil {
-            guard let commitDate = Self.parseCommitDate(commit.date) else { return false }
-            if let afterDate, commitDate < afterDate { return false }
-            if let beforeDate, commitDate >= beforeDate { return false }
-        }
+    package func matchesNonDateMetadata(_ commit: GitCommit, identity: GitIdentity?) -> Bool {
         if currentUserOnly {
             guard let identity, !identity.isEmpty else { return false }
             let matchesName = identity.name.map {
@@ -824,7 +834,12 @@ package struct GitLogQuery: Equatable, Sendable {
             "yyyy/MM/dd HH:mm"
         ] {
             formatter.dateFormat = format
-            if let date = formatter.date(from: value) { return date }
+            if let date = formatter.date(from: value) {
+                // DateFormatter can accept a valid prefix followed by an invalid
+                // timezone; never silently reinterpret that suffix as local time.
+                if format == "yyyy/MM/dd HH:mm" && formatter.string(from: date) != value { continue }
+                return date
+            }
         }
         return nil
     }

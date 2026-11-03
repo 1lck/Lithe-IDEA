@@ -2619,7 +2619,18 @@ package final class GitFeatureModel: ObservableObject {
         }
 
         isFilteringGitLog = true
-        var candidates = gitCommits.filter { query.matchesMetadata($0, identity: gitIdentity) }
+        var candidates = gitCommits.filter { query.matchesNonDateMetadata($0, identity: gitIdentity) }
+        if query.afterDate != nil || query.beforeDate != nil {
+            let matches = await service.historyDateMatches(candidates, after: query.afterDate, before: query.beforeDate)
+            guard gitLogFilterGeneration == generation else { return }
+            guard !Task.isCancelled else { isFilteringGitLog = false; return }
+            guard let matches else {
+                isFilteringGitLog = false
+                notifyFailure(L10n.string("Could not filter Git history. Try again."), reason: "history-date-query")
+                return
+            }
+            candidates.removeAll { !matches.contains($0.hash) }
+        }
 
         for branchFilter in query.branches {
             guard let repositoryRoot = gitRepositoryRoot else {

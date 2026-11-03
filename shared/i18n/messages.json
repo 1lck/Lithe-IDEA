@@ -33287,6 +33287,12 @@
       }
     },
     {
+      "id": "native.couldNotFilterGitHistoryTryAgain",
+      "description": "Native UI: Git history date filter failed",
+      "platforms": ["macos"],
+      "macos": {"key": "Could not filter Git history. Try again.", "arguments": []}
+    },
+    {
       "id": "native.couldNotInspectTheSelectedHistoryRefreshThePreviewToRetry",
       "description": "Native UI: Could not inspect the selected history. Refresh the preview to retry.",
       "platforms": [

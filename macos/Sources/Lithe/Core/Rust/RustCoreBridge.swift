@@ -1275,6 +1275,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             let authorName: String
             let authorEmail: String
             let date: String
+            let dateUtcOffsetMinutes: Int?
+            let dateUnixSeconds: Int64?
             let subject: String
             let decorations: String
         }
@@ -1320,6 +1322,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                         authorName: commit.authorName,
                         authorEmail: commit.authorEmail,
                         date: commit.date,
+                        dateUtcOffsetMinutes: commit.dateUtcOffsetMinutes,
+                        dateUnixSeconds: commit.dateUnixSeconds,
                         subject: commit.subject,
                         decorations: commit.decorations
                     )
@@ -1377,6 +1381,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                         authorName: commit.authorName,
                         authorEmail: commit.authorEmail,
                         date: commit.date,
+                        dateUtcOffsetMinutes: commit.dateUtcOffsetMinutes,
+                        dateUnixSeconds: commit.dateUnixSeconds,
                         subject: commit.subject,
                         decorations: commit.decorations
                     )
@@ -1398,6 +1404,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 authorName: commit.authorName,
                 authorEmail: commit.authorEmail,
                 date: commit.date,
+                dateUtcOffsetMinutes: commit.dateUtcOffsetMinutes,
+                dateUnixSeconds: commit.dateUnixSeconds,
                 subject: commit.subject,
                 decorations: commit.decorations
             )
@@ -3602,6 +3610,14 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 mode: mode
             )
         )
+    }
+
+    struct GitHistoryDateQueryPayload: Decodable, Sendable {
+        let matchingIds: [String]
+    }
+
+    func gitHistoryDateQuery(_ query: GitHistoryDateQuery) -> GitHistoryDateQueryPayload? {
+        execute(command: "git.historyQuery", payload: query)
     }
 
     func gitHistory(

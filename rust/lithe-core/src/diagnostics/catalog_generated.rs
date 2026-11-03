@@ -2537,6 +2537,18 @@ pub static EVENTS: &[EventMetadata] = &[
         owner: "lithe-core",
     },
     EventMetadata {
+        id: "vcs.history_date_query.failed",
+        channel: "vcs",
+        level: LogLevel::Error,
+        message: "Git history date filter failed",
+        fields: &[
+            FieldMetadata { name: "error", field_type: FieldType::Error, required: true, description: "Stable failure category for the shared date filter", reason: None },
+        ],
+        span: None,
+        rate: 60,
+        owner: "LitheGitModule",
+    },
+    EventMetadata {
         id: "vcs.host.cleanup_failed",
         channel: "vcs/git",
         level: LogLevel::Warn,

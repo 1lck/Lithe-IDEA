@@ -6102,3 +6102,65 @@ fn prepared_rollback_preserves_added_files_and_rejects_stale_renames() {
     );
     assert!(root.join("file[1].txt").is_file());
 }
+
+#[test]
+fn git_history_query_compares_absolute_instants_with_half_open_bounds() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/git/history-date-query-v1.json"
+    ))
+    .unwrap();
+    let result: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "command":"git.historyQuery", "payload":fixture["request"]
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(result["ok"], true, "{result}");
+    assert_eq!(result["data"], fixture["response"]);
+}
+
+#[test]
+fn git_history_query_respects_dst_day_bounds_and_repeated_local_hours() {
+    let request = serde_json::json!({
+        "entries": [
+            {"id":"first", "date":"2026/11/01 01:30", "utcOffsetMinutes":-420},
+            {"id":"second", "date":"2026/11/01 01:30", "utcOffsetMinutes":-480},
+            {"id":"nextDay", "date":"2026/11/02 00:00", "utcOffsetMinutes":-480}
+        ],
+        "afterUnixSeconds":1793516400,
+        "beforeUnixSeconds":1793606400
+    });
+    let result: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "command":"git.historyQuery", "payload":request
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(
+        result["data"]["matchingIds"],
+        serde_json::json!(["first", "second"])
+    );
+}
+
+#[test]
+fn git_history_query_rejects_unbounded_or_ambiguous_entries() {
+    let entry = serde_json::json!({"id":"same", "date":"2026/09/10 00:30", "utcOffsetMinutes":480});
+    for entries in [
+        vec![entry.clone(), entry.clone()],
+        vec![entry.clone(); 4097],
+        vec![serde_json::json!({"id":"x".repeat(257), "date":"2026/09/10 00:30"})],
+        vec![serde_json::json!({"id":"x", "date":"x".repeat(129)})],
+    ] {
+        let result: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "command":"git.historyQuery", "payload":{"entries":entries}
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(result["ok"], false, "{result}");
+        assert_eq!(result["error"]["code"], "invalid_request");
+    }
+}

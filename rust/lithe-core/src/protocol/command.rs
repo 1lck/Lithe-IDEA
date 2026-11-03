@@ -537,6 +537,8 @@ pub enum CoreCommand {
     GitApply,
     /// Lists references and bounded commit history (`git.history`).
     GitHistory,
+    /// Filters commit dates against explicit absolute bounds (`git.historyQuery`).
+    GitHistoryQuery,
     /// Lists Git references without repeating commit history (`git.references`).
     GitReferences,
     /// Returns one cursor-based commit page (`git.historyPage`).
@@ -862,6 +864,7 @@ impl CoreCommand {
             "git.diff" => Some(Self::GitDiff),
             "git.apply" => Some(Self::GitApply),
             "git.history" => Some(Self::GitHistory),
+            "git.historyQuery" => Some(Self::GitHistoryQuery),
             "git.references" => Some(Self::GitReferences),
             "git.historyPage" => Some(Self::GitHistoryPage),
             "git.historyCursorClose" => Some(Self::GitHistoryCursorClose),

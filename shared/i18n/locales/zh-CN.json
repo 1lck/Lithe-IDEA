@@ -4051,6 +4051,7 @@
     "native.couldNotCopyYourStableSettings": "无法复制正式版设置",
     "native.couldNotFindTheJavaSourceFor": "找不到 {arg1} 对应的 Java 源码",
     "native.couldNotInspectSavedFile": "无法读取已保存的文件",
+    "native.couldNotFilterGitHistoryTryAgain": "无法筛选 Git 历史记录，请重试。",
     "native.couldNotInspectTheSelectedHistoryRefreshThePreviewToRetry": "无法检查所选历史。请刷新预览后重试。",
     "native.couldNotInspectThisWorktree": "无法检查此工作树",
     "native.couldNotInstallUpdate": "无法安装更新",

@@ -569,6 +569,7 @@ export function GitCommitTable({
                         <GitLogDateCell
                           date={row.commit.date}
                           utcOffsetMinutes={row.commit.dateUtcOffsetMinutes}
+                          unixSeconds={row.commit.dateUnixSeconds}
                         />
                         <GitLogColumnResizeHandle column="date" onStartResize={startResize} />
                       </div>

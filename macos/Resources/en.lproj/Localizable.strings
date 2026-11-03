@@ -1041,6 +1041,7 @@
 "Could not discover runtimes on the remote host. Check the connection and refresh." = "Could not discover runtimes on the remote host. Check the connection and refresh.";
 "Could not discover shells on the remote host. Check the connection and try again." = "Could not discover shells on the remote host. Check the connection and try again.";
 "Could not export diagnostic logs. Try again." = "Could not export diagnostic logs. Try again.";
+"Could not filter Git history. Try again." = "Could not filter Git history. Try again.";
 "Could not find the Java source for %@" = "Could not find the Java source for %@";
 "Could not import MCP JSON. Check the mcpServers object and try again." = "Could not import MCP JSON. Check the mcpServers object and try again.";
 "Could not inspect saved file" = "Could not inspect saved file";
@@ -6074,6 +6075,7 @@
 "native.couldNotConfirm" = "Could not confirm";
 "native.couldNotConnectToTheDebugAdapter" = "Could not connect to the Debug Adapter: %1$@";
 "native.couldNotCopyYourStableSettings" = "Could not copy your Stable settings";
+"native.couldNotFilterGitHistoryTryAgain" = "Could not filter Git history. Try again.";
 "native.couldNotFindTheJavaSourceFor" = "Could not find the Java source for %1$@";
 "native.couldNotImportMcpJsonCheckTheMcpserversObjectAndTryAgain" = "Could not import MCP JSON. Check the mcpServers object and try again.";
 "native.couldNotInspectSavedFile" = "Could not inspect saved file";
