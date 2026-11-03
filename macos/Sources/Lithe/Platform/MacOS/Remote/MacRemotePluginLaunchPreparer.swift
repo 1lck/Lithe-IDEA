@@ -144,6 +144,9 @@ final class MacRemotePluginLaunchPreparer {
             let state = URL(fileURLWithPath: home).appendingPathComponent(".lithe-server/state/plugins")
                 .appendingPathComponent(digest(pluginID)).appendingPathComponent(scope).appendingPathComponent(digest(provider))
             let workspaceState = state.appendingPathComponent("workspaces").appendingPathComponent(digest(binding.remoteRoot))
+            // A remote process cannot write the macOS session directory. Omit
+            // logDirectory: Core rejects remote templates using ${logDir}; never
+            // substitute remote state or an installed package as a log root.
             let request = DeclarativeLanguageServerLaunchRequest(pluginDirectory: deployed.packageURL, stateDirectory: state,
                 workspaceStateDirectory: workspaceState, architecture: deployed.architecture,
                 settings: resolver.globalSettingValues(forPlugin: pluginID),
@@ -158,7 +161,12 @@ final class MacRemotePluginLaunchPreparer {
                 }
             }
             for directory in expanded.requiredDirectories {
-                let url = directory == .state ? state : workspaceState
+                let url: URL
+                switch directory {
+                case .state: url = state
+                case .workspaceState: url = workspaceState
+                case .log: throw CocoaError(.featureUnsupported)
+                }
                 _ = try await host.pluginRequest("fs.createDir", params: .object([
                     "path": .string(url.path), "recursive": .bool(true), "mode": .integer(0o700)]), session: binding.sessionID)
             }

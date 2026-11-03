@@ -500,7 +500,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
             // Memory is attributed to the plugin's UI module, whose pages
             // are the backend's only callers.
             moduleID: ModuleID("\(pluginID).ui"),
-            pluginID: pluginID,
+            pluginID: pluginID, role: .backend,
             hostServices: hostServices,
             toolchainProviders: packages[pluginID].map { Self.toolchainProviderIDs(ofManifest: $0.manifest) } ?? []
         )

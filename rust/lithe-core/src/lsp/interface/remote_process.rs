@@ -313,7 +313,10 @@ impl RemoteProcess {
             if !matches!(&error, ClientError::Remote(remote) if remote.code == lithe_remote::protocol::ErrorCode::UnknownResource)
                 && !self.connection.session.is_closed()
             {
-                eprintln!("remote backend cleanup failed: {error}");
+                crate::diagnostics::core_events::cleanup_failed(
+                    "remote.process.cleanup_failed",
+                    &crate::diagnostics::core_events::client_failure_category(&error),
+                );
             }
         }
         self.finish(None, None);

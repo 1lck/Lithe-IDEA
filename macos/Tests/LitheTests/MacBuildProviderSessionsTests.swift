@@ -551,6 +551,8 @@ struct MacBuildProviderSessionsTests {
 
         #expect(try await fixture.sessions.pluginFunctions(of: fixture.target) == ["snapshot.read", "workspace.build"])
         #expect(fixture.core.startCalls.map(\.pluginID) == [ProviderFixture.pluginID])
+        #expect(fixture.core.loggingOwners.first?.0 == .build)
+        #expect(fixture.core.loggingOwners.first?.2 == ProviderFixture.pluginID)
 
         let reports = ProgressReports()
         let value = try await fixture.invoke("workspace.build") { reports.items.append($0) }
@@ -884,6 +886,13 @@ private struct ProviderFixture {
 
 /// Answers requests immediately and exposes gates for lifecycle ordering.
 private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked Sendable {
+    private var logOwners: [(LanguageServerLogRole, String?, String?)] = []
+    var loggingOwners: [(LanguageServerLogRole, String?, String?)] { lock.withLock { logOwners } }
+    func loggingRuntime(role: LanguageServerLogRole, logSubject: String?, pluginID: String?) -> any LanguageServerRuntimeCore {
+        lock.withLock { logOwners.append((role, logSubject, pluginID)) }
+        return self
+    }
+
     struct StartCall { let arguments: [String]; let pluginID: String?; var environment: [String: String] = [:] }
     struct FunctionCall: Equatable { let pluginID: String; let functionID: String }
 

@@ -34,6 +34,17 @@
   ],
   "excludedResources": [
     {
+      "id": "ci-rust-compilation-state",
+      "reusable": false,
+      "locations": [
+        "rust/target/",
+        "rust/target/macos/",
+        "windows/tauri/src-tauri/target/"
+      ],
+      "identity": "CI-only Swatinem/rust-cache dependency outputs: OS, architecture, rustc, Cargo manifests/lockfiles, environment and target-directory layout define the key. Incremental and workspace crate outputs are removed by the action; these directories have no sealed local worktree identity.",
+      "reason": "Never copy at any worktree reuse stage. Restore only within CI using the action identity, then let Cargo validate every unit. Each worktree owns mutable compilation state and cleanup; only verified Cargo download archives can be copied through the resource validator. Build-time outputs do not change installed bundles, code signatures or Sparkle delta baselines."
+    },
+    {
       "id": "markdown-preview-assets",
       "reusable": false,
       "locations": [
@@ -339,6 +350,8 @@
       "id": "application-log-state",
       "reusable": false,
       "locations": [
+        "<platform-log-root>/sessions/<session>/{app,editor,lsp,vcs,plugins,remote,run,debug,perf}/",
+        "<platform-log-root>/sessions/<session>/plugins/<id>/files/",
         "<platform-log-root>/{application,language,run,git,plugins,performance}/",
         "<platform-log-root>/lithe.log",
         "<platform-cache>/Lithe/diagnostics-export/<snapshot>/",
@@ -346,7 +359,7 @@
         "<user-export-parent>/.lithe-diagnostics-<snapshot>.zip"
       ],
       "identity": "Mutable distribution-, process-session- and operation-owned diagnostic evidence. No reliable version/platform/architecture/toolchain identity stamp; immutable previews contain redacted bytes for one explicit confirmation only.",
-      "reason": "Native adapters create module logs in user log storage, expire at 30 days and enforce disk budgets. macOS owns one cache staging directory until export/cancel; Windows keeps at most four five-minute previews only in memory and atomically publishes a destination-owned temporary ZIP. Never reuse, copy or share at any worktree stage, and never write into signed packages or installed resources."
+      "reason": "Native adapters create module logs in user log storage, expire at 30 days and enforce disk budgets. macOS owns one cache staging directory until export/cancel; Windows keeps at most four five-minute previews only in memory and atomically publishes a destination-owned temporary ZIP. Never reuse, copy or share at any worktree stage, and never write into signed packages or installed resources. PR3 macOS creates session plugin files with mode 0700 using Core plugin_files_path and descriptor-relative no-follow traversal. Files belong to that log session and expire under the existing retention plan; they are not build/download inputs, and no version, platform, architecture or toolchain combination makes them reusable."
     },
     {
       "id": "mcp-registry-metadata",

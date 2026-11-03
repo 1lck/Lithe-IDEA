@@ -54,19 +54,14 @@
     },
     {
       "id": "remote.process.cleanup_failed",
-      "channel": "remote/{connection}",
+      "channel": "remote",
       "level": "warn",
-      "message": "Remote backend cleanup failed on connection {connection}",
+      "message": "Remote backend cleanup failed",
       "fields": {
-        "connection": {
-          "type": "id",
+        "failure_code": {
+          "type": "token",
           "required": true,
-          "description": "Validated internal connection id that owns the remote backend process"
-        },
-        "error": {
-          "type": "error",
-          "required": true,
-          "description": "Remote process cleanup error returned before the backend ownership was released"
+          "description": "Controlled cleanup failure category; excludes remote addresses and process output"
         }
       },
       "rate": 60,
@@ -74,19 +69,14 @@
     },
     {
       "id": "remote.upload.abort_failed",
-      "channel": "remote/{connection}",
+      "channel": "remote",
       "level": "warn",
-      "message": "Remote upload abort failed on connection {connection}",
+      "message": "Remote upload abort failed",
       "fields": {
-        "connection": {
-          "type": "id",
+        "failure_code": {
+          "type": "token",
           "required": true,
-          "description": "Validated internal connection id that owns the abandoned upload staging"
-        },
-        "error": {
-          "type": "error",
-          "required": false,
-          "description": "Remote abort request error, when available; staging remains owned by connection expiry"
+          "description": "Controlled cleanup failure category; excludes remote addresses and process output"
         }
       },
       "rate": 60,
