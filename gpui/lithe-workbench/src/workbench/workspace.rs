@@ -573,7 +573,13 @@ impl Workbench {
                 .background_spawn(async move {
                     // 先把接收端取出来再阻塞：`MutexGuard` 不跨线程持有，
                     // 阻塞期间也不占着锁。
-                    let receiver = slot.lock().ok()?.take()?;
+                    let receiver = match slot.lock() {
+                        Ok(mut guard) => guard.take(),
+                        Err(_) => None,
+                    };
+                    let Some(receiver) = receiver else {
+                        return None;
+                    };
                     let event = receiver.recv().ok();
                     if let Ok(mut slot) = slot.lock() {
                         *slot = Some(receiver);

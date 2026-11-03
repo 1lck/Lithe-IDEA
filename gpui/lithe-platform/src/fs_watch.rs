@@ -11,7 +11,7 @@
 //! 平台差异全部交给 `notify::RecommendedWatcher`：Windows
 //! `ReadDirectoryChangesW`、macOS FSEvents、Linux inotify。
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
