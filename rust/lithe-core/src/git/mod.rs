@@ -4,6 +4,7 @@
 // until both native products can consume the same versioned contract.
 mod commit_selection;
 mod commit_state;
+mod deleted_selection;
 pub(crate) mod workspace_commit;
 pub use commit_state::{inspect as commit_state, GitCommitGitlink, GitCommitState};
 
@@ -41,6 +42,7 @@ pub use setup::{
 };
 
 pub(crate) use commit_selection::prepare_commit_selection_command;
+pub(crate) use deleted_selection::reconcile_deleted_selection_command;
 pub use history::{
     close_history_cursor, history, history_page, references, GitHistoryCursorCloseRequest,
     GitHistoryPageRequest, GitHistoryRequest, GitReferencesRequest,

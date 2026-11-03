@@ -6505,3 +6505,106 @@ fn git_history_query_rejects_unbounded_or_ambiguous_entries() {
         assert_eq!(result["error"]["code"], "invalid_request");
     }
 }
+
+#[test]
+fn reconcile_deleted_selection_only_unstages_missing_selected_additions() {
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let root = git_write_repository("reconcile-deleted-selection");
+    let _cleanup = Cleanup(root.clone());
+    fs::write(root.join("tracked.txt"), "base\n").unwrap();
+    assert!(history_git(&root, &["add", "tracked.txt"]).status.success());
+    assert!(history_git(&root, &["commit", "-qm", "base"])
+        .status
+        .success());
+    for path in ["file[1].txt", "file1.txt", "retained.txt", "unselected.txt"] {
+        fs::write(root.join(path), path).unwrap();
+    }
+    assert!(history_git(&root, &["add", "--all"]).status.success());
+    fs::remove_file(root.join("file[1].txt")).unwrap();
+    fs::remove_file(root.join("unselected.txt")).unwrap();
+    fs::remove_file(root.join("tracked.txt")).unwrap();
+    let request = serde_json::json!({"command":"git.reconcileDeletedSelection", "payload":{
+        "root":root,"changes":[
+            {"path":"file[1].txt","status":"A "},
+            {"path":"retained.txt","status":"A "},
+            {"path":"tracked.txt","status":" M"},
+            {"path":"absent.txt","status":"??"}
+        ]
+    }});
+    let response: Value = serde_json::from_str(&execute_json(&request.to_string())).unwrap();
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(
+        response["data"]["unstaged"],
+        serde_json::json!(["file[1].txt"])
+    );
+    assert_eq!(
+        history_git(&root, &["diff", "--cached", "--name-only"]).stdout,
+        b"file1.txt\nretained.txt\nunselected.txt\n"
+    );
+    assert!(!root.join("tracked.txt").exists());
+}
+
+#[test]
+fn reconcile_deleted_selection_preserves_the_source_of_a_staged_copy() {
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let root = git_write_repository("reconcile-deleted-copy");
+    let _cleanup = Cleanup(root.clone());
+    fs::write(root.join("source.txt"), "base\n").unwrap();
+    assert!(history_git(&root, &["add", "."]).status.success());
+    assert!(history_git(&root, &["commit", "-qm", "base"])
+        .status
+        .success());
+    assert!(history_git(&root, &["config", "status.renames", "copies"])
+        .status
+        .success());
+    fs::write(root.join("copy.txt"), "base\n").unwrap();
+    fs::write(root.join("source.txt"), "staged\n").unwrap();
+    assert!(history_git(&root, &["add", "."]).status.success());
+    fs::remove_file(root.join("copy.txt")).unwrap();
+    let request = serde_json::json!({"command":"git.reconcileDeletedSelection", "payload":{
+        "root":root,"changes":[{"path":"copy.txt","originalPath":"source.txt","status":"C "}]
+    }});
+    let response: Value = serde_json::from_str(&execute_json(&request.to_string())).unwrap();
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(
+        response["data"]["unstaged"],
+        serde_json::json!(["copy.txt"])
+    );
+    assert_eq!(
+        history_git(&root, &["show", ":source.txt"]).stdout,
+        b"staged\n"
+    );
+}
+
+#[test]
+fn reconcile_deleted_selection_works_before_the_first_commit() {
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let root = git_write_repository("reconcile-deleted-unborn");
+    let _cleanup = Cleanup(root.clone());
+    fs::write(root.join("new.txt"), "new").unwrap();
+    fs::write(root.join("keep.txt"), "keep").unwrap();
+    assert!(history_git(&root, &["add", "."]).status.success());
+    fs::remove_file(root.join("new.txt")).unwrap();
+    let request = serde_json::json!({"command":"git.reconcileDeletedSelection", "payload":{
+        "root": root, "changes": [{"path":"new.txt","status":"A "}]
+    }});
+    let response: Value = serde_json::from_str(&execute_json(&request.to_string())).unwrap();
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(response["data"]["unstaged"], serde_json::json!(["new.txt"]));
+    assert_eq!(history_git(&root, &["ls-files"]).stdout, b"keep.txt\n");
+}

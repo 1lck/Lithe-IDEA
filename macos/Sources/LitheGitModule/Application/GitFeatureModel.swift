@@ -2060,25 +2060,14 @@ package final class GitFeatureModel: ObservableObject {
         return await withGitChangeOperation(changes) {
             let deleted = await action()
             guard isCurrent() else { return false }
-            // Trash does not change the index. Clear only selected additions
-            // that Git confirms are now missing, even after a partial failure.
-            // Tracked deletions and unrelated/retained index content must remain.
-            for root in Set(changes.filter(GitRollbackSelection.isAddition).map(\.repositoryRoot)).sorted(by: { $0.path < $1.path }) {
-                let snapshot = await snapshotProvider(root, availableRepositoryRoots)
+            // Core checks the post-delete status under the repository lease and
+            // only removes missing selected additions from the index.
+            for root in Set(changes.map(\.repositoryRoot)).sorted(by: { $0.path < $1.path }) {
                 guard isCurrent() else { return false }
-                guard let snapshot, snapshot.repositoryRoot.standardizedFileURL == root.standardizedFileURL else {
-                    notifyFailure(L10n.string("Could not refresh Git status. Refresh to verify the changes."), reason: "status_refresh_failed")
-                    return false
-                }
-                for change in changes where change.repositoryRoot == root && GitRollbackSelection.isAddition(change) {
-                    guard let missing = snapshot.changes.first(where: {
-                        $0.path == change.path && $0.workTreeStatus == "D" && GitRollbackSelection.isAddition($0)
-                    }) else { continue }
-                    guard isCurrent() else { return false }
-                    let result = await recordingGitCommand { await service.unstage(GitRollbackSelection.operationTarget(missing)) }
-                    guard isCurrent() else { return false }
-                    if !result.succeeded { notifyWithReference(trimmedMessage(result)); return false }
-                }
+                let selected = changes.filter { $0.repositoryRoot == root }
+                let result = await recordingGitCommand { await service.reconcileDeletedSelection(at: root, changes: selected) }
+                guard isCurrent() else { return false }
+                if !result.succeeded { notifyWithReference(trimmedMessage(result)); return false }
             }
             return deleted
         }

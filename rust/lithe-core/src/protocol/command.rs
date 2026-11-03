@@ -467,6 +467,8 @@ pub enum CoreCommand {
     GitRollbackPrepare,
     /// Prepares the real index for an explicit selected-file commit.
     GitPrepareCommitSelection,
+    /// Reconciles missing selected additions after deletion.
+    GitReconcileDeletedSelection,
     /// Projects retained Git console records without executing Git (`git.consolePresentation`).
     GitConsolePresentation,
     /// Reads an optional remote URL without a visible command (`git.remoteUrl`).
@@ -835,6 +837,7 @@ impl CoreCommand {
             "git.rollbackPlan" => Some(Self::GitRollbackPlan),
             "git.rollbackPrepare" => Some(Self::GitRollbackPrepare),
             "git.prepareCommitSelection" => Some(Self::GitPrepareCommitSelection),
+            "git.reconcileDeletedSelection" => Some(Self::GitReconcileDeletedSelection),
             "git.consolePresentation" => Some(Self::GitConsolePresentation),
             "git.remoteUrl" => Some(Self::GitRemoteUrl),
             "git.fetchPlan" => Some(Self::GitFetchPlan),

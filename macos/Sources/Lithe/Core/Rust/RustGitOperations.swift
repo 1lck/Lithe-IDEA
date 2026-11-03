@@ -165,6 +165,20 @@ struct RustGitOperations: GitOperations, Sendable {
         write(at: root, operation: step.operation.rawValue, paths: step.paths)
     }
 
+    func reconcileDeletedSelection(at root: URL, changes: [GitChange]) -> GitProcessResult? {
+        struct Change: Encodable { let path: String; let status: String }
+        struct Request: Encodable { let root: String; let changes: [Change] }
+        struct Response: Decodable { let unstaged: [String] }
+        let request = Request(root: root.standardizedFileURL.path, changes: changes.map {
+            Change(path: $0.path, status: String($0.indexStatus) + String($0.workTreeStatus))
+        })
+        let result: Result<Response, RustCoreBridge.CoreCallError> = core.executeResult(command: "git.reconcileDeletedSelection", payload: request)
+        switch result {
+        case .success: return GitProcessResult(output: "", exitCode: 0)
+        case .failure(let error): return GitProcessResult(output: error.userMessage, exitCode: 1)
+        }
+    }
+
     func prepareCommitSelection(_ request: GitCommitSelectionRequest) -> GitProcessResult? {
         struct Response: Decodable { let prepared: Bool }
         let result: Result<Response, RustCoreBridge.CoreCallError> = core.executeResult(command: "git.prepareCommitSelection", payload: request)

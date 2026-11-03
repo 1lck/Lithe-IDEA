@@ -70,6 +70,7 @@ const {
   discardHunk,
   rollbackFilesChanges,
   prepareCommitSelection,
+  reconcileDeletedSelection,
   setFilesStaged,
   getWorkspaceGitStatus,
   getWorkspaceRootGitStatus,
@@ -378,6 +379,27 @@ describe("Git staging write coordination", () => {
       interceptWrite = undefined;
     }
   }, 1000);
+
+  test("reconciles deleted identities through Core using their owning repository", async () => {
+    const changes = [
+      { path: "new[1].txt", status: "A " },
+      { path: "tracked.txt", status: " M" },
+    ];
+    const emitted = spyOn(gitEvents, "emitGitChanged");
+    try {
+      await reconcileDeletedSelection("C:/repo", changes);
+      expect(invoke).toHaveBeenCalledWith(
+        "git.reconcileDeletedSelection",
+        { root: "C:/repo", changes },
+        { gitExecutionSource: "user" },
+      );
+      expect(emitted).toHaveBeenCalledWith(
+        expect.objectContaining({ repoPath: "C:/repo", source: "reconcile-deleted-selection" }),
+      );
+    } finally {
+      emitted.mockRestore();
+    }
+  });
 
   test("forwards the shared commit selection identities to Core", async () => {
     for (const item of commitSelectionFixture.cases) {
