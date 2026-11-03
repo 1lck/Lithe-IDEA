@@ -15,12 +15,11 @@ permissions:
   # The classify job reads active jobs to choose a macOS runner pool.
   actions: read
 
-# Pull request runs are not cancelled per branch: the lane-reuse step keeps an
-# earlier run whose lanes it reuses and cancels the others. Pushes and manual
-# runs still cancel the previous run on the same ref.
+# Only PR runs supersede each other. Pushes keep distinct groups so every
+# preview verification remains available for release promotion.
 concurrency:
-  group: macos-ci-${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('run-{0}', github.run_id) || github.ref }}
-  cancel-in-progress: ${{ github.event_name != 'pull_request' }}
+  group: macos-ci-${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   changes:
@@ -28,8 +27,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      # Cancels earlier runs of the same pull request that no lane reuses.
-      actions: write
+      # Reads completed lane results from earlier runs.
+      actions: read
     outputs:
       swift: ${{ steps.classify.outputs.swift }}
       rust_core: ${{ steps.classify.outputs.rust_core }}
@@ -157,7 +156,7 @@ jobs:
             exit 1
           fi
 
-      # A lane already passed (or still running) on an earlier revision of this
+      # A lane already passed on an earlier revision of this
       # pull request is reused when none of the pull request's own new changes
       # affect it; base-branch changes only count when they touch CI.
       - name: Reuse unaffected lane results

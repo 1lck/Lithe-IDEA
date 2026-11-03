@@ -111,7 +111,7 @@ test('a follow-up commit reruns only the lanes its own changes affect', async (t
   assert.equal(result.run.release, false);
 });
 
-test('a lane still running in the earlier run is reused and that run is kept', async (t) => {
+test('a lane still running in an earlier run is never reused', async (t) => {
   const f = fixtureRepository(t);
   f.write('macos/Sources/Lithe/App.swift', 'struct App { let a = 1 }');
   f.write('rust/lithe-core/src/lib.rs', 'pub fn value() -> u8 { 2 }');
@@ -121,11 +121,12 @@ test('a lane still running in the earlier run is reused and that run is kept', a
   const github = fakeGitHub({ runs: [run(10, first, 'in_progress', '2026-10-17T01:00:00Z')], jobs: { 10: fullMacJobs(100, null, 'in_progress') }, baseTips: [{ at: '2026-10-17T00:00:00Z', sha: f.base }] });
   const result = await plan(f, { head: second, github });
   assert.equal(result.run.swift, true);
-  assert.equal(result.reuse.rust.status, 'in_progress');
+  assert.equal(result.run.rust, true);
+  assert.deepEqual(result.reuse, {});
   assert.deepEqual(github.cancelled, []);
 });
 
-test('an earlier run no lane reuses is cancelled', async (t) => {
+test('an earlier run is left to workflow concurrency to cancel', async (t) => {
   const f = fixtureRepository(t);
   f.write('macos/Sources/Lithe/App.swift', 'struct App { let a = 1 }');
   const first = f.commit('swift');
@@ -134,10 +135,10 @@ test('an earlier run no lane reuses is cancelled', async (t) => {
   const github = fakeGitHub({ runs: [run(10, first, 'in_progress', '2026-10-17T01:00:00Z')], jobs: { 10: [job(101, 'Swift tests', 'in_progress', null)] }, baseTips: [{ at: '2026-10-17T00:00:00Z', sha: f.base }] });
   const result = await plan(f, { head: second, github });
   assert.equal(result.run.swift, true);
-  assert.deepEqual(github.cancelled, [10]);
+  assert.deepEqual(github.cancelled, []);
 });
 
-test('hosted queues remain reusable while unfinished self-hosted jobs rerun', async (t) => {
+test('unfinished jobs rerun on every runner pool', async (t) => {
   const f = fixtureRepository(t);
   f.write('macos/Sources/Lithe/App.swift', 'struct App { let a = 1 }');
   const first = f.commit('swift');
@@ -151,11 +152,9 @@ test('hosted queues remain reusable while unfinished self-hosted jobs rerun', as
         baseTips: [{ at: '2026-10-17T00:00:00Z', sha: f.base }],
       });
       const result = await plan(f, { head: second, github });
-      const retired = labels.includes('self-hosted');
-      assert.equal(result.run.swift, retired, `${status}: ${labels}`);
-      if (retired) assert.deepEqual(result.reuse, {});
-      else assert.equal(result.reuse.swift.job_id, 101);
-      assert.deepEqual(github.cancelled, retired ? [10] : []);
+      assert.equal(result.run.swift, true, `${status}: ${labels}`);
+      assert.deepEqual(result.reuse, {});
+      assert.deepEqual(github.cancelled, []);
     }
   }
 });
@@ -177,7 +176,7 @@ test('a run created after this one is neither cancelled nor reused', async (t) =
   });
   const result = await plan(f, { head: second, github });
   assert.equal(result.run.swift, true);
-  assert.deepEqual(github.cancelled, [10]);
+  assert.deepEqual(github.cancelled, []);
 });
 
 test('a change to a file with a Chinese name is not mistaken for no change', async (t) => {

@@ -340,3 +340,13 @@ for (const conclusions of ['completed:success', 'completed:failure completed:suc
     expectStatus(await runBash(bash(macos.required), environment(macos.required, context)), success);
   });
 }
+
+test('PR runs supersede older runs while every push has its own concurrency group', () => {
+  for (const id of ['macos', 'windows', 'plugins']) {
+    const source = readFileSync(new URL(`../../../.github/workflows/ci-${id}.yml`, import.meta.url), 'utf8');
+    const concurrency = block(source, 'concurrency:', 0);
+    assert.match(concurrency, /github\.event_name == 'pull_request' && format\('pr-\{0\}', github\.event\.pull_request\.number\)/);
+    assert.match(concurrency, /format\('run-\{0\}', github\.run_id\)/);
+    assert.match(concurrency, /cancel-in-progress: \$\{\{ github\.event_name == 'pull_request' \}\}/);
+  }
+});
