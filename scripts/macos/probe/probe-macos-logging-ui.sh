@@ -6,22 +6,14 @@ cd "$ROOT_DIR"
 if [[ "${1:-}" == --skip-build && $# == 1 ]]; then
     :
 elif (( $# == 0 )); then
-    until mkdir /tmp/lithe-logging/swift-build.lock 2>/dev/null; do sleep 10; done
-    trap 'rmdir /tmp/lithe-logging/swift-build.lock' EXIT
     ./scripts/macos/test/test-macos.sh list > /dev/null
-    rmdir /tmp/lithe-logging/swift-build.lock
-    trap - EXIT
 else
     print -u2 'Usage: probe-macos-logging-ui.sh [--skip-build]'
     exit 2
 fi
-until mkdir /tmp/lithe-logging/swift-build.lock 2>/dev/null; do sleep 10; done
-trap 'rmdir /tmp/lithe-logging/swift-build.lock' EXIT
 bin_directory="$(swift build --show-bin-path --configuration debug)"
-rmdir /tmp/lithe-logging/swift-build.lock
-trap - EXIT
 test_bundle="$bin_directory/LithePackageTests.xctest/Contents/MacOS/LithePackageTests"
-swift_executable="$(command -v swift)"
+swift_executable="$(xcrun --find swift)"
 runner="${swift_executable:A:h:h}/libexec/swift/pm/swiftpm-testing-helper"
 [[ -f "$test_bundle" && -x "$runner" ]] || { print -u2 'Build the macOS tests with the selected Xcode toolchain first'; exit 1; }
 fixture_root="$(mktemp -d "${TMPDIR:-/tmp}/lithe-localized-logging.XXXXXX")"
