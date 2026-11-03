@@ -31,7 +31,6 @@ struct LitheCenteredPopup<PopupContent: View>: NSViewRepresentable {
     @Environment(\.self) private var environment
     var allowsDismiss = true
     var dialogTitle: String? = nil
-    var hasShadow = true
     var topInset: CGFloat? = nil
     var focusFirstTextField = false
     var resizesToContent = false
@@ -78,7 +77,7 @@ struct LitheCenteredPopup<PopupContent: View>: NSViewRepresentable {
                 coordinator.host = host
                 coordinator.contentUpdateKey = contentUpdateKey
                 coordinator.presenter.show(contentController: host, parent: parent, dialogTitle: dialogTitle,
-                                           hasShadow: hasShadow, focusFirstTextField: focusFirstTextField) { [weak coordinator] in
+                                           focusFirstTextField: focusFirstTextField) { [weak coordinator] in
                     coordinator?.revision += 1
                     coordinator?.host = nil
                     isPresented = false
@@ -144,7 +143,7 @@ final class LitheCenteredPopupPresenter: NSObject, NSWindowDelegate, ObservableO
     }
 
     func show(contentController: NSViewController, parent: NSWindow, dialogTitle: String? = nil,
-              hasShadow: Bool = true, focusFirstTextField: Bool = false, onDismiss: @escaping () -> Void) {
+              focusFirstTextField: Bool = false, onDismiss: @escaping () -> Void) {
         close()
         controlActiveState = .inactive
         self.onDismiss = onDismiss
@@ -167,8 +166,8 @@ final class LitheCenteredPopupPresenter: NSObject, NSWindowDelegate, ObservableO
             panel.backgroundColor = LitheCommitDialogStyle.backgroundNSColor
             panel.isOpaque = true
         }
-        // Preserve the default chrome unless a caller explicitly opts out of native elevation.
-        panel.hasShadow = hasShadow
+        // Native titled-window edging is part of the shadow chrome; disabling it removes the frame too.
+        panel.hasShadow = true
         panel.delegate = self
         panel.contentViewController = contentController
         parent.addChildWindow(panel, ordered: .above)
