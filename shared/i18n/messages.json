@@ -95332,7 +95332,7 @@
         "macos"
       ],
       "macos": {
-        "key": "Reference shortcuts are merged with supported user overrides. Conditional rules, chords and removals suppress the affected mappings; extension keymaps are skipped.",
+        "key": "Reference shortcuts are merged with supported user overrides. Conditional bindings and chords may suppress mappings; conditional removals and extension keymaps are skipped.",
         "arguments": []
       }
     },

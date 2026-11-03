@@ -23,7 +23,7 @@ final class AppServices {
             platformUI.chooseDirectory(title: settings.language.localizedString("Choose IDE configuration directory"),
                                        prompt: settings.language.localizedString("Choose"))
         }, scan: editorSettingsImportScan, planKeymap: editorSettingsImportKeymapPlan,
-        loadKeymapOnSelection: editorSettingsImportLoadKeymapOnSelection)
+        loadKeymapOnSelection: editorSettingsImportLoadKeymapOnSelection, logSink: logSink)
     }
 
     var ideCapabilityRegistry: IdeCapabilityRegistry?

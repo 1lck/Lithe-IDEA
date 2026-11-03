@@ -3181,7 +3181,7 @@
 "Reference changes could not be inspected" = "无法读取引用变更";
 "Reference default" = "参考默认值";
 "Reference list truncated; total updated: %lld, deleted: %lld" = "引用列表已截断；更新总数：%lld，删除总数：%lld";
-"Reference shortcuts are merged with supported user overrides. Conditional rules, chords and removals suppress the affected mappings; extension keymaps are skipped." = "参考快捷键与支持的用户覆盖合并。带条件、连续按键和移除规则会阻止相关映射；跳过扩展提供的键位方案。";
+"Reference shortcuts are merged with supported user overrides. Conditional bindings and chords may suppress mappings; conditional removals and extension keymaps are skipped." = "参考快捷键与支持的用户覆盖合并。带条件的绑定和连续按键可能阻止相关映射；跳过带条件的移除规则及扩展键位方案。";
 "Refresh" = "刷新";
 "Refresh All" = "全部刷新";
 "Refresh Files" = "刷新文件";
@@ -5238,7 +5238,7 @@
 "mac.editorImport.extended1" = "使用空格缩进";
 "mac.editorImport.extended2" = "自动检测缩进";
 "mac.editorImport.extended3" = "代码设置";
-"mac.editorImport.extended4" = "参考快捷键与支持的用户覆盖合并。带条件、连续按键和移除规则会阻止相关映射；跳过扩展提供的键位方案。";
+"mac.editorImport.extended4" = "参考快捷键与支持的用户覆盖合并。带条件的绑定和连续按键可能阻止相关映射；跳过带条件的移除规则及扩展键位方案。";
 "mac.editorImport.extended5" = "仅导入全局缩进。跳过语言专属代码样式和格式化规则。";
 "mac.editorImport.extended6" = "快捷键与“%1$@”冲突，请调整键位后再导入。";
 "mac.editorImport.extended7" = "外观默认值已单独标注。跳过工作区与语言覆盖、格式化器、扩展和账号数据。";

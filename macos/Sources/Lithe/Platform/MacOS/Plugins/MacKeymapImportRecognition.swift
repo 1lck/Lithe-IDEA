@@ -36,6 +36,7 @@ enum MacKeymapImportRecognition {
                 let kind = status.st_mode & S_IFMT
                 guard kind != S_IFLNK else { throw MacKeymapImportSnapshot.Failure.invalidPlan }
                 if kind == expectedKind { return true }
+            // log-exempt: 预期的缺失：可选识别标记不存在时继续检查其他标记
             } catch PluginWorkspaceFileError.notFound {
                 continue
             }

@@ -1552,7 +1552,7 @@ dependencies = [
 [[package]]
 name = "lithe-plugin-sdk"
 version = "0.1.0"
-source = "git+https://github.com/Lithe-IDEA/lithe-plugin-docs.git?rev=6e9bd1df0fd0f62fc653b10855f0353382d20354#6e9bd1df0fd0f62fc653b10855f0353382d20354"
+source = "git+https://github.com/Lithe-IDEA/lithe-plugin-docs.git?rev=fd994411b19962dde66c1ac18edb16ad244be4bd#fd994411b19962dde66c1ac18edb16ad244be4bd"
 dependencies = [
  "base64 0.22.1",
  "serde_json",

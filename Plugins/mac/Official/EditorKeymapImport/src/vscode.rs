@@ -100,6 +100,15 @@ pub fn import(source: &str) -> Result<Value, String> {
         else {
             continue;
         };
+        // Conditional removals only target matching upstream context rules.
+        // Without their when-clause semantics we cannot treat them as global.
+        if object.get("when").is_some_and(|when| {
+            !when
+                .as_str()
+                .is_some_and(|expression| expression.trim() == "true")
+        }) {
+            continue;
+        }
         let key = match object.get("key") {
             None => None,
             Some(Value::String(value)) => match keypress(value) {

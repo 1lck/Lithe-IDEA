@@ -8,7 +8,7 @@ struct KeyboardShortcutTests {
     @Test
     func catalogHasStableUniqueCommandsAndConflictFreeDefaults() throws {
         let commands = LitheCommandCatalog.commands
-        #expect(commands.count == 40)
+        #expect(commands.count == 41)
         let startOrContinue = try #require(LitheCommandCatalog.command(id: "debug-start-or-continue"))
         #expect(startOrContinue.defaultBindings.isEmpty)
         #expect(LitheCommandCatalog.moduleOwner(for: startOrContinue.id) == .debug)

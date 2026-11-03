@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import LitheModuleAPI
 
 @MainActor
 final class EditorSettingsImportFeatureModel: ObservableObject {
@@ -19,16 +20,18 @@ final class EditorSettingsImportFeatureModel: ObservableObject {
     private let scanSources: ((URL?) async throws -> [EditorSettingsImportSource])?
     private let planKeymap: (([KeymapImportCurrent], [KeymapImportBinding]) throws -> KeymapImportBindingPlan)?
     private let loadKeymapOnSelection: Bool
+    private let logSink: (any LogSink)?
     init(settings: AppSettings, chooseDirectory: @escaping () -> URL?,
          scan: ((URL?) async throws -> [EditorSettingsImportSource])?,
          planKeymap: (([KeymapImportCurrent], [KeymapImportBinding]) throws -> KeymapImportBindingPlan)? = nil,
-         loadKeymapOnSelection: Bool = false) {
+         loadKeymapOnSelection: Bool = false, logSink: (any LogSink)? = nil) {
         self.settings = settings
         startupFinished = settings.didOfferEditorSettingsImport
         chooseSourceDirectory = chooseDirectory
         scanSources = scan
         self.planKeymap = planKeymap
         self.loadKeymapOnSelection = loadKeymapOnSelection
+        self.logSink = logSink
     }
     var source: EditorSettingsImportSource? { sources.first { $0.id == sourceID } }
 
@@ -95,6 +98,7 @@ final class EditorSettingsImportFeatureModel: ObservableObject {
                 if let (plan, _) = try keymapPlan(incoming: incoming, current: current), let conflict = plan.conflicts.first {
                     return LitheCommandCatalog.command(id: conflict.ownerID)?.title ?? conflict.ownerID
                 }
+            // log-exempt: 随输入实时重算的校验提示：预览失败会阻止用户提交，提交边界记录实际失败
             } catch { return "Keyboard shortcuts" }
         }
         guard let map = importValues["keymap"].flatMap(EditorImportKeymap.decode) else { return nil }
@@ -135,6 +139,11 @@ final class EditorSettingsImportFeatureModel: ObservableObject {
         do {
             let scanned = try await scan(directory)
             try Task.checkCancellation()
+            let warningSources = scanned.filter { !$0.warnings.isEmpty }
+            if !warningSources.isEmpty {
+                logSink?.emit(EditorSettingsImportWarningsShown(sourceCount: Int64(warningSources.count),
+                    warningCount: Int64(warningSources.reduce(0) { $0 + $1.warnings.count })))
+            }
             if isChoosingSettings, let directory {
                 // Refresh this preview without losing the other choices when navigating back.
                 sources = sources.flatMap { $0.directory == directory ? scanned : [$0] }
@@ -144,9 +153,11 @@ final class EditorSettingsImportFeatureModel: ObservableObject {
             select(scanned.first?.id ?? "")
             if scanned.isEmpty { message = "No supported IDE configuration was found. You can choose a configuration directory." }
             return true
+        // log-exempt: 用户取消：关闭导入界面会取消尚未应用的扫描
         } catch is CancellationError {
             return false
         } catch {
+            logSink?.emit(EditorSettingsImportFailed(error: EditorSettingsImportError.logFailure(error), stage: "scan"))
             message = (error as? EditorSettingsImportError)?.errorDescription
                 ?? "The configuration could not be read. Check the selected directory and file permissions."
             return false
@@ -231,9 +242,11 @@ final class EditorSettingsImportFeatureModel: ObservableObject {
             selected.removeAll()
             importResult = (changes.count, unselected)
             return true
+        // log-exempt: 用户取消：取消导入时不会提交尚未完成的结果
         } catch is CancellationError {
             return false
         } catch {
+            logSink?.emit(EditorSettingsImportFailed(error: EditorSettingsImportError.logFailure(error), stage: "apply"))
             message = (error as? EditorSettingsImportError)?.errorDescription ?? "The configuration could not be read. Check the selected directory and file permissions."
             return false
         }
@@ -247,6 +260,9 @@ final class EditorSettingsImportFeatureModel: ObservableObject {
             baseline = settings.editorImportValues()
             selected.removeAll()
             message = "The previous editor settings have been restored."
-        } catch { message = (error as? EditorSettingsImportError)?.errorDescription }
+        } catch {
+            logSink?.emit(EditorSettingsImportFailed(error: EditorSettingsImportError.logFailure(error), stage: "undo"))
+            message = (error as? EditorSettingsImportError)?.errorDescription
+        }
     }
 }

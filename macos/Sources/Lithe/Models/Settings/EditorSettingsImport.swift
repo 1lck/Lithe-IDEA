@@ -96,6 +96,27 @@ enum EditorSettingsImportError: Error, LocalizedError {
     case changed, invalid, storage, read, fontSizeDependency
     case ambiguousShortcutProviders
     case shortcutConflict(String)
+    /// Keep source paths and provider-supplied prose out of diagnostic fields.
+    static func logFailure(_ error: any Error) -> LogFailure {
+        if let failure = error as? EditorSettingsImportError {
+            let code: String
+            switch failure {
+            case .changed: code = "changed"
+            case .invalid: code = "invalid"
+            case .storage: code = "storage"
+            case .read: code = "read"
+            case .fontSizeDependency: code = "font_size_dependency"
+            case .ambiguousShortcutProviders: code = "ambiguous_providers"
+            case .shortcutConflict: code = "shortcut_conflict"
+            }
+            return LogFailure(domain: "editor.settings_import", code: code)
+        }
+        let native = error as NSError
+        if [NSCocoaErrorDomain, NSPOSIXErrorDomain].contains(native.domain) {
+            return LogFailure(domain: native.domain, code: String(native.code))
+        }
+        return LogFailure(domain: "editor.settings_import", code: "source_failure")
+    }
     var errorDescription: String? {
         if case .shortcutConflict(let command) = self {
             return String(format: L10n.string("Keyboard shortcut conflicts with %@. Adjust your keymap before importing."), L10n.string(key: command))

@@ -78,18 +78,6 @@ extension AppModel {
         runWorkflowCoordinator.startModuleOperation { [weak self] in await self?.startDebuggingAfterActivation() }
     }
 
-    func startOrContinueDebugging() {
-        let feature = genericDebugFeatureIfActive
-        guard let decide = services.debugStartOrContinue,
-              let action = try? decide(feature?.isSessionActive == true, feature?.state == .paused,
-                                       feature?.isExecutionRequestPending == true) else { return }
-        switch action {
-        case .start: startDebugging()
-        case .continue: resumeDebugging()
-        case .none: break
-        }
-    }
-
     func startOrRestartDebugging() {
         if let target = activeTestTarget, target.name != genericDebugFeatureIfActive?.targetTitle {
             startDebugging()

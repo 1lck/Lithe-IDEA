@@ -2,10 +2,43 @@ import Foundation
 import AppKit
 import SwiftUI
 import Testing
+import LitheModuleAPI
 @testable import Lithe
 
 @Suite("Editor settings import")
 struct EditorSettingsImportTests {
+    @Test @MainActor func importLogsFailuresAndWarningCountsWithoutSourceContents() async throws {
+        let sink = TypedLogRecorder()
+        let settings = AppSettings(store: ImportTestStore())
+        let source = EditorSettingsImportSource(directory: URL(fileURLWithPath: "/fixture/private"),
+            title: "Private source", revision: "one", values: ["tabSize": "2"], warnings: ["private warning"])
+        var shouldFail = false
+        let feature = EditorSettingsImportFeatureModel(settings: settings, chooseDirectory: { nil }, scan: { _ in
+            if shouldFail { throw EditorSettingsImportError.changed }
+            return [source]
+        }, logSink: sink)
+        #expect(await feature.scan())
+        let warning = try #require(sink.events.first)
+        #expect(type(of: warning).id == "editor.settings_import.warnings_shown")
+        #expect(Set(warning.fields.keys) == ["source_count", "warning_count"])
+        shouldFail = true
+        #expect(await feature.apply() == false)
+        let failure = try #require(sink.events.last)
+        #expect(type(of: failure).id == "editor.settings_import.failed")
+        if case .token(let stage) = failure.fields["stage"] { #expect(stage == "apply") }
+        else { Issue.record("The failed import did not retain its operation stage") }
+        if case .error(let error) = failure.fields["error"], let safe = error as? LogFailure {
+            #expect(safe.domain == "editor.settings_import" && safe.code == "changed")
+        } else { Issue.record("The import error classification is missing") }
+        #expect(sink.events.count == 2)
+        let privateError = NSError(domain: "plugin.private-content", code: 9,
+                                   userInfo: [NSLocalizedDescriptionKey: "/private/source.json contents"])
+        let classified = EditorSettingsImportError.logFailure(privateError)
+        #expect(classified.domain == "editor.settings_import" && classified.code == "source_failure")
+        let native = EditorSettingsImportError.logFailure(NSError(domain: NSPOSIXErrorDomain, code: 13))
+        #expect(native.domain == NSPOSIXErrorDomain && native.code == "13")
+    }
+
     @Test @MainActor func detectedIndentationBelongsToEachDocumentAndRejectsInvalidWidths() {
         let first = EditorDocument(url: URL(fileURLWithPath: "/fixture/first.js"), text: "", modificationDate: nil)
         let second = EditorDocument(url: URL(fileURLWithPath: "/fixture/second.js"), text: "", modificationDate: nil)

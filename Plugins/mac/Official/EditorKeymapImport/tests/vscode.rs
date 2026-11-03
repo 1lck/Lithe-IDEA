@@ -104,6 +104,25 @@ fn removal_only_targets_the_named_default_and_never_user_bindings() {
 }
 
 #[test]
+fn conditional_removal_does_not_remove_an_unconditional_default() {
+    let result = import(
+        r#"[{"key":"cmd+s","command":"-workbench.action.files.save","when":"editorTextFocus"}]"#,
+    )
+    .unwrap();
+    let bindings = result["bindings"].as_array().unwrap();
+    assert!(
+        bindings.contains(&json!({"commandID":"save","keys":[{"key":"s","modifiers":["meta"]}]}))
+    );
+    let unconditional =
+        import(r#"[{"key":"cmd+s","command":"-workbench.action.files.save","when":"true"}]"#)
+            .unwrap();
+    assert!(unconditional["bindings"]
+        .as_array()
+        .unwrap()
+        .contains(&json!({"commandID":"save","keys":[]})));
+}
+
+#[test]
 fn default_common_commands_match_the_published_macos_reference() {
     let result = import("[]").unwrap();
     let entries = result["bindings"].as_array().unwrap();

@@ -97,3 +97,51 @@ fn classic_scheme_keeps_its_own_line_and_find_bindings() {
         .contains(&json!({"commandID":"go-to-line", "keys":[{"key":"g", "modifiers":["meta"]}]})));
     assert!(entries.contains(&json!({"commandID":"find-next", "keys":[{"key":"f3", "modifiers":[]}, {"key":"l", "modifiers":["control"]}]})));
 }
+
+#[test]
+fn classic_and_default_schemes_include_inherited_common_actions() {
+    for (scheme, declaration_key, declaration_modifiers) in [
+        ("$default", "b", vec!["control"]),
+        ("Mac OS X", "b", vec!["meta"]),
+    ] {
+        let options = format!("<application><component name='KeymapManager'><active_keymap name='{scheme}'/></component></application>");
+        let result = import(&files(&[("options/keymap.xml", &options)])).unwrap();
+        let entries = result["bindings"].as_array().unwrap();
+        for (id, keys) in [
+            (
+                "find-in-file",
+                json!([{ "key":"f", "modifiers":["control"] }, { "key":"f3", "modifiers":["alt"] }]),
+            ),
+            (
+                "replace-in-file",
+                json!([{ "key":"r", "modifiers":["control"] }]),
+            ),
+            (
+                "go-to-definition",
+                json!([{ "key":declaration_key, "modifiers":declaration_modifiers }]),
+            ),
+            (
+                "go-to-implementation",
+                json!([{ "key":"b", "modifiers":["control", "alt"] }]),
+            ),
+            ("find-usages", json!([{ "key":"f7", "modifiers":["alt"] }])),
+            (
+                "find-action",
+                json!([{ "key":"a", "modifiers":["control", "shift"] }]),
+            ),
+            (
+                "toggle-breakpoint",
+                json!([{ "key":"f8", "modifiers":["control"] }]),
+            ),
+            (
+                "view-breakpoints",
+                json!([{ "key":"f8", "modifiers":["control", "shift"] }]),
+            ),
+        ] {
+            assert!(
+                entries.contains(&json!({"commandID":id,"keys":keys})),
+                "{scheme} missing {id}"
+            );
+        }
+    }
+}

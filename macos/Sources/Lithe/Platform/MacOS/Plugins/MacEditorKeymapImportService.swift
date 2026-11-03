@@ -50,7 +50,7 @@ final class MacEditorKeymapImportService {
             result.values["keymap"] = EditorImportKeymap(preset: "", commands: commands).encoded
             result.approximateFields.insert("keymap")
             if imported.sourceFileCount == 0 { result.defaultFields.insert("keymap") }
-            let warning = "Reference shortcuts are merged with supported user overrides. Conditional rules, chords and removals suppress the affected mappings; extension keymaps are skipped."
+            let warning = "Reference shortcuts are merged with supported user overrides. Conditional bindings and chords may suppress mappings; conditional removals and extension keymaps are skipped."
             if !result.warnings.contains(warning) { result.warnings.append(warning) }
         }
         return result

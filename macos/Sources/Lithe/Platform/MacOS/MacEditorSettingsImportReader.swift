@@ -56,7 +56,12 @@ enum MacEditorSettingsImportReader {
             guard vscode || idea else { continue }
             var source = EditorSettingsImportSource(directory: root, title: title, revision: "", values: [:], warnings: [], isVSCode: vscode)
             do { source = try read(root: root, title: title, vscode: vscode, fonts: fonts, logSink: logSink) }
-            catch { source.readFailed = true }
+            // log-exempt: 用户取消：退出后不再读取或报告该来源
+            catch is CancellationError { throw CancellationError() }
+            catch {
+                logSink?.emit(EditorSettingsImportFailed(error: EditorSettingsImportError.logFailure(error), stage: "source-read"))
+                source.readFailed = true
+            }
             source.isCursor = product?.0 == "Cursor"
             if source.isCursor || root.deletingLastPathComponent().lastPathComponent == "profiles" {
                 source.approximateFields.formUnion(source.defaultFields)

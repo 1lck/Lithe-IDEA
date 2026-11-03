@@ -19,6 +19,7 @@ final class MacKeymapImportHostService: PluginHostServiceHandling {
               case let .string(providerID) = call.params["providerID"] else { return .failure(invalid) }
         let snapshot: MacKeymapImportSnapshot
         do { snapshot = try snapshots.snapshot(token, pluginID: call.pluginID, sessionID: call.sessionID, providerID: providerID) }
+        // log-exempt: 预期的缺失：会话结束或快照撤销后迟到的读取返回过期
         catch { return .failure(PluginHostServiceError(.contextExpired, L10n.string("The plugin host request could not be completed."))) }
 
         switch call.request.method {
