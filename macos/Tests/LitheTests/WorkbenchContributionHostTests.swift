@@ -183,7 +183,10 @@ struct WorkbenchContributionHostTests {
         defer { container.moduleLifecycleCoordinator.stop() }
         let model = AppModel(settings: settings, services: container.services)
         try await WorkbenchTestScope.withCleanup({ await model.shutdownProjectSession() }) { scope in
-            model.workspaceSessionCoordinator.beginWorkspace(at: URL(fileURLWithPath: "/fixture/tool-windows-menu"))
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-menu-terminal-" + UUID().uuidString)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            model.workspaceSessionCoordinator.beginWorkspace(at: root)
             let terminal = try #require(model.workbenchContributions.first { $0.id == "terminal.sessions" })
             #expect(!WorkbenchToolWindowsMenu.items(for: model).contains { $0.title == terminal.title })
             let position = DockPosition(anchor: .right, group: .secondary)
@@ -210,6 +213,7 @@ struct WorkbenchContributionHostTests {
                 await model.contributionActivationTasks[terminal.id]?.value
             }
             let feature = try #require(model.terminalFeature)
+            let session = try #require(model.activeToolTerminalSession)
             #expect(model.workbenchFeature.activeTool(in: position) == .terminal)
             #expect(model.rightSidebarContributions.contains(terminal))
             #expect(model.workbenchFeature.contributionPreferences[terminal.id]?.isHidden == false)
@@ -220,6 +224,8 @@ struct WorkbenchContributionHostTests {
             }
             #expect(model.workbenchFeature.isVisible(.terminal))
             #expect(model.terminalFeature === feature)
+            #expect(model.activeToolTerminalSession === session)
+            #expect(model.toolTerminalSessions.count == 1)
             try await scope.run("disable terminal module") {
                 try await container.services.moduleRuntime.setEnabled(false, for: .terminal)
             }
@@ -227,6 +233,31 @@ struct WorkbenchContributionHostTests {
             item.action()
             #expect(model.contributionActivationTasks[terminal.id] == nil)
             #expect(!model.workbenchFeature.isVisible(.terminal))
+        }
+    }
+
+    @Test func hiddenPluginWindowTitlesRemainLiteralWhenTheyMatchHostTranslationKeys() async throws {
+        let suite = "lithe-hidden-plugin-title-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = MacUserDefaultsStore(defaults: defaults), settings = AppSettings(store: store)
+        let container = MacServiceContainer(store: store, settings: settings)
+        defer { container.moduleLifecycleCoordinator.stop() }
+        let entry = ModuleContribution(id: "org.example.literal.window", kind: .toolWindow, title: "Terminal",
+            placement: .rightSidebar, actionID: "org.example.literal.show", rendererID: "org.example.literal.window", text: "Plugin content")
+        let declaration = PluginModuleDeclaration(manifest: .init(id: .init("org.example.literal"), displayName: "Literal", scope: .workspace),
+            contributions: [entry])
+        try container.services.moduleRuntime.register(ModuleFactory(manifest: declaration.manifest, contributions: [entry]) {
+            DeclarativeWorkbenchModule(declaration: declaration)
+        })
+        let model = AppModel(settings: settings, services: container.services)
+        try await WorkbenchTestScope.withCleanup({ await model.shutdownProjectSession() }) { _ in
+            model.workspaceSessionCoordinator.beginWorkspace(at: URL(fileURLWithPath: "/fixture/literal-window"))
+            model.workbenchUIRegistry = try WorkbenchModuleUIRegistry(registrations: WorkbenchModuleUIComposition.registrations + [
+                WorkbenchModuleUIRegistry.declarativeRegistration(declaration)])
+            model.workbenchFeature.customizeContribution(entry.id, isHidden: true)
+            let item = try #require(WorkbenchToolWindowsMenu.items(for: model).first { $0.title == entry.title })
+            #expect(!item.localizesTitle, "A plugin's Terminal title must not become the host's Chinese 终端")
         }
     }
 
@@ -506,8 +537,14 @@ struct WorkbenchContributionHostTests {
         let model = AppModel(settings: settings, services: container.services)
         try await WorkbenchTestScope.withCleanup({ await model.shutdownProjectSession() }) { scope in
             defer { release.open() }
+            var displayCompletions = 0
+            let registration = WorkbenchModuleUIRegistry.declarativeRegistration(declaration)
+            let actions = registration.actions.map { action in
+                WorkbenchModuleUIRegistry.Action(id: action.id, perform: action.perform, activateOwner: action.activateOwner,
+                    didShow: { _ in displayCompletions += 1 }, state: action.state)
+            }
             model.workbenchUIRegistry = try WorkbenchModuleUIRegistry(registrations: WorkbenchModuleUIComposition.registrations + [
-                WorkbenchModuleUIRegistry.declarativeRegistration(declaration)])
+                .init(contributions: registration.contributions, actions: actions, renderers: registration.renderers, localizesTitles: false)])
             model.workspaceSessionCoordinator.beginWorkspace(at: URL(fileURLWithPath: "/fixture/restore-race"))
             let window = WorkbenchFeatureModel.ToolWindow(rawValue: declaration.contributions[0].id)
             if !sameGroup { model.workbenchFeature.move(.project, to: .init(anchor: .left, group: .secondary)) }
@@ -522,6 +559,7 @@ struct WorkbenchContributionHostTests {
             try await scope.run("window activation") { await pending?.value }
             #expect(model.workbenchFeature.isVisible(window) == !sameGroup)
             #expect(model.workbenchFeature.isVisible(.project))
+            #expect(displayCompletions == (sameGroup ? 0 : 1))
             #expect(model.contributionActivationTasks.isEmpty)
         }
     }

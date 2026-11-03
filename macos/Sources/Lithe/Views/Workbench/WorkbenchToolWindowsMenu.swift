@@ -26,8 +26,11 @@ struct WorkbenchToolWindowsMenu: View {
     static func items(for model: AppModel) -> [LitheContextMenuItem] {
         // Read hidden rail entries from the full catalog, not its visible projection.
         let available = model.workbenchContributions
+        func displayTitle(_ entry: ModuleContribution) -> String {
+            model.workbenchUIRegistry.localizesTitle(for: entry) ? L10n.string(key: entry.title) : entry.title
+        }
         return available.filter { $0.kind == .toolWindow }.sorted {
-            let left = L10n.string(key: $0.title), right = L10n.string(key: $1.title)
+            let left = displayTitle($0), right = displayTitle($1)
             return left == right ? $0.id < $1.id : left.localizedStandardCompare(right) == .orderedAscending
         }.compactMap { contribution in
             let state = model.workbenchUIRegistry.state(for: contribution, model: model, available: available)
@@ -42,6 +45,7 @@ struct WorkbenchToolWindowsMenu: View {
                                           size: LitheTheme.Metrics.toolbarIconSize))
                 }
             return .action(contribution.title,
+                           localizesTitle: model.workbenchUIRegistry.localizesTitle(for: contribution),
                            icon: icon,
                            checked: state.isChecked,
                            shortcut: command.flatMap { model.keyboardShortcutFeature.displayText(for: $0.id) },
