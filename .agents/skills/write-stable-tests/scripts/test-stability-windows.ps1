@@ -8,10 +8,15 @@ param(
     [int]$MaxSeconds = 15,
     [ValidateRange(1, 7200)]
     [int]$SuiteTimeoutSeconds = 1200,
-    [string[]]$FrontendTestPath = @()
+    [string[]]$FrontendTestPath = @(),
+    [ValidateRange(1, 16)]
+    [int]$CoreShardIndex = 1,
+    [ValidateRange(1, 16)]
+    [int]$CoreShardCount = 1
 )
 
 $ErrorActionPreference = "Stop"
+if ($CoreShardIndex -gt $CoreShardCount) { throw "CoreShardIndex must not exceed CoreShardCount." }
 if ($WarnSeconds -ge $MaxSeconds) { throw "WarnSeconds must be lower than MaxSeconds." }
 
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
@@ -69,6 +74,7 @@ function Invoke-TimedRustTests {
             $arguments += @("--package", $Package)
         }
         if ($Package -eq "lithe-core") {
+            $arguments += @("--shard-index", $CoreShardIndex, "--shard-count", $CoreShardCount)
             # These cases start real Git and the production TypeScript module
             # in Node. One Node startup hit its old 10s local deadline on CI.
             $arguments += @("--test-budget", "git_paths_roundtrip_=60000")
@@ -194,6 +200,8 @@ if ($Scope -in @("All", "WindowsRust")) {
 }
 
 if ($Scope -in @("All", "SharedRust")) {
+    # Host crates and MCP run once; only the long Core suite is partitioned.
+    if ($CoreShardIndex -eq 1) {
     # Dependency tests are not selected by -p lithe-core. Exercise the native
     # process and AskPass adapter on Windows as a separate timed package.
     Invoke-TimedRustTests `
@@ -213,6 +221,8 @@ if ($Scope -in @("All", "SharedRust")) {
         -Package "lithe-ide-host" `
         -TargetDirectory "rust/target" `
         -Report (Join-Path $reportRoot "ide-host-rust.json")
+
+    }
 
     Invoke-TimedRustTests `
         -Manifest "rust/Cargo.toml" `

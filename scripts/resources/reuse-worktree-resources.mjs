@@ -390,7 +390,7 @@ async function main() {
     ? options.resources.map((identifier) => {
       // Generated matrix views, runtime snapshots, per-execution Java launch files, Sparkle baseline
       // and AutoBuild staging (including per-tag baselines and local/downloaded publication checkpoints), per-launch
-      // Codex relays and isolated plugin packages take this rejection route, never a content-hash validator.
+      // CI Rust compilation state, Codex relays and plugin packages take this rejection route, never a download validator.
       // Identical bytes do not establish transferable execution ownership.
       // SwiftPM scratch-local compiler stamps only invalidate local products;
       // swiftpm-build-state is not a sealed download cache and has no copy stage.

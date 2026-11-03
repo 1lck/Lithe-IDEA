@@ -15,14 +15,17 @@ const commonBindings = {
 const workflows = [
   {
     id: 'macos',
-    selected: ['swift', 'rust_core', 'macos_release'],
+    selected: ['validation', 'swift', 'rust_core', 'macos_release'],
     lanes: [
+      { lane: 'tooling', job: 'tooling' },
       { lane: 'swift', job: 'swift-tests', run: 'run_swift' },
       { lane: 'rust', job: 'rust-core-tests', run: 'run_rust' },
       { lane: 'release', job: 'release-build', run: 'run_release' },
     ],
     bindings: {
       ...commonBindings,
+      TOOLING_RESULT: 'needs.tooling.result',
+      TOOLING_SELECTED: 'needs.changes.outputs.validation',
       SWIFT_RESULT: 'needs.swift-tests.result',
       RUST_CORE_RESULT: 'needs.rust-core-tests.result',
       RELEASE_RESULT: 'needs.release-build.result',
@@ -318,7 +321,7 @@ test('macos: release promotion is checked in classification and runs no gate lan
   for (const scope of ['pull_request', 'post_merge', 'release_promotion']) {
     assert.equal(evaluate(scalar(promotion, 'if', 8), { steps: { classify: { outputs: { ci_scope: scope } } } }), scope === 'release_promotion');
   }
-  const nodeTests = block(changes, '- name: Test release scripts and Markdown preview', 6);
+  const nodeTests = block(block(macos.source, 'tooling:', 2), '- name: Test release scripts and Markdown preview', 6);
   assert.match(nodeTests, /node --test[\s\S]*scripts\/ci\/common\/ci-workflow-gates\.test\.mjs(?:\s|$)/);
 });
 
@@ -338,5 +341,21 @@ for (const conclusions of ['completed:success', 'completed:failure completed:suc
     expectStatus(result, success);
     context.needs.changes.result = success ? 'success' : 'failure';
     expectStatus(await runBash(bash(macos.required), environment(macos.required, context)), success);
+  });
+}
+
+// Preserve the scheduling contract: main needs unique groups even for pending
+// runs; the required gate must exist when every changed path is documentation.
+for (const id of ['macos', 'windows', 'plugins', 'remote']) {
+  test(`${id}: PR supersession and main preservation are declared at workflow scope`, testOptions, () => {
+    const source = readFileSync(new URL(`../../../.github/workflows/ci-${id}.yml`, import.meta.url), 'utf8');
+    const concurrency = block(source, 'concurrency:', 0);
+    assert.equal(expression(scalar(concurrency, 'group', 2)), "github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_id || github.event.pull_request.number || github.ref");
+    assert.equal(expression(scalar(concurrency, 'cancel-in-progress', 2)), "github.ref != 'refs/heads/main'");
+    const events = block(source, 'on:', 0);
+    assert.match(block(events, 'push:', 2), /main/);
+    if (id === 'macos') assert.doesNotMatch(block(events, 'pull_request:', 2), /paths(?:-ignore)?:/);
+    else assert.match(block(events, 'pull_request:', 2), /paths-ignore:/);
+    assert.match(source, /\$GITHUB_REF.*refs\/heads\/main/);
   });
 }

@@ -8,19 +8,19 @@ on:
   push:
     branches:
       - preview
+      - main
   workflow_dispatch:
 
 permissions:
   contents: read
-  # The classify job reads active jobs to choose a macOS runner pool.
+  # The gate verifies completed results reused from earlier revisions.
   actions: read
 
-# Pull request runs are not cancelled per branch: the lane-reuse step keeps an
-# earlier run whose lanes it reuses and cancels the others. Pushes and manual
-# runs still cancel the previous run on the same ref.
+# Every main commit gets its own group, including pending runs. PR pushes
+# cancel their predecessor immediately; only completed results may be reused.
 concurrency:
-  group: macos-ci-${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('run-{0}', github.run_id) || github.ref }}
-  cancel-in-progress: ${{ github.event_name != 'pull_request' }}
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_id || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   changes:
@@ -28,9 +28,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      # Cancels earlier runs of the same pull request that no lane reuses.
-      actions: write
+      # Reads only completed earlier jobs; concurrency owns cancellation.
+      actions: read
     outputs:
+      validation: ${{ steps.classify.outputs.validation }}
       swift: ${{ steps.classify.outputs.swift }}
       rust_core: ${{ steps.classify.outputs.rust_core }}
       macos_release: ${{ steps.classify.outputs.macos_release }}
@@ -48,43 +49,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Test CI change classifier
-        shell: bash
-        run: ./scripts/ci/common/test-classify-ci-changes.sh
-
-      - name: Test release scripts and Markdown preview
-        timeout-minutes: 2
-        run: |
-          mkdir -p .artifacts/test-stability
-          node --test --test-reporter=spec --test-reporter-destination=stdout \
-            --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/sparkle-baseline.junit.xml \
-            scripts/release/sparkle/test-download-sparkle-baseline.mjs scripts/release/autobuild/test-publish-autobuild.mjs scripts/resources/test-reuse-worktree-resources.mjs scripts/macos/test/test-markdown-preview.mjs \
-            scripts/agent/test-codex-config-relay.mjs scripts/release/sparkle/verify-release-signature.test.mjs \
-            scripts/plugins/plugin-settings-schema.test.mjs \
-            scripts/ci/common/plan-ci-lane-reuse.test.mjs scripts/ci/common/verify-reused-ci-jobs.test.mjs scripts/ci/common/ci-workflow-gates.test.mjs scripts/ci/cancel-closed-pr-runs/cancel-closed-pr-runs.test.mjs
-
-      - name: Generate Sparkle download timing report
-        if: always()
-        run: |
-          node --input-type=module <<'NODE'
-          import fs from 'node:fs';
-          import { parseJUnitCases } from './.agents/skills/write-stable-tests/scripts/parse-junit-cases.mjs';
-          import { writeTestReportArtifacts } from './.agents/skills/write-stable-tests/scripts/generate-test-report.mjs';
-          const stem = '.artifacts/test-stability/sparkle-baseline';
-          const tests = parseJUnitCases(fs.readFileSync(`${stem}.junit.xml`, 'utf8'));
-          if (tests.length === 0) throw new Error('Missing Sparkle download test results');
-          fs.writeFileSync(`${stem}.json`, JSON.stringify({ runner: 'node', warnMs: 1000, maxMs: 15000, tests }));
-          writeTestReportArtifacts(`${stem}.json`);
-          NODE
-
-      - name: Upload Sparkle download timing report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-stability-sparkle-baseline
-          path: .artifacts/test-stability/
-          if-no-files-found: error
-
       - name: Resolve comparison base
         id: base
         env:
@@ -93,7 +57,7 @@ jobs:
           PUSH_BASE_SHA: ${{ github.event.before }}
         shell: bash
         run: |
-          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+          if [[ "$EVENT_NAME" == "workflow_dispatch" || "$GITHUB_REF" == "refs/heads/main" ]]; then
             echo "manual=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -122,6 +86,7 @@ jobs:
           if [[ "$MANUAL" == "true" ]]; then
             {
               echo "ci_scope=pull_request"
+              echo "validation=true"
               echo "swift=true"
               echo "rust_core=true"
               echo "macos_release=true"
@@ -237,6 +202,103 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
+  tooling:
+    name: CI tooling tests
+    needs: changes
+    if: needs.changes.outputs.validation == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+      - name: Install shell for build-script fixtures
+        run: sudo apt-get update -qq && sudo apt-get install -y zsh
+      - name: Test CI change classifier
+        shell: bash
+        run: ./scripts/ci/common/test-classify-ci-changes.sh
+
+      - name: Test release scripts and Markdown preview
+        timeout-minutes: 2
+        run: |
+          mkdir -p .artifacts/test-stability
+          node --test --test-reporter=spec --test-reporter-destination=stdout \
+            --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/sparkle-baseline.junit.xml \
+            scripts/release/sparkle/test-download-sparkle-baseline.mjs scripts/release/autobuild/test-publish-autobuild.mjs scripts/resources/test-reuse-worktree-resources.mjs scripts/resources/test-verify-download-cache.mjs scripts/macos/test/test-markdown-preview.mjs \
+            scripts/agent/test-codex-config-relay.mjs scripts/release/sparkle/verify-release-signature.test.mjs \
+            scripts/plugins/plugin-settings-schema.test.mjs \
+            scripts/ci/common/plan-ci-lane-reuse.test.mjs scripts/ci/common/rust-shards.test.mjs scripts/ci/common/verify-reused-ci-jobs.test.mjs scripts/ci/common/ci-workflow-gates.test.mjs scripts/ci/cancel-closed-pr-runs/cancel-closed-pr-runs.test.mjs
+
+      - name: Generate Sparkle download timing report
+        if: always()
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { parseJUnitCases } from './.agents/skills/write-stable-tests/scripts/parse-junit-cases.mjs';
+          import { writeTestReportArtifacts } from './.agents/skills/write-stable-tests/scripts/generate-test-report.mjs';
+          const stem = '.artifacts/test-stability/sparkle-baseline';
+          const tests = parseJUnitCases(fs.readFileSync(`${stem}.junit.xml`, 'utf8'));
+          if (tests.length === 0) throw new Error('Missing Sparkle download test results');
+          fs.writeFileSync(`${stem}.json`, JSON.stringify({ runner: 'node', warnMs: 1000, maxMs: 15000, tests }));
+          writeTestReportArtifacts(`${stem}.json`);
+          NODE
+
+      - name: Upload Sparkle download timing report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-stability-sparkle-baseline
+          path: .artifacts/test-stability/
+          if-no-files-found: error
+
+      - name: Test macOS build cache invalidation
+        timeout-minutes: 2
+        run: |
+          mkdir -p .artifacts/test-stability
+          node --test --test-reporter=spec --test-reporter-destination=stdout \
+            --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/macos-build-cache.junit.xml \
+            scripts/macos/build/build-macos.test.mjs
+
+      - name: Generate macOS build cache timing report
+        if: always()
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { parseJUnitCases } from './.agents/skills/write-stable-tests/scripts/parse-junit-cases.mjs';
+          import { writeTestReportArtifacts } from './.agents/skills/write-stable-tests/scripts/generate-test-report.mjs';
+          const stem = '.artifacts/test-stability/macos-build-cache';
+          const tests = parseJUnitCases(fs.readFileSync(`${stem}.junit.xml`, 'utf8'));
+          if (tests.length === 0) throw new Error('Missing macOS build cache test results');
+          fs.writeFileSync(`${stem}.json`, JSON.stringify({ runner: 'node', warnMs: 1000, maxMs: 15000, tests }));
+          writeTestReportArtifacts(`${stem}.json`);
+          NODE
+
+      - name: Set up Rust for static checks
+        if: needs.changes.outputs.rust_core == 'true'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Cache Rust static-check dependencies
+        if: needs.changes.outputs.rust_core == 'true'
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+          shared-key: core-static-linux
+          cache-bin: false
+          cache-on-failure: true
+
+      - name: Check Rust comments, layout and formatting
+        if: needs.changes.outputs.rust_core == 'true'
+        run: ./scripts/rust-core/verify-rust-core-static.sh
+
+      - name: Upload build tooling test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-stability-build-tooling
+          path: .artifacts/test-stability/
+          if-no-files-found: error
+
   # The Rust Core bridge checks reuse the Swift test build: a separate job
   # spent about ten minutes compiling the same products and held another of
   # the five organization macOS runners.
@@ -263,34 +325,20 @@ jobs:
         uses: ./.github/actions/prepare-macos-dependency-cache
         with:
           swiftpm: "true"
-          cargo: "true"
-
-      - name: Test macOS build cache invalidation
-        timeout-minutes: 2
-        run: |
-          mkdir -p .artifacts/test-stability
-          node --test --test-reporter=spec --test-reporter-destination=stdout \
-            --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/macos-build-cache.junit.xml \
-            scripts/macos/build/build-macos.test.mjs
-
-      - name: Generate macOS build cache timing report
-        if: always()
-        run: |
-          node --input-type=module <<'NODE'
-          import fs from 'node:fs';
-          import { parseJUnitCases } from './.agents/skills/write-stable-tests/scripts/parse-junit-cases.mjs';
-          import { writeTestReportArtifacts } from './.agents/skills/write-stable-tests/scripts/generate-test-report.mjs';
-          const stem = '.artifacts/test-stability/macos-build-cache';
-          const tests = parseJUnitCases(fs.readFileSync(`${stem}.junit.xml`, 'utf8'));
-          if (tests.length === 0) throw new Error('Missing macOS build cache test results');
-          fs.writeFileSync(`${stem}.json`, JSON.stringify({ runner: 'node', warnMs: 1000, maxMs: 15000, tests }));
-          writeTestReportArtifacts(`${stem}.json`);
-          NODE
 
       # Compile and discover tests before starting the test execution deadline.
       # A cold Rust/Swift build still compiling Lithe exceeded 20 minutes in
       # run 39943871840, matching the plugin lane's 39741361768. Keep this hang
       # guard separate from test execution; test steps keep their own budgets.
+      - name: Cache Rust test dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust -> target/macos
+          shared-key: macos-swift-tests
+          key: ${{ hashFiles('.swift-version', 'scripts/rust-core/build-rust-core.sh') }}
+          cache-bin: false
+          cache-on-failure: true
+
       - name: Build Swift tests
         id: build
         timeout-minutes: 40
@@ -325,7 +373,7 @@ jobs:
         run: |
           # Creating and mounting a real disk image has variable runner latency.
           ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh \
-            --report .artifacts/test-stability/macos-rollback-dmg.json \
+            --report .artifacts/test-stability/macos-full-signed-dmg.json \
             --max-seconds 45 --suite-timeout-seconds 120 -- \
             --skip-build \
             --filter fullSignedDiskImageStagesWithoutChangingInstalledApp
@@ -398,13 +446,16 @@ jobs:
         with:
           components: rustfmt
 
-      - name: Prepare verified dependency caches
-        uses: ./.github/actions/prepare-macos-dependency-cache
+      - name: Cache Rust test dependencies
+        uses: Swatinem/rust-cache@v2
         with:
-          cargo: "true"
+          workspaces: rust
+          shared-key: macos-native-tests
+          cache-bin: false
+          cache-on-failure: true
 
       - name: Run Rust Core tests
-        run: ./scripts/rust-core/verify-rust-core-crates.sh
+        run: ./scripts/rust-core/verify-rust-core-crates.sh --skip-static
 
       - name: Upload Rust test reports
         if: always()
@@ -587,6 +638,7 @@ jobs:
     name: macOS CI gate
     needs:
       - changes
+      - tooling
       - swift-tests
       - rust-core-tests
       - release-build
@@ -597,6 +649,8 @@ jobs:
       - name: Verify required jobs
         env:
           CHANGES_RESULT: ${{ needs.changes.result }}
+          TOOLING_RESULT: ${{ needs.tooling.result }}
+          TOOLING_SELECTED: ${{ needs.changes.outputs.validation }}
           SWIFT_RESULT: ${{ needs.swift-tests.result }}
           RUST_CORE_RESULT: ${{ needs.rust-core-tests.result }}
           RELEASE_RESULT: ${{ needs.release-build.result }}
@@ -634,6 +688,7 @@ jobs:
               [[ "$result" == "skipped" ]]
             fi
           }
+          require_job "$TOOLING_SELECTED" "$TOOLING_RESULT"
           require_job "$RUN_SWIFT" "$SWIFT_RESULT"
           require_job "$RUN_RUST" "$RUST_CORE_RESULT"
           require_job "$RUN_RELEASE" "$RELEASE_RESULT"

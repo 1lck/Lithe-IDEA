@@ -20,6 +20,33 @@ Rust Core、数据库辅助 crate 和前端构建的耗时来源不同；如果�
 
 ## 决策
 
+2026-11-02 的最近 50 次运行样本显示，Swift 编译步骤中位数约 14 分钟、单元测试
+约 3.7 分钟；macOS 打包 job 最长排队 1,237 秒。Windows Rust 原 job 最长 1,735 秒，
+其中 Core 测试与 host 测试串行，real-JDT 又执行了一遍普通 Core 测试。以下调整保留
+所有测试与平台专属验证：
+
+- 必需的 `macOS CI gate` 不做 workflow 级路径过滤。文档提交只执行轻量分类和 gate，
+  其他原生 CI 用文档路径过滤；代码提交的工具测试放到并行 Ubuntu job，gate 检查其结果。
+  Windows 分类 job 不再重复执行同一份下载校验、工作树复用和 relay 测试。
+  分类在 draft 延迟原生任务前记下 tooling 选择，不能让 draft 绕过工具验证。
+- Windows Rust 使用两个 Core 分片和独立 host job。测试名称的稳定哈希决定分片，
+  单测试看门狗、suite deadline 和报告不变。gate 下载两个 Core 报告，核对相同清单、
+  不重不漏与成功状态；矩阵 `fail-fast: false` 保留其他分片的诊断。
+- real-JDT 只选择 `lsp::interface::engine::real_jdt_tests::`，专用环境与 600 秒预算不变。
+  普通 Core 测试由上述分片负责，前缀拼错或没有测试必须失败。
+- Rust 注释、布局、格式检查和纯 Node 日志生成/校验放 Ubuntu；native Rust lane
+  只跳过已经由 tooling gate 强制校验的静态阶段，本地默认入口仍运行两阶段。i18n 的 macOS 打包会生成二进制 plist，仍保留
+  原来的三系统验证，不把这一真实平台需求当作重复测试删除。
+- Swift bridge 的 Git execution 驱动直接使用同次 Cargo 构建产生的 dylib，避免重新
+  向另一个 target 目录编译 Core。静态库、Swift app、C 驱动仍执行全部验证。
+- Rust 测试使用 `Swatinem/rust-cache` 缓存裁剪后的依赖编译输出；Swift/plugin 共享
+  同一个 Rust target cache 身份，Windows Core 两分片只有一个写者，host 使用独立身份。
+  real-JDT 只读同一 Core 缓存。禁止缓存整个 incremental 目录、最终安装包或 SwiftPM
+  可变构建状态。PR 的 macOS 下载缓存只读，避免每个 PR 复制相同下载物挤占 10 GB。
+- setup-node 的工作流只运行无外部依赖的 Node 脚本，没有 npm 安装；不为了打开 `cache`
+  而引入不存在的 npm lockfile。产品使用 Bun，保留其真实依赖缓存。
+
+
 macOS CI 与发布工作流统一使用 Xcode 26.6，编译器
 固定为 `.swift-version` 中的 Swift 6.3.3。共用的 `setup-macos-toolchain` action
 选择 Xcode 后校验实际编译器版本；不一致就立即失败，不能悄悄使用 runner 的
@@ -36,8 +63,7 @@ Mac mini Runner，因为离线时没有回退、fork 代码跑在长期存活的
 同一个 PR 的后续 push 按 lane 复用之前的结果。观察到的问题是：作者补一个很小的
 提交，或者为了同步 `preview` 更新分支，所有 lane 都会重新完整运行，而结果大概率
 不变。`scripts/ci/common/plan-ci-lane-reuse.mjs` 在 macOS CI、插件 CI 和 Windows CI 的分类 job
-中逐个 lane 判断：找到这个 PR 之前真正执行过该 lane 的最近一次运行，job 已通过或
-已经在 GitHub 托管 Runner 上排队或运行，并且 PR 自己在此之后的改动（按现有分类规则）不影响这个 lane，就复用
+中逐个 lane 判断：找到这个 PR 之前真正执行过该 lane 的最近一次运行，job 已完成且通过，并且 PR 自己在此之后的改动（按现有分类规则）不影响这个 lane，就复用
 那次结果。只看 PR 自己的改动：用“每个文件的 PR 版本”比较两个修订，从 base 同步
 进来的改动不算；但只要 base 在两次运行之间带来了**本 workflow 会读取的** CI 基础设施
 改动（workflow、action、分类和 runner 脚本、测试基础设施、`Package.swift`/`Package.resolved`、
@@ -72,27 +98,23 @@ Mac mini Runner，因为离线时没有回退、fork 代码跑在长期存活的
 分隔的原始形式读取，分类脚本同样如此，否则 Git 会给中文等路径加引号转义，导致
 路径匹配失败、把真实改动当成没有变化。这里同时检查作者合入的 base 改动和 GitHub 合并
 提交在 base 前进后自动带上的改动（用 API 取得之前那次运行开始时的 base 头）。
-失败或被取消的结果从不复用。请求自建 Runner 的排队任务及其运行中未完成的任务
-也不复用：GitHub 在创建 job 时固定 Runner 标签，移除自建 Runner 不会让旧任务
-自动转移到托管机器。正确做法是让本轮重新创建托管 job，并取消无人复用的旧运行；
-不要让新 gate 继续等待已撤销的机器。已经通过的旧结果仍可按改动范围复用。官方
-托管的排队任务继续复用，避免同一旧运行因其他 lane 被保留时又创建重复构建。
+失败、被取消或仍在排队/运行的结果从不复用。PR 后续推送通过 workflow 的
+`cancel-in-progress` 立即取消旧运行，不能再让新 gate 等待会被取消的旧任务。
+Windows Rust 已拆成矩阵，不用单个 job 的成功冒充整组成功；该 lane 每次都完整执行。
 
 真实 JDT 集成 lane 在 Windows 上验证共享 Java 引擎，按共享 Rust Java/JDT、JDK/JDT
 资源、准备脚本和 Windows Java 消费方选择。macOS 的 Swift Java 适配器及测试由
 Swift lane 编译验证，不因路径中含有 `Java` 就申请 Windows runner。共享 Core 或
 契约改动仍按各自规则选择跨平台验证；不能用“没有修改 `windows/`”跳过这些检查。
 
-GitHub 只能取消整个 workflow 运行，不能取消单个 job，所以 PR 运行不再按分支自动
-互相取消：规划步骤取消没有任何 lane 复用的旧运行，被复用、仍在运行的旧运行保留
-到结束。只考虑运行序号小于本轮的旧运行：连续 push 时旧修订的规划步骤可能晚于新
-运行才执行，如果不按序号限定，就会把新运行当成旧运行取消。gate 确认被复用的 job 已经通过（仍在运行时最多等 90 分钟），并检查每个被
-选中的 lane 要么本轮运行、要么有复用结果，避免计划缺失时空跑通过。规划出错一律
-回退为全部运行；push 和手动运行不复用。被否方案：把每个 lane 拆成独立 workflow
-（必需检查和分支规则都要改，触发次数翻倍）；只按“这次 push 新增的提交”分类
-（同步 `preview` 时会把别人的改动算进来，正是要避免的全量重跑）。接受的风险：
-复用的结果没有测过“PR + 新的 base”这个组合，由合并后的 universal 打包
-兜底。
+同一个 PR 的运行共享 concurrency group，旧运行取消后只保留最新一次。规划器
+只有只读权限，不再通过 API 取消运行，也不再保留被引用的在途任务。已经成功且
+不受后续改动影响的单个 lane 仍可复用；gate 再读取该 job，确认它确实成功。
+规划失败仍回退为运行全部选中的 lane。
+
+`main` 的 CI push 使用 run ID 作为独立 concurrency group，并设置
+`cancel-in-progress: false`。只关闭取消但共用一个 group 仍会替换 pending 运行，
+所以不能这样做。`main` 每个提交走完整分类，不使用 preview 的 post-merge 缩减。
 
 关闭或合并 PR 时，清理工作流按来源仓库、来源分支和关闭时间查找所有历史运行，
 不能只查最后一次提交：后续 gate 可能仍在复用更早提交的 job，且关闭后 GitHub 的
@@ -111,12 +133,12 @@ shell 中把取消结果转换为成功，否则真正失败会消失。
 上完成；合并后的 push 只在改动涉及打包内容时构建 universal 包。这是 x86_64
 唯一一次编译和链接，也会编译“各自通过的 PR 合在一起”的组合，PR 自己的 CI
 覆盖不到这两点。`preview` → `main` 的 PR 不跑任何 lane，只核对同一提交在
-`preview` 的 push 上已经通过 macOS CI；push 到 `main` 不触发 CI。分类脚本用
+`preview` 的 push 上已经通过 macOS CI；push 到 `main` 会再次执行完整 CI，且每个提交都保留。分类脚本用
 `LITHE_CI_SCOPE`（`pull_request`、`post_merge`、`release_promotion`）区分这些
 场景。被否方案：合并后完全不跑 CI（Intel 编译和 PR 组合问题会一直留到 AutoBuild
 或发布时才暴露）；要求 PR 与 `preview` 保持最新后再合并（并行 PR 多时每次合并
-都要重跑完整 CI，总用量反而更高）。Windows CI 因此不再在 `preview` push 上运行，
-代价是 Windows 的 GitHub 缓存只由 PR 刷新，`Cargo.lock` 变化后的几个 PR 会从
+都要重跑完整 CI，总用量反而更高）。Windows CI 不在 `preview` push 上运行，但运行每个 `main` push；
+Windows 的 GitHub 缓存由 PR 与 main 刷新，`Cargo.lock` 变化后的几个 PR 会从
 较旧的前缀命中开始编译。
 
 `DesktopIsolationTests` 里读取 WindowServer 透明度的那条检查，在系统窗口列表不可用时

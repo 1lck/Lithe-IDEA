@@ -3,20 +3,26 @@ name: macOS Plugin CI
 
 on:
   pull_request:
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - 'LICENSE*'
     # ready_for_review reruns the deferred runner lane after a draft is ready.
     types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
-  # The classify job reads active jobs to choose a macOS runner pool.
+  # The gate verifies completed results reused from earlier revisions.
   actions: read
 
-# Pull request runs are not cancelled per branch: the lane-reuse step keeps an
-# earlier run whose lanes it reuses and cancels the others.
+# Every main commit gets its own group, including pending runs. PR pushes
+# cancel their predecessor immediately; only completed results may be reused.
 concurrency:
-  group: macos-plugin-ci-${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('run-{0}', github.run_id) || github.ref }}
-  cancel-in-progress: ${{ github.event_name != 'pull_request' }}
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_id || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   changes:
@@ -24,8 +30,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      # Cancels earlier runs of the same pull request that no lane reuses.
-      actions: write
+      # Reads only completed earlier jobs; concurrency owns cancellation.
+      actions: read
     outputs:
       plugins: ${{ steps.classify.outputs.plugins }}
       run_plugins: ${{ steps.reuse.outputs.run_plugins }}
@@ -45,7 +51,7 @@ jobs:
           PUSH_BASE_SHA: ${{ github.event.before }}
         shell: bash
         run: |
-          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+          if [[ "$EVENT_NAME" == "workflow_dispatch" || "$GITHUB_REF" == "refs/heads/main" ]]; then
             echo "manual=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -140,7 +146,6 @@ jobs:
         uses: ./.github/actions/prepare-macos-dependency-cache
         with:
           swiftpm: "true"
-          cargo: "true"
           # Java Support is assembled from the pinned JDT LS and JDK.
           jdtls: "true"
           jdk: "true"
@@ -149,6 +154,15 @@ jobs:
       # Compile and discover tests before starting the test execution deadline.
       # A cold Rust/Swift build exceeded 20 minutes while still compiling Lithe
       # in run 39741361768. Keep that budget separate from test execution.
+      - name: Cache Rust test dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust -> target/macos
+          shared-key: macos-swift-tests
+          key: ${{ hashFiles('.swift-version', 'scripts/rust-core/build-rust-core.sh') }}
+          cache-bin: false
+          cache-on-failure: true
+
       - name: Build Swift tests
         timeout-minutes: 40
         run: ./scripts/macos/test/test-macos.sh list > /dev/null

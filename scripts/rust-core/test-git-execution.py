@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """macOS C ABI/Git integration: isolated config, local HTTP auth, and remote outcomes.
 
-Requires a built rust/target/debug/liblithe_core.dylib, Git, and a C compiler.
+Requires a built Core dylib, Git, and a C compiler.
 Every child has a local deadline and an owned process group. No user config,
 credential store, external service, or application UI is used.
 """
@@ -88,7 +88,7 @@ def http_server_does_not_resolve_dns():
 
 
 class Fixture:
-    def __init__(self, directory):
+    def __init__(self, directory, library_directory=None):
         self.directory = directory
         self.env = {**os.environ, "HOME": str(directory), "GIT_CONFIG_GLOBAL": str(directory / "global.conf"),
                     "GIT_CONFIG_NOSYSTEM": "1", "XDG_CONFIG_HOME": str(directory / "xdg"),
@@ -99,7 +99,7 @@ class Fixture:
         source = directory / "driver.c"
         source.write_text(DRIVER)
         self.driver = directory / "fixture driver"
-        library = ROOT / "rust/target/debug"
+        library = library_directory or ROOT / "rust/target/debug"
         run(["xcrun", "--sdk", "macosx", "clang", "-isysroot", run(["xcrun", "--sdk", "macosx", "--show-sdk-path"], self.env).strip(), str(source), "-I", str(ROOT / "rust/lithe-core/include"), "-L", str(library),
              "-llithe_core", f"-Wl,-rpath,{library}", "-o", str(self.driver)], self.env)
         self.repo = directory / "repo"
@@ -402,11 +402,12 @@ class Fixture:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--application", type=Path, help="Also verify the built macOS app exits through AskPass before UI startup")
+    parser.add_argument("--core-library-dir", type=Path, help="Directory of the already built Core dylib")
     arguments = parser.parse_args()
     tests = []
     try:
         with tempfile.TemporaryDirectory(prefix="lithe-execution-integration-") as directory:
-            fixture = Fixture(Path(directory))
+            fixture = Fixture(Path(directory), arguments.core_library_dir)
             cases = [("http_server_does_not_resolve_dns", http_server_does_not_resolve_dns),
                      ("remote_url_lookup_remains_silent", fixture.remote_url_lookup),
                      ("configuration_scope_precedence_and_stale_save", fixture.configuration),
