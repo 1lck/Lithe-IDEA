@@ -467,6 +467,14 @@ impl RunPanel {
         // classpath，再用项目 JDK 启动；宿主不自己跑 Maven。
         if let Some(source) = java_launch_source(&configuration, &root) {
             let main_class = configuration.main_class().map(str::to_string);
+            crate::logging::log_info(
+                "run",
+                format!(
+                    "Java launch source: {} (mainClass={})",
+                    source.display(),
+                    main_class.as_deref().unwrap_or("")
+                ),
+            );
             let prepared = self
                 .java_language
                 .update(cx, |model, cx| model.prepare_launch(source, main_class, cx));
@@ -778,6 +786,9 @@ fn normalize_relative(value: Option<&str>) -> &str {
 
 /// 与 macOS `usesJavaProjectPreparation` 对齐：只有 Maven 反应堆里的
 /// Java / Spring Boot 配置才由 JDT 准备启动目标。
+///
+/// Core 把真正的 Java 源文件放在 `extensions.java.source`；顶层 `source`
+/// 可能是产生配置的 `pom.xml`，直接把它交给 JDT 会找不到启动目标。
 fn java_launch_source(configuration: &RunConfiguration, root: &Path) -> Option<PathBuf> {
     if configuration.language() != RunLanguage::Java {
         return None;
@@ -787,8 +798,19 @@ fn java_launch_source(configuration: &RunConfiguration, root: &Path) -> Option<P
     {
         return None;
     }
-    let source = configuration.source.as_deref()?;
-    let path = Path::new(source);
+    let source = configuration
+        .extensions
+        .get("java")
+        .and_then(|java| java.get("source"))
+        .and_then(|source| source.as_str())
+        .map(str::to_string)
+        .or_else(|| {
+            configuration
+                .source
+                .clone()
+                .filter(|source| source.ends_with(".java"))
+        })?;
+    let path = Path::new(&source);
     Some(if path.is_absolute() {
         path.to_path_buf()
     } else {
