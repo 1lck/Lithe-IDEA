@@ -85775,7 +85775,8 @@
       "id": "native.languageServerReturnedAnInvalidTextRange",
       "description": "Native UI: Language server returned an invalid text range.",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "Language server returned an invalid text range.",
@@ -85786,7 +85787,8 @@
       "id": "native.languageServerReturnedOverlappingTextEdits",
       "description": "Native UI: Language server returned overlapping text edits.",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "Language server returned overlapping text edits.",
@@ -95730,6 +95732,13 @@
       "parameters": {
         "arg1": "integer"
       }
+    },
+    {
+      "id": "editor.workspaceEditStale",
+      "description": "Workspace edit rejected after document or workspace changes.",
+      "platforms": [
+        "windows"
+      ]
     },
     {
       "id": "workspace.appStore",

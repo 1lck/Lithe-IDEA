@@ -1,3 +1,7 @@
+import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
+import { createTranslator } from "@/i18n/locale";
+import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { invoke } from "@/platform/tauri-core";
 import { requireLoadedBufferContent } from "../utils/buffer-load-state";
 
 export interface LspPosition {
@@ -94,57 +98,24 @@ export function filePathFromUri(uri: string): string {
   }
 }
 
-function buildLineStartOffsets(content: string): number[] {
-  const offsets = [0];
-
-  for (let index = 0; index < content.length; index++) {
-    if (content.charCodeAt(index) === 10) {
-      offsets.push(index + 1);
-    }
+// Core owns range validation, UTF-16 offsets, overlap detection and edit order.
+export async function applyTextEditsToContent(content: string, edits: LspTextEdit[]): Promise<string> {
+  const result = await invoke<{ text: string; editError?: { code: string; details?: string } }>("lsp.applyTextEdits", {
+    text: content,
+    edits: edits.map((edit) => ({
+      range: {
+        start: { line: edit.range.start.line, utf16Column: edit.range.start.character },
+        end: { line: edit.range.end.line, utf16Column: edit.range.end.character },
+      },
+      newText: edit.newText,
+    })),
+  });
+  if (result.editError) {
+    const t = createTranslator(useSettingsStore.getState().settings.displayLanguage);
+    const key = result.editError.details === "overlappingEdits" ? "native.languageServerReturnedOverlappingTextEdits" : "native.languageServerReturnedAnInvalidTextRange";
+    throw Object.assign(new Error(t(key)), { code: result.editError.code, details: result.editError.details });
   }
-
-  return offsets;
-}
-
-function offsetFromPositionWithLineStarts(
-  content: string,
-  position: LspPosition,
-  lineStarts: number[],
-): number {
-  const targetLine = Math.max(0, Math.trunc(position.line));
-  if (targetLine >= lineStarts.length) {
-    return content.length;
-  }
-
-  const lineStart = lineStarts[targetLine] ?? 0;
-  const nextLineStart = lineStarts[targetLine + 1];
-  const lineEnd =
-    nextLineStart === undefined ? content.length : Math.max(lineStart, nextLineStart - 1);
-  const character = Math.max(0, Math.trunc(position.character));
-
-  return Math.max(
-    0,
-    Math.min(content.length, lineStart + Math.min(character, lineEnd - lineStart)),
-  );
-}
-
-export function offsetFromPosition(content: string, position: LspPosition): number {
-  return offsetFromPositionWithLineStarts(content, position, buildLineStartOffsets(content));
-}
-
-export function applyTextEditsToContent(content: string, edits: LspTextEdit[]): string {
-  const lineStarts = buildLineStartOffsets(content);
-  const sortedEdits = edits
-    .map((edit) => ({
-      edit,
-      startOffset: offsetFromPositionWithLineStarts(content, edit.range.start, lineStarts),
-      endOffset: offsetFromPositionWithLineStarts(content, edit.range.end, lineStarts),
-    }))
-    .sort((a, b) => b.startOffset - a.startOffset || b.endOffset - a.endOffset);
-
-  return sortedEdits.reduce((nextContent, { edit, startOffset, endOffset }) => {
-    return nextContent.slice(0, startOffset) + edit.newText + nextContent.slice(endOffset);
-  }, content);
+  return result.text;
 }
 
 export function collectWorkspaceTextEdits(edit: WorkspaceEdit): Map<string, LspTextEdit[]> {
@@ -165,61 +136,38 @@ export function collectWorkspaceTextEdits(edit: WorkspaceEdit): Map<string, LspT
   return editsByFile;
 }
 
-async function readEditableSource(
-  filePath: string,
-): Promise<{ bufferId: string | null; content: string }> {
-  const { useBufferStore } = await import("../stores/buffer.store");
-  const { readFile } = await import("@/features/file-system/controllers/platform");
-  const { buffers } = useBufferStore.getState();
-  const openBuffer = buffers.find(
-    (buffer) => buffer.type === "editor" && !buffer.isVirtual && buffer.path === filePath,
-  );
-
-  if (openBuffer?.type === "editor") {
-    requireLoadedBufferContent(openBuffer);
-    return { bufferId: openBuffer.id, content: openBuffer.content };
-  }
-
-  return { bufferId: null, content: await readFile(filePath) };
-}
-
-async function writeEditableSource(filePath: string, bufferId: string | null, content: string) {
-  const { useBufferStore } = await import("../stores/buffer.store");
-  const { trackImmediateBufferHistoryChange } = await import("../stores/buffer-history-tracking");
-  const { writeFile } = await import("@/features/file-system/controllers/platform");
-
-  if (bufferId) {
-    const buffer = useBufferStore.getState().buffers.find((candidate) => candidate.id === bufferId);
-    if (buffer?.type === "editor") {
-      trackImmediateBufferHistoryChange({
-        bufferId,
-        currentContent: buffer.content,
-        nextContent: content,
-      });
-    }
-    useBufferStore.getState().actions.updateBufferContent(bufferId, content, true);
-    return;
-  }
-
-  await writeFile(filePath, content);
-}
-
 export async function applyWorkspaceEdit(edit: WorkspaceEdit): Promise<WorkspaceEditApplyResult> {
+  const workspaceId = workspaceRuntimeRegistry.getActiveWorkspaceId();
+  const [{ useBufferStore }, { trackImmediateBufferHistoryChange }, { readFile, writeFile }] = await Promise.all([
+    import("../stores/buffer.store"), import("../stores/buffer-history-tracking"), import("@/features/file-system/controllers/platform"),
+  ]);
+  const store = useBufferStore.getStore(workspaceId);
   const editsByFile = collectWorkspaceTextEdits(edit);
-
-  // Validate/read every target before applying any edit. A restoring tab must
-  // not cause a rename to partially modify the other documents.
-  const prepared = await Promise.all(
-    Array.from(editsByFile, async ([filePath, edits]) => {
-      const source = await readEditableSource(filePath);
-      const nextContent = applyTextEditsToContent(source.content, edits);
-      return { filePath, bufferId: source.bufferId, nextContent };
-    }),
-  );
-  await Promise.all(
-    prepared.map(({ filePath, bufferId, nextContent }) =>
-      writeEditableSource(filePath, bufferId, nextContent)),
-  );
-
+  const prepared = await Promise.all(Array.from(editsByFile, async ([filePath, edits]) => {
+    const buffer = store.getState().buffers.find((entry) => entry.type === "editor" && !entry.isVirtual && entry.path === filePath);
+    if (buffer?.type === "editor") requireLoadedBufferContent(buffer);
+    const content = buffer?.type === "editor" ? buffer.content : await readFile(filePath);
+    const revision = buffer?.type === "editor" ? buffer.contentRevision : undefined;
+    const nextContent = await applyTextEditsToContent(content, edits);
+    return { filePath, bufferId: buffer?.id, content, revision, nextContent };
+  }));
+  const stale = () => new Error(createTranslator(useSettingsStore.getState().settings.displayLanguage)("editor.workspaceEditStale"));
+  if (workspaceRuntimeRegistry.getActiveWorkspaceId() !== workspaceId || useBufferStore.getStore(workspaceId) !== store) throw stale();
+  // Check every prepared target before any buffer is changed. No await occurs
+  // between this barrier and the in-memory writes, so user input cannot interleave.
+  for (const source of prepared) {
+    const buffer = store.getState().buffers.find((entry) => entry.type === "editor" && !entry.isVirtual && entry.path === source.filePath);
+    if (source.bufferId ? (!buffer || buffer.type !== "editor" || buffer.id !== source.bufferId || buffer.content !== source.content || buffer.contentRevision !== source.revision) : !!buffer) throw stale();
+  }
+  const diskWrites: Promise<unknown>[] = [];
+  for (const source of prepared) {
+    if (source.bufferId) {
+      trackImmediateBufferHistoryChange({ bufferId: source.bufferId, currentContent: source.content, nextContent: source.nextContent });
+      store.getState().actions.updateBufferContent(source.bufferId, source.nextContent, true);
+    } else {
+      diskWrites.push(writeFile(source.filePath, source.nextContent));
+    }
+  }
+  await Promise.all(diskWrites);
   return { editedFiles: editsByFile.size };
 }

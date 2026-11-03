@@ -2517,3 +2517,37 @@ fn client_completion_rejects_invalid_trigger_context() {
         ));
     }
 }
+
+#[test]
+fn text_edits_follow_shared_windows_fixture() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/lsp/text-edits-v1.json"
+    ))
+    .unwrap();
+    for case in fixture["cases"].as_array().unwrap() {
+        let edits: Vec<Value> = case["edits"].as_array().unwrap().iter().map(|edit| serde_json::json!({
+            "range": { "start": { "line": edit["range"]["start"]["line"], "utf16Column": edit["range"]["start"]["character"] },
+                       "end": { "line": edit["range"]["end"]["line"], "utf16Column": edit["range"]["end"]["character"] } },
+            "newText": edit["newText"]
+        })).collect();
+        let result = apply_text_edits(
+            serde_json::from_value(serde_json::json!({ "text": case["text"], "edits": edits }))
+                .unwrap(),
+        );
+        if let Some(expected) = case.get("expectedError") {
+            assert_eq!(
+                result.unwrap_err().details.as_deref(),
+                expected.as_str(),
+                "{}",
+                case["name"]
+            );
+        } else {
+            assert_eq!(
+                result.unwrap().text,
+                case["expectedText"].as_str().unwrap(),
+                "{}",
+                case["name"]
+            );
+        }
+    }
+}

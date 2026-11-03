@@ -1827,7 +1827,7 @@ export class LspClient {
         lspDocumentRequestArgs(target),
       );
       if (!edits.length) return content;
-      return applyTextEditsToContent(content, edits);
+      return await applyTextEditsToContent(content, edits);
     } catch (error) {
       logger.debug("LSPClient", "LSP document formatting unavailable:", error);
       return null;
@@ -1852,7 +1852,7 @@ export class LspClient {
         endCharacter: range.end.character,
       });
       if (!edits.length) return content;
-      return applyTextEditsToContent(content, edits);
+      return await applyTextEditsToContent(content, edits);
     } catch (error) {
       logger.debug("LSPClient", "LSP range formatting unavailable:", error);
       return null;
