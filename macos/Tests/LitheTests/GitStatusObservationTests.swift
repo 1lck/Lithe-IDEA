@@ -416,6 +416,26 @@ struct GitStatusObservationTests {
         #expect(feature.gitChanges.map(\.path) == ["unchecked.txt"])
     }
 
+    @Test
+    @MainActor
+    func realGitRollbackRejectsSelectionStagedAfterDialogOpened() async throws {
+        let fixture = try GitObservationFixture(label: "rollback-stale")
+        let root = fixture.url.appendingPathComponent("repository", isDirectory: true)
+        try await fixture.initializeRepository(at: root)
+        try Data("outside edit\n".utf8).write(to: root.appendingPathComponent("tracked.txt"))
+        let feature = GitFeatureModel(service: GitService(operations: RustGitOperations(core: RustCoreBridge())))
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        feature.requestRollbackChanges(feature.gitChanges, included: feature.gitChanges)
+        let captured = try #require(feature.pendingRollbackSelection)
+        try await fixture.git(["add", "tracked.txt"], at: root)
+        await feature.confirmRollbackChanges(captured)
+        #expect(try await fixture.git(["diff", "--cached", "--name-only"], at: root) == "tracked.txt")
+        #expect(try String(contentsOf: root.appendingPathComponent("tracked.txt"), encoding: .utf8) == "outside edit\n")
+        #expect(!feature.isRollingBackChanges)
+    }
+
     @Test(arguments: [false, true])
     @MainActor
     func realGitRollbackAddedFilesRequiresExplicitDeletion(deleteAdded: Bool) async throws {

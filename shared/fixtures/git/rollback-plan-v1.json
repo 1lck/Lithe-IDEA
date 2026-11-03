@@ -9,6 +9,8 @@
     {"name":"ordinary tracked modification", "changes":[{"path":"modified.txt","status":"MM"}], "deleteAddedFiles":false, "steps":[{"operation":"discardAll","paths":["modified.txt"]}]},
     {"name":"unmerged additions are not treated as new files", "changes":[{"path":"conflict.txt","status":"AA"}], "deleteAddedFiles":false, "steps":[{"operation":"discardAll","paths":["conflict.txt"]}]},
     {"name":"untracked file is preserved by default", "changes":[{"path":"loose.txt","status":"??"}], "deleteAddedFiles":false, "steps":[]},
+    {"name":"explicitly delete untracked file", "changes":[{"path":"loose.txt","status":"??"}], "deleteAddedFiles":true, "steps":[{"operation":"discardAll","paths":["loose.txt"]}]},
+    {"name":"explicitly delete untracked directory selection", "changes":[{"path":"new-dir/","status":"??"}], "deleteAddedFiles":true, "steps":[{"operation":"discardAll","paths":["new-dir/"]}]},
     {"name":"explicit deletion removes a new file after unstaging", "changes":[{"path":"new.txt","status":"A "}], "deleteAddedFiles":true, "steps":[{"operation":"unstage","paths":["new.txt"]},{"operation":"discard","paths":["new.txt"]}]}
   ]
 }

@@ -1825,31 +1825,37 @@ package final class GitFeatureModel: ObservableObject {
             if self.activeRollbackID == contextID { self.activeRollbackID = nil; self.isRollingBackChanges = false }
         }) {
             var results: [GitService.CommandResult] = []
-            for change in changes {
-                guard isCurrent() else { break }
-                let target = GitRollbackSelection.operationTarget(change)
-                let result: GitService.CommandResult
-                // Tracked paths are restored in one Core operation. Only new
-                // paths need unstaging first (including intent-to-add entries).
-                if GitRollbackSelection.isAddition(change),
-                   change.isStaged || (change.workTreeStatus == "A" && !change.isConflicted) {
-                    let unstaged = await recordingGitCommand { await service.unstage(target) }
-                    results.append(unstaged)
-                    guard isCurrent() else { break }
-                    if !unstaged.succeeded { showResult(unstaged, success: ""); break }
+            var seen: Set<URL> = []
+            let roots = changes.map { $0.repositoryRoot.standardizedFileURL }.filter { seen.insert($0).inserted }
+            let byRoot = Dictionary(grouping: changes) { $0.repositoryRoot.standardizedFileURL }
+            var prepared: [(URL, GitRollbackPlan)] = []
+            // Check every repository before the first write. Execution still
+            // stops on the first failed step; external Git can race this check.
+            for root in roots {
+                guard isCurrent() else { return results }
+                let selected = byRoot[root] ?? []
+                let result = await service.prepareRollback(at: root, changes: selected, deleteAddedFiles: selection.deleteAddedFiles)
+                guard isCurrent() else { return results }
+                switch result {
+                case .success(let plan): prepared.append((root, plan))
+                case .failure(let failure):
+                    if failure.message.contains("GIT_ROLLBACK_STALE_SELECTION") {
+                        notifyWithReference(L10n.string("The selected changes changed. Reopen the rollback dialog and review them again."))
+                    } else {
+                        notifyWithReference(failure.message)
+                    }
+                    return results
                 }
-                if GitRollbackSelection.isAddition(change) {
-                    // Like IDEA, added files become unversioned unless the user
-                    // explicitly asks to delete their local copies.
-                    if !selection.deleteAddedFiles { continue }
-                    result = await recordingGitCommand { await service.discard(target) }
-                } else {
-                    result = await recordingGitCommand { await service.discardAll(target) }
+            }
+            for (root, plan) in prepared {
+                for step in plan.steps {
+                    guard isCurrent() else { return results }
+                    let result = await recordingGitCommand { await service.executeRollbackStep(at: root, step: step) }
+                    results.append(result)
+                    guard isCurrent() else { return results }
+                    showResult(result, success: L10n.string("Rolled back \(step.paths.last ?? "")"))
+                    if !result.succeeded { return results }
                 }
-                results.append(result)
-                guard isCurrent() else { break }
-                showResult(result, success: L10n.string("Rolled back \(change.path)"))
-                if !result.succeeded { break }
             }
             return results
         }

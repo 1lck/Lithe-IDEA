@@ -31,7 +31,7 @@ package struct GitRollbackSelection: Identifiable, Sendable {
     package var hasIncludedAdditions: Bool { includedChanges.contains(where: Self.isAddition) }
 
     package static func isAddition(_ change: GitChange) -> Bool {
-        change.kind == .added || (change.indexStatus == "C" && !change.isConflicted)
+        change.kind == .added || ((change.indexStatus == "C" || change.workTreeStatus == "C") && !change.isConflicted)
     }
 
     /// A copied file owns only its destination; its source can have unrelated edits.
@@ -56,4 +56,21 @@ package struct GitRollbackSelection: Identifiable, Sendable {
         let selected = changes.filter { selectedIDs.contains($0.id) }
         return selected.isEmpty ? changes : selected
     }
+}
+
+/// Core owns rollback ordering and path derivation; the host only executes steps.
+package struct GitRollbackPlan: Decodable, Sendable {
+    package struct Step: Decodable, Sendable {
+        package enum Operation: String, Decodable, Sendable { case unstage, discard, discardAll }
+        package let operation: Operation
+        package let paths: [String]
+        package init(operation: Operation, paths: [String]) { self.operation = operation; self.paths = paths }
+    }
+    package let steps: [Step]
+    package init(steps: [Step]) { self.steps = steps }
+}
+
+package struct GitRollbackFailure: Error, Sendable {
+    package let message: String
+    package init(_ message: String) { self.message = message }
 }

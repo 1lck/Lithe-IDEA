@@ -1658,13 +1658,16 @@ repository-relative `path`, optional `originalPath`, and the two-character Git
 are unstaged while their disk contents remain by default; renames restore both
 paths. Adjacent compatible operations are batched. Unsafe, overlapping or
 ambiguous identities are rejected. `git.rollbackPrepare` also accepts `root`,
-checks tracked identities using bounded literal-path Git status queries, and
+checks selected identities using bounded literal-path Git status queries, and
 fails with `GIT_ROLLBACK_STALE_SELECTION` if any selected identity changed.
-Callers should prepare after confirmation and execute steps in order, stopping
-on failure and refreshing after any attempted write. This status check cannot
-detect content changes that preserve the same status or lock out external Git
-clients between preparation and writes; it is not a content snapshot or an
-atomic transaction. Untracked selections are not accepted by prepare.
+Untracked directories are expanded to the untracked files observed at prepare
+time; a file created later is not included in the resulting deletion steps.
+The 10,000-entry limit applies to the input selection, not the number of files
+inside a selected directory. Callers should prepare after confirmation and
+execute steps in order, stopping on failure and refreshing after any attempted
+write. This status check cannot detect content changes that preserve the same
+status or lock out external Git clients between preparation and writes; it is
+not a content snapshot or an atomic transaction.
 
 `git.write` accepts a typed mutation request. Its required `operation` values are
 `stage`, `unstage`, `discard`, `discardAll`, `stageAll`, `commit`, `ignore`, `exclude`, `cherryPick`, `revert`,

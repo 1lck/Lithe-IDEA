@@ -6104,6 +6104,75 @@ fn prepared_rollback_preserves_added_files_and_rejects_stale_renames() {
 }
 
 #[test]
+fn prepared_rollback_checks_untracked_files_and_expands_directories() {
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let root = git_write_repository("rollback-untracked-prepare");
+    let _cleanup = Cleanup(root.clone());
+    fs::create_dir_all(root.join("new-dir")).unwrap();
+    fs::write(root.join("new-dir/a[1].txt"), "one").unwrap();
+    fs::write(root.join("new-dir/b.txt"), "two").unwrap();
+    fs::write(root.join("loose.txt"), "loose").unwrap();
+    let prepare = |changes: Value, delete: bool| -> Value {
+        serde_json::from_str(&execute_json(&serde_json::json!({
+            "command":"git.rollbackPrepare", "payload":{"root":root, "changes":changes, "deleteAddedFiles":delete}
+        }).to_string())).unwrap()
+    };
+    let changes = serde_json::json!([{"path":"new-dir/", "status":"??"}, {"path":"loose.txt", "status":"??"}]);
+    assert_eq!(
+        prepare(changes.clone(), false)["data"]["steps"],
+        serde_json::json!([])
+    );
+    let plan = prepare(changes.clone(), true);
+    assert_eq!(plan["ok"], true, "{plan}");
+    assert_eq!(
+        plan["data"]["steps"],
+        serde_json::json!([{"operation":"discardAll", "paths":["new-dir/a[1].txt", "new-dir/b.txt", "loose.txt"]}])
+    );
+    assert!(history_git(&root, &["add", "loose.txt"]).status.success());
+    let stale = prepare(changes, true);
+    assert_eq!(
+        stale["error"]["message"], "GIT_ROLLBACK_STALE_SELECTION",
+        "{stale}"
+    );
+    assert!(root.join("loose.txt").exists());
+    assert!(history_git(&root, &["add", "new-dir/a[1].txt"])
+        .status
+        .success());
+    let stale_directory = prepare(
+        serde_json::json!([{"path":"new-dir/", "status":"??"}]),
+        true,
+    );
+    assert_eq!(
+        stale_directory["error"]["message"], "GIT_ROLLBACK_STALE_SELECTION",
+        "{stale_directory}"
+    );
+
+    fs::create_dir_all(root.join("reviewed-dir")).unwrap();
+    fs::write(root.join("reviewed-dir/reviewed.txt"), "reviewed").unwrap();
+    let reviewed = prepare(
+        serde_json::json!([{"path":"reviewed-dir/", "status":"??"}]),
+        true,
+    );
+    assert_eq!(reviewed["ok"], true, "{reviewed}");
+    fs::write(root.join("reviewed-dir/later.txt"), "created later").unwrap();
+    for step in reviewed["data"]["steps"].as_array().unwrap() {
+        let result = git_write_request(
+            &root,
+            step["operation"].as_str().unwrap(),
+            serde_json::json!({"paths":step["paths"]}),
+        );
+        assert_eq!(result["data"]["exitCode"], 0, "{result}");
+    }
+    assert!(!root.join("reviewed-dir/reviewed.txt").exists());
+    assert!(root.join("reviewed-dir/later.txt").exists());
+}
+
+#[test]
 fn git_history_query_compares_absolute_instants_with_half_open_bounds() {
     let fixture: Value = serde_json::from_str(include_str!(
         "../../../../shared/fixtures/git/history-date-query-v1.json"
