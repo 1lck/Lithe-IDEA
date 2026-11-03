@@ -138,6 +138,14 @@ final class ToolchainSettingsFeatureModel: ObservableObject {
                 preferences.hide(address)
             }
             observeInputs(of: next)
+            if let workspace, let address = preferences.address, !preferences.isSaving, !preferences.isLoading {
+                // Refresh a clean editor, or report a changed source against a
+                // dirty draft's original baseline. Never reenter an active save:
+                // its own file event must not revoke its acknowledgement.
+                await preferences.open(workspace: workspace, address: address)
+                guard generation == request else { return }
+                try Task.checkCancellation()
+            }
             if !next.directories.contains(where: { $0.id == selectedDirectoryID }) {
                 selectedDirectoryID = next.directories.first?.id ?? "."
             }

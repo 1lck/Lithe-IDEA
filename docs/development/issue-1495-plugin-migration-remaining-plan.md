@@ -63,6 +63,24 @@ Debug service 14、LSP 86、错误映射 2 项均通过。同一宿主的
 适配器/Build 完整准入与旧 Maven/Java/Agent 生产消费者切换；正式 SDK/插件发行；两端
 完整 GUI 与发行组合验收。连接调试接线缩小了 Windows 缺口，没有完成阶段 D。
 
+### 偏好目录重开、实时刷新与真实进程验证（2026-11-03，实现中）
+
+macOS 目录列表现包含只有通用/消费者偏好的目录及其父目录，重置后撤回。读取沿用
+Run 本机文档，限制大小和路径层级，拒绝父目录/最终文件的外部链接。文件纳入既有
+输入观察，加载途中变更只重试一次，持续变更显示可刷新错误。干净表单更新为最新
+输入；冲突保留草稿原始基线；自身保存通知不会等待或撤销正在进行的保存。
+
+`stage-d-preference-scopes-complete-final` 的 80 项逐项计时全部通过，新增目录/重载回归
+包含确定性事件门和本地期限。真实集成 `stage-d-real-tool-defaults-macos-final` 的
+两项方法通过（四种保存/Wrapper 组合与一次默认切换，分别 6.165 秒、4.825 秒）：
+经生产存储保存选择，再让生产解析器启动真实 Maven；切换两个明确选定的 JDK 后
+Maven 输出确认新 home，显式 Run 仍保持原选择，Maven/Java 插件清单不变。
+这些是本机组件和真实进程证据，尚未转换旧默认数据或完成完整 GUI/Windows 准入。
+额外的 `missingPreferenceLeafBehindAParentAliasIsRejectedBeforeToolWork` 覆盖两级父目录、
+存在/悬空链接共四种情况，当前运行前链路均拒绝且零探测，最终逐项计时 8ms。
+旧默认转换仍需与 Java 消费端一起切换：空路径目前会重新使用根默认，不能承载
+通用引用明确跳过该默认的结果。Windows 旧 Agent 入口也须等完整 Build 准入后删除。
+
 ### 当前目录工具继承（2026-11-03，实现中）
 
 为保持“构建运行时跟随当前目录应用工具”的动态关系，Core 增加消费者专用 tool
@@ -72,7 +90,7 @@ Debug service 14、LSP 86、错误映射 2 项均通过。同一宿主的
 默认转换补齐表达能力，尚未清理旧默认来源，不能据此标记一次性迁移完成。
 Core 全量 1636 项、原生 Project 108 项、macOS 67 项与后补的 8 项编辑器回归均通过；
 报告前缀 `stage-d-directory-tool-reference-*`。此前 cc6fc7d8f 的 Windows CI
-41550723054 已全通过；本增量尚未取得对应 Windows runner 结果。
+41550723054 已全通过；本增量 96f10837e 的 [Windows CI 41558993167](https://github.com/1lck/Lithe-IDEA/actions/runs/41558993167) 也已全部通过。
 
 ### macOS Build 偏好显式编辑（2026-11-02，实现中）
 

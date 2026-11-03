@@ -1168,6 +1168,7 @@
 "Default options" = "默认参数";
 "Default push behavior" = "默认 Push 行为";
 "Default shell" = "默认 Shell";
+"Defaults" = "默认值";
 "Defaults for ordinary Fetch in every project. A repository's own Git configuration above still wins where it is set." = "所有项目普通获取的默认值。仓库自身的 Git 配置一旦设置，仍以其为准。";
 "Definition" = "定义";
 "Definition not found" = "没有找到定义";
@@ -2083,6 +2084,7 @@
 "Linked this conversation to a pull request" = "已将此对话关联到拉取请求";
 "Linked worktree" = "关联工作树";
 "Listed in" = "所在插件仓库";
+"Lists the project root and directories with version files, fixed versions or saved tool preferences, together with their parents." = "列出项目根目录、具有版本文件、固定版本或已保存工具偏好的目录，以及它们的父目录。";
 "Lists the project root and each directory with its own version file or fixed version. A fixed version also applies to the directories below it." = "列出项目根目录，以及自带版本文件或固定版本的目录。固定版本也作用于其下的子目录。";
 "Lithe" = "Lithe";
 "Lithe Agent" = "Lithe Agent";
@@ -4501,6 +4503,7 @@
 "Toolbar Actions" = "工具栏操作";
 "Toolchain Sources" = "环境来源";
 "Toolchain settings are not available for remote workspaces yet." = "远程工作区暂不支持工具链设置。";
+"Toolchain settings changed while loading. Refresh and try again." = "加载期间工具链设置发生变化。请刷新后重试。";
 "Tools" = "工具";
 "Tools sent" = "发送的工具";
 "Total" = "总计";
@@ -9335,13 +9338,16 @@
 "native.toolchainPreferences.automaticSelection" = "自动选择";
 "native.toolchainPreferences.buildToolDefaults" = "构建工具默认值";
 "native.toolchainPreferences.consumer" = "使用方";
+"native.toolchainPreferences.defaultsBadge" = "默认值";
 "native.toolchainPreferences.editDefaults" = "编辑默认值";
 "native.toolchainPreferences.executableFile" = "可执行文件";
 "native.toolchainPreferences.installationDirectory" = "安装目录";
 "native.toolchainPreferences.localBuildPreferencesInfo" = "这些本机选择会在构建提供者及其运行配置的下一次操作中生效。保存不会探测或执行工具。继承项会随默认值的后续变化更新。";
 "native.toolchainPreferences.nextBuildInput" = "下次构建输入";
+"native.toolchainPreferences.preferenceDirectoriesInfo" = "列出项目根目录、具有版本文件、固定版本或已保存工具偏好的目录，以及它们的父目录。";
 "native.toolchainPreferences.savedInput" = "已保存的输入";
 "native.toolchainPreferences.savedInputInfo" = "使用方运行时会由现有工具链解析器重新校验此输入。它不代表已验证的当前安装。";
+"native.toolchainPreferences.sourceChangedDuringLoad" = "加载期间工具链设置发生变化。请刷新后重试。";
 "native.toolchainPreferences.useConsumerDefault" = "使用方的工作区默认值";
 "native.toolchainPreferences.useDirectoryToolDefault" = "使用当前目录的工具默认值";
 "native.toolchainPreferences.useInheritedChoice" = "沿用继承选择";

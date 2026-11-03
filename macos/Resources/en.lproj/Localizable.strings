@@ -1168,6 +1168,7 @@
 "Default options" = "Default options";
 "Default push behavior" = "Default push behavior";
 "Default shell" = "Default shell";
+"Defaults" = "Defaults";
 "Defaults for ordinary Fetch in every project. A repository's own Git configuration above still wins where it is set." = "Defaults for ordinary Fetch in every project. A repository's own Git configuration above still wins where it is set.";
 "Definition" = "Definition";
 "Definition not found" = "Definition not found";
@@ -2083,6 +2084,7 @@
 "Linked this conversation to a pull request" = "Linked this conversation to a pull request";
 "Linked worktree" = "Linked worktree";
 "Listed in" = "Listed in";
+"Lists the project root and directories with version files, fixed versions or saved tool preferences, together with their parents." = "Lists the project root and directories with version files, fixed versions or saved tool preferences, together with their parents.";
 "Lists the project root and each directory with its own version file or fixed version. A fixed version also applies to the directories below it." = "Lists the project root and each directory with its own version file or fixed version. A fixed version also applies to the directories below it.";
 "Lithe" = "Lithe";
 "Lithe Agent" = "Lithe Agent";
@@ -4501,6 +4503,7 @@
 "Toolbar Actions" = "Toolbar Actions";
 "Toolchain Sources" = "Toolchain Sources";
 "Toolchain settings are not available for remote workspaces yet." = "Toolchain settings are not available for remote workspaces yet.";
+"Toolchain settings changed while loading. Refresh and try again." = "Toolchain settings changed while loading. Refresh and try again.";
 "Tools" = "Tools";
 "Tools sent" = "Tools sent";
 "Total" = "Total";
@@ -9335,13 +9338,16 @@
 "native.toolchainPreferences.automaticSelection" = "Automatic selection";
 "native.toolchainPreferences.buildToolDefaults" = "Build tool defaults";
 "native.toolchainPreferences.consumer" = "Consumer";
+"native.toolchainPreferences.defaultsBadge" = "Defaults";
 "native.toolchainPreferences.editDefaults" = "Edit defaults";
 "native.toolchainPreferences.executableFile" = "Executable file";
 "native.toolchainPreferences.installationDirectory" = "Installation directory";
 "native.toolchainPreferences.localBuildPreferencesInfo" = "These machine-local choices apply to Build providers and their Run configurations on the next operation. Saving does not probe or execute a tool. Inherited choices follow later default changes.";
 "native.toolchainPreferences.nextBuildInput" = "Next Build input";
+"native.toolchainPreferences.preferenceDirectoriesInfo" = "Lists the project root and directories with version files, fixed versions or saved tool preferences, together with their parents.";
 "native.toolchainPreferences.savedInput" = "Saved input";
 "native.toolchainPreferences.savedInputInfo" = "A saved input is revalidated by the existing toolchain resolver when the consumer runs. It is not a verified current installation.";
+"native.toolchainPreferences.sourceChangedDuringLoad" = "Toolchain settings changed while loading. Refresh and try again.";
 "native.toolchainPreferences.useConsumerDefault" = "Use consumer default";
 "native.toolchainPreferences.useDirectoryToolDefault" = "Use directory tool default";
 "native.toolchainPreferences.useInheritedChoice" = "Use inherited choice";

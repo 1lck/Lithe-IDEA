@@ -12,8 +12,8 @@ import Testing
 @MainActor
 struct MacNativeBuildProviderIntegrationTests {
     @Test(.enabled(if: ProcessInfo.processInfo.environment["LITHE_STAGE_D_MAVEN_PACKAGE"] != nil,
-                   "Requires the stage D Maven package and selected Java/Maven"), arguments: [false, true])
-    func installedDefinitionsResolveTheRealBuildAndRuntimeThroughDirectoryPins(projectWrapper: Bool) async throws {
+                   "Requires the stage D Maven package and selected Java/Maven"), arguments: [false, true], [false, true])
+    func installedDefinitionsResolveTheRealBuildAndRuntimeThroughSavedChoices(projectWrapper: Bool, consumerDefaults: Bool) async throws {
         let environment = ProcessInfo.processInfo.environment
         let package = URL(fileURLWithPath: try #require(environment["LITHE_STAGE_D_MAVEN_PACKAGE"]))
         let javaPath = try #require(environment["LITHE_STAGE_C_JAVA"])
@@ -24,7 +24,7 @@ struct MacNativeBuildProviderIntegrationTests {
         let mavenHome = URL(fileURLWithPath: maven).deletingLastPathComponent().deletingLastPathComponent().path
         let files = FileManager.default
         let workspace = files.temporaryDirectory.appendingPathComponent("lithe-native-defined-tools-\(UUID().uuidString)")
-        try files.createDirectory(at: workspace.appendingPathComponent(".lithe/toolchains"), withIntermediateDirectories: true)
+        try files.createDirectory(at: workspace, withIntermediateDirectories: true)
         defer { try? files.removeItem(at: workspace) }
         let manifest = try Data(contentsOf: package.appendingPathComponent("plugin.json"))
         let javaPackage = DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("Plugins/mac/Official/JavaSupport")
@@ -48,8 +48,23 @@ struct MacNativeBuildProviderIntegrationTests {
         } else {
             pins["io.github.lithe-idea.maven-build:maven"] = ["home": mavenHome, "version": "selected", "provider": "host:manual"]
         }
-        try JSONSerialization.data(withJSONObject: ["version": 1, "toolchains": [:], "pins": [".": pins]])
-            .write(to: workspace.appendingPathComponent(".lithe/toolchains/local.json"))
+        if consumerDefaults {
+            let store = MacToolchainPreferencesStore(core: RustCoreBridge(), storage: MacFileStorage(), immutableRoots: { [package, javaPackage] })
+            var baseline = try await store.load(workspace: workspace)
+            baseline = try await store.save(.object(["home": .string(javaHome)]),
+                at: .init(directory: ".", consumer: nil, tool: "java"), expecting: baseline)
+            baseline = try await store.save(.object(["inherit": .string("tool")]),
+                at: .init(directory: ".", consumer: "io.github.lithe-idea.maven-build/maven", tool: "java"), expecting: baseline)
+            if !projectWrapper {
+                _ = try await store.save(.object(["home": .string(mavenHome)]),
+                    at: .init(directory: ".", consumer: "io.github.lithe-idea.maven-build/maven", tool: "io.github.lithe-idea.maven-build:maven"), expecting: baseline)
+            }
+            #expect(!files.fileExists(atPath: workspace.appendingPathComponent(".lithe/toolchains/local.json").path))
+        } else {
+            try files.createDirectory(at: workspace.appendingPathComponent(".lithe/toolchains"), withIntermediateDirectories: true)
+            try JSONSerialization.data(withJSONObject: ["version": 1, "toolchains": [:], "pins": [".": pins]])
+                .write(to: workspace.appendingPathComponent(".lithe/toolchains/local.json"))
+        }
         let defined = MacDefinedToolchainResolver()
         defined.sources = { sources }
         let runtime = ProjectRuntimeService(runtimeLocator: MacRuntimeLocator(), store: NativeDefinedToolPreferences())
@@ -69,6 +84,70 @@ struct MacNativeBuildProviderIntegrationTests {
         #expect(selected.executesProjectCode == projectWrapper)
         if !projectWrapper { #expect(selected.version != nil) }
         #expect(selected.providerEnvironment["JAVA_HOME"] == javaHome)
+        #expect(try Self.inventory(package) == before)
+        #expect(try Self.inventory(javaPackage) == javaBefore)
+    }
+
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["LITHE_STAGE_D_MAVEN_PACKAGE"] != nil,
+                   "Requires the stage D Maven package and selected Java/Maven"),
+          .enabled(if: ProcessInfo.processInfo.environment["LITHE_STAGE_D_ALTERNATE_JAVA"] != nil,
+                   "Requires an explicitly selected second compatible JDK"))
+    func consumerDefaultChangesReachTheRealMavenProcessWhileExplicitRunsStayFixed() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        let package = URL(fileURLWithPath: try #require(environment["LITHE_STAGE_D_MAVEN_PACKAGE"]))
+        let primaryPath = try #require(environment["LITHE_STAGE_C_JAVA"])
+        let alternatePath = try #require(environment["LITHE_STAGE_D_ALTERNATE_JAVA"])
+        let mavenPath = try #require(environment["LITHE_STAGE_C_MAVEN"])
+        let primary = try #require(MacToolchainDiscovery.realpath(primaryPath))
+        let alternate = try #require(MacToolchainDiscovery.realpath(alternatePath))
+        let maven = try #require(MacToolchainDiscovery.realpath(mavenPath))
+        let homes = [primary, alternate].map { URL(fileURLWithPath: $0).deletingLastPathComponent().deletingLastPathComponent().path }
+        try #require(homes[0] != homes[1])
+        let mavenHome = URL(fileURLWithPath: maven).deletingLastPathComponent().deletingLastPathComponent().path
+        let javaPackage = DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("Plugins/mac/Official/JavaSupport")
+        let manifest = try Data(contentsOf: package.appendingPathComponent("plugin.json"))
+        let sources: [ToolchainSettingsPluginSource] = [
+            .init(pluginID: "io.github.lithe-idea.maven-build", name: "Maven", manifest: manifest, isEnabled: true),
+            .init(pluginID: "dev.lithe.plugin.java-support", name: "Java", manifest: try Data(contentsOf: javaPackage.appendingPathComponent("plugin.json")),
+                  isEnabled: true, verifiedOfficial: true)
+        ]
+        let workspace = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-real-default-change-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: workspace) }
+        let before = try Self.inventory(package), javaBefore = try Self.inventory(javaPackage)
+        let store = MacToolchainPreferencesStore(core: RustCoreBridge(), storage: MacFileStorage(), immutableRoots: { [package, javaPackage] })
+        var baseline = try await store.load(workspace: workspace)
+        baseline = try await store.save(.object(["home": .string(mavenHome)]),
+            at: .init(directory: ".", consumer: "io.github.lithe-idea.maven-build/maven", tool: "io.github.lithe-idea.maven-build:maven"), expecting: baseline)
+        _ = try await store.save(.object(["inherit": .string("tool")]),
+            at: .init(directory: ".", consumer: "io.github.lithe-idea.maven-build/maven", tool: "java"), expecting: baseline)
+        let defined = MacDefinedToolchainResolver(); defined.sources = { sources }
+        let runtime = ProjectRuntimeService(runtimeLocator: MacRuntimeLocator(), store: NativeDefinedToolPreferences())
+        runtime.openProject(at: workspace)
+        defer { runtime.closeProject() }
+        let resolver = MacBuildToolResolver(runtime: runtime, processRunner: MacProcessRunner(), fileStorage: MacFileStorage(), definedTools: defined)
+        let core = RustBuildSystemOperations(core: RustCoreBridge())
+        let target = BuildSystemTarget(manifest: manifest, buildSystemID: "maven")
+        let invocation = try core.invocationPlan(target, root: ".", settings: [:])
+        for (index, home) in homes.enumerated() {
+            baseline = try await store.load(workspace: workspace)
+            _ = try await store.save(.object(["home": .string(home)]), at: .init(directory: ".", consumer: nil, tool: "java"), expecting: baseline)
+            let selected = try await resolver.resolve(invocation, displayName: "Maven", workspaceURL: workspace) { runtime, output in
+                try core.checkToolVersion(target, runtime: runtime, output: output)
+            }
+            #expect(selected.environment["JAVA_HOME"] == home)
+            let result = try await MacBuildCommandRunner().run(.init(executableURL: selected.executableURL, arguments: ["--version"],
+                workingDirectory: workspace, environment: selected.environment, capturesStandardOutput: true, timeout: .seconds(5))) { _ in }
+            #expect(result.termination == .exited(0))
+            #expect(result.standardOutput?.contains(home) == true)
+            if index == homes.count - 1 {
+                var explicit = invocation; explicit.toolSelections["java"] = .installation(home: homes[0])
+                let fixed = try await resolver.resolve(explicit, displayName: "Maven", workspaceURL: workspace) { runtime, output in
+                    try core.checkToolVersion(target, runtime: runtime, output: output)
+                }
+                #expect(fixed.environment["JAVA_HOME"] == homes[0])
+            }
+        }
         #expect(try Self.inventory(package) == before)
         #expect(try Self.inventory(javaPackage) == javaBefore)
     }

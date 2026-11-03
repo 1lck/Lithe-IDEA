@@ -51,7 +51,7 @@ struct ToolchainEnvironmentSettingsView: View {
                 Text("Directories")
                     .font(LitheTheme.uiFont(size: 12, weight: .semibold))
                     .lineLimit(1)
-                LitheInfoTip("Lists the project root and each directory with its own version file or fixed version. A fixed version also applies to the directories below it.")
+                LitheInfoTip("Lists the project root and directories with version files, fixed versions or saved tool preferences, together with their parents.")
                 Spacer(minLength: 0)
             }
             .foregroundStyle(LitheTheme.secondaryText)
@@ -79,6 +79,8 @@ struct ToolchainEnvironmentSettingsView: View {
                     Spacer(minLength: 4)
                     if pinned.contains(directory.id) {
                         ToolchainSettingsTag("Fixed", kind: .project)
+                    } else if directory.hasToolPreferences {
+                        ToolchainSettingsTag("Defaults", kind: .project)
                     }
                 }
                 .padding(.vertical, 3)

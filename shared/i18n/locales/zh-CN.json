@@ -10004,7 +10004,10 @@
     "native.toolchainPreferences.useConsumerDefault": "使用方的工作区默认值",
     "native.toolchainPreferences.useInheritedChoice": "沿用继承选择",
     "native.toolchainPreferences.useWorkspaceDefault": "使用工作区默认值",
-    "native.toolchainPreferences.useDirectoryToolDefault": "使用当前目录的工具默认值"
+    "native.toolchainPreferences.useDirectoryToolDefault": "使用当前目录的工具默认值",
+    "native.toolchainPreferences.preferenceDirectoriesInfo": "列出项目根目录、具有版本文件、固定版本或已保存工具偏好的目录，以及它们的父目录。",
+    "native.toolchainPreferences.defaultsBadge": "默认值",
+    "native.toolchainPreferences.sourceChangedDuringLoad": "加载期间工具链设置发生变化。请刷新后重试。"
   },
   "overrides": {
     "macos": {

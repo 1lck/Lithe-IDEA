@@ -16,6 +16,7 @@ struct ToolchainSettingsSnapshot: Equatable, Sendable {
         var depth: Int = 0
         /// Version files in this directory itself; ancestors' files are not repeated.
         var versionFiles: [VersionFile] = []
+        var hasToolPreferences = false
     }
 
     /// What a provider says one source asks for. `request` stays the manager's own syntax.

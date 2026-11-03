@@ -96067,6 +96067,39 @@
         "key": "Use directory tool default",
         "arguments": []
       }
+    },
+    {
+      "id": "native.toolchainPreferences.preferenceDirectoriesInfo",
+      "description": "Saved tool preference scope presentation.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Lists the project root and directories with version files, fixed versions or saved tool preferences, together with their parents.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainPreferences.defaultsBadge",
+      "description": "Saved tool preference scope presentation.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Defaults",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainPreferences.sourceChangedDuringLoad",
+      "description": "Concurrent preference edits exhausted the bounded snapshot retry.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Toolchain settings changed while loading. Refresh and try again.",
+        "arguments": []
+      }
     }
   ]
 }

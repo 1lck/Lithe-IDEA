@@ -82,6 +82,104 @@ struct ToolchainSettingsLoaderTests {
         #expect(withdrawn.tools.first?.consumers.isEmpty == true)
     }
 
+    @Test func savedPreferenceScopesStayEditableWithoutVersionFilesOrPins() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-preference-directories-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = root.appendingPathComponent(".lithe/run/local.json")
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let bytes = Data(#"{"version":2,"configurations":[],"toolchain":{"preferences":{"version":1,"directories":{"modules/service":{"tools":{"compiler":{"home":"/fixture/sdk"}}},"modules/worker":{"consumers":{"dev.example.build/engine":{"compiler":{"inherit":"consumer"}}}}}}}}"#.utf8)
+        try bytes.write(to: url)
+        let source = try source()
+        let reading = loader(sources: { [source] })
+        let saved = try await reading.load(workspace: root)
+        #expect(saved.directories.map(\.id) == [".", "modules", "modules/service", "modules/worker"])
+        #expect(saved.directories.filter(\.hasToolPreferences).map(\.id) == ["modules/service", "modules/worker"])
+        #expect(saved.tools.map(\.directoryID) == saved.directories.map(\.id))
+        #expect(saved.watch.contains(url.path))
+        #expect(try Data(contentsOf: url) == bytes)
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(".lithe/.gitignore").path))
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(".lithe/toolchains").path))
+        try Data(#"{"version":2,"configurations":[]}"#.utf8).write(to: url)
+        let reset = try await reading.load(workspace: root)
+        #expect(reset.directories.map(\.id) == ["."])
+        #expect(reset.directories.first?.hasToolPreferences == false)
+    }
+
+    @Test func changingSavedScopesDuringDiscoveryDiscardsOldRowsAndRetriesOnce() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-preference-scope-change-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = root.appendingPathComponent(".lithe/run/local.json")
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let original = Data(#"{"version":2,"configurations":[]}"#.utf8)
+        let changed = Data(#"{"version":2,"configurations":[],"toolchain":{"preferences":{"version":1,"directories":{"nested":{"tools":{"compiler":{"home":"/fixture/sdk"}}}}}}}"#.utf8)
+        try original.write(to: url)
+        let source = try source()
+        let reading = loader(sources: { [source] }, discover: { _ in
+            try? changed.write(to: url)
+            return .init()
+        })
+        let snapshot = try await reading.load(workspace: root)
+        #expect(snapshot.directories.map(\.id) == [".", "nested"])
+        #expect(snapshot.directories.last?.hasToolPreferences == true)
+        #expect(try Data(contentsOf: url) == changed)
+    }
+
+    @Test func continuouslyChangingScopesStopAfterOneRetryWithARefreshableFailure() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-continuous-preference-change-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = root.appendingPathComponent(".lithe/run/local.json")
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let original = Data(#"{"version":2,"configurations":[]}"#.utf8)
+        try original.write(to: url)
+        let source = try source()
+        let reading = loader(sources: { [source] }, discover: { _ in
+            if var current = try? Data(contentsOf: url) { current.append(32); try? current.write(to: url) }
+            return .init()
+        })
+        await #expect(throws: ToolchainSettingsLoadError.sourceChanged) { try await reading.load(workspace: root) }
+        #expect(try Data(contentsOf: url).count == original.count + 2)
+    }
+
+    @Test(arguments: ["traversal", "too-deep"])
+    func invalidPreferenceDirectoriesAreRejectedBeforeNativeDiscovery(kind: String) async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-invalid-preference-scopes-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = root.appendingPathComponent(".lithe/run/local.json")
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let directory = kind == "traversal" ? "../outside" : Array(repeating: "nested", count: 65).joined(separator: "/")
+        let bytes = try JSONSerialization.data(withJSONObject: ["version": 2, "configurations": [], "toolchain": ["preferences": ["version": 1,
+            "directories": [directory: ["tools": ["compiler": ["home": "/fixture/sdk"]]]]]]])
+        try bytes.write(to: url)
+        let source = try source()
+        let reading = loader(sources: { [source] }, discover: { _ in
+            Issue.record("An invalid preference scope must not query or probe tools")
+            return .init()
+        })
+        await #expect(throws: (any Error).self) { try await reading.load(workspace: root) }
+        #expect(try Data(contentsOf: url) == bytes)
+    }
+
+    @Test(arguments: ["parent-alias", "file-alias"])
+    func preferenceScopeReaderRefusesExternalAliasesBeforeReading(kind: String) throws {
+        let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-preference-source-alias-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let root = scratch.appendingPathComponent("workspace"), outside = scratch.appendingPathComponent("outside")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outside.appendingPathComponent("run"), withIntermediateDirectories: true)
+        let source = outside.appendingPathComponent("run/local.json")
+        let bytes = Data(#"{"version":2,"configurations":[]}"#.utf8)
+        try bytes.write(to: source)
+        let target = root.appendingPathComponent(".lithe/run/local.json")
+        if kind == "parent-alias" {
+            try FileManager.default.createSymbolicLink(at: root.appendingPathComponent(".lithe"), withDestinationURL: outside)
+        } else {
+            try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.createSymbolicLink(at: target, withDestinationURL: source)
+        }
+        #expect(throws: ToolchainSettingsLoadError.readFailed) { try MacToolchainSettingsLoader.safeNativePreferenceRead(target) }
+        #expect(try Data(contentsOf: source) == bytes)
+    }
+
     @Test func versionFilesListTheirDirectoriesAndRowsInheritTheNearestFirst() async throws {
         let source = try source(watchFiles: [".fixture-version", "*.fixture"])
         let files = ToolchainLoaderFiles(existing: [

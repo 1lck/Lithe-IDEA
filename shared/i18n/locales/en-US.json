@@ -10004,7 +10004,10 @@
     "native.toolchainPreferences.useConsumerDefault": "Use consumer default",
     "native.toolchainPreferences.useInheritedChoice": "Use inherited choice",
     "native.toolchainPreferences.useWorkspaceDefault": "Use workspace default",
-    "native.toolchainPreferences.useDirectoryToolDefault": "Use directory tool default"
+    "native.toolchainPreferences.useDirectoryToolDefault": "Use directory tool default",
+    "native.toolchainPreferences.preferenceDirectoriesInfo": "Lists the project root and directories with version files, fixed versions or saved tool preferences, together with their parents.",
+    "native.toolchainPreferences.defaultsBadge": "Defaults",
+    "native.toolchainPreferences.sourceChangedDuringLoad": "Toolchain settings changed while loading. Refresh and try again."
   },
   "overrides": {
     "windows": {

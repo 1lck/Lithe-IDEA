@@ -125,6 +125,58 @@ struct ToolchainPreferencesTests {
     }
 
     @Test
+    func backgroundReloadRefreshesCleanInputsAndRetainsDirtyDraftBaselines() async throws {
+        let root = try workspace()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let native = store()
+        let settings = ToolchainSettingsFeatureModel(loader: editorLoader(workspace: root), preferences: native)
+        defer { settings.close() }
+        await settings.load(workspace: root)
+        await settings.preferences.open(workspace: root, address: address)
+        var baseline = try await native.load(workspace: root)
+        _ = try await native.save(.object(["home": .string("/fixture/external-sdk")]), at: address, expecting: baseline)
+        await settings.load(workspace: root)
+        #expect(settings.preferences.reading?.fixed == .installation(home: "/fixture/external-sdk"))
+        #expect(settings.preferences.draft?.isChanged == false)
+        settings.preferences.edit(path: "/fixture/retained-draft")
+        baseline = try await native.load(workspace: root)
+        _ = try await native.save(.object(["home": .string("/fixture/newer-sdk")]), at: address, expecting: baseline)
+        await settings.load(workspace: root)
+        #expect(settings.preferences.draft?.path == "/fixture/retained-draft")
+        #expect(settings.preferences.draft?.isChanged == true && settings.preferences.error != nil)
+    }
+
+    @Test
+    func aBackgroundReloadCannotWaitOnOrRevokeItsOwnPendingSave() async {
+        let root = URL(fileURLWithPath: "/fixture/preference-save-owner")
+        let snapshot = ToolchainPreferencesSnapshot(workspace: root, document: .object(["version": .integer(1)]), revision: "initial")
+        let controlled = PreferenceEditorStore(snapshot: snapshot)
+        let settings = ToolchainSettingsFeatureModel(loader: editorLoader(workspace: root), preferences: controlled)
+        let started = TestGate(), release = TestGate(), refreshed = TestGate()
+        defer { release.open(); controlled.beforeSave = nil; settings.close() }
+        await settings.load(workspace: root)
+        await settings.preferences.open(workspace: root, address: address)
+        settings.preferences.edit(mode: .installation, path: "/fixture/sdk")
+        controlled.beforeSave = {
+            started.open()
+            #expect(await release.waitUntilOpen(timeout: .seconds(5)))
+        }
+        let saving = Task { await settings.preferences.save() }
+        defer { saving.cancel() }
+        #expect(await started.waitUntilOpen())
+        let reloading = Task { await settings.load(workspace: root); refreshed.open() }
+        defer { reloading.cancel() }
+        // A regression can wait on the save here, but this local deadline
+        // releases the native owner afterwards and both tasks still drain.
+        #expect(await refreshed.waitUntilOpen())
+        release.open()
+        await saving.value; await reloading.value
+        #expect(controlled.completedWrites == 1)
+        #expect(settings.preferences.error == nil && settings.preferences.draft?.isChanged == false)
+        #expect(!settings.preferences.isSaving)
+    }
+
+    @Test
     func externalEditKeepsTheOriginalDraftBaselineUntilExplicitCancel() async throws {
         let root = try workspace()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -218,6 +270,10 @@ struct ToolchainPreferencesTests {
     private func store(immutable: [URL] = []) -> MacToolchainPreferencesStore {
         .init(core: RustCoreBridge(), storage: MacFileStorage(), immutableRoots: { immutable })
     }
+    private func editorLoader(workspace: URL) -> PreferenceSettingsSnapshotLoader {
+        .init(snapshot: .init(workspaceURL: workspace, directories: [.init(id: ".", title: "Fixture")], tools: [
+            .init(id: address.tool, displayName: "Fixture SDK", pluginID: "dev.example.runtime", pluginName: "Fixture support")]))
+    }
     private func workspace() throws -> URL {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-preference-editor-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -255,7 +311,7 @@ struct ToolchainPreferencesTests {
 @MainActor
 private final class PreferenceEditorStore: ToolchainPreferencesStoring {
     let snapshot: ToolchainPreferencesSnapshot
-    var beforeSave: (() -> Void)?
+    var beforeSave: (() async -> Void)?
     var saveAttempts = 0, completedWrites = 0
     init(snapshot: ToolchainPreferencesSnapshot) { self.snapshot = snapshot }
     func load(workspace: URL) async throws -> ToolchainPreferencesSnapshot { snapshot }
@@ -264,11 +320,16 @@ private final class PreferenceEditorStore: ToolchainPreferencesStoring {
     }
     func save(_ value: ToolingJSONValue?, at address: ToolchainPreferenceAddress,
               expecting snapshot: ToolchainPreferencesSnapshot) async throws -> ToolchainPreferencesSnapshot {
-        saveAttempts += 1; beforeSave?()
+        saveAttempts += 1; await beforeSave?()
         try Task.checkCancellation()
         completedWrites += 1
         return snapshot
     }
+}
+
+private struct PreferenceSettingsSnapshotLoader: ToolchainSettingsLoading {
+    let snapshot: ToolchainSettingsSnapshot
+    func load(workspace: URL?) async throws -> ToolchainSettingsSnapshot { snapshot }
 }
 
 private final class PreferenceMigrationValues: KeyValueStore {

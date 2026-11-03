@@ -122,6 +122,29 @@ struct MacToolchainDiscoveryTests {
         #expect(probes.calls.isEmpty)
     }
 
+    @MainActor @Test(arguments: [".lithe", ".lithe/run"], [false, true])
+    func missingPreferenceLeafBehindAParentAliasIsRejectedBeforeToolWork(parent: String, dangling: Bool) async throws {
+        let root = try DiscoveryFixtureRoot()
+        defer { root.remove() }
+        let home = try root.installation("selected")
+        let outside = root.url("outside")
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        let alias = root.url("workspace/" + parent)
+        try FileManager.default.createDirectory(at: alias.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: dangling ? outside.appendingPathComponent("missing") : outside)
+        let source = Self.source(), resolver = MacDefinedToolchainResolver()
+        resolver.sources = { [source] }
+        let probes = DiscoveryProbes(outputs: [home + "/bin/compiler": "compiler 21"])
+        resolver.discovery = discovery(root: root, probes: probes)
+        await #expect(throws: BuildToolResolutionError.self) {
+            try await resolver.resolve(tool: "compiler", directory: ".", workspace: root.url("workspace"), environment: [:],
+                minimumVersion: nil, projectCodeAllowed: true, fixed: .installation(home: home), use: .installation,
+                consumerID: "dev.example.build/engine")
+        }
+        #expect(probes.calls.isEmpty)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: outside.path).isEmpty)
+    }
+
     @MainActor @Test func unrelatedRunMetadataKeepsTheExistingNativeDocumentBudget() async throws {
         let root = try DiscoveryFixtureRoot()
         defer { root.remove() }
