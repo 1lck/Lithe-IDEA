@@ -9,6 +9,7 @@
 
 pub mod catalog;
 pub mod channel;
+pub mod collection;
 pub mod logging;
 pub mod query_v2;
 pub mod record;

@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Darwin
 import Foundation
 import LitheCoreContracts
@@ -8,18 +9,15 @@ final class MacProcessRunner: ProcessRunner, @unchecked Sendable {
     private static let terminationGracePeriod: TimeInterval = 0.2
     private static let forcedTerminationGracePeriod: TimeInterval = 1
 
-    private let logging: (any ApplicationLogging)?
-    init(logging: (any ApplicationLogging)? = nil) { self.logging = logging }
+    private let logging: (any LogSink)?
+    init(logging: (any LogSink)? = nil) { self.logging = logging }
 
     func run(_ request: ProcessRequest) -> ProcessResult {
         if Task<Never, Never>.isCancelled {
             return ProcessResult(output: "Process cancelled", exitCode: 130)
         }
         let operation = request.operationID ?? UUID().uuidString
-        let started = ContinuousClock.now
-        let executable = URL(fileURLWithPath: request.executablePath).lastPathComponent
-        logging?.record(level: "info", scope: "run.process", message: "process started",
-            fields: ["operation_id": operation, "executable": executable])
+        var span = RunProcessExecutionSpan.begin(executable: URL(fileURLWithPath: request.executablePath), operationID: operation, emit: { [logging] in logging?.emit($0) })
 
         let outputPipe = Pipe()
         let inputPipe = request.standardInput.map { _ in Pipe() }
@@ -107,11 +105,10 @@ final class MacProcessRunner: ProcessRunner, @unchecked Sendable {
             outputPipe.fileHandleForReading.readabilityHandler = nil
             try? outputPipe.fileHandleForReading.close()
             let data = outputLock.withLock { output }
-            logging?.record(level: timedOut || cancelled || process.terminationStatus != 0 ? "error" : "info",
-                scope: "run.process", message: timedOut ? "process timed out" : cancelled ? "process cancelled" : "process finished",
-                fields: ["operation_id": operation, "executable": executable,
-                    "exit_code": String(timedOut ? 124 : cancelled ? 130 : process.terminationStatus),
-                    "duration": String(describing: started.duration(to: .now))])
+            let code = Int64(timedOut ? 124 : cancelled ? 130 : process.terminationStatus)
+            let outcome = timedOut ? "timed_out" : cancelled ? "cancelled" : "exited"
+            if code == 0 { span.finish(exitCode: code, outcome: outcome) }
+            else { span.fail(NSError(domain: "process", code: Int(code)), exitCode: code, outcome: outcome) }
             return ProcessResult(
                 output: String(data: data, encoding: .utf8) ?? "",
                 exitCode: timedOut ? 124 : cancelled ? 130 : process.terminationStatus
@@ -122,8 +119,7 @@ final class MacProcessRunner: ProcessRunner, @unchecked Sendable {
             try? outputPipe.fileHandleForWriting.close()
             outputPipe.fileHandleForReading.readabilityHandler = nil
             try? outputPipe.fileHandleForReading.close()
-            logging?.record(level: "error", scope: "run.process", message: "process could not start",
-                fields: ["operation_id": operation, "executable": executable, "error": error.localizedDescription])
+            span.fail(error, outcome: "launch_failed")
             return ProcessResult(output: error.localizedDescription, exitCode: 1)
         }
     }

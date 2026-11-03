@@ -79,15 +79,10 @@
     },
     {
       "id": "plugins.editor.refresh_failed",
-      "channel": "plugins/{plugin}/host",
+      "channel": "plugins",
       "level": "warn",
-      "message": "Plugin {plugin} editor action refresh failed",
+      "message": "Plugin editor actions refresh failed",
       "fields": {
-        "plugin": {
-          "type": "id",
-          "required": true,
-          "description": "Validated plugin id whose editor action refresh failed"
-        },
         "error": {
           "type": "error",
           "required": true,
@@ -101,7 +96,7 @@
       "id": "plugins.grammar.load_failed",
       "channel": "plugins/{plugin}/host",
       "level": "warn",
-      "message": "Plugin {plugin} grammar for {language} failed in editor",
+      "message": "Plugin {plugin} grammar failed in editor",
       "fields": {
         "plugin": {
           "type": "id",
@@ -109,9 +104,9 @@
           "description": "Validated plugin id that contributed the grammar rejected by the editor"
         },
         "language": {
-          "type": "id",
-          "required": true,
-          "description": "Language id from the plugin grammar registration"
+          "type": "version",
+          "required": false,
+          "description": "Language id reported by the editor, omitted only when longer than 64 bytes"
         },
         "error": {
           "type": "error",
@@ -126,7 +121,7 @@
       "id": "plugins.grammar.rejected",
       "channel": "plugins/{plugin}/host",
       "level": "warn",
-      "message": "Plugin {plugin} grammar for {language} rejected: {reason}",
+      "message": "Plugin {plugin} grammar rejected: {reason}",
       "fields": {
         "plugin": {
           "type": "id",
@@ -134,8 +129,8 @@
           "description": "Validated plugin id that owns the rejected grammar declaration"
         },
         "language": {
-          "type": "id",
-          "required": true,
+          "type": "version",
+          "required": false,
           "description": "Language id from the rejected plugin grammar declaration"
         },
         "reason": {

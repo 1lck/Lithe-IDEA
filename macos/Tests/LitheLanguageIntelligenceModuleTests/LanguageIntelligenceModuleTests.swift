@@ -1386,6 +1386,9 @@ struct LanguageIntelligenceModuleTests {
                 throw WorkspaceStateSessionError.unexpectedOperation
             }
         )
+        var observed: [(Bool, String, String)] = []
+        manager.onLogIssue = { _, _, warning, stage, code, _ in observed.append((warning, stage, code)) }
+        defer { manager.stopAllLanguageServers() }
         let operationID = UUID()
 
         #expect(throws: WorkspaceStateSessionError.self) {
@@ -1407,6 +1410,7 @@ struct LanguageIntelligenceModuleTests {
             stage: "workspaceFingerprint",
             message: WorkspaceStateSessionError.unexpectedOperation.localizedDescription
         )))
+        #expect(observed.contains { $0.0 == false && $0.2 == "workspace_fingerprint_failed" })
     }
 
     @Test
@@ -1428,6 +1432,9 @@ struct LanguageIntelligenceModuleTests {
                 throw WorkspaceStateSessionError.unexpectedOperation
             }
         )
+        var observed: [(Bool, String, String)] = []
+        manager.onLogIssue = { _, _, warning, stage, code, _ in observed.append((warning, stage, code)) }
+        defer { manager.stopAllLanguageServers() }
         let operationID = UUID()
 
         try manager.startLanguageServer(
@@ -1443,6 +1450,26 @@ struct LanguageIntelligenceModuleTests {
                 && $0.level == .warning
                 && $0.message == "Language server cache cleanup failed"
         })
+        #expect(observed.contains { $0.0 == true && $0.2 == "cacheCleanupFailed" })
+    }
+
+    @Test
+    func sessionIssuesPreserveWarningStageCodeAndExitStatus() throws {
+        let root = URL(fileURLWithPath: "/workspace/java")
+        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(for: root.appendingPathComponent("Main.java")))
+        let session = WorkspaceStateLanguageServerSession()
+        let manager = LanguageToolingSessionManager(runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)])
+        defer { manager.stopAllLanguageServers() }
+        var facts: [(Bool, String, String, Int?)] = []
+        manager.onLogIssue = { _, _, warning, stage, code, exit in facts.append((warning, stage, code, exit)) }
+        try manager.startLanguageServer(providerID: "java", rootURL: root)
+        for (warning, stage, code, exit) in [(true, "transport", "inputBlocked", nil),
+            (true, "configuration", "configurationFailed", nil), (false, "initialize", "initializeTimeout", 7)] {
+            session.onLogIssue?(warning, stage, code, exit, "operation-1")
+        }
+        #expect(facts.count == 3)
+        #expect(facts.map { $0.2 } == ["inputBlocked", "configurationFailed", "initializeTimeout"])
+        #expect(facts.last?.3 == 7)
     }
 
     private func makeModule(recorder: Recorder) -> LanguageIntelligenceModule {
@@ -1724,6 +1751,7 @@ private final class WorkspaceStateLanguageServerSession: LanguageServerSession {
     var javaTestRunnerURL: URL?
     var onDiagnostics: ((URL, [LanguageServerDiagnostic]) -> Void)?
     var onLog: ((LanguageServerLogLevel, String, String?, String?) -> Void)?
+    var onLogIssue: ((Bool, String, String, Int?, String?) -> Void)?
     var onStateChange: ((LanguageServerSessionState) -> Void)?
     var features: LanguageServerFeatureSet = []
     var onFeaturesChange: ((LanguageServerFeatureSet) -> Void)?

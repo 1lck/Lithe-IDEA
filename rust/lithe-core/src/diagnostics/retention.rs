@@ -212,7 +212,7 @@ pub fn plan_log_retention(request: PlanLogRetentionRequest) -> Result<LogRetenti
         if !safe_path(&file.relative_path)
             || parts.len() != 2
             || !super::logging::LOG_CATEGORIES.contains(&parts[0])
-            || !parts[1].starts_with("lithe.")
+            || !(parts[1] == "lithe.log" || parts[1].starts_with("lithe."))
             || !parts[1].ends_with(".log")
             || !seen.insert(file.relative_path.clone())
         {
@@ -365,6 +365,14 @@ pub fn rotation_paths_to_delete(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn rotated_root_performance_files_keep_their_budget_classification() {
+        assert!(perf("perf~1.log"));
+        assert!(perf("perf~2.log"));
+        assert!(perf("perf/server.1.log"));
+        assert!(!perf("app~1.log"));
+    }
 
     #[test]
     fn retention_is_order_independent_and_whole_sessions_supersede_children() {

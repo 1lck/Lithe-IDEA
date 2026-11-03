@@ -768,6 +768,83 @@
       },
       "rate": 120,
       "owner": "lithe-core"
+    },
+    {
+      "id": "lsp.session.updated",
+      "channel": "lsp/{server}",
+      "level": "debug",
+      "owner": "LanguageToolingSessionManager",
+      "message": "Language server session state changed",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Language provider identity from the registered host provider catalog."
+        },
+        "state": {
+          "type": "token",
+          "required": true,
+          "description": "Closed host lifecycle stage observed by the language session owner."
+        }
+      }
+    },
+    {
+      "id": "lsp.session.issue_failed",
+      "channel": "lsp/{server}",
+      "level": "error",
+      "owner": "LanguageToolingSessionManager",
+      "message": "Language server {server} operation failed",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Language provider identity owned by the registered session."
+        },
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Actual source stage, such as discovery, configuration, documentSync or processStart."
+        },
+        "failure_code": {
+          "type": "token",
+          "required": true,
+          "description": "Stable failure classification supplied by the owning runtime or host boundary."
+        },
+        "exit_code": {
+          "type": "int",
+          "required": false,
+          "description": "Native language server process exit status when supplied by the runtime."
+        }
+      }
+    },
+    {
+      "id": "lsp.session.degradation_received",
+      "channel": "lsp/{server}",
+      "level": "warn",
+      "owner": "LanguageToolingSessionManager",
+      "message": "Language server {server} operation degraded",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Language provider identity owned by the registered session."
+        },
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Actual source stage, such as discovery, configuration, documentSync or processStart."
+        },
+        "failure_code": {
+          "type": "token",
+          "required": true,
+          "description": "Stable failure classification supplied by the owning runtime or host boundary."
+        },
+        "exit_code": {
+          "type": "int",
+          "required": false,
+          "description": "Native language server process exit status when supplied by the runtime."
+        }
+      }
     }
   ]
 }

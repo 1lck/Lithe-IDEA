@@ -57,7 +57,7 @@ package final class GitExecutionJournal: @unchecked Sendable {
     }
 
     package func receive(_ event: GitExecutionEvent, at root: URL? = nil) {
-        if ["requestStarted", "requestFinished", "commandStarted", "commandFinished"].contains(event.type) {
+        if ["requestStarted", "requestFinished", "started", "finished"].contains(event.type) {
             onLifecycleEvent?(event)
         }
 

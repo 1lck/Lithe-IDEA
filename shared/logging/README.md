@@ -1,6 +1,6 @@
 # 结构化日志 v2 事件目录
 
-`shared/logging/events/<root>.json` 是事件声明的唯一来源。此 PR 只增加目录、类型、编译期生成物和门禁，不接入写入器、不迁移现有调用，也不改变运行行为。日志消息是供诊断使用的英文事实，**不走 i18n**；界面上的错误、提示和操作名称仍须走共享 i18n。
+`shared/logging/events/<root>.json` 是事件声明的唯一来源。macOS 已使用类型化事件和 MacLogStore 写入 v2 会话文件，Windows 仍使用 v1。日志消息是供诊断使用的英文事实，**不走 i18n**；界面上的错误、提示和操作名称仍须走共享 i18n。
 
 ## 声明与通道
 
@@ -31,7 +31,7 @@
 
 源码、环境变量值、命令输出和凭据没有对应类型。不得把这些内容塞进 `text`、`error`、token 或路径字段。迁移时拆开现有拼接消息，只保留结构化的时间、计数、受控结果词和错误类别；stderr 是明确的上游诊断例外，仍须经过脱敏和截断。自由文本的理由不能写成“方便调试”。
 
-Swift 的事件值是**未经脱敏的内存输入**，不能自行序列化落盘。Core 的 `catalog::validate_fields(id, fields)` 校验磁盘键展开后的字段类型、必填、未知字段、长度和错误组件完整性；它不替代隐私脱敏。`path` 上限 4096 字节；error/text 上限 1024 字节。跨边界适配器在后续 PR 中连接 Core 脱敏、格式化和写入路径，禁止另写 Swift 格式化或隐私策略。
+Swift 的事件值是**未经脱敏的内存输入**，不能自行序列化落盘。Core 在目录校验前对 error/text 输入先脱敏、删除控制字符、按 UTF-8 字符边界截断至 1024 字节，再由严格的 `catalog::validate_fields(id, fields)` 校验磁盘键展开后的字段类型、必填、未知字段、长度和错误组件完整性；它不替代隐私脱敏。`plugins.grammar.load_failed` 的语言字段是可选 `version`，允许 `c++` 等合法语言 ID；超长身份只省略语言字段，不省略插件失败事件。`path` 上限 4096 字节；error/text 上限 1024 字节。macOS 跨边界适配器连接 Core 脱敏、格式化和写入路径，禁止另写 Swift 格式化或隐私策略。
 
 ## 级别、span 与限流
 
@@ -78,6 +78,6 @@ Rust 通过静态 `EVENTS`（按 ID 排序）和二分查找 `event_by_id` 暴�
 
 扫描生产 Swift 的 `NSLog`、stderr 写入、`os_log`、导入 `os.log` 后的 `Logger` 和 `.record(level:)`；扫描 Rust 的 `eprintln!`、`println!`、`dbg!`。词法遮蔽注释和字符串内容，排除 `Tests/`、`tests/`、`tests.rs` 及明确 `#[cfg(test)]` 项。此门禁检查已列出的直接写法，不试图跨文件追踪别名或动态调用。
 
-`log-usage-baseline.json` 按文件、规则精确计数，原因固定为“待 PR2/PR3 迁移”。`log-usage-allowlist.json` 是永久例外，必须有具体的协议/架构理由和精确计数；当前为空，没有预先豁免日志调用。禁止把新违规追加到基线来通过检查。机器性能标记迁移时需同步其消费者，不能直接删除测试依赖的协议输出。
+`log-usage-baseline.json` 按文件、规则精确计数，剩余 Rust 条目原因固定为“PR3：经运行时事件流交给宿主”。`log-usage-allowlist.json` 是永久例外，必须有具体的协议/架构理由和精确计数；当前为空，macOS Swift 基线已清零。禁止把新违规追加到基线来通过检查。机器性能标记迁移时需同步其消费者，不能直接删除测试依赖的协议输出。
 
 CI 的 Draft PR 只跑 Linux，ready PR 和 preview push 跑三平台。输入和已提交生成物均由 Git 持有，每个 worktree 本地重建、检查；没有跨工作树可复用 identity stamp，不复制其他工作树的生成物。这些类型无运行时 I/O、不写 app bundle、插件资源或安装目录，不影响签名与 Sparkle delta。

@@ -87,6 +87,7 @@ enum StandaloneFileLoadState: Equatable {
 /// local history, and UI notifications are supplied by application composition.
 @MainActor
 final class DocumentFeatureModel: ObservableObject {
+    private let logSink: (any LogSink)?
     @Published private(set) var openDocuments: [EditorDocument] = [] {
         didSet { updateDocumentObservation() }
     }
@@ -285,6 +286,7 @@ final class DocumentFeatureModel: ObservableObject {
     private var standaloneOpenTask: Task<Void, Never>?
 
     init(
+        logSink: (any LogSink)? = nil,
         operations: any WorkspaceOperations,
         documentLifecycleDecider: any DocumentLifecycleDeciding,
         fileOperations: any WorkspaceFileOperations,
@@ -293,6 +295,7 @@ final class DocumentFeatureModel: ObservableObject {
         confirmHardLinkSave: @escaping @MainActor (URL) -> DocumentHardLinkSaveMode? = { _ in nil },
         autoSaveDelay: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     ) {
+        self.logSink = logSink
         self.operations = operations
         self.documentLifecycleDecider = documentLifecycleDecider
         self.fileOperations = fileOperations
@@ -430,14 +433,14 @@ final class DocumentFeatureModel: ObservableObject {
                     guard let details = try await self.fileOperations.readDocumentDetailsAsync(from: normalizedURL, encoding: encoding) else {
                         throw CocoaError(.fileReadNoSuchFile)
                     }
-                    result = WorkspaceTextFilePolicy.isPlainText(details.text) ? .success(details) : .failure(.notText)
+                    result = WorkspaceTextFilePolicy.isPlainText(details.text, logSink: logSink) ? .success(details) : .failure(.notText)
                 } catch {
                     self.logOpenFailure(error)
                     result = .failure(StandaloneFileOpenFailure(error: error))
                 }
             } else {
                 result = await Task.detached(priority: .userInitiated) {
-                    Self.readStandaloneFile(at: normalizedURL, using: fileStorage)
+                    Self.readStandaloneFile(at: normalizedURL, using: fileStorage, logSink: self.logSink)
                         .map { DocumentReadDetails(text: $0, encoding: .utf8) }
                 }.value
             }
@@ -470,7 +473,7 @@ final class DocumentFeatureModel: ObservableObject {
 
     nonisolated private static func readStandaloneFile(
         at url: URL,
-        using fileStorage: any FileStorage
+        using fileStorage: any FileStorage, logSink: (any LogSink)?
     ) -> Result<String, StandaloneFileOpenFailure> {
         guard let metadata = fileStorage.metadata(for: url) else {
             return .failure(.unavailable)
@@ -492,7 +495,7 @@ final class DocumentFeatureModel: ObservableObject {
             return .failure(.tooLarge)
         }
         guard let text = String(data: data, encoding: .utf8) else { return .failure(.decodingFailed) }
-        guard WorkspaceTextFilePolicy.isPlainText(text) else { return .failure(.notText) }
+        guard WorkspaceTextFilePolicy.isPlainText(text, logSink: logSink) else { return .failure(.notText) }
         return .success(text)
     }
 
@@ -601,7 +604,7 @@ final class DocumentFeatureModel: ObservableObject {
         if relativePath == nil, !fileOperations.supportsDocumentEncoding {
             let fileStorage = self.fileStorage
             let result = await Task.detached(priority: .userInitiated) {
-                Self.readStandaloneFile(at: normalizedURL, using: fileStorage)
+                Self.readStandaloneFile(at: normalizedURL, using: fileStorage, logSink: self.logSink)
             }.value
             switch result {
             case .success(let text): details = DocumentReadDetails(text: text, encoding: .utf8)
@@ -634,7 +637,7 @@ final class DocumentFeatureModel: ObservableObject {
             }
             return
         }
-        guard let details, WorkspaceTextFilePolicy.isPlainText(details.text) else {
+        guard let details, WorkspaceTextFilePolicy.isPlainText(details.text, logSink: logSink) else {
             if pendingFileOpenRequests[filePath]?.isPreview == true { return }
             // A known binary signature can explain a decoding failure, but a
             // suffix alone must not hide an actual encoding error.
@@ -694,8 +697,7 @@ final class DocumentFeatureModel: ObservableObject {
     }
 
     private func logOpenFailure(_ error: Error) {
-        let value = error as NSError
-        NSLog("[document.open] outcome=failed reason=\(StandaloneFileOpenFailure(error: error)) domain=\(value.domain) code=\(value.code)")
+        logSink?.emit(EditorDocumentOpenFailed(error: error, reason: String(describing: StandaloneFileOpenFailure(error: error))))
     }
 
     func requestProjectTreeReveal(for fileURL: URL, isDirectory: Bool = false) {
@@ -1154,7 +1156,7 @@ final class DocumentFeatureModel: ObservableObject {
         guard let details = try await fileOperations.readDocumentDetailsAsync(from: request.url, encoding: request.encoding) else {
             throw CocoaError(.fileReadNoSuchFile)
         }
-        guard WorkspaceTextFilePolicy.isPlainText(details.text) else { throw CocoaError(.fileReadInapplicableStringEncoding) }
+        guard WorkspaceTextFilePolicy.isPlainText(details.text, logSink: logSink) else { throw CocoaError(.fileReadInapplicableStringEncoding) }
         guard isCurrent(), document.lifecycleState.status != .saving,
               document.diskIdentity == identity, document.readEncoding == previousEncoding else { return }
         if document.isDirty { onRecordDiscard?(document) }
@@ -1576,7 +1578,7 @@ final class DocumentFeatureModel: ObservableObject {
                 throw CocoaError(.userCancelled)
             }
         } catch SaveProgress.newerRevisionPending {
-            NSLog("[document.save] outcome=superseded stage=post-write operationID=\(operationID) documentID=\(document.id.uuidString) revision=\(document.lifecycleState.revision)")
+            if let id = LogSegment(document.id.uuidString.lowercased()) { logSink?.emit(EditorDocumentSaveSuperseded(document: id, revision: Int64(document.lifecycleState.revision), operationID: operationID)) }
             throw SaveProgress.newerRevisionPending
         } catch let saveError {
             logSaveFailure(saveError, stage: failureStage, operationID: operationID, document: document)
@@ -1588,8 +1590,7 @@ final class DocumentFeatureModel: ObservableObject {
                 )
                 document.applyLifecycleState(failed.state)
             } catch let recoveryError {
-                let recoveryValue = recoveryError as NSError
-                NSLog("[document.lifecycle] outcome=failed stage=save-state-recovery operationID=\(operationID) documentID=\(document.id.uuidString) domain=\(recoveryValue.domain) code=\(recoveryValue.code)")
+                if let id = LogSegment(document.id.uuidString.lowercased()) { logSink?.emit(EditorDocumentRecoveryFailed(document: id, error: recoveryError, operationID: operationID)) }
             }
             throw saveError
         }
@@ -1598,8 +1599,7 @@ final class DocumentFeatureModel: ObservableObject {
     private func logSaveFailure(
         _ error: Error, stage: String, operationID: String, document: EditorDocument
     ) {
-        let value = error as NSError
-        NSLog("[document.save] outcome=failed stage=\(stage) operationID=\(operationID) documentID=\(document.id.uuidString) revision=\(document.lifecycleState.revision) domain=\(value.domain) code=\(value.code)")
+        if let id = LogSegment(document.id.uuidString.lowercased()) { logSink?.emit(EditorDocumentSaveFailed(document: id, error: error, revision: Int64(document.lifecycleState.revision), stage: stage, operationID: operationID)) }
     }
 
     func saveFailureMessage(for document: EditorDocument, error: Error) -> String {

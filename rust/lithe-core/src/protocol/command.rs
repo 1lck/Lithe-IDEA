@@ -565,6 +565,8 @@ pub enum CoreCommand {
     DiagnosticsEncodeLogBatch,
     /// Merges structured and legacy log evidence (`diagnostics.queryLogsV2`).
     DiagnosticsQueryLogsV2,
+    /// Plans bounded native tail reads (`diagnostics.planLogCollection`).
+    DiagnosticsPlanLogCollection,
     /// Plans log cleanup without filesystem access (`diagnostics.planLogRetention`).
     DiagnosticsPlanLogRetention,
     /// Validates a logical channel and resolves its session-relative path (`diagnostics.resolveLogChannel`).
@@ -846,6 +848,7 @@ impl CoreCommand {
             "diagnostics.queryLogs" => Some(Self::DiagnosticsQueryLogs),
             "diagnostics.encodeLogBatch" => Some(Self::DiagnosticsEncodeLogBatch),
             "diagnostics.queryLogsV2" => Some(Self::DiagnosticsQueryLogsV2),
+            "diagnostics.planLogCollection" => Some(Self::DiagnosticsPlanLogCollection),
             "diagnostics.planLogRetention" => Some(Self::DiagnosticsPlanLogRetention),
             "diagnostics.resolveLogChannel" => Some(Self::DiagnosticsResolveLogChannel),
             "diagnostics.buildManifest" => Some(Self::DiagnosticsBuildManifest),

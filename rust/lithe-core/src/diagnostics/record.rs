@@ -175,7 +175,7 @@ pub fn encode_value(value: &str) -> String {
     encoded
 }
 
-fn render(record: &LogRecord) -> String {
+pub(crate) fn render(record: &LogRecord) -> String {
     let mut line = format!(
         "{} {} seq={} event={}",
         record.ts,
@@ -488,12 +488,27 @@ pub fn decode_line(line: &str) -> Result<DecodedLogLine, LogError> {
 /// Batch boundary retains each raw JSON event so malformed items do not reject valid siblings.
 #[derive(Debug, Deserialize)]
 pub struct EncodeLogBatchRequest {
+    /// Last input of the previous batch, used only to compare adjacent facts.
+    #[serde(default, rename = "previousEvent")]
+    pub previous_event: Option<Value>,
+    /// Merge adjacent equal facts before encoding, using structural field hashing.
+    #[serde(default)]
+    pub deduplicate: bool,
+    /// Production hosts opt into catalog validation; omitted preserves the PR1 codec.
+    #[serde(default, rename = "validateCatalog")]
+    pub validate_catalog: bool,
+    /// Optional file metadata; also resolves the session directory without host formatting.
+    #[serde(default)]
+    pub headers: Vec<LogFileHeader>,
     /// Input order is preserved in the response.
     pub events: Vec<Value>,
 }
 /// Exactly one encoded line or owned failure for one batch item.
 #[derive(Debug, Serialize)]
 pub struct EncodedLogResult {
+    /// Catalog-derived channel, never a caller-selected destination.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub channel: Option<String>,
     /// UTF-8 line excluding the newline, absent on error.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub line: Option<String>,
@@ -504,31 +519,231 @@ pub struct EncodedLogResult {
 /// Owned batch output with one entry per input item.
 #[derive(Debug, Serialize)]
 pub struct EncodeLogBatchResponse {
+    /// Header results in input order; invalid metadata has no disk output.
+    pub headers: Vec<EncodedLogResult>,
+    /// Writable-root-relative session path derived from the first header.
+    #[serde(rename = "sessionPath", skip_serializing_if = "Option::is_none")]
+    pub session_path: Option<String>,
     /// Results in caller input order.
     pub results: Vec<EncodedLogResult>,
 }
 /// Encodes a batch independently, preserving errors without aborting subsequent events.
 pub fn encode_log_batch(request: EncodeLogBatchRequest) -> EncodeLogBatchResponse {
-    let results = request
-        .events
-        .into_iter()
-        .map(|value| {
-            let encoded = serde_json::from_value(value)
-                .map_err(|_| LogError::new(-32051, "Invalid structured event shape"))
-                .and_then(encode_record);
-            match encoded {
-                Ok(line) => EncodedLogResult {
-                    line: Some(line),
-                    error: None,
-                },
-                Err(error) => EncodedLogResult {
-                    line: None,
-                    error: Some(error),
-                },
-            }
-        })
+    let session_path = request.headers.first().and_then(|header| {
+        super::channel::session_relative_path(&header.started, &header.session).ok()
+    });
+    let headers = request
+        .headers
+        .iter()
+        .map(|header| batch_result(encode_header(header), Some(header.channel.clone())))
         .collect();
-    EncodeLogBatchResponse { results }
+    let mut results = Vec::new();
+    let mut previous: Option<(u64, StructuredLogEvent, Option<String>)> =
+        request.previous_event.and_then(|value| {
+            let mut event: StructuredLogEvent = serde_json::from_value(value.clone()).ok()?;
+            let channel = if request.validate_catalog {
+                Some(prepare_catalog_event(&mut event, &value).ok()?)
+            } else {
+                None
+            };
+            Some((fact_hash(&event, &channel), event, channel))
+        });
+    let mut repeated = 0;
+    let mut last: Option<StructuredLogEvent> = None;
+    for value in request.events {
+        let prepared = (|| {
+            let mut event: StructuredLogEvent = serde_json::from_value(value.clone())
+                .map_err(|_| LogError::new(-32051, "Invalid structured event shape"))?;
+            let channel = if request.validate_catalog {
+                Some(prepare_catalog_event(&mut event, &value)?)
+            } else {
+                None
+            };
+            Ok((event, channel))
+        })();
+        match prepared {
+            Ok((event, channel)) => {
+                let hash = fact_hash(&event, &channel);
+                if request.deduplicate
+                    && previous
+                        .as_ref()
+                        .is_some_and(|(old_hash, old, old_channel)| {
+                            *old_hash == hash
+                                && old.event == event.event
+                                && old.fields == event.fields
+                                && old.op == event.op
+                                && old.level == event.level
+                                && old.msg == event.msg
+                                && *old_channel == channel
+                        })
+                {
+                    repeated += 1;
+                    last = Some(event);
+                    continue;
+                }
+                flush_repeated(&mut results, &previous, &last, &mut repeated);
+                results.push(batch_result(encode_record(event.clone()), channel.clone()));
+                previous = Some((hash, event, channel));
+            }
+            Err(error) => {
+                flush_repeated(&mut results, &previous, &last, &mut repeated);
+                previous = None;
+                results.push(batch_result(Err(error), None));
+            }
+        }
+    }
+    flush_repeated(&mut results, &previous, &last, &mut repeated);
+    EncodeLogBatchResponse {
+        results,
+        headers,
+        session_path,
+    }
+}
+
+fn fact_hash(event: &StructuredLogEvent, channel: &Option<String>) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    event.event.hash(&mut hasher);
+    event.fields.hash(&mut hasher);
+    event.op.hash(&mut hasher);
+    channel.hash(&mut hasher);
+    hasher.finish()
+}
+
+fn flush_repeated(
+    results: &mut Vec<EncodedLogResult>,
+    previous: &Option<(u64, StructuredLogEvent, Option<String>)>,
+    last: &Option<StructuredLogEvent>,
+    count: &mut u64,
+) {
+    if *count == 0 {
+        return;
+    }
+    if let (Some((_, first, channel)), Some(last)) = (previous, last) {
+        let mut event = repeated_event(
+            &last.ts,
+            last.seq,
+            &first.event,
+            *count,
+            &first.ts,
+            &last.ts,
+        );
+        event.op = first.op.clone();
+        results.push(batch_result(encode_record(event), channel.clone()));
+    }
+    *count = 0;
+}
+
+fn batch_result(result: Result<String, LogError>, channel: Option<String>) -> EncodedLogResult {
+    match result {
+        Ok(line) => EncodedLogResult {
+            line: Some(line),
+            error: None,
+            channel,
+        },
+        Err(error) => EncodedLogResult {
+            line: None,
+            error: Some(error),
+            channel: None,
+        },
+    }
+}
+
+fn prepare_catalog_event(
+    event: &mut StructuredLogEvent,
+    input: &Value,
+) -> Result<String, LogError> {
+    use super::catalog::{self, CatalogErrorCode, FieldType};
+    if event.event == "log.dropped" || event.event == "log.repeated" {
+        let keys: &[&str] = if event.event == "log.dropped" {
+            &["count"]
+        } else {
+            &["count", "first", "last", "of"]
+        };
+        if event.fields.len() != keys.len()
+            || !event
+                .fields
+                .get("count")
+                .is_some_and(|v| v.as_u64().is_some())
+            || keys
+                .iter()
+                .skip(1)
+                .any(|key| !event.fields.get(*key).is_some_and(Value::is_string))
+        {
+            return Err(LogError::new(-32055, "Invalid catalog field"));
+        }
+        let channel = input["channel"].as_str().unwrap_or("app");
+        super::channel::LogChannel::parse(channel)?;
+        return Ok(channel.into());
+    }
+    // Normalize only diagnostic payloads. Shape, unknown keys, and error identity
+    // components remain strict, so normalization cannot turn an invalid schema valid.
+    if let Some(metadata) = catalog::event_by_id(&event.event) {
+        for field in metadata.fields {
+            if matches!(field.field_type, FieldType::Error | FieldType::Text) {
+                if let Some(Value::String(text)) = event.fields.get_mut(field.name) {
+                    let redacted = scrub(text);
+                    let mut normalized: String =
+                        redacted.chars().filter(|c| !c.is_control()).collect();
+                    let mut end = normalized.len().min(1024);
+                    while !normalized.is_char_boundary(end) {
+                        end -= 1;
+                    }
+                    normalized.truncate(end);
+                    *text = normalized;
+                }
+            }
+        }
+    }
+    catalog::validate_fields(&event.event, &event.fields).map_err(|error| {
+        LogError::new(
+            match error.code {
+                CatalogErrorCode::UnknownEvent => -32053,
+                CatalogErrorCode::MissingField => -32054,
+                CatalogErrorCode::InvalidField => -32055,
+                CatalogErrorCode::UnknownField => -32056,
+            },
+            "Catalog field validation failed",
+        )
+    })?;
+    let metadata = catalog::event_by_id(&event.event).expect("validated catalog event");
+    if event.level != metadata.level {
+        return Err(LogError::new(-32057, "Catalog level mismatch"));
+    }
+    let mut channel = metadata.channel.to_owned();
+    let mut message = metadata.message.to_owned();
+    for field in metadata.fields {
+        let key = if field.field_type == FieldType::Duration {
+            format!("{}_ms", field.name)
+        } else {
+            field.name.into()
+        };
+        if let Some(value) = event.fields.get_mut(&key) {
+            // Unknown absolute paths must never leak merely because they are not under HOME.
+            if field.field_type == FieldType::Path {
+                if let Some(path) = value.as_str() {
+                    let redacted = scrub(path);
+                    *value = Value::String(
+                        if redacted == path && (path.starts_with('/') || path.contains(":\\")) {
+                            "<PATH>".into()
+                        } else {
+                            redacted
+                        },
+                    );
+                }
+            }
+            let text = value
+                .as_str()
+                .map(str::to_owned)
+                .unwrap_or_else(|| value.to_string());
+            let placeholder = format!("{{{}}}", field.name);
+            channel = channel.replace(&placeholder, &text);
+            message = message.replace(&placeholder, &text);
+        }
+    }
+    super::channel::LogChannel::parse(&channel)?;
+    event.msg = message;
+    Ok(channel)
 }
 
 /// Constructs ordinary log.repeated evidence using explicit caller-supplied time and counts.
@@ -579,6 +794,18 @@ mod tests {
             "../../../../shared/fixtures/diagnostics/logging-v2.json"
         ))
         .unwrap()
+    }
+
+    #[test]
+    fn browser_grammar_failure_accepts_cpp_and_missing_long_language_identity() {
+        for language in [Some("c++"), None] {
+            let mut fields = serde_json::json!({"plugin":"io.example.grammar"});
+            if let Some(language) = language { fields["language"] = language.into(); }
+            let input = serde_json::json!({"events":[{"ts":"2026-11-03T00:00:00Z","level":"WARN","seq":1,
+                "event":"plugins.grammar.load_failed","msg":"","fields":fields}],"validateCatalog":true});
+            let result = encode_log_batch(serde_json::from_value(input).unwrap());
+            assert!(result.results[0].line.is_some(), "{language:?}: {:?}", result.results[0].error);
+        }
     }
 
     #[test]
@@ -807,6 +1034,123 @@ mod tests {
     }
 
     #[test]
+    fn catalog_batch_validates_before_encoding_and_preserves_valid_siblings() {
+        let cases = fixture()["catalogBatch"].as_array().unwrap().clone();
+        let batch = encode_log_batch(EncodeLogBatchRequest {
+            previous_event: None,
+            deduplicate: false,
+            validate_catalog: true,
+            headers: vec![],
+            events: cases.iter().map(|case| case["input"].clone()).collect(),
+        });
+        for (case, result) in cases.iter().zip(batch.results) {
+            if let Some(code) = case["code"].as_i64() {
+                assert_eq!(result.error.unwrap().code, code as i32, "{case}");
+                assert!(result.line.is_none());
+            } else {
+                assert_eq!(result.channel.as_deref(), case["channel"].as_str());
+                assert!(result
+                    .line
+                    .unwrap()
+                    .contains(case["contains"].as_str().unwrap()));
+            }
+        }
+    }
+
+    #[test]
+    fn catalog_batch_deduplicates_equal_fields_without_merging_operations() {
+        let event = json!({"ts":"2026-11-03T08:00:00Z", "level":"WARN", "seq":1,
+            "event":"app.font.missing", "msg":"ignored", "fields":{"font":"fixture"}, "op":"first"});
+        let mut second = event.clone();
+        second["seq"] = json!(2);
+        let mut third = event.clone();
+        third["seq"] = json!(3);
+        third["op"] = json!("second");
+        let batch = encode_log_batch(EncodeLogBatchRequest {
+            previous_event: None,
+            deduplicate: true,
+            validate_catalog: true,
+            headers: vec![],
+            events: vec![event, second, third],
+        });
+        assert_eq!(batch.results.len(), 3);
+        let line = batch.results[1].line.as_ref().unwrap();
+        assert!(line.contains("event=log.repeated op=first"));
+        assert!(line.contains("seq=2"));
+        assert!(line.contains("count=1"));
+        assert!(batch.results[2]
+            .line
+            .as_ref()
+            .unwrap()
+            .contains("op=second"));
+        let next = encode_log_batch(EncodeLogBatchRequest {
+            previous_event: Some(json!({"ts":"2026-11-03T08:00:00Z", "level":"WARN", "seq":3,
+                "event":"app.font.missing", "msg":"ignored", "fields":{"font":"fixture"}, "op":"second"})),
+            deduplicate: true,
+            validate_catalog: true,
+            headers: vec![],
+            events: vec![json!({"ts":"2026-11-03T08:00:01Z", "level":"WARN", "seq":4,
+                "event":"app.font.missing", "msg":"ignored", "fields":{"font":"fixture"}, "op":"second"})],
+        });
+        assert_eq!(next.results.len(), 1);
+        assert!(next.results[0]
+            .line
+            .as_ref()
+            .unwrap()
+            .contains("event=log.repeated"));
+    }
+
+    #[test]
+    fn catalog_normalizes_error_and_text_before_strict_validation() {
+        for case in fixture()["catalogNormalization"].as_array().unwrap() {
+            let id = case["event"].as_str().unwrap();
+            let level = case["level"].as_str().unwrap();
+            let mut fields = case["fields"].clone();
+            let key = case["diagnosticField"].as_str().unwrap();
+            fields[key] = json!(format!("password=fixture-secret\n\t{}", "界".repeat(600)));
+            let batch = encode_log_batch(EncodeLogBatchRequest {
+                previous_event: None,
+                deduplicate: false,
+                validate_catalog: true,
+                headers: vec![],
+                events: vec![json!({"ts":"2026-11-03T08:00:00Z", "level":level, "seq":1,
+                    "event":id, "msg":"ignored", "fields":fields})],
+            });
+            let line = batch.results[0]
+                .line
+                .as_ref()
+                .expect("normalized diagnostic must persist");
+            assert!(!line.contains("fixture-secret"));
+            let DecodedLogLine::Record(record) = decode_line(line).unwrap() else {
+                panic!("record expected")
+            };
+            assert!(record.fields[key].len() <= 1024);
+            assert!(!record.fields[key].chars().any(char::is_control));
+            if key == "error" {
+                assert_eq!(record.fields["error_code"], "42");
+            }
+        }
+    }
+
+    #[test]
+    fn catalog_paths_redact_unknown_absolute_locations_before_interpolation() {
+        let batch = encode_log_batch(EncodeLogBatchRequest {
+            previous_event: None,
+            deduplicate: false,
+            validate_catalog: true,
+            headers: vec![],
+            events: vec![json!({
+                "ts":"2026-11-03T08:00:00Z", "level":"WARN", "seq":1,
+                "event":"app.logging.redirect_failed", "msg":"ignored",
+                "fields":{"directory":"/private/secret/location", "error":"failed", "error_code":1, "error_domain":"fixture"}
+            })],
+        });
+        let line = batch.results[0].line.as_ref().unwrap();
+        assert!(!line.contains("/private/secret"));
+        assert!(line.contains("<PATH>"));
+    }
+
+    #[test]
     fn headers_batch_errors_and_system_events_share_the_public_codec() {
         let header = LogFileHeader {
             session: "abcdef12-3456-7890-abcd-ef1234567890".into(),
@@ -821,6 +1165,10 @@ mod tests {
         );
         let event = dropped_event("2026-11-03T08:00:00Z", 1, 5);
         let batch = encode_log_batch(EncodeLogBatchRequest {
+            previous_event: None,
+            deduplicate: false,
+            validate_catalog: false,
+            headers: vec![],
             events: vec![
                 json!(event),
                 json!({"level":"invalid"}),

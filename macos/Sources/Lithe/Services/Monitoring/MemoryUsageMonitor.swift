@@ -78,7 +78,7 @@ final class MemoryUsageMonitor: ObservableObject {
     private let sampleInterval: TimeInterval
     private let startedAt: Date
     private let logsPerformanceBaseline: Bool
-    private let baselineReporter: (String) -> Void
+    private let baselineReporter: (PerfAppSampled, String) -> Void
     private let processRegistry: ManagedProcessRegistry
     private let memorySampler: any ManagedProcessMemorySampling
     private var sampleTimer: Timer?
@@ -100,7 +100,7 @@ final class MemoryUsageMonitor: ObservableObject {
     init(
         sampleInterval: TimeInterval = 5.0,
         startedAt: Date = Date(),
-        baselineReporter: @escaping (String) -> Void = { _ in },
+        baselineReporter: @escaping (PerfAppSampled, String) -> Void = { _, _ in },
         logsPerformanceBaseline: Bool = false,
         processRegistry: ManagedProcessRegistry = ManagedProcessRegistry(),
         memorySampler: any ManagedProcessMemorySampling
@@ -243,7 +243,7 @@ final class MemoryUsageMonitor: ObservableObject {
 
         if logsPerformanceBaseline, sampleCount == 1 {
             let milliseconds = Int((elapsedTime * 1_000).rounded())
-            baselineReporter("LITHE_BASELINE_READY elapsed_ms=\(milliseconds) resident_bytes=\(total)")
+            baselineReporter(PerfAppSampled(duration: .milliseconds(milliseconds), phase: "ready", rss: total), "LITHE_BASELINE_READY elapsed_ms=\(milliseconds) resident_bytes=\(total)")
         }
 
         litheBytes = bytes

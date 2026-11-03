@@ -22,6 +22,11 @@
           "type": "int",
           "required": false,
           "description": "Exit status of the git process; absent when it could not start"
+        },
+        "failure_code": {
+          "type": "token",
+          "required": false,
+          "description": "Stable Core Git failure code, separate from the native process exit status."
         }
       },
       "rate": 600,
@@ -50,6 +55,11 @@
           "type": "int",
           "required": false,
           "description": "Exit status reported for the request result; absent when no git process result is available"
+        },
+        "failure_code": {
+          "type": "token",
+          "required": false,
+          "description": "Stable Core Git failure code, separate from the native process exit status."
         }
       },
       "rate": 600,

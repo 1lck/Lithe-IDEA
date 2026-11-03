@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 
 /// Discovers executable login shells without launching them or loading user scripts.
@@ -5,8 +6,8 @@ enum MacTerminalShellDiscovery {
     private static let shellNames = ["zsh", "bash", "fish", "nu", "pwsh", "sh", "dash", "ksh", "tcsh", "csh"]
     private static let standardSearchDirectories = ["/bin", "/usr/bin", "/opt/homebrew/bin", "/usr/local/bin"]
 
-    static func availableShells(fileManager: FileManager = .default) -> [String] {
-        let registeredShells = registeredShells()
+    static func availableShells(fileManager: FileManager = .default, logSink: (any LogSink)? = nil) -> [String] {
+        let registeredShells = registeredShells(logSink: logSink)
         return discover(
             environment: ProcessInfo.processInfo.environment,
             registeredShells: registeredShells
@@ -19,10 +20,10 @@ enum MacTerminalShellDiscovery {
 
     /// Returns reasonable shell paths even when the executable is missing.
     /// Settings uses this list to show unavailable choices instead of hiding them.
-    static func knownShells() -> [String] {
+    static func knownShells(logSink: (any LogSink)? = nil) -> [String] {
         candidates(
             environment: ProcessInfo.processInfo.environment,
-            registeredShells: registeredShells()
+            registeredShells: registeredShells(logSink: logSink)
         )
     }
 
@@ -56,11 +57,11 @@ enum MacTerminalShellDiscovery {
         }
     }
 
-    private static func registeredShells() -> String {
+    private static func registeredShells(logSink: (any LogSink)?) -> String {
         do {
             return try String(contentsOfFile: "/etc/shells", encoding: .utf8)
         } catch {
-            NSLog("Lithe could not read registered login shells: %@", String(describing: error))
+            logSink?.emit(TerminalShellDiscoveryFailed(error: error))
             return ""
         }
     }
