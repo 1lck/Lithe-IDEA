@@ -31,6 +31,7 @@ struct LitheCenteredPopup<PopupContent: View>: NSViewRepresentable {
     @Environment(\.self) private var environment
     var allowsDismiss = true
     var dialogTitle: String? = nil
+    var hasShadow = true
     var topInset: CGFloat? = nil
     var focusFirstTextField = false
     var resizesToContent = false
@@ -77,7 +78,7 @@ struct LitheCenteredPopup<PopupContent: View>: NSViewRepresentable {
                 coordinator.host = host
                 coordinator.contentUpdateKey = contentUpdateKey
                 coordinator.presenter.show(contentController: host, parent: parent, dialogTitle: dialogTitle,
-                                           focusFirstTextField: focusFirstTextField) { [weak coordinator] in
+                                           hasShadow: hasShadow, focusFirstTextField: focusFirstTextField) { [weak coordinator] in
                     coordinator?.revision += 1
                     coordinator?.host = nil
                     isPresented = false
@@ -133,10 +134,17 @@ final class LitheCenteredPopupPresenter: NSObject, NSWindowDelegate, ObservableO
     private var parentObservers: [NSObjectProtocol] = []
     private var onDismiss: (() -> Void)?
     private var parentEventMonitor: Any?
+    private weak var dragDetachedOwner: NSWindow?
+    private let isLeftMousePressed: () -> Bool
     private var isManuallyPositioned = false
 
+    init(isLeftMousePressed: @escaping () -> Bool = { NSEvent.pressedMouseButtons & 1 != 0 }) {
+        self.isLeftMousePressed = isLeftMousePressed
+        super.init()
+    }
+
     func show(contentController: NSViewController, parent: NSWindow, dialogTitle: String? = nil,
-              focusFirstTextField: Bool = false, onDismiss: @escaping () -> Void) {
+              hasShadow: Bool = true, focusFirstTextField: Bool = false, onDismiss: @escaping () -> Void) {
         close()
         controlActiveState = .inactive
         self.onDismiss = onDismiss
@@ -159,8 +167,8 @@ final class LitheCenteredPopupPresenter: NSObject, NSWindowDelegate, ObservableO
             panel.backgroundColor = LitheCommitDialogStyle.backgroundNSColor
             panel.isOpaque = true
         }
-        // Keep native titled-window chrome intact; disabling the shadow also changes its visible frame.
-        panel.hasShadow = true
+        // Preserve the default chrome unless a caller explicitly opts out of native elevation.
+        panel.hasShadow = hasShadow
         panel.delegate = self
         panel.contentViewController = contentController
         parent.addChildWindow(panel, ordered: .above)
@@ -184,7 +192,9 @@ final class LitheCenteredPopupPresenter: NSObject, NSWindowDelegate, ObservableO
                 .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp,
                 .otherMouseDown, .otherMouseUp, .keyDown, .keyUp, .scrollWheel
             ]) { [weak self, weak parent] event in
-                guard let self, let parent, event.window === parent, let panel = self.panel else { return event }
+                guard let self else { return event }
+                self.handleTitlebarMouseEvent(event)
+                guard let parent, event.window === parent, let panel = self.panel else { return event }
                 panel.makeKeyAndOrderFront(nil)
                 return nil
             }
@@ -205,6 +215,37 @@ final class LitheCenteredPopupPresenter: NSObject, NSWindowDelegate, ObservableO
                 (field as? NSTextField)?.selectText(nil)
             }
         }
+    }
+
+    // Match SettingsWindowChrome: a detached window is moved by WindowServer,
+    // rather than moving a child window through the busy application main thread.
+    func handleTitlebarMouseEvent(_ event: NSEvent) {
+        switch event.type {
+        case .leftMouseDown:
+            guard let panel, panel.styleMask.contains(.titled), event.window === panel,
+                  event.locationInWindow.y >= panel.contentLayoutRect.maxY,
+                  let owner = panel.parent else { return }
+            dragDetachedOwner = owner
+            owner.removeChildWindow(panel)
+        case .leftMouseUp:
+            reattachAfterTitlebarDrag()
+        default:
+            break
+        }
+    }
+
+    private func reattachAfterTitlebarDrag() {
+        guard let owner = dragDetachedOwner else { return }
+        dragDetachedOwner = nil
+        guard let panel, panel.isVisible else { return }
+        owner.addChildWindow(panel, ordered: .above)
+    }
+
+    func windowDidMove(_ notification: Notification) {
+        // Native dragging can end without a mouse-up reaching the application.
+        guard (notification.object as? NSWindow) === panel,
+              !isLeftMousePressed() else { return }
+        reattachAfterTitlebarDrag()
     }
 
     func center() {
@@ -234,6 +275,7 @@ final class LitheCenteredPopupPresenter: NSObject, NSWindowDelegate, ObservableO
     }
 
     func close() {
+        dragDetachedOwner = nil
         isManuallyPositioned = false
         if let parentEventMonitor { NSEvent.removeMonitor(parentEventMonitor) }
         parentEventMonitor = nil
