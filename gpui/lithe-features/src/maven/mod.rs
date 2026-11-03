@@ -24,11 +24,12 @@
 //! `Render` 里的 `defer_in` 排到当前 App 借用释放之后。
 
 pub mod configuration;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 mod model;
 mod output;
 mod session;
+pub(crate) mod user_settings;
 mod view;
 
 pub use model::{

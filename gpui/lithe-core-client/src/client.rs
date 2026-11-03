@@ -112,7 +112,25 @@ impl CoreClient {
     ///
     /// 阻塞调用；调用方必须放在后台线程或 `cx.background_spawn` 中。
     pub fn execute_raw(&self, command: &str, payload: Value) -> Result<Value, CoreError> {
-        let response = self.send(command, payload)?;
+        self.execute_raw_with_options(command, payload, None)
+    }
+
+    /// [`Self::execute_raw`] 的信封扩展版：把 host 端 Git 偏好写进请求信封。
+    ///
+    /// `git_execution` 是 `CoreRequest` 的信封级字段（不是 payload 字段），
+    /// 形状必须匹配 `lithe_core::git::execution_policy::GitExecutionOptions`
+    /// 的 camelCase serde；传 `None` 时与 [`Self::execute_raw`] 等价。
+    ///
+    /// # Blocking
+    ///
+    /// 阻塞调用；调用方必须放在后台线程或 `cx.background_spawn` 中。
+    pub fn execute_raw_with_options(
+        &self,
+        command: &str,
+        payload: Value,
+        git_execution: Option<Value>,
+    ) -> Result<Value, CoreError> {
+        let response = self.send_with_options(command, payload, git_execution)?;
         // 不是所有命令都会返回 data；成功但省略 data 时用 Null 表示，
         // 不把它误判成解码失败。
         if let Some(error) = response.error {
@@ -151,10 +169,23 @@ impl CoreClient {
     /// `CoreRequest`：`command` 是稳定命令名，`payload` 是命令特有对象。
     /// `id`/`operationId`/`timeoutMilliseconds` 均可选；本客户端不生成它们。
     fn send(&self, command: &str, payload: Value) -> Result<CoreResponse, CoreError> {
-        let request = serde_json::json!({
+        self.send_with_options(command, payload, None)
+    }
+
+    /// [`Self::send`] 的信封扩展版；`git_execution` 进信封而不是 payload。
+    fn send_with_options(
+        &self,
+        command: &str,
+        payload: Value,
+        git_execution: Option<Value>,
+    ) -> Result<CoreResponse, CoreError> {
+        let mut request = serde_json::json!({
             "command": command,
             "payload": payload,
         });
+        if let Some(git_execution) = git_execution {
+            request["gitExecution"] = git_execution;
+        }
         let request_text = serde_json::to_string(&request).map_err(|error| {
             CoreError::decode_failed(
                 "Could not encode core request",

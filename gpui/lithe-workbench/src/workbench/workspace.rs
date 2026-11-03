@@ -258,6 +258,7 @@ impl Workbench {
         let confirm_discard = self.settings.git_confirm_discard;
         let show_untracked = self.settings.git_show_untracked;
         let show_staged_first = self.settings.git_show_staged_first;
+        let show_changelists = self.settings.show_git_changelists;
         for panel in [self.git.clone(), self.git_log.clone()] {
             panel.update(cx, |panel, panel_cx| {
                 panel.set_git_preferences(
@@ -267,6 +268,8 @@ impl Workbench {
                     show_staged_first,
                     panel_cx,
                 );
+                // changelist 栏可见性跟随设置（Tauri `showGitChangelists`）。
+                panel.set_changelist_preferences(show_changelists, panel_cx);
             });
         }
     }

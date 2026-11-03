@@ -45,7 +45,7 @@ use super::model::{
     PreparationPhase, PreparationStatus, ProjectPreparation, RunConfiguration, RunDiagnostic,
     RunExecution, RunLanguage, RunScope,
 };
-use super::session::{self, SessionEvent};
+use super::session::{self, RunMode, SessionEvent};
 
 /// Run 面板状态变化。工作台用它刷新顶栏 Run/Stop 和配置名。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -141,6 +141,8 @@ struct SessionState {
     stopped: bool,
     exit_code: Option<i32>,
     service_url: Option<String>,
+    /// 本次会话实际采用的启动方式；会话开始前为 `None`。
+    mode: Option<RunMode>,
 }
 
 impl SessionState {
@@ -155,11 +157,22 @@ impl SessionState {
             stopped: false,
             exit_code: None,
             service_url: None,
+            mode: None,
         }
     }
 
     fn is_active(&self) -> bool {
         self.starting || self.running
+    }
+}
+
+/// 「进程输出」后面那颗标签的文案。
+fn mode_label(mode: RunMode) -> &'static str {
+    match mode {
+        RunMode::JvmDirect => tr("Direct JVM"),
+        RunMode::MavenGoal => tr("Maven goal"),
+        RunMode::BuildToolGoal => tr("Build tool goal"),
+        RunMode::Process => tr("Command"),
     }
 }
 
@@ -436,6 +449,31 @@ impl RunPanel {
         }
     }
 
+    /// 停止当前活跃的运行会话（菜单 `run.stop` / Tauri `debug.stop` 的语义）。
+    ///
+    /// 优先停止选中配置；若选中的没在跑（例如运行后又切换了选中项），停止
+    /// 所有仍在启动/运行的会话，保证菜单启用时点击一定有真实效果。
+    pub fn stop_active(&mut self, cx: &mut Context<Self>) {
+        let selected_active = self
+            .selected_id
+            .as_ref()
+            .and_then(|id| self.sessions.get(id))
+            .is_some_and(SessionState::is_active);
+        if selected_active {
+            self.stop_selected(cx);
+            return;
+        }
+        let active: Vec<String> = self
+            .sessions
+            .iter()
+            .filter(|(_, session)| session.is_active())
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in active {
+            self.stop_configuration(&id, cx);
+        }
+    }
+
     fn selected_configuration(&self) -> Option<&RunConfiguration> {
         let id = self.selected_id.as_ref()?;
         self.configurations
@@ -467,6 +505,14 @@ impl RunPanel {
     /// 是否有任一控制台输出了内容。
     fn selected_has_output(&self) -> bool {
         self.selected_line_count() > 0
+    }
+
+    /// 当前选中会话采用的启动方式；没有运行记录时为 `None`。
+    fn selected_run_mode(&self) -> Option<RunMode> {
+        self.selected_id
+            .as_ref()
+            .and_then(|id| self.sessions.get(id))
+            .and_then(|session| session.mode)
     }
 
     /// 把行数变化同步给虚拟化列表。
@@ -842,6 +888,7 @@ impl RunPanel {
                 // 输出不在这里直接入账：高频日志先合批，避免每个数据块都触发
                 // 一次整段控制台重排。
                 SessionEvent::Output(text) => output_chunk = Some(text),
+                SessionEvent::LaunchMode(mode) => session.mode = Some(mode),
                 SessionEvent::Started(tree) => {
                     session.tree = Some(tree);
                     session.starting = false;
@@ -1910,13 +1957,31 @@ impl RunPanel {
             .min_h(px(0.0))
             .min_w(px(0.0))
             .child(
-                div()
+                h_flex()
                     .px(px(14.0))
                     .pt(px(8.0))
-                    .text_size(px(12.0))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(tokens.secondary_text)
-                    .child(tr("Process output")),
+                    .gap(px(8.0))
+                    .items_center()
+                    .child(
+                        div()
+                            .text_size(px(12.0))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(tokens.secondary_text)
+                            .child(tr("Process output")),
+                    )
+                    .when_some(self.selected_run_mode(), |this, mode| {
+                        this.child(
+                            div()
+                                .px(px(6.0))
+                                .rounded(px(3.0))
+                                .border_1()
+                                .border_color(tokens.divider)
+                                .bg(tokens.sidebar)
+                                .text_size(px(LitheMetrics::SMALL_FONT_SIZE))
+                                .text_color(tokens.secondary_text)
+                                .child(mode_label(mode)),
+                        )
+                    }),
             )
             .child(div().flex_1().min_h(px(0.0)).min_w(px(0.0)).child(
                 if !self.selected_has_output() {
@@ -2823,7 +2888,6 @@ impl RunPanel {
         let Some((popup, position)) = &self.more_menu else {
             return element;
         };
-        let owner = cx.weak_entity();
         deferred(
             anchored().position(*position).snap_to_window().child(
                 div()

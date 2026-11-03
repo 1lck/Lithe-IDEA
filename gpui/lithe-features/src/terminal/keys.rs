@@ -87,3 +87,64 @@ pub fn to_pty_bytes(event: &KeyDownEvent) -> Option<Vec<u8>> {
 
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui_kit::{Keystroke, Modifiers};
+
+    #[test]
+    fn test_enter_and_backspace() {
+        let enter = KeyDownEvent {
+            keystroke: Keystroke {
+                modifiers: Modifiers::default(),
+                key: "enter".into(),
+                key_char: None,
+            },
+            is_held: false,
+            prefer_character_input: false,
+        };
+        assert_eq!(to_pty_bytes(&enter), Some(vec![b'\r']));
+
+        let backspace = KeyDownEvent {
+            keystroke: Keystroke {
+                modifiers: Modifiers::default(),
+                key: "backspace".into(),
+                key_char: None,
+            },
+            is_held: false,
+            prefer_character_input: false,
+        };
+        assert_eq!(to_pty_bytes(&backspace), Some(vec![0x7F]));
+    }
+
+    #[test]
+    fn test_ctrl_c() {
+        let mut modifiers = Modifiers::default();
+        modifiers.control = true;
+        let ctrl_c = KeyDownEvent {
+            keystroke: Keystroke {
+                modifiers,
+                key: "c".into(),
+                key_char: None,
+            },
+            is_held: false,
+            prefer_character_input: false,
+        };
+        assert_eq!(to_pty_bytes(&ctrl_c), Some(vec![0x03]));
+    }
+
+    #[test]
+    fn test_arrow_keys() {
+        let up = KeyDownEvent {
+            keystroke: Keystroke {
+                modifiers: Modifiers::default(),
+                key: "up".into(),
+                key_char: None,
+            },
+            is_held: false,
+            prefer_character_input: false,
+        };
+        assert_eq!(to_pty_bytes(&up), Some(b"\x1b[A".to_vec()));
+    }
+}

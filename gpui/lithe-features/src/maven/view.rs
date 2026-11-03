@@ -1193,12 +1193,9 @@ impl MavenPanel {
                             });
                         },
                     ))
-                    // GPUI 构建没有 DAP 传输层，Debug 保持禁用并只展示入口。
-                    .item(
-                        PopupMenuItem::new(tr("Debug"))
-                            .disabled(true)
-                            .on_click(|_, _, _| {}),
-                    )
+                    // GPUI 构建没有 DAP 传输层，Debug 保持禁用并只展示入口
+                    // （禁用项不需要空 on_click：硬件上没有可执行的调试动作）。
+                    .item(PopupMenuItem::new(tr("Debug")).disabled(true))
                     .separator()
                     .item(PopupMenuItem::new(tr("Test")).disabled(busy).on_click(
                         move |_, _, cx| {
@@ -1405,7 +1402,6 @@ impl MavenPanel {
         let Some((popup, position)) = &self.node_menu else {
             return element;
         };
-        let owner = cx.weak_entity();
         deferred(
             anchored().position(*position).snap_to_window().child(
                 div()

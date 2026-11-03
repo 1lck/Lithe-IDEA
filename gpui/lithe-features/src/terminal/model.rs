@@ -107,3 +107,26 @@ impl TerminalModel {
         let _ = scrollback;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_terminal_model_advance_and_resize() {
+        let mut model = TerminalModel::new(80, 24, 1000);
+        assert_eq!(model.columns(), 80);
+        assert_eq!(model.screen_lines(), 24);
+
+        // 解析基本文本
+        model.process_bytes(b"Hello Lithe Terminal\r\n");
+
+        // 调整大小
+        assert!(model.resize(100, 30));
+        assert_eq!(model.columns(), 100);
+        assert_eq!(model.screen_lines(), 30);
+
+        // 重复大小不触发重新计算
+        assert!(!model.resize(100, 30));
+    }
+}

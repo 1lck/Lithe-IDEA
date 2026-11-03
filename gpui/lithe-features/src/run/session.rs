@@ -10,23 +10,42 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use async_channel::{Receiver, Sender, unbounded};
 use lithe_core_client::CoreClient;
 use lithe_git_host::ProcessTree;
 use serde_json::{Value, json};
 
+use super::direct;
 use super::model::RunConfiguration;
 use super::toolchain;
 
 /// 运行会话向视图发送的事件。
 pub enum SessionEvent {
+    /// 本次会话实际采用的启动方式；在打印命令行之前发送。
+    LaunchMode(RunMode),
     /// 子进程已经创建；视图保留进程树用于 Stop。
     Started(Arc<ProcessTree>),
     Output(String),
     Exited(Option<i32>),
     Failed(String),
+}
+
+/// 一次会话真正用上的启动方式。
+///
+/// 视图把它显示在「进程输出」后面：JVM 直启带走 classpath 直接启动主类，
+/// 构建工具目标则交给 Maven / Gradle 拉起进程，两者不能只看配置类型猜出来。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RunMode {
+    /// `java -cp <classpath> <MainClass>`：直接启动 JVM。
+    JvmDirect,
+    /// `mvn spring-boot:run` 一类 Maven 目标。
+    MavenGoal,
+    /// Gradle 等其它构建工具目标。
+    BuildToolGoal,
+    /// 普通命令进程。
+    Process,
 }
 
 /// 启动一个配置，立即返回事件通道。
@@ -117,6 +136,47 @@ fn is_maven_launcher(executable: &Path) -> bool {
     name.starts_with("mvn") || name.starts_with("mvnw")
 }
 
+/// 从已解析的可执行文件和启动计划判定本次会话的启动方式。
+///
+/// 只看解析后的可执行文件名和计划里的路径参数：`java` 带着 classpath 才是
+/// 直启 JVM，否则只是普通命令；Maven 与 Gradle 启动器属于构建工具目标。
+fn launch_mode(executable: &Path, plan: &LaunchPlan) -> RunMode {
+    let name = executable
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let stem = ["exe", "cmd", "bat"]
+        .iter()
+        .find_map(|suffix| name.strip_suffix(&format!(".{suffix}")))
+        .unwrap_or(name.as_str());
+    match stem {
+        "java" | "javaw" => {
+            if plan.classpath.is_empty()
+                && plan.modulepath.is_empty()
+                && !has_java_path_argument(&plan.arguments)
+            {
+                RunMode::Process
+            } else {
+                RunMode::JvmDirect
+            }
+        }
+        "mvn" | "mvnw" | "mvnd" => RunMode::MavenGoal,
+        "gradle" | "gradlew" => RunMode::BuildToolGoal,
+        _ => RunMode::Process,
+    }
+}
+
+/// 计划参数里是否已经带了 JVM 的路径选项。
+fn has_java_path_argument(arguments: &[String]) -> bool {
+    arguments.iter().any(|argument| {
+        matches!(
+            argument.as_str(),
+            "-cp" | "-classpath" | "--class-path" | "-p" | "--module-path"
+        )
+    })
+}
+
 /// 把 Maven 简写目标（如 `spring-boot:run`）规约成完整插件坐标，
 /// 避免多模块父工程没有配置对应 pluginGroup 时导致 NoPluginFoundForPrefixException。
 fn canonicalize_maven_arguments(arguments: &mut [String]) {
@@ -138,6 +198,20 @@ fn launch(
     skip_build: bool,
     sender: Sender<SessionEvent>,
 ) -> Result<(), String> {
+    // Java / Spring Boot 配置先走 `java -cp <classpath> <MainClass>` 直启；
+    // 任何一步不成立都打印原因并退回下面的构建工具目标。
+    if direct::applies(&configuration) {
+        match direct::start(client, &root, &configuration, skip_build, &sender) {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                let _ = sender.send_blocking(SessionEvent::Output(format!(
+                    "{}: {error}\n",
+                    lithe_ui::i18n::tr("Direct JVM")
+                )));
+            }
+        }
+    }
+
     let request = launch_request(&root, &configuration);
     let plan = client
         .execute_raw("runConfig.createLaunchPlan", request)
@@ -235,6 +309,9 @@ fn launch(
         strip_reactor_selection(&mut arguments, module);
     }
 
+    // 运行方式先于输出到达，界面在第一条日志之前就能标出这次走的是哪条路径。
+    let _ = sender.send_blocking(SessionEvent::LaunchMode(launch_mode(&executable, &launch)));
+
     let command_line = format!(
         "$ {} {}\n\n",
         executable
@@ -305,6 +382,53 @@ fn spawn_exit_waiter(mut child: Child, sender: Sender<SessionEvent>) {
         let code = child.wait().ok().and_then(|status| status.code());
         let _ = sender.send_blocking(SessionEvent::Exited(code));
     });
+}
+
+/// 拉起主进程并把 stdout / stderr 转发到事件通道。
+///
+/// JVM 直启和 Core 给出的启动计划共用这段生命周期：`ProcessTree` 负责整棵树
+/// 的回收，读取线程只往通道里送文本，视图线程不碰 IO。
+pub(super) fn spawn_session(
+    executable: &Path,
+    arguments: &[String],
+    working_directory: &Path,
+    environment: &BTreeMap<String, String>,
+    sender: &Sender<SessionEvent>,
+) -> Result<(), String> {
+    let mut command = command_for(executable, arguments);
+    command
+        .current_dir(working_directory)
+        .envs(environment)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    ProcessTree::prepare(&mut command);
+    let mut child = command.spawn().map_err(|error| {
+        format!(
+            "{}: {}: {error}",
+            lithe_ui::i18n::tr("Could not start configuration"),
+            executable.display()
+        )
+    })?;
+    let tree = ProcessTree::adopt(&mut child).map_err(|error| {
+        let _ = child.kill();
+        format!(
+            "{}: {}: {error}",
+            lithe_ui::i18n::tr("Could not start configuration"),
+            executable.display()
+        )
+    })?;
+    let _ = sender.send_blocking(SessionEvent::Started(Arc::new(tree)));
+
+    if let Some(stdout) = child.stdout.take() {
+        spawn_reader(stdout, sender.clone());
+    }
+    if let Some(stderr) = child.stderr.take() {
+        spawn_reader(stderr, sender.clone());
+    }
+    spawn_exit_waiter(child, sender.clone());
+    Ok(())
 }
 
 /// 停止整棵进程树。调用方应放到后台线程，避免等待内核回收时卡住界面。
@@ -557,7 +681,7 @@ fn run_maven_install(
 }
 
 /// 构造依赖构建的 Maven 上下文；安装依赖时跳过测试阶段。
-fn maven_install_context(
+pub(super) fn maven_install_context(
     root: &Path,
     configuration: &RunConfiguration,
 ) -> crate::maven::LaunchContext {
@@ -631,13 +755,13 @@ fn strip_reactor_selection(arguments: &mut Vec<String>, module: &str) {
 /// 这里必须和设置页一样走项目 requirements 的自动选择，而不是直接读
 /// `JAVA_HOME`：用户的 `JAVA_HOME` 可能仍是 JDK 8，而 Spring Boot 3 等项目
 /// 需要 17+；Tauri 也是先解析再启动。
-struct ProjectToolchains {
+pub(super) struct ProjectToolchains {
     java_home: Option<PathBuf>,
     maven_executable: Option<PathBuf>,
 }
 
 impl ProjectToolchains {
-    fn resolve(
+    pub(super) fn resolve(
         root: &Path,
         working_directory: &Path,
         java_home_path: &str,
@@ -746,7 +870,7 @@ pub(crate) fn resolve_toolchain(
 }
 
 /// 先使用已经解析好的项目 JDK / Maven，再退回环境变量和 PATH。
-fn resolve_toolchain_with(
+pub(super) fn resolve_toolchain_with(
     root: &Path,
     working_directory: &Path,
     toolchain: &str,

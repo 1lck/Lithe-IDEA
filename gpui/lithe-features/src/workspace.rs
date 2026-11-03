@@ -250,6 +250,11 @@ pub struct ProjectTree {
     /// 隐藏目录名 / 文件名模式（设置页注入；支持精确名与 `*` 通配）。
     hidden_directory_patterns: Vec<String>,
     hidden_file_patterns: Vec<String>,
+    /// 是否显示隐藏文件（名字以 `.` 开头的条目）。
+    ///
+    /// 对齐 Tauri `showHiddenFilesInFileTree`（默认显示）。行投影时过滤，
+    /// 不触碰目录缓存，切换后下一次渲染立即生效。
+    show_dotfiles: bool,
     /// 首次渲染时再发起根目录加载。
     ///
     /// 不能在 `new` 里 `cx.spawn`：实体构造发生在 `App::run` 的可变借用内，
@@ -302,6 +307,7 @@ impl ProjectTree {
             generation: 0,
             hidden_directory_patterns: Vec::new(),
             hidden_file_patterns: Vec::new(),
+            show_dotfiles: true,
             pending_initial_load: has_root,
             menu: None,
             dialog: None,
@@ -416,6 +422,15 @@ impl ProjectTree {
         // 缓存里可能已经藏着应被隐藏的节点；清空后按新模式重新加载。
         self.loaded.clear();
         self.expanded.clear();
+        cx.notify();
+    }
+
+    /// 切换隐藏文件的显示；下一次渲染按新状态投影行。
+    pub fn set_show_dotfiles(&mut self, visible: bool, cx: &mut Context<Self>) {
+        if self.show_dotfiles == visible {
+            return;
+        }
+        self.show_dotfiles = visible;
         cx.notify();
     }
 
@@ -648,12 +663,15 @@ impl ProjectTree {
             if child.path.is_empty() || child.path == parent {
                 continue;
             }
-            // 设置页的隐藏路径模式：目录按目录名匹配，文件按文件名匹配。
-            let hidden = if child.is_directory {
-                Self::name_hidden(&child.name, &self.hidden_directory_patterns)
-            } else {
-                Self::name_hidden(&child.name, &self.hidden_file_patterns)
-            };
+            // 头栏「隐藏文件」开关关闭时，藏起名字以 `.` 开头的条目；设置页的
+            // 隐藏路径模式仍独立生效。两条都发生在行投影层，不影响缓存。
+            let dotfile_hidden = !self.show_dotfiles && child.name.starts_with('.');
+            let hidden = dotfile_hidden
+                || (if child.is_directory {
+                    Self::name_hidden(&child.name, &self.hidden_directory_patterns)
+                } else {
+                    Self::name_hidden(&child.name, &self.hidden_file_patterns)
+                });
             if hidden {
                 continue;
             }

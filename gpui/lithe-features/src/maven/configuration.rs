@@ -20,7 +20,7 @@ use sha2::{Digest, Sha256};
 const CONFIGURATION_VERSION: u32 = 1;
 
 /// 四个机器本地字段的已保存值；`None` / 空串表示「自动检测」。
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct MavenLocalSettings {
     pub settings_path: Option<String>,
     pub local_repository_path: Option<String>,
