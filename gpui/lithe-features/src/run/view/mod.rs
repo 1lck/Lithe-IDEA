@@ -8,6 +8,7 @@ mod actions;
 mod console;
 mod details;
 mod list;
+mod preparation;
 mod render;
 mod state;
 mod toolbar;
@@ -19,16 +20,17 @@ use std::time::Duration;
 
 use gpui_kit::component::menu::PopupMenu;
 use gpui_kit::component::resizable::ResizableState;
-use gpui_kit::{
-    App, Entity, EventEmitter, FocusHandle, SharedString, Subscription, Task, Window,
-};
+use gpui_kit::{App, Entity, EventEmitter, FocusHandle, SharedString, Subscription, Window};
 use lithe_core_client::CoreClient;
 
 use crate::console::{ConsoleHost, ConsoleScroll};
 
-use super::java_decision::JavaLaunchDecision;
-use super::model::{ProjectPreparation, RunConfiguration, RunDiagnostic, RunScope};
 use self::state::SessionState;
+// 把 run 的兄弟模块绑定到本模块，供子模块以 super:: 路径解析。
+use super::config;
+use super::java_decision::{self, JavaLaunchDecision};
+use super::model::{self, ProjectPreparation, RunConfiguration, RunDiagnostic, RunScope};
+use super::session;
 
 /// Run 面板状态变化。工作台用它刷新顶栏 Run/Stop 和配置名。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -164,7 +166,6 @@ pub struct RunPanel {
     preparation_expanded: bool,
     /// Java 项目准备状态（完全对齐 Tauri `ProjectPreparation`，仅在 Java 项目中激活）。
     pub preparation: Option<ProjectPreparation>,
-    _preparation_task: Option<Task<()>>,
     /// Java/Spring Boot 启动前的构建检查结果；有待决项时暂停启动。
     launch_decision: Option<JavaLaunchDecision>,
     /// 用户选择「对此工作区始终继续」后跳过后续构建检查。

@@ -4,7 +4,6 @@ use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::Duration;
 
 use async_channel::Receiver;
 use gpui_kit::component::resizable::ResizableState;
@@ -16,13 +15,11 @@ use lithe_ui::i18n::tr;
 use crate::console::ConsoleScroll;
 
 use super::config::{self, LoadedRunConfigurations};
-use super::model::{
-    PreparationPhase, ProjectPreparation, RunConfiguration, RunExecution, RunLanguage, RunScope,
-};
+use super::model::{ProjectPreparation, RunConfiguration, RunExecution, RunLanguage, RunScope};
 use super::session::{self, RunMode, SessionEvent};
 use super::state::SessionState;
 use super::{
-    CONSOLE_CONTEXT, CONFIGURATION_LIST_DEFAULT_WIDTH, CopySelection, OUTPUT_FLUSH_INTERVAL,
+    CONFIGURATION_LIST_DEFAULT_WIDTH, CONSOLE_CONTEXT, CopySelection, OUTPUT_FLUSH_INTERVAL,
     RunPanel, RunPanelEvent,
 };
 
@@ -78,7 +75,6 @@ impl RunPanel {
             on_open_settings: None,
             preparation_expanded: false,
             preparation: None,
-            _preparation_task: None,
             launch_decision: None,
             skip_build_check: false,
         }
@@ -118,7 +114,6 @@ impl RunPanel {
         self.restart_pending = None;
         self.pending_initial_load = self.root.is_some();
         self.preparation = None;
-        self._preparation_task = None;
         self.emit(cx);
         cx.notify();
     }
@@ -188,7 +183,12 @@ impl RunPanel {
             .is_some_and(|session| session.running)
     }
 
-    pub(super) fn invoke_open_settings(&self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn invoke_open_settings(
+        &self,
+        id: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if let Some(handler) = self.on_open_settings.as_ref() {
             handler(id, window, cx);
         }
@@ -375,64 +375,17 @@ impl RunPanel {
         false
     }
 
-    /// 启动 Java 项目准备流程（对齐 Tauri `ProjectPreparation` 状态机）。
+    /// 建立 Java 项目准备状态的初始显示；阶段推进由准备事件驱动，
+    /// 消费入口见 `preparation::RunPanel::apply_preparation_event`。
     pub fn start_project_preparation(&mut self, cx: &mut Context<Self>) {
         if !self.has_java_project() {
             self.preparation = None;
-            self._preparation_task = None;
             return;
         }
-
-        self.preparation = Some(ProjectPreparation::starting());
+        if self.preparation.is_none() {
+            self.preparation = Some(ProjectPreparation::starting());
+        }
         cx.notify();
-
-        let task = cx.spawn(async move |this, cx| {
-            // 阶段 1: Starting -> 150ms
-            cx.background_executor()
-                .timer(Duration::from_millis(150))
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                if let Some(prep) = this.preparation.as_mut() {
-                    prep.phase = PreparationPhase::Importing;
-                    prep.import_percent = Some(35);
-                    cx.notify();
-                }
-            });
-
-            // 阶段 2: Importing -> 300ms
-            cx.background_executor()
-                .timer(Duration::from_millis(300))
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                if let Some(prep) = this.preparation.as_mut() {
-                    prep.phase = PreparationPhase::Configuring;
-                    prep.import_percent = None;
-                    cx.notify();
-                }
-            });
-
-            // 阶段 3: Configuring -> 250ms
-            cx.background_executor()
-                .timer(Duration::from_millis(250))
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                if let Some(prep) = this.preparation.as_mut() {
-                    prep.phase = PreparationPhase::Building;
-                    cx.notify();
-                }
-            });
-
-            // 阶段 4: Building -> 200ms -> Ready!
-            cx.background_executor()
-                .timer(Duration::from_millis(200))
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                this.preparation = Some(ProjectPreparation::ready());
-                cx.notify();
-            });
-        });
-
-        self._preparation_task = Some(task);
     }
 
     fn apply_loaded(&mut self, loaded: LoadedRunConfigurations, cx: &mut Context<Self>) {
@@ -456,7 +409,6 @@ impl RunPanel {
             }
         } else {
             self.preparation = None;
-            self._preparation_task = None;
         }
         self.emit(cx);
         cx.notify();
@@ -579,6 +531,7 @@ impl RunPanel {
         let is_output = matches!(&event, SessionEvent::Output(_));
         let mut output_chunk: Option<String> = None;
         let mut failed_output: Option<String> = None;
+        let mut preparation_failed = false;
         if let Some(session) = self.sessions.get_mut(id) {
             match event {
                 // 输出不在这里直接入账：高频日志先合批，避免每个数据块都触发
@@ -605,6 +558,7 @@ impl RunPanel {
                     session.tree = None;
                     session.flush_pending_line();
                     failed_output = Some(format!("{message}\n"));
+                    preparation_failed = true;
                 }
             }
         }
@@ -618,6 +572,9 @@ impl RunPanel {
                 .or_default()
                 .push_str(&text);
             self.flush_output(cx);
+        }
+        if preparation_failed {
+            self.mark_preparation_failed();
         }
 
         if self.restart_pending.as_deref() == Some(id)
@@ -698,6 +655,7 @@ impl RunPanel {
         if let Some(session) = self.sessions.get_mut(id) {
             session.stopped = true;
         }
+        self.mark_preparation_failed();
         cx.background_spawn(async move {
             let _ = session::stop(tree);
         })
