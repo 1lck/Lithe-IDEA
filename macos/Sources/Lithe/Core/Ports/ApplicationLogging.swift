@@ -9,6 +9,10 @@ struct ApplicationLogQuery: Codable, Sendable, Equatable {
     var search: String? = nil
     var since: String? = nil
     var until: String? = nil
+    var recentSessions: Int? = nil
+    var channelPrefixes: [String] = []
+    var levels: [String]? = nil
+    var expression: String? = nil
 }
 
 struct ApplicationLogFile: Sendable {
@@ -25,9 +29,20 @@ struct ApplicationLogCollection: Sendable {
     let droppedEvents: Int
     let writeFailures: Int
     var diagnosticCategory: String? = nil
+    var estimatedBytes: UInt64 = 0
+    var sessions: [String] = []
+    var sessionStart: Date? = nil
+    var diskBytes: UInt64 = 0
+}
+
+struct ApplicationLogStatus: Sendable {
+    let diagnosticEnabled: Bool
+    let diagnosticCategory: String?
+    let diskBytes: UInt64
 }
 
 protocol ApplicationLogging: Sendable {
+    func status() async throws -> ApplicationLogStatus
     func collect(query: ApplicationLogQuery) async throws -> ApplicationLogCollection
     func configureDiagnostic(category: String?, enabled: Bool) async
     func clear() async throws
@@ -35,6 +50,11 @@ protocol ApplicationLogging: Sendable {
 }
 
 extension ApplicationLogging {
+    func status() async throws -> ApplicationLogStatus {
+        let collection = try await collect(query: .init())
+        return .init(diagnosticEnabled: collection.diagnosticEnabled,
+            diagnosticCategory: collection.diagnosticCategory, diskBytes: collection.diskBytes)
+    }
     func changeDirectory(to directory: URL) async throws { throw CocoaError(.featureUnsupported) }
 }
 

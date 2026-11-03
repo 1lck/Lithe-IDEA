@@ -2,11 +2,6 @@ import Combine
 import Foundation
 import LitheModuleAPI
 
-struct LogRecordReference: Sendable, Equatable {
-    let channel: String
-    let event: String
-    var op: String? = nil
-}
 struct LogWindowOpenRequest: Sendable, Equatable {
     var channelPrefixes: [String]? = nil
     var expression: String? = nil

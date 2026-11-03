@@ -17,6 +17,8 @@ struct WorkbenchNotificationBanner: View {
     /// Localization key of the action button, when the notification has one.
     var actionTitle: String?
     var performAction: () -> Void = {}
+    var hasLogReference = false
+    var showLog: () -> Void = {}
     let dismiss: () -> Void
 
     private var displayMessage: String {
@@ -100,6 +102,13 @@ struct WorkbenchNotificationBanner: View {
                         .font(LitheTheme.uiFont(size: 13))
                         .foregroundStyle(LitheTheme.accent)
                         .accessibilityIdentifier("workbench-notification-action")
+                }
+                if hasLogReference {
+                    Button("Show log", action: showLog)
+                        .buttonStyle(.litheNoPress)
+                        .font(LitheTheme.uiFont(size: 13))
+                        .foregroundStyle(LitheTheme.accent)
+                        .accessibilityIdentifier("workbench-notification-show-log")
                 }
             }
                 .frame(maxWidth: .infinity, alignment: .leading)

@@ -153,6 +153,9 @@ function swiftEvent(event) {
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
     public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
 
     public init(${[...fields.map(param), 'operationID: String? = nil'].join(', ')}) {
         self.operationID = operationID
@@ -195,9 +198,12 @@ ${required.map(([name]) => `        self.\`${camel(name)}\` = \`${camel(name)}\`
         emit(${base}Finished(${terminalArgs(false).join(', ')}))
     }
 
-    public mutating func fail(_ error: any Error${optional.length ? ', ' + optional.map(param).join(', ') : ''}) {
-        guard let duration = state.end() else { return }
-        emit(${base}Failed(${terminalArgs(true).join(', ')}))
+    @discardableResult
+    public mutating func fail(_ error: any Error${optional.length ? ', ' + optional.map(param).join(', ') : ''}) -> LogRecordReference? {
+        guard let duration = state.end() else { return nil }
+        let event = ${base}Failed(${terminalArgs(true).join(', ')})
+        emit(event)
+        return event.reference
     }
 }
 `;

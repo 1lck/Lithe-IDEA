@@ -133,6 +133,8 @@ extension RustCoreBridge {
         let currentSession: String
         let session: String
         let category: String?
+        var recentSessions: Int? = nil
+        var since: String? = nil
     }
     struct LogTailRead: Decodable {
         let relativePath: String
@@ -142,6 +144,8 @@ extension RustCoreBridge {
     struct LogCollectionPlan: Decodable {
         let reads: [LogTailRead]
         let truncated: Bool
+        let estimatedBytes: UInt64
+        let sessions: [String]
     }
     func planLogCollection(_ request: LogCollectionRequest) throws -> LogCollectionPlan {
         let response: LogDomainResult<LogCollectionPlan> = try executeResult(command: "diagnostics.planLogCollection", payload: request).get()

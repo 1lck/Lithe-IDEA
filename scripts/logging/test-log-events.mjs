@@ -222,3 +222,9 @@ test('every new rule rejects both baseline growth and stale counts', { timeout: 
     assert.match(compareUsage([], empty, baseline).join('\n'), /tighten baseline/);
   }
 });
+
+test('generated references use catalog channel, event identity and operation', { timeout: 1000 }, async () => {
+  const source = await readFile(path.join(ROOT, 'macos/Sources/LitheModuleAPI/Logging/LogEvents.generated.swift'), 'utf8');
+  assert.match(source, /public var reference: LogRecordReference/);
+  assert.match(source, /LogRecordReference\(channel: channel.rawValue, event: Self.id, op: operationID\)/);
+});

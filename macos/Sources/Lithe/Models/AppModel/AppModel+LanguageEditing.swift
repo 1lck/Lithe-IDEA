@@ -69,7 +69,7 @@ extension AppModel {
                 )
             }
         } catch {
-            showNotification(error.localizedDescription)
+            showNotification(error.localizedDescription, logReference: notificationFailure(error, operation: "language_editing"))
             completion(nil)
         }
     }
@@ -128,7 +128,7 @@ extension AppModel {
                 )
             }
         } catch {
-            showNotification(error.localizedDescription)
+            showNotification(error.localizedDescription, logReference: notificationFailure(error, operation: "language_editing"))
             completion(.init(items: springCompletions))
         }
     }
@@ -199,10 +199,10 @@ extension AppModel {
             ) { [weak self] result in
                 switch result {
                 case .success(let actions): completion(actions)
-                case .failure(let error): self?.showNotification(error.localizedDescription); completion([])
+                case .failure(let error): self?.showNotification(error.localizedDescription, logReference: self?.notificationFailure(error, operation: "language_editing")); completion([])
                 }
             }
-        } catch { showNotification(error.localizedDescription); completion([]) }
+        } catch { showNotification(error.localizedDescription, logReference: notificationFailure(error, operation: "language_editing")); completion([]) }
     }
 
     /// Resolves lazy actions without applying edits or executing a server command.

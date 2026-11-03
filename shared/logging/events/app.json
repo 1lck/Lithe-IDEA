@@ -323,6 +323,81 @@
       },
       "rate": 60,
       "owner": "lithe-core"
+    },
+    {
+      "id": "app.diagnostics.export_failed",
+      "channel": "app",
+      "level": "error",
+      "message": "Diagnostic export {stage} failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Export boundary that failed: planning, staging, archive or cleanup"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Failure returned by the diagnostic collection, staging or archive operation"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "app.diagnostics.crash_skipped",
+      "channel": "app",
+      "level": "warn",
+      "message": "Crash report collection skipped evidence",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Native failure reading the DiagnosticReports directory or an eligible application crash report"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "app.notification.operation_failed",
+      "channel": "app",
+      "level": "error",
+      "message": "User operation {operation} failed",
+      "fields": {
+        "operation": {
+          "type": "token",
+          "required": true,
+          "description": "Source-owned operation category at the notification boundary, such as run_configuration or plugin_settings"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Error raised by the requested operation before the user-facing failure notification"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "app.notification.operation_rejected",
+      "channel": "app",
+      "level": "warn",
+      "message": "User operation {operation} was rejected",
+      "fields": {
+        "operation": {
+          "type": "token",
+          "required": true,
+          "description": "Source-owned operation category rejected at the notification boundary"
+        },
+        "reason": {
+          "type": "token",
+          "required": true,
+          "description": "Fixed source-owned rejection category, never the localized notification or user input"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
     }
   ]
 }

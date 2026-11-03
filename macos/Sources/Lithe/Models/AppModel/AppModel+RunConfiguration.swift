@@ -269,7 +269,7 @@ extension AppModel {
             return
         } catch {
             guard isCurrentWorkspace(identity) else { return }
-            showNotification(error.localizedDescription)
+            showNotification(error.localizedDescription, logReference: notificationFailure(error, operation: "run_configuration"))
             return
         }
         guard isCurrentWorkspace(identity) else { return }
@@ -334,7 +334,7 @@ extension AppModel {
                 return
             } catch {
                 guard isCurrentWorkspace(identity) else { return }
-                showNotification(error.localizedDescription)
+                showNotification(error.localizedDescription, logReference: notificationFailure(error, operation: "run_configuration"))
                 return
             }
             guard isCurrentWorkspace(identity) else { return }
@@ -384,7 +384,7 @@ extension AppModel {
                 return
             } catch {
                 guard isCurrentWorkspace(identity) else { return }
-                showNotification(error.localizedDescription)
+                showNotification(error.localizedDescription, logReference: notificationFailure(error, operation: "run_configuration"))
                 return
             }
             for (configuration, javaLaunch) in preparedConfigurations {
@@ -425,7 +425,7 @@ extension AppModel {
             return
         } catch {
             guard isCurrentWorkspace(identity) else { return }
-            showNotification(error.localizedDescription)
+            showNotification(error.localizedDescription, logReference: notificationFailure(error, operation: "run_configuration"))
             return
         }
         guard isCurrentWorkspace(identity) else { return }
@@ -480,7 +480,7 @@ extension AppModel {
                 return
             } catch {
                 guard isCurrentWorkspace(identity) else { return }
-                showNotification(error.localizedDescription)
+                showNotification(error.localizedDescription, logReference: notificationFailure(error, operation: "run_configuration"))
             }
         }
         showToolWindow(.run)
@@ -525,7 +525,7 @@ extension AppModel {
                 return
             } catch {
                 guard isCurrentWorkspace(identity) else { return }
-                showNotification(error.localizedDescription)
+                showNotification(error.localizedDescription, logReference: notificationFailure(error, operation: "run_configuration"))
                 return
             }
             runFeature.runAllServices(javaLaunches: javaLaunches)

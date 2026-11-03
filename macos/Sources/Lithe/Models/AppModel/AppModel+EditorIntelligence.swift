@@ -50,7 +50,7 @@ extension AppModel {
             format: L10n.string("Maven could not resolve this project (%lld problems): %@"),
             problems.count,
             first.message
-        ))
+        ), logReference: notificationRejection(operation: "project_import", reason: "resolution_failed"))
     }
 
     func refreshCodeVision(for fileURL: URL) async {

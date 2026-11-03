@@ -263,7 +263,7 @@ extension AppModel {
         // refused jump leaves both untouched.
         let external = externalNavigationDecision(for: location.url, replaysHistory: replaysHistory)
         if external == .rejected {
-            showNotification("Only source files of the current language can be opened from outside the workspace")
+            showNotification("Only source files of the current language can be opened from outside the workspace", logReference: notificationRejection(operation: "codenavigation", reason: "unavailable_0"))
             onFailure?()
             return
         }
@@ -357,7 +357,7 @@ extension AppModel {
             return false
         }
         guard supportsLanguageServerFeature(feature) else {
-            showNotification(unsupportedMessage)
+            showNotification(unsupportedMessage, logReference: notificationRejection(operation: "navigation", reason: "unsupported"))
             return false
         }
         return true

@@ -26,6 +26,8 @@ final class LanguageToolingFeatureModel: ObservableObject {
     private var documentsProvider: (@MainActor () -> [EditorDocument])?
     private var activateDocument: (@MainActor (EditorDocument) -> Bool)?
     private var notify: (@MainActor (String) -> Void)?
+    var notifyLog: ((String, LogRecordReference?) -> Void)?
+    var logSink: (any LogSink)?
     private var preparationCancellations: [String: @MainActor () -> Void] = [:]
     private var activationEpoch = UUID()
     private var activationGenerations: [String: UUID] = [:]
@@ -203,7 +205,11 @@ final class LanguageToolingFeatureModel: ObservableObject {
                   self.sessionsProvider() === sessions else { return }
             defer { self.restartTasks[providerID] = nil }
             guard ended else {
-                self.notify?(L10n.string("The language server is still stopping. Try again after it has stopped."))
+                let event = AppNotificationOperationRejected(operation: "language_restart", reason: "still_stopping")
+                self.logSink?.emit(event)
+                let message = L10n.string("The language server is still stopping. Try again after it has stopped.")
+                if let notifyLog = self.notifyLog { notifyLog(message, event.reference) }
+                else { self.notify?(message) }
                 return
             }
             let documents = (self.documentsProvider?() ?? []).filter { self.catalog.provider(for: $0.url)?.id == providerID }
@@ -229,8 +235,10 @@ final class LanguageToolingFeatureModel: ObservableObject {
         let message = error.localizedDescription
         guard startupFailures[providerID] != message else { return }
         startupFailures[providerID] = message
-        sessionsProvider()?.recordHostFailure(providerID: providerID, stage: "activation", error: error)
-        notify?("Could not start \(descriptor.displayName) language server: \(message)")
+        let reference = sessionsProvider()?.recordHostFailure(providerID: providerID, stage: "activation", error: error)
+        let notification = "Could not start \(descriptor.displayName) language server: \(message)"
+        if let notifyLog { notifyLog(notification, reference) }
+        else { notify?(notification) }
     }
 
     func shouldRetryCandidate(providerID: String) -> Bool {

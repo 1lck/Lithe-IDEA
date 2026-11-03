@@ -41,7 +41,7 @@ extension AppModel {
             }
         } catch {
             if !error.isCancellation {
-                showNotification(L10n.string(String.LocalizationValue(error.localizedDescription)))
+                showNotification(L10n.string(String.LocalizationValue(error.localizedDescription)), logReference: notificationFailure(error, operation: "agent_conversation"))
             }
         }
     }
@@ -236,7 +236,7 @@ extension AppModel {
             try await services.moduleRuntime.setEnabled(enabled, for: .agentConversation)
             objectWillChange.send()
         } catch {
-            showNotification(error.localizedDescription)
+            showNotification(error.localizedDescription, logReference: notificationFailure(error, operation: "agent_conversation"))
             return
         }
         if enabled, workbenchFeature.isVisible(.agent) {
@@ -266,7 +266,7 @@ extension AppModel {
                 objectWillChange.send()
                 connectAgentConversation()
             } catch {
-                if !error.isCancellation { showNotification(error.localizedDescription) }
+                if !error.isCancellation { showNotification(error.localizedDescription, logReference: notificationFailure(error, operation: "agent_conversation")) }
             }
         }
     }

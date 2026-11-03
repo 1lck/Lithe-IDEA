@@ -1054,7 +1054,8 @@ package final class LanguageToolingSessionManager: ObservableObject,
     }
 
 
-    package func recordHostFailure(providerID: String, stage: String, error: Error) {
+    @discardableResult
+    package func recordHostFailure(providerID: String, stage: String, error: Error) -> LogRecordReference? {
         recordLogIssue(providerID, languageServerOperationIDs[providerID]?.uuidString, true,
                        stage, (error as NSError).domain, nil)
     }
@@ -1076,16 +1077,21 @@ package final class LanguageToolingSessionManager: ObservableObject,
         logSink.emit(LspSessionStageChanged(server: server, stage: stage.rawValue, operationID: operationID))
     }
 
+    @discardableResult
     private func recordLogIssue(_ providerID: String, _ operationID: String?, _ warning: Bool,
-                                _ stage: String, _ code: String, _ exitCode: Int?) {
+                                _ stage: String, _ code: String, _ exitCode: Int?) -> LogRecordReference? {
         onLogIssue?(providerID, operationID, warning, stage, code, exitCode)
-        guard let logSink, let server = logSubject(for: providerID) else { return }
+        guard let logSink, let server = logSubject(for: providerID) else { return nil }
         if warning {
-            logSink.emit(LspSessionDegradationReceived(exitCode: exitCode.map(Int64.init),
-                failureCode: code, server: server, stage: stage, operationID: operationID))
+            let event = LspSessionDegradationReceived(exitCode: exitCode.map(Int64.init),
+                failureCode: code, server: server, stage: stage, operationID: operationID)
+            logSink.emit(event)
+            return event.reference
         } else {
-            logSink.emit(LspSessionIssueFailed(exitCode: exitCode.map(Int64.init),
-                failureCode: code, server: server, stage: stage, operationID: operationID))
+            let event = LspSessionIssueFailed(exitCode: exitCode.map(Int64.init),
+                failureCode: code, server: server, stage: stage, operationID: operationID)
+            logSink.emit(event)
+            return event.reference
         }
     }
 

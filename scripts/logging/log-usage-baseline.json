@@ -170,12 +170,6 @@
       "reason": "存量：修改所在函数时补日志或写明豁免"
     },
     {
-      "file": "macos/Sources/Lithe/Application/Features/WorkbenchNotificationFeatureModel.swift",
-      "rule": "swift.catch-exit",
-      "count": 1,
-      "reason": "存量：修改所在函数时补日志或写明豁免"
-    },
-    {
       "file": "macos/Sources/Lithe/Core/Rust/RustCoreBridge.swift",
       "rule": "swift.catch-exit",
       "count": 2,
@@ -382,7 +376,7 @@
     {
       "file": "macos/Sources/Lithe/Platform/MacOS/Logging/MacLogStore.swift",
       "rule": "swift.discarded-try",
-      "count": 2,
+      "count": 1,
       "reason": "存量：修改所在函数时补日志或写明豁免"
     },
     {
@@ -692,18 +686,6 @@
       "reason": "存量：修改所在函数时补日志或写明豁免"
     },
     {
-      "file": "macos/Sources/Lithe/Services/Diagnostics/DiagnosticsExportService.swift",
-      "rule": "swift.catch-exit",
-      "count": 1,
-      "reason": "存量：修改所在函数时补日志或写明豁免"
-    },
-    {
-      "file": "macos/Sources/Lithe/Services/Diagnostics/DiagnosticsExportService.swift",
-      "rule": "swift.discarded-try",
-      "count": 6,
-      "reason": "存量：修改所在函数时补日志或写明豁免"
-    },
-    {
       "file": "macos/Sources/Lithe/Services/Remote/RemoteWorkspaceRouting.swift",
       "rule": "swift.catch-exit",
       "count": 1,
@@ -916,12 +898,6 @@
     {
       "file": "macos/Sources/LitheExecutionModule/Services/RunService.swift",
       "rule": "swift.discarded-try",
-      "count": 1,
-      "reason": "存量：修改所在函数时补日志或写明豁免"
-    },
-    {
-      "file": "macos/Sources/LitheGitModule/Application/GitFeatureModel.swift",
-      "rule": "swift.catch-exit",
       "count": 1,
       "reason": "存量：修改所在函数时补日志或写明豁免"
     },

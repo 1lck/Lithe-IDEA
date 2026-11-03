@@ -5,7 +5,7 @@ import LitheSearchModule
 @MainActor
 enum ProjectReplacementComposition {
     static func make(model: AppModel) -> ProjectReplacementCoordinator {
-        ProjectReplacementCoordinator(
+        let coordinator = ProjectReplacementCoordinator(
             session: model.searchSessionFeature,
             activate: { [weak model] in await model?.activateSearchModule() },
             workspace: { [weak model] in model?.workspaceURL },
@@ -38,5 +38,9 @@ enum ProjectReplacementComposition {
             markIdle: { [weak model] in try? model?.services.moduleRuntime.markIdle(.search) },
             notify: { [weak model] in model?.showNotification($0) }
         )
+        coordinator.notifyFailure = { [weak model] in
+            model?.showNotification($0, logReference: model?.notificationRejection(operation: "project_replace", reason: "replace_failed"))
+        }
+        return coordinator
     }
 }

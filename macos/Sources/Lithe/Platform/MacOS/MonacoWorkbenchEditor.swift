@@ -1396,8 +1396,13 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
                 } catch {
                     if Task.isCancelled { reply(["cancelled": true], nil) }
                     else {
-                        if let plugin = LogSegment(item.registration.pluginID) { self?.model?.services.logSink?.emit(PluginsEditorActionFailed(error: error, plugin: plugin)) }
-                        self?.model?.showNotification("The plugin host request could not be completed.")
+                        var reference: LogRecordReference?
+                        if let plugin = LogSegment(item.registration.pluginID) {
+                            let event = PluginsEditorActionFailed(error: error, plugin: plugin, operationID: operation.uuidString)
+                            self?.model?.services.logSink?.emit(event)
+                            reference = event.reference
+                        }
+                        self?.model?.showNotification("The plugin host request could not be completed.", logReference: reference)
                         reply(["ok": false], nil)
                     }
                 }
@@ -1534,7 +1539,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
                     model.showNotification("Saved image to \(result.relativePath)")
                     reply(["text": text], nil)
                 } catch {
-                    model.showNotification("Could not paste image: \(error.localizedDescription)")
+                    model.showNotification("Could not paste image: \(error.localizedDescription)", logReference: model.notificationFailure(error, operation: "image_paste"))
                     reply(["cancelled": true], nil)
                 }
             }
@@ -1878,7 +1883,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
         pluginActionExecutions.values.forEach { $0.task.cancel() }
         pluginActionRequests.removeAll(); pluginActionExecutions.removeAll(); pluginActionLists.removeAll()
         contextMenu.dismiss()
-        model?.showNotification("Editor: \(message)")
+        model?.showNotification("Editor: \(message)", logReference: model?.notificationRejection(operation: "editor", reason: "web_content_failed"))
     }
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         decisionHandler(action.request.url?.absoluteString == "lithe-editor://app/index.html" ? .allow : .cancel)

@@ -470,12 +470,12 @@ extension AppModel {
         )
         switch failure {
         case .timedOut:
-            showNotification("Java service preparation timed out")
+            showNotification("Java service preparation timed out", logReference: notificationRejection(operation: "language_server", reason: "timed_out"))
         case .failed(let message):
             if let message, !message.isEmpty {
-                showNotification("Java service failed to start: %@", arguments: [message])
+                showNotification("Java service failed to start: %@", arguments: [message], logReference: notificationRejection(operation: "language_server", reason: "startup_failed"))
             } else {
-                showNotification("Java service failed to start")
+                showNotification("Java service failed to start", logReference: notificationRejection(operation: "language_server", reason: "startup_failed"))
             }
         }
     }

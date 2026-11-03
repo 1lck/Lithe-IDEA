@@ -95,6 +95,10 @@ package final class WorkspaceFeatureModel: ObservableObject {
     private var restoreSession: (@MainActor (WorkspaceSession, [URL]) async -> Void)?
     private var openFile: (@MainActor (URL) -> Void)?
     private var notify: (@MainActor (String) -> Void)?
+    package var notifyFailure: ((String) -> Void)?
+    private func notifyOperationFailure(_ message: String) {
+        if let notifyFailure { notifyFailure(message) } else { notify?(message) }
+    }
     private var recordHistory: (@MainActor (URL, LocalHistoryReason) async -> Void)?
     private var relocateHistory: (@MainActor (URL, URL) async -> Void)?
     /// Moves an item through the version control that tracks it, so the
@@ -694,7 +698,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
                 try? directoryMarkStore.saveIndexingSettings(previousSettings, for: workspaceURL)
             }
             recordIndexingFailure(WorkspaceIndexingFailure.writeFailed)
-            notify?(indexingError ?? "")
+            notifyOperationFailure(indexingError ?? "")
             await refreshCurrent()
         } else if directoryMarkRevision == revision { await refreshCurrent() }
     }
@@ -873,7 +877,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
 
         isPerformingProjectItemOperation = false
         if let errorMessage {
-            notify?(errorMessage)
+            notifyOperationFailure(errorMessage)
             return
         }
         if request.kind == .rename {
@@ -988,7 +992,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         }
         guard workspaceGeneration == generation, workspaceURL == workspace else { return }
         if let failure {
-            notify?("Moved \(moved) of \(sources.count) items. Remaining items were not moved: \(failure)")
+            notifyOperationFailure("Moved \(moved) of \(sources.count) items. Remaining items were not moved: \(failure)")
         } else if Task.isCancelled {
             notify?("Move cancelled after \(moved) of \(sources.count) items")
         } else {
@@ -1043,7 +1047,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
             Self.copyProjectItems(sources, in: directory, fileOperations: fileOperations)
         }.value
         guard workspaceURL == operationWorkspaceURL, workspaceGeneration == generation else { return false }
-        if let error = result.1 { notify?(error) } else { notify?("Pasted files") }
+        if let error = result.1 { notifyOperationFailure(error) } else { notify?("Pasted files") }
         return result.0 > 0
     }
 
@@ -1110,7 +1114,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         }.value
         isPerformingProjectItemOperation = false
         if let errorMessage {
-            notify?(errorMessage)
+            notifyOperationFailure(errorMessage)
         } else {
             notify?("Duplicated \(sourceURL.lastPathComponent)")
             await refreshCurrent()
@@ -1192,7 +1196,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
             if fileOperations.fileExists(at: item.url) {
                 // Each item reports its own failure; also say that the rest
                 // of the batch was intentionally left in place.
-                if index < items.count - 1 { notify?("Stopped moving the remaining items to Trash") }
+                if index < items.count - 1 { notifyOperationFailure("Stopped moving the remaining items to Trash") }
                 break
             }
         }
@@ -1233,7 +1237,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
             }
         }
         if let errorMessage {
-            notify?(errorMessage)
+            notifyOperationFailure(errorMessage)
             return true
         }
         if request.isDirectory {
@@ -1295,7 +1299,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
             if workspaceURL == root { indexingSettingsRevision &+= 1; indexingSettings = settings }
         } catch {
             recordIndexingFailure(error, fallback: .writeFailed)
-            notify?(indexingError ?? "")
+            notifyOperationFailure(indexingError ?? "")
         }
     }
 
@@ -1320,7 +1324,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         // The filesystem operation has already succeeded, so rolling the UI back
         // would restore paths that no longer exist. Keep the in-memory state and
         // surface that only preference persistence failed.
-        notify?("Could not update directory marks after the file operation: \(saveError)")
+        notifyOperationFailure("Could not update directory marks after the file operation: \(saveError)")
     }
 
     private static func directoryMarks(
@@ -1584,7 +1588,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
             .sorted { $0.path < $1.path }
         guard !changedURLs.isEmpty else { return }
         let conflictDetected = processExternalChanges?(changedURLs) ?? false
-        if conflictDetected { notify?("External edits conflict with unsaved changes") }
+        if conflictDetected { notifyOperationFailure("External edits conflict with unsaved changes") }
         let previouslyKnown = Set(changedURLs.filter(isKnownProjectFile).map(\.path))
         let previousSnapshotID = appliedSnapshot?.id
         if changedURLs.contains(where: { $0.lastPathComponent == ".gitignore" || $0.path.contains("/.git/") }) {

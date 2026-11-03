@@ -27163,17 +27163,6 @@
       }
     },
     {
-      "id": "native.allModules",
-      "description": "Native UI: All modules",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "All modules",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.allProjects",
       "description": "Native UI: All projects",
       "platforms": [
@@ -27225,17 +27214,6 @@
       ],
       "macos": {
         "key": "All servers",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.allSessions",
-      "description": "Native UI: All sessions",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "All sessions",
         "arguments": []
       }
     },
@@ -28993,17 +28971,6 @@
       }
     },
     {
-      "id": "native.buildRunAndDebug",
-      "description": "Native UI: Build, run and debug",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Build, run and debug",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.buildSystem",
       "description": "Native UI: Build System",
       "platforms": [
@@ -30100,17 +30067,6 @@
       ],
       "macos": {
         "key": "Choose a local or custom provider so the Agent can sign in.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.chooseAModuleEnableDetailedDiagnosticsReproduceTheProblemThenPreviewAndExportADiagnosticBundle",
-      "description": "Native UI: Choose a module, enable detailed diagnostics, reproduce the problem, then preview and export a diagnostic bundle.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Choose a module, enable detailed diagnostics, reproduce the problem, then preview and export a diagnostic bundle.",
         "arguments": []
       }
     },
@@ -33906,17 +33862,6 @@
       }
     },
     {
-      "id": "native.creatingArchive",
-      "description": "Native UI: Creating archive…",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Creating archive…",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.creatingPullRequest",
       "description": "Native UI: Creating pull request…",
       "platforms": [
@@ -34985,17 +34930,6 @@
       }
     },
     {
-      "id": "native.detailedDiagnosticsCoverTheSelectedModuleAndExpireAfter15MinutesRefreshToSeeTheCurrentStatus",
-      "description": "Native UI: Detailed diagnostics cover the selected module and expire after 15 minutes. Refresh to see the current status.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Detailed diagnostics cover the selected module and expire after 15 minutes. Refresh to see the current status.",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.detailedDiagnosticsFor15Minutes",
       "description": "Native UI: Detailed diagnostics for 15 minutes",
       "platforms": [
@@ -35004,33 +34938,6 @@
       "macos": {
         "key": "Detailed diagnostics for 15 minutes",
         "arguments": []
-      }
-    },
-    {
-      "id": "native.detailedDiagnosticsOff",
-      "description": "Native UI: Detailed diagnostics: Off",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Detailed diagnostics: Off",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.detailedDiagnosticsOn",
-      "description": "Native UI: Detailed diagnostics: On (%@)",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Detailed diagnostics: On (%@)",
-        "arguments": [
-          "arg1"
-        ]
-      },
-      "parameters": {
-        "arg1": "string"
       }
     },
     {
@@ -36040,24 +35947,6 @@
       }
     },
     {
-      "id": "native.droppedLldWriteFailuresLld",
-      "description": "Native UI: Dropped: %lld; write failures: %lld",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Dropped: %lld; write failures: %lld",
-        "arguments": [
-          "arg1",
-          "arg2"
-        ]
-      },
-      "parameters": {
-        "arg1": "integer",
-        "arg2": "integer"
-      }
-    },
-    {
       "id": "native.duplicate",
       "description": "Native UI: Duplicate",
       "platforms": [
@@ -36147,17 +36036,6 @@
       ],
       "macos": {
         "key": "Each submodule is pushed before its parent.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.earlierEvidenceWasOmittedByCollectionLimits",
-      "description": "Native UI: Earlier evidence was omitted by collection limits.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Earlier evidence was omitted by collection limits.",
         "arguments": []
       }
     },
@@ -36458,17 +36336,6 @@
       ],
       "macos": {
         "key": "Editor",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.editorAndLanguageServices",
-      "description": "Native UI: Editor and language services",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Editor and language services",
         "arguments": []
       }
     },
@@ -38744,17 +38611,6 @@
       ],
       "macos": {
         "key": "Full Program Declaration",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.gatheringDiagnostics",
-      "description": "Native UI: Gathering diagnostics…",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Gathering diagnostics…",
         "arguments": []
       }
     },
@@ -45788,26 +45644,6 @@
       }
     },
     {
-      "id": "native.moduleSessionMinimumLevel",
-      "description": "Native UI: Module: %@ · Session: %@ · Minimum level: %@",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Module: %@ · Session: %@ · Minimum level: %@",
-        "arguments": [
-          "arg1",
-          "arg2",
-          "arg3"
-        ]
-      },
-      "parameters": {
-        "arg1": "string",
-        "arg2": "string",
-        "arg3": "string"
-      }
-    },
-    {
       "id": "native.more",
       "description": "Native UI: … more",
       "platforms": [
@@ -47422,17 +47258,6 @@
       }
     },
     {
-      "id": "native.noMatchingLogs",
-      "description": "Native UI: No matching logs",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "No matching logs",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.noMatchingMessages",
       "description": "Native UI: No matching messages",
       "platforms": [
@@ -48744,17 +48569,6 @@
       ],
       "macos": {
         "key": "Only the current branch can be updated",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.onlyTheFilesBelowAreCollectedCredentialsTokensAndHomeDirectoryPathsAreRedacted1a2820206c",
-      "description": "Native UI: Only the files below are collected. Credentials, tokens, and home-directory paths are redacted automatically; workspace source, editor buffers, and terminal history are never included.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Only the files below are collected. Credentials, tokens, and home-directory paths are redacted automatically; workspace source, editor buffers, and terminal history are never included.",
         "arguments": []
       }
     },
@@ -50497,17 +50311,6 @@
       }
     },
     {
-      "id": "native.previewAndExport",
-      "description": "Native UI: Preview and Export…",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Preview and Export…",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.previewAndExportTheSelectedLogsWithEnvironmentInformationCredentialsAndHomeDir65f650979b",
       "description": "Native UI: Preview and export the selected logs with environment information. Credentials and home-directory paths are redacted; source code, editor buffers and terminal history are excluded.",
       "platforms": [
@@ -50647,17 +50450,6 @@
       ],
       "macos": {
         "key": "Previous match (Shift+Return)",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.previousSession",
-      "description": "Native UI: Previous session",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Previous session",
         "arguments": []
       }
     },
@@ -52438,17 +52230,6 @@
       ],
       "macos": {
         "key": "Refresh Log",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.refreshLogs",
-      "description": "Native UI: Refresh Logs",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Refresh Logs",
         "arguments": []
       }
     },
@@ -96481,6 +96262,292 @@
           "error",
           "warn",
           "other"
+        ]
+      }
+    },
+    {
+      "id": "logs.exportV2.openWindow",
+      "description": "Diagnostic export and notification control",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Open Log Window",
+        "arguments": []
+      },
+      "parameters": {}
+    },
+    {
+      "id": "logs.exportV2.recentSessions",
+      "description": "Diagnostic export and notification control",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Last 3 sessions",
+        "arguments": []
+      },
+      "parameters": {}
+    },
+    {
+      "id": "logs.exportV2.recentSessionsHint",
+      "description": "Diagnostic export and notification control",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Includes the previous run, useful after a crash",
+        "arguments": []
+      },
+      "parameters": {}
+    },
+    {
+      "id": "logs.exportV2.last24Hours",
+      "description": "Diagnostic export and notification control",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Last 24 hours",
+        "arguments": []
+      },
+      "parameters": {}
+    },
+    {
+      "id": "logs.exportV2.channels",
+      "description": "Diagnostic export and notification control",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Channels",
+        "arguments": []
+      },
+      "parameters": {}
+    },
+    {
+      "id": "logs.exportV2.range",
+      "description": "Diagnostic export and notification control",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Range",
+        "arguments": []
+      },
+      "parameters": {}
+    },
+    {
+      "id": "logs.exportV2.privacy",
+      "description": "Diagnostic export and notification control",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Privacy",
+        "arguments": []
+      },
+      "parameters": {}
+    },
+    {
+      "id": "logs.exportV2.contents",
+      "description": "Diagnostic export and notification control",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Contents",
+        "arguments": []
+      },
+      "parameters": {}
+    },
+    {
+      "id": "logs.exportV2.currentFilter",
+      "description": "Diagnostic export and notification control",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Only the current filter",
+        "arguments": []
+      },
+      "parameters": {}
+    },
+    {
+      "id": "logs.exportV2.filterUnavailable",
+      "description": "Diagnostic export and notification control",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Open export from the log window to use its current filter.",
+        "arguments": []
+      },
+      "parameters": {}
+    },
+    {
+      "id": "logs.exportV2.environment",
+      "description": "Diagnostic export and notification control",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Include environment summary",
+        "arguments": []
+      },
+      "parameters": {}
+    },
+    {
+      "id": "logs.exportV2.environmentHint",
+      "description": "Diagnostic export and notification control",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "App version, macOS version, architecture, enabled plugins",
+        "arguments": []
+      },
+      "parameters": {}
+    },
+    {
+      "id": "logs.exportV2.subtitle",
+      "description": "Diagnostic export and notification control",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Packs recent logs into a zip you can attach to an issue. Nothing is uploaded.",
+        "arguments": []
+      },
+      "parameters": {}
+    },
+    {
+      "id": "logs.exportV2.redactionNote",
+      "description": "Diagnostic export and notification control",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Logs are redacted by Core before they are written to disk, so exports are always redacted: paths, URLs, tokens and user content appear as ‹redacted›.",
+        "arguments": []
+      },
+      "parameters": {}
+    },
+    {
+      "id": "logs.exportV2.packing",
+      "description": "Diagnostic export and notification control",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Packing…",
+        "arguments": []
+      },
+      "parameters": {}
+    },
+    {
+      "id": "logs.exportV2.showLog",
+      "description": "Diagnostic export and notification control",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Show log",
+        "arguments": []
+      },
+      "parameters": {}
+    },
+    {
+      "id": "logs.exportV2.diagnosticHint",
+      "description": "Diagnostic export and notification control",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Detailed diagnostics cover all channels and expire after 15 minutes.",
+        "arguments": []
+      },
+      "parameters": {}
+    },
+    {
+      "id": "logs.exportV2.prepareFailed",
+      "description": "Diagnostic export and notification control",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not prepare diagnostic logs. Try again.",
+        "arguments": []
+      },
+      "parameters": {}
+    },
+    {
+      "id": "logs.exportV2.exportFailed",
+      "description": "Diagnostic export and notification control",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not export diagnostic logs. Try again.",
+        "arguments": []
+      },
+      "parameters": {}
+    },
+    {
+      "id": "logs.exportV2.clearFailed",
+      "description": "Diagnostic export and notification control",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not clear logs. Try again.",
+        "arguments": []
+      },
+      "parameters": {}
+    },
+    {
+      "id": "logs.exportV2.directoryFailed",
+      "description": "Diagnostic export and notification control",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not change the log directory. Try again.",
+        "arguments": []
+      },
+      "parameters": {}
+    },
+    {
+      "id": "logs.exportV2.size",
+      "description": "Core estimated collection size and file count",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "size": "string",
+        "count": "integer"
+      },
+      "macos": {
+        "key": "≈ %@ · %lld files",
+        "arguments": [
+          "size",
+          "count"
+        ]
+      }
+    },
+    {
+      "id": "logs.settings.storage",
+      "description": "Current native log directory disk usage",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "size": "string"
+      },
+      "macos": {
+        "key": "Log storage: %@",
+        "arguments": [
+          "size"
         ]
       }
     }
