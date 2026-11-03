@@ -581,66 +581,17 @@ fn force_stop_system_line() -> String {
 }
 
 // ---------------------------------------------------------------------------
-// 准备进度事件
-// ---------------------------------------------------------------------------
-
-/// 推进准备状态条的阶段；导入相关字段在 GPUI 侧没有数据来源，保持 None。
-pub(super) fn send_preparation_phase(sender: &Sender<SessionEvent>, phase: PreparationPhase) {
-    let _ = sender.send_blocking(SessionEvent::Preparation(PreparationEvent::Phase {
-        phase,
-        import_percent: None,
-        current_project: None,
-        download_artifact: None,
-    }));
-}
-
-/// 主进程已经拉起，准备阶段完成。
-pub(super) fn send_preparation_ready(sender: &Sender<SessionEvent>) {
-    let _ = sender.send_blocking(SessionEvent::Preparation(PreparationEvent::Ready));
-}
-
-/// 从 Maven 批处理输出里识别正在下载的构件并推进准备状态条。
-///
-/// `-B` 模式下每条 `Downloading from <仓库>: <URL>`（旧版为 `Downloading: <URL>`）
-/// 对应一个构件；连续重复的构件只发一次事件。
-pub(super) fn emit_downloads(text: &str, sender: &Sender<SessionEvent>) {
-    let mut last = String::new();
-    for line in text.lines() {
-        let Some(artifact) = maven_download_artifact(line) else {
-            continue;
-        };
-        if artifact == last {
-            continue;
-        }
-        last = artifact.clone();
-        let _ = sender.send_blocking(SessionEvent::Preparation(PreparationEvent::Phase {
-            phase: PreparationPhase::Building,
-            import_percent: None,
-            current_project: None,
-            download_artifact: Some(artifact),
-        }));
-    }
-}
-
-/// 从一行 Maven 下载日志提取构件名；非下载行返回 None。
-fn maven_download_artifact(line: &str) -> Option<String> {
-    let url = line
-        .strip_prefix("Downloading from ")
-        .and_then(|rest| rest.split_once(": "))
-        .map(|(_, url)| url)
-        .or_else(|| line.strip_prefix("Downloading: "))?;
-    let artifact = url.rsplit('/').next()?;
-    (!artifact.is_empty()).then(|| artifact.to_string())
-}
-
-// ---------------------------------------------------------------------------
 // 启动计划
 // ---------------------------------------------------------------------------
 
 mod launch_plan;
+mod preparation_events;
 mod toolchain_probe;
 
 use launch_plan::{EnvironmentRef, ExecutableRef, LaunchPlan, LaunchStep, resolve_plan_paths};
+pub(super) use preparation_events::{
+    emit_downloads, send_preparation_phase, send_preparation_ready,
+};
 pub(crate) use toolchain_probe::toolchain_candidates;
 
 fn resolve_working_directory(root: &Path, value: &str) -> PathBuf {
@@ -1350,63 +1301,6 @@ mod tests {
         assert_eq!(
             force_stop_system_line(),
             "Process was force-stopped after the grace period\n"
-        );
-    }
-
-    #[test]
-    fn maven_download_lines_reveal_the_artifact() {
-        assert_eq!(
-            maven_download_artifact(
-                "Downloading from central: https://repo.maven.apache.org/maven2/org/springframework/spring-core/6.1.1/spring-core-6.1.1.jar"
-            ),
-            Some("spring-core-6.1.1.jar".to_string())
-        );
-        assert_eq!(
-            maven_download_artifact("Downloading: https://repo.example.org/a/b/c-lib-1.0.jar"),
-            Some("c-lib-1.0.jar".to_string())
-        );
-        assert_eq!(
-            maven_download_artifact(
-                "Downloaded from central: https://repo.maven.apache.org/maven2/x.jar"
-            ),
-            None
-        );
-        assert_eq!(
-            maven_download_artifact("[INFO] Building tiku-backend 1.0.0"),
-            None
-        );
-        assert_eq!(
-            maven_download_artifact(
-                "Downloading from central: https://repo.maven.apache.org/maven2/"
-            ),
-            None
-        );
-    }
-
-    #[test]
-    fn download_events_cover_each_artifact_once() {
-        let (sender, receiver) = unbounded();
-        let text = "\
-[INFO] Scanning for projects...\n\
-Downloading from central: https://repo.maven.apache.org/maven2/org/a/a-1.0.jar\n\
-Progress (1): 4.1/5.6 kB\n\
-Downloaded from central: https://repo.maven.apache.org/maven2/org/a/a-1.0.jar\n\
-Downloading from central: https://repo.maven.apache.org/maven2/org/a/a-1.0.jar\n\
-Downloading from central: https://repo.maven.apache.org/maven2/org/b/b-2.0.pom\n";
-        emit_downloads(text, &sender);
-        let mut artifacts = Vec::new();
-        while let Ok(SessionEvent::Preparation(PreparationEvent::Phase {
-            phase,
-            download_artifact,
-            ..
-        })) = receiver.try_recv()
-        {
-            assert_eq!(phase, PreparationPhase::Building);
-            artifacts.push(download_artifact);
-        }
-        assert_eq!(
-            artifacts,
-            [Some("a-1.0.jar".to_string()), Some("b-2.0.pom".to_string())]
         );
     }
 
