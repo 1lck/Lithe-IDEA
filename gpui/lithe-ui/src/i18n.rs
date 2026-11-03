@@ -539,6 +539,22 @@ fn en(key: &'static str) -> &'static str {
         "Type" => "Type",
         "Unpin configuration" => "Unpin configuration",
         "Working directory" => "Working directory",
+        // Run 工具窗的启动准备阶段文案。
+        "Application launched" => "Application launched",
+        "Compiling and resolving dependencies (Maven)" => {
+            "Compiling and resolving dependencies (Maven)"
+        }
+        "Dependencies are compiled and resolved with Maven before the application starts." => {
+            "Dependencies are compiled and resolved with Maven before the application starts."
+        }
+        "Launch preparation failed" => "Launch preparation failed",
+        "Launch preparation failed — view details" => {
+            "Launch preparation failed — view details"
+        }
+        "Launch preparation stopped" => "Launch preparation stopped",
+        "Launching application" => "Launching application",
+        "Preparing launch" => "Preparing launch",
+        "Preparing launch steps" => "Preparing launch steps",
 
 
         // --- settings (agent A) ---

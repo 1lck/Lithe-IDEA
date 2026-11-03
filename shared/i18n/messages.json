@@ -92186,6 +92186,69 @@
       ]
     },
     {
+      "id": "gpui.run.preparingLaunch",
+      "description": "GPUI run: Preparing launch",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.run.preparingLaunchSteps",
+      "description": "GPUI run: Preparing launch steps",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.run.compilingMavenDependencies",
+      "description": "GPUI run: Compiling and resolving dependencies (Maven)",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.run.launchingApplication",
+      "description": "GPUI run: Launching application",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.run.applicationLaunched",
+      "description": "GPUI run: Application launched",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.run.launchPreparationFailedDetails",
+      "description": "GPUI run: Launch preparation failed — view details",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.run.launchPreparationFailed",
+      "description": "GPUI run: Launch preparation failed",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.run.launchPreparationStopped",
+      "description": "GPUI run: Launch preparation stopped",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.run.mavenDependencyHint",
+      "description": "GPUI run: Dependencies are compiled and resolved with Maven before the application starts.",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
       "id": "gpui.workbench.className",
       "description": "GPUI New Java Type dialog: Class name",
       "platforms": [
