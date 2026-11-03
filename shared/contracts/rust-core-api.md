@@ -4026,6 +4026,19 @@ invalid terms or a composed expression over 1024 bytes return -32060.
 }
 ```
 
+`queryLogsV2` additionally accepts optional `filterSince` / `filterUntil` RFC3339
+bounds, intersected with `since` / `until`. Each pair must be ordered (-32052 otherwise);
+a disjoint intersection succeeds with zero records. This lets an export range and a
+window time selection share Core's exact instant comparison.
+
+Optional `afterSequences:{sessionBasename:u64}` excludes records at or below the
+specified session's sequence. Keys use the session directory grammar; the empty key
+represents session-relative sources without a `sessions/<name>/` prefix. Sequences
+from different sessions are never compared. The response's `sessionSequences` maps
+each supplied session to its highest decoded sequence, before filters and limits.
+Native live sources should carry their current session prefix so historical and
+live queries use the same identity. Missing fields preserve existing queries.
+
 `foldKey` is lowercase 16-digit FNV-1a 64 hex over channel, canonical uppercase
 level, event, message in that order; each UTF-8 value is preceded by its byte length
 as a little-endian u64. This encoding is stable across versions/architectures.

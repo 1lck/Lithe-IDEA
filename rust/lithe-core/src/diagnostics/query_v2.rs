@@ -46,6 +46,15 @@ pub struct LogQueryV2Request {
     pub since: Option<String>,
     /// Inclusive RFC3339 upper bound, compared as an instant.
     pub until: Option<String>,
+    /// Independent window bounds intersect export bounds; an empty intersection matches nothing.
+    #[serde(default)]
+    pub filter_since: Option<String>,
+    /// Inclusive upper bound from the window selection.
+    #[serde(default)]
+    pub filter_until: Option<String>,
+    /// Session basename to exclusive sequence watermark; session-relative sources use the empty key.
+    #[serde(default)]
+    pub after_sequences: BTreeMap<String, u64>,
     /// Case-insensitive substring across the message, identities, and context.
     pub search: Option<String>,
     /// Exact key=value matches; reserved fields may also be queried.
@@ -147,6 +156,8 @@ pub struct OpSummary {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LogQueryV2Response {
+    /// Highest decoded sequence per supplied session, before query filters and output limits.
+    pub session_sequences: BTreeMap<String, u64>,
     /// Newest bounded matches in ascending parsed time, sequence, path, and line order.
     pub records: Vec<QueriedLogRecord>,
     /// Counts over all filtered matches, including matches omitted by the output limit.
@@ -388,10 +399,33 @@ pub fn query_logs_v2(request: LogQueryV2Request) -> Result<LogQueryV2Response, L
     }
     let since = request.since.as_deref().map(parse_time).transpose()?;
     let until = request.until.as_deref().map(parse_time).transpose()?;
+    let filter_since = request
+        .filter_since
+        .as_deref()
+        .map(parse_time)
+        .transpose()?;
+    let filter_until = request
+        .filter_until
+        .as_deref()
+        .map(parse_time)
+        .transpose()?;
     if since.zip(until).is_some_and(|(a, b)| a > b) {
         return Err(LogError::new(-32052, "Query time range is reversed"));
     }
+    if filter_since.zip(filter_until).is_some_and(|(a, b)| a > b) {
+        return Err(LogError::new(-32052, "Query time range is reversed"));
+    }
+    for session in request
+        .after_sequences
+        .keys()
+        .filter(|session| !session.is_empty())
+    {
+        super::channel::parse_session_directory_name(session)?;
+    }
+    let since = since.into_iter().chain(filter_since).max();
+    let until = until.into_iter().chain(filter_until).min();
     let mut response = LogQueryV2Response {
+        session_sequences: BTreeMap::new(),
         records: Vec::new(),
         channel_counts: BTreeMap::new(),
         truncated: false,
@@ -415,6 +449,11 @@ pub fn query_logs_v2(request: LogQueryV2Request) -> Result<LogQueryV2Response, L
     let mut histogram_points = Vec::new();
     for (source_index, source) in request.sources.into_iter().enumerate() {
         let (mut channel, legacy) = source_channel(&source.relative_path)?;
+        let session = source
+            .relative_path
+            .strip_prefix("sessions/")
+            .and_then(|rest| rest.split_once('/'))
+            .map_or("", |(session, _)| session);
         if source.first_line_number == 0 {
             return Err(LogError::new(-32050, "Invalid query source path"));
         }
@@ -453,9 +492,21 @@ pub fn query_logs_v2(request: LogQueryV2Request) -> Result<LogQueryV2Response, L
                 }
             };
             let all_counts = response.channels.entry(channel.clone()).or_default();
+            let sequence = response
+                .session_sequences
+                .entry(session.to_owned())
+                .or_default();
+            *sequence = (*sequence).max(record.seq);
             all_counts.total += 1;
             all_counts.warn += usize::from(record.level == LogLevel::Warn);
             all_counts.error += usize::from(record.level == LogLevel::Error);
+            if request
+                .after_sequences
+                .get(session)
+                .is_some_and(|watermark| record.seq <= *watermark)
+            {
+                continue;
+            }
             if !request.channel_prefixes.is_empty()
                 && !request
                     .channel_prefixes
@@ -693,6 +744,41 @@ mod tests {
 mod window_tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn export_time_bounds_intersect_and_clear_sequences_are_session_local() {
+        let source = |session: &str, seq: u64, time: &str| {
+            json!({
+                "relativePath":format!("sessions/{session}/app.log"),
+                "text":format!("{time} INFO seq={seq} event=app.ready msg=ready")
+            })
+        };
+        let old = "2026-11-02T00-00-00_abcdef12";
+        let current = "2026-11-03T00-00-00_12345678";
+        let query = json!({"sources":[
+            source(old, 5000, "2026-11-02T00:00:00.000Z"),
+            source(current, 2, "2026-11-03T00:00:01.000Z")
+        ],"afterSequences":{old:5000,current:1}});
+        let result = query_logs_v2(serde_json::from_value(query.clone()).unwrap()).unwrap();
+        assert_eq!(result.records.len(), 1);
+        assert_eq!(result.records[0].record.seq, 2);
+        let mut filtered = query.clone();
+        filtered["since"] = json!("2026-11-02T00:00:00Z");
+        filtered["filterSince"] = json!("2026-11-03T01:00:01+01:00");
+        filtered["filterUntil"] = json!("2026-11-03T00:00:01.000Z");
+        assert_eq!(
+            query_logs_v2(serde_json::from_value(filtered.clone()).unwrap())
+                .unwrap()
+                .records
+                .len(),
+            1
+        );
+        filtered["since"] = json!("2026-11-03T00:00:02Z");
+        assert!(query_logs_v2(serde_json::from_value(filtered).unwrap())
+            .unwrap()
+            .records
+            .is_empty());
+    }
 
     #[test]
     fn window_statistics_keep_full_distribution_and_unfiltered_channels() {

@@ -28,7 +28,12 @@ struct LogWindowView: View {
                         .font(LitheTheme.uiFont(size: 11, design: .monospaced))
                 }.foregroundStyle(Color(LogWindowPalette.red)).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 10)
             }
-            if let error = model.error ?? exportFeature.logError { Text(error).foregroundStyle(Color(LogWindowPalette.red)) }
+            if let error = model.error ?? exportFeature.logError {
+                HStack {
+                    Text(error).foregroundStyle(Color(LogWindowPalette.red))
+                    if model.error != nil { Button("Retry") { model.retry() } }
+                }
+            }
             LogHistogramView(model: model)
             HStack(spacing: 0) {
                 sidebar.frame(width: 212)

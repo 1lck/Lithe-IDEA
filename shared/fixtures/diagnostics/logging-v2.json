@@ -1484,6 +1484,74 @@
           "firstEpochMs": 1793664000000,
           "lastEpochMs": 1793664000000,
           "durationMs": 0
+        },
+        "sessionSequences": {
+          "": 1
+        }
+      }
+    },
+    {
+      "name": "session watermark",
+      "command": "diagnostics.queryLogsV2",
+      "request": {
+        "sources": [
+          {
+            "relativePath": "sessions/2026-11-03T00-00-00_12345678/app.log",
+            "text": "2026-11-03T00:00:01.000Z INFO seq=2 event=app.ready msg=ready"
+          }
+        ],
+        "afterSequences": {
+          "2026-11-03T00-00-00_12345678": 2
+        }
+      },
+      "expected": {
+        "records": [],
+        "channelCounts": {},
+        "truncated": false,
+        "skippedInvalidLines": 0,
+        "foldMinimumRun": 3,
+        "channels": {
+          "app": {
+            "total": 1,
+            "warn": 0,
+            "error": 0
+          }
+        },
+        "histogram": null,
+        "sessionSequences": {
+          "2026-11-03T00-00-00_12345678": 2
+        }
+      }
+    },
+    {
+      "name": "disjoint export range",
+      "command": "diagnostics.queryLogsV2",
+      "request": {
+        "sources": [
+          {
+            "relativePath": "sessions/2026-11-03T00-00-00_12345678/app.log",
+            "text": "2026-11-03T00:00:01.000Z INFO seq=2 event=app.ready msg=ready"
+          }
+        ],
+        "since": "2026-11-03T00:00:02Z",
+        "filterUntil": "2026-11-03T00:00:01Z"
+      },
+      "expected": {
+        "records": [],
+        "channelCounts": {},
+        "truncated": false,
+        "skippedInvalidLines": 0,
+        "foldMinimumRun": 3,
+        "channels": {
+          "app": {
+            "total": 1,
+            "warn": 0,
+            "error": 0
+          }
+        },
+        "histogram": null,
+        "sessionSequences": {
+          "2026-11-03T00-00-00_12345678": 2
         }
       }
     }

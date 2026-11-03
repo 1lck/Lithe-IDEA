@@ -13,7 +13,13 @@ private final class WindowQueryGate: LogWindowLogging, @unchecked Sendable {
     let release = TestGate()
     private let lock = NSLock()
     private var first = true
+    private var failsNextBatch = false
+    private var subscriptions = 0
+    let subscribed = TestGate()
+    let batchAttempted = TestGate()
     init(_ native: MacLogStore) { self.native = native }
+    func failNextBatch() { lock.withLock { failsNextBatch = true } }
+    var subscriptionCount: Int { lock.withLock { subscriptions } }
     func windowLiveSummary(_ records: [RustCoreBridge.LogQueryRecord]) async throws -> LogWindowLiveSummary { try await native.windowLiveSummary(records) }
     func queryWindow(_ query: LogWindowQuery) async throws -> LogWindowCollection {
         let shouldGate = lock.withLock { let value = first; first = false; return value }
@@ -24,8 +30,19 @@ private final class WindowQueryGate: LogWindowLogging, @unchecked Sendable {
         }
         return result
     }
-    func queryWindowBatch(_ entries: [LogWindowBatch], query: LogWindowQuery) async throws -> RustCoreBridge.LogQueryResult { try await native.queryWindowBatch(entries, query: query) }
-    func subscribeWindow() async throws -> AsyncStream<[LogWindowBatch]> { try await native.subscribeWindow() }
+    func queryWindowBatch(_ entries: [LogWindowBatch], query: LogWindowQuery) async throws -> RustCoreBridge.LogQueryResult {
+        if lock.withLock({ let fail = failsNextBatch; failsNextBatch = false; return fail }) {
+            batchAttempted.open()
+            throw CocoaError(.fileReadUnknown)
+        }
+        return try await native.queryWindowBatch(entries, query: query)
+    }
+    func subscribeWindow() async throws -> AsyncStream<[LogWindowBatch]> {
+        let stream = try await native.subscribeWindow()
+        lock.withLock { subscriptions += 1 }
+        subscribed.open()
+        return stream
+    }
     func parseWindowFilter(_ expression: String) async throws -> RustCoreBridge.LogFilterParse { try await native.parseWindowFilter(expression) }
     func composeWindowFilter(_ request: RustCoreBridge.LogComposeRequest) async throws -> String { try await native.composeWindowFilter(request) }
     func formatWindowRecords(_ request: RustCoreBridge.LogFormatRequest) async throws -> String { try await native.formatWindowRecords(request) }
@@ -42,6 +59,82 @@ struct LogWindowTests {
         let gate = TestGate()
         let observation = model.$state.sink { if !$0.records.isEmpty { gate.open() } }
         return (gate, observation)
+    }
+    @Test func liveBatchRespectsSelectedTimeRange() async throws {
+        let directory = root()
+        let writer = MacLogStore(defaultDirectory: directory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let core = RustCoreBridge()
+        let lines = try core.encodeLogs(.init(events: [0, 1, 2].map { index in
+            .init(ts: "2026-11-03T00:00:0\(index).000Z", level: "INFO", seq: UInt64(index + 1),
+                event: "app.session.started", msg: "", fields: [:])
+        }, deduplicate: false)).results.compactMap(\.line)
+        var query = LogWindowQuery()
+        query.since = "2026-11-03T00:00:01.000Z"; query.until = query.since
+        let result = try await writer.queryWindowBatch(lines.map { .init(channel: "app", line: $0) }, query: query)
+        #expect(result.records.map(\.seq) == [2])
+        await writer.finishSession()
+    }
+    @Test func historicalSequenceDoesNotHideNewCurrentSessionRecords() async throws {
+        let directory = root()
+        let writer = MacLogStore(defaultDirectory: directory)
+        let previous = directory.appendingPathComponent("sessions/2026-11-02T00-00-00_abcdef12")
+        try FileManager.default.createDirectory(at: previous, withIntermediateDirectories: true)
+        let line = try #require(try RustCoreBridge().encodeLogs(.init(events: [
+            .init(ts: "2026-11-02T00:00:00.000Z", level: "INFO", seq: 5000,
+                event: "app.session.started", msg: "", fields: [:])
+        ])).results.first?.line)
+        try Data((line + "\n").utf8).write(to: previous.appendingPathComponent("app.log"))
+        var preferences = LogWindowPreferences(); preferences.query.session = "previous"
+        let model = LogWindowModel(logging: writer, preferences: preferences)
+        let previousLoaded = TestGate(), currentLoaded = TestGate(), freshLoaded = TestGate()
+        let observation = model.$state.sink { state in
+            if state.records.contains(where: { $0.seq == 5000 }) { previousLoaded.open() }
+            if state.records.contains(where: { $0.event == "app.session.started" && $0.seq < 5000 }) { currentLoaded.open() }
+            if state.records.contains(where: { $0.event == "app.notification.operation_rejected" }) { freshLoaded.open() }
+        }
+        defer { model.stop(); observation.cancel(); try? FileManager.default.removeItem(at: directory) }
+        emit(writer); model.refresh()
+        try #require(await previousLoaded.waitUntilOpen())
+        model.changeQuery { $0.session = "current" }
+        try #require(await currentLoaded.waitUntilOpen())
+        model.clearDisplay()
+        writer.emit(AppNotificationOperationRejected(operation: "fixture", reason: "after_clear"))
+        model.refresh()
+        try #require(await freshLoaded.waitUntilOpen())
+        #expect(model.state.records.allSatisfy { $0.event != "app.session.started" })
+        await writer.finishSession()
+    }
+    @Test func liveFailureCanBeRetriedWithoutReopeningWindow() async throws {
+        let directory = root()
+        let writer = MacLogStore(defaultDirectory: directory)
+        let logging = WindowQueryGate(writer)
+        logging.release.open()
+        let model = LogWindowModel(logging: logging)
+        let loaded = TestGate()
+        let observation = model.$state.sink { if $0.directory != nil { loaded.open() } }
+        let failed = TestGate(), recovered = TestGate()
+        let errors = model.$error.sink { if $0 != nil { failed.open() } }
+        let records = model.$state.sink { state in
+            if state.records.contains(where: { $0.fields["reason"] == "recovered" }) { recovered.open() }
+        }
+        defer { model.stop(); observation.cancel(); errors.cancel(); records.cancel(); try? FileManager.default.removeItem(at: directory) }
+        model.start()
+        try #require(await loaded.waitUntilOpen())
+        try #require(await logging.subscribed.waitUntilOpen())
+        logging.failNextBatch()
+        writer.emit(AppNotificationOperationRejected(operation: "fixture", reason: "fail_batch"))
+        try await writer.flush()
+        try #require(await logging.batchAttempted.waitUntilOpen())
+        try #require(await failed.waitUntilOpen())
+        #expect(!model.state.follows)
+        model.resume()
+        writer.emit(AppNotificationOperationRejected(operation: "fixture", reason: "recovered"))
+        try await writer.flush()
+        try #require(await recovered.waitUntilOpen())
+        #expect(model.state.follows)
+        #expect(logging.subscriptionCount == 2)
+        await writer.finishSession()
     }
     @Test func realQueryInvalidDraftAndClearPreserveDiskEvidence() async throws {
         let directory = root()
@@ -112,9 +205,12 @@ struct LogWindowTests {
         #expect(model.state.newCount == 1)
         model.resume()
         #expect(model.state.follows && model.state.newCount == 0)
-        model.clearDisplay(); model.append(batch)
+        model.clearDisplay()
+        let clearedBatch = try await writer.queryWindowBatch([.init(channel: "app", line: line)], query: model.query)
+        model.append(clearedBatch)
         #expect(model.state.records.isEmpty)
-        model.append(next)
+        let clearedNext = try await writer.queryWindowBatch([.init(channel: "app", line: try #require(second.results.first?.line))], query: model.query)
+        model.append(clearedNext)
         #expect(model.state.records.isEmpty)
         // Generate every boundary record through the actual catalog codec; the
         // canonical line and the seq in the decoded model must agree.
@@ -124,7 +220,7 @@ struct LogWindowTests {
             }, deduplicate: false))
             let result = try await writer.queryWindowBatch(encoded.results.compactMap(\.line).map {
                 .init(channel: "app", line: $0)
-            }, query: .init())
+            }, query: model.query)
             model.append(result)
         }
         #expect(model.state.records.count == LogWindowModel.maximumRecords)
@@ -145,12 +241,14 @@ struct LogWindowTests {
         #expect(bounded.preferences.bookmarks.count == 50)
         let restored = try JSONDecoder().decode(LogWindowPreferences.self, from: JSONEncoder().encode(bounded.preferences))
         #expect(restored == bounded.preferences)
-        let model = LogWindowModel(logging: writer)
+        var previousPreferences = LogWindowPreferences(); previousPreferences.query.session = "previous"
+        let model = LogWindowModel(logging: writer, preferences: previousPreferences)
         let located = TestGate()
         let observation = model.$state.sink { if !$0.selection.isEmpty { located.open() } }
         defer { model.stop(); bounded.stop(); observation.cancel(); try? FileManager.default.removeItem(at: directory) }
         emit(writer)
         model.apply(.init(reference: .init(channel: "app", event: "app.session.started")))
+        #expect(model.query.session == "current")
         #expect(await located.waitUntilOpen())
         #expect(model.selected?.event == "app.session.started")
         #expect(model.query.channelPrefixes == ["app"])

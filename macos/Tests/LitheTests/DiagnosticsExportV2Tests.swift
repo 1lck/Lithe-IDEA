@@ -36,6 +36,7 @@ struct DiagnosticsExportV2Tests {
         let observation = feature.$state.sink { if case .awaitingConfirmation = $0 { ready.open() } }
         defer { observation.cancel(); feature.dismiss() }
         var filter = LogWindowQuery(); filter.channelPrefixes = ["app"]; filter.levels = ["WARN"]; filter.expression = "operation:fixture"
+        filter.since = "2026-11-03T00:00:01.000Z"; filter.until = "2026-11-03T00:00:02.000Z"
         feature.presentExport(filter: filter)
         feature.currentFilterOnly = true
         feature.includeEnvironment = false
@@ -43,6 +44,8 @@ struct DiagnosticsExportV2Tests {
         #expect(feature.exportQuery.channelPrefixes == ["app"])
         #expect(feature.exportQuery.levels == ["WARN"])
         #expect(feature.exportQuery.expression == "operation:fixture")
+        // Every stored event predates the selected window, so exporting that
+        // filter must preserve the empty intersection instead of exporting it.
         guard case .awaitingConfirmation(let manifest) = service.state else { Issue.record("No frozen manifest"); return }
         #expect(manifest.redaction == "core-v2")
         #expect(!manifest.files.contains { $0.relativePath == "environment.json" })
@@ -50,7 +53,7 @@ struct DiagnosticsExportV2Tests {
         writer.emit(AppNotificationOperationRejected(operation: "fixture", reason: "later"))
         await service.export(to: root.appendingPathComponent("result.zip"))
         let snapshot = archiver.snapshot
-        #expect(snapshot.contains("confirmed") && !snapshot.contains("later"))
+        #expect(!snapshot.contains("confirmed") && !snapshot.contains("later"))
         #expect(!snapshot.contains("Application session started"))
         #expect(snapshot.contains("core-v2"))
         await writer.finishSession()

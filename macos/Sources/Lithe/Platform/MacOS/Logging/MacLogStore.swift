@@ -588,7 +588,8 @@ final class MacLogStore: ApplicationLogging, LogWindowLogging, LogSink, @uncheck
             }
             let result = try core.queryLogsV2(.init(sources: sources, channelPrefixes: query.channelPrefixes,
                 minimumLevel: query.minimumLevel?.uppercased(), since: query.since, until: query.until, search: query.search,
-                limit: 10000, expression: query.expression, levels: query.levels))
+                limit: 10000, expression: query.expression, levels: query.levels,
+                filterSince: query.filterSince, filterUntil: query.filterUntil))
             try token.check()
             // Core returns redacted, canonical lines so exports never serialize raw input.
             let grouped = Dictionary(grouping: result.records, by: \.relativePath)
@@ -631,26 +632,27 @@ final class MacLogStore: ApplicationLogging, LogWindowLogging, LogSink, @uncheck
                 let data = try handle.read(upToCount: read.maxBytes) ?? Data()
                 sources.append(.init(relativePath: read.relativePath, text: String(decoding: data, as: UTF8.self), startsMidLine: read.offset > 0))
             }
-            let result = try core.queryLogsV2(windowRequest(sources: sources, query: query, historical: true))
+            let result = try core.queryLogsV2(windowRequest(sources: sources, query: query))
             try token.check()
             let state = lock.withLock { (dropped, failures, diagnosticCategory, max(0, diagnosticUntil - diagnosticNow())) }
             return LogWindowCollection(result: result, directory: root, currentSessionPath: sessionPath ?? "",
                 dropped: state.0, writeFailures: state.1, diagnosticCategory: state.2, diagnosticRemaining: state.3)
         }
     }
-    private func windowRequest(sources: [RustCoreBridge.LogSourceV2], query: LogWindowQuery,
-                               historical: Bool) -> RustCoreBridge.LogQueryV2 {
+    private func windowRequest(sources: [RustCoreBridge.LogSourceV2], query: LogWindowQuery) -> RustCoreBridge.LogQueryV2 {
         .init(sources: sources, channelPrefixes: query.channelPrefixes, minimumLevel: nil,
-              since: historical ? query.since : nil, until: historical ? query.until : nil, search: nil,
-              limit: 10000, expression: query.expression, levels: query.levels, op: query.op, histogramBuckets: 90)
+              since: query.since, until: query.until, search: nil,
+              limit: 10000, expression: query.expression, levels: query.levels, op: query.op, histogramBuckets: 90,
+              afterSequences: query.afterSequences)
     }
     func queryWindowBatch(_ entries: [LogWindowBatch], query: LogWindowQuery) async throws -> RustCoreBridge.LogQueryResult {
         try await perform { [self] token in
             let grouped = Dictionary(grouping: entries, by: \.channel)
             let sources = grouped.keys.sorted().map { channel in
-                RustCoreBridge.LogSourceV2(relativePath: channel + ".log", text: grouped[channel]!.map(\.line).joined(separator: "\n"))
+                RustCoreBridge.LogSourceV2(relativePath: (sessionPath.map { $0 + "/" } ?? "") + channel + ".log",
+                    text: grouped[channel]!.map(\.line).joined(separator: "\n"))
             }
-            let result = try core.queryLogsV2(windowRequest(sources: sources, query: query, historical: false))
+            let result = try core.queryLogsV2(windowRequest(sources: sources, query: query))
             try token.check()
             return result
         }

@@ -54,6 +54,9 @@ extension RustCoreBridge {
         var levels: [String]? = nil
         var op: String? = nil
         var histogramBuckets: Int? = nil
+        var filterSince: String? = nil
+        var filterUntil: String? = nil
+        var afterSequences: [String: UInt64]? = nil
     }
     struct LogQueryRecord: Codable, Sendable, Equatable {
         let line: String
@@ -67,6 +70,7 @@ extension RustCoreBridge {
         let op: String?; let msg: String; let fields: [String: String]
     }
     struct LogQueryResult: Codable, Sendable {
+        let sessionSequences: [String: UInt64]
         let foldMinimumRun: Int
         let channels: [String: LogChannelCounts]
         let histogram: LogHistogram?

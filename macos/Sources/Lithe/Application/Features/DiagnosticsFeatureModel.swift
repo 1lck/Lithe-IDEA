@@ -44,6 +44,8 @@ final class DiagnosticsFeatureModel: ObservableObject {
             query.channelPrefixes = filter.channelPrefixes
             query.levels = filter.levels
             query.expression = filter.expression
+            query.filterSince = filter.since
+            query.filterUntil = filter.until
         }
         return query
     }

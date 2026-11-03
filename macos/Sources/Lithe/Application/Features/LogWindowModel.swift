@@ -78,13 +78,17 @@ final class LogWindowModel: ObservableObject {
     private var liveTask: Task<Void, Never>?
     private var traceTask: Task<Void, Never>?
     private var generation = 0
-    private var watermark: UInt64?
-    private var latestSequence: UInt64?
+    // Only the latest query's bounded session inventory is retained; sequence
+    // comparisons themselves are evaluated by Core against each source session.
+    private var watermarks: [String: UInt64] = [:]
+    private var latestSequences: [String: UInt64] = [:]
     private var pendingReference: LogRecordReference?
     private var activeQuery = LogWindowQuery()
     private var queryPending = false
     private var needsRefresh = false
     private var running = false
+    private var liveFailed = false
+    private var liveRevision = 0
     private var traceOperation: String?
     /// Installed while the log window owns export presentation.
     var onOpenExport: (() -> Void)?
@@ -100,11 +104,13 @@ final class LogWindowModel: ObservableObject {
         self.preferences.timeMode = min(2, max(0, preferences.timeMode))
         self.preferences.query.expression = Self.bounded(preferences.query.expression)
         self.preferences.query.channelPrefixes = Array(preferences.query.channelPrefixes.prefix(Self.maximumChannels))
+        self.preferences.query.afterSequences = nil
         self.preferences.bookmarks = Array(preferences.bookmarks.prefix(Self.maximumBookmarks)).map {
             var bookmark = $0
             bookmark.name = String(bookmark.name.prefix(128))
             bookmark.query.expression = Self.bounded(bookmark.query.expression)
             bookmark.query.channelPrefixes = Array(bookmark.query.channelPrefixes.prefix(Self.maximumChannels))
+            bookmark.query.afterSequences = nil
             return bookmark
         }
     }
@@ -146,40 +152,56 @@ final class LogWindowModel: ObservableObject {
         while result.utf8.count > maximumExpressionBytes { result.removeLast() }
         return result
     }
-    var query: LogWindowQuery { preferences.query }
+    var query: LogWindowQuery {
+        var query = preferences.query
+        query.afterSequences = watermarks.isEmpty ? nil : watermarks
+        return query
+    }
     var selectedRecords: [RustCoreBridge.LogQueryRecord] { state.records.filter { state.selection.contains(Self.recordID($0)) } }
     var selected: RustCoreBridge.LogQueryRecord? { selectedRecords.last }
     func start() {
         guard !running else { return }
         running = true
         refresh()
+        subscribe()
+    }
+    private func subscribe() {
+        liveTask?.cancel()
+        liveRevision += 1
+        let revision = liveRevision
+        liveFailed = false
         liveTask = Task { [weak self, logging] in
             do {
                 let stream = try await logging.subscribeWindow()
                 for await batch in stream {
-                    guard let self, !Task.isCancelled else { break }
+                    guard let self, !Task.isCancelled, self.liveRevision == revision else { break }
                     // Only the current session receives this process's broadcast.
                     guard self.activeQuery.session != "previous", !self.activeQuery.levels.isEmpty else { continue }
                     if self.queryPending { self.needsRefresh = true; continue }
                     let generation = self.generation
                     let result = try await logging.queryWindowBatch(batch, query: self.activeQuery)
-                    guard !Task.isCancelled, self.generation == generation else { continue }
+                    guard !Task.isCancelled, self.liveRevision == revision, self.generation == generation else { continue }
                     // Summaries are computed by Core over the bounded retained window.
                     let records = Array((self.state.records + result.records).suffix(Self.maximumRecords))
                     let summary = try await logging.windowLiveSummary(records)
-                    guard !Task.isCancelled, self.generation == generation else { continue }
+                    guard !Task.isCancelled, self.liveRevision == revision, self.generation == generation else { continue }
                     self.append(result, summary: summary)
                 }
-            } catch { self?.report(error) }
+            } catch {
+                guard let self, !Task.isCancelled, self.liveRevision == revision else { return }
+                self.liveFailed = true
+                self.state.follows = false
+                self.report(error)
+            }
         }
     }
     func stop() {
-        running = false; generation += 1
+        running = false; generation += 1; liveRevision += 1
         queryTask?.cancel(); queryTask = nil
         liveTask?.cancel(); liveTask = nil
         traceTask?.cancel(); traceTask = nil
         state = Snapshot()
-        traceOperation = nil; watermark = nil; latestSequence = nil
+        traceOperation = nil; watermarks = [:]; latestSequences = [:]; liveFailed = false
         queryPending = false; needsRefresh = false
         expandedRuns = []
     }
@@ -210,17 +232,20 @@ final class LogWindowModel: ObservableObject {
                 let collection = try await logging.queryWindow(query)
                 guard token == self.generation, !Task.isCancelled else { return }
                 self.activeQuery = query
+                self.activeQuery.afterSequences = self.watermarks
                 var next = self.state
                 next.directory = collection.directory; next.currentSessionPath = collection.currentSessionPath
                 next.dropped = collection.dropped; next.writeFailures = collection.writeFailures
                 next.diagnosticCategory = collection.diagnosticCategory; next.diagnosticRemaining = collection.diagnosticRemaining
-                self.latestSequence = max(self.latestSequence ?? 0, collection.result.records.last?.seq ?? 0)
-                next.records = self.afterWatermark(collection.result.records)
+                self.latestSequences = collection.result.sessionSequences
+                next.records = collection.result.records
                 next.channels = collection.result.channels; next.histogram = collection.result.histogram
                 next.foldMinimumRun = collection.result.foldMinimumRun
                 next.selection.formIntersection(Set(next.records.map(Self.recordID)))
                 self.locateReference(in: &next)
-                self.state = next; self.error = nil; self.queryPending = false
+                self.state = next
+                if !self.liveFailed { self.error = nil }
+                self.queryPending = false
                 if self.needsRefresh { self.needsRefresh = false; self.refresh() }
                 else { self.select(self.state.selection) }
             } catch {
@@ -229,16 +254,14 @@ final class LogWindowModel: ObservableObject {
             }
         }
     }
-    private func afterWatermark(_ records: [RustCoreBridge.LogQueryRecord]) -> [RustCoreBridge.LogQueryRecord] {
-        guard let watermark else { return records }
-        return records.filter { $0.seq > watermark }
-    }
     func append(_ result: RustCoreBridge.LogQueryResult, summary: LogWindowLiveSummary? = nil) {
         var next = state
         // A subscription replays its bounded tail. Historical/current paths refer to the same seq.
         let retained = Set(next.records.map { $0.ts + ":" + String($0.seq) + ":" + $0.channel })
-        let additions = afterWatermark(result.records).filter { !retained.contains($0.ts + ":" + String($0.seq) + ":" + $0.channel) }
-        latestSequence = max(latestSequence ?? 0, result.records.last?.seq ?? 0)
+        let additions = result.records.filter { !retained.contains($0.ts + ":" + String($0.seq) + ":" + $0.channel) }
+        for (session, sequence) in result.sessionSequences {
+            latestSequences[session] = max(latestSequences[session] ?? 0, sequence)
+        }
         // Live sources are channel-relative. Normalize their native location once
         // so historical and live selection/scroll identities agree.
         let located = additions.map { record -> RustCoreBridge.LogQueryRecord in
@@ -282,7 +305,9 @@ final class LogWindowModel: ObservableObject {
         if let channels = request.channelPrefixes { preferences.query.channelPrefixes = Array(channels.prefix(Self.maximumChannels)) }
         if let reference = request.reference {
             pendingReference = reference; preferences.query.channelPrefixes = [reference.channel]
-            watermark = nil
+            watermarks = [:]
+            preferences.query.afterSequences = nil
+            preferences.query.session = "current"
             preferences.query.expression = request.expression ?? ""
             preferences.query.since = nil; preferences.query.until = nil
             preferences.query.levels = ["DEBUG", "INFO", "WARN", "ERROR"]
@@ -320,10 +345,20 @@ final class LogWindowModel: ObservableObject {
         guard state.follows else { return }
         state.follows = false; state.scrolledUp = true; state.newCount = 0
     }
-    func resume() { state.follows = true; state.scrolledUp = false; state.newCount = 0; state.scrollRevision += 1 }
+    func retry() {
+        if running && liveFailed { subscribe() }
+        refresh()
+    }
+    func resume() {
+        state.follows = true; state.scrolledUp = false; state.newCount = 0; state.scrollRevision += 1
+        if liveFailed { retry() }
+    }
     func toggleFollow() { if state.follows { state.follows = false; state.scrolledUp = false } else { resume() } }
     func clearDisplay() {
-        watermark = latestSequence ?? state.records.last?.seq ?? watermark
+        watermarks = latestSequences
+        activeQuery.afterSequences = watermarks
+        // Invalidate an in-flight batch/query so it cannot restore cleared rows.
+        generation += 1; queryTask?.cancel(); queryPending = false; needsRefresh = false
         state.records = []; state.selection = []; state.trace = nil
         state.cleared = true; state.newCount = 0; state.follows = true
         traceTask?.cancel(); traceOperation = nil
@@ -365,7 +400,8 @@ final class LogWindowModel: ObservableObject {
     func setWidth(_ column: String, width: Double) { preferences.widths[column] = min(2000, max(40, width)); persist() }
     func saveBookmark(name: String) {
         guard !name.isEmpty, preferences.bookmarks.count < Self.maximumBookmarks else { return }
-        preferences.bookmarks.append(.init(name: String(name.prefix(128)), query: query)); persist()
+        var savedQuery = query; savedQuery.afterSequences = nil
+        preferences.bookmarks.append(.init(name: String(name.prefix(128)), query: savedQuery)); persist()
     }
     func applyBookmark(_ bookmark: LogWindowPreferences.Bookmark) { preferences.query = bookmark.query; persist(); refresh() }
     func deleteBookmark(_ id: UUID) { preferences.bookmarks.removeAll { $0.id == id }; persist() }

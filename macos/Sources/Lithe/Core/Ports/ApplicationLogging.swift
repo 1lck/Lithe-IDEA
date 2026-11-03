@@ -13,6 +13,8 @@ struct ApplicationLogQuery: Codable, Sendable, Equatable {
     var channelPrefixes: [String] = []
     var levels: [String]? = nil
     var expression: String? = nil
+    var filterSince: String? = nil
+    var filterUntil: String? = nil
 }
 
 struct ApplicationLogFile: Sendable {
@@ -67,6 +69,7 @@ struct LogWindowQuery: Codable, Sendable, Equatable {
     var since: String? = nil
     var until: String? = nil
     var op: String? = nil
+    var afterSequences: [String: UInt64]? = nil
 }
 struct LogWindowBatch: Sendable { let channel: String; let line: String }
 struct LogWindowCollection: Sendable {
