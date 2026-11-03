@@ -3060,6 +3060,13 @@ completion and resolve, hover, definition/declaration/type-definition, reference
 implementation, rename, formatting, code actions and resolve, execute command,
 inlay hints, full-document semantic tokens, folding ranges, code lens, provider
 virtual documents, `javaEntrypoints`, `javaTestItems`, and `javaMainMethods`.
+For code actions, `diagnostics` contains the original `LspClientDiagnostic`
+objects returned by Core: nullable integer `severity`, `tags`, and
+`relatedInformation` remain intact, and every range uses zero-based `line` /
+`utf16Column` positions. A platform's display severity or marker projection is
+not a diagnostic request model. Non-LSP markers may request actions with a range
+and an empty diagnostic context. The round-trip fixture is
+`shared/fixtures/lsp/diagnostic-code-actions-v1.json`.
 `javaEntrypoints` invokes Java Debug Server's
 `vscode.java.resolveMainClass` for the session workspace and returns schema
 version 1 with deterministic workspace-relative `{ sourcePath, mainClass,

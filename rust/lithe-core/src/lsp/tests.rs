@@ -2396,6 +2396,63 @@ fn client_core_rejects_unknown_server_requests_with_method_not_found() {
 }
 
 #[test]
+fn client_diagnostic_code_action_fixture_preserves_core_fields() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/lsp/diagnostic-code-actions-v1.json"
+    ))
+    .unwrap();
+    for case in fixture["severityCases"].as_array().unwrap() {
+        let mut diagnostic = fixture["diagnostic"].clone();
+        diagnostic["severity"] = case["severity"].clone();
+        // Exercise the exact JSON boundary used by Windows, including nullable
+        // severity, unknown tags and UTF-16 related locations.
+        let semantic: SemanticRequest = serde_json::from_value(json!({
+            "sessionId": "fixture-session", "operation": "codeActions",
+            "uri": fixture["uri"], "range": diagnostic["range"],
+            "diagnostics": [diagnostic]
+        }))
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(&semantic.diagnostics[0]).unwrap(),
+            diagnostic
+        );
+        let opened = client_open_document(ClientOpenDocumentRequest {
+            state: LspClientState::default(),
+            uri: fixture["uri"].as_str().unwrap().to_string(),
+            language_id: "java".to_string(),
+            text: "class Main {}".to_string(),
+        })
+        .unwrap();
+        let response = client_feature_request(
+            serde_json::from_value(json!({
+                "state": opened.state,
+                "uri": fixture["uri"], "method": "textDocument/codeAction",
+                "range": diagnostic["range"], "diagnostics": [diagnostic]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let message: Value = serde_json::from_str(&response.messages[0]).unwrap();
+        let returned = client_apply_server_message(ClientApplyServerMessageRequest {
+            state: response.state,
+            message: json!({
+                "jsonrpc": "2.0", "method": "textDocument/publishDiagnostics",
+                "params": { "uri": fixture["uri"], "diagnostics": message["params"]["context"]["diagnostics"] }
+            })
+            .to_string(),
+        })
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(&returned.state.diagnostics[fixture["uri"].as_str().unwrap()][0])
+                .unwrap(),
+            diagnostic,
+            "{}",
+            case["name"]
+        );
+    }
+}
+
+#[test]
 fn client_completion_preserves_refresh_context_and_incomplete_lists() {
     let fixture: Value = serde_json::from_str(include_str!(
         "../../../../shared/fixtures/lsp/completion-refresh-v1.json"

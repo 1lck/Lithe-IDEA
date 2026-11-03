@@ -14,6 +14,7 @@ import {
 } from "@/features/run/stores/language-server-progress.store";
 import { emit } from "@tauri-apps/api/event";
 import { executeCore, type CoreResponse } from "@/core/lithe-core-client";
+import type { LspClientDiagnostic } from "@/core/lsp-diagnostic";
 import { type JavaBuildReport } from "@/platform/java-launch-readiness";
 import { frontendTrace } from "@/utils/frontend-trace";
 import {
@@ -119,7 +120,7 @@ interface RuntimeEvent {
   operationId?: string;
   uri?: string;
   version?: number;
-  diagnostics?: unknown[];
+  diagnostics?: LspClientDiagnostic[];
   result?: unknown;
   error?: RuntimeError;
   level?: string;
@@ -530,7 +531,7 @@ async function dispatchSessionEvent(session: Session, event: RuntimeEvent): Prom
 export interface LspDiagnosticsPublication {
   uri: string;
   version?: number;
-  diagnostics: unknown;
+  diagnostics: LspClientDiagnostic[];
 }
 
 /** Payload of `lsp://diagnostics`: every document whose diagnostics changed in one Core drain. */
@@ -553,7 +554,8 @@ async function poll(session: Session, timeoutMilliseconds = 30_000): Promise<Run
     const publications = [...diagnostics].map(([uri, event]) => ({
       uri,
       version: event.version,
-      diagnostics: normalizeCoreValue(event.diagnostics ?? []),
+      // Keep Core's diagnostic intact, including related locations and UTF-16 positions.
+      diagnostics: event.diagnostics ?? [],
     }));
     diagnostics.clear();
     await emit("lsp://diagnostics", { publications } satisfies LspDiagnosticsBatch);
@@ -1367,23 +1369,8 @@ function semanticPayload(command: string, args: JsonRecord, session: Session): J
     };
   }
   if (command === "lsp_get_code_actions") {
-    const diagnostic = args.diagnostic ?? {};
-    payload.range = {
-      start: { line: diagnostic.line ?? 0, utf16Column: diagnostic.column ?? 0 },
-      end: {
-        line: diagnostic.endLine ?? diagnostic.line ?? 0,
-        utf16Column: diagnostic.endColumn ?? diagnostic.column ?? 0,
-      },
-    };
-    payload.diagnostics = [
-      {
-        range: payload.range,
-        message: diagnostic.message ?? "",
-        severity: diagnostic.severity ?? null,
-        source: diagnostic.source ?? null,
-        code: diagnostic.code == null ? null : String(diagnostic.code),
-      },
-    ];
+    payload.range = args.range;
+    payload.diagnostics = args.diagnostics;
   }
   return payload;
 }
