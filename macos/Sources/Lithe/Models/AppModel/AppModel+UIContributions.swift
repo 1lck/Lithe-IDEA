@@ -2,13 +2,13 @@ import Foundation
 import LitheModuleAPI
 
 extension AppModel {
-    func showContributionEntry(_ contribution: ModuleContribution) {
+    func showContributionEntry(_ contribution: ModuleContribution, openToolWindow: Bool = true) {
         guard workbenchContributions.contains(contribution) else { return }
         if contribution.kind == .toolWindow {
             let state = workbenchUIRegistry.state(for: contribution, model: self)
             guard state.isVisible && state.isEnabled && !state.isPending else { return }
             workbenchFeature.customizeContribution(contribution.id, isHidden: false)
-            restoreRegisteredToolWindows([contribution.id])
+            if openToolWindow { restoreRegisteredToolWindows([contribution.id]) }
         } else {
             // Restoring a button or menu entry must never execute its command.
             workbenchFeature.customizeContribution(contribution.id, isHidden: false)
@@ -71,6 +71,7 @@ extension AppModel {
                       self.workbenchFeature.isCurrentDisplayRequest(displayRequest, for: window),
                       self.services.moduleRuntime.availableContributions()[owner]?.contains(contribution) == true else { return }
                 self.workbenchFeature.setVisibility(window, isVisible: true)
+                self.workbenchUIRegistry.didShow(contribution, model: self)
             } catch {
                 if !error.isCancellation { self.showNotification(error.localizedDescription, logReference: self.notificationFailure(error, operation: "ui_contributions")) }
             }

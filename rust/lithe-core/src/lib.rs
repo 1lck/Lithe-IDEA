@@ -2,6 +2,7 @@
 
 use std::path::Path;
 
+mod action_search;
 mod agent;
 pub mod ai;
 mod build;

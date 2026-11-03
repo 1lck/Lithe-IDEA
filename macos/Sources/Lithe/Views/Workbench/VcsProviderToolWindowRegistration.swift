@@ -78,7 +78,7 @@ extension WorkbenchModuleUIRegistry {
                 help: window.title
             ))
         }
-        return Registration(contributions: declaration.contributions, actions: actions, renderers: renderers)
+        return Registration(contributions: declaration.contributions, actions: actions, renderers: renderers, localizesTitles: false)
     }
 }
 

@@ -682,7 +682,7 @@
         "diagnostic": {
           "type": "text",
           "required": true,
-          "description": "Upstream trace message and verbose detail, redacted and capped at 1024 UTF-8 bytes",
+          "description": "Upstream trace summary only, redacted and capped at 1024 UTF-8 bytes; verbose RPC payloads are excluded",
           "reason": "Upstream trace messages describe internal protocol decisions without structured equivalents; retain their wording only during explicitly enabled detailed diagnostics."
         }
       },

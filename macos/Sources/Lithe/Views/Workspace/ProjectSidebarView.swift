@@ -531,6 +531,11 @@ private final class ProjectTreeActions: @unchecked Sendable {
         AgentFileAttachmentMenu.items(model: model, urls: urls)
     }
 
+    @MainActor
+    func openWithMenuItems(_ url: URL) -> [LitheContextMenuItem] {
+        ProjectFileOpenWithMenu.items(model: model, url: url)
+    }
+
     /// "Show <VCS> Diff" for a file a plugin VCS lists as changed.
     @MainActor
     func vcsDiffMenuItem(_ url: URL) -> LitheContextMenuItem? {
@@ -1071,7 +1076,7 @@ private struct FileNodeRow: View {
             .action("Open") {
                 actions.openFile(node.url)
             }
-        ] + [.separator] + projectSearchMenuItems
+        ] + actions.openWithMenuItems(node.url) + [.separator] + projectSearchMenuItems
         let attachments = actions.agentAttachmentMenuItems([node.url])
         if !attachments.isEmpty { items += [.separator] + attachments }
 

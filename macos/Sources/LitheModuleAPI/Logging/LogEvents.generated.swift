@@ -72,6 +72,29 @@ public struct AgentStatisticsDecodeFailed: LogEvent {
     }
 }
 
+public struct AppActionSearchFailed: LogEvent {
+    public static let id = "app.action_search.failed"
+    public static let level: LogLevel = .error
+    public static let messageTemplate = "Action catalog search failed"
+    public static let ratePerMinute = 60
+    public static let owner = "Lithe"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
+
+    public init(`error`: any Error, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.app, segments: [])
+        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["error"] = .error(`error`)
+        self.fields = _logValues
+    }
+}
+
 public struct AppCacheWriteFailed: LogEvent {
     public static let id = "app.cache.write_failed"
     public static let level: LogLevel = .warn

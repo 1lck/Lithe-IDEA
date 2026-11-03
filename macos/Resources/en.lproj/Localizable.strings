@@ -10,6 +10,7 @@
 "%@ %lld" = "%@ %lld";
 "%@ (%@ failed)" = "%@ (%@ failed)";
 "%@ (%lld)" = "%@ (%lld)";
+"%@ (default)" = "%@ (default)";
 "%@ (not available for this Lithe or Mac)" = "%@ (not available for this Lithe or Mac)";
 "%@ already exists. Choose another name or location." = "%@ already exists. Choose another name or location.";
 "%@ answered with status %lld. %@" = "%@ answered with status %lld. %@";
@@ -67,6 +68,7 @@
 "%@ · %@ used" = "%@ · %@ used";
 "%@ · %lld of %lld steps processed" = "%@ · %lld of %lld steps processed";
 "%@ · ERROR %lld · WARN %lld · other %lld" = "%@ · ERROR %lld · WARN %lld · other %lld";
+"%@ — %@" = "%@ — %@";
 "%@ ↔ Working Tree" = "%@ ↔ Working Tree";
 "%@, %@" = "%@, %@";
 "%@, Line %lld, %@" = "%@, Line %lld, %@";
@@ -360,6 +362,8 @@
 "Another instruction save is running. Try again." = "Another instruction save is running. Try again.";
 "Answered in %lld ms" = "Answered in %lld ms";
 "Any Time" = "Any Time";
+"App Store" = "App Store";
+"App Store…" = "App Store…";
 "App version, macOS version, architecture, enabled plugins" = "App version, macOS version, architecture, enabled plugins";
 "Appearance" = "Appearance";
 "Appearance & Behavior" = "Appearance & Behavior";
@@ -674,6 +678,7 @@
 "Choose an AI provider below so the Agent can sign in." = "Choose an AI provider below so the Agent can sign in.";
 "Choose an Agent" = "Choose an Agent";
 "Choose an Agent to start" = "Choose an Agent to start";
+"Choose an Application" = "Choose an Application";
 "Choose another JDK in Settings → Project or clear the invalid path." = "Choose another JDK in Settings → Project or clear the invalid path.";
 "Choose at least one Agent." = "Choose at least one Agent.";
 "Choose database" = "Choose database";
@@ -1053,6 +1058,7 @@
 "Could not load the changed files." = "Could not load the changed files.";
 "Could not load this image" = "Could not load this image";
 "Could not move the editor tab. Its content could not be synchronized." = "Could not move the editor tab. Its content could not be synchronized.";
+"Could not open %@: %@" = "Could not open %@: %@";
 "Could not open %@: %@ %@" = "Could not open %@: %@ %@";
 "Could not open HTML in browser" = "Could not open HTML in browser";
 "Could not open the remote folder: %@" = "Could not open the remote folder: %@";
@@ -2777,6 +2783,7 @@
 "Open Run Configuration" = "Open Run Configuration";
 "Open SKILL.md" = "Open SKILL.md";
 "Open Stable Downloads" = "Open Stable Downloads";
+"Open With" = "Open With";
 "Open a Git project before using pull requests" = "Open a Git project before using pull requests";
 "Open a Java file" = "Open a Java file";
 "Open a Java file before starting Debug" = "Open a Java file before starting Debug";
@@ -2844,6 +2851,7 @@
 "Other ChangeLists have staged files. Unstage them before committing the current ChangeList." = "Other ChangeLists have staged files. Unstage them before committing the current ChangeList.";
 "Other reference changes: %lld added, %lld updated, %lld deleted" = "Other reference changes: %lld added, %lld updated, %lld deleted";
 "Other run configurations" = "Other run configurations";
+"Other…" = "Other…";
 "Output" = "Output";
 "Output language" = "Output language";
 "Output speed (TPS)" = "Output speed (TPS)";
@@ -4628,6 +4636,7 @@
 "Undo Commit…" = "Undo Last Commit (Keep Changes)…";
 "Undo last import" = "Undo last import";
 "Unhandled" = "Unhandled";
+"Unhide" = "Unhide";
 "Unified view" = "Unified view";
 "Uninstall" = "Uninstall";
 "Uninstall %@ from the Installed tab and restart Lithe first. It is the retired official version of this plugin and supports the same language." = "Uninstall %@ from the Installed tab and restart Lithe first. It is the retired official version of this plugin and supports the same language.";
@@ -5214,6 +5223,7 @@
 "mac.editorImport.extended6" = "Keyboard shortcut conflicts with %1$@. Adjust your keymap before importing.";
 "mac.editorImport.extended7" = "Appearance defaults are labeled separately. Workspace and language overrides, formatters, extensions and account data are skipped.";
 "mac.editorImport.inheritedKeymapScope" = "Supported keyboard commands are mapped; unknown keymaps, mouse shortcuts and chords are skipped.";
+"mac.workbench.unhide" = "Unhide";
 "macOS could not prepare the update disk image. Download the release manually and try again." = "macOS could not prepare the update disk image. Download the release manually and try again.";
 "macOS could not prepare the update disk image. Open the Release page and install it manually." = "macOS could not prepare the update disk image. Open the Release page and install it manually.";
 "main Java" = "main Java";
@@ -10069,6 +10079,14 @@
 "vcs.commitFiles.trashWarning" = "These files will be moved to the macOS Trash.";
 "vcs.commitFiles.vcsDeleteWarning" = "The version control provider will delete these files and record their removal. They may not be moved to Trash.";
 "version managed from %@" = "version managed from %@";
+"workspace.appStore" = "App Store";
+"workspace.chooseApplication" = "Choose an Application";
+"workspace.defaultApplication" = "%1$@ (default)";
+"workspace.externalOpenFailed" = "Could not open %1$@: %2$@";
+"workspace.nativeMenuDescription" = "%1$@ — %2$@";
+"workspace.openWith" = "Open With";
+"workspace.openWithAppStore" = "App Store…";
+"workspace.openWithOther" = "Other…";
 "Δ previous" = "Δ previous";
 "Δ selected" = "Δ selected";
 "— Click the Run icon in the editor gutter" = "— Click the Run icon in the editor gutter";

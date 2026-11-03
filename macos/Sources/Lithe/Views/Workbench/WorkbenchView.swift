@@ -1280,6 +1280,7 @@ struct WorkbenchView: View {
     private var activityBar: some View {
         VStack(spacing: 0) {
             dockStripe(DockPosition(anchor: .left, group: .primary))
+            WorkbenchToolWindowsMenu(model: model)
             Spacer(minLength: 0)
             dockStripe(DockPosition(anchor: .left, group: .secondary))
             dockStripe(DockPosition(anchor: .bottom, group: .primary))

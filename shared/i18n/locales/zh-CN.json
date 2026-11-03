@@ -10020,7 +10020,16 @@
     "logs.exportV2.clearFailed": "无法清理日志，请重试。",
     "logs.exportV2.directoryFailed": "无法修改日志目录，请重试。",
     "logs.exportV2.size": "约 {size} · {count} 个文件",
-    "logs.settings.storage": "日志占用：{size}"
+    "logs.settings.storage": "日志占用：{size}",
+    "workspace.appStore": "App Store",
+    "workspace.chooseApplication": "选择应用程序",
+    "workspace.defaultApplication": "{arg1}（默认）",
+    "workspace.externalOpenFailed": "无法打开 {arg1}：{arg2}",
+    "workspace.openWith": "打开方式",
+    "workspace.openWithAppStore": "App Store…",
+    "workspace.openWithOther": "其他…",
+    "workspace.nativeMenuDescription": "{arg1} — {arg2}",
+    "mac.workbench.unhide": "取消隐藏"
   },
   "overrides": {
     "macos": {

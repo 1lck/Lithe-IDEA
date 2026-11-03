@@ -10020,7 +10020,16 @@
     "logs.exportV2.clearFailed": "Could not clear logs. Try again.",
     "logs.exportV2.directoryFailed": "Could not change the log directory. Try again.",
     "logs.exportV2.size": "≈ {size} · {count} files",
-    "logs.settings.storage": "Log storage: {size}"
+    "logs.settings.storage": "Log storage: {size}",
+    "workspace.appStore": "App Store",
+    "workspace.chooseApplication": "Choose an Application",
+    "workspace.defaultApplication": "{arg1} (default)",
+    "workspace.externalOpenFailed": "Could not open {arg1}: {arg2}",
+    "workspace.openWith": "Open With",
+    "workspace.openWithAppStore": "App Store…",
+    "workspace.openWithOther": "Other…",
+    "workspace.nativeMenuDescription": "{arg1} — {arg2}",
+    "mac.workbench.unhide": "Unhide"
   },
   "overrides": {
     "windows": {

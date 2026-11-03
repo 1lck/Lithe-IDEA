@@ -46,22 +46,10 @@ struct LitheAction: Identifiable, @unchecked Sendable {
         self.perform = perform
     }
 
-    var searchText: String { "\(title) \(subtitle) \(group.rawValue)" }
-
-    func matches(_ query: String) -> Bool {
-        let normalizedQuery = query
-            .lowercased()
-            .filter { !$0.isWhitespace }
-        guard !normalizedQuery.isEmpty else { return true }
-        let candidates = searchText.lowercased()
-        var queryIndex = normalizedQuery.startIndex
-        for character in candidates {
-            guard queryIndex < normalizedQuery.endIndex else { break }
-            if character == normalizedQuery[queryIndex] {
-                queryIndex = normalizedQuery.index(after: queryIndex)
-            }
-        }
-        return queryIndex == normalizedQuery.endIndex
+    /// Mirrors the row's translation boundary: plugin titles stay verbatim.
+    func searchTexts(localize: (String) -> String) -> [String] {
+        [title, subtitle, group.rawValue,
+         localizesTitle ? localize(title) : title, localize(subtitle), localize(group.rawValue)]
     }
 }
 

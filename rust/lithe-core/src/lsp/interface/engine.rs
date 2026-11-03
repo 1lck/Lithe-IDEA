@@ -857,6 +857,8 @@ struct SessionState {
     next_host_request_id: u64,
     /// Trace is opt-in and serialized with protocol writes through outbound_order.
     detailed_diagnostics: bool,
+    /// Desired trace setting retained until the initialize handshake permits notifications.
+    requested_diagnostics: bool,
 }
 
 struct RuntimeSession {
@@ -2102,6 +2104,7 @@ impl LspEngine {
                 host_requests: BTreeMap::new(),
                 next_host_request_id: 1,
                 detailed_diagnostics: false,
+                requested_diagnostics: false,
             }),
             event_signal: Condvar::new(),
             process: process.handle,
@@ -4820,8 +4823,15 @@ impl RuntimeSession {
             if !waits_for_service_ready(&self.provider_id) {
                 outbound.extend(self.flush_queued_documents()?);
             }
+            let diagnostics_enabled = self.lock_state()?.requested_diagnostics;
+            if diagnostics_enabled {
+                // LSP forbids setTrace before the initialize response. This batch
+                // already starts with initialized, under the same outbound lock.
+                outbound.push(trace_notification(true));
+            }
             self.send_messages_or_fail(&outbound_order, outbound, "serverResponse")?;
             let mut state = self.lock_state()?;
+            state.detailed_diagnostics = diagnostics_enabled;
             if let Some(info) = ready_server_info {
                 push_server_info_event(self, &mut state, info);
             }
@@ -5820,7 +5830,8 @@ impl RuntimeSession {
 
     fn set_detailed_diagnostics(&self, enabled: bool) -> Result<(), CoreError> {
         let order = self.lock_outbound_order()?;
-        let lifecycle = self.lock_state()?.lifecycle;
+        let mut state = self.lock_state()?;
+        let lifecycle = state.lifecycle;
         if matches!(
             lifecycle,
             LspLifecycleState::Stopped | LspLifecycleState::Failed | LspLifecycleState::Stopping
@@ -5830,8 +5841,15 @@ impl RuntimeSession {
                 "The session is no longer running.",
             ));
         }
-        self.send_messages_or_fail(&order, vec![json!({"jsonrpc":"2.0", "method":"$/setTrace", "params":{"value": if enabled { "verbose" } else { "off" }}}).to_string()], "setTrace")?;
-        self.lock_state()?.detailed_diagnostics = enabled;
+        if !state.client.initialized {
+            state.requested_diagnostics = enabled;
+            return Ok(());
+        }
+        drop(state);
+        self.send_messages_or_fail(&order, vec![trace_notification(enabled)], "setTrace")?;
+        let mut state = self.lock_state()?;
+        state.requested_diagnostics = enabled;
+        state.detailed_diagnostics = enabled;
         Ok(())
     }
 
@@ -5954,6 +5972,10 @@ impl RuntimeSession {
             )
         })
     }
+}
+
+fn trace_notification(enabled: bool) -> String {
+    json!({"jsonrpc":"2.0", "method":"$/setTrace", "params":{"value": if enabled { "verbose" } else { "off" }}}).to_string()
 }
 
 fn validate_start_request(request: &StartServerRequest) -> Result<(), CoreError> {
@@ -9312,6 +9334,64 @@ mod tests {
     }
 
     #[test]
+    fn detailed_diagnostics_waits_for_initialized_and_keeps_the_latest_request() {
+        for enabled in [true, false] {
+            let harness = Harness::start(|_| {});
+            let session = harness.session();
+            struct Cleanup(Arc<RuntimeSession>);
+            impl Drop for Cleanup {
+                fn drop(&mut self) {
+                    self.0.active.store(false, Ordering::Release);
+                    self.0.kill_process();
+                }
+            }
+            let _cleanup = Cleanup(session.clone());
+            session.set_detailed_diagnostics(true).unwrap();
+            if !enabled {
+                session.set_detailed_diagnostics(false).unwrap();
+            }
+            assert!(!harness
+                .server
+                .messages()
+                .iter()
+                .any(|m| m["method"] == "$/setTrace"));
+            assert!(!session.lock_state().unwrap().detailed_diagnostics);
+
+            // Drive the real handshake handler synchronously; no reader timing
+            // or sleep is needed to establish the notification ordering.
+            let initialize = harness.server.await_request("initialize").unwrap();
+            session
+                .handle_server_message(
+                    json!({
+                        "jsonrpc":"2.0", "id":initialize,
+                        "result":{"capabilities":ready_capabilities()}
+                    })
+                    .to_string(),
+                )
+                .unwrap();
+            let methods: Vec<_> = harness
+                .server
+                .messages()
+                .into_iter()
+                .filter_map(|m| m["method"].as_str().map(str::to_owned))
+                .collect();
+            if enabled {
+                let initialized = methods.iter().position(|m| m == "initialized").unwrap();
+                let trace = methods.iter().position(|m| m == "$/setTrace").unwrap();
+                assert!(trace > initialized);
+            } else {
+                assert!(!methods.iter().any(|m| m == "$/setTrace"));
+            }
+            assert_eq!(session.lock_state().unwrap().detailed_diagnostics, enabled);
+            session.set_detailed_diagnostics(false).unwrap();
+            assert_eq!(
+                harness.server.messages().last().unwrap()["params"],
+                json!({"value":"off"})
+            );
+        }
+    }
+
+    #[test]
     fn upstream_catalog_messages_trace_toggle_and_v1_fields_coexist() {
         let harness = Harness::start(|request| {
             request.role = SessionRole::Vcs;
@@ -9328,6 +9408,15 @@ mod tests {
             }
         }
         let _cleanup = Cleanup(session.clone());
+        let initialize = harness.server.await_request("initialize").unwrap();
+        session
+            .handle_server_message(
+                json!({
+                    "jsonrpc":"2.0", "id":initialize, "result":{"capabilities":{}}
+                })
+                .to_string(),
+            )
+            .unwrap();
         session.poll_events().unwrap();
         session.log(
             "warning",
@@ -9369,7 +9458,12 @@ mod tests {
                 .unwrap()
                 .contains("private-value"));
         }
-        let trace = json!({"jsonrpc":"2.0", "method":"$/logTrace", "params":{"message":"trace", "verbose":"x".repeat(2000)}}).to_string();
+        let trace = json!({"jsonrpc":"2.0", "method":"$/logTrace", "params":{
+            "message":"trace token=fixture-secret", "verbose":json!({
+                "textDocument":{"text":"private_source_marker"}
+            }).to_string()
+        }})
+        .to_string();
         session.handle_server_message(trace.clone()).unwrap();
         assert!(!session
             .poll_events()
@@ -9393,7 +9487,18 @@ mod tests {
             Some(crate::diagnostics::record::LogLevel::Debug)
         );
         assert_eq!(event.level.as_deref(), Some("info"));
-        assert!(event.fields.unwrap()["diagnostic"].as_str().unwrap().len() <= 1024);
+        let fields = event.fields.unwrap();
+        assert_eq!(fields["diagnostic"], "trace token=<redacted>");
+        let encoded = crate::diagnostics::record::encode_log_batch(
+            serde_json::from_value(json!({"validateCatalog":true,"events":[{
+                "ts":"2026-11-03T00:00:00.000Z", "seq":1, "level":"DEBUG",
+                "event":"vcs.trace.received", "msg":"", "fields":fields
+            }]}))
+            .unwrap(),
+        );
+        let line = encoded.results[0].line.as_ref().unwrap();
+        assert!(!line.contains("private_source_marker"));
+        assert!(!line.contains("fixture-secret"));
         session.set_detailed_diagnostics(false).unwrap();
         assert_eq!(
             harness.server.messages().last().unwrap()["params"],

@@ -163,7 +163,7 @@ struct MacPluginLanguageServerLaunchResolver {
         _ source: DeclarativeLanguageServerLaunchSource,
         workspaceRootURL: URL
     ) throws -> ResolvedLanguageServerLaunch {
-        let request = try request(for: source, workspaceRootURL: workspaceRootURL)
+        let request = request(for: source, workspaceRootURL: workspaceRootURL)
         let plan = try planner.languageServerLaunchPlan(
             manifest: source.manifest,
             languageID: source.languageID,
@@ -230,7 +230,7 @@ struct MacPluginLanguageServerLaunchResolver {
             architecture: Self.hostArchitecture,
             settings: settings.values(forPlugin: pluginID),
             projectSettings: settings.projectValues(forPlugin: pluginID, projectRoot: workspaceRootURL),
-            logDirectory: try logDirectory(pluginID)
+            logDirectory: try? logDirectory(pluginID)
         )
         let plan = try planner.buildProviderLaunchPlan(
             manifest: manifest,
@@ -283,7 +283,7 @@ struct MacPluginLanguageServerLaunchResolver {
             architecture: Self.hostArchitecture,
             settings: settings.values(forPlugin: pluginID),
             projectSettings: settings.projectValues(forPlugin: pluginID, projectRoot: workspaceRootURL),
-            logDirectory: try logDirectory(pluginID)
+            logDirectory: try? logDirectory(pluginID)
         )
         let plan = try planner.vcsProviderLaunchPlan(manifest: manifest, vcs: vcs, request: request)
         guard let provider = plan.vcsProvider, provider.vcs == vcs else {
@@ -329,7 +329,7 @@ struct MacPluginLanguageServerLaunchResolver {
             workspaceStateDirectory: nil,
             architecture: Self.hostArchitecture,
             settings: launchSettings,
-            logDirectory: try logDirectory(pluginID)
+            logDirectory: try? logDirectory(pluginID)
         )
         let plan = try planner.backendLaunchPlan(manifest: manifest, request: request)
         guard let backend = plan.backend else {
@@ -385,7 +385,7 @@ struct MacPluginLanguageServerLaunchResolver {
             architecture: Self.hostArchitecture,
             settings: settings.values(forPlugin: pluginID),
             projectSettings: settings.projectValues(forPlugin: pluginID, projectRoot: workspaceRootURL),
-            logDirectory: try logDirectory(pluginID)
+            logDirectory: try? logDirectory(pluginID)
         )
         let plan = try planner.debugAdapterLaunchPlan(manifest: manifest, adapterID: adapterID, request: request)
         guard let adapter = plan.debugAdapter, adapter.id == adapterID else {
@@ -494,7 +494,7 @@ struct MacPluginLanguageServerLaunchResolver {
         let plan = try planner.languageServerLaunchPlan(
             manifest: source.manifest,
             languageID: source.languageID,
-            request: try request(for: source, workspaceRootURL: source.packageURL)
+            request: request(for: source, workspaceRootURL: source.packageURL)
         )
         guard let integration = plan.hostIntegration else { return nil }
         try verifyPackagePaths(plan.requiredPackagePaths, packageURL: source.packageURL)
@@ -523,7 +523,7 @@ struct MacPluginLanguageServerLaunchResolver {
         let plan = try planner.languageServerLaunchPlan(
             manifest: source.manifest,
             languageID: source.languageID,
-            request: try request(for: source, workspaceRootURL: source.packageURL)
+            request: request(for: source, workspaceRootURL: source.packageURL)
         )
         return ExecutableProbe(
             validationArguments: plan.validationArguments,
@@ -537,7 +537,7 @@ struct MacPluginLanguageServerLaunchResolver {
     private func request(
         for source: DeclarativeLanguageServerLaunchSource,
         workspaceRootURL: URL
-    ) throws -> DeclarativeLanguageServerLaunchRequest {
+    ) -> DeclarativeLanguageServerLaunchRequest {
         DeclarativeLanguageServerLaunchRequest(
             pluginDirectory: source.packageURL.standardizedFileURL,
             stateDirectory: directories.stateDirectory(
@@ -552,7 +552,9 @@ struct MacPluginLanguageServerLaunchResolver {
             architecture: Self.hostArchitecture,
             settings: settings.values(forPlugin: source.pluginID),
             projectSettings: settings.projectValues(forPlugin: source.pluginID, projectRoot: workspaceRootURL),
-            logDirectory: try logDirectory(source.pluginID)
+            // Log storage is optional unless the template requires it. Core
+            // rejects a missing logDirectory only for a launch using ${logDir}.
+            logDirectory: try? logDirectory(source.pluginID)
         )
     }
 

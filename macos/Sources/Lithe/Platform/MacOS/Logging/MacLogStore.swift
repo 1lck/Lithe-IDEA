@@ -157,6 +157,17 @@ final class MacLogStore: ApplicationLogging, LogWindowLogging, LogSink, @uncheck
     /// is unavailable callers omit logDirectory and Core rejects ${logDir} use.
     /// Descriptor-relative traversal refuses symbolic links even during a race.
     func pluginFilesDirectory(pluginID: String) throws -> URL {
+        do { return try createPluginFilesDirectory(pluginID: pluginID) }
+        catch {
+            // Optional log storage must not block unrelated plugin launches.
+            // Retain the I/O failure in the writer's diagnostic status even when
+            // the launch planner can proceed without a logDirectory.
+            lock.withLock { failures += 1 }
+            throw error
+        }
+    }
+
+    private func createPluginFilesDirectory(pluginID: String) throws -> URL {
         try queue.sync {
             guard !lock.withLock({ stopped }) else { throw CocoaError(.fileWriteNoPermission) }
             if directory == nil { try switchDirectory(defaultDirectory) }

@@ -742,6 +742,13 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::SearchActions => agent_response(
+            id,
+            parsed.payload,
+            |request: crate::action_search::Request| {
+                crate::action_search::search(request).map(|indices| json!({"indices": indices}))
+            },
+        ),
         CoreCommand::WorkspaceSearch => {
             match serde_json::from_value::<SearchRequest>(parsed.payload)
                 .map_err(|error| {

@@ -53,6 +53,19 @@ launch already succeeds there.
 Strings returned by the core are UTF-8 JSON allocated by Rust. The caller must
 release response strings with `lithe_core_free_string`.
 
+### Localized action search
+
+`search.actions` accepts `{query, candidates: [{texts: [string]}]}` and returns
+`{indices: [integer]}`. Native hosts supply the original title, subtitle and group
+alongside their current interface translations. Plugin-owned titles stay verbatim.
+Core performs case-insensitive, NFC-normalized Unicode subsequence matching after removing query
+whitespace, preserving input order and returning zero-based candidate offsets.
+It retains no catalog, performs no workspace I/O, and never executes actions.
+The request is limited to 4096 candidates, 16 fields per candidate, 2 MiB of text
+and a 4096-byte query; excess input returns `invalid_request`.
+[Action search fixtures](../fixtures/search/actions-v1.json) cover both languages,
+English aliases, ordered results, Unicode and literal plugin titles.
+
 ### Remote workspace path identity
 
 Workspace-aware commands accept an optional top-level `remoteWorkspace` with
@@ -5107,11 +5120,15 @@ background timer is installed.
 `lsp.setDetailedDiagnostics` accepts `{sessionId,enabled}` and returns `{}`.
 It sends `$/setTrace` with `{"value":"verbose"}` when enabled and
 `{"value":"off"}` when disabled. Sessions start disabled; only enabled
-sessions emit `*.trace.received` (DEBUG). The message and optional verbose
-strings are combined with a newline and limited to 1024 UTF-8 bytes before
-shared text redaction and control removal. The gate changes only after a
-successful ordered write. Invalid payloads or terminal sessions fail through
-the existing Core error envelope; transport errors keep the existing session
+sessions emit `*.trace.received` (DEBUG). Only the summary `message` enters v2,
+limited to 1024 UTF-8 bytes before shared text redaction and control removal.
+The `verbose` field is excluded because it can contain raw RPC bodies and source
+text; the legacy in-memory detail remains compatible. The gate changes only
+after a successful ordered write. Before the initialize handshake completes, the command
+only stores the latest desired value; an enabled value is sent after `initialized`
+in the ordered handshake batch. Disabling it before that batch cancels the pending
+enable without sending any trace notification. Invalid payloads or terminal
+sessions fail through the existing Core error envelope; transport errors keep the existing session
 failure/cleanup behavior. This does not change showMessage handling.
 
 ```json
