@@ -4588,6 +4588,29 @@ public struct VcsHistoryReadFailed: LogEvent {
     }
 }
 
+public struct VcsHistoryDateQueryFailed: LogEvent {
+    public static let id = "vcs.history_date_query.failed"
+    public static let level: LogLevel = .error
+    public static let messageTemplate = "Git history date filter failed"
+    public static let ratePerMinute = 60
+    public static let owner = "LitheGitModule"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
+
+    public init(`error`: any Error, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.vcs, segments: [])
+        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["error"] = .error(`error`)
+        self.fields = _logValues
+    }
+}
+
 public struct VcsHostCleanupFailed: LogEvent {
     public static let id = "vcs.host.cleanup_failed"
     public static let level: LogLevel = .warn

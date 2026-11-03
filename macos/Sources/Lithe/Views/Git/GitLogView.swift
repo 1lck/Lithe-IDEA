@@ -1309,7 +1309,7 @@ struct GitLogView: View {
                             .padding(.bottom, 4)
                         (Text(verbatim: "\(commit.shortHash) \(commit.authorName) ")
                          + Text(verbatim: "<\(commit.authorEmail)>").foregroundColor(LitheTheme.link)
-                         + Text(verbatim: " on \(GitLogDatePresentation.string(commit.date, locale: locale))"))
+                         + Text(verbatim: " on \(GitLogDatePresentation.string(commit.date, utcOffsetMinutes: commit.dateUtcOffsetMinutes, unixSeconds: commit.dateUnixSeconds, locale: locale))"))
                             .font(GitVisual.meta)
                             .foregroundStyle(LitheTheme.Tree.text)
                             .fixedSize(horizontal: false, vertical: true)
@@ -1926,9 +1926,9 @@ enum GitLogDatePreset: String, CaseIterable, Identifiable, Hashable {
         self == .anyTime ? nil : menuTitle
     }
 
-    func applying(to query: GitLogQuery, now: Date) -> GitLogQuery {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = .current
+    func applying(to query: GitLogQuery, now: Date, calendar suppliedCalendar: Calendar? = nil) -> GitLogQuery {
+        var calendar = suppliedCalendar ?? Calendar(identifier: .gregorian)
+        if suppliedCalendar == nil { calendar.timeZone = .current }
         let today = calendar.startOfDay(for: now)
         switch self {
         case .anyTime:

@@ -4051,6 +4051,7 @@
     "native.couldNotCopyYourStableSettings": "Could not copy your Stable settings",
     "native.couldNotFindTheJavaSourceFor": "Could not find the Java source for {arg1}",
     "native.couldNotInspectSavedFile": "Could not inspect saved file",
+    "native.couldNotFilterGitHistoryTryAgain": "Could not filter Git history. Try again.",
     "native.couldNotInspectTheSelectedHistoryRefreshThePreviewToRetry": "Could not inspect the selected history. Refresh the preview to retry.",
     "native.couldNotInspectThisWorktree": "Could not inspect this worktree",
     "native.couldNotInstallUpdate": "Could not install update",

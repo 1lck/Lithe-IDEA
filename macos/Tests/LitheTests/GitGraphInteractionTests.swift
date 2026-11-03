@@ -141,6 +141,16 @@ struct GitGraphInteractionTests {
             #expect(view.dateString(raw) == expected)
             #expect(view.dateString(raw) == expected)
         }
+        let wallTime = "2026/09/10 00:30"
+        let east: Int64 = 1788971400
+        let other: Int64 = 1789000200
+        let first = view.dateString(wallTime, utcOffsetMinutes: 480, unixSeconds: east)
+        let second = view.dateString(wallTime, utcOffsetMinutes: 0, unixSeconds: other)
+        #expect(first != second)
+        #expect(view.dateString(wallTime, utcOffsetMinutes: 480, unixSeconds: east) == first)
+        #expect(view.dateString(wallTime, utcOffsetMinutes: 9999) == wallTime)
+        let invalidOffset = "2026/09/30 08:05 +1260"
+        #expect(view.dateString(invalidOffset) == invalidOffset)
         #expect(view.dateString("unknown date") == "unknown date")
     }
 

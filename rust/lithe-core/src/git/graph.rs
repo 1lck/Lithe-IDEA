@@ -370,6 +370,7 @@ mod tests {
             author_email: "test@example.com".to_string(),
             date: "2026-09-04".to_string(),
             date_utc_offset_minutes: None,
+            date_unix_seconds: None,
             subject: hash.to_string(),
             decorations: decorations.to_string(),
         }

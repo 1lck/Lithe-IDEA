@@ -7,6 +7,18 @@ import type {
 import { adaptCoreResult } from "./core-result-adapter";
 
 describe("git history result adaptation", () => {
+  test("preserves the resolved commit instant in history and paged results", () => {
+    const commit = { hash: "abc", shortHash: "abc", parentHashes: [], subject: "Timezone",
+      authorName: "Ada", authorEmail: "ada@example.invalid", date: "2026/09/10 00:30",
+      dateUtcOffsetMinutes: 480, dateUnixSeconds: 1788971400, decorations: "" };
+    for (const command of ["git_log", "git_history_page"]) {
+      const result = adaptCoreResult<GitHistoryPage>(command, undefined, {
+        references: [], commits: [commit], hasMore: false,
+      });
+      expect(result.commits[0]?.dateUtcOffsetMinutes).toBe(480);
+      expect(result.commits[0]?.dateUnixSeconds).toBe(1788971400);
+    }
+  });
   test("preserves commits and the shared core pagination state", () => {
     const result = adaptCoreResult<GitHistorySnapshot>(
       "git_log",

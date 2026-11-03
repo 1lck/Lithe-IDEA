@@ -1189,7 +1189,8 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `git.apply` | Apply or check a patch in `stage`, `unstage`, `discard`, or Shelf restore mode |
 | `git.history` | Return the legacy combined reference snapshot and first bounded commit page |
 | `git.references` | Return deterministic refs, recent local branches, ahead/behind state, and effective Git identity without scanning commit history |
-| `git.historyPage` | Return one bounded commit page, parent hashes, decorations, author dates with their UTC offset (`dateUtcOffsetMinutes`, east positive, `null` when unknown), and an opaque continuation cursor |
+| `git.historyPage` | Return one bounded commit page, author date, UTC offset, optional Unix timestamp, and an opaque continuation cursor |
+| `git.historyQuery` | Compare bounded commit date identities with explicit absolute time bounds |
 | `git.historyCursorClose` | Release an unfinished incremental history cursor and its Git process |
 | `git.pushPreview` | Resolve a local branch push destination and the bounded commits not present on that remote base |
 | `git.commit` | Return one structured commit by revision with its full message body |
@@ -4931,6 +4932,24 @@ Core-planned direct JDT JDWP launches) so DevTools cannot restart the classloade
 HotSwap. Attach to independently launched JVMs does not change their options.
 The Windows host maps `redefineClasses` to this operation and `cancelOperation`
 to `debug.cancelOperation` with a `timedOut` reason for its bounded result wait.
+
+### Commit dates and history date queries
+
+`git.history`, `git.historyPage`, and `git.commit` return author `date` in Git's
+wall-clock form and `dateUtcOffsetMinutes` (east positive). When both describe a
+valid instant, `dateUnixSeconds` supplies the absolute Unix time. An unknown or
+invalid offset omits the timestamp; older clients can still display the original
+date. Hosts should use the timestamp for presentation and cache identity.
+
+`git.historyQuery` accepts up to 4,096 `entries` with unique, nonempty `id`
+(up to 256 UTF-8 bytes), `date` (up to 128 bytes), optional `utcOffsetMinutes`,
+and optional `fallbackUnixSeconds` for legacy dates without an offset. `afterUnixSeconds` is inclusive and `beforeUnixSeconds` is exclusive; an
+unresolvable date is excluded. The result's `matchingIds` preserves input order.
+Clients handling larger histories must batch requests and abandon stale results.
+Local calendar boundaries (including daylight-saving transitions) come from the
+host's system calendar, are converted to absolute seconds, and are passed to Core;
+Core does not infer an OS timezone or assume every calendar day is 24 hours. See
+`shared/fixtures/git/history-date-query-v1.json`.
 
 ### Saved changes: directional patches and immutable stashes
 

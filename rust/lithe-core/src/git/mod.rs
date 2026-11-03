@@ -15,6 +15,7 @@ mod fetch_execution;
 #[allow(dead_code)]
 pub(crate) mod graph;
 mod history;
+mod history_query;
 mod mutations;
 mod patch_exchange;
 mod progress;
@@ -42,6 +43,7 @@ pub use history::{
     close_history_cursor, history, history_page, references, GitHistoryCursorCloseRequest,
     GitHistoryPageRequest, GitHistoryRequest, GitReferencesRequest,
 };
+pub(crate) use history_query::query_command as history_query_command;
 pub use patch_exchange::{
     apply_reviewed as apply_patch_reviewed, export as export_patch, preview as preview_patch,
     PatchApplyRequest, PatchExportRequest, PatchPreviewRequest,
@@ -7510,6 +7512,7 @@ fn parse_commit(line: &str) -> Option<GitCommitResponse> {
         author_email: columns[4].to_string(),
         date: date.to_string(),
         date_utc_offset_minutes,
+        date_unix_seconds: history_query::commit_timestamp(date, date_utc_offset_minutes),
         subject: columns[6].to_string(),
         decorations: columns[7].to_string(),
     })
@@ -7531,6 +7534,9 @@ fn split_commit_date_offset(value: &str) -> (&str, Option<i32>) {
     }
     let hours: i32 = zone[1..3].parse().unwrap_or(0);
     let minutes: i32 = zone[3..5].parse().unwrap_or(0);
+    if hours > 23 || minutes > 59 {
+        return (value, None);
+    }
     let sign = if bytes[0] == b'-' { -1 } else { 1 };
     (date, Some(sign * (hours * 60 + minutes)))
 }
@@ -8970,6 +8976,7 @@ mod tests {
         let east = parse_commit(&line("2026/09/30 21:05 +0800")).expect("commit should parse");
         assert_eq!(east.date, "2026/09/30 21:05");
         assert_eq!(east.date_utc_offset_minutes, Some(480));
+        assert_eq!(east.date_unix_seconds, Some(1790773500));
 
         let west = parse_commit(&line("2026/09/30 08:05 -0330")).expect("commit should parse");
         assert_eq!(west.date, "2026/09/30 08:05");
@@ -8977,6 +8984,11 @@ mod tests {
 
         // Output without a recognizable zone stays visible unchanged instead of being trimmed.
         let legacy = parse_commit(&line("2026/09/30 08:05")).expect("commit should parse");
+        let invalid = parse_commit(&line("2026/09/30 08:05 +1260")).expect("commit should parse");
+        assert_eq!(invalid.date, "2026/09/30 08:05 +1260");
+        assert_eq!(invalid.date_utc_offset_minutes, None);
+        assert_eq!(invalid.date_unix_seconds, None);
+
         assert_eq!(legacy.date, "2026/09/30 08:05");
         assert_eq!(legacy.date_utc_offset_minutes, None);
     }
@@ -9019,6 +9031,7 @@ mod tests {
                 author_email: "test@example.invalid".into(),
                 date: "2026/08/30 12:00".into(),
                 date_utc_offset_minutes: Some(480),
+                date_unix_seconds: None,
                 subject: "Initial commit".into(),
                 decorations: "HEAD -> feature/recent".into(),
             }],
@@ -9089,6 +9102,7 @@ mod tests {
                 author_email: "test@example.invalid".into(),
                 date: "2026/08/30 12:00".into(),
                 date_utc_offset_minutes: Some(480),
+                date_unix_seconds: None,
                 subject: "Initial commit".into(),
                 decorations: "HEAD -> feature/recent".into(),
             }],
@@ -9119,6 +9133,7 @@ mod tests {
                 author_email: "test@example.invalid".into(),
                 date: "2026/08/30 12:00".into(),
                 date_utc_offset_minutes: Some(480),
+                date_unix_seconds: None,
                 subject: "Fix commit details".into(),
                 decorations: "HEAD -> feature/recent".into(),
             },
@@ -9179,6 +9194,7 @@ mod tests {
                 author_email: "developer@lithe.local".into(),
                 date: "2026/08/31 10:30".into(),
                 date_utc_offset_minutes: Some(-300),
+                date_unix_seconds: None,
                 subject: "Add push preview".into(),
                 decorations: "HEAD -> feature/core".into(),
             }],

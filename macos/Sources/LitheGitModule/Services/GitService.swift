@@ -84,6 +84,7 @@ package protocol GitOperations: Sendable {
         mode: String
     ) -> GitProcessResult?
 
+    func historyDateMatches(_ query: GitHistoryDateQuery) -> [String]?
     func history(
         at rootURL: URL,
         reference: GitReference?,
@@ -207,6 +208,7 @@ package protocol GitOperations: Sendable {
 }
 
 package extension GitOperations {
+    func historyDateMatches(_ query: GitHistoryDateQuery) -> [String]? { nil }
     func savedStashFiles(at rootURL: URL, reference: String, base: String) -> Result<[GitSavedPatchFile], GitPatchFailure> {
         .failure(GitPatchFailure(L10n.string("Could not load saved changes")))
     }
@@ -370,6 +372,7 @@ private actor GitHistoryCache {
 /// UI-facing Git service. Git command construction, validation, parsing, and
 /// process execution live behind the shared Rust operations port.
 package struct GitService: Sendable {
+    private static let historyDateBatchSize = 4096
     private let operations: any GitOperations
     private let historyCache = GitHistoryCache()
     private let performanceLogger: any GitPerformanceLogger
@@ -786,6 +789,32 @@ package struct GitService: Sendable {
         mode: String = "--mixed"
     ) async -> CommandResult {
         await command(at: repositoryRoot) { $0.resetCurrentBranch(to: hash, mode: mode, at: repositoryRoot) }
+    }
+
+    func historyDateMatches(_ commits: [GitCommit], after: Date?, before: Date?) async -> Set<String>? {
+        let matches = await read(priority: .userInitiated) { operations -> Set<String>? in
+            var matches: Set<String> = []
+            for start in stride(from: 0, to: commits.count, by: Self.historyDateBatchSize) {
+                guard !Task.isCancelled else { return nil }
+                let end = min(start + Self.historyDateBatchSize, commits.count)
+                let entries = commits[start..<end].map { commit in
+                    let fallback = commit.dateUtcOffsetMinutes == nil
+                        ? (commit.dateUnixSeconds.map(Double.init) ?? GitLogQuery.parseCommitDate(commit.date)?.timeIntervalSince1970)
+                        : nil
+                    return GitHistoryDateQuery.Entry(id: commit.hash, date: commit.date,
+                        utcOffsetMinutes: commit.dateUtcOffsetMinutes, fallbackUnixSeconds: fallback)
+                }
+                let query = GitHistoryDateQuery(entries: entries, afterUnixSeconds: after?.timeIntervalSince1970,
+                    beforeUnixSeconds: before?.timeIntervalSince1970)
+                guard let batch = operations.historyDateMatches(query) else { return nil }
+                matches.formUnion(batch)
+            }
+            return matches
+        }
+        if matches == nil && !Task.isCancelled {
+            performanceLogger.emit(VcsHistoryDateQueryFailed(error: LogFailure(domain: "GitHistoryQuery", code: "query_failed")))
+        }
+        return matches
     }
 
     func history(

@@ -634,6 +634,10 @@ struct RustGitOperations: GitOperations, Sendable {
         }
     }
 
+    func historyDateMatches(_ query: GitHistoryDateQuery) -> [String]? {
+        core.gitHistoryDateQuery(query)?.matchingIds
+    }
+
     func history(
         at rootURL: URL,
         reference: GitReference?,

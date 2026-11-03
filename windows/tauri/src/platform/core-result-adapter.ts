@@ -216,6 +216,8 @@ export function adaptCoreResult<T>(
                 typeof commit.dateUtcOffsetMinutes === "number"
                   ? commit.dateUtcOffsetMinutes
                   : undefined,
+              dateUnixSeconds:
+                typeof commit.dateUnixSeconds === "number" ? commit.dateUnixSeconds : undefined,
               decorations: commit.decorations ?? "",
             }))
           : [],
@@ -263,6 +265,8 @@ export function adaptCoreResult<T>(
                 typeof commit.dateUtcOffsetMinutes === "number"
                   ? commit.dateUtcOffsetMinutes
                   : undefined,
+              dateUnixSeconds:
+                typeof commit.dateUnixSeconds === "number" ? commit.dateUnixSeconds : undefined,
               decorations: commit.decorations ?? "",
             }))
           : [],

@@ -40,6 +40,8 @@ export interface GitCommit {
   date: string;
   /** Author's UTC offset in minutes (east positive) for `date`, when Core reports one. */
   dateUtcOffsetMinutes?: number;
+  /** Core-resolved author instant in Unix seconds, when the offset is known. */
+  dateUnixSeconds?: number;
   decorations: string;
 }
 

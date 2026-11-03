@@ -693,6 +693,9 @@ pub struct GitCommitResponse {
     /// Git did not report one. Hosts compare it with the local offset before
     /// presenting relative times.
     pub date_utc_offset_minutes: Option<i32>,
+    /// Absolute author instant in Unix seconds when the date and offset are valid.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub date_unix_seconds: Option<i64>,
     pub subject: String,
     pub decorations: String,
 }

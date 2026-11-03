@@ -8,6 +8,46 @@ import Testing
 
 @Suite("Git status observation", .serialized)
 struct GitStatusObservationTests {
+    @Test @MainActor
+    func coreHistoryDatesPreserveOffsetAndFilterEquivalentInstants() async throws {
+        let fixture = try GitObservationFixture(label: "history-timezones")
+        let root = fixture.url.appendingPathComponent("repository", isDirectory: true)
+        try await fixture.initializeRepository(at: root)
+        for (subject, date) in [("east", "2026-09-10T00:30:00+0800"), ("west", "2026-09-09T09:30:00-0700")] {
+            var environment = ProcessInfo.processInfo.environment
+            environment["GIT_AUTHOR_DATE"] = date
+            environment["GIT_COMMITTER_DATE"] = date
+            let result = try await TestProcess.run(executableURL: URL(fileURLWithPath: "/usr/bin/git"),
+                arguments: ["-c", "user.email=tests@lithe.local", "-c", "user.name=Lithe Tests", "commit", "--allow-empty", "-qm", subject],
+                currentDirectoryURL: root, environment: environment)
+            #expect(result.terminationStatus == 0)
+        }
+        let operations = RustGitOperations(core: RustCoreBridge())
+        let history = try #require(operations.history(at: root, reference: nil, limit: 10))
+        let east = try #require(history.commits.first { $0.subject == "east" })
+        let west = try #require(history.commits.first { $0.subject == "west" })
+        #expect(east.dateUtcOffsetMinutes == 480)
+        #expect(west.dateUtcOffsetMinutes == -420)
+        #expect(east.dateUnixSeconds == 1788971400)
+        #expect(west.dateUnixSeconds == east.dateUnixSeconds)
+        let service = GitService(operations: operations)
+        let matches = await service.historyDateMatches([east, west],
+            after: Date(timeIntervalSince1970: 1788971400), before: Date(timeIntervalSince1970: 1788971460))
+        #expect(matches == Set([east.hash, west.hash]))
+        let excluded = await service.historyDateMatches([east, west],
+            after: nil, before: Date(timeIntervalSince1970: 1788971400))
+        #expect(excluded == Set<String>())
+        let feature = GitFeatureModel(service: service)
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { true }, notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        let query = GitLogQuery(afterDate: Date(timeIntervalSince1970: 1788971400),
+            beforeDate: Date(timeIntervalSince1970: 1788971460))
+        await feature.applyGitLogFilter(query)
+        #expect(feature.gitLogMatchedCommitHashes == Set([east.hash, west.hash]))
+        #expect(!feature.isFilteringGitLog)
+    }
+
     @Test
     func savedStashSnapshotUsesCoreSectionsForTrackedUntrackedAndBinaryFiles() async throws {
         let fixture = try GitObservationFixture(label: "saved-stash-core")
