@@ -469,6 +469,8 @@ pub enum CoreCommand {
     GitPrepareCommitSelection,
     /// Reconciles missing selected additions after deletion.
     GitReconcileDeletedSelection,
+    /// Reduces local ChangeList metadata and projects membership and commit scope.
+    GitChangelists,
     /// Projects retained Git console records without executing Git (`git.consolePresentation`).
     GitConsolePresentation,
     /// Reads an optional remote URL without a visible command (`git.remoteUrl`).
@@ -838,6 +840,7 @@ impl CoreCommand {
             "git.rollbackPrepare" => Some(Self::GitRollbackPrepare),
             "git.prepareCommitSelection" => Some(Self::GitPrepareCommitSelection),
             "git.reconcileDeletedSelection" => Some(Self::GitReconcileDeletedSelection),
+            "git.changelists" => Some(Self::GitChangelists),
             "git.consolePresentation" => Some(Self::GitConsolePresentation),
             "git.remoteUrl" => Some(Self::GitRemoteUrl),
             "git.fetchPlan" => Some(Self::GitFetchPlan),

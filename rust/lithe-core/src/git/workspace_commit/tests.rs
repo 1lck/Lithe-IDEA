@@ -228,6 +228,7 @@ fn changelist_scope_survives_retry_and_rejects_scope_changes_or_new_staged_files
     let (mut request, _) = input();
     request.previous = Some(previous.clone());
     request.path_scope = Some(PathScope {
+        membership: None,
         include: false,
         paths: BTreeMap::new(),
     });
@@ -249,6 +250,7 @@ fn changelist_scope_survives_retry_and_rejects_scope_changes_or_new_staged_files
 fn changelist_scope_is_checked_on_continuations_and_compared_during_review() {
     let (mut request, states) = input();
     request.path_scope = Some(PathScope {
+        membership: None,
         include: false,
         paths: BTreeMap::new(),
     });

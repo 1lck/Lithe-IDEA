@@ -16,6 +16,12 @@ package struct GitWorkspaceCommitRelation: Codable, Equatable, Sendable {
 package struct GitWorkspaceCommitPathScope: Codable, Equatable, Sendable {
     package let include: Bool
     package let paths: [String: [String]]
+    package var membership: GitChangelistMembershipScope? = nil
+}
+
+package struct GitChangelistMembershipScope: Codable, Equatable, Sendable {
+    package let activeId: String
+    package let assignments: [String: [String: String]]
 }
 
 /// A destination the user confirmed for a branch whose upstream has a different

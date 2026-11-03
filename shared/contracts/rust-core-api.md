@@ -1162,6 +1162,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `git.rollbackPrepare` | Recheck selected identities against the repository and return rollback steps |
 | `git.prepareCommitSelection` | Prepare and verify the real indexes for explicitly selected changes |
 | `git.reconcileDeletedSelection` | Clear missing selected staged additions after filesystem deletion |
+| `git.changelists` | Reduce local ChangeList metadata and project membership and commit scope |
 | `git.untrackedDirectory` | List one level of a summarized untracked directory: its files and subdirectory summaries |
 | `git.commitState` | Read exact HEAD, symbolic branch and index preconditions for a workspace commit |
 | `git.watchContext` | Resolve the repository and absolute Git metadata roots needed by native file watchers |
@@ -4773,17 +4774,35 @@ separately, answers are stored in `plan.pushTargets`, and a retry restores and
 re-validates them from `previous` without the client forwarding them. Routine
 pushes (`tracking` or `publish` destinations) never produce a question.
 
-An optional `pathScope: { include, paths: { <repository-id>: [<relative-path>] } }`
-restricts local changelist commits. With `include: true`, only the listed literal
-paths are allowed; with `include: false`, the listed paths are excluded. Missing
-repository entries mean an empty set, not unrestricted access in inclusion mode.
-This is an exact-path guard, not a Git pathspec and not a second staging index.
-Core rejects any staged file or automatic parent-reference update outside the
-scope before executing mutations. It never silently unstages other lists. Scope
-changes invalidate a reviewed plan; retries inherit the original scope and may
-not replace it. Continuations retain the scope and validate it before writes,
-alongside the existing exact HEAD/index checks. Omitted scopes preserve existing
-clients' behavior. Shared examples: `shared/fixtures/git/local-changelist-scope-v1.json`.
+`git.changelists` is a pure reducer: the host owns persistence and supplies
+`state` (`lists`, `activeId`, and `assignments` grouped by repository root),
+`files` (root, path, optional original path, and `isCopy`), optional repository
+bindings, and an optional action (`create`, `rename`, `remove`, `activate`,
+`move`, or `rememberRenames`). The response contains the validated state, one
+membership per input file in order, and a commit `scope`. Deletion leaves an
+explicit Default assignment so a file under an assigned directory returns to
+Default. A rename inherits its source's membership, including directory or
+implicit Default membership; copies never inherit or modify their source.
+Ambiguous overlapping renames with different memberships fail closed. Inputs
+and assignment counts are bounded. Hosts must reject stale asynchronous results
+and protect persistence against concurrent windows. The shared fixture is
+`shared/fixtures/git/changelists-reducer-v1.json`.
+
+An optional `pathScope: { include, paths, membership? }` restricts local
+changelist commits. Legacy scopes use literal `paths` grouped by repository ID:
+`include: true` allows only listed paths, while `false` excludes listed paths.
+Core-generated scopes additionally include `membership: { activeId,
+assignments }`, where assignments are grouped by repository ID and may include
+explicit file or trailing-slash directory rules. Exact paths override the
+nearest assigned directory; missing paths belong to Default. Core uses these
+rules against the real staged paths and automatic parent-reference updates,
+including paths staged after the UI snapshot. They are literal identities, not
+Git pathspecs or a second staging index. Omitted `membership` retains legacy
+exact-path behavior. Scope changes invalidate a reviewed plan; retries inherit
+the original scope and may not replace it. Continuations retain the entire
+scope and validate it before writes, alongside exact HEAD/index checks.
+Omitted scopes preserve existing clients' behavior. Legacy examples:
+`shared/fixtures/git/local-changelist-scope-v1.json`.
 
 `git.workspaceCommitStep` accepts `{ session }` and returns the next session,
 executing at most one commit or push. Session fields are `plan`, last observed

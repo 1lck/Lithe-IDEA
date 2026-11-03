@@ -4737,6 +4737,7 @@
 "Use a model ID supported by your provider." = "Use a model ID supported by your provider.";
 "Use a persistent folder for ongoing work. Temporary checkouts may be removed by the system." = "Use a persistent folder for ongoing work. Temporary checkouts may be removed by the system.";
 "Use a third-party provider" = "Use a third-party provider";
+"Use a unique, nonempty name of at most 100 characters." = "Use a unique, nonempty name of at most 100 characters.";
 "Use a valid file or directory name" = "Use a valid file or directory name";
 "Use an Agent in your project" = "Use an Agent in your project";
 "Use automatic value" = "Use automatic value";
@@ -5071,6 +5072,7 @@
 "from JAVA_HOME" = "from JAVA_HOME";
 "generated main" = "generated main";
 "generated test" = "generated test";
+"git.changelists.invalidName" = "Use a unique, nonempty name of at most 100 characters.";
 "git.diff.repositoryPreviewEmptyTitle" = "Repository Diff";
 "git.diff.repositoryPreviewTitle" = "Repository Diff: %1$@";
 "git.log.olderCommitsFailed" = "Could not load older commits. Refresh history";

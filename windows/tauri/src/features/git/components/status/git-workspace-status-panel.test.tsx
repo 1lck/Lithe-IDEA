@@ -1,5 +1,6 @@
 import {
-  assignChangelist,
+  changelistFileKey,
+  changelistPathKey,
   EMPTY_CHANGELISTS,
   type LocalChangelists,
 } from "../../utils/git-changelists";
@@ -110,10 +111,19 @@ const render = async (
     repoPath?: string;
     commitWorkspaceKey?: string;
     commitChangelists?: LocalChangelists;
-    onActivateCommitChangelist?: (id: string, files: GitFile[], roots: string[]) => boolean;
-    isCommitChangelistCurrent?: (id: string, files: GitFile[], roots: string[]) => boolean;
+    onActivateCommitChangelist?: (
+      id: string,
+      files: GitFile[],
+      roots: string[],
+    ) => boolean | Promise<boolean>;
+    isCommitChangelistCurrent?: (
+      id: string,
+      files: GitFile[],
+      roots: string[],
+    ) => boolean | Promise<boolean>;
     onCommitSelection?: (paths: string[]) => void;
     onStagingRefresh?: () => Promise<void>;
+    onValidateStagingMembership?: (files: GitFile[], expected: string[]) => Promise<boolean>;
     onRefresh?: () => Promise<void>;
   } = {},
 ) => {
@@ -392,14 +402,18 @@ test("View Options switches between the directory tree and a flat list in two cl
 test("bulk and repository staging only include the active changelist, while named groups remain visible", async () => {
   const config = file("A", "application.yaml");
   const feature = file("A", "feature.ts");
-  const lists = assignChangelist(
-    {
-      ...EMPTY_CHANGELISTS,
-      lists: [...EMPTY_CHANGELISTS.lists, { id: "local", name: "Local only" }],
+  const lists: LocalChangelists = {
+    ...EMPTY_CHANGELISTS,
+    lists: [...EMPTY_CHANGELISTS.lists, { id: "local", name: "Local only" }],
+    assignments: { [changelistPathKey("C:/workspace/A", "src/application.yaml")]: "local" },
+    projection: {
+      members: new Map([
+        [changelistFileKey(config)!, "local"],
+        [changelistFileKey(file("A", "feature.ts"))!, "default"],
+      ]),
+      scope: { include: false, paths: {} },
     },
-    [config],
-    "local",
-  );
+  };
   await render([config, feature], lists);
   expect(container.textContent).toContain("Local only");
   const all = container.querySelector<HTMLElement>(
@@ -413,14 +427,18 @@ test("bulk and repository staging only include the active changelist, while name
 
 test("named group selection stays inside that group", async () => {
   const config = file("A", "application.yaml");
-  const lists = assignChangelist(
-    {
-      ...EMPTY_CHANGELISTS,
-      lists: [...EMPTY_CHANGELISTS.lists, { id: "local", name: "Local only" }],
+  const lists: LocalChangelists = {
+    ...EMPTY_CHANGELISTS,
+    lists: [...EMPTY_CHANGELISTS.lists, { id: "local", name: "Local only" }],
+    assignments: { [changelistPathKey("C:/workspace/A", "src/application.yaml")]: "local" },
+    projection: {
+      members: new Map([
+        [changelistFileKey(config)!, "local"],
+        [changelistFileKey(file("A", "feature.ts"))!, "default"],
+      ]),
+      scope: { include: false, paths: {} },
     },
-    [config],
-    "local",
-  );
+  };
   await render([config, file("A", "feature.ts")], lists);
   const checkbox = container.querySelector<HTMLElement>(
     '[aria-label="Include folder Local only in commit"]',
@@ -830,3 +848,77 @@ test("delete reconciles the selected staged addition in its owning repository", 
     await act(async () => useFileSystemStore.setState({ deleteFile: previousDelete }));
   }
 }, 1000);
+
+test("switching workspace while activating a list prevents index preparation", async () => {
+  const selected = { ...file("A", "pending.ts"), rawStatus: " M" };
+  let release!: (value: boolean) => void;
+  const activation = new Promise<boolean>((resolve) => {
+    release = resolve;
+  });
+  const prepare = spyOn(statusApi, "prepareCommitSelection").mockResolvedValue(undefined);
+  try {
+    await render([selected], undefined, {
+      commitWorkspaceKey: "old",
+      onActivateCommitChangelist: () => activation,
+    });
+    const label = container.querySelector('[aria-label="Include pending.ts in commit"]');
+    const row = label!.closest("[data-git-status-row-index]")!.querySelector('[role="treeitem"]')!;
+    await act(async () =>
+      row.dispatchEvent(new window.MouseEvent("contextmenu", { bubbles: true })),
+    );
+    const item = Array.from(document.querySelectorAll<HTMLElement>("[role=menuitem]")).find(
+      (element) => element.textContent?.trim() === "Commit",
+    );
+    expect(item).toBeDefined();
+    await act(async () => {
+      item!.click();
+      await Promise.resolve();
+    });
+    await render([selected], undefined, { commitWorkspaceKey: "new" });
+    await act(async () => {
+      release(true);
+      await activation;
+    });
+    expect(prepare).not.toHaveBeenCalled();
+  } finally {
+    release(false);
+    await activation;
+    prepare.mockRestore();
+  }
+}, 1000);
+
+test.each(["changed", "workspace"] as const)(
+  "%s membership while awaiting validation prevents staging",
+  async (scenario) => {
+    const selected = file("A", "pending-stage.ts");
+    let release!: (value: boolean) => void;
+    const validation = new Promise<boolean>((resolve) => {
+      release = resolve;
+    });
+    try {
+      await render([selected], undefined, {
+        commitWorkspaceKey: "old",
+        onValidateStagingMembership: () => validation,
+      });
+      const button = container.querySelector<HTMLElement>(
+        '[aria-label="Include pending-stage.ts in commit"]',
+      );
+      expect(button).not.toBeNull();
+      await act(async () => {
+        button!.click();
+        await Promise.resolve();
+      });
+      if (scenario === "workspace")
+        await render([selected], undefined, { commitWorkspaceKey: "new" });
+      await act(async () => {
+        release(scenario === "workspace");
+        await validation;
+      });
+      expect(staging).not.toHaveBeenCalled();
+    } finally {
+      release(false);
+      await validation;
+    }
+  },
+  1000,
+);

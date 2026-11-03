@@ -165,6 +165,11 @@ struct RustGitOperations: GitOperations, Sendable {
         write(at: root, operation: step.operation.rawValue, paths: step.paths)
     }
 
+    func changelistProjection(_ request: GitChangelistCoreRequest) -> GitChangelistCoreProjection? {
+        let result: Result<GitChangelistCoreProjection, RustCoreBridge.CoreCallError> = core.executeResult(command: "git.changelists", payload: request)
+        return try? result.get()
+    }
+
     func reconcileDeletedSelection(at root: URL, changes: [GitChange]) -> GitProcessResult? {
         struct Change: Encodable { let path: String; let status: String }
         struct Request: Encodable { let root: String; let changes: [Change] }

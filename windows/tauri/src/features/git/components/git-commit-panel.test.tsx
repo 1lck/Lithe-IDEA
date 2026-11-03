@@ -19,6 +19,7 @@ let currentMessage = "";
 let selectedFiles: GitFile[] = [];
 let scope: WorkspaceCommitPathScope | undefined;
 let scopeError: string | undefined;
+let validateScope: (() => Promise<boolean>) | undefined;
 let includeParentReferences = true;
 
 beforeEach(() => {
@@ -33,6 +34,7 @@ beforeEach(() => {
   currentMessage = "";
   scope = undefined;
   scopeError = undefined;
+  validateScope = undefined;
   includeParentReferences = true;
 });
 
@@ -83,6 +85,7 @@ const rerender = () => {
     <LocaleProvider language="en-US">
       <GitCommitPanel
         pathScope={scope}
+        validateCommitScope={validateScope}
         includeParentReferences={includeParentReferences}
         commitScopeError={scopeError}
         selectedFiles={selectedFiles}
@@ -258,3 +261,52 @@ test("commit captures the active list scope for native revalidation", async () =
     prepare.mockRestore();
   }
 });
+
+test("stale ChangeList validation blocks preparation and a later retry can proceed", async () => {
+  validateScope = async () => false;
+  await renderPanel({ message: "Review first" });
+  const workflow = useWorkspaceCommitStore.getStore("A").getState().workflow;
+  const prepare = spyOn(workflow, "prepare").mockResolvedValue(undefined);
+  try {
+    await act(async () => commitButton()!.click());
+    expect(prepare).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("staged files changed");
+    validateScope = async () => true;
+    await act(async () => rerender());
+    await act(async () => commitButton()!.click());
+    expect(prepare).toHaveBeenCalledTimes(1);
+  } finally {
+    prepare.mockRestore();
+  }
+}, 1000);
+
+test("changed draft while scope validation is pending prevents a stale commit", async () => {
+  let release!: (value: boolean) => void;
+  const validation = new Promise<boolean>((resolve) => {
+    release = resolve;
+  });
+  validateScope = () => validation;
+  await renderPanel({ message: "Original" });
+  const workflow = useWorkspaceCommitStore.getStore("A").getState().workflow;
+  const prepare = spyOn(workflow, "prepare").mockResolvedValue(undefined);
+  try {
+    await act(async () => {
+      commitButton()!.click();
+      await Promise.resolve();
+    });
+    expect(prepare).not.toHaveBeenCalled();
+    await act(async () => {
+      currentMessage = "New draft";
+      rerender();
+    });
+    await act(async () => {
+      release(true);
+      await validation;
+    });
+    expect(prepare).not.toHaveBeenCalled();
+  } finally {
+    release(false);
+    await validation;
+    prepare.mockRestore();
+  }
+}, 1000);

@@ -378,15 +378,16 @@ struct GitModuleTests {
         #expect(feature.commitFeature(for: linked) === scoped)
         #expect(scoped.gitRepositoryRoot == linked.url && scoped.availableRepositoryRoots == [linked.url])
         #expect(scoped.gitChanges == [change] && feature.gitRepositoryRoot == primary.url)
-        #expect(scoped.saveChangelistName("Local config") == nil)
+        await scoped.changelistProjectionTask?.value
+        #expect(await scoped.saveChangelistName("Local config") == nil)
         let list = try #require(scoped.changelists.lists.last?.id)
-        scoped.moveChanges([change, primaryChange], toChangelist: list)
+        await scoped.moveChanges([change, primaryChange], toChangelist: list)
         #expect(scoped.changelists.listID(for: change) == list)
         #expect(scoped.changelists.listID(for: primaryChange) == GitLocalChangelists.defaultID)
         #expect(scoped.changelistCommitError != nil)
         #expect(await !scoped.commitStagedChanges(message: "wrong list", amend: false))
         #expect(probe.requests.isEmpty)
-        scoped.activateChangelist(list)
+        await scoped.activateChangelist(list)
         #expect(await !scoped.commitAndPushStagedChanges(message: "linked only", amend: true))
         let request = try #require(probe.requests.first)
         #expect(request.repositories == [GitWorkspaceRepositoryBinding(id: ".", root: linked.path)])
@@ -411,10 +412,13 @@ struct GitModuleTests {
         await feature.refreshGit()
         await feature.refreshWorktrees()
         let scoped = feature.commitFeature(for: worktree)
-        #expect(scoped.saveChangelistName("Shared") == nil)
-        #expect(feature.changelists == scoped.changelists)
-        #expect(feature.saveChangelistName("From sidebar") == nil)
-        #expect(scoped.changelists == feature.changelists)
+        await scoped.changelistProjectionTask?.value
+        #expect(await scoped.saveChangelistName("Shared") == nil)
+        await feature.changelistProjectionTask?.value
+        #expect(feature.changelists.metadataEquals(scoped.changelists))
+        #expect(await feature.saveChangelistName("From sidebar") == nil)
+        await scoped.changelistProjectionTask?.value
+        #expect(scoped.changelists.metadataEquals(feature.changelists))
         scoped.changelistStorageFailed = true
         #expect(feature.changelistStorageFailed && feature.changelistEditingDisabled)
         feature.changelistStorageFailed = false
@@ -1676,25 +1680,25 @@ struct GitModuleTests {
         let feature = workspaceCommitFeature(roots: [root], changes: [config], storage: storage)
         defer { feature.reset() }
         await feature.refreshGit()
-        #expect(feature.saveChangelistName(" Local config ") == nil)
+        #expect(await feature.saveChangelistName(" Local config ") == nil)
         let id = try #require(feature.changelists.lists.last?.id)
-        #expect(feature.saveChangelistName("local CONFIG") != nil)
-        #expect(feature.saveChangelistName("Changed", id: GitLocalChangelists.defaultID) != nil)
+        #expect(await feature.saveChangelistName("local CONFIG") != nil)
+        #expect(await feature.saveChangelistName("Changed", id: GitLocalChangelists.defaultID) != nil)
         let originalSelection = feature.changelistSelectionGeneration
-        feature.moveChanges([config], toChangelist: id)
+        await feature.moveChanges([config], toChangelist: id)
         #expect(feature.changelistSelectionGeneration != originalSelection)
         let movedSelection = feature.changelistSelectionGeneration
         #expect(feature.gitChanges == [config])
         #expect(feature.activeChangelistChanges.isEmpty)
         #expect(feature.changelistCommitError != nil)
-        feature.activateChangelist(id)
+        await feature.activateChangelist(id)
         #expect(feature.changelistSelectionGeneration != movedSelection)
         let activeSelection = feature.changelistSelectionGeneration
-        feature.activateChangelist(GitLocalChangelists.defaultID)
-        feature.activateChangelist(id)
+        await feature.activateChangelist(GitLocalChangelists.defaultID)
+        await feature.activateChangelist(id)
         #expect(feature.changelistSelectionGeneration != activeSelection)
         #expect(feature.changelistCommitError == nil)
-        #expect(feature.saveChangelistName("Private", id: id) == nil)
+        #expect(await feature.saveChangelistName("Private", id: id) == nil)
         let reopened = workspaceCommitFeature(roots: [root], changes: [config], storage: storage)
         defer { reopened.reset() }
         await reopened.refreshGit()
@@ -1702,7 +1706,7 @@ struct GitModuleTests {
         reopened.configure(workspaceURLProvider: { URL(fileURLWithPath: "/other-workspace") },
             isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
         #expect(reopened.changelists.lists.count == 1)
-        feature.removeChangelist(id)
+        await feature.removeChangelist(id)
         #expect(feature.changelists.activeID == GitLocalChangelists.defaultID)
         #expect(feature.activeChangelistChanges == [config])
         #expect(feature.gitChanges == [config])
@@ -1720,15 +1724,16 @@ struct GitModuleTests {
         let feature = workspaceCommitFeature(roots: [root], changes: [config, code], probe: probe, stageRecorder: recorder)
         defer { feature.reset() }
         await feature.refreshGit()
-        #expect(feature.saveChangelistName("Local") == nil)
-        feature.moveChanges([config], toChangelist: try #require(feature.changelists.lists.last?.id))
+        #expect(await feature.saveChangelistName("Local") == nil)
+        await feature.moveChanges([config], toChangelist: try #require(feature.changelists.lists.last?.id))
         await feature.stageAllChanges()
         #expect(recorder.recorded.map(\.path) == ["feature.swift"])
         // The scripted status remains unstaged; failed staging must clear pending UI state.
         feature.includeChangelistParentReferences = false
         #expect(await !feature.commitStagedChanges(message: "Feature", amend: false))
         let request = try #require(probe.requests.last)
-        #expect(request.pathScope == GitWorkspaceCommitPathScope(include: false, paths: ["A": ["application.yaml"]]))
+        #expect(request.pathScope?.include == false && request.pathScope?.paths == ["A": ["application.yaml"]])
+        #expect(request.pathScope?.membership?.assignments["A"]?["application.yaml"] != nil)
         #expect(!request.includeParentReferences)
     }
 
@@ -1753,11 +1758,58 @@ struct GitModuleTests {
         feature.reset()
         await feature.refreshGit()
         storage.failSave = true
-        #expect(feature.saveChangelistName("Local") != nil)
+        #expect(await feature.saveChangelistName("Local") != nil)
         #expect(feature.changelistStorageFailed)
         #expect(feature.changelists.lists.count == 1)
         #expect(await !feature.commitStagedChanges(message: "Blocked", amend: false))
         #expect(probe.requests.isEmpty)
+    }
+
+    @Test
+    func changelistActionDoesNotOverwriteAnotherWindowsNewerStorage() async throws {
+        let workspace = URL(fileURLWithPath: "/workspace")
+        let root = URL(fileURLWithPath: "/workspace/A")
+        let entered = GitModuleTestGate(), release = GitModuleTestGate()
+        let storage = ChangelistStorageProbe()
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            changelistProjectionHandler: { request in
+                if request.action?.type == "create" {
+                    entered.open()
+                    guard release.waitSynchronously() else { return nil }
+                }
+                return GitChangelistCoreTestSupport.project(request)
+            }, snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: []), repositoryRoots: [root])),
+            changelistStorage: storage)
+        feature.configure(workspaceURLProvider: { workspace }, isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
+        defer { release.open(); feature.reset() }
+        await feature.refreshGit()
+        let task = Task { await feature.saveChangelistName("First") }
+        guard await entered.waitUntilOpen() else { release.open(); _ = await task.value; Issue.record("Core projection did not start"); return }
+        var external = GitLocalChangelists()
+        external.lists.append(.init(id: "external", name: "Other window"))
+        storage.states[workspace] = external
+        release.open()
+        #expect(await task.value != nil)
+        #expect(feature.changelistStorageFailed)
+        #expect(storage.states[workspace]?.metadataEquals(external) == true)
+    }
+
+    @Test
+    func changelistStagingRejectsAStorageChangeBeforeTheWindowRefreshes() async {
+        let workspace = URL(fileURLWithPath: "/workspace")
+        let root = URL(fileURLWithPath: "/workspace/A")
+        let change = GitChange(repositoryRoot: root, path: "feature.swift", originalPath: nil, indexStatus: " ", workTreeStatus: "M")
+        let storage = ChangelistStorageProbe()
+        let feature = workspaceCommitFeature(roots: [root], changes: [change], storage: storage)
+        defer { feature.reset() }
+        await feature.refreshGit()
+        var external = GitLocalChangelists()
+        external.lists.append(.init(id: "local", name: "Local"))
+        external.assignments[root.path] = [change.path: "local"]
+        storage.states[workspace] = external
+        #expect(feature.beginSetStaging([change], staged: true).isEmpty)
+        #expect(feature.changelistStorageFailed)
+        #expect(storage.states[workspace]?.metadataEquals(external) == true)
     }
 
     @Test
@@ -1770,12 +1822,12 @@ struct GitModuleTests {
         let feature = workspaceCommitFeature(probe: probe)
         defer { feature.reset() }
         await feature.refreshGit()
-        #expect(feature.saveChangelistName("Local") == nil)
+        #expect(await feature.saveChangelistName("Local") == nil)
         let id = try #require(feature.changelists.lists.last?.id)
         #expect(await !feature.commitStagedChanges(message: "Feature", amend: false))
-        feature.activateChangelist(id)
+        await feature.activateChangelist(id)
         #expect(feature.changelists.activeID == GitLocalChangelists.defaultID)
-        #expect(feature.saveChangelistName("Blocked") != nil)
+        #expect(await feature.saveChangelistName("Blocked") != nil)
         #expect(await !feature.confirmPendingSubmoduleCommit())
         #expect(probe.requests.last?.pathScope == scope)
         #expect(feature.changelistEditingDisabled)
@@ -2956,9 +3008,9 @@ struct GitModuleTests {
         feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
         defer { feature.reset() }
         await feature.refreshGit()
-        #expect(feature.saveChangelistName("Selected") == nil)
+        #expect(await feature.saveChangelistName("Selected") == nil)
         let list = try #require(feature.changelists.lists.last?.id)
-        feature.moveChanges([changes[0]], toChangelist: list)
+        await feature.moveChanges([changes[0]], toChangelist: list)
         #expect(!feature.canPrepareCommitFiles(changes))
         #expect(await feature.prepareCommitFiles([changes[0]]))
         #expect(feature.changelists.activeID == list)
@@ -6403,6 +6455,11 @@ private final class WorktreeChangesProbe: @unchecked Sendable {
 }
 
 private struct TestGitOperations: GitOperations {
+    func changelistProjection(_ request: GitChangelistCoreRequest) -> GitChangelistCoreProjection? {
+        if let changelistProjectionHandler { return changelistProjectionHandler(request) }
+        return GitChangelistCoreTestSupport.project(request)
+    }
+    private let changelistProjectionHandler: (@Sendable (GitChangelistCoreRequest) -> GitChangelistCoreProjection?)?
     private let snapshotValue: GitSnapshot?
     private let snapshotHandler: (@Sendable (URL) -> GitSnapshot?)?
     private let snapshotsByRoot: [String: GitSnapshot]
@@ -6465,6 +6522,7 @@ private struct TestGitOperations: GitOperations {
     private let pushReviewedHandler: (@Sendable (GitReference, GitPushPreview, GitPushTargetChoice?) -> GitProcessResult?)?
 
     init(
+        changelistProjectionHandler: (@Sendable (GitChangelistCoreRequest) -> GitChangelistCoreProjection?)? = nil,
         snapshotValue: GitSnapshot? = nil,
         snapshotsByRoot: [String: GitSnapshot] = [:],
         snapshotHandler: (@Sendable (URL) -> GitSnapshot?)? = nil,
@@ -6526,6 +6584,7 @@ private struct TestGitOperations: GitOperations {
         pushPreviewHandler: (@Sendable (GitReference, GitPushTargetChoice?, URL) -> Result<GitPushPreview, GitPushFailure>)? = nil,
         pushReviewedHandler: (@Sendable (GitReference, GitPushPreview, GitPushTargetChoice?) -> GitProcessResult?)? = nil
     ) {
+        self.changelistProjectionHandler = changelistProjectionHandler
         self.snapshotValue = snapshotValue
         self.snapshotHandler = snapshotHandler
         self.snapshotsByRoot = snapshotsByRoot
@@ -6913,6 +6972,8 @@ private final class ChangelistStorageProbe: GitChangelistStorage {
     }
     func save(_ state: GitLocalChangelists, workspace: URL) throws {
         if failSave { throw GitWorkspaceCommitFailure("Write rejected") }
-        states[workspace] = state
+        var persisted = state
+        persisted.projectedMembership = [:]
+        states[workspace] = persisted
     }
 }

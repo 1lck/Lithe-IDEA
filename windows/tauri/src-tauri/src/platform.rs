@@ -282,6 +282,7 @@ fn observes_git_execution(command: &str) -> bool {
     command.starts_with("git.")
         && command != "git.authRespond"
         && command != "git.consolePresentation"
+        && command != "git.changelists"
 }
 
 /// Kind the shared Core uses for npm transfer progress. `agent.install` and
@@ -1184,6 +1185,7 @@ mod tests {
         }
         assert!(!super::observes_git_execution("git.authRespond"));
         assert!(!super::observes_git_execution("git.consolePresentation"));
+        assert!(!super::observes_git_execution("git.changelists"));
         assert!(!super::observes_git_execution("workspace.scan"));
     }
 
