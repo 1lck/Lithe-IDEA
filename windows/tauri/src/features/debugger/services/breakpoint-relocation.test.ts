@@ -25,7 +25,7 @@ const insertion = () => ({ previousContent: "first();\nrun();\n", content: "\nfi
 
 test("editing updates the persisted owner, its gutter projection and the one-based Core boundary", async () => {
   useDebuggerStore.getState().actions.toggleBreakpoint("D:/work/Main.java", 1);
-  const invoke = spyOn(native, "invoke").mockResolvedValue({ breakpoints: [{ line: 3, enabled: true }] });
+  const invoke = spyOn(native, "invoke").mockResolvedValue({ breakpoints: [{ line: 3, enabled: true }], originalIndices: [0] });
   try {
     queueBreakpointRelocation("d:\\work\\MAIN.java", insertion());
     await flushBreakpointRelocations();
@@ -43,7 +43,7 @@ test("editing updates the persisted owner, its gutter projection and the one-bas
 
 test("a source mutation shared by split editors is submitted only once", async () => {
   useDebuggerStore.getState().actions.toggleBreakpoint("D:/work/Main.java", 1);
-  const invoke = spyOn(native, "invoke").mockResolvedValue({ breakpoints: [{ line: 3, enabled: true }] });
+  const invoke = spyOn(native, "invoke").mockResolvedValue({ breakpoints: [{ line: 3, enabled: true }], originalIndices: [0] });
   try {
     const change = insertion();
     queueBreakpointRelocation("D:/work/Main.java", change);
@@ -67,7 +67,7 @@ test("files without breakpoints and external refreshes do not send requests", as
 test("unchanged locations retain store identity and do not trigger another adapter sync", async () => {
   useDebuggerStore.getState().actions.toggleBreakpoint("D:/work/Main.java", 1);
   const before = useDebuggerStore.getState().breakpoints;
-  const invoke = spyOn(native, "invoke").mockResolvedValue({ breakpoints: [{ line: 2, enabled: true }] });
+  const invoke = spyOn(native, "invoke").mockResolvedValue({ breakpoints: [{ line: 2, enabled: true }], originalIndices: [0] });
   try {
     queueBreakpointRelocation("D:/work/Main.java", insertion());
     await flushBreakpointRelocations();
@@ -88,26 +88,26 @@ test("queue overflow is bounded and cannot silently launch with stale positions"
 
 test("rapid edits serialize against the relocated owner rather than an old snapshot", async () => {
   useDebuggerStore.getState().actions.toggleBreakpoint("D:/work/Main.java", 1);
-  let release!: (value: { breakpoints: { line: number; enabled: boolean }[] }) => void;
+  let release!: (value: { breakpoints: { line: number; enabled: boolean }[]; originalIndices: number[] }) => void;
   let entered!: () => void;
   const started = new Promise<void>(resolve => { entered = resolve; });
-  const first = new Promise<{ breakpoints: { line: number; enabled: boolean }[] }>(resolve => { release = resolve; });
+  const first = new Promise<{ breakpoints: { line: number; enabled: boolean }[]; originalIndices: number[] }>(resolve => { release = resolve; });
   const invoke = spyOn(native, "invoke").mockImplementation(async <T>(_command: string, args?: unknown): Promise<T> => {
     const points = (args as { breakpoints: { line: number }[] }).breakpoints;
     if (points[0]?.line === 2) { entered(); return await first as T; }
-    return { breakpoints: [{ line: 4, enabled: true }] } as T;
+    return { breakpoints: [{ line: 4, enabled: true }], originalIndices: [0] } as T;
   });
   try {
     queueBreakpointRelocation("D:/work/Main.java", insertion());
     await started;
     queueBreakpointRelocation("D:/work/Main.java", { ...insertion(), previousContent: "\nfirst();\nrun();\n" });
     expect(invoke).toHaveBeenCalledTimes(1);
-    release({ breakpoints: [{ line: 3, enabled: true }] });
+    release({ breakpoints: [{ line: 3, enabled: true }], originalIndices: [0] });
     await flushBreakpointRelocations();
     expect(invoke).toHaveBeenCalledTimes(2);
     expect(useDebuggerStore.getState().breakpoints[0]?.line).toBe(3);
   } finally {
-    release({ breakpoints: [{ line: 3, enabled: true }] });
+    release({ breakpoints: [{ line: 3, enabled: true }], originalIndices: [0] });
     await flushBreakpointRelocations();
     invoke.mockRestore();
   }
@@ -115,20 +115,20 @@ test("rapid edits serialize against the relocated owner rather than an old snaps
 
 test("clearing breakpoints retires an in-flight result without resurrecting them", async () => {
   useDebuggerStore.getState().actions.toggleBreakpoint("D:/work/Main.java", 1);
-  let release!: (value: { breakpoints: { line: number; enabled: boolean }[] }) => void;
+  let release!: (value: { breakpoints: { line: number; enabled: boolean }[]; originalIndices: number[] }) => void;
   let entered!: () => void;
   const started = new Promise<void>(resolve => { entered = resolve; });
-  const response = new Promise<{ breakpoints: { line: number; enabled: boolean }[] }>(resolve => { release = resolve; });
+  const response = new Promise<{ breakpoints: { line: number; enabled: boolean }[]; originalIndices: number[] }>(resolve => { release = resolve; });
   const invoke = spyOn(native, "invoke").mockImplementation(async <T>(): Promise<T> => { entered(); return await response as T; });
   try {
     queueBreakpointRelocation("D:/work/Main.java", insertion());
     await started;
     useDebuggerStore.getState().actions.clearBreakpoints();
-    release({ breakpoints: [{ line: 3, enabled: true }] });
+    release({ breakpoints: [{ line: 3, enabled: true }], originalIndices: [0] });
     await flushBreakpointRelocations();
     expect(useDebuggerStore.getState().breakpoints).toEqual([]);
   } finally {
-    release({ breakpoints: [] });
+    release({ breakpoints: [], originalIndices: [] });
     await flushBreakpointRelocations();
     invoke.mockRestore();
   }
@@ -136,20 +136,20 @@ test("clearing breakpoints retires an in-flight result without resurrecting them
 
 test("hydrating unchanged breakpoints during relocation preserves the pending update", async () => {
   useDebuggerStore.getState().actions.toggleBreakpoint("D:/work/Main.java", 1);
-  let release!: (value: { breakpoints: { line: number; enabled: boolean }[] }) => void;
+  let release!: (value: { breakpoints: { line: number; enabled: boolean }[]; originalIndices: number[] }) => void;
   let entered!: () => void;
   const started = new Promise<void>(resolve => { entered = resolve; });
-  const response = new Promise<{ breakpoints: { line: number; enabled: boolean }[] }>(resolve => { release = resolve; });
+  const response = new Promise<{ breakpoints: { line: number; enabled: boolean }[]; originalIndices: number[] }>(resolve => { release = resolve; });
   const invoke = spyOn(native, "invoke").mockImplementation(async <T>(): Promise<T> => { entered(); return await response as T; });
   try {
     queueBreakpointRelocation("D:/work/Main.java", insertion());
     await started;
     useDebuggerStore.getState().actions.hydrate();
-    release({ breakpoints: [{ line: 3, enabled: true }] });
+    release({ breakpoints: [{ line: 3, enabled: true }], originalIndices: [0] });
     await flushBreakpointRelocations();
     expect(useDebuggerStore.getState().actions.getBreakpointsForFile("D:/work/Main.java")[0]?.line).toBe(2);
   } finally {
-    release({ breakpoints: [] });
+    release({ breakpoints: [], originalIndices: [] });
     await flushBreakpointRelocations();
     invoke.mockRestore();
   }
@@ -172,7 +172,7 @@ test("multi-cursor native edits are submitted together to preserve character anc
  const model = new SourceText(source, 1);
  const changes = model.apply([{rangeOffset:0,rangeLength:0,text:"\n"},{rangeOffset:9,rangeLength:0,text:"\n"}], 2);
  useDebuggerStore.getState().actions.toggleBreakpoint("D:/work/Batch.java",2);
- const invoke = spyOn(native,"invoke").mockResolvedValue({breakpoints:[{line:5,enabled:true}]});
+ const invoke = spyOn(native,"invoke").mockResolvedValue({breakpoints:[{line:5,enabled:true}],originalIndices:[0]});
  try {
   queueBreakpointRelocation("D:/work/Batch.java",{previousContent:source,content:model.value,changes,external:false});
   await flushBreakpointRelocations();
@@ -182,28 +182,177 @@ test("multi-cursor native edits are submitted together to preserve character anc
  } finally { invoke.mockRestore(); }
 });
 
-test("user breakpoint edits while another file blocks the queue reject stale coordinates", async () => {
+test("a breakpoint added while an earlier edit is queued stays at its new-document location", async () => {
  const actions = useDebuggerStore.getState().actions;
  actions.toggleBreakpoint("D:/work/Block.java", 1); actions.toggleBreakpoint("D:/work/Queued.java", 1);
- let release!: (value: {breakpoints: {line:number;enabled:boolean}[]}) => void; let enter!:()=>void;
+ let release!: (value: {breakpoints: {line:number;enabled:boolean}[]; originalIndices: number[]}) => void; let enter!:()=>void;
  const started = new Promise<void>(resolve => {enter=resolve;});
- const blocked = new Promise<{breakpoints:{line:number;enabled:boolean}[]}>(resolve => {release=resolve;});
+ const blocked = new Promise<{breakpoints:{line:number;enabled:boolean}[]; originalIndices: number[]}>(resolve => {release=resolve;});
  const invoke = spyOn(native,"invoke").mockImplementation(async command => { if(command === "debug.relocateBreakpoints") {enter(); return await blocked as never;} return undefined as never; });
  try {
   queueBreakpointRelocation("D:/work/Block.java", insertion()); await started;
   queueBreakpointRelocation("D:/work/Queued.java", insertion());
   actions.toggleBreakpoint("D:/work/Queued.java", 0);
-  release({breakpoints:[{line:3,enabled:true}]});
-  await expect(flushBreakpointRelocations()).rejects.toBeInstanceOf(Error);
-  expect(invoke.mock.calls.filter(call=>call[0] === "debug.relocateBreakpoints")).toHaveLength(1);
-  expect(actions.getBreakpointsForFile("D:/work/Queued.java").map(point=>point.line)).toEqual([1,0]);
- } finally {release({breakpoints:[]}); actions.clearBreakpoints(); await flushBreakpointRelocations(); invoke.mockRestore();}
+  release({breakpoints:[{line:3,enabled:true}],originalIndices:[0]});
+  await flushBreakpointRelocations();
+  expect(invoke.mock.calls.filter(call=>call[0] === "debug.relocateBreakpoints")).toHaveLength(2);
+  expect(actions.getBreakpointsForFile("D:/work/Queued.java").map(point=>point.line).sort()).toEqual([0,2]);
+ } finally {release({breakpoints:[],originalIndices:[]}); actions.clearBreakpoints(); await flushBreakpointRelocations(); invoke.mockRestore();}
+});
+
+test("a breakpoint added during a native request is not relocated with an older edit", async () => {
+ const actions = useDebuggerStore.getState().actions;
+ actions.toggleBreakpoint("D:/work/Main.java", 1);
+ let release!: (value: {breakpoints:{line:number;enabled:boolean}[]; originalIndices:number[]}) => void;
+ let entered!: () => void;
+ const started = new Promise<void>(resolve => { entered = resolve; });
+ const blocked = new Promise<{breakpoints:{line:number;enabled:boolean}[]; originalIndices:number[]}>(resolve => { release = resolve; });
+ let calls = 0;
+ const invoke = spyOn(native, "invoke").mockImplementation(async <T>(_command: string, args?: unknown): Promise<T> => {
+  calls++;
+  expect((args as {breakpoints: unknown[]}).breakpoints).toHaveLength(1);
+  if (calls === 1) { entered(); return await blocked as T; }
+  return {breakpoints:[{line:3,enabled:true}],originalIndices:[0]} as T;
+ });
+ try {
+  queueBreakpointRelocation("D:/work/Main.java", insertion());
+  await started;
+  actions.toggleBreakpoint("D:/work/Main.java", 0);
+  release({breakpoints:[{line:3,enabled:true}],originalIndices:[0]});
+  await flushBreakpointRelocations();
+  expect(calls).toBe(2);
+  expect(actions.getBreakpointsForFile("D:/work/Main.java").map(point => point.line).sort()).toEqual([0,2]);
+ } finally {
+  release({breakpoints:[],originalIndices:[]});
+  actions.clearBreakpoints(); await flushBreakpointRelocations(); invoke.mockRestore();
+ }
+});
+
+test("a removed and re-added breakpoint is not overwritten by its old native result", async () => {
+ const actions = useDebuggerStore.getState().actions;
+ actions.toggleBreakpoint("D:/work/Main.java", 1);
+ let release!: (value: {breakpoints:{line:number;enabled:boolean}[]; originalIndices:number[]}) => void;
+ let entered!: () => void;
+ const started = new Promise<void>(resolve => { entered = resolve; });
+ const blocked = new Promise<{breakpoints:{line:number;enabled:boolean}[]; originalIndices:number[]}>(resolve => { release = resolve; });
+ const invoke = spyOn(native, "invoke").mockImplementation(async <T>(): Promise<T> => { entered(); return await blocked as T; });
+ try {
+  const originalId = actions.getBreakpointsForFile("D:/work/Main.java")[0]!.id;
+  queueBreakpointRelocation("D:/work/Main.java", insertion());
+  await started;
+  actions.toggleBreakpoint("D:/work/Main.java", 1);
+  actions.toggleBreakpoint("D:/work/Main.java", 1);
+  release({breakpoints:[{line:3,enabled:true}],originalIndices:[0]});
+  await flushBreakpointRelocations();
+  const [current] = actions.getBreakpointsForFile("D:/work/Main.java");
+  expect(current!.id).not.toBe(originalId);
+  expect(current!.line).toBe(1);
+  expect(invoke).toHaveBeenCalledTimes(1);
+ } finally {
+  release({breakpoints:[],originalIndices:[]});
+  actions.clearBreakpoints(); await flushBreakpointRelocations(); invoke.mockRestore();
+ }
+});
+
+test("a later breakpoint wins when an older anchor moves onto its line", async () => {
+ const actions = useDebuggerStore.getState().actions;
+ actions.toggleBreakpoint("D:/work/Main.java", 1);
+ let release!: (value: {breakpoints:{line:number;enabled:boolean}[]; originalIndices:number[]}) => void;
+ let entered!: () => void;
+ const started = new Promise<void>(resolve => { entered = resolve; });
+ const blocked = new Promise<{breakpoints:{line:number;enabled:boolean}[]; originalIndices:number[]}>(resolve => { release = resolve; });
+ let calls = 0;
+ const invoke = spyOn(native, "invoke").mockImplementation(async <T>(): Promise<T> => {
+  if (++calls === 1) { entered(); return await blocked as T; }
+  return {breakpoints:[{line:3,enabled:true}],originalIndices:[0]} as T;
+ });
+ try {
+  queueBreakpointRelocation("D:/work/Main.java", insertion());
+  await started;
+  actions.toggleBreakpoint("D:/work/Main.java", 2);
+  const added = actions.getBreakpointsForFile("D:/work/Main.java").find(point => point.line === 2)!;
+  release({breakpoints:[{line:3,enabled:true}],originalIndices:[0]});
+  await flushBreakpointRelocations();
+  expect(actions.getBreakpointsForFile("D:/work/Main.java").map(point => point.id)).toEqual([added.id]);
+ } finally {
+  release({breakpoints:[],originalIndices:[]});
+  actions.clearBreakpoints(); await flushBreakpointRelocations(); invoke.mockRestore();
+ }
+});
+
+test("removing a collision survivor retries with the remaining breakpoint", async () => {
+ const actions = useDebuggerStore.getState().actions;
+ actions.toggleBreakpoint("D:/work/Main.java", 0);
+ actions.toggleBreakpoint("D:/work/Main.java", 1);
+ let release!: (value: {breakpoints:{line:number;enabled:boolean}[]; originalIndices:number[]}) => void;
+ let entered!: () => void;
+ const started = new Promise<void>(resolve => { entered = resolve; });
+ const blocked = new Promise<{breakpoints:{line:number;enabled:boolean}[]; originalIndices:number[]}>(resolve => { release = resolve; });
+ let calls = 0;
+ const invoke = spyOn(native, "invoke").mockImplementation(async <T>(_command: string, args?: unknown): Promise<T> => {
+  const points = (args as {breakpoints:{line:number}[]}).breakpoints;
+  if (++calls === 1) { expect(points).toHaveLength(2); entered(); return await blocked as T; }
+  expect(points.map(point => point.line)).toEqual([1]);
+  return {breakpoints:[{line:1,enabled:true}],originalIndices:[0]} as T;
+ });
+ try {
+  queueBreakpointRelocation("D:/work/Main.java", {
+   previousContent: "first();\nrun();\n", content: "run();\n", external: false,
+   changes: [{offset: 0, length: 9, text: "", start: {line: 0, column: 0}, end: {line: 1, column: 0}}],
+  });
+  await started;
+  actions.toggleBreakpoint("D:/work/Main.java", 1);
+  release({breakpoints:[{line:1,enabled:true}],originalIndices:[1]});
+  await flushBreakpointRelocations();
+  expect(calls).toBe(2);
+  expect(actions.getBreakpointsForFile("D:/work/Main.java").map(point => point.line)).toEqual([0]);
+ } finally {
+  release({breakpoints:[],originalIndices:[]});
+  actions.clearBreakpoints(); await flushBreakpointRelocations(); invoke.mockRestore();
+ }
+});
+
+test("a breakpoint added between consecutive edits moves only with the later edit", async () => {
+ const actions = useDebuggerStore.getState().actions;
+ actions.toggleBreakpoint("D:/work/Main.java", 0);
+ let release!: (value: {breakpoints:{line:number;enabled:boolean}[]; originalIndices:number[]}) => void;
+ let entered!: () => void;
+ const started = new Promise<void>(resolve => { entered = resolve; });
+ const blocked = new Promise<{breakpoints:{line:number;enabled:boolean}[]; originalIndices:number[]}>(resolve => { release = resolve; });
+ let calls = 0;
+ const invoke = spyOn(native, "invoke").mockImplementation(async <T>(_command: string, args?: unknown): Promise<T> => {
+  calls++;
+  const points = (args as {breakpoints:{line:number}[]}).breakpoints;
+  if (calls === 1) { entered(); return await blocked as T; }
+  if (calls === 2) return {breakpoints:[{line:2,enabled:true}],originalIndices:[0]} as T;
+  expect(points.map(point => point.line).sort()).toEqual([2,3]);
+  return {breakpoints:[{line:3,enabled:true},{line:4,enabled:true}],originalIndices:[1,0]} as T;
+ });
+ const first = insertion();
+ try {
+  queueBreakpointRelocation("D:/work/Main.java", first);
+  await started;
+  const firstId = actions.getBreakpointsForFile("D:/work/Main.java")[0]!.id;
+  actions.toggleBreakpoint("D:/work/Main.java", 2);
+  const secondId = actions.getBreakpointsForFile("D:/work/Main.java")[1]!.id;
+  queueBreakpointRelocation("D:/work/Main.java", {
+   ...first, previousContent: first.content, content: "\n" + first.content,
+  });
+  release({breakpoints:[{line:2,enabled:true}],originalIndices:[0]});
+  await flushBreakpointRelocations();
+  expect(actions.getBreakpointsForFile("D:/work/Main.java").map(point => point.line).sort()).toEqual([2,3]);
+  expect(actions.getBreakpointsForFile("D:/work/Main.java").find(point => point.id === firstId)?.line).toBe(2);
+  expect(actions.getBreakpointsForFile("D:/work/Main.java").find(point => point.id === secondId)?.line).toBe(3);
+ } finally {
+  release({breakpoints:[],originalIndices:[]});
+  actions.clearBreakpoints(); await flushBreakpointRelocations(); invoke.mockRestore();
+ }
 });
 
 test("large document incremental IPC omits the source after the initial snapshot", async () => {
  const source = "x".repeat(10 * 1024 * 1024);
  useDebuggerStore.getState().actions.toggleBreakpoint("D:/work/Large.java",0);
- const invoke = spyOn(native,"invoke").mockResolvedValue({breakpoints:[{line:1,enabled:true}]});
+ const invoke = spyOn(native,"invoke").mockResolvedValue({breakpoints:[{line:1,enabled:true}],originalIndices:[0]});
  let current = source;
  try {
   for(let index=0;index<128;index++) {

@@ -67,3 +67,39 @@ for (const item of fixture.cases) {
     } finally { invoke.mockRestore(); }
   });
 }
+
+test.skipIf(!library)("native retry keeps a breakpoint added while relocation is in flight", async () => {
+  const path = "D:/fixture/Race.java";
+  const actions = useDebuggerStore.getState().actions;
+  actions.toggleBreakpoint(path, 1);
+  let entered!: () => void;
+  let release!: () => void;
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  let calls = 0;
+  const invoke = spyOn(native, "invoke").mockImplementation(async (command, payload) => {
+    const input = Buffer.from(JSON.stringify({ id: "race", command, payload }) + "\0");
+    const pointer = library!.symbols.lithe_core_execute_json(input);
+    if (!pointer) throw new Error("Core returned a null response pointer");
+    let response: { ok: boolean; data: unknown; error?: { message: string } };
+    try { response = JSON.parse(new CString(pointer).toString()); }
+    finally { library!.symbols.lithe_core_free_string(pointer); }
+    if (!response.ok) throw new Error(response.error?.message);
+    if (++calls === 1) { entered(); await gate; }
+    return response.data as never;
+  });
+  try {
+    const source = "first();\nrun();\n";
+    const model = new SourceText(source, 1);
+    const changes = model.apply([{rangeOffset: 0, rangeLength: 0, text: "\n"}], 2);
+    queueBreakpointRelocation(path, {previousContent: source, content: model.value, changes, anchorChanges: model.lastAnchorChanges, external: false});
+    await started;
+    actions.toggleBreakpoint(path, 0);
+    release();
+    await flushBreakpointRelocations();
+    expect(calls).toBe(2);
+    expect(actions.getBreakpointsForFile(path).map(point => point.line).sort()).toEqual([0, 2]);
+  } finally {
+    release(); actions.clearBreakpoints(); await flushBreakpointRelocations(); invoke.mockRestore();
+  }
+});

@@ -63,7 +63,10 @@ static SNAPSHOTS: OnceLock<Mutex<SnapshotCache>> = OnceLock::new();
 #[serde(rename_all = "camelCase")]
 /// Stable breakpoint set after applying one source edit.
 pub struct RelocateBreakpointsResult {
+    /// Relocated, deduplicated breakpoints in deterministic position order.
     pub breakpoints: Vec<SourceBreakpoint>,
+    /// Input index of each surviving breakpoint, aligned with `breakpoints`.
+    pub original_indices: Vec<usize>,
 }
 
 /// Moves breakpoint anchors with inserted or removed source text.
@@ -154,9 +157,10 @@ fn relocate_batch(
     }
     let mut anchors = breakpoints
         .into_iter()
-        .map(|point| {
+        .enumerate()
+        .map(|(index, point)| {
             let anchor = breakpoint_anchor_utf16_offset(&source, &point)?;
-            Ok((point, anchor, false))
+            Ok((index, point, anchor, false))
         })
         .collect::<Result<Vec<_>, CoreError>>()?;
     // Keep exact character anchors across every edit. A line-only intermediate
@@ -165,7 +169,7 @@ fn relocate_batch(
         let start_byte = byte_index_at_utf16_offset(&source, edit.start_utf16_offset)?;
         let end_byte = byte_index_at_utf16_offset(&source, edit.end_utf16_offset)?;
         let replacement_length = edit.replacement.encode_utf16().count();
-        for (_, anchor, replaced) in &mut anchors {
+        for (_, _, anchor, replaced) in &mut anchors {
             *replaced |= edit.start_utf16_offset < edit.end_utf16_offset
                 && *anchor >= edit.start_utf16_offset
                 && *anchor < edit.end_utf16_offset;
@@ -179,21 +183,26 @@ fn relocate_batch(
         source.replace_range(start_byte..end_byte, &edit.replacement);
     }
     let mut relocated = BTreeMap::new();
-    for (mut point, anchor, replaced) in anchors {
+    for (index, mut point, anchor, replaced) in anchors {
         let (line, column) = position_at_utf16_offset(&source, anchor)?;
         point.line = line;
         point.column = point.column.map(|_| column);
         let identity = (line, point.column.unwrap_or(0));
         match relocated.get(&identity) {
-            Some((was_replaced, _)) if !was_replaced || replaced => {}
+            Some((was_replaced, _, _)) if !was_replaced || replaced => {}
             _ => {
-                relocated.insert(identity, (replaced, point));
+                relocated.insert(identity, (replaced, index, point));
             }
         }
     }
+    let (original_indices, breakpoints) = relocated
+        .into_values()
+        .map(|(_, index, point)| (index, point))
+        .unzip();
     Ok((
         RelocateBreakpointsResult {
-            breakpoints: relocated.into_values().map(|(_, point)| point).collect(),
+            breakpoints,
+            original_indices,
         },
         source,
     ))

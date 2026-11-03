@@ -50,7 +50,7 @@ interface DebuggerState {
     setBreakpointEnabled: (breakpointId: string, enabled: boolean) => void;
     removeBreakpoint: (breakpointId: string) => void;
     clearBreakpoints: () => void;
-    applyRelocatedBreakpoints: (filePath: string, expected: DebugBreakpoint[], points: { line: number; enabled: boolean }[]) => boolean;
+    applyRelocatedBreakpoints: (filePath: string, expected: DebugBreakpoint[], points: { line: number; enabled: boolean }[], originalIndices: number[]) => boolean;
     addWatchExpression: (expression: string) => DebugWatchExpression | null;
     updateWatchExpression: (expressionId: string, expression: string) => void;
     removeWatchExpression: (expressionId: string) => void;
@@ -144,8 +144,7 @@ const saveWatchExpressions = (watchExpressions: DebugWatchExpression[]) => {
   window.localStorage.setItem(WATCH_EXPRESSIONS_STORAGE_KEY, JSON.stringify(watchExpressions));
 };
 
-const createBreakpointId = (filePath: string, line: number) =>
-  `bp_${filePath.replace(/[^a-zA-Z0-9]/g, "_")}_${line}`;
+const createBreakpointId = () => `bp_${crypto.randomUUID()}`;
 
 const sameBreakpoint = (left: DebugBreakpoint, right: DebugBreakpoint) =>
   left.id === right.id && left.filePath === right.filePath && left.line === right.line &&
@@ -205,7 +204,7 @@ export const useDebuggerStore = createSelectors(
             : [
                 ...state.breakpoints,
                 {
-                  id: createBreakpointId(filePath, line),
+                  id: createBreakpointId(),
                   filePath,
                   line,
                   enabled: true,
@@ -240,22 +239,28 @@ export const useDebuggerStore = createSelectors(
         });
       },
 
-      applyRelocatedBreakpoints: (filePath, expected, points) => {
+      applyRelocatedBreakpoints: (filePath, expected, points, originalIndices) => {
         const current = get().actions.getBreakpointsForFile(filePath);
-        if (!current.length) return true;
-        // Hydration recreates equivalent objects without changing their meaning.
-        if (current.length !== expected.length || current.some((point, index) => !sameBreakpoint(point, expected[index]!))) return false;
-        if (points.length === current.length && points.every(point => current.some(
-          existing => existing.line === point.line - 1 && existing.enabled === point.enabled,
-        ))) return true;
+        const expectedIds = new Set(expected.map(point => point.id));
+        const byId = new Map(current.map(point => [point.id, point]));
+        if (points.length !== originalIndices.length ||
+            new Set(originalIndices).size !== originalIndices.length ||
+            originalIndices.some(index => !Number.isInteger(index) || index < 0 || index >= expected.length) ||
+            expected.some(point => !byId.has(point.id) || !sameBreakpoint(byId.get(point.id)!, point))) return false;
+        const added = current.filter(point => !expectedIds.has(point.id));
+        const occupied = new Set(added.map(point => point.line));
+        const relocated = points.flatMap((point, index) => {
+          const previous = expected[originalIndices[index]!]!;
+          if (occupied.has(point.line - 1)) return [];
+          return [{ ...previous, line: point.line - 1, enabled: point.enabled }];
+        });
+        const replacement = [...added, ...relocated];
+        if (replacement.length === current.length && replacement.every(point =>
+          current.some(existing => sameBreakpoint(existing, point)))) return true;
         const key = debugSourcePathKey(filePath);
-        const originalPath = expected[0]!.filePath;
         const nextBreakpoints = [
           ...get().breakpoints.filter(point => debugSourcePathKey(point.filePath) !== key),
-          ...points.map(point => current.find(existing => existing.line === point.line - 1 && existing.enabled === point.enabled) ?? ({
-            id: createBreakpointId(originalPath, point.line - 1), filePath: originalPath,
-            line: point.line - 1, enabled: point.enabled, createdAt: expected[0]!.createdAt,
-          })),
+          ...replacement,
         ];
         saveBreakpoints(nextBreakpoints);
         set({ breakpoints: nextBreakpoints });

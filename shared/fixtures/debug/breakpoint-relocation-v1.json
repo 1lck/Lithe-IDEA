@@ -31,6 +31,9 @@
             "hitCondition": "3",
             "logMessage": null
           }
+        ],
+        "originalIndices": [
+          0
         ]
       }
     },
@@ -64,6 +67,9 @@
             "hitCondition": null,
             "logMessage": null
           }
+        ],
+        "originalIndices": [
+          0
         ]
       }
     },
@@ -97,6 +103,9 @@
             "hitCondition": null,
             "logMessage": null
           }
+        ],
+        "originalIndices": [
+          0
         ]
       }
     },
@@ -130,6 +139,9 @@
             "hitCondition": null,
             "logMessage": null
           }
+        ],
+        "originalIndices": [
+          0
         ]
       }
     },
@@ -171,6 +183,9 @@
             "hitCondition": null,
             "logMessage": null
           }
+        ],
+        "originalIndices": [
+          1
         ]
       }
     },
@@ -204,6 +219,62 @@
             "hitCondition": null,
             "logMessage": null
           }
+        ],
+        "originalIndices": [
+          0
+        ]
+      }
+    },
+    {
+      "name": "survivor indices follow sorted relocated positions",
+      "payload": {
+        "source": "a\nb\nc",
+        "edit": {
+          "startUtf16Offset": 0,
+          "endUtf16Offset": 0,
+          "replacement": "\n"
+        },
+        "breakpoints": [
+          {
+            "line": 3,
+            "column": null,
+            "enabled": true,
+            "condition": null,
+            "hitCondition": null,
+            "logMessage": null
+          },
+          {
+            "line": 1,
+            "column": null,
+            "enabled": true,
+            "condition": null,
+            "hitCondition": null,
+            "logMessage": null
+          }
+        ]
+      },
+      "expected": {
+        "breakpoints": [
+          {
+            "line": 2,
+            "column": null,
+            "enabled": true,
+            "condition": null,
+            "hitCondition": null,
+            "logMessage": null
+          },
+          {
+            "line": 4,
+            "column": null,
+            "enabled": true,
+            "condition": null,
+            "hitCondition": null,
+            "logMessage": null
+          }
+        ],
+        "originalIndices": [
+          1,
+          0
         ]
       }
     }

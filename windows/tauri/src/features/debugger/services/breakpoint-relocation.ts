@@ -6,6 +6,7 @@ import { useDebuggerStore } from "../stores/debugger.store";
 
 const MAX_PENDING_RELOCATIONS = 128;
 const MAX_PENDING_SOURCE_BYTES = 32 * 1024 * 1024;
+const MAX_USER_CHANGE_RETRIES = 4;
 let pendingSourceBytes = 0;
 const snapshots = new Map<string, { id: string; version: number; source: string }>();
 let tail: Promise<void> | null = null;
@@ -21,8 +22,10 @@ type CoreBreakpoint = { line: number; enabled: boolean };
 export function queueBreakpointRelocation(filePath: string, change: SourceModelChange): void {
   if (change.external || !change.changes.length || seen.has(change)) return;
   seen.add(change);
-  if (!useDebuggerStore.getState().actions.getBreakpointsForFile(filePath).length) return;
-  const userRevision = useDebuggerStore.getState().breakpointUserRevisions[debugSourcePathKey(filePath)] ?? 0;
+  const initial = useDebuggerStore.getState().actions.getBreakpointsForFile(filePath);
+  if (!initial.length) return;
+  // A breakpoint added after this edit already uses the new document's lines.
+  const existingIds = new Set(initial.map(point => point.id));
   const epoch = useDebuggerStore.getState().breakpointGeneration;
   if (failureGeneration !== epoch) failure = undefined;
   if (snapshotGeneration !== epoch) { snapshots.clear(); snapshotGeneration = epoch; }
@@ -37,9 +40,6 @@ export function queueBreakpointRelocation(filePath: string, change: SourceModelC
   pendingSourceBytes += change.previousContent.length * 2;
   const operation = (tail ?? Promise.resolve()).then(async () => {
     if (epoch !== useDebuggerStore.getState().breakpointGeneration || failure) return;
-    if ((useDebuggerStore.getState().breakpointUserRevisions[debugSourcePathKey(filePath)] ?? 0) !== userRevision) throw new Error("debugger.breakpointRelocationFailed");
-    const expected = useDebuggerStore.getState().actions.getBreakpointsForFile(filePath);
-    if (!expected.length) return;
     const key = debugSourcePathKey(filePath);
     const cached = snapshots.get(key);
     const document = cached && cached.source === change.previousContent
@@ -48,19 +48,28 @@ export function queueBreakpointRelocation(filePath: string, change: SourceModelC
     const edits = (change.anchorChanges ?? change.changes).map(edit => ({
       startUtf16Offset: edit.offset, endUtf16Offset: edit.offset + edit.length, replacement: edit.text,
     }));
-    const result = await invoke<{ breakpoints: CoreBreakpoint[] }>("debug.relocateBreakpoints", {
-      ...(document.version === 1 ? { source: change.previousContent } : {}), document, edits,
-      breakpoints: expected.map(point => ({ line: point.line + 1, enabled: point.enabled })),
-    });
-    snapshots.delete(key);
-    if (snapshots.size >= 4) snapshots.delete(snapshots.keys().next().value!);
-    snapshots.set(key, { ...document, source: change.content });
-    const points = result.breakpoints;
-    if ((useDebuggerStore.getState().breakpointUserRevisions[debugSourcePathKey(filePath)] ?? 0) !== userRevision) throw new Error("debugger.breakpointRelocationFailed");
-    if (epoch !== useDebuggerStore.getState().breakpointGeneration) return;
-    if (!useDebuggerStore.getState().actions.applyRelocatedBreakpoints(filePath, expected, points)) {
-      throw new Error("debugger.breakpointRelocationFailed");
+    for (let attempt = 0; attempt < MAX_USER_CHANGE_RETRIES; attempt++) {
+      const state = useDebuggerStore.getState();
+      const expected = state.actions.getBreakpointsForFile(filePath).filter(point => existingIds.has(point.id));
+      if (!expected.length) return;
+      const revision = state.breakpointUserRevisions[key] ?? 0;
+      const result = await invoke<{ breakpoints: CoreBreakpoint[]; originalIndices: number[] }>("debug.relocateBreakpoints", {
+        ...(attempt === 0
+          ? { ...(document.version === 1 ? { source: change.previousContent } : {}), document }
+          : { source: change.previousContent }),
+        edits,
+        breakpoints: expected.map(point => ({ line: point.line + 1, enabled: point.enabled })),
+      });
+      if (attempt === 0) {
+        snapshots.delete(key);
+        if (snapshots.size >= 4) snapshots.delete(snapshots.keys().next().value!);
+        snapshots.set(key, { ...document, source: change.content });
+      }
+      if (epoch !== useDebuggerStore.getState().breakpointGeneration) return;
+      if ((useDebuggerStore.getState().breakpointUserRevisions[key] ?? 0) !== revision) continue;
+      if (useDebuggerStore.getState().actions.applyRelocatedBreakpoints(filePath, expected, result.breakpoints, result.originalIndices)) return;
     }
+    throw new Error("debugger.breakpointRelocationFailed");
   }).catch(error => {
     if (epoch !== useDebuggerStore.getState().breakpointGeneration) return;
     failure = error;

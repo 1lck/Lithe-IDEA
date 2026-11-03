@@ -4953,6 +4953,10 @@ Hosts persist these controlled identities, never the raw detail, URL, output or 
 
 `debug.relocateBreakpoints` retains the single `edit` input and also accepts `edits`, an array of non-overlapping original-source UTF-16 replacements. Character anchors are retained until the complete batch finishes; only then are positions projected and duplicates merged. LF, CRLF and lone CR are line boundaries.
 
+The response's `originalIndices` array identifies the zero-based input breakpoint
+that survived for each entry in `breakpoints`, in the same order. It allows a host
+to preserve breakpoint identity after relocation and collision resolution.
+
 Optional `document: {id, version}` enables bounded process-local source reuse. Version 1 supplies `source`; each subsequent version increments by one and omits source. Missing or stale snapshots fail closed. The cache holds four sources of at most 16 MiB each, evicts least-recently-used entries, and never writes runtime resources. Hosts reset with a new identity when the exact source chain changes.
 
 ### Engine logging v2 handoff (PR3)

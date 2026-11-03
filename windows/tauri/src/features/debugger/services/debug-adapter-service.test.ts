@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, mock, test } from "bun:test";
 type Listener = (event: { payload: unknown }) => void;
 const listeners = new Map<string, Listener>();
 let onConnect: () => Promise<void> = async () => {};
-let relocate: () => Promise<unknown> = async () => ({ breakpoints: [] });
+let relocate: () => Promise<unknown> = async () => ({ breakpoints: [], originalIndices: [] });
 let respond: (args: Record<string, unknown>) => void = () => {};
 const invoke = mock(async (command: string, args: Record<string, unknown>) => {
   if (command === "debug.relocateBreakpoints") return await relocate();
@@ -140,12 +140,12 @@ test("Java attach waits for source edits and reads fresh breakpoint lines after 
     launch = startConnectedDebugLaunchSession({ id: "boot", name: "Boot", runtime: "custom", request: "attach", source: "generated" },
       4711, () => useDebuggerStore.getState().breakpoints, "D:/work");
     expect(invoke.mock.calls.map(call => call[0])).toEqual(["debug.relocateBreakpoints"]);
-    release({ breakpoints: [{ line: 3, enabled: true }] });
+    release({ breakpoints: [{ line: 3, enabled: true }], originalIndices: [0] });
     await launch;
     const sent = invoke.mock.calls.find(call => call[0] === "debug_send_request" && (call[1].request as Record<string, unknown>).command === "setBreakpoints");
     expect(sent?.[1]).toMatchObject({ request: { arguments: { breakpoints: [{ line: 3 }] } } });
   } finally {
-    release({ breakpoints: [] });
+    release({ breakpoints: [], originalIndices: [] });
     if (launch) await launch;
     useDebuggerStore.getState().actions.clearBreakpoints();
     await flushBreakpointRelocations();
