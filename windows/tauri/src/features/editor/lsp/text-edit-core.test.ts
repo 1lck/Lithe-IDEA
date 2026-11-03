@@ -1,4 +1,5 @@
 import { describe, expect, spyOn, test } from "bun:test";
+import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import * as native from "@/platform/tauri-core";
 import { applyTextEditsToContent, type LspTextEdit } from "./workspace-edit";
 
@@ -32,12 +33,26 @@ describe("Core text edit adapter", () => {
   });
 });
 
-test("structured Core range errors show the selected shared translation", async () => {
- const invoke = spyOn(native, "invoke").mockResolvedValue({editError:{code:"invalid_request",details:"overlappingEdits",message:"English implementation detail"}});
- try {
-  const { useSettingsStore } = await import("@/features/settings/stores/settings.store");
-  const { createTranslator } = await import("@/i18n/locale");
-  const t = createTranslator(useSettingsStore.getState().settings.displayLanguage);
-  await expect(applyTextEditsToContent("abc", [])).rejects.toThrow(t("native.languageServerReturnedOverlappingTextEdits"));
- } finally {invoke.mockRestore();}
-});
+for (const language of ["zh-CN", "en-US"] as const) {
+  test(`structured Core range errors follow a switch to ${language}`, async () => {
+    const previousSettings = useSettingsStore.getState().settings;
+    const invoke = spyOn(native, "invoke");
+    try {
+      useSettingsStore.setState({ settings: { ...previousSettings, displayLanguage: language } });
+      for (const details of ["invalidRange", "overlappingEdits"] as const) {
+        invoke.mockResolvedValue({
+          editError: { code: "invalid_request", details, message: "English implementation detail" },
+        });
+        const message = language === "zh-CN"
+          ? details === "invalidRange" ? "语言服务器返回了无效的文本范围。" : "语言服务器返回了重叠的文本编辑。"
+          : details === "invalidRange" ? "Language server returned an invalid text range." : "Language server returned overlapping text edits.";
+        await expect(applyTextEditsToContent("abc", [])).rejects.toMatchObject({
+          message, code: "invalid_request", details,
+        });
+      }
+    } finally {
+      useSettingsStore.setState({ settings: previousSettings });
+      invoke.mockRestore();
+    }
+  });
+}
