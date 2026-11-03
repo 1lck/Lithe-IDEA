@@ -682,30 +682,20 @@ pub struct TerminalPanel;
 impl TerminalPanel {
     pub fn new(root: PathBuf, window: &mut Window, cx: &mut Context<Self>) -> Self;
     pub fn set_root(&mut self, root: PathBuf, window: &mut Window, cx: &mut Context<Self>);
+    pub fn set_shell(&mut self, shell: Option<String>, window: &mut Window, cx: &mut Context<Self>);
+    pub fn set_preferences(&mut self, font_size: f32, scrollback: u32, window: &mut Window, cx: &mut Context<Self>);
     pub fn focus(&mut self, window: &mut Window, cx: &mut Context<Self>);
+    pub fn clear(&mut self, cx: &mut Context<Self>);
+    pub fn run_command(&mut self, command: String, window: &mut Window, cx: &mut Context<Self>);
 }
 impl Render for TerminalPanel { /* ... */ }
 ```
 
-- WebView 资源目录：`LITHE_GPUI_TERMINAL_DIR` 优先，否则
-  `CARGO_MANIFEST_DIR/../terminal/dist`；缺少 `index.html` 时显示错误，不 panic。
-- 资源协议名 `lithe-terminal-gpui`，Windows URL
-  `http://lithe-terminal-gpui.localhost/index.html`，其他平台
-  `lithe-terminal-gpui://localhost/index.html`。
-- PTY 不在 `new` 中创建：首次 `Render`（或需要时）用 `cx.defer_in` 创建并启动
-  消息泵，避免构造期借 App。`TerminalManager::create_terminal` 的 handler 只把
-  `TerminalEvent::Output` 投递到 `async_channel`，不碰 GPUI。
-- JS → Rust（`window.ipc.postMessage(JSON)`）：
-  - `{type:"ready"}`
-  - `{type:"input", data:"..."}`
-  - `{type:"resize", rows, cols}`
-- Rust → JS（`evaluate_script`，只主线程）：
-  - `window.lithe.write("<base64>")`
-  - `window.lithe.configure({ dark, background, foreground, cursor, selection, fontFamily, fontSize })`
-  - `window.lithe.focus()`
-  - `window.lithe.clear()`
-- 输出字节用 base64 传给 JS，避免 JSON 数组膨胀。
-- `set_root` 关闭旧终端并重建；`Drop` 关闭终端。
+- 原生终端基于 `alacritty_terminal` 处理 VT100/ANSI 转义序列、二维字符网格、回滚缓冲与光标定位，彻底移除 WebView 与 xterm.js 依赖。
+- 画布渲染：使用 GPUI 的 `canvas` 与 `TextSystem` 原生测量与排版绘制，前景色与背景色与工作台主题（Tokens）自适应统一。
+- PTY 不在 `new` 中创建：首次 `Render` 用 `cx.defer_in` 启动，避免构造期重入借用 App。`TerminalManager::create_terminal` 的 handler 将 `TerminalEvent::Output` 直接投递到 `async_channel`，由统一事件泵派发到主线程更新模型。
+- 按键与输入：GPUI 的 `KeyDownEvent` 经由 `keys::to_pty_bytes` 转换后直接写入 PTY，支持快捷键（Ctrl+C/D/L/Z 等）、方向键与标准转义码。
+- `set_root` 关闭旧终端并重建；`Drop` 关闭终端，杜绝孤儿进程。
 - 关闭/退出只更新面板状态，不 panic。
 
 ### 工作台
@@ -743,9 +733,7 @@ impl Render for TerminalPanel { /* ... */ }
   根目录加载就是按这个方式实现的。
 - **`h_flex()` 默认 `items_center`。** 需要子项在交叉轴拉伸到整高时，
   显式加 `.items_stretch()`；否则分栏、侧栏会按内容高度垂直居中。
-- 终端 WebView 在 `new` 中只创建一次；只在打开/清空终端时调用
-  `load_url`，不要在 `render` 里导航。编辑器已改用原生 gpui-kit `Editor`，
-  不再需要 WebView 生命周期约束。
+- 编辑器与终端均已纯原生化：编辑器采用 gpui-kit 原生 `Editor`，终端采用纯原生画布 + `alacritty_terminal`，整个 GPUI 端彻底摆脱 WebView 与原生平台窗口覆盖层问题。
 
 ## 本轮文件归属
 

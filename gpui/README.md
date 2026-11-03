@@ -44,8 +44,8 @@ cargo check -p lithe-desktop
 ### 平台要求
 
 - **macOS**：GPUI 使用 Metal；窗口使用 `TitleBar::window_options()` 的自绘标题栏。
-- **Windows**：需要 WebView2 运行时；启动前设置 `GPUI_DISABLE_DIRECT_COMPOSITION=true`（入口已处理）。
-- **Linux**：首批只支持 X11 / XWayland。需要 WebKitGTK、GTK3 与 X11 开发库；入口显式使用 `gpui_kit::platform::linux(WindowingModes::X11)`。Wayland 原生窗口不在本轮范围。
+- **Windows**：启动前设置 `GPUI_DISABLE_DIRECT_COMPOSITION=true`（入口已处理）。
+- **Linux**：首批支持 X11 / XWayland。入口显式使用 `gpui_kit::platform::linux(WindowingModes::X11)`。Wayland 原生窗口不在本轮范围。
 
 ## 当前能力
 
@@ -66,7 +66,7 @@ cargo check -p lithe-desktop
 - 搜索工具窗：300ms 去抖、按文件分组、点击打开。
 - Maven 工具窗：右侧面板展示 Maven 项目树（Profiles / 模块 / 源码根 / 生命周期 / 懒加载依赖树），支持跳过测试、执行 Goal、运行 / 停止生命周期阶段、打开 pom.xml；底部「Run - Maven」面板展示进程输出、构建诊断与测试汇总。
 - 运行入口：常见项目类型（Cargo/npm/Maven/Gradle/Go/Python/Make/Compose/Procfile）检测候选命令，在终端执行。
-- 终端工具窗：xterm.js + portable-pty。
+- 终端工具窗：原生 GPUI 终端（`alacritty_terminal` + `lithe-terminal` PTY）。
 - Agent 工具窗：自动发现已安装 ACP adapter，基础对话、权限、停止/重连。
 - 原生编辑器轻量语言能力：补全、悬停、跳转定义（走 Core `lsp.builtin*`，不启动语言服务器）。
 - 设置页：7 组 19 页，English / 中文即时切换。
