@@ -75,6 +75,7 @@ import { setUntrackedDirectoryExpanded } from "../../services/git-untracked-dire
 import {
   buildGitIgnorePaths,
   getGitFileRepositoryPath,
+  getGitFileOriginalRepositoryRelativePath,
   getGitFileRepositoryRelativePath,
   resolveGitFileMutationPaths,
   resolveGitFilesForStagedState,
@@ -774,16 +775,42 @@ const GitStatusPanel = ({
 
     setIsLoading(true);
     try {
-      await Promise.all(
+      const results = await Promise.allSettled(
         groupGitFilesByRepository(trackedFilesToRollback, repoPath).map(
           ({ repoPath: fileRepoPath, files: repositoryFiles }) =>
-            rollbackFilesChanges(fileRepoPath, getRepoRelativePaths(repositoryFiles)),
+            rollbackFilesChanges(
+              fileRepoPath,
+              repositoryFiles.map((file) => ({
+                path: getGitFileRepositoryRelativePath(file),
+                originalPath: getGitFileOriginalRepositoryRelativePath(file),
+                status: file.rawStatus ?? "",
+              })),
+            ),
         ),
       );
       await onRefresh?.();
+      const failure = results.find(
+        (result): result is PromiseRejectedResult => result.status === "rejected",
+      );
+      if (failure) throw failure.reason;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      toast.error(t("git.operationError", { error: message }));
+      void submitFrontendLog({
+        level: "error",
+        scope: "git.rollback",
+        message: "Git rollback failed",
+        payload: {
+          category: message.includes("GIT_ROLLBACK_STALE_SELECTION")
+            ? "stale_selection"
+            : "operation_failed",
+          fileCount: displayTrackedFilePaths.length,
+        },
+      });
+      toast.error(
+        message.includes("GIT_ROLLBACK_STALE_SELECTION")
+          ? t("git.rollbackSelectionChanged")
+          : t("git.operationError", { error: message }),
+      );
     } finally {
       setIsLoading(false);
     }

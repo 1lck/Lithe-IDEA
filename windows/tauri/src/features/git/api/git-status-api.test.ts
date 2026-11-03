@@ -3,6 +3,8 @@ import * as tauriCore from "@/platform/tauri-core";
 
 let unavailableRepo: string | null = null;
 let statusFailure: Error | null = null;
+let rollbackPlan: unknown = { steps: [] };
+let rollbackFailure: Error | null = null;
 
 let interceptWrite: ((args: Record<string, unknown>) => Promise<unknown>) | undefined;
 // Keyed by command: repository discovery may or may not run first, depending
@@ -12,6 +14,10 @@ let statusFiles: unknown[] | null = null;
 let directoryListings: Record<string, unknown[]> | null = null;
 
 const invoke = mock(async (command: string, args?: Record<string, unknown>): Promise<unknown> => {
+  if (command === "git.rollbackPrepare") {
+    if (rollbackFailure) throw rollbackFailure;
+    return rollbackPlan;
+  }
   if (command === "git.write" && interceptWrite) return interceptWrite(args ?? {});
   if (command === "git_diff_file") return fileDiffResponse;
   if (command === "git_discover_repo") {
@@ -57,9 +63,8 @@ const {
   getGitStatus,
   getRepositoryGitStatuses,
 } = await import("./git-status-api");
-const { isUntrackedDirectoryExpanded, setUntrackedDirectoryExpanded } = await import(
-  "../services/git-untracked-directory-expansions"
-);
+const { isUntrackedDirectoryExpanded, setUntrackedDirectoryExpanded } =
+  await import("../services/git-untracked-directory-expansions");
 const { getFullContextFileDiff, getWorkingTreePathDiff } = await import("./git-diff-api");
 const gitEvents = await import("../events/git-events");
 
@@ -70,6 +75,8 @@ beforeEach(() => {
   fileDiffResponse = null;
   unavailableRepo = null;
   statusFailure = null;
+  rollbackPlan = { steps: [] };
+  rollbackFailure = null;
   statusFiles = null;
   directoryListings = null;
 });
@@ -106,17 +113,64 @@ describe("Git status batch mutations", () => {
     });
   });
 
-  test("rolls back selected tracked paths with one shared Core invocation", async () => {
-    await expect(
-      rollbackFilesChanges("C:/repo", ["src/first.ts", "src/second.ts"]),
-    ).resolves.toBeUndefined();
+  test("prepares repository-relative rename and added identities before executing Core steps", async () => {
+    const changes = [
+      { path: "new.txt", originalPath: "old.txt", status: "R " },
+      { path: "added.txt", status: "A " },
+    ];
+    rollbackPlan = {
+      steps: [
+        { operation: "discardAll", paths: ["old.txt", "new.txt"] },
+        { operation: "unstage", paths: ["added.txt"] },
+      ],
+    };
+    const emitted = spyOn(gitEvents, "emitGitChanged");
+    try {
+      await rollbackFilesChanges("C:/repo", changes);
+      expect(invoke.mock.calls.filter(([command]) => command === "git.rollbackPrepare")).toEqual([
+        ["git.rollbackPrepare", { repoPath: "C:/repo", changes, deleteAddedFiles: false }],
+      ]);
+      expect(invoke.mock.calls.filter(([command]) => command === "git.write")).toEqual([
+        [
+          "git.write",
+          { repoPath: "C:/repo", operation: "discardAll", paths: ["old.txt", "new.txt"] },
+        ],
+        ["git.write", { repoPath: "C:/repo", operation: "unstage", paths: ["added.txt"] }],
+      ]);
+      expect(emitted).toHaveBeenCalledWith({
+        repoPath: "C:/repo",
+        scopes: ["working-tree"],
+        source: "rollback-files",
+      });
+    } finally {
+      emitted.mockRestore();
+    }
+  });
 
-    expectSingleGitWrite();
-    expect(invoke).toHaveBeenLastCalledWith("git.write", {
-      repoPath: "C:/repo",
-      operation: "discardAll",
-      paths: ["src/first.ts", "src/second.ts"],
-    });
+  test("refreshes after a partially failed rollback, but not after a stale preflight", async () => {
+    const changes = [{ path: "added.txt", status: "A " }];
+    const emitted = spyOn(gitEvents, "emitGitChanged");
+    try {
+      rollbackFailure = new Error("GIT_ROLLBACK_STALE_SELECTION");
+      await expect(rollbackFilesChanges("C:/repo", changes)).rejects.toThrow(
+        "GIT_ROLLBACK_STALE_SELECTION",
+      );
+      expect(invoke.mock.calls.filter(([command]) => command === "git.write")).toHaveLength(0);
+      expect(emitted).not.toHaveBeenCalled();
+      rollbackFailure = null;
+      rollbackPlan = { steps: [{ operation: "unstage", paths: ["added.txt"] }] };
+      interceptWrite = async () => {
+        throw new Error("write failed");
+      };
+      await expect(rollbackFilesChanges("C:/repo", changes)).rejects.toThrow("write failed");
+      expect(emitted).toHaveBeenCalledWith({
+        repoPath: "C:/repo",
+        scopes: ["working-tree"],
+        source: "rollback-files",
+      });
+    } finally {
+      emitted.mockRestore();
+    }
   });
 
   test("discards one hunk in its owning repository and announces the file change", async () => {
@@ -136,12 +190,14 @@ describe("Git status batch mutations", () => {
         repoPath: "C:/workspace/service-a",
         hunk,
       });
-      expect(recorded()).toEqual([{
-        repoPath: "C:/workspace/service-a",
-        filePath: "src/App.tsx",
-        scopes: ["working-tree"],
-        source: "discard-hunk",
-      }]);
+      expect(recorded()).toEqual([
+        {
+          repoPath: "C:/workspace/service-a",
+          filePath: "src/App.tsx",
+          scopes: ["working-tree"],
+          source: "discard-hunk",
+        },
+      ]);
 
       // A rejected patch reports failure without announcing a change. Route by
       // command: repository discovery may already be cached in random order.
@@ -152,9 +208,13 @@ describe("Git status batch mutations", () => {
       const error = spyOn(console, "error").mockImplementation(() => {});
       try {
         await expect(discardHunk("C:/repo", hunk)).resolves.toBe(false);
-      } finally { error.mockRestore(); }
+      } finally {
+        error.mockRestore();
+      }
       expect(recorded()).toHaveLength(1);
-    } finally { emitted.mockRestore(); }
+    } finally {
+      emitted.mockRestore();
+    }
   });
 
   test("adds selected paths to the repository gitignore", async () => {
@@ -297,6 +357,37 @@ describe("Git staging write coordination", () => {
       release.resolve();
       expect(await Promise.all(operations)).toEqual([true, true, true]);
       expect(writes).toEqual([["a.ts"], ["b.ts"], ["a.ts", "b.ts"]]);
+    } finally {
+      release.resolve();
+      await Promise.allSettled(operations);
+      interceptWrite = undefined;
+    }
+  }, 1000);
+
+  test("prepares rollback only after the pending staging operation finishes", async () => {
+    const started = deferred();
+    const release = deferred();
+    interceptWrite = async () => {
+      started.resolve();
+      await release.promise;
+    };
+    const staging = setFilesStaged("C:/repo", ["added.txt"], true);
+    const operations: Promise<unknown>[] = [staging];
+    try {
+      await started.promise;
+      rollbackPlan = { steps: [] };
+      const rollback = rollbackFilesChanges("C:/repo", [{ path: "added.txt", status: "A " }]);
+      operations.push(rollback);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(
+        invoke.mock.calls.filter(([command]) => command === "git.rollbackPrepare"),
+      ).toHaveLength(0);
+      release.resolve();
+      await rollback;
+      expect(
+        invoke.mock.calls.filter(([command]) => command === "git.rollbackPrepare"),
+      ).toHaveLength(1);
     } finally {
       release.resolve();
       await Promise.allSettled(operations);

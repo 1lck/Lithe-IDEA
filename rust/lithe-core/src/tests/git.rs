@@ -5949,3 +5949,156 @@ fn git_line_history_merge_rename_edit_keeps_previous_path_and_ranges() {
 
     fs::remove_dir_all(&root).expect("line-history repository should be removable");
 }
+
+#[test]
+fn rollback_plan_matches_shared_fixture_and_rejects_unsafe_paths() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/git/rollback-plan-v1.json"
+    ))
+    .unwrap();
+    for case in fixture["cases"].as_array().unwrap() {
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": case["name"], "command":"git.rollbackPlan",
+                "payload":{"changes":case["changes"], "deleteAddedFiles":case["deleteAddedFiles"]}
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(response["ok"], true, "{}: {response}", case["name"]);
+        assert_eq!(response["data"]["steps"], case["steps"], "{}", case["name"]);
+    }
+    let changes = (0..1000)
+        .map(|index| {
+            serde_json::json!({
+                "path":format!("added-{index}.txt"), "status":"A "
+            })
+        })
+        .collect::<Vec<_>>();
+    let batch: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "command":"git.rollbackPlan", "payload":{"changes":changes}
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(batch["data"]["steps"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        batch["data"]["steps"][0]["paths"].as_array().unwrap().len(),
+        1000
+    );
+    for change in [
+        serde_json::json!({"path":"new.txt", "originalPath":"old.txt", "status":"RC"}),
+        serde_json::json!({"path":"../escape", "status":"A "}),
+        serde_json::json!({"path":"a\u{0000}b", "status":"A "}),
+        serde_json::json!({"path":"new.txt", "status":"R "}),
+    ] {
+        let response: Value = serde_json::from_str(&execute_json(&serde_json::json!({
+            "command":"git.rollbackPlan", "payload":{"changes":[change], "deleteAddedFiles":false}
+        }).to_string())).unwrap();
+        assert_eq!(response["ok"], false, "{response}");
+    }
+}
+
+#[test]
+fn unstage_and_discard_treat_selected_file_names_as_literal_paths() {
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let root = git_write_repository("unstage-literal-path");
+    let _cleanup = Cleanup(root.clone());
+    fs::write(root.join("base.txt"), "base\n").unwrap();
+    assert!(history_git(&root, &["add", "--all"]).status.success());
+    assert!(history_git(&root, &["commit", "-qm", "base"])
+        .status
+        .success());
+    fs::write(root.join("file[1].txt"), "selected\n").unwrap();
+    fs::write(root.join("file1.txt"), "unrelated\n").unwrap();
+    assert!(history_git(&root, &["add", "--all"]).status.success());
+    let result = git_write_request(
+        &root,
+        "unstage",
+        serde_json::json!({"paths":["file[1].txt"]}),
+    );
+    assert_eq!(result["data"]["exitCode"], 0, "{result}");
+    let output = history_git(&root, &["diff", "--cached", "--name-only", "-z"]);
+    assert_eq!(output.stdout, b"file1.txt\0");
+    assert!(root.join("file[1].txt").is_file());
+    let removed = git_write_request(
+        &root,
+        "discard",
+        serde_json::json!({"paths":["file[1].txt"]}),
+    );
+    assert_eq!(removed["data"]["exitCode"], 0, "{removed}");
+    assert!(!root.join("file[1].txt").exists());
+    assert_eq!(
+        fs::read_to_string(root.join("file1.txt")).unwrap(),
+        "unrelated\n"
+    );
+    let cached = history_git(&root, &["diff", "--cached", "--name-only", "-z"]);
+    assert_eq!(cached.stdout, b"file1.txt\0");
+}
+
+#[test]
+fn prepared_rollback_preserves_added_files_and_rejects_stale_renames() {
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let root = git_write_repository("rollback-prepare");
+    let _cleanup = Cleanup(root.clone());
+    fs::write(root.join("old.txt"), "before\n").unwrap();
+    assert!(history_git(&root, &["add", "--all"]).status.success());
+    assert!(history_git(&root, &["commit", "-qm", "base"])
+        .status
+        .success());
+    assert!(history_git(&root, &["mv", "old.txt", "new.txt"])
+        .status
+        .success());
+    fs::write(root.join("file[1].txt"), "selected\n").unwrap();
+    fs::write(root.join("file1.txt"), "unrelated\n").unwrap();
+    assert!(history_git(&root, &["add", "--all"]).status.success());
+    let changes = serde_json::json!([
+        {"path":"new.txt", "originalPath":"old.txt", "status":"R "},
+        {"path":"file[1].txt", "status":"A "}
+    ]);
+    let prepare = || -> Value {
+        serde_json::from_str(&execute_json(&serde_json::json!({
+        "command":"git.rollbackPrepare", "payload":{"root":root, "changes":changes, "deleteAddedFiles":false}
+    }).to_string())).unwrap()
+    };
+    let plan = prepare();
+    assert_eq!(plan["ok"], true, "{plan}");
+    for step in plan["data"]["steps"].as_array().unwrap() {
+        let result = git_write_request(
+            &root,
+            step["operation"].as_str().unwrap(),
+            serde_json::json!({"paths":step["paths"]}),
+        );
+        assert_eq!(result["data"]["exitCode"], 0, "{result}");
+    }
+    assert_eq!(
+        fs::read_to_string(root.join("old.txt")).unwrap(),
+        "before\n"
+    );
+    assert!(!root.join("new.txt").exists());
+    assert_eq!(
+        fs::read_to_string(root.join("file[1].txt")).unwrap(),
+        "selected\n"
+    );
+    let cached = history_git(&root, &["diff", "--cached", "--name-only", "-z"]);
+    assert_eq!(cached.stdout, b"file1.txt\0");
+    let stale = prepare();
+    assert_eq!(stale["ok"], false, "{stale}");
+    assert_eq!(stale["error"]["message"], "GIT_ROLLBACK_STALE_SELECTION");
+    assert_eq!(
+        fs::read_to_string(root.join("old.txt")).unwrap(),
+        "before\n"
+    );
+    assert!(root.join("file[1].txt").is_file());
+}

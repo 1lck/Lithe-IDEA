@@ -461,6 +461,10 @@ pub enum CoreCommand {
     GitRepositoryRoot,
     /// Performs one supported Git mutation (`git.write`).
     GitWrite,
+    /// Plans whole-file rollback from Git change identities (`git.rollbackPlan`).
+    GitRollbackPlan,
+    /// Rechecks Git identities and plans rollback (`git.rollbackPrepare`).
+    GitRollbackPrepare,
     /// Projects retained Git console records without executing Git (`git.consolePresentation`).
     GitConsolePresentation,
     /// Reads an optional remote URL without a visible command (`git.remoteUrl`).
@@ -820,6 +824,8 @@ impl CoreCommand {
             "git.command" => Some(Self::GitCommand),
             "git.repositoryRoot" => Some(Self::GitRepositoryRoot),
             "git.write" => Some(Self::GitWrite),
+            "git.rollbackPlan" => Some(Self::GitRollbackPlan),
+            "git.rollbackPrepare" => Some(Self::GitRollbackPrepare),
             "git.consolePresentation" => Some(Self::GitConsolePresentation),
             "git.remoteUrl" => Some(Self::GitRemoteUrl),
             "git.fetchPlan" => Some(Self::GitFetchPlan),

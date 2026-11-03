@@ -40,7 +40,8 @@ macOS 提交面板复用原来的弯箭头按钮，先打开可重新勾选文�
   防止把应恢复的删除当作新增文件。已经展开的未跟踪目录使用子项而不是同时保留整目录删除项，
   避免取消某个子项后仍被父项删除。
 - Worktrees 更改页复用相同流程，但使用固定在对应工作树根的提交模型，不改变主工作区的暂存区。
-  Windows 沿用原有行选择及确认设置控制的回滚入口，本次没有同步这一确认文件树，不宣称界面一致。
+  Windows 沿用原有行选择及确认设置控制的回滚入口，没有同步这一确认文件树，不宣称界面一致。
+- Windows 通过 Core 按 Git 原始状态生成回滚步骤，确认后先按字面路径复核所选记录；新增或复制目标只取消暂存并保留文件，重命名恢复两侧，连续同类操作合批。同仓库暂存与回滚串行，多仓库失败也等待其他仓库结束再刷新。状态相同但内容改变，以及复核后外部 Git 并发写入，仍不受这次复核保护；macOS 完整迁移共享计划留给后续 GIT-04。
 - 回滚命令已由后台工作线程执行；可见延迟还来自完成后等待项目服务、无关仓库和重复状态扫描。
   因此先重读本批目标的仓库并发布真实行状态，恢复回滚按钮可用，再调度工作区后续刷新；不先乐观移除行。
   旧的全工作区读取和较早的同根状态请求不能覆盖这次确认结果，工作区重置也必须隔离在途请求。
@@ -79,6 +80,7 @@ macOS 提交面板复用原来的弯箭头按钮，先打开可重新勾选文�
   有界阻塞同级仓库读取时仍能确认回滚，释放旧读取后已消失的行不会恢复。
 - `macos/Tests/LitheTests/LitheCoreLogicTests.swift`：嵌套操作最外层解冻后调度已有刷新，操作不等待项目服务，重置取消后续任务；
   阻塞项目重载时普通文件事件与写入后恢复仍独立刷新 Git，取消的读取不吞掉新请求，旧工作区读取不能释放新读取。
+- `rust/lithe-core/src/tests/git.rs` 与 Windows 状态 API、面板测试：真实仓库核对新增文件保留、重命名前后路径和特殊文件名字面匹配，复核过期选择、部分失败通知、暂存队列及实际界面仓库映射。
 - `rust/lithe-core/src/tests/git_untracked_directories.rs`：回滚状态查询限制所选路径、长参数分批、特殊文件名字面匹配、
   重命名源记录正确解析，以及暂存删除与未跟踪副本同路径时优先恢复历史版本。
 - `macos/Tests/LitheTests/GitStatusObservationTests.swift`：真实 Git 经 Core 验证批量恢复暂存区和磁盘、未选文件不变、
@@ -100,6 +102,9 @@ macOS 提交面板复用原来的弯箭头按钮，先打开可重新勾选文�
 
 ## 适用范围
 
+- `rust/lithe-core/src/git/rollback.rs`
+- `windows/tauri/src/features/git/api/git-status-api.ts`
+- `windows/tauri/src/features/git/components/status/git-status-panel.tsx`
 - `macos/Sources/LitheGitModule/Models/GitRollbackSelection.swift`
 - `macos/Sources/LitheGitModule/Application/GitFeatureModel.swift`
 - `macos/Sources/Lithe/Views/Git/GitRollbackDialog.swift`

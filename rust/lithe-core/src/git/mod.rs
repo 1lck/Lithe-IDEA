@@ -22,6 +22,7 @@ mod rebase_session;
 mod remote_history;
 mod remote_process;
 mod rewrite;
+mod rollback;
 mod setup;
 mod untracked_directories;
 
@@ -50,6 +51,8 @@ pub use rebase_session::{
     start as rebase_start, GitRebaseControlRequest, GitRebasePreviewRequest,
     GitRebaseSessionRequest, GitRebaseStartRequest,
 };
+pub(crate) use rollback::{rollback_plan_command, rollback_prepare_command};
+
 pub use rewrite::{
     history_rewrite_preview, GitHistoryRewriteExpectation, GitHistoryRewritePreviewRequest,
     GitHistoryRewriteResult,
@@ -1065,6 +1068,7 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
         }
         "unstage" => {
             let paths = validate_paths(&request.paths)?;
+            let literal_paths = [("GIT_LITERAL_PATHSPECS".to_string(), "1".to_string())];
             let pathspec_input = nul_pathspec_input(&paths);
 
             // An unborn repository has no HEAD for `restore --staged` or
@@ -1085,7 +1089,13 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
                     "--pathspec-from-file=-".into(),
                     "--pathspec-file-nul".into(),
                 ];
-                return execute_git(&root, &arguments, Some(pathspec_input));
+                return execute_git_with_environment(
+                    &root,
+                    &arguments,
+                    Some(pathspec_input),
+                    false,
+                    &literal_paths,
+                );
             }
 
             let restore_arguments = vec![
@@ -1094,7 +1104,13 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
                 "--pathspec-from-file=-".into(),
                 "--pathspec-file-nul".into(),
             ];
-            let restore = execute_git(&root, &restore_arguments, Some(pathspec_input.clone()))?;
+            let restore = execute_git_with_environment(
+                &root,
+                &restore_arguments,
+                Some(pathspec_input.clone()),
+                false,
+                &literal_paths,
+            )?;
             if restore.exit_code == 0 {
                 return Ok(restore);
             }
@@ -1104,16 +1120,29 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
                 "--pathspec-from-file=-".into(),
                 "--pathspec-file-nul".into(),
             ];
-            return execute_git(&root, &arguments, Some(pathspec_input));
+            return execute_git_with_environment(
+                &root,
+                &arguments,
+                Some(pathspec_input),
+                false,
+                &literal_paths,
+            );
         }
         "discard" => {
             let paths = validate_paths(&request.paths)?;
+            let literal_paths = [("GIT_LITERAL_PATHSPECS".to_string(), "1".to_string())];
             let restore_arguments = ["restore", "--worktree", "--"]
                 .into_iter()
                 .map(String::from)
                 .chain(paths.clone())
                 .collect::<Vec<_>>();
-            let restore = execute_git(&root, &restore_arguments, None)?;
+            let restore = execute_git_with_environment(
+                &root,
+                &restore_arguments,
+                None,
+                false,
+                &literal_paths,
+            )?;
             if restore.exit_code == 0 {
                 return Ok(restore);
             }
@@ -1123,7 +1152,8 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
                 "--".to_string(),
             ];
             status_arguments.extend(paths.clone());
-            let status = execute_git(&root, &status_arguments, None)?;
+            let status =
+                execute_git_with_environment(&root, &status_arguments, None, true, &literal_paths)?;
             let is_untracked = status.exit_code == 0
                 && status
                     .output
@@ -1137,6 +1167,7 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
                 .map(String::from)
                 .chain(paths)
                 .collect();
+            return execute_git_with_environment(&root, &arguments, None, false, &literal_paths);
         }
         "discardAll" => {
             let paths = validate_paths(&request.paths)?;
