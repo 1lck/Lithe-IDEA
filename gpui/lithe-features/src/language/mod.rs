@@ -6,4 +6,4 @@
 pub mod java;
 pub mod status;
 
-pub use java::{JavaLanguageServiceEvent, JavaLanguageServiceModel};
+pub use java::{JavaLanguageServiceEvent, JavaLanguageServiceModel, JavaLaunchTarget};

@@ -1,7 +1,7 @@
 //! RunPanel 的命令与生命周期：配置加载、会话启动/停止和输出合批。
 
 use std::collections::{BTreeMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -15,14 +15,14 @@ use lithe_ui::i18n::tr;
 use crate::console::ConsoleScroll;
 
 use super::config::{self, LoadedRunConfigurations};
-use super::model::{RunConfiguration, RunExecution, RunScope};
+use super::model::{RunConfiguration, RunExecution, RunLanguage, RunScope};
 use super::session::{self, RunMode, SessionEvent};
 use super::state::SessionState;
 use super::{
     CONFIGURATION_LIST_DEFAULT_WIDTH, CONSOLE_CONTEXT, CopySelection, OUTPUT_FLUSH_INTERVAL,
     RunPanel, RunPanelEvent,
 };
-use crate::language::{JavaLanguageServiceEvent, JavaLanguageServiceModel};
+use crate::language::{JavaLanguageServiceEvent, JavaLanguageServiceModel, JavaLaunchTarget};
 
 impl RunPanel {
     pub fn new(
@@ -463,7 +463,40 @@ impl RunPanel {
         }
 
         let skip_build = self.skip_build_check || !session::needs_build_check(&configuration);
-        self.launch_configuration(configuration, root, skip_build, cx);
+        // 与 macOS 一致：Java / Spring Boot 先让 JDT 选择主类、构建并返回运行时
+        // classpath，再用项目 JDK 启动；宿主不自己跑 Maven。
+        if let Some(source) = java_launch_source(&configuration, &root) {
+            let main_class = configuration.main_class().map(str::to_string);
+            let prepared = self
+                .java_language
+                .update(cx, |model, cx| model.prepare_launch(source, main_class, cx));
+            cx.spawn(async move |this, cx| {
+                let result = prepared.await;
+                let _ = this.update(cx, |this, cx| match result {
+                    Ok(target) => {
+                        this.launch_configuration(
+                            configuration,
+                            root,
+                            skip_build,
+                            Some(target),
+                            cx,
+                        );
+                    }
+                    Err(error) => {
+                        crate::logging::log_info(
+                            "run",
+                            format!("Java launch preparation failed: {error}"),
+                        );
+                        this.error = Some(SharedString::from(error));
+                        this.emit(cx);
+                        cx.notify();
+                    }
+                });
+            })
+            .detach();
+            return;
+        }
+        self.launch_configuration(configuration, root, skip_build, None, cx);
     }
 
     /// 真正启动一个配置。`skip_build` 为 true 时跳过启动前构建。
@@ -472,6 +505,7 @@ impl RunPanel {
         configuration: RunConfiguration,
         root: PathBuf,
         skip_build: bool,
+        java_launch: Option<JavaLaunchTarget>,
         cx: &mut Context<Self>,
     ) {
         let id = configuration.id.clone();
@@ -489,9 +523,9 @@ impl RunPanel {
         let session_id = id;
         cx.spawn(async move |this, cx| {
             let receiver = cx
-                .background_spawn(
-                    async move { session::start(client, root, configuration, skip_build) },
-                )
+                .background_spawn(async move {
+                    session::start(client, root, configuration, skip_build, java_launch)
+                })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 this.watch_session(session_id, receiver, cx);
@@ -700,7 +734,7 @@ impl RunPanel {
         let Some(root) = self.root.clone() else {
             return;
         };
-        self.launch_configuration(decision.configuration, root, true, cx);
+        self.launch_configuration(decision.configuration, root, true, None, cx);
     }
 
     /// 「重建 Java 索引」：对齐 Tauri actions.rebuildJavaIndex。
@@ -740,4 +774,24 @@ fn normalize_relative(value: Option<&str>) -> &str {
         Some(value) if !value.trim().is_empty() && value != "." => value,
         _ => ".",
     }
+}
+
+/// 与 macOS `usesJavaProjectPreparation` 对齐：只有 Maven 反应堆里的
+/// Java / Spring Boot 配置才由 JDT 准备启动目标。
+fn java_launch_source(configuration: &RunConfiguration, root: &Path) -> Option<PathBuf> {
+    if configuration.language() != RunLanguage::Java {
+        return None;
+    }
+    if !configuration.toolchains.contains_key("maven")
+        && configuration.extensions.get("maven").is_none()
+    {
+        return None;
+    }
+    let source = configuration.source.as_deref()?;
+    let path = Path::new(source);
+    Some(if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        root.join(path)
+    })
 }

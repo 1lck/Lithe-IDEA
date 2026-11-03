@@ -9,6 +9,7 @@
 //! - [`JavaLanguageServiceModel`]：应用级状态，对应 `LanguageToolingSessionManager`；
 //! - 视图在 `language::status` 与 Run 面板中消费同一份快照。
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -16,7 +17,7 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use async_channel::{Receiver, Sender, unbounded};
-use gpui_kit::{AppContext as _, Context, EventEmitter};
+use gpui_kit::{AppContext as _, Context, EventEmitter, Task};
 use lithe_core_client::CoreClient;
 use serde_json::{Value, json};
 
@@ -26,6 +27,25 @@ use crate::run::model::{PreparationPhase, PreparationStatus, ProjectPreparation}
 const POLL_INTERVAL: Duration = Duration::from_millis(120);
 /// 停止后等待 Core 结束会话的上限；超时直接销毁，避免退出被卡住。
 const STOP_BUDGET: Duration = Duration::from_secs(3);
+
+/// Core 的 `java.prepareLaunch` 返回的启动目标（由 JDT 决定）。
+#[derive(Clone, Debug)]
+pub struct JavaLaunchTarget {
+    pub main_class: String,
+    pub project_name: Option<String>,
+    pub class_paths: Vec<String>,
+    pub module_paths: Vec<String>,
+}
+
+/// 语言服务线程收到的命令。所有 Core 轮询都由该线程独占，
+/// 因此准备请求与状态事件不会互相抢事件队列。
+enum JavaCommand {
+    PrepareLaunch {
+        source_path: String,
+        main_class: Option<String>,
+        reply: Sender<Result<JavaLaunchTarget, String>>,
+    },
+}
 
 /// 语言服务线程发给模型的事件。
 #[derive(Clone, Debug)]
@@ -42,24 +62,42 @@ enum JavaServiceEvent {
 struct JavaLanguageService {
     stop: Arc<AtomicBool>,
     receiver: Receiver<JavaServiceEvent>,
+    commands: Sender<JavaCommand>,
     _thread: JoinHandle<()>,
 }
 
 impl JavaLanguageService {
     fn start(client: CoreClient, root: PathBuf) -> Self {
         let (sender, receiver) = unbounded();
+        let (commands, command_receiver) = unbounded();
         let stop = Arc::new(AtomicBool::new(false));
         let thread_stop = Arc::clone(&stop);
-        let thread = thread::spawn(move || run(client, root, thread_stop, sender));
+        let thread = thread::spawn(move || run(client, root, thread_stop, sender, command_receiver));
         Self {
             stop,
             receiver,
+            commands,
             _thread: thread,
         }
     }
 
     fn receiver(&self) -> Receiver<JavaServiceEvent> {
         self.receiver.clone()
+    }
+
+    /// 请求 JDT 为一次运行准备主类、构建与运行时 classpath。
+    fn prepare_launch(
+        &self,
+        source_path: String,
+        main_class: Option<String>,
+    ) -> Receiver<Result<JavaLaunchTarget, String>> {
+        let (reply, receiver) = unbounded();
+        let _ = self.commands.send_blocking(JavaCommand::PrepareLaunch {
+            source_path,
+            main_class,
+            reply,
+        });
+        receiver
     }
 
     fn stop(&self) {
@@ -187,6 +225,27 @@ impl JavaLanguageServiceModel {
         self.failure.as_deref()
     }
 
+    /// 让 JDT 为一次运行准备主类、构建与运行时 classpath。
+    ///
+    /// 与 macOS 一致：宿主只等待 Core 的操作结果，不自己跑 Maven。
+    pub fn prepare_launch(
+        &mut self,
+        source_path: PathBuf,
+        main_class: Option<String>,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<JavaLaunchTarget, String>> {
+        let Some(service) = self.service.as_ref() else {
+            return Task::ready(Err(
+                "The Java language service is not running.".to_string()
+            ));
+        };
+        let receiver = service.prepare_launch(path_text(&source_path), main_class);
+        cx.spawn(async move |_this, _cx| match receiver.recv().await {
+            Ok(result) => result,
+            Err(_) => Err("The Java language service stopped.".to_string()),
+        })
+    }
+
     fn start_service(&mut self, cx: &mut Context<Self>) {
         let Some(root) = self.root.clone() else {
             return;
@@ -291,16 +350,18 @@ impl JavaLanguageServiceModel {
     }
 }
 
-/// 后台线程主体：发现 Java Support、启动会话、轮询事件，最后按序停止并销毁。
+/// 后台线程主体：发现 Java Support、启动会话、轮询事件与准备请求。
 fn run(
     client: CoreClient,
     root: PathBuf,
     stop: Arc<AtomicBool>,
     sender: Sender<JavaServiceEvent>,
+    commands: Receiver<JavaCommand>,
 ) {
     let installation = match JdtlsInstallation::discover(&root) {
         Ok(installation) => installation,
         Err(message) => {
+            fail_pending_launches(&mut BTreeMap::new(), &message);
             let _ = sender.send_blocking(JavaServiceEvent::Failed(message));
             let _ = sender.send_blocking(JavaServiceEvent::Stopped);
             return;
@@ -341,7 +402,48 @@ fn run(
 
     let mut terminal = false;
     let mut last_preparation: Option<ProjectPreparation> = None;
+    let mut pending_launches: BTreeMap<String, Sender<Result<JavaLaunchTarget, String>>> =
+        BTreeMap::new();
     while !stop.load(Ordering::SeqCst) && !terminal {
+        // 准备请求与事件轮询由同一线程独占，避免两个消费者抢 Core 的事件队列。
+        while let Ok(command) = commands.try_recv() {
+            match command {
+                JavaCommand::PrepareLaunch {
+                    source_path,
+                    main_class,
+                    reply,
+                } => {
+                    let request = json!({
+                        "sessionId": session_id,
+                        "sourcePath": source_path,
+                        "mainClass": main_class,
+                    });
+                    match client.execute_raw("java.prepareLaunch", request) {
+                        Ok(value) => match value
+                            .get("operationId")
+                            .and_then(Value::as_str)
+                            .filter(|id| !id.is_empty())
+                        {
+                            Some(operation_id) => {
+                                pending_launches.insert(operation_id.to_string(), reply);
+                            }
+                            None => {
+                                let _ = reply.send_blocking(Err(
+                                    "Core did not return a Java launch operation".to_string(),
+                                ));
+                            }
+                        },
+                        Err(error) => {
+                            let _ = reply.send_blocking(Err(format!(
+                                "{} ({})",
+                                error.message, error.code
+                            )));
+                        }
+                    }
+                }
+            }
+        }
+
         match client.execute_raw("lsp.pollEvents", json!({ "sessionId": session_id })) {
             Ok(value) => {
                 // Core 同时返回当前投影；即使启动期间的事件已经被清空，
@@ -356,6 +458,9 @@ fn run(
                 }
                 if let Some(events) = value.get("events").and_then(Value::as_array) {
                     for event in events {
+                        if event.get("type").and_then(Value::as_str) == Some("requestCompleted") {
+                            complete_launch(event, &mut pending_launches);
+                        }
                         terminal |= handle_event(event, &sender);
                     }
                 }
@@ -369,11 +474,113 @@ fn run(
             }
         }
         if !terminal {
-            thread::sleep(POLL_INTERVAL);
+            // 有在途准备时缩短轮询间隔，让构建完成事件尽快回到 Run 面板。
+            let interval = if pending_launches.is_empty() {
+                POLL_INTERVAL
+            } else {
+                Duration::from_millis(60)
+            };
+            thread::sleep(interval);
         }
     }
 
+    fail_pending_launches(
+        &mut pending_launches,
+        "The Java language service stopped before launch preparation finished.",
+    );
     shutdown(&client, &session_id);
+}
+
+/// 完成一次 `java.prepareLaunch` 操作并回复等待方。
+fn complete_launch(
+    event: &Value,
+    pending: &mut BTreeMap<String, Sender<Result<JavaLaunchTarget, String>>>,
+) {
+    let Some(operation_id) = event.get("operationId").and_then(Value::as_str) else {
+        return;
+    };
+    let Some(reply) = pending.remove(operation_id) else {
+        return;
+    };
+    let result = if let Some(error) = event.get("error") {
+        Err(error
+            .get("message")
+            .and_then(Value::as_str)
+            .unwrap_or("Java launch preparation failed")
+            .to_string())
+    } else {
+        event
+            .get("result")
+            .ok_or_else(|| "The Java language service returned no launch result".to_string())
+            .and_then(launch_target)
+    };
+    let _ = reply.send_blocking(result);
+}
+
+/// 把 Core 的 `java.prepareLaunch` 结果转成启动目标。
+///
+/// 构建失败也返回可诊断的错误；macOS 会弹“仍然运行”决策，GPUI 暂按失败处理。
+fn launch_target(value: &Value) -> Result<JavaLaunchTarget, String> {
+    match value.get("kind").and_then(Value::as_str) {
+        Some("ready") => {}
+        Some("buildFailed") => {
+            let message = value
+                .get("failure")
+                .and_then(|failure| failure.get("message"))
+                .and_then(Value::as_str)
+                .unwrap_or("Java build did not succeed");
+            return Err(message.to_string());
+        }
+        other => {
+            return Err(format!(
+                "The Java language service returned an unexpected launch kind: {}",
+                other.unwrap_or("missing")
+            ));
+        }
+    }
+    let target = value
+        .get("target")
+        .ok_or_else(|| "The Java language service returned no launch target".to_string())?;
+    let main_class = target
+        .get("mainClass")
+        .and_then(Value::as_str)
+        .filter(|main| !main.trim().is_empty())
+        .ok_or_else(|| "The Java language service returned no main class".to_string())?
+        .to_string();
+    let project_name = target
+        .get("projectName")
+        .and_then(Value::as_str)
+        .filter(|project| !project.is_empty())
+        .map(str::to_string);
+    Ok(JavaLaunchTarget {
+        main_class,
+        project_name,
+        class_paths: string_array(target.get("classPaths")),
+        module_paths: string_array(target.get("modulePaths")),
+    })
+}
+
+fn string_array(value: Option<&Value>) -> Vec<String> {
+    value
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .filter(|item| !item.trim().is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn fail_pending_launches(
+    pending: &mut BTreeMap<String, Sender<Result<JavaLaunchTarget, String>>>,
+    message: &str,
+) {
+    for (_, reply) in std::mem::take(pending) {
+        let _ = reply.send_blocking(Err(message.to_string()));
+    }
 }
 
 /// 消费一条 Core 运行时事件；返回是否会话已终止。

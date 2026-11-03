@@ -18,7 +18,8 @@ use lithe_core_client::CoreClient;
 use lithe_git_host::ProcessTree;
 use serde_json::{Value, json};
 
-use super::direct;
+use crate::language::JavaLaunchTarget;
+
 use super::model::RunConfiguration;
 use super::toolchain;
 
@@ -58,10 +59,13 @@ pub fn start(
     root: PathBuf,
     configuration: RunConfiguration,
     skip_build: bool,
+    java_launch: Option<JavaLaunchTarget>,
 ) -> Receiver<SessionEvent> {
     let (sender, receiver) = unbounded();
     thread::spawn(move || {
-        if let Err(message) = launch(client, root, configuration, skip_build, sender.clone()) {
+        if let Err(message) =
+            launch(client, root, configuration, skip_build, java_launch, sender.clone())
+        {
             let _ = sender.send_blocking(SessionEvent::Failed(message));
         }
     });
@@ -69,12 +73,24 @@ pub fn start(
 }
 
 /// 构造 `runConfig.createLaunchPlan` 请求；启动和构建预检共用。
-fn launch_request(root: &Path, configuration: &RunConfiguration) -> Value {
+fn launch_request(
+    root: &Path,
+    configuration: &RunConfiguration,
+    java_launch: Option<&JavaLaunchTarget>,
+) -> Value {
     let root_text = root.to_string_lossy().to_string();
     let mut request = json!({
         "root": root_text,
         "configurationId": configuration.id,
     });
+    // JDT 已经完成构建并给出运行时 classpath；Core 据此生成 `java` 启动计划。
+    if let Some(target) = java_launch {
+        request["javaLaunch"] = json!({
+            "mainClass": target.main_class,
+            "classPaths": target.class_paths,
+            "modulePaths": target.module_paths,
+        });
+    }
     // Maven-backed configurations carry Core's reactor ownership. Passing it
     // back keeps `-pl`/`-f` relative to the reactor root instead of the module
     // directory, which matters for multi-module Spring Boot projects.
@@ -196,24 +212,11 @@ fn launch(
     client: CoreClient,
     root: PathBuf,
     configuration: RunConfiguration,
-    skip_build: bool,
+    _skip_build: bool,
+    java_launch: Option<JavaLaunchTarget>,
     sender: Sender<SessionEvent>,
 ) -> Result<(), String> {
-    // Java / Spring Boot 配置先走 `java -cp <classpath> <MainClass>` 直启；
-    // 任何一步不成立都打印原因并退回下面的构建工具目标。
-    if direct::applies(&configuration) {
-        match direct::start(client, &root, &configuration, skip_build, &sender) {
-            Ok(()) => return Ok(()),
-            Err(error) => {
-                let _ = sender.send_blocking(SessionEvent::Output(format!(
-                    "{}: {error}\n",
-                    lithe_ui::i18n::tr("Direct JVM")
-                )));
-            }
-        }
-    }
-
-    let request = launch_request(&root, &configuration);
+    let request = launch_request(&root, &configuration, java_launch.as_ref());
     let plan = client
         .execute_raw("runConfig.createLaunchPlan", request)
         .map_err(|error| {
@@ -230,13 +233,6 @@ fn launch(
         .and_then(|m| m.get("module"))
         .and_then(Value::as_str)
         .filter(|module| *module != "." && !module.is_empty());
-    // 模块目录启动看不到 sibling 源码，Maven 只从本地仓库解析依赖；源码改动
-    // 后不重新安装依赖模块，编译会停在“找不到符号”。先构建依赖链再启动。
-    if !skip_build && needs_maven_install(&configuration.provider, module) {
-        if let Some(module) = module {
-            run_maven_install(client, &root, &configuration, module, &sender)?;
-        }
-    }
     let working_directory = launch_working_directory(&root, &launch.working_directory, module);
     let toolchains = ProjectToolchains::resolve(
         &root,
