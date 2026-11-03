@@ -94,7 +94,7 @@ function maskRustTests(code) {
 // Markers may justify a swallowed failure only; logging bypasses use the reviewed allowlist.
 export const EXEMPTIBLE_RULES = new Set(['swift.discarded-try', 'swift.catch-exit', 'rust.discarded-ok', 'rust.let-underscore']);
 export function scanSource(file, source) {
-  if (/(^|\/)(?:tests|Tests)(\/|$)/.test(file) || file.endsWith('/tests.rs')) return [];
+  if (/(^|\/)(?:tests|Tests)(\/|$)/.test(file) || /(?:^|\/|_)tests\.rs$/.test(file)) return [];
   const language = file.endsWith('.swift') ? 'swift' : 'rust';
   let code = maskSource(source, language);
   if (language === 'rust') code = maskRustTests(code);

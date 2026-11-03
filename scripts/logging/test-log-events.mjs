@@ -168,6 +168,16 @@ test('failure usage rules distinguish discarded statements from expressions', { 
   for (const s of ['let x = work().ok();', 'return work().ok();', '// let _ = work();', 'let s = "work().ok();";', '#[cfg(test)] mod tests { let _ = work(); work().ok(); }']) assert.deepEqual(scanSource(rust, s), [], s);
 });
 
+test('Rust test file exclusion requires a complete tests suffix', { timeout: 1000 }, () => {
+  const source = 'fn f() { let _ = work(); }';
+  for (const file of ['tests.rs', 'rust/lithe-core/src/tests.rs', 'rust/lithe-core/src/remote/sessions_integration_tests.rs']) {
+    assert.deepEqual(scanSource(file, source), [], file);
+  }
+  for (const file of ['rust/lithe-core/src/contests.rs', 'rust/lithe-core/src/tests_helper.rs', 'rust/lithe-core/src/test.rs']) {
+    assert.deepEqual(scanSource(file, source).map(v => v.rule), ['rust.let-underscore'], file);
+  }
+});
+
 test('line exemptions require an active comment and a nonempty concrete reason', { timeout: 1000 }, () => {
   const file = 'macos/Sources/Example.swift';
   for (const s of ['try? work() // log-exempt: best effort cleanup', '// log-exempt: best effort cleanup\ntry? work()']) assert.deepEqual(scanSource(file, s), []);

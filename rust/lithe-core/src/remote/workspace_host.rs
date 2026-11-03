@@ -213,7 +213,19 @@ impl Drop for Resource<'_> {
                     json!({"processId": self.id, "force": true}),
                 ),
             };
-            let _ = self.session.request_value(method, params, CLEANUP_TIMEOUT);
+            if let Err(error) = self.session.request_value(method, params, CLEANUP_TIMEOUT) {
+                // An exited process, stopped watch or closed terminal is already gone
+                // on the host: expected missing. The resource owner keeps the primary
+                // result; WARN reports any other failed cleanup.
+                if !crate::diagnostics::core_events::remote_resource_already_gone(&error) {
+                    crate::diagnostics::core_events::recovery_failed(
+                        "remote.resource.cleanup_failed",
+                        self.family,
+                        &crate::diagnostics::core_events::client_failure_category(&error),
+                        "remote",
+                    );
+                }
+            }
         }
     }
 }
