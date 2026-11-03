@@ -829,7 +829,7 @@ try {
   assert.ok(readFileSync(path.join(repositoryRoot, ".agents/skills/write-stable-tests/scripts/test-stability-windows.ps1"), "utf8")
     .includes(`"--test-budget", "${linkedBudget}"`));
   assert.ok(readFileSync(path.join(repositoryRoot, ".github/workflows/ci-windows.yml"), "utf8")
-    .includes(`--test-budget ${linkedBudget}`));
+    .includes("--test-prefix lsp::interface::engine::real_jdt_tests::"));
   const report = path.join(budgetFixtureRoot, "budget.json");
   const options = parseRustTimingArguments([
     "--manifest", path.join(budgetFixtureRoot, "Cargo.toml"), "--report", report,

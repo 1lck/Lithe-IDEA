@@ -33,7 +33,7 @@ inputs:
   restore-only:
     description: Restore caches without saving them at the end of the job. Cargo compilation outputs are always restore-only here; save them with save-macos-cargo-build-cache.
     required: false
-    default: "false"
+    default: ${{ github.event_name == 'pull_request' }}
 
 outputs:
   cargo-build-key:
