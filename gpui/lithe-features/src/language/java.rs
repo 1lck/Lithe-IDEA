@@ -643,6 +643,10 @@ impl JdtlsInstallation {
             "cacheDirectory": path_text(&cache_directory),
             "jdtlsLaunchResources": launch_resources,
             "javaRuntimes": [],
+            // 与 macOS 的 `startLanguageServer` 默认值一致。
+            "initializeTimeoutMilliseconds": 30_000,
+            "requestTimeoutMilliseconds": 30_000,
+            "shutdownTimeoutMilliseconds": 2_000,
         }))
     }
 }
