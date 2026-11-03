@@ -4980,11 +4980,15 @@ background timer is installed.
 `lsp.setDetailedDiagnostics` accepts `{sessionId,enabled}` and returns `{}`.
 It sends `$/setTrace` with `{"value":"verbose"}` when enabled and
 `{"value":"off"}` when disabled. Sessions start disabled; only enabled
-sessions emit `*.trace.received` (DEBUG). The message and optional verbose
-strings are combined with a newline and limited to 1024 UTF-8 bytes before
-shared text redaction and control removal. The gate changes only after a
-successful ordered write. Invalid payloads or terminal sessions fail through
-the existing Core error envelope; transport errors keep the existing session
+sessions emit `*.trace.received` (DEBUG). Only the summary `message` enters v2,
+limited to 1024 UTF-8 bytes before shared text redaction and control removal.
+The `verbose` field is excluded because it can contain raw RPC bodies and source
+text; the legacy in-memory detail remains compatible. The gate changes only
+after a successful ordered write. Before the initialize handshake completes, the command
+only stores the latest desired value; an enabled value is sent after `initialized`
+in the ordered handshake batch. Disabling it before that batch cancels the pending
+enable without sending any trace notification. Invalid payloads or terminal
+sessions fail through the existing Core error envelope; transport errors keep the existing session
 failure/cleanup behavior. This does not change showMessage handling.
 
 ```json

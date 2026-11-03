@@ -91,7 +91,9 @@ macOS 的宿主调用点、类型化写入与诊断收集已落地。引擎身�
 
 引擎在日志源头选择封闭的事实类型，既有英文 message/detail/error 留作 v1 兼容；v2 使用目录 ID 和标量字段，经过同一个 Core 目录规范化、脱敏与通道推导边界。stderr 的读取状态最多保留 4 KiB 半行，按 LF 切分、去末尾 CR、忽略空行并冲刷 EOF 残余；每单调秒接纳 200 行，后续读取跨窗或结束时汇总丢弃计数。测试直接传毫秒值，不装计时器、不等真实一秒。text 落盘前仍执行 1 KiB 规范化。
 
-`window/logMessage` 与 `window/showMessage` 复用结果词为过去时的 `*.message.logged/shown`；其他通知只记录方法，不把协议正文变成 text。trace 默认关闭，显式开关与发往上游的 `$/setTrace` 共用有序写锁，成功写入后才改变采集状态；message 和 verbose 合并后限长并脱敏。macOS 已删除消息字符串匹配和重复 session 状态事实，按目录元数据取 v2 级别。带 Core 记录的 log 不再触发重复 onLogIssue，宿主自身启动/发现/请求失败仍走既有错误边界。
+`window/logMessage` 与 `window/showMessage` 复用结果词为过去时的 `*.message.logged/shown`；其他通知只记录方法，不把协议正文变成 text。trace 默认关闭，显式开关与发往上游的 `$/setTrace` 共用有序写锁，成功写入后才改变采集状态；只接纳限长并脱敏的 message 摘要，排除可能含 RPC 原始载荷和源码的 verbose。凭据脱敏和截断无法把源码转换为可落盘诊断；旧内存 detail 的兼容不代表允许把它写入 v2。macOS 已删除消息字符串匹配和重复 session 状态事实，按目录元数据取 v2 级别。带 Core 记录的 log 不再触发重复 onLogIssue，宿主自身启动/发现/请求失败仍走既有错误边界。
+
+详细诊断已开启时，新会话注册可能早于初始化响应。Core 此时只保存最新开关值，等握手完成后把 `$/setTrace` 排在 `initialized` 后；初始化前关闭会撤销待发送的启用。不要在注册时立即写通知，否则严格遵循 LSP 的服务器会丢弃它，宿主却以为已经开启。
 
 Core 拥有会话生命周期状态。`*.session.updated` 直接附到已有 `type:stateChanged` 事件，复用 `enqueue_runtime_event` 内同一个 `prepare_catalog_event` 校验，不额外推送 v1 log 行，也不改 type/state/message 等兼容字段。Swift 在 switch 前对任何带 coreLog 的事件转发一次，manager 清除 UI 身份后仍把退休会话的最终 Core 事实交给 sink，不套用 UI 过期回调检查；VCS、构建、工具链和后端会话同样收到生命周期事实。不要通过新增 log 行补证据，否则 Windows frontendTrace 与 macOS 100 条缓冲都会改变。
 
@@ -102,6 +104,8 @@ Core 拥有会话生命周期状态。`*.session.updated` 直接附到已有 `ty
 六处非 LSP 直接打印改为进程级 Core 队列：只接纳 owner 为 lithe-core 的目录事实，入队前规范化，最多 256 条，重复待取事实与超额计数，由宿主一次 drain 取走并重置。队列没有文件 writer、后台任务或独立持久化；遍历只记相对路径和稳定错误类别，远程清理只记类别，不记录地址、scratch 名称或输出。现有请求事件流只覆盖单个请求，无法覆盖析构和后台清理，因此选择独立有界 handoff（交给宿主写入的内存队列）。
 
 `${logDir}` 从启动上下文的绝对 `logDirectory` 展开，共用语言服务与后端启动路径；宿主创建当前应用会话的插件 files 目录。Core 只拼接文本，不创建目录，不从插件安装位置推导可写位置。这些文件属于运行状态，不跨 worktree 复用，不改变签名或 Sparkle delta 源基线。macOS 当前日志会话目录由统一存储器提供，Core plugin_files_path 决定相对部分。平台以 mkdirat/openat/O_NOFOLLOW 逐段创建 0700 目录并拒绝符号链接，避免检查与创建之间被换成越界链接。存储不可用时省略路径；使用变量的模板由 Core 按既有 invalidRequest 拒绝。远程进程无法写本机日志目录，同样省略并拒绝该变量。安装阶段只用未创建的占位目录校验展开。静态只读边界验证与组件测试不等于真实应用 bundle hash smoke。
+
+目录适配器抛出的真实 I/O 错误也按存储不可用处理，由 Core 检查模板是否依赖 `${logDir}`。不使用该变量的插件继续启动；不能把可选日志目录变成全部语言服务、构建、VCS、后端和调试器的前置条件。
 
 ### 保留以完整会话为主，Core 只计算删除计划
 

@@ -84,6 +84,8 @@ CI 的 Draft PR 只跑 Linux，ready PR 和 preview push 跑三平台。输入�
 
 PR3 引擎采用按角色事件族：`lsp.*` 使用 `lsp/{server}`，`vcs.*` 使用 `vcs/{provider}`，`plugins.host.*` 使用 `plugins/{plugin}/host`。Core 从显式 role 与 catalog 身份字段选事件，目录模板仍是通道唯一来源；不允许任意输入 channel 改写普通事件。非法段使用稳定的 SHA-256 前缀身份，不丢弃日志或影响插件启动。stderr 的 reader 限制为每行 4 KiB、每秒 200 行，再走目录 text 的 1 KiB 脱敏规范化。trace 默认关闭，宿主通过 `lsp.setDetailedDiagnostics` 显式启用；`lsp.session.updated` 的 owner 已转交 Core，宿主不再重复发同一状态事实。
 
+详细诊断只接纳 `$/logTrace.message` 摘要；`verbose` 可能包含原始 RPC 载荷和文档源码，禁止进入 v2 text。凭据脱敏和 1 KiB 限长不代表源码可以落盘。初始化完成前的开关只保存目标状态，Core 在 `initialized` 之后发送通知。
+
 PR3 macOS 将 CoreLogRecord 原样交给统一 LogSink/MacLogStore，按现有 drain、flush 和退出节奏一次排空 Core 队列，保留 ts/op、分配 seq，并继续 validateCatalog:true；不新增空闲轮询或独立 writer。启动者显式声明 role、真实 pluginId 与 VCS logSubject；宿主不解析 providerID。详细诊断类别沿用 lsp→language、vcs→git、plugins→plugins，对活动和新会话发送 lsp.setDetailedDiagnostics，15 分钟单次到期关闭，失败以 app.logging.diagnostics_failed 记录一次。
 
 v1 detail/message/level 保持兼容原文，v2 字段通过独立 EngineLogInput 传递，禁止从 detail 反解。stderr 唯一兼容变化是从任意 trim 的读取块改为逐行文本；保留行内空格、移除 LF/末尾 CR，并应用已声明的有界长度和限流。原始通知 JSON、projectCount=N 和 navigation 格式不变。LanguageToolingSessionManager 的 100 条 v1 内存缓冲继续供旧日志视图使用，到 PR4 再删除，不写 v1 文件。

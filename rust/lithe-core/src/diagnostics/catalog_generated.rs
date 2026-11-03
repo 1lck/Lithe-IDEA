@@ -929,7 +929,7 @@ pub static EVENTS: &[EventMetadata] = &[
         level: LogLevel::Debug,
         message: "Language server trace received for server {server}",
         fields: &[
-            FieldMetadata { name: "diagnostic", field_type: FieldType::Text, required: true, description: "Upstream trace message and verbose detail, redacted and capped at 1024 UTF-8 bytes", reason: Some("Upstream trace messages describe internal protocol decisions without structured equivalents; retain their wording only during explicitly enabled detailed diagnostics.") },
+            FieldMetadata { name: "diagnostic", field_type: FieldType::Text, required: true, description: "Upstream trace summary only, redacted and capped at 1024 UTF-8 bytes; verbose RPC payloads are excluded", reason: Some("Upstream trace messages describe internal protocol decisions without structured equivalents; retain their wording only during explicitly enabled detailed diagnostics.") },
             FieldMetadata { name: "server", field_type: FieldType::Id, required: true, description: "Validated language server session id that sent $/logTrace", reason: None },
         ],
         span: None,
@@ -1365,7 +1365,7 @@ pub static EVENTS: &[EventMetadata] = &[
         level: LogLevel::Debug,
         message: "Engine trace received for server {plugin}",
         fields: &[
-            FieldMetadata { name: "diagnostic", field_type: FieldType::Text, required: true, description: "Upstream trace message and verbose detail, redacted and capped at 1024 UTF-8 bytes", reason: Some("Upstream trace messages describe internal protocol decisions without structured equivalents; retain their wording only during explicitly enabled detailed diagnostics.") },
+            FieldMetadata { name: "diagnostic", field_type: FieldType::Text, required: true, description: "Upstream trace summary only, redacted and capped at 1024 UTF-8 bytes; verbose RPC payloads are excluded", reason: Some("Upstream trace messages describe internal protocol decisions without structured equivalents; retain their wording only during explicitly enabled detailed diagnostics.") },
             FieldMetadata { name: "plugin", field_type: FieldType::Id, required: true, description: "Validated plugin identity assigned by Core to this engine session", reason: None },
         ],
         span: None,
@@ -1890,7 +1890,7 @@ pub static EVENTS: &[EventMetadata] = &[
         level: LogLevel::Debug,
         message: "Engine trace received for server {provider}",
         fields: &[
-            FieldMetadata { name: "diagnostic", field_type: FieldType::Text, required: true, description: "Upstream trace message and verbose detail, redacted and capped at 1024 UTF-8 bytes", reason: Some("Upstream trace messages describe internal protocol decisions without structured equivalents; retain their wording only during explicitly enabled detailed diagnostics.") },
+            FieldMetadata { name: "diagnostic", field_type: FieldType::Text, required: true, description: "Upstream trace summary only, redacted and capped at 1024 UTF-8 bytes; verbose RPC payloads are excluded", reason: Some("Upstream trace messages describe internal protocol decisions without structured equivalents; retain their wording only during explicitly enabled detailed diagnostics.") },
             FieldMetadata { name: "provider", field_type: FieldType::Id, required: true, description: "Validated provider identity assigned by Core to this engine session", reason: None },
         ],
         span: None,

@@ -452,15 +452,13 @@ impl EngineLog {
                 )
             }
             "$/logTrace" => {
-                // Bound before combining so a hostile verbose payload cannot
-                // allocate a second unbounded copy. Record normalization handles
-                // redaction, control removal, and the final UTF-8 1 KiB boundary.
+                // Verbose trace can contain raw RPC bodies and document text.
+                // Only the diagnostic summary may cross the v2 persistence ingress.
+                // Bound before copying; shared normalization then redacts it.
                 let diagnostic: String = params["message"]
                     .as_str()
                     .unwrap_or_default()
                     .chars()
-                    .chain(std::iter::once('\n'))
-                    .chain(params["verbose"].as_str().unwrap_or_default().chars())
                     .scan(0, |bytes, c| {
                         *bytes += c.len_utf8();
                         (*bytes <= 1024).then_some(c)
