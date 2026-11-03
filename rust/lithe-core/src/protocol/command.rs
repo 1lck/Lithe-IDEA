@@ -61,6 +61,12 @@ pub enum CoreCommand {
     AgentInstallCli,
     /// Parses credential-free Agent provider metadata (`agent.parseProviderConfiguration`).
     AgentParseProviderConfiguration,
+    /// Budgets diff prefixes before crossing the native boundary (`ai.commitInputBudget`).
+    AiCommitInputBudget,
+    /// Plans a credential-free commit message request (`ai.planCommit`).
+    AiPlanCommit,
+    /// Decodes a provider commit message response (`ai.decodeCommitMessage`).
+    AiDecodeCommitMessage,
     /// Parses one Agent MCP configuration file into normalized servers (`mcp.parseConfiguration`).
     McpParseConfiguration,
     /// Normalizes a public Registry response into discoverable server drafts (`mcp.parseRegistry`).
@@ -610,6 +616,9 @@ impl CoreCommand {
             "agent.uninstall" => Some(Self::AgentUninstall),
             "agent.installCli" => Some(Self::AgentInstallCli),
             "agent.parseProviderConfiguration" => Some(Self::AgentParseProviderConfiguration),
+            "ai.commitInputBudget" => Some(Self::AiCommitInputBudget),
+            "ai.planCommit" => Some(Self::AiPlanCommit),
+            "ai.decodeCommitMessage" => Some(Self::AiDecodeCommitMessage),
             "mcp.parseConfiguration" => Some(Self::McpParseConfiguration),
             "mcp.parseRegistry" => Some(Self::McpParseRegistry),
             "mcp.featuredRegistry" => Some(Self::McpFeaturedRegistry),

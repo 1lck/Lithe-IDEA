@@ -999,6 +999,17 @@ struct SettingsView: View {
                         )
                         .disabled(editingProviderIsConfigurationManaged)
                     }
+                    if editingProvider?.apiProtocol == .chatCompletions {
+                        row("Output token field", info: "Lithe uses this field for commit requests. Choose max_tokens for older gateways.") {
+                            LitheSettingsSelect(
+                                selection: editingProviderTokenFieldBinding(),
+                                options: AIChatTokenLimitField.allCases,
+                                width: 240,
+                                accessibilityLabel: "Output token field",
+                                title: \AIChatTokenLimitField.rawValue
+                            )
+                        }
+                    }
                     LitheTextField("API URL", text: editingProviderTextBinding(\.endpoint))
                         .disabled(editingProviderIsConfigurationManaged)
                     if editingProvider?.usesInsecureHTTP == true {
@@ -1631,6 +1642,16 @@ struct SettingsView: View {
             set: { value in
                 guard let id = editingProvider?.id else { return }
                 settings.updateAIProvider(id) { provider in provider.apiProtocol = value }
+            }
+        )
+    }
+
+    private func editingProviderTokenFieldBinding() -> Binding<AIChatTokenLimitField> {
+        Binding(
+            get: { editingProvider?.chatTokenLimitField ?? .maxCompletionTokens },
+            set: { value in
+                guard let id = editingProvider?.id else { return }
+                settings.updateAIProvider(id) { provider in provider.chatTokenLimitField = value }
             }
         )
     }

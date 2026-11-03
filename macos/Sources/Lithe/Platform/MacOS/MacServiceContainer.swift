@@ -330,6 +330,7 @@ final class MacServiceContainer {
                 contributions: AIAssistanceModule.moduleContributions
             ) {
                 AIAssistanceModule(
+                    core: rustCore,
                     transportFactory: {
                         MacURLSessionTransport(sessionProvider: { [networkSessionProvider] in networkSessionProvider.acquireSession() })
                     },

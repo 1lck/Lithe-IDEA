@@ -2171,6 +2171,7 @@
 "Lithe needs to identify the project before Run and Debug are available. Project and local overrides will not be changed." = "Lithe needs to identify the project before Run and Debug are available. Project and local overrides will not be changed.";
 "Lithe publisher signature verified" = "Lithe publisher signature verified";
 "Lithe reads the servers registered in your Codex and Claude Code configuration. Saving writes only the changed entry, keeps backups in Application Support, and never overwrites an entry created outside Lithe. Agents read MCP configuration when a session starts, so restart a session to apply changes." = "Lithe reads the servers registered in your Codex and Claude Code configuration. Saving writes only the changed entry, keeps backups in Application Support, and never overwrites an entry created outside Lithe. Agents read MCP configuration when a session starts, so restart a session to apply changes.";
+"Lithe uses this field for commit requests. Choose max_tokens for older gateways." = "Lithe uses this field for commit requests. Choose max_tokens for older gateways.";
 "Lithe will clone the repository into %@." = "Lithe will clone the repository into %@.";
 "Lithe will clone the repository into (destinationDescription)." = "Lithe will clone the repository into (destinationDescription).";
 "Lithe will download the update and restart after replacing the current app." = "Lithe will download the update and restart after replacing the current app.";
@@ -2851,6 +2852,7 @@
 "Output" = "Output";
 "Output language" = "Output language";
 "Output speed (TPS)" = "Output speed (TPS)";
+"Output token field" = "Output token field";
 "Output: %@" = "Output: %@";
 "Overridden by a later value" = "Overridden by a later value";
 "Overridden in this project" = "Overridden in this project";
@@ -4946,6 +4948,10 @@
 "ai.project" = "Project";
 "ai.settings" = "Settings";
 "ai.terminal" = "Terminal";
+"aiCommit.aiCOMMITINVALIDOPTIONS" = "Check the commit generation settings.";
+"aiCommit.aiCOMMITOUTPUTLIMIT" = "The provider exhausted its output budget before completing the message. Try lower reasoning effort or a smaller diff budget.";
+"aiCommit.outputTokenField" = "Output token field";
+"aiCommit.outputTokenFieldInfo" = "Lithe uses this field for commit requests. Choose max_tokens for older gateways.";
 "avg" = "avg";
 "basic Latin letters" = "basic Latin letters";
 "characters used by the interface and your files" = "characters used by the interface and your files";

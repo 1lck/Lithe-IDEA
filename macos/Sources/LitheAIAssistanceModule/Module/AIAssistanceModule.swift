@@ -56,14 +56,17 @@ public final class AIAssistanceModule: LitheModule {
     public static let moduleManifest = BuiltInModuleCatalog.manifest(for: .aiAssistance)!
 
     public let manifest = moduleManifest
+    private let core: any AICommitPlanning
     private let transportFactory: @MainActor () -> any AIHTTPTransport
     private let credentialResolver: any AIProviderCredentialResolver
     private var capability: AIAssistanceCapability?
 
     public init(
+        core: any AICommitPlanning,
         transportFactory: @escaping @MainActor () -> any AIHTTPTransport,
         credentialResolver: any AIProviderCredentialResolver
     ) {
+        self.core = core
         self.transportFactory = transportFactory
         self.credentialResolver = credentialResolver
     }
@@ -71,7 +74,7 @@ public final class AIAssistanceModule: LitheModule {
     public func activate(context: ModuleContext) async throws {
         guard capability == nil else { return }
         capability = AIAssistanceCapability(
-            service: CommitMessageGenerationService(transport: transportFactory(), credentialResolver: credentialResolver),
+            service: CommitMessageGenerationService(core: core, transport: transportFactory(), credentialResolver: credentialResolver),
             resources: context.resources,
             leases: context.leases
         )

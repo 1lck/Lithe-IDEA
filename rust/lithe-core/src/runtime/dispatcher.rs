@@ -167,6 +167,15 @@ fn execute(request: &str) -> CoreResponse {
         }
         CoreCommand::AgentSkills => agent_response(id, parsed.payload, crate::agent::skills),
         CoreCommand::AgentHooks => agent_response(id, parsed.payload, crate::agent::hooks::execute),
+        CoreCommand::AiCommitInputBudget => {
+            plugin_response(id, parsed.payload, crate::ai::commit_input_budget_command)
+        }
+        CoreCommand::AiPlanCommit => {
+            plugin_response(id, parsed.payload, crate::ai::plan_commit_command)
+        }
+        CoreCommand::AiDecodeCommitMessage => {
+            plugin_response(id, parsed.payload, crate::ai::decode_commit_command)
+        }
         CoreCommand::AgentParseProviderConfiguration => {
             match crate::ai::parse_provider_configuration(parsed.payload) {
                 Ok(data) => CoreResponse::success(id, data),

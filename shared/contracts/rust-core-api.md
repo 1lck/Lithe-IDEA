@@ -669,9 +669,10 @@ context must remain valid until close returns. This API is owned by
 ## Envelope
 
 The typed `lithe_core::ai` API provides credential-free commit request planning,
-configuration parsing, and response decoding. Its [AI commit contract](ai-commit.md)
-documents the Windows adapter and current macOS migration boundary. It does not
-add a JSON command or change the C ABI.
+configuration parsing, and response decoding. macOS uses `ai.commitInputBudget`,
+`ai.planCommit`, and `ai.decodeCommitMessage` over the existing JSON C ABI; Windows
+uses the typed API. The [AI commit contract](ai-commit.md) defines the bounded diff
+prefixes, payloads, errors and platform-owned I/O.
 
 Every request has this shape:
 

@@ -14,6 +14,7 @@ struct AIAssistanceModuleTests {
         try runtime.register(ModuleFactory(manifest: AIAssistanceModule.moduleManifest, contributions: AIAssistanceModule.moduleContributions) {
             recorder.moduleFactoryCalls += 1
             return AIAssistanceModule(
+                core: UnusedCommitCore(),
                 transportFactory: {
                     recorder.transportFactoryCalls += 1
                     return TestTransport()
@@ -37,6 +38,7 @@ struct AIAssistanceModuleTests {
         try runtime.register(ModuleFactory(manifest: AIAssistanceModule.moduleManifest, contributions: AIAssistanceModule.moduleContributions) {
             recorder.moduleFactoryCalls += 1
             return AIAssistanceModule(
+                core: UnusedCommitCore(),
                 transportFactory: {
                     recorder.transportFactoryCalls += 1
                     return TestTransport()
@@ -83,5 +85,14 @@ private struct TestCredentialResolver: AIProviderCredentialResolver {
 private struct TestTransport: AIHTTPTransport {
     func send(_ request: AIHTTPRequest) async throws -> AIHTTPResponse {
         AIHTTPResponse(statusCode: 200, body: Data(#"{"output_text":"test"}"#.utf8))
+    }
+}
+
+private struct UnusedCommitCore: AICommitPlanning {
+    func planCommit(input: CommitMessageInput, settings: CommitMessageAISettings, provider: AIProviderProfile) throws -> AICommitRequestPlan {
+        throw CommitMessageGenerationError.invalidOptions
+    }
+    func decodeCommitResponse(protocolName: CommitMessageAPIProtocol, response: Data, includeBody: Bool) throws -> String {
+        throw CommitMessageGenerationError.invalidResponse
     }
 }

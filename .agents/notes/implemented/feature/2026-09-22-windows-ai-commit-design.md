@@ -32,6 +32,8 @@ Rust Core 的 `ai` 模块负责纯文本配置解析、输入校验、提示词�
 
 Windows 主机（Tauri 应用中的原生 Rust 层）负责用户目录、配置文件、环境变量、Windows 凭据管理器、HTTP 请求和取消。前端通过已有 `platform_invoke` 统一入口调用，不为每条共享规则创建一个 Tauri 命令。
 
+macOS 提交信息通过 `ai.commitInputBudget` 先取得每份差异的字符预算，只把对应前缀送入 `ai.planCommit`；Core 校验原始长度、保留截断提示，再用 `ai.decodeCommitMessage` 解码。凭据和 HTTP 留在原生宿主，Core 接口不接收密钥。生成依据仍是暂存差异；Core 限制敏感文件、输出预算和部分结果，关闭正文时只接受标题。PR 描述生成仍是独立路径，不因此宣称完成 AGT-11。共享 fixture 同时由 Core 和 macOS 桥接回归消费。
+
 正确示例：主机读取 `config.toml`，将文本交给 Core 解析；发请求前补上密钥，返回前丢弃密钥。
 
 不要这样做：React 直接读取 `auth.json` 并把完整解析结果写到 Zustand 或普通设置。这样会让凭据混入前端状态和设置导出。
@@ -48,7 +50,7 @@ Windows 的 `commitSelectedChanges` 提交勾选路径的工作区内容。生�
 
 支持 Responses、Chat Completions 和 Anthropic Messages。网络请求限制 45 秒，响应最多 2 MiB；每个配置文件最多 1 MiB。取消会使主机丢弃正在等待的 HTTP 请求。已开始的 Git 读取沿用 Core 的有界执行，停止发起后续读取，并等待在途读取结束。
 
-Chat Completions 默认使用 `max_completion_tokens`，使预算包含 o 系列模型的推理输出；手动服务商可以明确选择旧网关的 `max_tokens`。不按模型名称猜测网关能力，也不在失败后自动换字段重复请求。推理强度新增“服务商默认”，此时完全省略参数；显式 `none` 仍按协议发送，避免把不支持推理字段的普通模型也强行带上该字段。
+Chat Completions 新服务商默认使用 `max_completion_tokens`，使预算包含 o 系列模型的推理输出；可明确选择旧网关的 `max_tokens`。macOS 在新增该设置前保存的服务商继续使用原来的 `max_tokens`；设置写入 Lithe 自己的服务商偏好，不改写导入工具的配置文件，重新导入时保留用户选择。不按模型名称猜测网关能力，也不在失败后自动换字段重复请求。推理强度新增“服务商默认”，此时完全省略参数；显式 `none` 仍按协议发送，避免把不支持推理字段的普通模型也强行带上该字段。
 
 输出预算同时包含模型推理和最终文本，不能按短标题长度直接设成 512 token。真实服务联调中，该额度曾只返回推理内容；因此统一预留 4096 token，并识别三种协议的输出额度耗尽状态。即使已经返回部分文本，也应提示重试，不能把未完成的标题当作成功结果。代价是单次请求允许更高的输出上限，实际用量仍取决于模型。
 
@@ -57,7 +59,7 @@ Chat Completions 默认使用 `max_completion_tokens`，使预算包含 o 系列
 ## 考虑过的备选方案
 
 - **继续复用行内编辑接口**：能减少接线，但提交输入、配置与草稿生命周期都不是编辑器修改语义，继续使用会让两个功能互相牵制。因此只复用成熟的 Git、HTTP、凭据能力，建立独立提交服务。
-- **把 Swift 实现翻译成 React 内的提示词逻辑**：交付快，但纯解析和协议语义会再出现一份平台副本。因此新规则放在 Rust Core，macOS 本次保持现有实现，迁移范围写在共享契约里。
+- **把 Swift 实现翻译成 React 内的提示词逻辑**：交付快，但纯解析和协议语义会再出现一份平台副本。因此新规则放在 Rust Core，macOS 和 Windows 的提交信息生成现已共用该规则；PR 描述仍有独立迁移范围。
 - **Windows 也只读取暂存区**：表面更像 macOS，但与当前 Windows 勾选路径提交行为不一致，会生成另一组内容的说明，因此不采用。
 - **复制导入密钥到 Lithe 设置**：实现简单，但密钥轮换不会自动生效且容易进入设置导出，因此采用来源引用和请求时重读。
 - **自动提交生成结果**：节省一步操作，却取消了用户检查和编辑机会，因此 AI 入口始终只生成草稿。
@@ -87,6 +89,8 @@ Codex/Claude 的 OAuth 登录不等同于可用 API 密钥，本次不实现 CLI
 ## 适用范围
 
 - `rust/lithe-core/src/ai/`
+- `macos/Sources/Lithe/Core/Rust/RustAICommitPlanning.swift`
+- `macos/Sources/LitheAIAssistanceModule/Services/CommitMessageGenerationService.swift`
 - `windows/tauri/src-tauri/src/ai_commit.rs`
 - `windows/tauri/src/features/git/`
 - `windows/tauri/src/features/settings/components/ai-commit-settings-panel.tsx`
