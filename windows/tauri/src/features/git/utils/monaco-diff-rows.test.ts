@@ -2,7 +2,7 @@ import type { ReviewRow } from "@lithe/editor/diff-review";
 import { describe, expect, test } from "bun:test";
 import fixture from "../../../../../../shared/fixtures/editor/diff-review-v1.json";
 import type { GitDiff } from "../types/git.types";
-import { parseRawDiffContent } from "./git-diff-parser";
+import { parseRawDiffContent } from "@/test-utils/git-diff-fixture-parser";
 import { monacoDiffHunk, monacoDiffRows } from "./monaco-diff-rows";
 
 const filePatch = (hunks: string) =>

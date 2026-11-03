@@ -55,11 +55,12 @@ export function getSkippedUnchangedLineCount(
 }
 
 export const createGitHunk = (
-  hunk: { header: GitDiffLine; lines: GitDiffLine[] },
+  hunk: { header: GitDiffLine; lines: GitDiffLine[]; rawPatch?: string },
   filePath: string,
 ): GitHunk => ({
   file_path: filePath,
   lines: [hunk.header, ...hunk.lines],
+  ...(hunk.rawPatch ? { rawPatch: hunk.rawPatch } : {}),
 });
 
 export const getImgSrc = (base64: string | undefined) =>
@@ -72,7 +73,7 @@ export function getFileStatus(diff: GitDiff): string {
   return "modified";
 }
 
-export function groupLinesIntoHunks(lines: GitDiffLine[]): ParsedHunk[] {
+export function groupLinesIntoHunks(lines: GitDiffLine[], coreHunks?: GitDiff["core_hunks"]): ParsedHunk[] {
   const hunks: ParsedHunk[] = [];
   let currentHunk: DiffLineWithIndex[] = [];
   let hunkHeader: GitDiffLine | null = null;
@@ -103,6 +104,10 @@ export function groupLinesIntoHunks(lines: GitDiffLine[]): ParsedHunk[] {
     });
   }
 
+  if (coreHunks?.length === hunks.length && hunks.every((hunk, index) =>
+    coreHunks[index]?.header === hunk.header.content && coreHunks[index]?.patch)) {
+    hunks.forEach((hunk, index) => { hunk.rawPatch = coreHunks[index].patch; });
+  }
   return hunks;
 }
 

@@ -64,13 +64,13 @@ use crate::protocol::{CoreError, ErrorCode};
 use crate::protocol::{
     GitBlameLineResponse, GitBlameResponse, GitChange, GitCheckoutPreflightResponse,
     GitCommitLookupResponse, GitCommitResponse, GitComparisonResponse, GitConflictMarkerResponse,
-    GitDiffFileResponse, GitDiffHunkResponse, GitDiffResponse, GitDiffRowResponse, GitFileResponse,
-    GitFilesResponse, GitIntegrationPreflightResponse, GitLineHistoryCommit, GitLineHistoryRange,
-    GitLineHistoryResponse, GitLineHistoryUnmappedLine, GitOperationStateResponse,
-    GitPullPreflightResponse, GitPushPreviewResponse, GitPushTagResponse, GitPushTargetKind,
-    GitReferenceResponse, GitStashResponse, GitStashesResponse, GitStatusResponse,
-    GitWatchContextResponse, GitWorktreeResponse, GitWorktreesResponse,
-    WorkspaceRepositoriesResponse, WorkspaceRepositoryResponse,
+    GitDiffFileResponse, GitDiffHunkResponse, GitDiffResponse, GitDiffRowResponse,
+    GitDiffUnifiedLineResponse, GitFileResponse, GitFilesResponse, GitIntegrationPreflightResponse,
+    GitLineHistoryCommit, GitLineHistoryRange, GitLineHistoryResponse, GitLineHistoryUnmappedLine,
+    GitOperationStateResponse, GitPullPreflightResponse, GitPushPreviewResponse,
+    GitPushTagResponse, GitPushTargetKind, GitReferenceResponse, GitStashResponse,
+    GitStashesResponse, GitStatusResponse, GitWatchContextResponse, GitWorktreeResponse,
+    GitWorktreesResponse, WorkspaceRepositoriesResponse, WorkspaceRepositoryResponse,
 };
 use crate::remote::workspace_io as fs;
 use serde::{Deserialize, Serialize};
@@ -706,9 +706,12 @@ pub struct GitDiffRequest {
     /// Inspect a saved stash, including its untracked parent, independently of the worktree.
     #[serde(default)]
     pub stash_reference: Option<String>,
-    /// Return validated sections with per-file rendering instead of a flattened stash diff.
+    /// Return validated per-file sections instead of a flattened diff.
     #[serde(default)]
     pub include_file_sections: bool,
+    /// Omit the redundant whole-file patch when individual hunks suffice.
+    #[serde(default)]
+    pub omit_file_patch: bool,
     pub pathspecs: Vec<String>,
     #[serde(default)]
     pub reference: Option<String>,
@@ -1994,6 +1997,19 @@ fn git_process_creation_flags() -> u32 {
 
 /// Builds a structured working-tree, staged, untracked, or commit diff.
 pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
+    let omit_file_patch = request.include_file_sections && request.omit_file_patch;
+    let mut response = diff_impl(request)?;
+    if omit_file_patch {
+        if let Some(files) = &mut response.files {
+            for file in files {
+                file.patch = String::new();
+            }
+        }
+    }
+    Ok(response)
+}
+
+fn diff_impl(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
     if request.pathspecs.is_empty() || request.pathspecs.iter().any(|path| !is_safe_pathspec(path))
     {
         return Err(CoreError::new(
@@ -2002,7 +2018,10 @@ pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
         ));
     }
 
-    if request.include_file_sections && request.pathspecs != ["."] {
+    if request.include_file_sections
+        && request.stash_reference.is_some()
+        && request.pathspecs != ["."]
+    {
         return Err(CoreError::new(
             ErrorCode::InvalidRequest,
             "Per-file stash output requires the whole repository",
@@ -2011,7 +2030,7 @@ pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
     let root = validate_root(&request.root)?;
     if let Some(reference) = request.stash_reference.as_deref() {
         let oid = resolve_commit_revision(&root, &validated_stash_reference(Some(reference))?)?;
-        let arguments = vec![
+        let mut arguments = vec![
             "-c".into(),
             "diff.noprefix=false".into(),
             "-c".into(),
@@ -2028,6 +2047,10 @@ pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
             format!("--unified={}", request.context_lines),
             oid,
         ];
+        if request.include_file_sections {
+            // Stash already has the safe prefix configuration at the front.
+            arguments.splice(6..6, ["--numstat".into(), "-z".into(), "--patch".into()]);
+        }
         let output = capture_git_with_options(&root, &arguments, None, true)?;
         if output.exit_code != 0 {
             return Err(
@@ -2036,15 +2059,9 @@ pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
             );
         }
         if request.include_file_sections {
-            return saved_stash_file_sections(&root, output);
+            return structured_numstat_output(output, true);
         }
         return Ok(structured_diff_from_output(output));
-    }
-    if request.include_file_sections {
-        return Err(CoreError::new(
-            ErrorCode::InvalidRequest,
-            "Per-file output requires a stash",
-        ));
     }
     if request.worktree_snapshot {
         if request.reference.is_some()
@@ -2147,6 +2164,9 @@ pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
     }
     arguments.extend(request.pathspecs.clone());
 
+    if request.include_file_sections {
+        configure_structured_diff(&mut arguments);
+    }
     let root = validate_root(&request.root)?;
     let mut output = if expands_untracked_directories {
         GitProcessOutput {
@@ -2157,6 +2177,22 @@ pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
     } else {
         capture_git_with_options(&root, &arguments, None, true)?
     };
+    let mut sections = if request.include_file_sections {
+        Some(structured_numstat_output(
+            std::mem::replace(
+                &mut output,
+                GitProcessOutput {
+                    stdout: Vec::new(),
+                    stderr: Vec::new(),
+                    exit_code: 0,
+                },
+            ),
+            false,
+        )?)
+    } else {
+        None
+    };
+    let mut section_bytes = sections.as_ref().map(structured_file_bytes).unwrap_or(0);
     if lists_untracked_paths {
         let untracked_paths = readonly_command(GitCommandRequest {
             root: root.clone(),
@@ -2207,12 +2243,27 @@ pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
                 untracked_arguments.push("--ignore-all-space".into());
             }
             untracked_arguments.extend(["--".into(), null_device().into(), path.into()]);
+            if request.include_file_sections {
+                configure_structured_diff(&mut untracked_arguments);
+            }
             let untracked = capture_git_with_options(&root, &untracked_arguments, None, true)?;
-            output.stdout.extend(untracked.stdout);
-            output.stderr.extend(untracked.stderr);
+            if let Some(ref mut combined) = sections {
+                append_structured_files(
+                    combined,
+                    structured_numstat_output(untracked, false)?,
+                    &mut section_bytes,
+                )?;
+            } else {
+                output.stdout.extend(untracked.stdout);
+                output.stderr.extend(untracked.stderr);
+            }
         }
     }
-    Ok(structured_diff_from_output(output))
+    if let Some(sections) = sections {
+        Ok(sections)
+    } else {
+        Ok(structured_diff_from_output(output))
+    }
 }
 
 fn worktree_snapshot_diff(
@@ -2270,6 +2321,9 @@ fn worktree_snapshot_diff(
     }
     arguments.push("--".to_string());
     arguments.extend(request.pathspecs.clone());
+    if request.include_file_sections {
+        configure_structured_diff(&mut arguments);
+    }
     let mut output = capture_git_with_environment(root, &arguments, None, true, &environment)?;
     if output.exit_code != 0 {
         return Err(
@@ -2278,6 +2332,22 @@ fn worktree_snapshot_diff(
         );
     }
 
+    let mut sections = if request.include_file_sections {
+        Some(structured_numstat_output(
+            std::mem::replace(
+                &mut output,
+                GitProcessOutput {
+                    stdout: Vec::new(),
+                    stderr: Vec::new(),
+                    exit_code: 0,
+                },
+            ),
+            false,
+        )?)
+    } else {
+        None
+    };
+    let mut section_bytes = sections.as_ref().map(structured_file_bytes).unwrap_or(0);
     let untracked_arguments = vec![
         "ls-files".into(),
         "--others".into(),
@@ -2317,12 +2387,79 @@ fn worktree_snapshot_diff(
             untracked_arguments.push("--ignore-all-space".into());
         }
         untracked_arguments.extend(["--".into(), null_device().into(), path]);
+        if request.include_file_sections {
+            configure_structured_diff(&mut untracked_arguments);
+        }
         let added =
             capture_git_with_environment(root, &untracked_arguments, None, true, &environment)?;
-        output.stdout.extend(added.stdout);
-        output.stderr.extend(added.stderr);
+        if let Some(ref mut combined) = sections {
+            append_structured_files(
+                combined,
+                structured_numstat_output(added, false)?,
+                &mut section_bytes,
+            )?;
+        } else {
+            output.stdout.extend(added.stdout);
+            output.stderr.extend(added.stderr);
+        }
     }
-    Ok(structured_diff_from_output(output))
+    if let Some(sections) = sections {
+        Ok(sections)
+    } else {
+        Ok(structured_diff_from_output(output))
+    }
+}
+
+// Request Git's NUL-delimited identities and its patch in the same process.
+fn configure_structured_diff(arguments: &mut Vec<String>) {
+    arguments.splice(
+        1..1,
+        [
+            "--numstat".into(),
+            "-z".into(),
+            "--patch".into(),
+            "--no-color".into(),
+            "--no-textconv".into(),
+        ],
+    );
+    arguments.splice(
+        0..0,
+        [
+            "-c".into(),
+            "diff.noprefix=false".into(),
+            "-c".into(),
+            "diff.mnemonicprefix=false".into(),
+        ],
+    );
+}
+
+fn structured_file_bytes(response: &GitDiffResponse) -> usize {
+    response
+        .files
+        .as_ref()
+        .map(|files| files.iter().map(|file| file.patch.len()).sum())
+        .unwrap_or(0)
+}
+
+fn append_structured_files(
+    target: &mut GitDiffResponse,
+    source: GitDiffResponse,
+    bytes: &mut usize,
+) -> Result<(), CoreError> {
+    *bytes = bytes
+        .checked_add(structured_file_bytes(&source))
+        .ok_or_else(|| CoreError::new(ErrorCode::InvalidRequest, "Git diff exceeds 32 MiB"))?;
+    if *bytes > patch_exchange::MAX_PATCH_BYTES {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Git diff exceeds 32 MiB",
+        ));
+    }
+    target.has_decoding_loss |= source.has_decoding_loss;
+    if let (Some(target), Some(source)) = (&mut target.files, source.files) {
+        target.extend(source);
+    }
+    Ok(())
 }
 
 fn structured_diff_from_output(output: GitProcessOutput) -> GitDiffResponse {
@@ -2344,26 +2481,14 @@ fn structured_diff_from_output(output: GitProcessOutput) -> GitDiffResponse {
 }
 
 // Git owns filename decoding. Pair its ordered NUL-delimited metadata with
-// byte-preserving section boundaries, then parse each document exactly once.
-fn saved_stash_file_sections(
-    root: &str,
-    output: GitProcessOutput,
+// byte-preserving section boundaries, then parse each document once.
+fn structured_patch_sections(
+    patch: &str,
+    identities: Vec<patch_exchange::PatchFile>,
+    has_decoding_loss: bool,
 ) -> Result<GitDiffResponse, CoreError> {
-    if output.stdout.len() > patch_exchange::MAX_PATCH_BYTES {
-        return Err(CoreError::new(
-            ErrorCode::InvalidRequest,
-            "Saved patch exceeds 32 MiB",
-        ));
-    }
-    let patch = std::str::from_utf8(&output.stdout).map_err(|_| {
-        CoreError::new(
-            ErrorCode::InvalidRequest,
-            "Saved patch must contain valid UTF-8",
-        )
-    })?;
     let mut files = Vec::new();
     if !patch.is_empty() {
-        let identities = patch_exchange::ordered_patch_files(root, patch)?;
         let mut starts = Vec::new();
         let mut offset = 0;
         for line in patch.split_inclusive('\n') {
@@ -2375,7 +2500,7 @@ fn saved_stash_file_sections(
         if starts.first() != Some(&0) || starts.len() != identities.len() {
             return Err(CoreError::new(
                 ErrorCode::InvalidRequest,
-                "Saved patch sections do not match Git metadata",
+                "Patch sections do not match Git metadata",
             ));
         }
         starts.push(patch.len());
@@ -2396,7 +2521,37 @@ fn saved_stash_file_sections(
             } else {
                 "M"
             };
-            let (rows, hunks) = parse_diff(section);
+            let is_binary = identity.additions.is_none() && identity.deletions.is_none();
+            let has_lossy_line_endings = has_decoding_loss
+                || section.split('\n').any(|line| {
+                    line.ends_with('\r') || line.starts_with("\\ No newline at end of file")
+                });
+            let (rows, mut hunks, lines) = parse_diff(section);
+            if status == "R" {
+                let target = section
+                    .lines()
+                    .take_while(|line| !line.starts_with("@@"))
+                    .find(|line| line.starts_with("+++ b/") || line.starts_with("+++ \"b/"));
+                if let Some(target) = target {
+                    let old = target
+                        .strip_prefix("+++ b/")
+                        .map(|path| format!("--- a/{path}"))
+                        .or_else(|| {
+                            target
+                                .strip_prefix("+++ \"b/")
+                                .map(|path| format!("--- \"a/{path}"))
+                        });
+                    if let Some(old) = old {
+                        for hunk in &mut hunks {
+                            let marker = format!("\n{}", hunk.header);
+                            if let Some(offset) = hunk.patch.find(&marker) {
+                                hunk.content_patch =
+                                    Some(format!("{old}\n{target}\n{}", &hunk.patch[offset + 1..]));
+                            }
+                        }
+                    }
+                }
+            }
             files.push(GitDiffFileResponse {
                 path: identity.path,
                 original_path: identity.original_path,
@@ -2404,16 +2559,94 @@ fn saved_stash_file_sections(
                 patch: section.into(),
                 rows,
                 hunks,
+                lines,
+                is_binary,
+                has_lossy_line_endings,
+                additions: identity.additions,
+                deletions: identity.deletions,
             });
         }
+    } else if !identities.is_empty() {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Patch sections do not match Git metadata",
+        ));
     }
     Ok(GitDiffResponse {
         patch: String::new(),
         rows: Vec::new(),
         hunks: Vec::new(),
-        has_decoding_loss: false,
+        has_decoding_loss,
         files: Some(files),
     })
+}
+
+// Git writes all `--numstat -z` records first, followed by one extra NUL and
+// the patch. NUL cannot occur inside a Git path, including quoted path names.
+fn structured_numstat_output(
+    output: GitProcessOutput,
+    require_utf8: bool,
+) -> Result<GitDiffResponse, CoreError> {
+    if output.stdout.is_empty() {
+        return structured_patch_sections("", Vec::new(), false);
+    }
+    let separator = output
+        .stdout
+        .windows(2)
+        .position(|bytes| bytes == [0, 0])
+        .ok_or_else(|| {
+            CoreError::new(ErrorCode::InvalidRequest, "Git diff metadata is incomplete")
+        })?;
+    let identities = patch_exchange::parse_diff_statistics_in_order(&output.stdout[..=separator])?;
+    let bytes = &output.stdout[separator + 2..];
+    if bytes.len() > patch_exchange::MAX_PATCH_BYTES {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Saved patch exceeds 32 MiB",
+        ));
+    }
+    let decoded = String::from_utf8_lossy(bytes);
+    let has_decoding_loss = matches!(decoded, std::borrow::Cow::Owned(_));
+    if require_utf8 && has_decoding_loss {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Saved patch must contain valid UTF-8",
+        ));
+    }
+    structured_patch_sections(&decoded, identities, has_decoding_loss)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ParsePatchRequest {
+    root: String,
+    patch: String,
+}
+
+pub(crate) fn parse_patch_command(
+    payload: serde_json::Value,
+) -> Result<serde_json::Value, CoreError> {
+    let request: ParsePatchRequest = serde_json::from_value(payload).map_err(|_| {
+        CoreError::new(ErrorCode::InvalidRequest, "Invalid Git patch parse request")
+    })?;
+    let root = validate_root(&request.root)?;
+    if request.patch.len() > patch_exchange::MAX_PATCH_BYTES {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Saved patch exceeds 32 MiB",
+        ));
+    }
+    let identities = if request.patch.is_empty() {
+        Vec::new()
+    } else {
+        patch_exchange::ordered_patch_files(&root, &request.patch)?
+    };
+    serde_json::to_value(structured_patch_sections(
+        &request.patch,
+        identities,
+        false,
+    )?)
+    .map_err(|_| CoreError::new(ErrorCode::Unknown, "Could not encode parsed Git patch"))
 }
 
 /// Applies a validated patch using the requested index or working-tree mode.
@@ -7780,6 +8013,10 @@ fn pair_diff_entries(
     pairs
 }
 
+fn without_one_trailing_cr(value: &str) -> &str {
+    value.strip_suffix('\r').unwrap_or(value)
+}
+
 fn flush_diff_changes(
     rows: &mut Vec<GitDiffRowResponse>,
     removed: &mut Vec<DiffEntry>,
@@ -7802,6 +8039,10 @@ fn flush_diff_changes(
             right: right.map(|entry| entry.text.clone()),
             kind: kind.to_string(),
             hunk_id: hunk_id.map(String::from),
+            is_invisible_change: left.zip(right).and_then(|(left, right)| {
+                (without_one_trailing_cr(&left.text) == without_one_trailing_cr(&right.text))
+                    .then_some(true)
+            }),
         });
     }
     removed.clear();
@@ -7820,11 +8061,18 @@ fn parse_hunk_header(header: &str) -> Option<(usize, usize)> {
     Some((old_line, new_line))
 }
 
-fn parse_diff(patch: &str) -> (Vec<GitDiffRowResponse>, Vec<GitDiffHunkResponse>) {
+fn parse_diff(
+    patch: &str,
+) -> (
+    Vec<GitDiffRowResponse>,
+    Vec<GitDiffHunkResponse>,
+    Vec<GitDiffUnifiedLineResponse>,
+) {
     let has_trailing_newline = patch.ends_with('\n');
     let lines = patch.strip_suffix('\n').unwrap_or(patch).split('\n');
 
     let mut rows = Vec::new();
+    let mut unified = Vec::new();
     let mut old_line = 0;
     let mut new_line = 0;
     let mut removed = Vec::new();
@@ -7857,6 +8105,12 @@ fn parse_diff(patch: &str) -> (Vec<GitDiffRowResponse>, Vec<GitDiffHunkResponse>
                 old_line = old;
                 new_line = new;
             }
+            unified.push(GitDiffUnifiedLineResponse {
+                line_type: "header".into(),
+                content: without_one_trailing_cr(line).into(),
+                old_line: None,
+                new_line: None,
+            });
             rows.push(GitDiffRowResponse {
                 old_line: None,
                 new_line: None,
@@ -7864,6 +8118,7 @@ fn parse_diff(patch: &str) -> (Vec<GitDiffRowResponse>, Vec<GitDiffHunkResponse>
                 right: None,
                 kind: "information".to_string(),
                 hunk_id: Some(hunk_id),
+                is_invisible_change: None,
             });
         } else if line.starts_with("diff --git") && current_hunk_id.is_some() {
             let hunk_id = current_hunk_id.take().expect("hunk should exist");
@@ -7877,6 +8132,12 @@ fn parse_diff(patch: &str) -> (Vec<GitDiffRowResponse>, Vec<GitDiffHunkResponse>
         } else if current_hunk_id.is_none() {
             file_header_lines.push(line.to_string());
         } else if line.starts_with('-') {
+            unified.push(GitDiffUnifiedLineResponse {
+                line_type: "removed".into(),
+                content: without_one_trailing_cr(&line[1..]).into(),
+                old_line: Some(old_line),
+                new_line: None,
+            });
             current_hunk_lines.push(line.to_string());
             removed.push(DiffEntry {
                 number: old_line,
@@ -7884,6 +8145,12 @@ fn parse_diff(patch: &str) -> (Vec<GitDiffRowResponse>, Vec<GitDiffHunkResponse>
             });
             old_line += 1;
         } else if line.starts_with('+') {
+            unified.push(GitDiffUnifiedLineResponse {
+                line_type: "added".into(),
+                content: without_one_trailing_cr(&line[1..]).into(),
+                old_line: None,
+                new_line: Some(new_line),
+            });
             current_hunk_lines.push(line.to_string());
             added.push(DiffEntry {
                 number: new_line,
@@ -7891,6 +8158,12 @@ fn parse_diff(patch: &str) -> (Vec<GitDiffRowResponse>, Vec<GitDiffHunkResponse>
             });
             new_line += 1;
         } else if line.starts_with(' ') {
+            unified.push(GitDiffUnifiedLineResponse {
+                line_type: "context".into(),
+                content: without_one_trailing_cr(&line[1..]).into(),
+                old_line: Some(old_line),
+                new_line: Some(new_line),
+            });
             let hunk_id = current_hunk_id.as_deref();
             flush_diff_changes(&mut rows, &mut removed, &mut added, hunk_id);
             current_hunk_lines.push(line.to_string());
@@ -7901,6 +8174,7 @@ fn parse_diff(patch: &str) -> (Vec<GitDiffRowResponse>, Vec<GitDiffHunkResponse>
                 right: None,
                 kind: "context".to_string(),
                 hunk_id: current_hunk_id.clone(),
+                is_invisible_change: None,
             });
             old_line += 1;
             new_line += 1;
@@ -7928,10 +8202,11 @@ fn parse_diff(patch: &str) -> (Vec<GitDiffRowResponse>, Vec<GitDiffHunkResponse>
                 id: record.id,
                 header: record.header,
                 patch,
+                content_patch: None,
             }
         })
         .collect();
-    (rows, hunks)
+    (rows, hunks, unified)
 }
 
 /// Resolves the Git administrative paths and references a watcher must observe.
@@ -8447,15 +8722,25 @@ mod tests {
             stderr: Vec::new(),
             exit_code: 0,
         };
-        let invalid = super::saved_stash_file_sections("unused", output(vec![0xff])).unwrap_err();
+        let invalid = super::structured_numstat_output(
+            output(vec![b'1', b'\t', b'0', b'\t', b'a', 0, 0, 0xff]),
+            true,
+        )
+        .unwrap_err();
         assert_eq!(invalid.message, "Saved patch must contain valid UTF-8");
-        let oversized = super::saved_stash_file_sections(
-            "unused",
-            output(vec![b'x'; super::patch_exchange::MAX_PATCH_BYTES + 1]),
+        let oversized = super::structured_numstat_output(
+            output(
+                [
+                    b"1\t0\ta\0\0".as_slice(),
+                    &vec![b'x'; super::patch_exchange::MAX_PATCH_BYTES + 1],
+                ]
+                .concat(),
+            ),
+            true,
         )
         .unwrap_err();
         assert_eq!(oversized.message, "Saved patch exceeds 32 MiB");
-        let empty = super::saved_stash_file_sections("unused", output(Vec::new())).unwrap();
+        let empty = super::structured_numstat_output(output(Vec::new()), true).unwrap();
         assert!(empty.files.unwrap().is_empty());
     }
 
@@ -9266,7 +9551,7 @@ mod tests {
         let patch = fixture["patch"]
             .as_str()
             .expect("fixture patch should be text");
-        let (rows, hunks) = parse_diff(patch);
+        let (rows, hunks, _) = parse_diff(patch);
         let expected = &fixture["expected"];
         let kinds = rows.iter().map(|row| row.kind.as_str()).collect::<Vec<_>>();
         let old_lines = rows

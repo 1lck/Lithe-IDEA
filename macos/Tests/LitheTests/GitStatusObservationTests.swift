@@ -75,6 +75,30 @@ struct GitStatusObservationTests {
         #expect(binary.version == "Stash")
     }
 
+    @Test
+    func savedShelfUsesCoreDocumentsForBothPatchLayers() async throws {
+        let fixture = try GitObservationFixture(label: "saved-shelf-core")
+        let root = fixture.url.appendingPathComponent("repository", isDirectory: true)
+        try await fixture.initializeRepository(at: root)
+        let file = root.appendingPathComponent("tracked.txt")
+        try Data("staged\n".utf8).write(to: file)
+        try await fixture.git(["add", "tracked.txt"], at: root)
+        let staged = try await fixture.git(["diff", "--cached", "--binary"], at: root) + "\n"
+        try Data("working\n".utf8).write(to: file)
+        let working = try await fixture.git(["diff", "--binary"], at: root) + "\n"
+        let shelf = GitShelfEntry(id: UUID(), message: "saved", createdAt: Date(timeIntervalSince1970: 0),
+            paths: ["tracked.txt"], stagedPatch: staged, workingPatch: working)
+        let service = GitService(operations: RustGitOperations(core: RustCoreBridge()))
+        let snapshot = try await service.savedChangesSnapshot(stash: nil, shelf: shelf, at: root).get()
+        #expect(snapshot.versions == ["Staged", "Working tree"])
+        let stagedFile = try #require(snapshot.files.first { $0.version == "Staged" })
+        let workingFile = try #require(snapshot.files.first { $0.version == "Working tree" })
+        #expect(stagedFile.document.rows.contains { $0.rightText == "staged" })
+        #expect(workingFile.document.rows.contains { $0.rightText == "working" })
+        #expect(stagedFile.patch == stagedFile.document.patch)
+        #expect(workingFile.patch == workingFile.document.patch)
+    }
+
     @Test @MainActor
     func mountedCommitPanelObservesExternalEditsAndKeepsRollbackEnabledDuringBackgroundReads() async throws {
         let fixture = try GitObservationFixture(label: "mounted-commit-refresh")

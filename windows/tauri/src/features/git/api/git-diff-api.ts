@@ -332,7 +332,7 @@ const fetchRawWorktreePatch = async (
       root: repoPath,
       pathspecs: [filePath],
       contextLines: 3,
-      // The compatibility adapter re-parses `git.diff` for display and would
+      // The display adapter projects `git.diff` rows and would
       // strip the very CR and EOF bytes this channel exists to preserve.
     }, { rawCoreResult: true });
     if (typeof response?.patch !== "string") return null;

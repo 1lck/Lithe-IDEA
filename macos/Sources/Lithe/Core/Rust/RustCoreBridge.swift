@@ -3575,6 +3575,15 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         )
     }
 
+    private struct GitParsePatchRequest: Encodable {
+        let root: String
+        let patch: String
+    }
+
+    func gitParseSavedPatch(at rootURL: URL, patch: String) -> Result<GitDiffPayload, CoreCallError> {
+        executeResult(command: "git.parsePatch", payload: GitParsePatchRequest(root: rootURL.standardizedFileURL.path, patch: patch))
+    }
+
     func gitSavedStashDiff(at rootURL: URL, reference: String) -> Result<GitDiffPayload, CoreCallError> {
         executeResult(command: "git.diff", payload: GitDiffRequest(
             root: rootURL.standardizedFileURL.path, pathspecs: ["."], stashReference: reference,

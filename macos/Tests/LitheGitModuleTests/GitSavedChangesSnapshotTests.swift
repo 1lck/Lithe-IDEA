@@ -1,15 +1,9 @@
+import LitheGitTestSupport
 import Foundation
 import Testing
 @testable import LitheGitModule
 
 struct GitSavedChangesSnapshotTests {
-    @Test func framesFilesWithoutTreatingDiffTextInsideAHunkAsAFile() {
-        let first = "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-old\n+diff --git is ordinary file content\n"
-        let second = "diff --git a/b.bin b/b.bin\nnew file mode 100644\nGIT binary patch\nliteral 0\nHcmV?d00001\n"
-        #expect(GitSavedChangesSnapshot.sections(in: first + second) == [first, second])
-        #expect(GitSavedChangesSnapshot.sections(in: "").isEmpty)
-    }
-
     @Test func shelfVersionsKeepIndependentDiffsForTheSamePath() throws {
         let file = GitCommitFile(status: "M", path: "file.txt")
         let staged = GitSavedPatchFile(file: file, version: "Staged", base: "HEAD",

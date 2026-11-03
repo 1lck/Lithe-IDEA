@@ -209,6 +209,23 @@ pub fn export(request: PatchExportRequest) -> Result<PatchExportResponse, CoreEr
 // Git diff uses an empty third column followed by two NUL-delimited names for
 // renames. Parse bytes so unrelated non-UTF-8 file contents never enter discovery.
 fn parse_export_statistics(bytes: &[u8]) -> Result<Vec<PatchFile>, CoreError> {
+    let mut files = parse_export_statistics_in_order(bytes)?;
+    files.sort_by(|left, right| left.path.cmp(&right.path));
+    Ok(files)
+}
+
+// Keep Git's order so statistics pair with their corresponding patch sections.
+pub(super) fn parse_export_statistics_in_order(bytes: &[u8]) -> Result<Vec<PatchFile>, CoreError> {
+    parse_statistics(bytes, false)
+}
+
+// `git diff --no-index` identifies an added file as a pair whose source is
+// the platform null device. Patch export never permits that sentinel as a path.
+pub(super) fn parse_diff_statistics_in_order(bytes: &[u8]) -> Result<Vec<PatchFile>, CoreError> {
+    parse_statistics(bytes, true)
+}
+
+fn parse_statistics(bytes: &[u8], allow_null_source: bool) -> Result<Vec<PatchFile>, CoreError> {
     let mut fields = bytes.split(|byte| *byte == 0);
     let mut files = Vec::new();
     while let Some(field) = fields.next().filter(|field| !field.is_empty()) {
@@ -225,10 +242,14 @@ fn parse_export_statistics(bytes: &[u8]) -> Result<Vec<PatchFile>, CoreError> {
             let destination = fields
                 .next()
                 .ok_or_else(|| invalid("Missing destination patch path"))?;
-            (
-                safe_patch_path(destination)?,
-                Some(safe_patch_path(original)?),
-            )
+            let original_path = if allow_null_source
+                && (original == b"/dev/null" || (cfg!(windows) && original == b"NUL"))
+            {
+                None
+            } else {
+                Some(safe_patch_path(original)?)
+            };
+            (safe_patch_path(destination)?, original_path)
         } else {
             (safe_patch_path(path)?, None)
         };
@@ -239,7 +260,6 @@ fn parse_export_statistics(bytes: &[u8]) -> Result<Vec<PatchFile>, CoreError> {
             deletions,
         });
     }
-    files.sort_by(|left, right| left.path.cmp(&right.path));
     Ok(files)
 }
 
@@ -571,18 +591,21 @@ fn patch_files(root: &str, patch: &str) -> Result<Vec<PatchFile>, CoreError> {
 // Keep Git's order for pairing validated identities with exact patch sections.
 pub(super) fn ordered_patch_files(root: &str, patch: &str) -> Result<Vec<PatchFile>, CoreError> {
     let mut files = patch_stat_files(root, patch, false)?;
-    // Unlike git diff --numstat -z, git apply emits only one name per patch.
-    // Parsing the same input in reverse exposes rename/copy source paths with
-    // Git's own filename parser, including C-quoted Unicode and tab/newline names.
-    let mut original_files = patch_stat_files(root, patch, true)?;
-    // Reverse application visits file patches in the opposite order as well.
-    original_files.reverse();
-    if files.len() != original_files.len() {
-        return Err(invalid("The patch has inconsistent file statistics"));
-    }
-    for (file, original) in files.iter_mut().zip(original_files) {
-        if file.path != original.path {
-            file.original_path = Some(original.path);
+    // Git apply's numstat omits rename sources. Only request the reverse
+    // view when a section actually contains a rename or copy header.
+    if patch
+        .lines()
+        .any(|line| line.starts_with("rename from ") || line.starts_with("copy from "))
+    {
+        let mut original_files = patch_stat_files(root, patch, true)?;
+        original_files.reverse();
+        if files.len() != original_files.len() {
+            return Err(invalid("The patch has inconsistent file statistics"));
+        }
+        for (file, original) in files.iter_mut().zip(original_files) {
+            if file.path != original.path {
+                file.original_path = Some(original.path);
+            }
         }
     }
     if files.is_empty() {

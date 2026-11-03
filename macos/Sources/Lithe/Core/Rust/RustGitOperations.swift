@@ -195,11 +195,6 @@ struct RustGitOperations: GitOperations, Sendable {
             .mapError { GitPatchFailure($0.userMessage) }
     }
 
-    func inspectSavedPatch(at rootURL: URL, patch: String) -> Result<GitPatchPreview, GitPatchFailure> {
-        core.gitPatchPreview(at: rootURL, patch: patch, target: .worktree, metadataOnly: true)
-            .mapError { GitPatchFailure($0.userMessage) }
-    }
-
     func previewPatch(at rootURL: URL, patch: String, target: GitPatchTarget) -> Result<GitPatchPreview, GitPatchFailure> {
         core.gitPatchPreview(at: rootURL, patch: patch, target: target)
             .mapError { GitPatchFailure($0.userMessage) }
@@ -515,7 +510,15 @@ struct RustGitOperations: GitOperations, Sendable {
     }
 
     func savedStashFiles(at rootURL: URL, reference: String, base: String) -> Result<[GitSavedPatchFile], GitPatchFailure> {
-        switch core.gitSavedStashDiff(at: rootURL, reference: reference) {
+        savedFiles(core.gitSavedStashDiff(at: rootURL, reference: reference), version: "Stash", base: base)
+    }
+
+    func savedShelfFiles(at rootURL: URL, patch: String, version: String, base: String) -> Result<[GitSavedPatchFile], GitPatchFailure> {
+        savedFiles(core.gitParseSavedPatch(at: rootURL, patch: patch), version: version, base: base)
+    }
+
+    private func savedFiles(_ result: Result<RustCoreBridge.GitDiffPayload, RustCoreBridge.CoreCallError>, version: String, base: String) -> Result<[GitSavedPatchFile], GitPatchFailure> {
+        switch result {
         case .failure(let error):
             let message: String
             switch error.message {
@@ -534,7 +537,7 @@ struct RustGitOperations: GitOperations, Sendable {
             }
             return .success(files.map { file in
                 GitSavedPatchFile(file: GitCommitFile(status: file.status, path: file.path),
-                    version: "Stash", base: base, patch: file.patch, document: file.makeDocument())
+                    version: version, base: base, patch: file.patch, document: file.makeDocument())
             })
         }
     }

@@ -7,9 +7,38 @@ test.each(["EOF", "CRLF", "LF"])("Core patch adaptation preserves writable safet
   const separator = kind === "CRLF" ? "\r\n" : "\n";
   const patch = ["diff --git a/file.txt b/file.txt", "--- a/file.txt", "+++ b/file.txt",
     "@@ -1 +1 @@", "-a", "+B", ...(kind === "EOF" ? ["\\ No newline at end of file"] : []), ""].join(separator);
-  const diff = adaptCoreResult<GitDiff>("git_diff_file", { filePath: "file.txt" }, { patch });
+  const diff = adaptCoreResult<GitDiff>("git_diff_file", { filePath: "file.txt" }, { files: [{ path: "file.txt", status: "M", patch, hasLossyLineEndings: kind !== "LF",
+    lines: [{ lineType: "header", content: "@@ -1 +1 @@" }, { lineType: "removed", content: "a", oldLine: 1 },
+      { lineType: "added", content: "B", newLine: 1 }], rows: [], hunks: [] }] });
   expect(diff.has_lossy_line_endings === true).toBe(kind !== "LF");
   expect(diff.lines.map(line => line.content)).toEqual(["@@ -1 +1 @@", "a", "B"]);
+});
+
+test("uses Core file identities, ordered lines and exact hunks without reparsing the patch", () => {
+  const raw = "diff --git a/old.txt b/新 file.txt\nrename from old.txt\nrename to 新 file.txt\n@@ -1 +1 @@\n-a\n+b\n";
+  const result = adaptCoreResult<GitDiff>("git_diff_file", { filePath: "新 file.txt" }, {
+    patch: "", rows: [], hunks: [], hasDecodingLoss: false,
+    files: [{ path: "新 file.txt", originalPath: "old.txt", status: "R", patch: raw,
+      isBinary: false, hasLossyLineEndings: false, additions: 1, deletions: 1,
+      lines: [{ lineType: "header", content: "@@ -1 +1 @@", oldLine: null, newLine: null },
+        { lineType: "removed", content: "a", oldLine: 1, newLine: null },
+        { lineType: "added", content: "b", oldLine: null, newLine: 1 }],
+      rows: [{ kind: "information", left: "@@ -1 +1 @@" },
+        { kind: "changed", left: "a", right: "b", oldLine: 1, newLine: 1 }],
+      hunks: [{ id: "hunk-0", header: "@@ -1 +1 @@", patch: raw, contentPatch: "safe rename content patch" }],
+    }],
+  });
+  expect(result.file_path).toBe("新 file.txt");
+  expect(result.old_path).toBe("old.txt");
+  expect(result.is_renamed).toBe(true);
+  expect(result.lines.map((line) => line.content)).toEqual(["@@ -1 +1 @@", "a", "b"]);
+  expect(result.core_hunks?.[0]?.patch).toBe("safe rename content patch");
+});
+
+test("a rename hunk without a content-only patch cannot be applied", () => {
+  const diff = adaptCoreResult<GitDiff>("git_diff_file", {}, { files: [{path: "new", originalPath: "old", status: "R",
+    lines: [], rows: [], hunks: [{header: "@@ -1 +1 @@", patch: "rename patch"}]}] });
+  expect(diff.core_hunks?.[0]?.patch).toBe("");
 });
 
 describe("git status result adaptation", () => {

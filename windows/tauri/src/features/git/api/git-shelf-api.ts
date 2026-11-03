@@ -77,34 +77,9 @@ export const shelveChanges = (root: string, message: string, guardCurrent: () =>
 export const restoreShelf = (root: string, shelf: GitShelf, guardCurrent: () => void) =>
   workflow(root, guardCurrent).restore(shelf);
 
-/** Core owns filenames; the existing parser supplies display-only line rows. */
+/** Core parses the complete patch once and preserves file identities and hunks. */
 export async function inspectShelfDiffs(root: string, patch: string, isCurrent: () => boolean) {
-  const { parseRawDiffContent } = await import("../utils/git-diff-parser");
-  const diffs: import("../types/git.types").GitDiff[] = [];
-  for (const section of patch.split(/(?=^diff --git )/m).filter((value) => value.trim())) {
-    if (!isCurrent()) return [];
-    const preview = await previewGitPatch(
-      root,
-      section,
-      "worktree",
-      crypto.randomUUID(),
-      false,
-      true,
-    );
-    if (!isCurrent()) return [];
-    const parsed = parseRawDiffContent(section, "shelf.patch");
-    const diff = "files" in parsed ? parsed.files[0] : parsed;
-    const file = preview.files[0];
-    if (diff && file)
-      diffs.push({
-        ...diff,
-        file_path: file.path,
-        old_path: file.originalPath ?? (diff.is_new ? undefined : file.path),
-        new_path: diff.is_deleted ? undefined : file.path,
-        is_renamed: Boolean(file.originalPath),
-        additions: file.additions ?? undefined,
-        deletions: file.deletions ?? undefined,
-      });
-  }
-  return diffs;
+  if (!isCurrent() || !patch) return [];
+  const diffs = await invoke<import("../types/git.types").GitDiff[]>("git.parsePatch", { root, patch });
+  return isCurrent() ? diffs : [];
 }
