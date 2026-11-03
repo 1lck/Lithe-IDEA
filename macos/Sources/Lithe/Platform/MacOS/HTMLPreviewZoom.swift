@@ -58,7 +58,7 @@ enum HTMLPreviewZoom {
 enum HTMLPreviewPageShortcut: Equatable {
     case zoom(HTMLPreviewZoom.Command)
     case find(HTMLPreviewFind.Command)
-    case print(HTMLPreviewPrint.Command)
+    case printDocument(HTMLPreviewPrint.Command)
 
     init?(charactersIgnoringModifiers: String?, modifierFlags: NSEvent.ModifierFlags) {
         let key = charactersIgnoringModifiers ?? ""
@@ -67,7 +67,7 @@ enum HTMLPreviewPageShortcut: Equatable {
         } else if let command = HTMLPreviewFind.command(forKey: key, modifiers: modifierFlags) {
             self = .find(command)
         } else if let command = HTMLPreviewPrint.command(forKey: key, modifiers: modifierFlags) {
-            self = .print(command)
+            self = .printDocument(command)
         } else {
             return nil
         }
@@ -111,7 +111,7 @@ final class HTMLPreviewWebViewSurface: WKWebView {
         switch shortcut {
         case .zoom(let command): onZoomCommand?(command)
         case .find(let command): onFindCommand?(command)
-        case .print(let command): onPrintCommand?(command)
+        case .printDocument(let command): onPrintCommand?(command)
         }
         return true
     }

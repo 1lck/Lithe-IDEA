@@ -133,7 +133,7 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
             _ = MacProcessScopeScanner.terminate(ended, gracePeriod: gracePeriod)
         }.value
         // Whatever was kept is no longer Lithe's to manage.
-        Set(leftovers.map(\.scope)).forEach(store.remove)
+        Set(leftovers.map(\.scope)).forEach { store.remove(scope: $0, logSink: logSink) }
     }
 
     func prepareForUpdateRelaunch() {
@@ -296,7 +296,7 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
         MacLiveProcessGroups.application.terminateAllAndWait()
         sweepProcessScope()
         if relaunchesAfterTermination, !isUpdateInstallTermination {
-            MacApplicationRelauncher.scheduleRelaunch()
+            MacApplicationRelauncher.scheduleRelaunch(logSink: logSink)
         }
         isUpdateInstallTermination = false
         updateForceExitTask?.cancel()
@@ -494,8 +494,9 @@ struct LitheApp: App {
     private let applicationLogWriter: MacLogStore
 
     init() {
+        var migrationLogs: [any LogEvent] = []
         do {
-            _ = try MacDevelopmentProfileMigration.prepare()
+            _ = try MacDevelopmentProfileMigration.prepare(report: { if migrationLogs.count < 8 { migrationLogs.append($0) } })
         } catch {
             let alert = NSAlert()
             alert.messageText = L10n.string("Could not copy your Stable settings")
@@ -546,6 +547,7 @@ struct LitheApp: App {
         logWindowModel.environment = .init(appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "",
             osVersion: ProcessInfo.processInfo.operatingSystemVersionString, architecture: architecture, plugins: [])
         _logWindowModel = StateObject(wrappedValue: logWindowModel)
+        migrationLogs.forEach { applicationLogWriter.emit($0) }
         applicationLogWriter.emit(AppSessionStarted())
         if let error = SyntaxHighlightingRegistry.loadError { applicationLogWriter.emit(EditorSyntaxConfigurationFailed(error: error, kind: "formats")) }
         if let error = SyntaxHighlightingColorConfiguration.loadError { applicationLogWriter.emit(EditorSyntaxConfigurationFailed(error: error, kind: "colors")) }

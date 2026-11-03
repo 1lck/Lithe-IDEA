@@ -90,6 +90,7 @@ final class ProblemsDemo: NSObject, NSApplicationDelegate {
         loadTask?.cancel()
         Task { @MainActor in
             let deadline = Task { @MainActor in
+                // log-exempt: 用户取消：调用方取消采样或超时等待时结束任务
                 do { try await Task.sleep(for: .seconds(5)) } catch { return }
                 cleanup()
                 sender.reply(toApplicationShouldTerminate: true)

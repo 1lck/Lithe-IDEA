@@ -81,6 +81,21 @@
       },
       "rate": 60,
       "owner": "Lithe"
+    },
+    {
+      "id": "update.source.probe_failed",
+      "channel": "update",
+      "level": "error",
+      "message": "Update source probe failed",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Native transport or decoding error while checking the configured update source"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
     }
   ]
 }

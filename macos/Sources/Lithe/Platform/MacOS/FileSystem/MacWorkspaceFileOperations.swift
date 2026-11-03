@@ -113,7 +113,7 @@ struct MacWorkspaceFileOperations: WorkspaceFileOperations {
             throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
         }
         let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
-        defer { try? handle.close() }
+        defer { do { try handle.close() } catch { logSink?.emit(AppStorageMaintenanceFailed(error: error, stage: "document-close")) } }
         let info = try documentInfo(descriptor)
         if requiresSingleLink, info.st_nlink != 1 { throw DocumentFileAccessError.hardLinkMutationUnsupported }
         let bytes = try handle.read(upToCount: Self.maxDocumentBytes + 1) ?? Data()
@@ -165,7 +165,13 @@ struct MacWorkspaceFileOperations: WorkspaceFileOperations {
                 return bytes == expectedContent.map { Data($0.utf8) }
             }
             func conflict(_ bytes: Data?) -> EncodedDocumentWriteResult {
-                .conflict(content: bytes.flatMap { try? MacDocumentEncoding.decode($0, encoding: nil).text },
+                let text: String?
+                do { text = try bytes.map { try MacDocumentEncoding.decode($0, encoding: nil).text } }
+                catch {
+                    logSink?.emit(EditorDocumentOpenFailed(error: error, reason: "conflict-decode"))
+                    text = nil
+                }
+                return .conflict(content: text,
                           identity: bytes.map(MacDocumentEncoding.identity))
             }
             let current = try readSnapshot(from: url)
@@ -216,7 +222,7 @@ struct MacWorkspaceFileOperations: WorkspaceFileOperations {
         let descriptor = open(url.path, O_RDWR | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
         guard descriptor >= 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
         let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
-        defer { try? handle.close() }
+        defer { do { try handle.close() } catch { logSink?.emit(AppStorageMaintenanceFailed(error: error, stage: "document-close")) } }
         // Advisory only: unrelated external writers do not participate in this lock.
         guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
         defer { _ = flock(descriptor, LOCK_UN) }

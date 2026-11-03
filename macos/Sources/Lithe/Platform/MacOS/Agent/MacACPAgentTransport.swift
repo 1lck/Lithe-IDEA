@@ -5,6 +5,8 @@ import LitheRustCore
 
 @MainActor
 final class MacACPAgentTransport: AgentConversationTransport {
+    private let logSink: (any LogSink)?
+    init(logSink: (any LogSink)? = nil) { self.logSink = logSink }
     func open(
         configuration: AgentLaunchConfiguration,
         onEvent: @escaping @Sendable (String) -> Void
@@ -58,7 +60,7 @@ final class MacACPAgentTransport: AgentConversationTransport {
             Unmanaged<AgentEventCallback>.fromOpaque(context).release()
             throw MacACPAgentError.invalidConfiguration
         }
-        let connection = MacACPAgentConnection(handle: handle, context: context, processScope: processScope)
+        let connection = MacACPAgentConnection(handle: handle, context: context, processScope: processScope, logSink: logSink)
         let commandName = URL(fileURLWithPath: configuration.command).lastPathComponent
         let agentName = configuration.agentID ?? (commandName.isEmpty ? "Agent" : commandName)
         MacAgentProcessRegistry.application.register(
@@ -87,9 +89,11 @@ private func macACPEventCallback(_ event: UnsafePointer<CChar>?, _ context: Unsa
 private final class MacACPAgentConnection: AgentConnection {
     private var handle: UnsafeMutableRawPointer?
     private var context: UnsafeMutableRawPointer?
+    private let logSink: (any LogSink)?
     private let processScope: String
 
-    init(handle: UnsafeMutableRawPointer, context: UnsafeMutableRawPointer, processScope: String) {
+    init(handle: UnsafeMutableRawPointer, context: UnsafeMutableRawPointer, processScope: String, logSink: (any LogSink)?) {
+        self.logSink = logSink
         self.handle = handle
         self.context = context
         self.processScope = processScope
@@ -132,7 +136,8 @@ private final class MacACPAgentConnection: AgentConnection {
                   "kind": "preserveProcesses",
                   "processIds": processIDs.map(Int.init)
               ]) else { return }
-        try? send(commandJSON: String(decoding: data, as: UTF8.self))
+        do { try send(commandJSON: String(decoding: data, as: UTF8.self)) }
+        catch { logSink?.emit(AppNativeOperationFailed(error: error, stage: "agent-preserve", operationID: processScope)) }
     }
 
     private static func isPrompt(_ commandJSON: String) -> Bool {

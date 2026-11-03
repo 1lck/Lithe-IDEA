@@ -28,7 +28,8 @@ struct MacDevelopmentProfileMigration {
         fileManager: FileManager = .default,
         supportDirectory: URL? = nil,
         sourceDomain: String = "app.lithe.desktop",
-        destinationDomain: String = "app.lithe.desktop.dev"
+        destinationDomain: String = "app.lithe.desktop.dev",
+        report: (any LogEvent) -> Void = { _ in }
     ) throws -> Outcome {
         guard identity.isDevelopment else { return .notDevelopment }
         let base = supportDirectory ?? fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -36,7 +37,9 @@ struct MacDevelopmentProfileMigration {
         let transaction = destination.appendingPathComponent(transactionName)
         let ownPreferences = defaults.persistentDomain(forName: destinationDomain) ?? [:]
         if ownPreferences[markerKey] != nil {
-            try? fileManager.removeItem(at: transaction)
+            do { try fileManager.removeItem(at: transaction) }
+            catch let error as CocoaError where error.code == .fileNoSuchFile { /* Transaction was consumed or not created. */ }
+            catch { report(AppStorageMaintenanceFailed(error: error, stage: "profile-transaction-remove")) }
             return .existing
         }
 
@@ -46,7 +49,9 @@ struct MacDevelopmentProfileMigration {
             let snapshot = try PropertyListSerialization.propertyList(from: Data(contentsOf: transaction), format: nil)
             guard let preferences = snapshot as? [String: Any] else { throw MigrationError.invalidSnapshot }
             try commit(preferences, defaults: defaults, domain: destinationDomain)
-            try? fileManager.removeItem(at: transaction)
+            do { try fileManager.removeItem(at: transaction) }
+            catch let error as CocoaError where error.code == .fileNoSuchFile { /* Transaction was consumed or not created. */ }
+            catch { report(AppStorageMaintenanceFailed(error: error, stage: "profile-transaction-remove")) }
             return .imported
         }
         guard !ownPreferences.keys.contains(where: isUserPreference) else { return .existing }
@@ -69,7 +74,9 @@ struct MacDevelopmentProfileMigration {
 
         let staging = base.appendingPathComponent(".lithe-dev-profile-import-\(UUID().uuidString)", isDirectory: true)
         try fileManager.createDirectory(at: staging, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        defer { try? fileManager.removeItem(at: staging) }
+        defer { do { try fileManager.removeItem(at: staging) }
+            catch let error as CocoaError where error.code == .fileNoSuchFile { /* Transaction was consumed or not created. */ }
+            catch { report(AppStorageMaintenanceFailed(error: error, stage: "profile-staging-remove")) } }
         for path in existingPaths {
             try copyRegularTree(from: base.appendingPathComponent(path), to: staging.appendingPathComponent(path), fileManager: fileManager)
         }
@@ -84,7 +91,9 @@ struct MacDevelopmentProfileMigration {
         }
         try fileManager.moveItem(at: staging, to: destination)
         try commit(preferences, defaults: defaults, domain: destinationDomain)
-        try? fileManager.removeItem(at: transaction)
+        do { try fileManager.removeItem(at: transaction) }
+            catch let error as CocoaError where error.code == .fileNoSuchFile { /* Transaction was consumed or not created. */ }
+            catch { report(AppStorageMaintenanceFailed(error: error, stage: "profile-transaction-remove")) }
         return .imported
     }
 

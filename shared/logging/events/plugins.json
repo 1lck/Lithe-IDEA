@@ -242,6 +242,26 @@
       "owner": "Lithe"
     },
     {
+      "id": "plugins.resources.maintenance_failed",
+      "channel": "plugins",
+      "level": "warn",
+      "message": "Plugin resource {stage} failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Owned plugin resource operation that failed, such as staging-remove, rollback, or archive-close"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Native failure while maintaining host-owned plugin download, staging, or state resources"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
       "id": "plugins.scan.failed",
       "channel": "plugins",
       "level": "warn",

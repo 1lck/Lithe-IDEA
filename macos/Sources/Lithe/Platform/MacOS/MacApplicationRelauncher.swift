@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 
 /// Opens Lithe again after this process exits, for "Restart Lithe" after
@@ -41,7 +42,7 @@ enum MacApplicationRelauncher {
 
     /// Call as the last step of termination, after child processes have been
     /// ended, so the helper is not one of the processes Lithe cleans up.
-    static func scheduleRelaunch(bundle: Bundle = .main) {
+    static func scheduleRelaunch(bundle: Bundle = .main, logSink: (any LogSink)? = nil) {
         guard let command = command(
             bundleURL: bundle.bundleURL,
             executableURL: bundle.executableURL,
@@ -53,6 +54,7 @@ enum MacApplicationRelauncher {
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
-        try? process.run()
+        do { try process.run() }
+        catch { logSink?.emit(AppNativeOperationFailed(error: error, stage: "relaunch")) }
     }
 }

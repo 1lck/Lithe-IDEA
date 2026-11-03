@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import AppKit
 import SwiftUI
 
@@ -29,6 +30,7 @@ struct MacPluginWebToolWindowContent: View {
 }
 
 private struct MacPluginWebSurface: NSViewRepresentable {
+    @Environment(\.applicationLogSink) private var logSink
     let windowID: String
     let model: AppModel
     let theme: MacPluginWebTheme
@@ -51,7 +53,7 @@ private struct MacPluginWebSurface: NSViewRepresentable {
     private func attach(to container: NSView) {
         let pages = model.services.pluginWebPages
         guard let page = pages.page(for: windowID, make: { window in
-            MacPluginWebPage(window: window, host: model, stateStore: pages.stateStore, theme: theme)
+            MacPluginWebPage(window: window, host: model, stateStore: pages.stateStore, theme: theme, logSink: logSink)
         }) else {
             container.subviews.forEach { $0.removeFromSuperview() }
             return

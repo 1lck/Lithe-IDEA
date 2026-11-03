@@ -7,7 +7,8 @@ import LitheRustCore
 enum MacApplicationEntryPoint {
     @MainActor static func main() {
         if CommandLine.arguments.dropFirst().first == MacProcessSupervisor.argument {
-            MacProcessSupervisor.run(arguments: Array(CommandLine.arguments.dropFirst(2)))
+            MacProcessSupervisor.run(arguments: Array(CommandLine.arguments.dropFirst(2)),
+                                     logStore: MacServiceContainer.makeApplicationLogWriter())
         }
         if CommandLine.arguments.dropFirst().first == "--lithe-git-askpass" {
             let prompt = CommandLine.arguments.dropFirst(2).first ?? "Git authentication"

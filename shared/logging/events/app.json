@@ -548,6 +548,46 @@
       },
       "rate": 60,
       "owner": "lithe-core"
+    },
+    {
+      "id": "app.native.operation_failed",
+      "channel": "app",
+      "level": "error",
+      "message": "Native {stage} operation failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Native user request that could not finish, such as relaunch, agent-preserve, or background-selection"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Original native error from the failed request, preserving stable domain and code"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "app.storage.maintenance_failed",
+      "channel": "app",
+      "level": "warn",
+      "message": "Native storage {stage} failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Native storage operation that failed, such as file-close, staging-remove, or permissions"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Native filesystem error preserving its stable domain and code at the handling boundary"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
     }
   ]
 }

@@ -249,6 +249,19 @@ pub static EVENTS: &[EventMetadata] = &[
         owner: "LitheApplicationKernel",
     },
     EventMetadata {
+        id: "app.native.operation_failed",
+        channel: "app",
+        level: LogLevel::Error,
+        message: "Native {stage} operation failed",
+        fields: &[
+            FieldMetadata { name: "error", field_type: FieldType::Error, required: true, description: "Original native error from the failed request, preserving stable domain and code", reason: None },
+            FieldMetadata { name: "stage", field_type: FieldType::Token, required: true, description: "Native user request that could not finish, such as relaunch, agent-preserve, or background-selection", reason: None },
+        ],
+        span: None,
+        rate: 60,
+        owner: "Lithe",
+    },
+    EventMetadata {
         id: "app.process.journal_failed",
         channel: "app",
         level: LogLevel::Warn,
@@ -371,6 +384,19 @@ pub static EVENTS: &[EventMetadata] = &[
         span: None,
         rate: 60,
         owner: "lithe-core",
+    },
+    EventMetadata {
+        id: "app.storage.maintenance_failed",
+        channel: "app",
+        level: LogLevel::Warn,
+        message: "Native storage {stage} failed",
+        fields: &[
+            FieldMetadata { name: "error", field_type: FieldType::Error, required: true, description: "Native filesystem error preserving its stable domain and code at the handling boundary", reason: None },
+            FieldMetadata { name: "stage", field_type: FieldType::Token, required: true, description: "Native storage operation that failed, such as file-close, staging-remove, or permissions", reason: None },
+        ],
+        span: None,
+        rate: 60,
+        owner: "Lithe",
     },
     EventMetadata {
         id: "app.window.session_missing",
@@ -571,6 +597,19 @@ pub static EVENTS: &[EventMetadata] = &[
         fields: &[
             FieldMetadata { name: "error", field_type: FieldType::Error, required: true, description: "Underlying failure at this operation boundary, preserving stable domain and code", reason: None },
             FieldMetadata { name: "stage", field_type: FieldType::Token, required: true, description: "File icon inspection kind, java or generic", reason: None },
+        ],
+        span: None,
+        rate: 30,
+        owner: "Lithe",
+    },
+    EventMetadata {
+        id: "editor.preview.update_failed",
+        channel: "editor",
+        level: LogLevel::Debug,
+        message: "Preview {stage} update failed",
+        fields: &[
+            FieldMetadata { name: "error", field_type: FieldType::Error, required: true, description: "Native WebKit or filesystem failure while applying the preview update", reason: None },
+            FieldMetadata { name: "stage", field_type: FieldType::Token, required: true, description: "Preview update stage, such as markdown-javascript or download-replace", reason: None },
         ],
         span: None,
         rate: 30,
@@ -1799,6 +1838,19 @@ pub static EVENTS: &[EventMetadata] = &[
         owner: "Lithe",
     },
     EventMetadata {
+        id: "plugins.resources.maintenance_failed",
+        channel: "plugins",
+        level: LogLevel::Warn,
+        message: "Plugin resource {stage} failed",
+        fields: &[
+            FieldMetadata { name: "error", field_type: FieldType::Error, required: true, description: "Native failure while maintaining host-owned plugin download, staging, or state resources", reason: None },
+            FieldMetadata { name: "stage", field_type: FieldType::Token, required: true, description: "Owned plugin resource operation that failed, such as staging-remove, rollback, or archive-close", reason: None },
+        ],
+        span: None,
+        rate: 60,
+        owner: "Lithe",
+    },
+    EventMetadata {
         id: "plugins.scan.failed",
         channel: "plugins",
         level: LogLevel::Warn,
@@ -2043,6 +2095,19 @@ pub static EVENTS: &[EventMetadata] = &[
         owner: "Lithe",
     },
     EventMetadata {
+        id: "run.process.io_failed",
+        channel: "run",
+        level: LogLevel::Warn,
+        message: "Process pipe {stage} failed",
+        fields: &[
+            FieldMetadata { name: "error", field_type: FieldType::Error, required: true, description: "FileHandle error from releasing a process pipe or writing standard input", reason: None },
+            FieldMetadata { name: "stage", field_type: FieldType::Token, required: true, description: "Native pipe operation that failed: close, stdin-write, stdout-drain, stream-drain, or capture-drain", reason: None },
+        ],
+        span: None,
+        rate: 60,
+        owner: "Lithe",
+    },
+    EventMetadata {
         id: "terminal.input.failed",
         channel: "terminal",
         level: LogLevel::Debug,
@@ -2126,6 +2191,18 @@ pub static EVENTS: &[EventMetadata] = &[
             FieldMetadata { name: "error", field_type: FieldType::Error, required: true, description: "Download, verification or staging error that prevented preparing the stable rollback package", reason: None },
             FieldMetadata { name: "exit_code", field_type: FieldType::Int, required: false, description: "Native installer tool exit status observed at the rollback boundary.", reason: None },
             FieldMetadata { name: "stage", field_type: FieldType::Token, required: false, description: "Controlled installer tool basename that failed during package preparation.", reason: None },
+        ],
+        span: None,
+        rate: 60,
+        owner: "Lithe",
+    },
+    EventMetadata {
+        id: "update.source.probe_failed",
+        channel: "update",
+        level: LogLevel::Error,
+        message: "Update source probe failed",
+        fields: &[
+            FieldMetadata { name: "error", field_type: FieldType::Error, required: true, description: "Native transport or decoding error while checking the configured update source", reason: None },
         ],
         span: None,
         rate: 60,

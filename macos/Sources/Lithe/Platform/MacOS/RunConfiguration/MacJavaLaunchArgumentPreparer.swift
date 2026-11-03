@@ -53,13 +53,13 @@ extension RustCoreBridge: JavaLaunchArgumentPreparing {
             guard let data = contents.data(using: .utf8) else {
                 throw JavaLaunchArgumentError.invalidEncoding
             }
-            try Self.writeExclusively(data, to: path)
+            try Self.writeExclusively(data, to: path, logSink: coreLogSink)
         } catch {
             throw JavaLaunchArgumentError.writeFailed(path: path.path, reason: error.localizedDescription)
         }
         return JavaLaunchArgumentPreparation(
             arguments: shortened,
-            lease: MacJavaLaunchArgumentLease(url: path)
+            lease: MacJavaLaunchArgumentLease(url: path, logSink: coreLogSink)
         )
     }
 
@@ -69,7 +69,7 @@ extension RustCoreBridge: JavaLaunchArgumentPreparing {
             .appendingPathComponent("launch-\(UUID().uuidString).argfile")
     }
 
-    private static func writeExclusively(_ data: Data, to url: URL) throws {
+    private static func writeExclusively(_ data: Data, to url: URL, logSink: (any LogSink)?) throws {
         let descriptor = Darwin.open(
             url.path,
             O_WRONLY | O_CREAT | O_EXCL,
@@ -108,7 +108,9 @@ extension RustCoreBridge: JavaLaunchArgumentPreparing {
             }
         } catch {
             _ = Darwin.close(descriptor)
-            try? FileManager.default.removeItem(at: url)
+            do { try FileManager.default.removeItem(at: url) }
+        catch let error as CocoaError where error.code == .fileNoSuchFile { /* No argument file remains. */ }
+        catch { logSink?.emit(AppStorageMaintenanceFailed(error: error, stage: "java-argfile-remove")) }
             throw error
         }
         _ = Darwin.close(descriptor)
@@ -159,11 +161,16 @@ private enum JavaLaunchArgumentError: LocalizedError {
 private final class MacJavaLaunchArgumentLease: JavaLaunchArgumentLease, @unchecked Sendable {
     private let url: URL
 
-    init(url: URL) {
+    private let logSink: (any LogSink)?
+
+    init(url: URL, logSink: (any LogSink)?) {
+        self.logSink = logSink
         self.url = url
     }
 
     deinit {
-        try? FileManager.default.removeItem(at: url)
+        do { try FileManager.default.removeItem(at: url) }
+        catch let error as CocoaError where error.code == .fileNoSuchFile { /* No argument file remains. */ }
+        catch { logSink?.emit(AppStorageMaintenanceFailed(error: error, stage: "java-argfile-remove")) }
     }
 }

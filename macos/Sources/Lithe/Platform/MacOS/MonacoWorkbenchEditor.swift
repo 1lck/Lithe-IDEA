@@ -1363,6 +1363,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
                 }], nil)
             }
             let deadline = Task { @MainActor [weak self] in
+                // log-exempt: 用户取消：调用方取消采样或超时等待时结束任务
                 do { try await Task.sleep(for: PluginEditorActionCollectionBudget.maximum) } catch { return }
                 guard self?.pluginActionRequests[id]?.id == requestID else { return }
                 self?.cancelPluginActions(for: id)
