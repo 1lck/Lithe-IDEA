@@ -397,8 +397,13 @@ impl Workbench {
         let text = tab.text.clone();
 
         self.active_tab = Some(tab_id);
+        let modified = self.tabs[index].modified;
         self.editor.update(cx, |editor, editor_cx| {
             editor.open_file(root, absolute, text, window, editor_cx);
+            // `open_file` 会用缓存文本重新建文档并把脏标记清零；标签的未保存
+            // 状态由工作台维护，这里补回去，避免切回来后把有改动的文档当成
+            // 干净文档（外部修改检测据此决定「重载」还是「冲突」）。
+            editor.restore_dirty(modified);
             editor.focus(window, editor_cx);
         });
         self.sync_preview_with_active_tab(cx);

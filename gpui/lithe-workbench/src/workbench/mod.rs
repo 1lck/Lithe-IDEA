@@ -172,6 +172,19 @@ pub struct Workbench {
     layout_persist_pending: bool,
     _layout_persist_task: Task<()>,
     project_root: Option<PathBuf>,
+    /// 当前项目的递归文件监视器；关闭项目或切换工作区时重建。
+    _file_watcher: Option<lithe_platform::FileWatcher>,
+    /// 监视代次：切换项目后，旧项目还在途中的事件读到新状态时直接丢弃。
+    watch_generation: u64,
+    /// 去抖窗口内累积的待处理路径，以及「监视器丢过事件」标志。
+    pending_watch_paths: Vec<PathBuf>,
+    pending_watch_rescan: bool,
+    /// 已有一个去抖任务在等窗口，不再重复派生。
+    watch_flush_pending: bool,
+    /// 把 watcher 后台事件搬回 UI 线程的常驻接收任务。
+    _watch_task: Task<()>,
+    _watch_flush_task: Task<()>,
+    _watch_read_task: Task<()>,
     tabs: Vec<OpenTab>,
     active_tab: Option<SharedString>,
     untitled_counter: usize,
@@ -655,6 +668,14 @@ impl Workbench {
             layout_persist_pending: false,
             _layout_persist_task: Task::ready(()),
             project_root: initial_root,
+            _file_watcher: None,
+            watch_generation: 0,
+            pending_watch_paths: Vec::new(),
+            pending_watch_rescan: false,
+            watch_flush_pending: false,
+            _watch_task: Task::ready(()),
+            _watch_flush_task: Task::ready(()),
+            _watch_read_task: Task::ready(()),
             tabs: Vec::new(),
             active_tab: None,
             untitled_counter: 0,
@@ -1095,6 +1116,12 @@ impl Render for Workbench {
         if !self.layout_restored {
             cx.defer_in(window, |this, window, cx| {
                 this.restore_layout(window, cx);
+                // 启动时自动恢复的最近项目（以及 `--open-project`）不经过
+                // `open_project`，这里补上文件监视，保证项目树和编辑器同样
+                // 跟随磁盘变化。
+                if let Some(root) = this.project_root.clone() {
+                    this.start_file_watcher(&root, window, cx);
+                }
             });
         }
 

@@ -99,6 +99,8 @@ MANUAL = {
     "File is outside the project": "文件不在项目内",
     "File no longer exists": "文件已不存在",
     "File operation failed": "文件操作失败",
+    "File watching is unavailable for this project.": "此项目无法监视文件变化。",
+    "Save to overwrite the file, or use File > Revert to load the disk version.": "保存将覆盖该文件，使用「文件 > 还原文件」可加载磁盘版本。",
     "Install an ACP adapter to start a conversation:": "安装 ACP 适配器后即可开始对话：",
     "Invalid name": "名称无效",
     "In effect": "当前生效",

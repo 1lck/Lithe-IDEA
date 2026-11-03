@@ -1,10 +1,12 @@
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use gpui_kit::component::TitleBar;
 use gpui_kit::{
     AppContext as _, Context, SharedString, Task, Window, WindowBounds, WindowOptions, px, size,
 };
+use lithe_features::editor::DiskChangeOutcome;
 use lithe_features::settings::SettingsContext;
 use lithe_features::{AppSettings, format_memory, process_memory_bytes};
 use lithe_ui::i18n::tr;
@@ -19,6 +21,10 @@ use crate::workspace_layout;
 /// 布局/会话落盘的去抖窗口，对齐 macOS `scheduleWorkspaceSessionPersistence`
 /// 的 150ms 节流：连续切标签只在最后一次之后写一次盘。
 const LAYOUT_PERSIST_DELAY: Duration = Duration::from_millis(150);
+
+/// 外部磁盘变更的去抖窗口：事件到达后再等这一小段，把构建、批量保存这类
+/// 连续磁盘活动合成一次项目树刷新和一次活动文档检查。
+const FILE_WATCH_DEBOUNCE: Duration = Duration::from_millis(200);
 
 impl Workbench {
     pub fn open_project(&mut self, root: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
@@ -88,6 +94,9 @@ impl Workbench {
         self.quick_files.clear();
         self.refresh_quick_index(window, cx);
         self.refresh_branch(window, cx);
+        // 项目一打开就开始监听磁盘：项目树、Git 元数据和当前文档都要跟随
+        // 外部变化。监听失败只提示，不会让项目打不开。
+        self.start_file_watcher(&root, window, cx);
         // 标签、编辑器文档和打开代次都已就绪，最后按顺序恢复上次的编辑器
         // 会话；恢复异步读盘，失败的文件由它自己汇总提示。
         self.restore_session_tabs(open_paths, active_path, window, cx);
@@ -161,6 +170,8 @@ impl Workbench {
         let Some(root) = self.project_root.take() else {
             return;
         };
+        // 项目已经关闭：先停掉监视并作废所有在途事件，再清理编辑器状态。
+        self.stop_file_watcher();
         self.java_language
             .update(cx, |model, cx| model.stop(cx));
         self.persist_layout_now(&root);
@@ -502,6 +513,247 @@ impl Workbench {
         });
     }
 
+    /// 启动（或重启）当前项目的递归文件监视。
+    ///
+    /// 生命周期对齐 macOS `MacDirectoryWatcher`：一个工作区一个监视器，
+    /// 切换/关闭项目时整体丢弃。启动失败只提示一次并继续工作，不能因为
+    /// 监视失败就让项目打不开。
+    pub(super) fn start_file_watcher(
+        &mut self,
+        root: &Path,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.stop_file_watcher();
+        self.watch_generation = self.watch_generation.wrapping_add(1);
+        let generation = self.watch_generation;
+
+        let (sender, receiver) = std::sync::mpsc::channel::<lithe_platform::WatchEvent>();
+        match lithe_platform::watch_tree(root, move |event| {
+            // notify 的后台线程：只把事件交给接收任务，不碰 UI 状态。
+            let _ = sender.send(event);
+        }) {
+            Ok(watcher) => self._file_watcher = Some(watcher),
+            Err(error) => {
+                self.status_message = Some(
+                    SharedString::from(format!(
+                        "{}: {error}",
+                        tr("File watching is unavailable for this project.")
+                    )),
+                );
+                self.push_notification(
+                    tr("File watching is unavailable for this project."),
+                    Some(SharedString::from(error)),
+                    NotificationKind::Warning,
+                );
+                cx.notify();
+            }
+        }
+
+        // 接收任务阻塞在一段后台 future 的 `recv` 上：事件到达即醒，不轮询，
+        // 也不阻塞 UI 线程。监视器被丢弃时发送端随之关闭，`recv` 返回错误，
+        // 任务自行结束（与 `stop_file_watcher` 的丢弃顺序配合）。
+        let slot = Arc::new(Mutex::new(Some(receiver)));
+        self._watch_task = cx.spawn_in(window, async move |this, cx| loop {
+            let slot = slot.clone();
+            let received = cx
+                .background_spawn(async move {
+                    // 先把接收端取出来再阻塞：`MutexGuard` 不跨线程持有，
+                    // 阻塞期间也不占着锁。
+                    let receiver = slot.lock().ok()?.take()?;
+                    let event = receiver.recv().ok();
+                    if let Ok(mut slot) = slot.lock() {
+                        *slot = Some(receiver);
+                    }
+                    event
+                })
+                .await;
+            let Some(event) = received else {
+                break;
+            };
+            let alive = this.update_in(cx, move |this, window, cx| {
+                // 旧项目的在途事件：代次已经变了，直接丢弃。
+                if this.watch_generation != generation {
+                    return;
+                }
+                this.accept_watch_event(event, window, cx);
+            });
+            if alive.is_err() {
+                break;
+            }
+        });
+    }
+
+    /// 停止文件监视并丢弃所有待处理事件。
+    pub(super) fn stop_file_watcher(&mut self) {
+        // 先递增代次：即使还有事件被搬回 UI 线程，也会在入口被丢弃。
+        self.watch_generation = self.watch_generation.wrapping_add(1);
+        // 丢 watcher：它的回调持有发送端，接收任务随后拿到错误并结束。
+        self._file_watcher = None;
+        self._watch_task = Task::ready(());
+        self._watch_flush_task = Task::ready(());
+        self._watch_read_task = Task::ready(());
+        self.pending_watch_paths.clear();
+        self.pending_watch_rescan = false;
+        self.watch_flush_pending = false;
+    }
+
+    /// 接收一批磁盘事件：先累积，等去抖窗口结束统一处理。
+    fn accept_watch_event(
+        &mut self,
+        event: lithe_platform::WatchEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if event.paths.is_empty() && !event.requires_rescan {
+            return;
+        }
+        self.pending_watch_paths.extend(event.paths);
+        self.pending_watch_rescan |= event.requires_rescan;
+        self.schedule_watch_flush(window, cx);
+    }
+
+    /// 外部变更的去抖：200ms 内的连续事件只处理一次。
+    ///
+    /// 与 [`Self::schedule_layout_persist`] 同一套写法：已有排队任务时不再
+    /// 重复派生，它醒来时处理的是累积后的完整批次。
+    fn schedule_watch_flush(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.watch_flush_pending {
+            return;
+        }
+        self.watch_flush_pending = true;
+        self._watch_flush_task = cx.spawn_in(window, async move |this, cx| {
+            cx.background_executor().timer(FILE_WATCH_DEBOUNCE).await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                this.watch_flush_pending = false;
+                this.flush_watch_events(window, cx);
+            });
+        });
+    }
+
+    /// 去抖窗口结束后的实际处理：刷新项目树，并检查活动文档。
+    fn flush_watch_events(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let paths = std::mem::take(&mut self.pending_watch_paths);
+        let rescan = std::mem::replace(&mut self.pending_watch_rescan, false);
+        let Some(root) = self.project_root.clone() else {
+            return;
+        };
+        let generation = self.watch_generation;
+
+        // 自己保存和项目元数据（`.git` / `.lithe`）都不改变项目内容：
+        // 前者按写盘时间窗口识别，后者与项目树无关。
+        let mut changed: Vec<PathBuf> = Vec::with_capacity(paths.len());
+        for path in paths {
+            if is_workspace_metadata_path(&root, &path) {
+                continue;
+            }
+            if self
+                .editor
+                .update(cx, |editor, _| editor.is_recent_self_write(&path))
+            {
+                continue;
+            }
+            changed.push(path);
+        }
+
+        if changed.is_empty() && !rescan {
+            return;
+        }
+
+        // a. 项目树整树刷新：清空目录缓存后按已展开路径重新请求，保留展开状态。
+        self.refresh_project_tree(window, cx);
+
+        // b. 命中当前活动文档时交给编辑器决定重载还是提示冲突。
+        let Some(active) = self.active_tab_path() else {
+            return;
+        };
+        if self.is_active_tab_untitled() {
+            return;
+        }
+        let active_identity = super::tabs::file_identity(&active);
+        let hit = rescan
+            || changed
+                .iter()
+                .any(|path| super::tabs::file_identity(path) == active_identity);
+        // 删除/重命名给的是已经不存在的路径：不重载编辑区，保留用户内容。
+        if !hit || !active.exists() {
+            return;
+        }
+
+        let client = self.client;
+        let read_root = root.clone();
+        let read_path = active.clone();
+        // Core 读取需要工作区相对路径；活动标签按定义在工作区内。
+        let Some(relative) = super::tabs::workspace_relative_option(&root, &active) else {
+            return;
+        };
+        self._watch_read_task = cx.spawn_in(window, async move |this, cx| {
+            let read_root_for_task = read_root.clone();
+            let result = cx
+                .background_spawn(async move { client.read_file(&read_root_for_task, &relative) })
+                .await;
+            let _ = this.update_in(cx, move |this, window, cx| {
+                if this.watch_generation != generation {
+                    return;
+                }
+                // 用户在读盘期间切了标签：结果不再属于当前文档。
+                let still_active = this
+                    .active_tab_path()
+                    .map(|path| super::tabs::file_identity(&path))
+                    .as_deref()
+                    == Some(active_identity.as_str());
+                if !still_active {
+                    return;
+                }
+                // 读取失败（权限、编码、已删除）时保留编辑区内容，不弹假冲突。
+                let Ok(file) = result else {
+                    return;
+                };
+                let outcome = this.editor.update(cx, |editor, editor_cx| {
+                    editor.handle_disk_change(
+                        &read_root,
+                        &read_path,
+                        file.text.clone(),
+                        window,
+                        editor_cx,
+                    )
+                });
+                match outcome {
+                    DiskChangeOutcome::Reloaded => {
+                        let identity = super::tabs::file_identity(&read_path);
+                        if let Some(tab) = this
+                            .tabs
+                            .iter_mut()
+                            .find(|tab| super::tabs::file_identity(&tab.absolute_path) == identity)
+                        {
+                            // 标签缓存必须跟着磁盘内容走，否则切走再切回来
+                            // 会重新装回旧文本。
+                            tab.text = file.text.clone();
+                            tab.modified = false;
+                        }
+                        this.status_message = Some(tr("Loaded file-system version").into());
+                        this.push_notification(
+                            tr("Loaded file-system version"),
+                            Some(super::tabs::file_title(&read_path)),
+                            NotificationKind::Info,
+                        );
+                        // 分屏只读窗格与 Markdown 预览都展示同一份内容，
+                        // 跟着重载结果一起刷新，避免两边不一致。
+                        this.sync_editor_secondary(window, cx);
+                        this.sync_preview_with_active_tab(cx);
+                        cx.notify();
+                    }
+                    DiskChangeOutcome::Conflict => {
+                        this.status_message =
+                            Some(tr("External edits conflict with unsaved changes").into());
+                        cx.notify();
+                    }
+                    DiskChangeOutcome::Ignored => {}
+                }
+            });
+        });
+    }
+
     /// 某个工作区是否选择过「对此工作区始终继续」。
     pub(super) fn java_build_always_continue(&self, root: &Path) -> bool {
         let key = super::tabs::file_identity(root);
@@ -528,4 +780,20 @@ impl Workbench {
         self.save_settings(cx);
         cx.notify();
     }
+}
+
+/// 路径是否位于项目元数据目录（`.git` / `.lithe`）内部。
+///
+/// 这两类目录的变化不改变项目树结构：`.git` 由 Git 面板自己刷新，`.lithe`
+/// 是本应用写会话/布局的位置（工作区的 walrus 数据也在应用数据目录，不在
+/// 项目内）。把它们挡在外面，避免每次保存或切标签都触发整树重扫。
+///
+/// 相对路径解析复用工作台统一的 `workspace_relative_option`：Windows 上
+/// 项目根和事件路径的大小写/分隔符写法可能不同。
+fn is_workspace_metadata_path(root: &Path, path: &Path) -> bool {
+    let Some(relative) = super::tabs::workspace_relative_option(root, path) else {
+        return false;
+    };
+    let first = relative.split('/').next().unwrap_or_default();
+    first.eq_ignore_ascii_case(".git") || first.eq_ignore_ascii_case(".lithe")
 }

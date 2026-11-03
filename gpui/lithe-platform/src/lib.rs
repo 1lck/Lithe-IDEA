@@ -5,6 +5,7 @@
 //! `macos` / `windows` / `linux` 三个实现模块中。
 
 mod dialog;
+mod fs_watch;
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "macos")]
@@ -14,6 +15,7 @@ mod system;
 #[cfg(target_os = "windows")]
 mod windows;
 
+pub use fs_watch::{FileWatcher, WatchEvent, watch_tree};
 pub use system::{DarkMode, system_appearance};
 
 use std::future::Future;

@@ -238,6 +238,12 @@ pub(crate) fn zh_translate(key: &str) -> Option<&'static str> {
         "Could not determine the user home directory." => "无法确定用户主目录。",
         "Could not find executable" => "找不到可执行文件",
         "Could not open file" => "无法打开文件",
+        // 外部文件修改：项目树/编辑器跟随磁盘变化。
+        "Loaded file-system version" => "已加载文件系统版本",
+        "External edits conflict with unsaved changes" => "外部编辑与未保存的更改发生冲突",
+        "This file changed outside Lithe while you had unsaved edits." => "该文件已在 Lithe 外部更改，同时编辑器中还有未保存的修改。",
+        "Save to overwrite the file, or use File > Revert to load the disk version." => "保存将覆盖该文件，使用「文件 > 还原文件」可加载磁盘版本。",
+        "File watching is unavailable for this project." => "此项目无法监视文件变化。",
         "Could not reach the update server: {detail}" => "无法连接更新服务器：{detail}",
         "Could not read Maven diagnostics" => "无法读取 Maven 诊断",
         "Could not read Maven test results" => "无法读取 Maven 测试结果",

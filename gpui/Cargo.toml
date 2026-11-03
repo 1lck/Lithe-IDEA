@@ -22,6 +22,9 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
 rfd = "0.15"
+# 项目目录文件监视：`recommended_watcher` 在三端分别落到
+# ReadDirectoryChangesW / FSEvents / inotify，避免每套平台各写一遍。
+notify = "8"
 # 移到系统回收站：Windows 走 IFileOperation，macOS 走 NSFileManager，
 # Linux 走 Freedesktop Trash 规范。默认特性必须保留，Windows 编译期要求
 # `coinit_apartmentthreaded` 或 `coinit_multithreaded` 之一。

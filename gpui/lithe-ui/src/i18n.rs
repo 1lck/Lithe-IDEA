@@ -181,6 +181,20 @@ fn en(key: &'static str) -> &'static str {
         "File is outside the project" => "File is outside the project",
         "Cannot open this path" => "Cannot open this path",
         "Could not open file" => "Could not open file",
+        // 外部文件修改：项目树/编辑器跟随磁盘变化。
+        "Loaded file-system version" => "Loaded file-system version",
+        "External edits conflict with unsaved changes" => {
+            "External edits conflict with unsaved changes"
+        }
+        "This file changed outside Lithe while you had unsaved edits." => {
+            "This file changed outside Lithe while you had unsaved edits."
+        }
+        "Save to overwrite the file, or use File > Revert to load the disk version." => {
+            "Save to overwrite the file, or use File > Revert to load the disk version."
+        }
+        "File watching is unavailable for this project." => {
+            "File watching is unavailable for this project."
+        }
         "Could not reach the update server: {detail}" => {
             "Could not reach the update server: {detail}"
         }

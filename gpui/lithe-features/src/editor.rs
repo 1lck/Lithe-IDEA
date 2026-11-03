@@ -17,6 +17,7 @@
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 use std::rc::Rc;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use gpui_kit::component::input::{
@@ -92,6 +93,26 @@ pub enum EditorEvent {
 
 impl EventEmitter<EditorEvent> for EditorSurface {}
 
+/// 一次外部磁盘变更的处理结果。
+///
+/// 工作台据此决定是否同步标签缓存、是否在状态栏提示；真正的提示文案与
+/// 冲突状态由 [`EditorSurface`] 自己维护。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DiskChangeOutcome {
+    /// 不是当前文档、内容没有实质变化，或文档正在保存：不处理。
+    Ignored,
+    /// 未修改的文档已被磁盘内容替换。
+    Reloaded,
+    /// 有未保存修改：编辑区保持不变，等待用户保存覆盖或还原。
+    Conflict,
+}
+
+/// 本进程写入磁盘后，多久之内的同路径事件判定为「自己保存」。
+///
+/// `notify` 事件不携带写入者身份，保存成功后磁盘事件会立刻回来；没有这个
+/// 窗口，一次 Ctrl+S 就会把自己刚写的内容当成外部修改（脏文档直接弹冲突）。
+const SELF_WRITE_WINDOW: Duration = Duration::from_secs(1);
+
 /// 基于 gpui-kit `Editor` 的编辑区。
 pub struct EditorSurface {
     editor: Option<Entity<EditorState>>,
@@ -100,6 +121,10 @@ pub struct EditorSurface {
     /// 未保存文本缓存。工作台切换标签时重新 `open_file`，不能丢掉编辑中的内容。
     texts: HashMap<String, String>,
     dirty: bool,
+    /// 磁盘内容与编辑区里的未保存内容冲突，等待用户选择。
+    disk_conflict: bool,
+    /// 本进程最近写盘的文件身份与时间，用于过滤自己保存产生的 watcher 事件。
+    recent_writes: Vec<(String, Instant)>,
     cursor_line: u32,
     cursor_column: u32,
     diagnostics: Vec<DiagnosticItem>,
@@ -123,6 +148,8 @@ impl EditorSurface {
             document: None,
             texts: HashMap::new(),
             dirty: false,
+            disk_conflict: false,
+            recent_writes: Vec::new(),
             cursor_line: 0,
             cursor_column: 0,
             diagnostics: Vec::new(),
@@ -260,7 +287,10 @@ impl EditorSurface {
             if !self.dirty && current != text {
                 self.set_editor_value(text, window, cx);
             }
-            self.error = None;
+            // 冲突提示要留到用户保存/还原为止，重复点击同一标签不能把它擦掉。
+            if !self.disk_conflict {
+                self.error = None;
+            }
             cx.notify();
             return;
         }
@@ -282,6 +312,8 @@ impl EditorSurface {
             dirty: false,
         });
         self.error = None;
+        // 冲突提示属于上一个文档，换成新文档时必须清掉，避免错误条挂错对象。
+        self.disk_conflict = false;
         self.dirty = false;
         self.create_editor(&absolute_path, initial_text, readonly, window, cx);
         cx.notify();
@@ -296,6 +328,7 @@ impl EditorSurface {
         self.texts.clear();
         self.diagnostics.clear();
         self.dirty = false;
+        self.disk_conflict = false;
         self.cursor_line = 0;
         self.cursor_column = 0;
         self.error = None;
@@ -330,6 +363,7 @@ impl EditorSurface {
         self.editor = None;
         self.document = None;
         self.dirty = false;
+        self.disk_conflict = false;
         cx.notify();
     }
 
@@ -353,6 +387,9 @@ impl EditorSurface {
         });
         self.texts.insert(id, text.clone());
         self.dirty = false;
+        // 还原之后冲突已经解决，错误条不能继续挂着旧提示。
+        self.disk_conflict = false;
+        self.error = None;
         if self.editor.is_some() {
             self.set_editor_value(text, window, cx);
             self.update_view_options(window, cx);
@@ -360,6 +397,92 @@ impl EditorSurface {
             self.create_editor(&absolute_path, text, false, window, cx);
         }
         cx.notify();
+    }
+
+    /// 处理一次外部磁盘变更（工作台的 watcher 去抖后调用）。
+    ///
+    /// 语义对齐 macOS `DocumentFeatureModel.processExternalChanges`：
+    ///
+    /// - 路径不是当前文档，或磁盘文本与编辑区一致（无实质变化）→ 忽略；
+    /// - 当前文档没有未保存修改 → 用磁盘文本替换编辑区，仍保持未修改状态；
+    /// - 当前文档有未保存修改 → **不覆盖**编辑区，只标记冲突并提示用户
+    ///   保存覆盖或用 File > Revert 加载磁盘版本，绝不自动合并。
+    pub fn handle_disk_change(
+        &mut self,
+        root: &Path,
+        path: &Path,
+        disk_text: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> DiskChangeOutcome {
+        let Some(document) = self.document.as_ref() else {
+            return DiskChangeOutcome::Ignored;
+        };
+        if !same_path(&document.absolute_path, path) {
+            return DiskChangeOutcome::Ignored;
+        }
+
+        // 内容相同就不算变化：保存刚完成、格式重写但结果一致等都在这里收敛。
+        if self.editor_value(cx) == disk_text {
+            if self.disk_conflict {
+                self.disk_conflict = false;
+                self.error = None;
+                cx.notify();
+            }
+            return DiskChangeOutcome::Ignored;
+        }
+
+        if self.dirty {
+            // 未保存内容归编辑器所有：只提示冲突，不覆盖、不合并。文案同时
+            // 说明两条出路，对齐 macOS 让用户显式选择保存或加载磁盘版本。
+            self.disk_conflict = true;
+            self.error = Some(SharedString::from(format!(
+                "{} {}",
+                tr("This file changed outside Lithe while you had unsaved edits."),
+                tr("Save to overwrite the file, or use File > Revert to load the disk version."),
+            )));
+            cx.notify();
+            return DiskChangeOutcome::Conflict;
+        }
+
+        self.reload_current(
+            root.to_path_buf(),
+            path.to_path_buf(),
+            disk_text,
+            window,
+            cx,
+        );
+        DiskChangeOutcome::Reloaded
+    }
+
+    /// 该路径的 watcher 事件是否来自本进程刚刚完成的保存。
+    ///
+    /// 只覆盖保存后 [`SELF_WRITE_WINDOW`] 之内的同路径事件；窗口之外的写入
+    /// 仍按外部修改处理，不会把真正的外部编辑静默吃掉。
+    pub fn is_recent_self_write(&self, path: &Path) -> bool {
+        let identity = path_identity(path);
+        self.recent_writes
+            .iter()
+            .any(|(written, at)| *written == identity && at.elapsed() < SELF_WRITE_WINDOW)
+    }
+
+    /// 记录一次成功的写盘，并顺手清理过期的记录。
+    fn record_self_write(&mut self, path: &Path) {
+        self.recent_writes
+            .retain(|(_, at)| at.elapsed() < SELF_WRITE_WINDOW);
+        self.recent_writes.push((path_identity(path), Instant::now()));
+    }
+
+    /// 切换标签后校准当前文档的未保存状态。
+    ///
+    /// `open_file` 会按缓存文本重建文档并把脏标记清零，但缓存文本可能仍带
+    /// 未保存修改；工作台的标签状态才是这份信息的来源。这里静默同步，不广播
+    /// `DirtyChanged`：事件只用于「编辑器 → 工作台」的方向。
+    pub fn restore_dirty(&mut self, dirty: bool) {
+        self.dirty = dirty;
+        if let Some(document) = self.document.as_mut() {
+            document.dirty = dirty;
+        }
     }
 
     /// 更新当前文档的脏状态。
@@ -735,6 +858,9 @@ impl EditorSurface {
     /// 当前活动文档会清除脏标记；后台标签不在编辑区，只能更新它的文本
     /// 缓存，不能误改当前文档的脏状态。
     pub fn mark_saved(&mut self, path: &Path, text: String) {
+        // 后台批保存（Save All / 关闭确认）也走这里：先登记自己的写盘，
+        // 随后的 watcher 事件才不会被当成外部修改。
+        self.record_self_write(path);
         let Some(document) = self.document.as_ref() else {
             return;
         };
@@ -748,7 +874,9 @@ impl EditorSurface {
             document.dirty = false;
             let id = document.id.clone();
             self.dirty = false;
-            // 成功的写盘要清掉上一次保存失败留下的错误条。
+            // 成功的写盘要清掉上一次保存失败留下的错误条，也意味着用户选择
+            // 了「保存覆盖」，磁盘冲突随之解决。
+            self.disk_conflict = false;
             self.error = None;
             self.texts.insert(id, text);
         }
@@ -786,7 +914,9 @@ impl EditorSurface {
                             document.dirty = false;
                         }
                         this.dirty = false;
+                        this.disk_conflict = false;
                         this.error = None;
+                        this.record_self_write(&target);
                         crate::local_history::record(&target, &text);
                         cx.emit(EditorEvent::SavedAs { from, to: target.clone() });
                     }
@@ -968,7 +1098,9 @@ impl EditorSurface {
                             document.dirty = false;
                         }
                         this.dirty = false;
+                        this.disk_conflict = false;
                         this.error = None;
+                        this.record_self_write(&path);
                         crate::local_history::record(&path, &text);
                         cx.emit(EditorEvent::Saved { path: path.clone() });
                     }
@@ -1367,6 +1499,19 @@ fn same_path(left: &Path, right: &Path) -> bool {
             .eq_ignore_ascii_case(&right.to_string_lossy())
     } else {
         left == right
+    }
+}
+
+/// 文件身份：折叠 `./`/`..` 与分隔符，Windows 上再忽略大小写。
+///
+/// watcher 给的路径和编辑器记录的路径可能大小写、分隔符不同，比较前必须
+/// 收敛成同一个 key，否则同一文件会被当成两个。
+fn path_identity(path: &Path) -> String {
+    let normalised = normalize_path(path).to_string_lossy().replace('\\', "/");
+    if cfg!(windows) {
+        normalised.to_lowercase()
+    } else {
+        normalised
     }
 }
 
