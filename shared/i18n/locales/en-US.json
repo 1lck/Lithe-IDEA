@@ -2380,6 +2380,7 @@
     "git.revertCommitConfirm": "Create a new commit that reverts {hash} \"{message}\"?",
     "git.revertInProgress": "Revert in progress",
     "git.rollback": "Rollback",
+    "git.rollbackSelectionChanged": "The selected changes changed. Refresh and review them before rolling back.",
     "git.rollbackPathsConfirm": "Roll back changes in {count} selected path(s)? This cannot be undone.",
     "git.saveCommitMessage": "Save Message",
     "git.saved.changed": "The repository changed. The shelf was retained; review the working tree before retrying.",

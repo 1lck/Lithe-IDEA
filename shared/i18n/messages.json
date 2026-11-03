@@ -18561,6 +18561,13 @@
       ]
     },
     {
+      "id": "git.rollbackSelectionChanged",
+      "description": "Windows UI: selected Git changes changed before rollback",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
       "id": "git.rollbackPathsConfirm",
       "description": "Windows UI: git.rollbackPathsConfirm",
       "platforms": [

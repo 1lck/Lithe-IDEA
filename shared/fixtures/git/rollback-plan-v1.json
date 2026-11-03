@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "cases": [
+    {"name":"staged addition is unstaged but preserved", "changes":[{"path":"new.txt","status":"A "}], "deleteAddedFiles":false, "steps":[{"operation":"unstage","paths":["new.txt"]}]},
+    {"name":"intent to add is unstaged", "changes":[{"path":"intent.txt","status":" A"}], "deleteAddedFiles":false, "steps":[{"operation":"unstage","paths":["intent.txt"]}]},
+    {"name":"rename restores both sides", "changes":[{"path":"new.txt","originalPath":"old.txt","status":"R "}], "deleteAddedFiles":false, "steps":[{"operation":"discardAll","paths":["old.txt","new.txt"]}]},
+    {"name":"copy preserves source", "changes":[{"path":"copy.txt","originalPath":"source.txt","status":"C "}], "deleteAddedFiles":false, "steps":[{"operation":"unstage","paths":["copy.txt"]}]},
+    {"name":"worktree copy is not silently skipped", "changes":[{"path":"copy.txt","originalPath":"source.txt","status":" C"}], "deleteAddedFiles":false, "steps":[{"operation":"unstage","paths":["copy.txt"]}]},
+    {"name":"ordinary tracked modification", "changes":[{"path":"modified.txt","status":"MM"}], "deleteAddedFiles":false, "steps":[{"operation":"discardAll","paths":["modified.txt"]}]},
+    {"name":"unmerged additions are not treated as new files", "changes":[{"path":"conflict.txt","status":"AA"}], "deleteAddedFiles":false, "steps":[{"operation":"discardAll","paths":["conflict.txt"]}]},
+    {"name":"untracked file is preserved by default", "changes":[{"path":"loose.txt","status":"??"}], "deleteAddedFiles":false, "steps":[]},
+    {"name":"explicit deletion removes a new file after unstaging", "changes":[{"path":"new.txt","status":"A "}], "deleteAddedFiles":true, "steps":[{"operation":"unstage","paths":["new.txt"]},{"operation":"discard","paths":["new.txt"]}]}
+  ]
+}

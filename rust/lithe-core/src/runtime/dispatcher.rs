@@ -2807,6 +2807,12 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::GitRollbackPrepare => {
+            plugin_response(id, parsed.payload, crate::git::rollback_prepare_command)
+        }
+        CoreCommand::GitRollbackPlan => {
+            plugin_response(id, parsed.payload, crate::git::rollback_plan_command)
+        }
         CoreCommand::GitWrite => {
             match serde_json::from_value::<GitWriteRequest>(parsed.payload)
                 .map_err(|error| {

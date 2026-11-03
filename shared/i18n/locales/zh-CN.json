@@ -2380,6 +2380,7 @@
     "git.revertCommitConfirm": "确定创建一个新提交来还原 {hash}“{message}”吗？",
     "git.revertInProgress": "还原进行中",
     "git.rollback": "回滚",
+    "git.rollbackSelectionChanged": "选中的更改已发生变化，请刷新并重新确认后再回滚。",
     "git.rollbackPathsConfirm": "确定回滚选中的 {count} 个路径吗？此操作无法撤销。",
     "git.saveCommitMessage": "保存消息",
     "git.saved.changed": "仓库已发生变化。搁置记录已保留，请检查工作区后再重试。",

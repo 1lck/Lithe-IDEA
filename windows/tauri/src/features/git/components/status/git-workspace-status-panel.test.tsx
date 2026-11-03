@@ -579,3 +579,60 @@ test("hiding ChangeList groups keeps the repository row and nests files under it
   expect(container.textContent).toContain("one.ts");
   expect(container.textContent).toContain("two.ts");
 });
+
+test("rollback sends the owning repository and both rename identities from the selected row", async () => {
+  const globals = globalThis as { ResizeObserver?: unknown };
+  const previousResizeObserver = globals.ResizeObserver;
+  globals.ResizeObserver ??= class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+  const previousConfirm = useSettingsStore.getState().settings.confirmBeforeDiscard;
+  useSettingsStore.setState((state) => ({
+    settings: { ...state.settings, confirmBeforeDiscard: false },
+  }));
+  const rollback = spyOn(statusApi, "rollbackFilesChanges").mockResolvedValue(undefined);
+  try {
+    await render([
+      {
+        ...file("B", "new.ts"),
+        repositoryOriginalRelativePath: "src/old.ts",
+        originalPath: "B/src/old.ts",
+        rawStatus: "R ",
+        status: "renamed",
+        staged: true,
+      },
+    ]);
+    const label = container.querySelector('[aria-label="Exclude new.ts from commit"]');
+    expect(label).not.toBeNull();
+    const row = label!.closest("[data-git-status-row-index]")!.querySelector('[role="treeitem"]')!;
+    await act(async () =>
+      row.dispatchEvent(new window.MouseEvent("contextmenu", { bubbles: true })),
+    );
+    const item = Array.from(document.querySelectorAll<HTMLElement>("[role=menuitem]")).find(
+      (element) => element.textContent?.trim() === "Rollback",
+    );
+    expect(item).toBeDefined();
+    await act(async () => {
+      item!.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(rollback).toHaveBeenCalledWith("C:/workspace/B", [
+      {
+        path: "src/new.ts",
+        originalPath: "src/old.ts",
+        status: "R ",
+      },
+    ]);
+  } finally {
+    rollback.mockRestore();
+    await act(async () =>
+      useSettingsStore.setState((state) => ({
+        settings: { ...state.settings, confirmBeforeDiscard: previousConfirm },
+      })),
+    );
+    globals.ResizeObserver = previousResizeObserver;
+  }
+});

@@ -1158,6 +1158,8 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `git.initialize` | Initialize a directory outside existing repositories without staging or committing |
 | `git.configureIdentity` | Save or clear one local/global `user.name` or `user.email` override |
 | `git.status` | Resolve the repository, current branch, and working-tree changes |
+| `git.rollbackPlan` | Plan whole-file rollback from explicit Git status identities without reading or changing a repository |
+| `git.rollbackPrepare` | Recheck selected tracked identities against the repository and return rollback steps |
 | `git.untrackedDirectory` | List one level of a summarized untracked directory: its files and subdirectory summaries |
 | `git.commitState` | Read exact HEAD, symbolic branch and index preconditions for a workspace commit |
 | `git.watchContext` | Resolve the repository and absolute Git metadata roots needed by native file watchers |
@@ -1645,6 +1647,21 @@ A complete line is redacted before publication. Native diagnostic limits are
 invocation. Limits produce an omission record without suppressing completion.
 Raw parser capture has an independent 32 MiB per-stream bound and fails on
 overflow. See `shared/fixtures/git/execution-events-v1.json`.
+
+`git.rollbackPlan` accepts `changes` (up to 10,000 entries, each containing a
+repository-relative `path`, optional `originalPath`, and the two-character Git
+`status`) and optional `deleteAddedFiles` (default false). It returns ordered
+`steps` containing `operation` and literal `paths`. Added and copied destinations
+are unstaged while their disk contents remain by default; renames restore both
+paths. Adjacent compatible operations are batched. Unsafe, overlapping or
+ambiguous identities are rejected. `git.rollbackPrepare` also accepts `root`,
+checks tracked identities using bounded literal-path Git status queries, and
+fails with `GIT_ROLLBACK_STALE_SELECTION` if any selected identity changed.
+Callers should prepare after confirmation and execute steps in order, stopping
+on failure and refreshing after any attempted write. This status check cannot
+detect content changes that preserve the same status or lock out external Git
+clients between preparation and writes; it is not a content snapshot or an
+atomic transaction. Untracked selections are not accepted by prepare.
 
 `git.write` accepts a typed mutation request. Its required `operation` values are
 `stage`, `unstage`, `discard`, `discardAll`, `stageAll`, `commit`, `ignore`, `exclude`, `cherryPick`, `revert`,

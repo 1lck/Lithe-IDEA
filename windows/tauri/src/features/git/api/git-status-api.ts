@@ -378,23 +378,48 @@ export const discardFileChanges = async (repoPath: string, filePath: string): Pr
   }
 };
 
+export interface GitRollbackChange {
+  path: string;
+  originalPath?: string;
+  status: string;
+}
+
+interface GitRollbackStep {
+  operation: "unstage" | "discard" | "discardAll";
+  paths: string[];
+}
+
 export const rollbackFilesChanges = async (
   repoPath: string,
-  filePaths: string[],
+  changes: GitRollbackChange[],
 ): Promise<void> => {
-  const uniqueFilePaths = [...new Set(filePaths)];
-  if (uniqueFilePaths.length === 0) return;
-
+  if (changes.length === 0) return;
   const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
-  await tauriInvoke("git.write", {
-    repoPath: resolvedRepoPath,
-    operation: "discardAll",
-    paths: uniqueFilePaths,
-  });
-  emitGitChanged({
-    repoPath: resolvedRepoPath,
-    scopes: ["working-tree"],
-    source: "rollback-files",
+  await enqueueStagingWrite(resolvedRepoPath, async () => {
+    const { steps } = await tauriInvoke<{ steps: GitRollbackStep[] }>("git.rollbackPrepare", {
+      repoPath: resolvedRepoPath,
+      changes,
+      deleteAddedFiles: false,
+    });
+    let attempted = false;
+    try {
+      for (const step of steps) {
+        attempted = true;
+        await tauriInvoke("git.write", {
+          repoPath: resolvedRepoPath,
+          operation: step.operation,
+          paths: step.paths,
+        });
+      }
+    } finally {
+      // Git can modify some paths before reporting an error.
+      if (attempted)
+        emitGitChanged({
+          repoPath: resolvedRepoPath,
+          scopes: ["working-tree"],
+          source: "rollback-files",
+        });
+    }
   });
 };
 
