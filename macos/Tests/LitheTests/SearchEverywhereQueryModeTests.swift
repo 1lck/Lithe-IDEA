@@ -27,7 +27,7 @@ struct SearchEverywhereQueryModeTests {
             model.cacheModuleCapability(SearchModuleCapability(feature: feature), id: .searchWorkspace, moduleID: .search)
             let session = model.searchSessionFeature
             let host = NSHostingView(rootView: SearchEverywhereView(feature: feature, session: session,
-                settings: settings, actionMatches: model.searchEverywhereActionMatches,
+                settings: settings, actionMatches: { model.searchEverywhereActionMatches(query: $0) },
                 search: { _, _ in }, dismiss: model.dismissSearchEverywhere,
                 openResult: { _ in }, performAction: model.performSearchEverywhereAction,
                 revealInFinder: { _ in }, copyPath: { _, _ in }, relativePath: { _ in "" }, moduleLabel: { _ in "" }))

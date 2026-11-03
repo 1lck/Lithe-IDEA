@@ -214,7 +214,7 @@ package struct GitReference: Identifiable, Hashable, Sendable {
         fullName: String,
         shortName: String,
         kind: GitReferenceKind,
-        peelsToCommit: Bool = true,
+        peelsToCommit: Bool,
         isCurrent: Bool,
         upstreamShortName: String?,
         ahead: Int = 0,

@@ -13,6 +13,7 @@ struct GitGraphInteractionTests {
     @Test("Compact reference groups keep full names and IDEA tracking and shortening rules")
     func referenceGroups() throws {
         let local = GitReference(fullName: "refs/heads/main", shortName: "main", kind: .local,
+                                 peelsToCommit: true,
                                  isCurrent: true, upstreamShortName: "upstream/release")
         func group(_ decorations: String) throws -> GitGraphReferenceGroup {
             let commit = GitCommit(hash: "tip", shortHash: "tip", parentHashes: [], authorName: "Test",
@@ -43,6 +44,7 @@ struct GitGraphInteractionTests {
         let count = 1_500
         let references = (0..<count).map {
             GitReference(fullName: "refs/heads/branch-\($0)", shortName: "branch-\($0)", kind: .local,
+                         peelsToCommit: true,
                          isCurrent: false, upstreamShortName: $0 == 0 ? "upstream/release" : nil)
         }
         let labels = references.map { GitGraphLabel(title: $0.shortName, kind: .branch) }
@@ -101,6 +103,7 @@ struct GitGraphInteractionTests {
         let cache = GitLogPresentationCache()
         let root = URL(fileURLWithPath: "/fixture/repo")
         let reference = GitReference(fullName: "refs/heads/feature/a", shortName: "feature/a", kind: .local,
+                                     peelsToCommit: true,
                                      isCurrent: true, upstreamShortName: nil)
         let identity = GitReferenceRowsIdentity(references: [reference], repositoryReferences: [],
             availableRepositoryRoots: [root], activeRepositoryRoot: root,
