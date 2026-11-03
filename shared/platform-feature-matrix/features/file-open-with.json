@@ -1,0 +1,26 @@
+{
+  "id": "file-open-with",
+  "area": "工作区",
+  "group": "项目浏览",
+  "capability": "项目文件通过系统打开方式选择外部应用",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift",
+      "macos/Sources/Lithe/Views/Workspace/ProjectFileOpenWithMenu.swift",
+      "macos/Sources/Lithe/Views/Components/LitheSystemContextMenu.swift",
+      "macos/Sources/Lithe/Models/AppModel/AppModel+ExternalFiles.swift",
+      "macos/Sources/Lithe/Platform/MacOS/UI/MacExternalFileApplications.swift",
+      "macos/Tests/LitheTests/ExternalFileApplicationsTests.swift",
+      ".agents/notes/implemented/feature/2026-11-03-macos-open-with.md"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
+    "evidence": ["windows/tauri/src/features/file-explorer"]
+  },
+  "owner": "Workspace",
+  "verification": "2026-11-03 本机 Swift 6.3.3/macOS 26.5 SDK 定向四项原生测试通过：真实系统应用集合、默认项、图标、菜单动作/禁用/快捷键、图标复制和项目菜单关闭清理，逐项 0.248/0.068/0.002/0.663 秒，HTML/JUnit 已生成。临时限定测试源文件后执行计时入口，Package.swift 已恢复；完整菜单覆盖测试未执行，同规则静态扫描 985 个 Swift 文件通过。完整产品仍需对本地 DOCX、图片、未知扩展名右键，检查原生子菜单中应用、图标、默认项置顶与分隔线，中英文及深浅主题随系统显示；选择应用打开确切磁盘文件，其他…选择/取消正确，缺失文件或应用显示错误；App Store 仅按扩展名搜索；打开应用选择面板后切换项目或关闭窗口不得启动旧请求；SSH 项目无该入口。确认原有打开、复制/粘贴、Agent 子菜单与 Git 动作保留。完成产品运行验收前保持 pending；Windows 需要独立实现。"
+}

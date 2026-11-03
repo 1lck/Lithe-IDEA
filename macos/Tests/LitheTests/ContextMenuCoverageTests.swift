@@ -973,11 +973,13 @@ struct ContextMenuCoverageTests {
             #expect(contextMenu.firstMatch(in: source, range: range) == nil,
                     "Use the shared context menu in \(file.lastPathComponent)")
             // Completion and source-action pickers are caret popups, not right-click menus.
-            // All other AppKit menu construction must use the shared presenter.
+            // Open With uses AppKit through the shared presenter's single system
+            // integration renderer; product callers still cannot build NSMenus.
             let withoutCaretPickers = caretPickers.stringByReplacingMatches(in: source, range: range, withTemplate: "")
-            #expect(nativeMenu.firstMatch(in: withoutCaretPickers,
-                    range: NSRange(withoutCaretPickers.startIndex..., in: withoutCaretPickers)) == nil,
-                    "Audit the native menu entry in \(file.lastPathComponent)")
+            let constructions = nativeMenu.numberOfMatches(in: withoutCaretPickers,
+                range: NSRange(withoutCaretPickers.startIndex..., in: withoutCaretPickers))
+            #expect(constructions == (file.lastPathComponent == "LitheSystemContextMenu.swift" ? 1 : 0),
+                    "AppKit menus must be built by the shared system renderer in \(file.lastPathComponent)")
         }
     }
 

@@ -70,6 +70,9 @@ struct LitheContextMenuItem: Identifiable {
     let systemImage: String?
     let iconKind: LitheIconKind?
     var icon: AnyView? = nil
+    var nativeImage: NSImage? = nil
+    /// System integrations may request AppKit's complete menu tracking and appearance.
+    var usesSystemMenu = false
     var isChecked = false
     var leadingCheckmark = false
     var isCenteredHeading = false
@@ -630,6 +633,11 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
     ) {
         dismiss()
         guard !items.isEmpty else { return }
+        if items.contains(where: \.usesSystemMenu) {
+            LitheSystemContextMenu.show(items: items, at: screenPoint, appearance: appearance)
+            onDismiss?()
+            return
+        }
 
         let menuWidth = Self.menuWidth(for: items, locale: locale)
         let visibleFrame = NSScreen.screens.first(where: { $0.frame.contains(screenPoint) })?.visibleFrame
