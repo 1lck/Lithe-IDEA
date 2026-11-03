@@ -237,6 +237,9 @@ macOS runner（GitHub 托管的 Mac 构建机）按组织共享，Free 计划同
   Plugin CI 保留手动诊断入口，不再自动触发。2026-11-03 首轮优化实测中，插件 job
   正在冷编译整套 Swift 测试时主 Swift job 仍排队；这种重复构建不值得多占一个槽位。
   必需 macOS gate 同时覆盖插件专项测试与包校验，不能把单独 workflow 停掉却漏迁测试。
+  编译成功后，插件专项与包校验用 `!cancelled()` 保持独立：普通 Swift 用例失败仍要
+  收集插件结果，但构建失败或运行取消时不能继续。首轮合并通道的原生箭头点击失败
+  暴露了默认 `success()` 会把后续插件检查一起跳过，回归测试覆盖这个失败分支。
 - `shared/platform-feature-matrix/` 是规划数据，产品代码不读取，由 Verify
   Platform Feature Matrix 工作流单独校验。几乎每个功能 PR 都要更新它；过去它
   落入 `shared/*` 规则，只改 macOS 界面的 PR 也会触发 Windows CI 和 macOS 上

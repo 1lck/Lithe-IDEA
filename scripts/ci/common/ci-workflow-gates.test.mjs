@@ -125,6 +125,7 @@ function bash(step) {
 // by these steps are supported. Unknown expressions fail rather than being eval'd.
 function evaluate(value, context) {
   const source = expression(value);
+  if (source === '!cancelled()') return !context.cancelled;
   if (source.includes(' || ')) return source.split(' || ').some((part) => evaluate(part, context));
   if (source.includes(' && ')) return source.split(' && ').every((part) => evaluate(part, context));
   const comparison = source.match(/^(.+?) (==|!=) '([^']*)'$/);
@@ -370,7 +371,7 @@ test('plugin-only changes require the shared Swift lane and keep every native pl
   const swift = block(macos.source, 'swift-tests:', 2);
   for (const name of ['Run plugin-focused Swift tests', 'Build and verify official plugin packages']) {
     const step = block(swift, `- name: ${name}`, 6);
-    assert.equal(expression(scalar(step, 'if', 8)), "needs.changes.outputs.plugins == 'true'");
+    assert.equal(expression(scalar(step, 'if', 8)), "!cancelled() && steps.build.outcome == 'success' && needs.changes.outputs.plugins == 'true'");
   }
   assert.match(block(swift, '- name: Run plugin-focused Swift tests', 6), /--skip-build --filter/);
   const standalone = readFileSync(new URL('../../../.github/workflows/ci-plugins.yml', import.meta.url), 'utf8');
@@ -424,4 +425,21 @@ test('Windows Rust matrices preserve every package and give host adapters their 
   }
   assert.match(block(rust, '- name: Test shared Rust host adapters', 6), /-Scope SharedRustHosts/);
   assert.match(block(rust, '- name: Verify Windows MCP stdio protocol', 6), /matrix.lane == 'shared-hosts'/);
+});
+
+// Plugin checks previously had their own job. Sharing compilation must not
+// suppress that evidence when an unrelated ordinary Swift suite fails.
+test('plugin validation survives ordinary-suite failure but never cancellation or a failed build', testOptions, () => {
+  const swift = block(macos.source, 'swift-tests:', 2);
+  for (const name of ['Run plugin-focused Swift tests', 'Build and verify official plugin packages']) {
+    const condition = scalar(block(swift, `- name: ${name}`, 6), 'if', 8);
+    for (const [cancelled, build, plugins, expected] of [
+      [false, 'success', 'true', true], [true, 'success', 'true', false],
+      [false, 'failure', 'true', false], [false, 'success', 'false', false],
+    ]) {
+      const context = { cancelled, steps: { build: { outcome: build }, unit: { outcome: 'failure' } },
+        needs: { changes: { outputs: { plugins } } } };
+      assert.equal(evaluate(condition, context), expected, name);
+    }
+  }
 });
