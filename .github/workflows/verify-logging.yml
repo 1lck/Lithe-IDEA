@@ -11,6 +11,7 @@ on:
       - "rust/lithe-core/src/**"
       - ".agents/skills/write-stable-tests/scripts/**"
       - ".github/workflows/verify-logging.yml"
+      - "!**/*.md"
   push:
     branches: [preview]
     paths:
@@ -21,6 +22,7 @@ on:
       - "rust/lithe-core/src/**"
       - ".agents/skills/write-stable-tests/scripts/**"
       - ".github/workflows/verify-logging.yml"
+      - "!**/*.md"
   workflow_dispatch:
 
 permissions:
