@@ -15,6 +15,7 @@ use lithe_ui::i18n::tr;
 use crate::console::ConsoleScroll;
 
 use super::config::{self, LoadedRunConfigurations};
+use super::java_decision::JavaLaunchDecision;
 use super::model::{RunConfiguration, RunExecution, RunLanguage, RunScope};
 use super::session::{self, RunMode, SessionEvent};
 use super::state::SessionState;
@@ -88,6 +89,7 @@ impl RunPanel {
             java_language,
             pending_java_launch: None,
             launch_decision: None,
+            launch_decision_target: None,
             skip_build_check: false,
         }
     }
@@ -125,6 +127,8 @@ impl RunPanel {
         self.pending_run = false;
         self.restart_pending = None;
         self.pending_initial_load = self.root.is_some();
+        self.launch_decision = None;
+        self.launch_decision_target = None;
         self.emit(cx);
         cx.notify();
     }
@@ -475,13 +479,34 @@ impl RunPanel {
                     main_class.as_deref().unwrap_or("")
                 ),
             );
+            let started = std::time::Instant::now();
             let prepared = self
                 .java_language
                 .update(cx, |model, cx| model.prepare_launch(source, main_class, cx));
             cx.spawn(async move |this, cx| {
                 let result = prepared.await;
+                let elapsed_ms = started.elapsed().as_millis();
                 let _ = this.update(cx, |this, cx| match result {
                     Ok(target) => {
+                        // 编译错误但 classpath 已解析：与 macOS 一样让用户决定是否仍然运行。
+                        if let Some(failure) = target.build_failure.clone() {
+                            if !this.skip_build_check {
+                                crate::logging::log_info(
+                                    "run",
+                                    format!("Java launch build failed: {failure}"),
+                                );
+                                this.launch_decision = Some(JavaLaunchDecision {
+                                    configuration: configuration.clone(),
+                                    message: SharedString::from(failure),
+                                    elapsed_ms,
+                                    can_rebuild_index: true,
+                                });
+                                this.launch_decision_target = Some(target);
+                                this.emit(cx);
+                                cx.notify();
+                                return;
+                            }
+                        }
                         this.launch_configuration(
                             configuration,
                             root,
@@ -742,7 +767,8 @@ impl RunPanel {
         let Some(root) = self.root.clone() else {
             return;
         };
-        self.launch_configuration(decision.configuration, root, true, None, cx);
+        let target = self.launch_decision_target.take();
+        self.launch_configuration(decision.configuration, root, true, target, cx);
     }
 
     /// 「重建 Java 索引」：对齐 Tauri actions.rebuildJavaIndex。
@@ -772,6 +798,7 @@ impl RunPanel {
     /// 「取消」：取消本次启动并关闭决策横幅。
     pub(crate) fn cancel_java_launch(&mut self, cx: &mut Context<Self>) {
         self.launch_decision = None;
+        self.launch_decision_target = None;
         cx.notify();
     }
 }

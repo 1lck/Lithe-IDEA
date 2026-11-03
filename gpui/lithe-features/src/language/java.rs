@@ -35,6 +35,8 @@ pub struct JavaLaunchTarget {
     pub project_name: Option<String>,
     pub class_paths: Vec<String>,
     pub module_paths: Vec<String>,
+    /// JDT 报告了编译错误，但 classpath 已解析；Run 面板据此弹出决策横幅。
+    pub build_failure: Option<String>,
 }
 
 /// 语言服务线程收到的命令。所有 Core 轮询都由该线程独占，
@@ -519,25 +521,26 @@ fn complete_launch(
 
 /// 把 Core 的 `java.prepareLaunch` 结果转成启动目标。
 ///
-/// 构建失败也返回可诊断的错误；macOS 会弹“仍然运行”决策，GPUI 暂按失败处理。
+/// 编译错误仍然带回已解析的 target：Run 面板据此让用户决定是否仍然运行，
+/// 与 macOS 的 `JavaLaunchDecisionBanner` 一致。
 fn launch_target(value: &Value) -> Result<JavaLaunchTarget, String> {
-    match value.get("kind").and_then(Value::as_str) {
-        Some("ready") => {}
-        Some("buildFailed") => {
-            let message = value
+    let build_failure = match value.get("kind").and_then(Value::as_str) {
+        Some("ready") => None,
+        Some("buildFailed") => Some(
+            value
                 .get("failure")
                 .and_then(|failure| failure.get("message"))
                 .and_then(Value::as_str)
-                .unwrap_or("Java build did not succeed");
-            return Err(message.to_string());
-        }
+                .unwrap_or("The Java project build reported compilation errors.")
+                .to_string(),
+        ),
         other => {
             return Err(format!(
                 "The Java language service returned an unexpected launch kind: {}",
                 other.unwrap_or("missing")
             ));
         }
-    }
+    };
     let target = value
         .get("target")
         .ok_or_else(|| "The Java language service returned no launch target".to_string())?;
@@ -557,6 +560,7 @@ fn launch_target(value: &Value) -> Result<JavaLaunchTarget, String> {
         project_name,
         class_paths: string_array(target.get("classPaths")),
         module_paths: string_array(target.get("modulePaths")),
+        build_failure,
     })
 }
 

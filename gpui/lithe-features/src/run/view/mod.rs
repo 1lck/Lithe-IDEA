@@ -33,7 +33,7 @@ use super::model::{
 };
 use super::session;
 
-use crate::language::JavaLanguageServiceModel;
+use crate::language::{JavaLanguageServiceModel, JavaLaunchTarget};
 
 /// Run 面板状态变化。工作台用它刷新顶栏 Run/Stop 和配置名。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -173,6 +173,8 @@ pub struct RunPanel {
     pending_java_launch: Option<String>,
     /// Java/Spring Boot 启动前的构建检查结果；有待决项时暂停启动。
     launch_decision: Option<JavaLaunchDecision>,
+    /// 构建失败但 classpath 已解析的启动目标；用户选择“仍然运行”时使用。
+    launch_decision_target: Option<JavaLaunchTarget>,
     /// 用户选择「对此工作区始终继续」后跳过后续构建检查。
     skip_build_check: bool,
 }
