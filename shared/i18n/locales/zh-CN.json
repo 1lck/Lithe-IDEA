@@ -5962,6 +5962,7 @@
     "native.selectForCompare": "选择以进行比较",
     "native.selectRepositoryForCommitsAndBranchOperations": "选择用于提交和分支操作的仓库",
     "native.selectRunConfiguration": "选择运行配置",
+    "native.savedStashInvalidUtf8": "保存的更改包含非 UTF-8 文本，请使用 Git 查看该暂存记录。",
     "native.selectSavedChanges": "选择已保存的更改",
     "native.selectShell": "选择 Shell",
     "native.selectTestJVM": "选择测试 JVM",

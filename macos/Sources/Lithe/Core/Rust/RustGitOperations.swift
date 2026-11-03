@@ -1,5 +1,6 @@
 import Foundation
 import LitheGitModule
+import LitheModuleAPI
 
 /// Typed Git operations exposed by Rust Core.
 ///
@@ -511,6 +512,31 @@ struct RustGitOperations: GitOperations, Sendable {
 
     func worktrees(at rootURL: URL) -> [GitWorktree]? {
         core.gitWorktrees(at: rootURL)?.worktrees.map { $0.makeModel() }
+    }
+
+    func savedStashFiles(at rootURL: URL, reference: String, base: String) -> Result<[GitSavedPatchFile], GitPatchFailure> {
+        switch core.gitSavedStashDiff(at: rootURL, reference: reference) {
+        case .failure(let error):
+            let message: String
+            switch error.message {
+            case "Saved patch exceeds 32 MiB":
+                message = L10n.string("Patches must be at most 32 MiB.")
+            case "Saved patch must contain valid UTF-8":
+                message = L10n.string("Saved changes contain text that is not UTF-8. Inspect the stash with Git.")
+            default:
+                let summary = L10n.string("Could not load saved changes")
+                message = error.details.map { summary + ": " + $0 } ?? summary
+            }
+            return .failure(GitPatchFailure(message))
+        case .success(let response):
+            guard let files = response.files else {
+                return .failure(GitPatchFailure(L10n.string("Could not load saved changes")))
+            }
+            return .success(files.map { file in
+                GitSavedPatchFile(file: GitCommitFile(status: file.status, path: file.path),
+                    version: "Stash", base: base, patch: file.patch, document: file.makeDocument())
+            })
+        }
     }
 
     func diffPatch(

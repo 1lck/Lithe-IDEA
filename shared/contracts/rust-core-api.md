@@ -4947,6 +4947,18 @@ See `shared/fixtures/git/patch-exchange-v1.json`.
 files. Stash write operations also accept the full object identity in `reference`;
 Core resolves its current stash position under the existing writer lease and rejects
 an identity that is no longer present. Legacy positional references remain accepted.
+With `includeFileSections: true`, `git.diff` requires `stashReference` and the
+whole-repository pathspec `["."]`, and returns `files` in Git order. Other
+pathspecs are rejected instead of silently returning files outside the selection. Each file contains its validated path, optional original path,
+status, byte-faithful UTF-8 patch, and Core-rendered `rows` and `hunks`; the flat
+`patch`, `rows`, and `hunks` are empty to avoid transferring the same full document
+twice. Core rejects patches exceeding 32 MiB, lossy UTF-8, inconsistent sections,
+and unsafe paths. Metadata comes from bounded Git patch inspection in both directions,
+not from parsing quoted names in a host. Standard prefixes and no color or textconv
+are forced even when the repository config requests other display formats. Without the
+flag, `git.diff` keeps its flat response shape; stash output also uses those safe Git
+settings. Shelf patch parsing and the
+Windows diff adapter are not migrated by this stash-only mode.
 See `shared/fixtures/git/saved-stash-v1.json`. Native Shelf persistence is platform-owned;
 raw patch bytes are kept separately for index and working-tree versions.
 

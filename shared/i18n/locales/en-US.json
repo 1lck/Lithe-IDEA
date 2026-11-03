@@ -5962,6 +5962,7 @@
     "native.selectForCompare": "Select for Compare",
     "native.selectRepositoryForCommitsAndBranchOperations": "Select repository for commits and branch operations",
     "native.selectRunConfiguration": "Select run configuration",
+    "native.savedStashInvalidUtf8": "Saved changes contain text that is not UTF-8. Inspect the stash with Git.",
     "native.selectSavedChanges": "Select saved changes",
     "native.selectShell": "Select shell",
     "native.selectTestJVM": "Select test JVM",

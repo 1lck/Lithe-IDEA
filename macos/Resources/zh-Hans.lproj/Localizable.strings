@@ -3549,6 +3549,7 @@
 "Save title" = "保存标题";
 "Saved" = "已保存";
 "Saved breakpoints could not be read." = "无法读取已保存的断点。";
+"Saved changes contain text that is not UTF-8. Inspect the stash with Git." = "保存的更改包含非 UTF-8 文本，请使用 Git 查看该暂存记录。";
 "Saved debugger stepping filters could not be read." = "无法读取已保存的调试器步进过滤器。";
 "Saved filters" = "书签";
 "Saved in .lithe/run/configurations.json for the whole team. Local JDK paths are never shared." = "保存在 .lithe/run/configurations.json，供整个团队使用。本机 JDK 路径不会共享。";
@@ -8562,6 +8563,7 @@
 "native.savedInLitheRunLocalJsonAndExcludedFromGit" = "保存在 .lithe/run/local.json，并已从 Git 中排除。";
 "native.savedOnlyForThisProjectOnThisComputerInLitheRunLocalJsonAndExcludedFromGit" = "仅为这台电脑上的此项目保存在 .lithe/run/local.json，并已从 Git 中排除。";
 "native.savedProviderRunUnavailable" = "已保存的提供方运行配置不可用。";
+"native.savedStashInvalidUtf8" = "保存的更改包含非 UTF-8 文本，请使用 Git 查看该暂存记录。";
 "native.savedTo" = "已保存到 %1$@";
 "native.savesConnectsAndOpensTheRemoteFolderInThisWindow" = "保存、连接，并在当前窗口打开远程文件夹。";
 "native.savingReplacesTheCurrentGitHubMetadata" = "保存后将替换当前 GitHub 元数据。";

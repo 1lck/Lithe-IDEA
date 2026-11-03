@@ -127,6 +127,7 @@ package protocol GitOperations: Sendable {
     func controlInteractiveRebase(at rootURL: URL, sessionId: String, action: GitRebaseControlAction, amendMessage: String?, expectedHead: String?) -> GitRebaseProcessResult
     func createHistoryRecoveryBranch(named name: String, reference: String, at rootURL: URL) -> GitProcessResult?
     func exportPatch(at rootURL: URL, source: GitPatchSource, paths: [String], base: String?, target: String?, metadataOnly: Bool) -> Result<GitPatchExport, GitPatchFailure>
+    func savedStashFiles(at rootURL: URL, reference: String, base: String) -> Result<[GitSavedPatchFile], GitPatchFailure>
     func inspectSavedPatch(at rootURL: URL, patch: String) -> Result<GitPatchPreview, GitPatchFailure>
     func previewPatch(at rootURL: URL, patch: String, target: GitPatchTarget) -> Result<GitPatchPreview, GitPatchFailure>
     func applyExchangePatch(at rootURL: URL, patch: String, target: GitPatchTarget, expectedState: String) -> GitProcessResult?
@@ -206,6 +207,10 @@ package protocol GitOperations: Sendable {
 }
 
 package extension GitOperations {
+    func savedStashFiles(at rootURL: URL, reference: String, base: String) -> Result<[GitSavedPatchFile], GitPatchFailure> {
+        .failure(GitPatchFailure(L10n.string("Could not load saved changes")))
+    }
+
     func inspectSavedPatch(at rootURL: URL, patch: String) -> Result<GitPatchPreview, GitPatchFailure> {
         .failure(GitPatchFailure("Saved patch inspection is unavailable"))
     }
@@ -1307,16 +1312,17 @@ package struct GitService: Sendable {
                 let identity: String
                 if let stash {
                     guard let commit = operations.commit(at: root, hash: stash.reference) else {
-                        throw GitPatchFailure("Could not load saved changes")
+                        throw GitPatchFailure(L10n.string("Could not load saved changes"))
                     }
                     identity = commit.hash
-                    let result = operations.run(arguments: ["-c", "core.quotepath=false", "stash", "show", "--include-untracked", "--patch", "--binary", "--no-color", "--src-prefix=a/", "--dst-prefix=b/", "--no-ext-diff", "--no-textconv", commit.hash], workingDirectory: root.path, input: nil)
-                    guard result.exitCode == 0 else { throw GitPatchFailure(result.output) }
-                    patches = [("Stash", commit.parentHashes.first.map { String($0.prefix(8)) } ?? "HEAD", result.standardOutput ?? result.output)]
+                    let base = commit.parentHashes.first.map { String($0.prefix(8)) } ?? "HEAD"
+                    let files = try operations.savedStashFiles(at: root, reference: identity, base: base).get()
+                    try Task.checkCancellation()
+                    return .success(GitSavedChangesSnapshot(id: identity, repositoryRoot: root, files: files))
                 } else if let shelf {
                     identity = shelf.id.uuidString
                     patches = [("Staged", "HEAD", shelf.stagedPatch), ("Working tree", "Index", shelf.workingPatch)]
-                } else { throw GitPatchFailure("Select saved changes") }
+                } else { throw GitPatchFailure(L10n.string("Select saved changes")) }
                 var files: [GitSavedPatchFile] = []
                 for (version, base, patch) in patches {
                     guard patch.utf8.count <= GitPatchContent.maximumByteCount else {
@@ -1340,7 +1346,7 @@ package struct GitService: Sendable {
                 }
                 return .failure(GitPatchFailure(error.localizedDescription))
             }
-        } ?? .failure(GitPatchFailure("Could not load saved changes"))
+        } ?? .failure(GitPatchFailure(L10n.string("Could not load saved changes")))
     }
 
     private func read<T: Sendable>(

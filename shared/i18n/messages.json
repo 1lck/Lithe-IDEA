@@ -55861,6 +55861,17 @@
       }
     },
     {
+      "id": "native.savedStashInvalidUtf8",
+      "description": "Native UI: saved stash contains non-UTF-8 text",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Saved changes contain text that is not UTF-8. Inspect the stash with Git.",
+        "arguments": []
+      }
+    },
+    {
       "id": "native.selectSavedChanges",
       "description": "Native UI: Select saved changes",
       "platforms": [

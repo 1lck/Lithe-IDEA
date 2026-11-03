@@ -257,6 +257,90 @@ fn saved_stash_diff_and_drop_follow_immutable_identity_after_positions_change() 
     assert_eq!(remaining["stashes"][0]["message"], "newer");
 }
 
+#[test]
+fn saved_stash_diff_returns_file_sections_and_core_documents() {
+    let repository = PatchRepository::new("saved-stash-sections");
+    repository.git(&["config", "diff.noprefix", "true"]);
+    repository.git(&["config", "diff.mnemonicprefix", "true"]);
+    repository.write("text.txt", b"first\nbase\nthird\nfourth\n");
+    repository.git(&["add", "text.txt"]);
+    repository.git(&["commit", "-qm", "long base"]);
+    repository.git(&["mv", "text.txt", "改名 space.txt"]);
+    repository.write(
+        "改名 space.txt",
+        b"first\nbase\nthird\nfourth\ndiff --git is content\n",
+    );
+    repository.write("untracked.txt", b"saved untracked\n");
+    repository.write("binary.bin", &[0, 255, 128, 0]);
+    repository.git(&["stash", "push", "-u", "-m", "sections"]);
+    let entries = repository.data("git.stashes", json!({}));
+    let oid = entries["stashes"][0]["oid"].as_str().unwrap();
+    repository.write("text.txt", b"newer stash\n");
+    repository.git(&["stash", "push", "-m", "newer"]);
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/git/saved-stash-v1.json"
+    ))
+    .unwrap();
+    let mut request = fixture["sectionRequest"].clone();
+    request["stashReference"] = json!(oid);
+    let saved = repository.data("git.diff", request);
+    let invalid = repository.call(
+        "git.diff",
+        json!({"pathspecs":["."], "includeFileSections":true}),
+    );
+    assert_eq!(invalid["ok"], false, "per-file mode requires a stash");
+    let narrowed = repository.call(
+        "git.diff",
+        json!({
+            "pathspecs":["text.txt"], "stashReference":oid, "includeFileSections":true
+        }),
+    );
+    assert_eq!(
+        narrowed["ok"], false,
+        "per-file mode must not ignore a narrower path selection"
+    );
+    let files = saved["files"]
+        .as_array()
+        .expect("Core should return file sections");
+    assert_eq!(files.len(), 3, "{saved}");
+    assert!(!saved.to_string().contains("newer stash"));
+    let rename = files
+        .iter()
+        .find(|file| file["path"] == "改名 space.txt")
+        .unwrap();
+    assert_eq!(rename["originalPath"], "text.txt");
+    assert_eq!(rename["status"], "R");
+    assert!(rename["patch"]
+        .as_str()
+        .unwrap()
+        .contains("+diff --git is content"));
+    assert!(rename["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|row| row["right"] == "diff --git is content"));
+    let binary = files
+        .iter()
+        .find(|file| file["path"] == "binary.bin")
+        .unwrap();
+    assert_eq!(binary["status"], "A");
+    assert!(binary["patch"]
+        .as_str()
+        .unwrap()
+        .contains("GIT binary patch"));
+    assert_eq!(
+        files
+            .iter()
+            .filter(|file| file["path"] == "untracked.txt")
+            .count(),
+        1
+    );
+    assert_eq!(
+        saved["patch"], "",
+        "Per-file mode must not duplicate the whole patch"
+    );
+}
+
 impl Drop for PatchRepository {
     fn drop(&mut self) {
         if let Err(error) = fs::remove_dir_all(&self.1) {
