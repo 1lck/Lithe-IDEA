@@ -260,7 +260,7 @@ export default function DebuggerView() {
       try {
         await startDebugLaunchSession(
           resolvedSelectedConfig,
-          breakpoints,
+          () => useDebuggerStore.getState().breakpoints,
           rootFolderPath,
           (session) => {
             debuggerActions.startSession({

@@ -31,6 +31,355 @@
             "hitCondition": "3",
             "logMessage": null
           }
+        ],
+        "originalIndices": [
+          0
+        ]
+      }
+    },
+    {
+      "name": "delete preceding line",
+      "payload": {
+        "source": "first();\nrun();\n",
+        "edit": {
+          "startUtf16Offset": 0,
+          "endUtf16Offset": 9,
+          "replacement": ""
+        },
+        "breakpoints": [
+          {
+            "line": 2,
+            "column": null,
+            "enabled": true,
+            "condition": null,
+            "hitCondition": null,
+            "logMessage": null
+          }
+        ]
+      },
+      "expected": {
+        "breakpoints": [
+          {
+            "line": 1,
+            "column": null,
+            "enabled": true,
+            "condition": null,
+            "hitCondition": null,
+            "logMessage": null
+          }
+        ],
+        "originalIndices": [
+          0
+        ]
+      }
+    },
+    {
+      "name": "Chinese emoji CRLF insertion",
+      "payload": {
+        "source": "中文😀\r\nrun();\r\n",
+        "edit": {
+          "startUtf16Offset": 6,
+          "endUtf16Offset": 6,
+          "replacement": "新😀\r\n"
+        },
+        "breakpoints": [
+          {
+            "line": 2,
+            "column": null,
+            "enabled": false,
+            "condition": null,
+            "hitCondition": null,
+            "logMessage": null
+          }
+        ]
+      },
+      "expected": {
+        "breakpoints": [
+          {
+            "line": 3,
+            "column": null,
+            "enabled": false,
+            "condition": null,
+            "hitCondition": null,
+            "logMessage": null
+          }
+        ],
+        "originalIndices": [
+          0
+        ]
+      }
+    },
+    {
+      "name": "edit after anchor keeps line",
+      "payload": {
+        "source": "run();\n",
+        "edit": {
+          "startUtf16Offset": 3,
+          "endUtf16Offset": 3,
+          "replacement": "Next"
+        },
+        "breakpoints": [
+          {
+            "line": 1,
+            "column": null,
+            "enabled": true,
+            "condition": null,
+            "hitCondition": null,
+            "logMessage": null
+          }
+        ]
+      },
+      "expected": {
+        "breakpoints": [
+          {
+            "line": 1,
+            "column": null,
+            "enabled": true,
+            "condition": null,
+            "hitCondition": null,
+            "logMessage": null
+          }
+        ],
+        "originalIndices": [
+          0
+        ]
+      }
+    },
+    {
+      "name": "deletion collapses anchors and keeps surviving state",
+      "payload": {
+        "source": "first();\nrun();\n",
+        "edit": {
+          "startUtf16Offset": 0,
+          "endUtf16Offset": 9,
+          "replacement": ""
+        },
+        "breakpoints": [
+          {
+            "line": 1,
+            "column": null,
+            "enabled": false,
+            "condition": null,
+            "hitCondition": null,
+            "logMessage": null
+          },
+          {
+            "line": 2,
+            "column": null,
+            "enabled": true,
+            "condition": null,
+            "hitCondition": null,
+            "logMessage": null
+          }
+        ]
+      },
+      "expected": {
+        "breakpoints": [
+          {
+            "line": 1,
+            "column": null,
+            "enabled": true,
+            "condition": null,
+            "hitCondition": null,
+            "logMessage": null
+          }
+        ],
+        "originalIndices": [
+          1
+        ]
+      }
+    },
+    {
+      "name": "insert two lines before breakpoint",
+      "payload": {
+        "source": "run();\n",
+        "edit": {
+          "startUtf16Offset": 0,
+          "endUtf16Offset": 0,
+          "replacement": "first();\nsecond();\n"
+        },
+        "breakpoints": [
+          {
+            "line": 1,
+            "column": null,
+            "enabled": true,
+            "condition": null,
+            "hitCondition": null,
+            "logMessage": null
+          }
+        ]
+      },
+      "expected": {
+        "breakpoints": [
+          {
+            "line": 3,
+            "column": null,
+            "enabled": true,
+            "condition": null,
+            "hitCondition": null,
+            "logMessage": null
+          }
+        ],
+        "originalIndices": [
+          0
+        ]
+      }
+    },
+    {
+      "name": "survivor indices follow sorted relocated positions",
+      "payload": {
+        "source": "a\nb\nc",
+        "edit": {
+          "startUtf16Offset": 0,
+          "endUtf16Offset": 0,
+          "replacement": "\n"
+        },
+        "breakpoints": [
+          {
+            "line": 3,
+            "column": null,
+            "enabled": true,
+            "condition": null,
+            "hitCondition": null,
+            "logMessage": null
+          },
+          {
+            "line": 1,
+            "column": null,
+            "enabled": true,
+            "condition": null,
+            "hitCondition": null,
+            "logMessage": null
+          }
+        ]
+      },
+      "expected": {
+        "breakpoints": [
+          {
+            "line": 2,
+            "column": null,
+            "enabled": true,
+            "condition": null,
+            "hitCondition": null,
+            "logMessage": null
+          },
+          {
+            "line": 4,
+            "column": null,
+            "enabled": true,
+            "condition": null,
+            "hitCondition": null,
+            "logMessage": null
+          }
+        ],
+        "originalIndices": [
+          1,
+          0
+        ]
+      }
+    },
+    {
+      "name": "sequential edits preserve survivor identity",
+      "payload": {
+        "source": "first();\nrun();\n",
+        "edit": {
+          "startUtf16Offset": 0,
+          "endUtf16Offset": 9,
+          "replacement": ""
+        },
+        "editBatches": [
+          [
+            {
+              "startUtf16Offset": 0,
+              "endUtf16Offset": 0,
+              "replacement": "\n"
+            }
+          ]
+        ],
+        "breakpoints": [
+          {
+            "line": 1,
+            "column": null,
+            "enabled": false,
+            "condition": null,
+            "hitCondition": null,
+            "logMessage": null
+          },
+          {
+            "line": 2,
+            "column": null,
+            "enabled": true,
+            "condition": null,
+            "hitCondition": null,
+            "logMessage": null
+          }
+        ]
+      },
+      "expected": {
+        "breakpoints": [
+          {
+            "line": 2,
+            "column": null,
+            "enabled": true,
+            "condition": null,
+            "hitCondition": null,
+            "logMessage": null
+          }
+        ],
+        "originalIndices": [
+          1
+        ]
+      }
+    },
+    {
+      "name": "sequential UTF-16 CRLF edits preserve lines",
+      "payload": {
+        "source": "中😀\r\nrun();\r\n",
+        "edit": {
+          "startUtf16Offset": 0,
+          "endUtf16Offset": 0,
+          "replacement": "\n"
+        },
+        "editBatches": [
+          [
+            {
+              "startUtf16Offset": 6,
+              "endUtf16Offset": 6,
+              "replacement": "  "
+            }
+          ],
+          [
+            {
+              "startUtf16Offset": 0,
+              "endUtf16Offset": 0,
+              "replacement": "x\n"
+            }
+          ]
+        ],
+        "breakpoints": [
+          {
+            "line": 2,
+            "column": null,
+            "enabled": false,
+            "condition": null,
+            "hitCondition": null,
+            "logMessage": null
+          }
+        ]
+      },
+      "expected": {
+        "breakpoints": [
+          {
+            "line": 4,
+            "column": null,
+            "enabled": false,
+            "condition": null,
+            "hitCondition": null,
+            "logMessage": null
+          }
+        ],
+        "originalIndices": [
+          0
         ]
       }
     }

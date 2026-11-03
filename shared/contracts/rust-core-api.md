@@ -4911,6 +4911,21 @@ workspace root set changes. Removing a nested root restores parent scanning.
 An unavailable non-current root does not fail a scoped request for an accessible
 root; a missing descendant retains its ownership boundary until removed by the host.
 
+
+### Windows source-breakpoint relocation
+
+Windows forwards the editor's exact source-preserving edits to
+`debug.relocateBreakpoints` and converts its zero-based store lines to/from Core's
+one-based lines. The context-expanded patches used to synchronize the editor's
+source mirror must not be used as anchor edits: unchanged neighboring code must
+not be treated as deleted. The existing cases in
+`shared/fixtures/debug/breakpoint-relocation-v1.json` cover both platforms.
+
+Each native multi-cursor event is sent as one batch of original-source edits;
+Core applies the edits before projecting anchors. Rapid events serialize or share
+one ordered request, split views share a mutation identity, and launch reads the
+current owner after all pending relocations complete.
+
 ## Markdown rendering
 
 `markdown.render` accepts `{ "source": "<Markdown text>" }` and returns
@@ -4954,6 +4969,23 @@ observation), `stderrReadFailed` (stderr I/O), `navigationLimited` (batch cap),
 that observation; arbitrary upstream messages retain `upstreamDiagnostic`.
 
 Hosts persist these controlled identities, never the raw detail, URL, output or argv.
+
+### Batched breakpoint relocation snapshots
+
+`debug.relocateBreakpoints` retains the single `edit` input and also accepts `edits`, an array of non-overlapping original-source UTF-16 replacements. Character anchors are retained until the complete batch finishes; only then are positions projected and duplicates merged. LF, CRLF and lone CR are line boundaries.
+
+Optional `editBatches` contains up to 127 additional editor mutations in order,
+with up to 4096 edits and 64 MiB of replacement text across those additional
+batches. Each batch uses UTF-16
+offsets in the text produced by the preceding mutation. Core projects and
+deduplicates breakpoints after each mutation, exactly as for separate calls, and
+keeps `originalIndices` relative to the request's original breakpoint list.
+
+The response's `originalIndices` array identifies the zero-based input breakpoint
+that survived for each entry in `breakpoints`, in the same order. It allows a host
+to preserve breakpoint identity after relocation and collision resolution.
+
+Optional `document: {id, version}` enables bounded process-local source reuse. Version 1 supplies `source`; each subsequent version increments by one and omits source. Missing or stale snapshots fail closed. The cache holds four sources of at most 16 MiB each, evicts least-recently-used entries, and never writes runtime resources. Hosts reset with a new identity when the exact source chain changes.
 
 ### Engine logging v2 handoff (PR3)
 

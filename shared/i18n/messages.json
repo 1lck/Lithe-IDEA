@@ -2,6 +2,13 @@
   "schemaVersion": 1,
   "messages": [
     {
+      "id": "debugger.breakpointRelocationFailed",
+      "description": "Breakpoint relocation failed; reset unsafe source anchors before debugging.",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
       "id": "markdown.renderFailed",
       "description": "Windows Markdown preview rendering failed; edit or reopen to retry",
       "platforms": ["windows"]
