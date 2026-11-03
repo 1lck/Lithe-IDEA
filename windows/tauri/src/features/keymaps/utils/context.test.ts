@@ -124,6 +124,36 @@ test("failed imports do not consume the active context cache", async () => {
   }
 });
 
+test("an import cannot displace contexts prepared while it is validating", async () => {
+  let release!: (value: { parsed: typeof focused; error: null }) => void;
+  let entered!: () => void;
+  const pending = new Promise<{ parsed: typeof focused; error: null }>(resolve => { release = resolve; });
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const invoke = spyOn(native, "invoke").mockImplementation(async <T>(_command: string, args?: unknown): Promise<T> => {
+    if ((args as { expression: string }).expression === "candidate") {
+      entered();
+      return await pending as T;
+    }
+    return { parsed: focused, error: null } as T;
+  });
+  let operation: Promise<unknown> | undefined;
+  try {
+    for (let index = 0; index < 255; index++) await prepareWhenClause(`active${index}`);
+    operation = parseKeybindingsImportJson(JSON.stringify([binding("candidate")]));
+    const outcome = operation.catch(error => error);
+    await started;
+    await prepareWhenClause("concurrent");
+    release({ parsed: focused, error: null });
+    expect(await outcome).toMatchObject({ code: "too_many_conditions" });
+    expect(evaluateWhenClause("concurrent", { editorFocus: true })).toBe(true);
+    expect(evaluateWhenClause("candidate", { editorFocus: true })).toBe(false);
+  } finally {
+    release({ parsed: focused, error: null });
+    await operation?.catch(() => {});
+    invoke.mockRestore();
+  }
+});
+
 test("add and update reject invalid conditions without replacing a saved binding", async () => {
   await useKeymapStore.getState().actions.addKeybinding(binding());
   const before = useKeymapStore.getState().keybindings;
