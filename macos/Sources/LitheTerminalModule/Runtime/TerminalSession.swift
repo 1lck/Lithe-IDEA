@@ -240,6 +240,14 @@ public final class TerminalSession: ObservableObject, Identifiable {
         applying changes: [TerminalEnvironmentChange] = []
     ) -> [String: String] {
         var environment = transport.defaultEnvironment()
+        // Strip inherited color controls and CI markers so interactive TUIs can use color; Windows strips the color controls too.
+        environment["NO_COLOR"] = nil
+        environment["FORCE_COLOR"] = nil
+        environment["CLICOLOR_FORCE"] = nil
+        environment["CLICOLOR"] = "1"
+        environment["CI"] = nil
+        environment["GITHUB_ACTIONS"] = nil
+        environment["CONTINUOUS_INTEGRATION"] = nil
         environment["TERM"] = "xterm-256color"
         environment["COLORTERM"] = "truecolor"
         environment["TERM_PROGRAM"] = "Lithe"

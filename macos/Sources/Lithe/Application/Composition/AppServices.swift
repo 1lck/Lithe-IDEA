@@ -10,6 +10,14 @@ import LitheLanguageIntelligenceModule
 /// Platform composition roots construct this graph with their own adapters.
 @MainActor
 final class AppServices {
+    var editorSettingsImportScan: ((URL?) async throws -> [EditorSettingsImportSource])?
+    func makeEditorSettingsImport(settings: AppSettings) -> EditorSettingsImportFeatureModel {
+        EditorSettingsImportFeatureModel(settings: settings, chooseDirectory: { [platformUI] in
+            platformUI.chooseDirectory(title: settings.language.localizedString("Choose IDE configuration directory"),
+                                       prompt: settings.language.localizedString("Choose"))
+        }, scan: editorSettingsImportScan)
+    }
+
     var ideCapabilityRegistry: IdeCapabilityRegistry?
     var ideHostTransport: (any IdeHostTransport)?
     /// Codex and Claude Code MCP configuration files. `nil` before platform

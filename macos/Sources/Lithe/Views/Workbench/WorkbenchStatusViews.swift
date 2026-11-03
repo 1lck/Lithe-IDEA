@@ -140,3 +140,18 @@ struct FrameRateStatusView: View {
             .accessibilityLabel(Text("\(frameRateMonitor.framesPerSecond) frames per second"))
     }
 }
+
+/// Observe the active document only; background split updates cannot replace its label.
+struct EditorIndentationStatusLabel: View {
+    @ObservedObject var document: EditorDocument
+
+    var body: some View {
+        if let indentation = document.indentation {
+            if indentation.insertSpaces {
+                Text("\(indentation.tabSize) spaces")
+            } else {
+                Text("Tab width: \(indentation.tabSize)")
+            }
+        }
+    }
+}

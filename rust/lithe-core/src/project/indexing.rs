@@ -14,6 +14,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 pub struct IndexingPolicy {
     pub manual_excluded_directories: Vec<String>,
     pub included_directories: Vec<String>,
+    #[serde(default)]
     pub git_ignore_enabled: bool,
 }
 
@@ -37,6 +38,8 @@ pub struct ConfigureIndexingRequest {
 #[serde(rename_all = "camelCase")]
 /// Effective directory reasons and Git availability, never a claim about third-party scans.
 pub struct IndexingStatus {
+    /// Effective value resolved by Core; omission of the preference means disabled.
+    pub effective_git_ignore_enabled: bool,
     pub revision: u64,
     pub excluded_directories: BTreeMap<String, String>,
     pub git_ignore_failed: bool,
@@ -389,6 +392,7 @@ fn configure_with_provider_update(
             context.published.store(true, Ordering::Release);
         }
         Ok(IndexingStatus {
+            effective_git_ignore_enabled: context.policy.git_ignore_enabled,
             revision: lease_revision,
             excluded_directories,
             git_ignore_failed: context.git_failed.load(Ordering::Acquire),
@@ -548,6 +552,7 @@ pub fn refresh_indexing(request: RefreshIndexingRequest) -> Result<IndexingStatu
         }
     }
     Ok(IndexingStatus {
+        effective_git_ignore_enabled: next.policy.git_ignore_enabled,
         revision: request.revision,
         excluded_directories,
         git_ignore_failed: next.git_failed.load(Ordering::Acquire),
@@ -816,7 +821,16 @@ impl IndexingContext {
             let ignored = ignored.into_iter().collect::<Vec<_>>();
             // The containing repository's index protects tracked descendants and
             // submodule gitlinks; an independent ignored checkout is not exempt.
-            let untracked = crate::git::untracked_directory_candidates(parent, &ignored);
+            let untracked =
+                match crate::git::untracked_directory_candidates_checked(parent, &ignored) {
+                    Ok(paths) => Some(paths),
+                    Err(error)
+                        if matches!(error.code, ErrorCode::Cancelled | ErrorCode::TimedOut) =>
+                    {
+                        return Err(error)
+                    }
+                    Err(_) => None,
+                };
             if untracked.is_none() {
                 self.git_failed.store(true, Ordering::Release);
             }
@@ -940,6 +954,142 @@ mod tests {
     use super::*;
     use serde_json::json;
     use std::fs;
+
+    #[cfg(unix)]
+    #[test]
+    fn tracked_directory_query_fixture() {
+        use std::io::{Read, Write};
+        let Some(socket) = std::env::var_os("LITHE_TRACKED_QUERY_SOCKET") else {
+            return;
+        };
+        if !Path::new(&socket).exists() {
+            return;
+        }
+        let mut stream = std::os::unix::net::UnixStream::connect(socket).unwrap();
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_secs(3)))
+            .unwrap();
+        stream.write_all(b"ready").unwrap();
+        let _ = stream.read(&mut [0]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn tracked_directory_query_reclaims_the_process_on_cancel_and_timeout() {
+        use std::io::Read;
+        use std::os::unix::{fs::PermissionsExt, net::UnixListener};
+        use std::time::{Duration, Instant};
+        for cancel in [false, true] {
+            let workspace = Workspace::new();
+            // Unix socket paths have a short platform limit; use the existing short fixture root.
+            let socket = std::env::temp_dir().join(format!("lq-{}-{cancel}", std::process::id()));
+            struct SocketPath(PathBuf);
+            impl Drop for SocketPath {
+                fn drop(&mut self) {
+                    let _ = fs::remove_file(&self.0);
+                }
+            }
+            let _cleanup = SocketPath(socket.clone());
+            let listener = UnixListener::bind(&socket).unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let executable = workspace.0.join("fake-git");
+            let test_executable = std::env::current_exe()
+                .unwrap()
+                .to_string_lossy()
+                .replace('\'', "'\\''");
+            fs::write(&executable, format!("#!/bin/sh\ncase \"$*\" in *--version*) echo 'git version 2.40.0';; *) LITHE_TRACKED_QUERY_SOCKET='{}' exec '{test_executable}' --exact project::indexing::tests::tracked_directory_query_fixture --nocapture;; esac\n", socket.display())).unwrap();
+            fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+            let root = workspace.0.clone();
+            let operation = format!("query-{}-{cancel}", root.display());
+            let worker_operation = operation.clone();
+            let (finished, completion) = std::sync::mpsc::sync_channel(1);
+            let worker = std::thread::spawn(move || {
+                let _request =
+                    crate::protocol::cancellation::Scope::begin(Some(worker_operation), Some(1000));
+                let _git = crate::git::execution_policy::Scope::begin(Some(
+                    crate::git::execution_policy::GitExecutionOptions {
+                        executable: Some(executable.to_string_lossy().into_owned()),
+                        ..Default::default()
+                    },
+                ))
+                .unwrap();
+                let result =
+                    crate::git::untracked_directory_candidates_checked(&root, &["ignored".into()]);
+                let _ = finished.send(
+                    result
+                        .map(|_| ())
+                        .map_err(|error| format!("{:?}", error.code)),
+                );
+            });
+            let deadline = Instant::now() + Duration::from_secs(2);
+            let mut connection = loop {
+                match listener.accept() {
+                    Ok((stream, _)) => break Some(stream),
+                    Err(error)
+                        if error.kind() == std::io::ErrorKind::WouldBlock
+                            && Instant::now() < deadline =>
+                    {
+                        std::thread::yield_now()
+                    }
+                    _ => break None,
+                }
+            };
+            let ready = connection.as_mut().is_some_and(|stream| {
+                stream.set_nonblocking(false).unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(2)))
+                    .unwrap();
+                let mut bytes = [0; 5];
+                stream.read_exact(&mut bytes).is_ok() && bytes == *b"ready"
+            });
+            if cancel {
+                crate::protocol::cancellation::cancel(&operation);
+            }
+            let outcome = completion.recv_timeout(Duration::from_secs(2));
+            // Release a broken fixture before asserting, so failures still reclaim its worker.
+            if outcome.is_err() {
+                drop(connection.take());
+            }
+            if outcome.is_ok() {
+                worker.join().unwrap();
+            }
+            assert!(
+                ready,
+                "selected Git process never reached its gate: {outcome:?}"
+            );
+            assert_eq!(
+                outcome.unwrap(),
+                Err(if cancel { "Cancelled" } else { "TimedOut" }.to_string())
+            );
+            assert_eq!(
+                connection.as_mut().unwrap().read(&mut [0]).unwrap(),
+                0,
+                "owned child survived the query"
+            );
+        }
+    }
+
+    #[test]
+    fn omitted_git_preference_is_disabled_and_explicit_preferences_survive() {
+        let workspace = Workspace::new();
+        for preference in [None, Some(true), Some(false)] {
+            let mut payload = json!({
+                "root": workspace.0, "manualExcludedDirectories": [], "includedDirectories": []
+            });
+            if let Some(value) = preference {
+                payload["gitIgnoreEnabled"] = json!(value);
+            }
+            let response: serde_json::Value = serde_json::from_str(&crate::execute_json(
+                &json!({"command":"workspace.configureIndexing", "payload":payload}).to_string(),
+            ))
+            .unwrap();
+            assert_eq!(response["ok"], true, "{response}");
+            assert_eq!(
+                response["data"]["effectiveGitIgnoreEnabled"],
+                preference.unwrap_or(false)
+            );
+        }
+    }
 
     #[test]
     fn owned_refresh_rechecks_git_without_replacing_any_release_token() {

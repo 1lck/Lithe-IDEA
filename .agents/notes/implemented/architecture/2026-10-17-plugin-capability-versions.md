@@ -61,6 +61,28 @@ Core 能校验一个能力，不代表宿主能运行它。宿主在 `plugins.de
 
 macOS 宿主接受级别 1 到 3（`supportedDeclarativeAPIVersions = [1, 2, 3]`），能力表是 `PluginManifest.hostCapabilities`，在校验、索引和安装审查时都发给 Core；其中的 `buildSystems: [1]` 随 macOS 的 Build 工具窗口一起加入，`buildProviders: [1]` 在 macOS 接入构建 Provider 会话后才加入。`vcsProviders: [1]` 同样等 macOS 接入 VCS Provider 会话（版本控制工具窗口、项目树状态和文件移动）后才加入，见[统一 VCS 模型提案](../../proposed/architecture/2026-10-22-unified-vcs-provider-model.md)的 P3。Core 自己支持 `buildProviders: 1` 和 `vcsProviders: 1`，不传宿主表时仍可校验清单、生成 Provider 计划、识别工作副本根并转发请求。Windows 还没有声明式插件宿主，不发送能力表，所以 Windows 不列出级别 3 的插件。宿主接入某个能力时，要做两件事：让宿主接受级别 3，并在宿主自己的能力表里加上这个能力的版本，而且只在宿主真正能运行它时才加。
 
+### 2.1 工具链只读查询的 macOS 准入
+
+macOS 的运行环境设置页已有声明式扫描、版本探测、后端协商与 `toolchains/query` 查询后，
+宿主登记 `toolDefinitions: [1]`、`toolchainProviders: [1]` 和 `executableResolution: [1, 2]`。
+三个准入入口继续使用同一张能力表；漏登记会让最新 AutoBuild 仍把 mise 等插件显示为“需要更新 Lithe”。
+此登记只承诺现有只读查询，不代表 Build、Run、LSP 已消费工具链选择，Windows 仍不登记。
+
+仅有工具定义的合法插件必须拥有启用状态。描述器在没有其他模块时生成不启动进程的
+`<pluginID>.toolchains` 应用级模块，组合根为它登记普通声明式工厂；有后端的提供方仍使用已有
+backend 模块，不增加第二个开关。正确做法是让纯定义插件通过普通插件启用流程进入设置加载器；
+不要用空模块列表、按插件名强行启用，或扩大 `canActivateWithoutRestart` 来跳过启动注册。
+新增安装仍在重启后进入设置加载器的启动快照，禁用则随已有启用状态从后续查询中撤回。
+
+备选是只增加能力表、或等待所有运行时消费者迁移完毕。前者会把纯定义插件留在
+`emptyPlugin` / `missingModuleFactory` 拒绝路径；后者让已经具备的只读能力持续不可安装，均不采用。
+本次不新增下载资源或可写路径；查询沿用平台用户状态目录，发行 bundle 和插件包保持只读，
+不改变代码签名或 Sparkle delta 基线。代价是纯定义模块也须遵循现有重启和模块所有权规则。
+
+`ToolchainPluginAdmissionTests` 用正式契约样例和真实 Core 覆盖索引、安装审查、清单、
+纯定义模块与工厂登记；`MacToolchainDiscoveryTests` 和 `ToolchainSettingsLoaderTests` 覆盖已有查询路线。
+这类组件证据不代替真实 mise 应用内验收，完整框架状态继续由功能矩阵记录。
+
 ### 3. 市场索引带上能力版本
 
 - 索引里级别 3 的 `versions[].requires` 必填，内容就是包内清单的 `requires`；级别 1、2 禁止出现。宿主因此在下载之前就能判断装不装得了。

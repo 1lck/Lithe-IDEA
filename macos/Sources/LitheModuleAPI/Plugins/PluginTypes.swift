@@ -522,13 +522,16 @@ public struct PluginManifest: Equatable, Codable, Sendable {
         "packageTrust": [1],
         "backend": [1, 2],
         "buildProviders": [1, 2, 3, 4, 5, 6], "buildModelInputs": [1],
-        "buildSystems": [1, 2], "debugAdapters": [1, 2], "executableResolution": [1],
+        "buildSystems": [1, 2], "debugAdapters": [1, 2], "executableResolution": [1, 2],
         "executionProviders": [1],
         "languageServers": [1, 2],
         "languages": [1, 2],
         "projectGenerators": [1],
         "serverProcess": [1],
         "settings": [1, 2],
+        // Toolchain discovery and provider queries are hosted by the read-only settings pages.
+        "toolDefinitions": [1],
+        "toolchainProviders": [1],
         "ui": [1, 2, 3, 4],
         "vcsProviders": [1]
     ]

@@ -1624,7 +1624,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         guard !Task.isCancelled, workspaceGeneration == generation, activeGitRefreshID == refreshID else { return }
         if pendingIndexingRuleRefresh, !isLoadingWorkspace, !isRefreshingWorkspace {
             pendingIndexingRuleRefresh = false
-            if indexingSettings.gitIgnoreEnabled {
+            if indexingStatus.effectiveGitIgnoreEnabled == true {
                 await refreshCurrentSnapshot(refreshGitAfterwards: false, indexingOnly: true)
             } else if let workspaceURL {
                 await refreshIgnoredDirectoryMetadata(at: workspaceURL)

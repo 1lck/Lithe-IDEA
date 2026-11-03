@@ -657,7 +657,10 @@ struct LitheApp: App {
 
     var body: some Scene {
         WindowGroup(id: LitheWindowID.welcome) {
-            RootView(scope: .primary)
+            EditorSettingsImportStartup(feature: model.editorSettingsImport,
+                windowHandler: PrimaryProjectWindowSessions(manager: projectSessions)) {
+                RootView(scope: .primary)
+            }
                 .environmentObject(model)
                 .environmentObject(projectSessions)
                 .environmentObject(projectWindowLauncher)

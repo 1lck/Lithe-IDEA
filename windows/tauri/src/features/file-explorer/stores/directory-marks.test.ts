@@ -333,7 +333,7 @@ for (const scenario of fixture.cases) {
     const before = readIndexingSettings(root);
     writeIndexingSettings(root, {...before, gitIgnoreEnabled: false});
     writeIndexingSettings(root, {...readIndexingSettings(root), gitIgnoreEnabled: true});
-    expect(readIndexingSettings(root)).toEqual(before);
+    expect(readIndexingSettings(root)).toEqual({...before, gitIgnoreEnabled: true});
   });
 }
 

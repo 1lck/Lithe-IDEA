@@ -10,12 +10,13 @@ import { IndexingSettingsError } from "./indexing-settings-error";
 export { IndexingSettingsError, type IndexingErrorCode } from "./indexing-settings-error";
 
 export interface IndexingSettings {
-  gitIgnoreEnabled: boolean;
+  gitIgnoreEnabled?: boolean;
   includedDirectories: string[];
   previousRoles: Record<string, string>;
   ignoredDirectoryNoticeDismissed?: boolean;
 }
 export interface IndexingStatus {
+  effectiveGitIgnoreEnabled?: boolean;
   revision: number;
   excludedDirectories: Record<string, string>;
   gitIgnoreFailed: boolean;
@@ -35,7 +36,7 @@ function readStoredValue(key: string): string | null {
 
 export function readIndexingSettings(root: string): IndexingSettings {
   const raw = readStoredValue(indexingSettingsStorageKey(root));
-  if (raw === null) return { gitIgnoreEnabled: true, includedDirectories: [], previousRoles: {} };
+  if (raw === null) return { includedDirectories: [], previousRoles: {} };
   let value: unknown;
   try {
     value = JSON.parse(raw);
@@ -46,7 +47,7 @@ export function readIndexingSettings(root: string): IndexingSettings {
     throw new IndexingSettingsError("invalidSettings");
   const settings = value as Record<string, unknown>;
   if (
-    typeof settings.gitIgnoreEnabled !== "boolean" ||
+    (settings.gitIgnoreEnabled !== undefined && typeof settings.gitIgnoreEnabled !== "boolean") ||
     !Array.isArray(settings.includedDirectories) ||
     !settings.includedDirectories.every((path: unknown) => typeof path === "string") ||
     (settings.ignoredDirectoryNoticeDismissed !== undefined && typeof settings.ignoredDirectoryNoticeDismissed !== "boolean") ||
@@ -58,7 +59,7 @@ export function readIndexingSettings(root: string): IndexingSettings {
   )
     throw new IndexingSettingsError("invalidSettings");
   return {
-    gitIgnoreEnabled: settings.gitIgnoreEnabled,
+    ...(settings.gitIgnoreEnabled !== undefined ? {gitIgnoreEnabled: settings.gitIgnoreEnabled as boolean} : {}),
     includedDirectories: settings.includedDirectories,
     previousRoles: (settings.previousRoles ?? {}) as Record<string, string>,
     ...(settings.ignoredDirectoryNoticeDismissed !== undefined

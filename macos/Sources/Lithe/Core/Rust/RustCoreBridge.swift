@@ -2542,7 +2542,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             let ownerId: String?
             let manualExcludedDirectories: [String]
             let includedDirectories: [String]
-            let gitIgnoreEnabled: Bool
+            let gitIgnoreEnabled: Bool?
             let refresh: Bool
         }
         return try executeResult(command: "workspace.configureIndexing", payload: Request(

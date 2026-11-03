@@ -1574,6 +1574,12 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
                 model.updateFindState(currentIndex: index, count: count)
             }
             reply(["ok": true], nil)
+        case "indentation":
+            if !isReadOnlyPreview, let size = body["tabSize"] as? Int,
+               let spaces = body["insertSpaces"] as? Bool {
+                document.updateIndentation(tabSize: size, insertSpaces: spaces)
+            }
+            reply(["ok": true], nil)
         case "focus", "cursor":
             guard !isReadOnlyPreview else { reply(["ok": true], nil); return }
             // Setting a background group's model also emits cursor events.

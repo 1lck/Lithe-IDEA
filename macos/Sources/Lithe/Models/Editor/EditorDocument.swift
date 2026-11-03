@@ -19,6 +19,19 @@ final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable 
         }
     }
 
+    struct Indentation: Equatable {
+        let tabSize: Int
+        let insertSpaces: Bool
+    }
+    /// Runtime model state, not a second persisted preference.
+    @Published private(set) var indentation: Indentation?
+
+    func updateIndentation(tabSize: Int, insertSpaces: Bool) {
+        guard tabSize > 0 else { return }
+        let value = Indentation(tabSize: tabSize, insertSpaces: insertSpaces)
+        if indentation != value { indentation = value }
+    }
+
     let id = UUID()
     private(set) var url: URL
     /// Invalidates asynchronous requests even after a rename away and back.

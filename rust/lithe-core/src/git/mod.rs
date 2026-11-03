@@ -8084,15 +8084,6 @@ pub(crate) fn untracked_candidates(directory: &Path, candidates: &[String]) -> O
     )
 }
 
-/// Returns immediate child directories without any tracked descendant or gitlink.
-/// Native literal pathspec batches keep process count proportional to argument bytes.
-pub(crate) fn untracked_directory_candidates(
-    directory: &Path,
-    candidates: &[String],
-) -> Option<HashSet<String>> {
-    untracked_directory_candidates_checked(directory, candidates).ok()
-}
-
 /// Strict tracked-directory query preserving native failure and cancellation categories.
 pub(crate) fn untracked_directory_candidates_checked(
     directory: &Path,

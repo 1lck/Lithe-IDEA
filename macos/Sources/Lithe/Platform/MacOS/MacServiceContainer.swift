@@ -1144,6 +1144,7 @@ final class MacServiceContainer {
             debugPerformanceSampler: MacDebugPerformanceSampler(processRegistry: processRegistry),
             testJVMPerformance: MacTestJVMPerformance(processRegistry: processRegistry)
         )
+        services.editorSettingsImportScan = { try await MacEditorSettingsImportReader.scan(directory: $0) }
         services.ideCapabilityRegistry = ideCapabilityRegistry
         services.pluginRegistrationChanges = livePlugins.changes
         // Static editor resources follow their own enablement; ordinary tool
@@ -1448,6 +1449,7 @@ final class MacServiceContainer {
                     || $0.manifest.id == .debugAdaptersExtension(descriptor.id.rawValue)
                     || $0.manifest.id == .grammarsExtension(descriptor.id.rawValue)
                     || $0.manifest.id == .backendExtension(descriptor.id.rawValue)
+                    || $0.manifest.id == .toolchainsExtension(descriptor.id.rawValue)
                     || $0.manifest.id == .projectGeneratorsExtension(descriptor.id.rawValue)
             }.map { declaration in
                 ModuleFactory(manifest: declaration.manifest, contributions: declaration.contributions) {

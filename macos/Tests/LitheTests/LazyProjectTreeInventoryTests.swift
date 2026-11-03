@@ -246,7 +246,8 @@ struct LazyProjectTreeInventoryTests {
                 #expect((fixture.model.directoryMarks["archive"] ?? .plain).rawValue == step.role, "\(scenario.id)")
                 #expect(fixture.model.indexingSettings.includedDirectories == (step.included ? ["archive"] : []))
             }
-            let saved = fixture.model.indexingSettings
+            var saved = fixture.model.indexingSettings
+            saved.gitIgnoreEnabled = true
             await fixture.model.setGitIgnoreIndexing(false)
             await fixture.model.setGitIgnoreIndexing(true)
             #expect(fixture.model.indexingSettings == saved)
@@ -439,7 +440,7 @@ struct LazyProjectTreeInventoryTests {
             #expect(fixture.model.directoryMarks["b"] == .sources)
             #expect(fixture.model.directoryMarks == store.marks)
         } else {
-            #expect(!fixture.model.indexingSettings.gitIgnoreEnabled)
+            #expect(fixture.model.indexingSettings.gitIgnoreEnabled == false)
             #expect(fixture.model.directoryMarks["a"] == nil)
         }
     }
@@ -629,7 +630,7 @@ struct LazyProjectTreeInventoryTests {
         await fixture.load()
         await fixture.model.setGitIgnoreIndexing(false)
         await fixture.model.markDirectory(root.appendingPathComponent("src"), action: .exclude)
-        #expect(fixture.model.indexingSettings.gitIgnoreEnabled)
+        #expect(fixture.model.indexingSettings.gitIgnoreEnabled == nil)
         #expect(fixture.model.directoryMarks.isEmpty)
         #expect(fixture.model.projectFiles == [file])
         #expect(fixture.disk.snapshotCount == 1)
@@ -642,7 +643,7 @@ struct LazyProjectTreeInventoryTests {
         let file = directory.appendingPathComponent("Candidate.java")
         let fixture = InventoryFixture(root: root, files: [file], rows: [
             root.path: [FileNode(url: directory, isDirectory: true, children: nil)], directory.path: [],
-        ])
+        ], directoryMarkStore: InitiallyEnabledInventoryMarks())
         defer { fixture.close() }
         fixture.disk.blockNextListing()
         let loading = Task { await fixture.load() }
@@ -1158,9 +1159,10 @@ private final class InventoryDisk: WorkspaceOperations, WorkspaceFileOperations,
             self.policy = policy
             var status = WorkspaceIndexingStatus()
             status.supportsExclusions = supportsExclusions
+            status.effectiveGitIgnoreEnabled = policy.gitIgnoreEnabled ?? false
             status.revision = blocks ? 1 : configurationRevision
             status.excludedDirectories = Dictionary(uniqueKeysWithValues: policy.manualExcludedDirectories.map { ($0, "manual") })
-            if policy.gitIgnoreEnabled { status.excludedDirectories["ignored"] = "git" }
+            if policy.gitIgnoreEnabled == true { status.excludedDirectories["ignored"] = "git" }
             return status
         }
         completion?.open()
@@ -1286,4 +1288,14 @@ private final class FailingInventoryMarks: WorkspaceDirectoryMarkStoring, @unche
         }
         lock.withLock { savedMarks = marks }
     }
+}
+
+private struct InitiallyEnabledInventoryMarks: WorkspaceDirectoryMarkStoring {
+    func loadIndexingSettings(for workspaceURL: URL) throws -> WorkspaceIndexingSettings {
+        var settings = WorkspaceIndexingSettings()
+        settings.gitIgnoreEnabled = true
+        return settings
+    }
+    func loadDirectoryMarks(for workspaceURL: URL) throws -> [String: WorkspaceDirectoryMark] { [:] }
+    func saveDirectoryMarks(_ marks: [String: WorkspaceDirectoryMark], for workspaceURL: URL) throws {}
 }
