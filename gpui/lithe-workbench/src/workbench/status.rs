@@ -189,6 +189,8 @@ impl Workbench {
             .size_full()
             .min_h(px(0.))
             .min_w(px(0.))
+            // 与编辑器使用同一背景 token，深色/浅色切换时保持视觉连续。
+            .bg(tokens.editor)
             .child(summary)
             .child(list)
             .into_any_element()
