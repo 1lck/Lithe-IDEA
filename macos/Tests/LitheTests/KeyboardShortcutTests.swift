@@ -8,7 +8,7 @@ struct KeyboardShortcutTests {
     @Test
     func catalogHasStableUniqueCommandsAndConflictFreeDefaults() {
         let commands = LitheCommandCatalog.commands
-        #expect(commands.count == 38)
+        #expect(commands.count == 39)
         // Build plugin windows own their actions; Maven is no longer a built-in command.
         #expect(LitheCommandCatalog.command(id: "toggle-maven") == nil)
         #expect(Set(commands.map(\.id)).count == commands.count)

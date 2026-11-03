@@ -6,7 +6,7 @@ import LitheModuleAPI
 
 /// Process-owned native I/O. The provider supplies the writable root; sessions
 /// are runtime state, never bundle resources or reusable worktree artifacts.
-final class MacLogStore: ApplicationLogging, LogSink, @unchecked Sendable {
+final class MacLogStore: ApplicationLogging, LogWindowLogging, LogSink, @unchecked Sendable {
     static let categories = ["application", "language", "run", "git", "plugins", "performance"]
     private let queue: DispatchQueue
     private let lock = NSLock()
@@ -58,10 +58,7 @@ final class MacLogStore: ApplicationLogging, LogSink, @unchecked Sendable {
         return value
     }()
 
-    struct EncodedLogEntry: Sendable {
-        let channel: String
-        let line: String
-    }
+    typealias EncodedLogEntry = LogWindowBatch
     private enum Pending: Sendable {
         case typed(any LogEvent, Date)
         case core(CoreLogRecord, Date)
@@ -580,6 +577,81 @@ final class MacLogStore: ApplicationLogging, LogSink, @unchecked Sendable {
                 truncated: truncated, effectiveDirectory: root, diagnosticEnabled: state.2,
                 droppedEvents: state.0, writeFailures: state.1, diagnosticCategory: state.3)
         }
+    }
+
+    func queryWindow(_ query: LogWindowQuery) async throws -> LogWindowCollection {
+        try await perform { [self] token in
+            try drain(token: token)
+            if directory == nil { try switchDirectory(defaultDirectory) }
+            guard let root = directory else { throw CocoaError(.fileNoSuchFile) }
+            let metadata = try inventory(root, token: token).map { file in
+                let values = try file.url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+                return RustCoreBridge.LogCollectionFile(relativePath: file.relative,
+                    sizeBytes: UInt64(max(0, values.fileSize ?? 0)),
+                    modifiedAt: formatter.string(from: values.contentModificationDate ?? now()))
+            }
+            let current = sessionPath?.split(separator: "/").last.map(String.init) ?? ""
+            let plan = try core.planLogCollection(.init(files: metadata, currentSession: current,
+                session: query.session, category: nil))
+            var sources: [RustCoreBridge.LogSourceV2] = []
+            for read in plan.reads {
+                try token.check()
+                let handle = try FileHandle(forReadingFrom: safeURL(root: root, relative: read.relativePath))
+                defer { do { try handle.close() } catch { lock.withLock { failures += 1 } } }
+                try handle.seek(toOffset: read.offset)
+                let data = try handle.read(upToCount: read.maxBytes) ?? Data()
+                sources.append(.init(relativePath: read.relativePath, text: String(decoding: data, as: UTF8.self), startsMidLine: read.offset > 0))
+            }
+            let result = try core.queryLogsV2(windowRequest(sources: sources, query: query, historical: true))
+            try token.check()
+            let state = lock.withLock { (dropped, failures, diagnosticCategory, max(0, diagnosticUntil - diagnosticNow())) }
+            return LogWindowCollection(result: result, directory: root, currentSessionPath: sessionPath ?? "",
+                dropped: state.0, writeFailures: state.1, diagnosticCategory: state.2, diagnosticRemaining: state.3)
+        }
+    }
+    private func windowRequest(sources: [RustCoreBridge.LogSourceV2], query: LogWindowQuery,
+                               historical: Bool) -> RustCoreBridge.LogQueryV2 {
+        .init(sources: sources, channelPrefixes: query.channelPrefixes, minimumLevel: nil,
+              since: historical ? query.since : nil, until: historical ? query.until : nil, search: nil,
+              limit: 10000, expression: query.expression, levels: query.levels, op: query.op, histogramBuckets: 90)
+    }
+    func queryWindowBatch(_ entries: [LogWindowBatch], query: LogWindowQuery) async throws -> RustCoreBridge.LogQueryResult {
+        try await perform { [self] token in
+            let grouped = Dictionary(grouping: entries, by: \.channel)
+            let sources = grouped.keys.sorted().map { channel in
+                RustCoreBridge.LogSourceV2(relativePath: channel + ".log", text: grouped[channel]!.map(\.line).joined(separator: "\n"))
+            }
+            let result = try core.queryLogsV2(windowRequest(sources: sources, query: query, historical: false))
+            try token.check()
+            return result
+        }
+    }
+    func windowLiveSummary(_ records: [RustCoreBridge.LogQueryRecord]) async throws -> LogWindowLiveSummary {
+        try await perform { [self] token in
+            let grouped = Dictionary(grouping: records, by: \.channel)
+            let sources = grouped.keys.sorted().map { channel in
+                RustCoreBridge.LogSourceV2(relativePath: channel + ".log", text: grouped[channel]!.map(\.line).joined(separator: "\n"))
+            }
+            let result = try core.queryLogsV2(.init(sources: sources, channelPrefixes: [], minimumLevel: nil,
+                since: nil, until: nil, search: nil, limit: 1, histogramBuckets: 90))
+            try token.check()
+            let state = lock.withLock { (dropped, failures, diagnosticCategory, max(0, diagnosticUntil - diagnosticNow())) }
+            return .init(histogram: result.histogram, dropped: state.0, writeFailures: state.1,
+                diagnosticCategory: state.2, diagnosticRemaining: state.3)
+        }
+    }
+    func subscribeWindow() async throws -> AsyncStream<[LogWindowBatch]> { try await subscribe() }
+    func parseWindowFilter(_ expression: String) async throws -> RustCoreBridge.LogFilterParse {
+        try await perform { [self] _ in try core.parseLogFilter(expression) }
+    }
+    func composeWindowFilter(_ request: RustCoreBridge.LogComposeRequest) async throws -> String {
+        try await perform { [self] _ in try core.composeLogFilter(request) }
+    }
+    func formatWindowRecords(_ request: RustCoreBridge.LogFormatRequest) async throws -> String {
+        try await perform { [self] _ in try core.formatLogRecords(request) }
+    }
+    func windowEngineChannel(providerID: String) async throws -> String {
+        try await perform { [self] _ in try core.engineLogChannel(providerID: providerID) }
     }
 
     func flush(timeout: TimeInterval = 10) async throws {

@@ -11,6 +11,8 @@ import LitheLanguageIntelligenceModule
 @MainActor
 final class AppServices {
     /// Process log sink supplied by the composition root; modules receive the same instance.
+    var logWindowCoordinator: LogWindowCoordinator?
+    var logWindowLogging: (any LogWindowLogging)?
     var logSink: (any LogSink)?
     var editorSettingsImportScan: ((URL?) async throws -> [EditorSettingsImportSource])?
     func makeEditorSettingsImport(settings: AppSettings) -> EditorSettingsImportFeatureModel {

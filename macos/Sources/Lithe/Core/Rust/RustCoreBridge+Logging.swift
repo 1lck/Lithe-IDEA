@@ -27,7 +27,7 @@ extension RustCoreBridge {
         var previousEvent: LogInput? = nil
         var headers: [LogHeader] = []
     }
-    struct LogFailure: Decodable, Error, Sendable { let code: Int; let reason: String }
+    struct LogFailure: Decodable, Error, Sendable { let code: Int; let message: String }
     struct LogEncoded: Decodable, Sendable { let line: String?; let channel: String?; let error: LogFailure? }
     struct LogBatchResult: Decodable { let results: [LogEncoded]; let headers: [LogEncoded]; let sessionPath: String? }
     struct LogDomainResult<T: Decodable>: Decodable {
@@ -41,8 +41,8 @@ extension RustCoreBridge {
     }
     struct LogChannelRequest: Encodable { let channel: String; let rotationIndex: Int; let existingChannels: [String] }
     struct LogChannelResult: Decodable { let relativePath: String; let category: String; let pluginFilesPath: String? }
-    struct LogSourceV2: Encodable { let relativePath: String; let text: String; var startsMidLine = false }
-    struct LogQueryV2: Encodable {
+    struct LogSourceV2: Codable, Sendable { let relativePath: String; let text: String; var startsMidLine = false }
+    struct LogQueryV2: Codable, Sendable {
         let sources: [LogSourceV2]
         let channelPrefixes: [String]
         let minimumLevel: String?
@@ -50,17 +50,68 @@ extension RustCoreBridge {
         let until: String?
         let search: String?
         var limit = 2000
+        var expression: String? = nil
+        var levels: [String]? = nil
+        var op: String? = nil
+        var histogramBuckets: Int? = nil
     }
-    struct LogQueryRecord: Decodable {
+    struct LogQueryRecord: Codable, Sendable, Equatable {
         let line: String
+        let channel: String
+        let lineNumber: Int
+        let foldKey: String
+        let epochMs: Int64
+        let opOffsetMs: Int64?
         let relativePath: String
         let ts: String; let level: String; let seq: UInt64; let event: String
         let op: String?; let msg: String; let fields: [String: String]
     }
-    struct LogQueryResult: Decodable {
+    struct LogQueryResult: Codable, Sendable {
+        let foldMinimumRun: Int
+        let channels: [String: LogChannelCounts]
+        let histogram: LogHistogram?
+        let opSummary: LogOpSummary?
         let records: [LogQueryRecord]
         let truncated: Bool
         let skippedInvalidLines: Int
+    }
+    struct LogChannelCounts: Codable, Sendable { let total: Int; let warn: Int; let error: Int }
+    struct LogHistogram: Codable, Sendable {
+        struct Bucket: Codable, Sendable { let debug: Int; let info: Int; let warn: Int; let error: Int }
+        let startEpochMs: Int64; let endEpochMs: Int64; let bucketMs: Int64; let buckets: [Bucket]
+    }
+    struct LogOpSummary: Codable, Sendable {
+        let op: String; let count: Int; let firstEpochMs: Int64; let lastEpochMs: Int64; let durationMs: Int64
+    }
+    struct LogFilterTerm: Codable, Sendable {
+        let kind: String; var key: String? = nil; let value: String; var negate = false
+        var start: Int? = nil; var end: Int? = nil
+    }
+    struct LogFilterDiagnostic: Codable, Sendable { let start: Int; let end: Int; let code: String; let message: String }
+    struct LogFilterParse: Codable, Sendable { let terms: [LogFilterTerm]; let errors: [LogFilterDiagnostic] }
+    struct LogFilterRequest: Codable, Sendable { let expression: String }
+    struct LogComposeRequest: Codable, Sendable { let expression: String; let term: LogFilterTerm }
+    struct LogExpression: Codable, Sendable { let expression: String }
+    struct LogEnvironment: Codable, Sendable {
+        let appVersion: String; let osVersion: String; let architecture: String; let plugins: [String]
+    }
+    struct LogFormatRequest: Codable, Sendable { let lines: [String]; let format: String; let environment: LogEnvironment? }
+    struct LogFormatted: Codable, Sendable { let text: String }
+    func parseLogFilter(_ expression: String) throws -> LogFilterParse {
+        try executeResult(command: "diagnostics.parseLogFilter", payload: LogFilterRequest(expression: expression)).get()
+    }
+    func composeLogFilter(_ request: LogComposeRequest) throws -> String {
+        let response: LogDomainResult<LogExpression> = try executeResult(command: "diagnostics.composeLogFilter", payload: request).get()
+        return try response.get().expression
+    }
+    func formatLogRecords(_ request: LogFormatRequest) throws -> String {
+        let response: LogDomainResult<LogFormatted> = try executeResult(command: "diagnostics.formatLogRecords", payload: request).get()
+        return try response.get().text
+    }
+    func engineLogChannel(providerID: String) throws -> String {
+        let response: EngineLogSubject = try executeResult(command: "diagnostics.resolveEngineLogSubject",
+            payload: EngineLogSubjectRequest(providerId: providerID)).get()
+        return response.channel
     }
     struct LogRetentionFile: Encodable { let relativePath: String; let sizeBytes: Int; let modifiedAt: String }
     struct LogRetentionSession: Encodable { let name: String; let files: [LogRetentionFile] }

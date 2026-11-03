@@ -93446,39 +93446,6 @@
       }
     },
     {
-      "id": "native.lspLogsTitle",
-      "description": "Native LSP status and log viewer",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "LSP Logs",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.lspServerLogs",
-      "description": "Native LSP status and log viewer",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Server Logs",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.lspAvailableLogChannels",
-      "description": "Native LSP status and log viewer",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Shows session events and server output. Server Trace and RPC message capture are not available.",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.clearLogView",
       "description": "Native LSP status and log viewer",
       "platforms": [
@@ -93486,28 +93453,6 @@
       ],
       "macos": {
         "key": "Clear View",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.lspClearViewHint",
-      "description": "Native LSP status and log viewer",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Clear only the selected server's visible logs. Collected diagnostic logs are kept.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.noMatchingLanguageServerLogs",
-      "description": "Native LSP status and log viewer",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "No matching language server logs",
         "arguments": []
       }
     },
@@ -95716,6 +95661,827 @@
       },
       "parameters": {
         "arg1": "integer"
+      }
+    },
+    {
+      "id": "logs.window.logs",
+      "description": "macOS log window: Logs…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Logs…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.openTheApplicationLogWindow",
+      "description": "macOS log window: Open the application log window",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Open the application log window",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.filterServerJdtlsLevelWarnEventLspTraceReceivedRegexOpC0ffee",
+      "description": "macOS log window: Filter: server:jdtls  level>=warn  -event:lsp.trace.received  /regex/  op:c0ffee",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Filter: server:jdtls  level>=warn  -event:lsp.trace.received  /regex/  op:c0ffee",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.sessionCurrent",
+      "description": "macOS log window: Session: current",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Session: current",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.sessionPrevious",
+      "description": "macOS log window: Session: previous",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Session: previous",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.sessionAll",
+      "description": "macOS log window: Session: all",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Session: all",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.following",
+      "description": "macOS log window: Following",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Following",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.collapseRepeats",
+      "description": "macOS log window: Collapse repeats",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Collapse repeats",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.absoluteTime",
+      "description": "macOS log window: Absolute time",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Absolute time",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.previous",
+      "description": "macOS log window: Δ previous",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Δ previous",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.selected",
+      "description": "macOS log window: Δ selected",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Δ selected",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.clearView",
+      "description": "macOS log window: Clear view",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Clear view",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.columns",
+      "description": "macOS log window: Columns",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Columns",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.time",
+      "description": "macOS log window: Time",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Time",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.level",
+      "description": "macOS log window: Level",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Level",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.channel",
+      "description": "macOS log window: Channel",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Channel",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.event",
+      "description": "macOS log window: Event",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Event",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.message",
+      "description": "macOS log window: Message",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Message",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.fields",
+      "description": "macOS log window: Fields",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Fields",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.eventsOverTime",
+      "description": "macOS log window: Events over time",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Events over time",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.clickToJumpDragForTimeRange",
+      "description": "macOS log window: Click to jump · drag for time range",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Click to jump · drag for time range",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.clearTimeRange",
+      "description": "macOS log window: Clear time range",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Clear time range",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.copyAsJSON",
+      "description": "macOS log window: Copy as JSON",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Copy as JSON",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.copyAsMarkdown",
+      "description": "macOS log window: Copy as Markdown",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Copy as Markdown",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.filterChannel",
+      "description": "macOS log window: Filter channel",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Filter channel",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.traceOperation",
+      "description": "macOS log window: Trace operation",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Trace operation",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.export",
+      "description": "macOS log window: Export",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Export",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.pausedScrolledUp",
+      "description": "macOS log window: Paused (scrolled up)",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Paused (scrolled up)",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.noMatchesTryAnotherLevelOrChannel",
+      "description": "macOS log window: No matches — try another level or channel",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No matches — try another level or channel",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.viewClearedFilesOnDiskAreUntouchedNewRecordsWillAppearHere",
+      "description": "macOS log window: View cleared — files on disk are untouched; new records will appear here",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "View cleared — files on disk are untouched; new records will appear here",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.verboseDiagnosticsOn",
+      "description": "macOS log window: Verbose diagnostics on",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Verbose diagnostics on",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.allChannels",
+      "description": "macOS log window: All channels",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "All channels",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.clickToSelectSeveral",
+      "description": "macOS log window: ⌘-click to select several",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "⌘-click to select several",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.detail",
+      "description": "macOS log window: Detail",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Detail",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.callChain",
+      "description": "macOS log window: Call chain",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Call chain",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.thisRecordHasNoOpId",
+      "description": "macOS log window: This record has no op id",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This record has no op id",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.redactedValuesWereMaskedByCoreTheWindowAndExportsNeverShowTheOriginal",
+      "description": "macOS log window: ‹redacted› values were masked by Core; the window and exports never show the original",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "‹redacted› values were masked by Core; the window and exports never show the original",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.savedFilters",
+      "description": "macOS log window: Saved filters",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Saved filters",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.saveCurrentFilter",
+      "description": "macOS log window: Save current filter…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Save current filter…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.nameForThisFilter",
+      "description": "macOS log window: Name for this filter",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Name for this filter",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.noSavedFilters",
+      "description": "macOS log window: No saved filters",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No saved filters",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.copyLine",
+      "description": "macOS log window: Copy line",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Copy line",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.copySelectionAsMarkdown",
+      "description": "macOS log window: Copy selection as Markdown",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Copy selection as Markdown",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.showOnlyThisEvent",
+      "description": "macOS log window: Show only this event",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Show only this event",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.hideThisEvent",
+      "description": "macOS log window: Hide this event",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Hide this event",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.showOnlyThisChannel",
+      "description": "macOS log window: Show only this channel",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Show only this channel",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.traceThisOperation",
+      "description": "macOS log window: Trace this operation",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Trace this operation",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.copyFieldValue",
+      "description": "macOS log window: Copy field value",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Copy field value",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.clearOnlyTheDisplayLogFilesAreKept",
+      "description": "macOS log window: Clear only the display; log files are kept",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Clear only the display; log files are kept",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.unreadErrors",
+      "description": "macOS log window: Unread errors",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Unread errors",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.couldNotLoadLogsTryAgain",
+      "description": "macOS log window: Could not load logs. Try again.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not load logs. Try again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.repeatedLldTimesLast",
+      "description": "macOS log window: Repeated {n} times · last {t}",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "n": "integer",
+        "t": "string"
+      },
+      "macos": {
+        "key": "Repeated %lld times · last %@",
+        "arguments": [
+          "n",
+          "t"
+        ]
+      }
+    },
+    {
+      "id": "logs.window.filterErrorAtLldLld",
+      "description": "macOS log window: Filter error at {start}–{end}: {reason}",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "start": "integer",
+        "end": "integer",
+        "reason": "string"
+      },
+      "macos": {
+        "key": "Filter error at %lld–%lld: %@",
+        "arguments": [
+          "start",
+          "end",
+          "reason"
+        ]
+      }
+    },
+    {
+      "id": "logs.window.lldNewLogsJumpToLatest",
+      "description": "macOS log window: ↓ {n} new logs, jump to latest",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "n": "integer"
+      },
+      "macos": {
+        "key": "↓ %lld new logs, jump to latest",
+        "arguments": [
+          "n"
+        ]
+      }
+    },
+    {
+      "id": "logs.window.category",
+      "description": "macOS log window: Category: {category}",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "category": "string"
+      },
+      "macos": {
+        "key": "Category: %@",
+        "arguments": [
+          "category"
+        ]
+      }
+    },
+    {
+      "id": "logs.window.autoOffIn",
+      "description": "macOS log window: Auto-off in {remaining}",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "remaining": "string"
+      },
+      "macos": {
+        "key": "Auto-off in %@",
+        "arguments": [
+          "remaining"
+        ]
+      }
+    },
+    {
+      "id": "logs.window.opLldRecords",
+      "description": "macOS log window: Op {op} · {n} records · {ms}",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "op": "string",
+        "n": "integer",
+        "ms": "string"
+      },
+      "macos": {
+        "key": "Op %@ · %lld records · %@",
+        "arguments": [
+          "op",
+          "n",
+          "ms"
+        ]
+      }
+    },
+    {
+      "id": "logs.window.lldRowsLldSelected",
+      "description": "macOS log window: {n} rows · {selected} selected",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "n": "integer",
+        "selected": "integer"
+      },
+      "macos": {
+        "key": "%lld rows · %lld selected",
+        "arguments": [
+          "n",
+          "selected"
+        ]
+      }
+    },
+    {
+      "id": "logs.window.droppedLld",
+      "description": "macOS log window: Dropped {n}",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "n": "integer"
+      },
+      "macos": {
+        "key": "Dropped %lld",
+        "arguments": [
+          "n"
+        ]
+      }
+    },
+    {
+      "id": "logs.window.writeFailuresLld",
+      "description": "macOS log window: Write failures {n}",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "n": "integer"
+      },
+      "macos": {
+        "key": "Write failures %lld",
+        "arguments": [
+          "n"
+        ]
+      }
+    },
+    {
+      "id": "logs.filter.expressionTooLong",
+      "description": "Log filter validation: expressionTooLong",
+      "platforms": [
+        "macos"
+      ]
+    },
+    {
+      "id": "logs.filter.regexTooLong",
+      "description": "Log filter validation: regexTooLong",
+      "platforms": [
+        "macos"
+      ]
+    },
+    {
+      "id": "logs.filter.invalidRegex",
+      "description": "Log filter validation: invalidRegex",
+      "platforms": [
+        "macos"
+      ]
+    },
+    {
+      "id": "logs.filter.invalidLevel",
+      "description": "Log filter validation: invalidLevel",
+      "platforms": [
+        "macos"
+      ]
+    },
+    {
+      "id": "logs.filter.emptyValue",
+      "description": "Log filter validation: emptyValue",
+      "platforms": [
+        "macos"
+      ]
+    },
+    {
+      "id": "logs.filter.unterminatedRegex",
+      "description": "Log filter validation: unterminatedRegex",
+      "platforms": [
+        "macos"
+      ]
+    },
+    {
+      "id": "logs.filter.unterminatedQuote",
+      "description": "Log filter validation: unterminatedQuote",
+      "platforms": [
+        "macos"
+      ]
+    },
+    {
+      "id": "logs.filter.invalidEscape",
+      "description": "Log filter validation: invalidEscape",
+      "platforms": [
+        "macos"
+      ]
+    },
+    {
+      "id": "logs.filter.invalidOperator",
+      "description": "Log filter validation: invalidOperator",
+      "platforms": [
+        "macos"
+      ]
+    },
+    {
+      "id": "logs.filter.invalidQuote",
+      "description": "Log filter validation: invalidQuote",
+      "platforms": [
+        "macos"
+      ]
+    },
+    {
+      "id": "logs.window.exportAccessibility",
+      "description": "Log window control label",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {},
+      "macos": {
+        "key": "Export diagnostic logs",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.histogramTooltip",
+      "description": "Log window control label",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "time": "string",
+        "error": "integer",
+        "warn": "integer",
+        "other": "integer"
+      },
+      "macos": {
+        "key": "%@ · ERROR %lld · WARN %lld · other %lld",
+        "arguments": [
+          "time",
+          "error",
+          "warn",
+          "other"
+        ]
       }
     }
   ]

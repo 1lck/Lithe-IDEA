@@ -487,6 +487,8 @@ struct LitheApp: App {
     @StateObject private var memoryUsageMonitor: MemoryUsageMonitor
     @StateObject private var frameRateMonitor = FrameRateMonitor()
     @StateObject private var updateChecker: UpdateChecker
+    @StateObject private var logWindowCoordinator: LogWindowCoordinator
+    @StateObject private var logWindowModel: LogWindowModel
     private let applicationLogWriter: MacLogStore
 
     init() {
@@ -514,6 +516,7 @@ struct LitheApp: App {
                 proxyPolicyBridge.networkProxyPolicy(from: configuration)
             }
         )
+        let logWindowCoordinator = LogWindowCoordinator()
         let applicationLogWriter = MacServiceContainer.makeApplicationLogWriter { [weak settings] in
             Task { @MainActor [weak settings] in settings?.setCustomLogDirectory(nil) }
         }
@@ -529,6 +532,18 @@ struct LitheApp: App {
             }
         }
         self.applicationLogWriter = applicationLogWriter
+        _logWindowCoordinator = StateObject(wrappedValue: logWindowCoordinator)
+        settings.logWindowSink = applicationLogWriter
+        let logWindowModel = LogWindowModel(logging: applicationLogWriter, preferences: settings.logWindowPreferences,
+            sink: applicationLogWriter, save: { [weak settings] in settings?.logWindowPreferences = $0 })
+        #if arch(arm64)
+        let architecture = "arm64"
+        #else
+        let architecture = "x86_64"
+        #endif
+        logWindowModel.environment = .init(appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "",
+            osVersion: ProcessInfo.processInfo.operatingSystemVersionString, architecture: architecture, plugins: [])
+        _logWindowModel = StateObject(wrappedValue: logWindowModel)
         applicationLogWriter.emit(AppSessionStarted())
         if let error = SyntaxHighlightingRegistry.loadError { applicationLogWriter.emit(EditorSyntaxConfigurationFailed(error: error, kind: "formats")) }
         if let error = SyntaxHighlightingColorConfiguration.loadError { applicationLogWriter.emit(EditorSyntaxConfigurationFailed(error: error, kind: "colors")) }
@@ -544,9 +559,7 @@ struct LitheApp: App {
         let projectSessions = ProjectSessionManager(
             settings: settings,
             modelFactory: {
-                AppCompositionBuilder.makeModel(
-                    settings: settings,
-                    services: MacServiceContainer(
+                let services = MacServiceContainer(
                         store: store,
                         settings: settings,
                         processRegistry: processRegistry,
@@ -558,7 +571,11 @@ struct LitheApp: App {
                         applicationLogging: applicationLogWriter,
                         networkSessionProvider: networkSessionProvider
                     ).services
-                )
+                services.logWindowCoordinator = logWindowCoordinator
+                logWindowModel.environment = .init(appVersion: logWindowModel.environment.appVersion,
+                    osVersion: logWindowModel.environment.osVersion, architecture: logWindowModel.environment.architecture,
+                    plugins: services.pluginManager.snapshots.filter { $0.isEnabled }.map(\.id.rawValue))
+                return AppCompositionBuilder.makeModel(settings: settings, services: services)
             },
             projectWindowPresenter: { [weak projectWindowLauncher] windowID in
                 projectWindowLauncher?.present(windowID)
@@ -675,6 +692,10 @@ struct LitheApp: App {
         )
         .windowStyle(.hiddenTitleBar)
         .commands {
+            CommandGroup(after: .windowList) {
+                Button("Logs") { logWindowCoordinator.open() }
+                    .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "show-logs"))
+            }
             CommandGroup(replacing: .newItem) {
                 Button("Open Project…") {
                     model.chooseProject()
@@ -864,6 +885,16 @@ struct LitheApp: App {
             height: LitheWindowLayout.workspaceContentSize.height
         )
         .windowStyle(.hiddenTitleBar)
+
+        Window(L10n.string("Logs"), id: LitheWindowID.logs) {
+            LogWindowView(model: logWindowModel, coordinator: logWindowCoordinator)
+                .environmentObject(settings)
+                .environment(\.locale, settings.language.locale)
+                .preferredColorScheme(settings.themePreference.preferredColorScheme)
+                .id(settings.language)
+        }
+        .defaultSize(width: 1200, height: 760)
+        .windowResizability(.contentMinSize)
 
         Window(settingsWindowTitle(for: settings.language), id: LitheWindowID.settings) {
             SettingsWindowHost(projectSessions: projectSessions, settings: settings)

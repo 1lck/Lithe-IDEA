@@ -66,6 +66,7 @@
 "%@ · %@ / %@ context used" = "%@ · %@ / %@ 上下文已使用";
 "%@ · %@ used" = "%@ · 已用 %@";
 "%@ · %lld of %lld steps processed" = "%@ · 已处理 %lld / %lld 步";
+"%@ · ERROR %lld · WARN %lld · other %lld" = "%@ · ERROR %lld · WARN %lld · 其它 %lld";
 "%@ ↔ Working Tree" = "%@ ↔ 工作区";
 "%@, %@" = "%@，%@";
 "%@, Line %lld, %@" = "%@，第 %lld 行，%@";
@@ -113,6 +114,7 @@
 "%lld results" = "%lld 个结果";
 "%lld routes" = "%lld 条路由";
 "%lld rows" = "%lld 行";
+"%lld rows · %lld selected" = "%lld 条 · 已选 %lld";
 "%lld running" = "%lld 个运行中";
 "%lld s" = "%lld 秒";
 "%lld selected" = "已勾选 %lld 项";
@@ -217,6 +219,7 @@
 "Abort this rebase and restore its original branch?" = "中止此次变基并恢复原分支？";
 "Abort…" = "中止…";
 "Absolute" = "绝对行号";
+"Absolute time" = "绝对时间";
 "Accept" = "接受";
 "Accept edits" = "接受编辑";
 "Accepts all permissions" = "跳过常规权限审批，仍受环境和管理策略限制。";
@@ -313,6 +316,7 @@
 "All References" = "所有引用";
 "All Repositories" = "全部仓库";
 "All Users" = "所有用户";
+"All channels" = "全部通道";
 "All completed" = "全部完成";
 "All configurations" = "全部配置";
 "All conflicts resolved. Continue to finish, or abort to undo." = "冲突已全部解决。继续以完成操作，或中止以撤销。";
@@ -438,6 +442,7 @@
 "Auto" = "自动";
 "Auto-compact at" = "自动压缩阈值";
 "Auto-compact must not be larger than the context length." = "自动压缩阈值不能大于上下文长度。";
+"Auto-off in %@" = "自动关闭倒计时 %@";
 "AutoBuild Rolling" = "AutoBuild 滚动版";
 "AutoBuild Update" = "AutoBuild 更新";
 "AutoBuild is rebuilt nightly and may contain unfinished features, serious bugs, or other problems. Stable releases are recommended for most users." = "AutoBuild 每晚滚动构建，可能包含未完成的功能、严重缺陷或其他异常，普通用户建议使用正式版。";
@@ -543,6 +548,7 @@
 "Cache write" = "缓存写入";
 "Cache write tokens: %@" = "缓存写入 token：%@";
 "Call Stack" = "调用栈";
+"Call chain" = "调用链";
 "Camera and microphone in use" = "摄像头和麦克风使用中";
 "Camera in use" = "摄像头使用中";
 "Cancel" = "取消";
@@ -562,6 +568,7 @@
 "Cannot locate the Agent user directory." = "无法定位 Agent 的用户目录。";
 "Cannot use %@; using the project JDK instead." = "无法使用 %@，已改用项目 JDK。";
 "Category" = "分类";
+"Category: %@" = "类别：%@";
 "Change the values stored in the selected scope. Choose Inherit to remove an override." = "修改所选范围中保存的值。选择“继承”即可移除覆盖。";
 "Change workbench background" = "更换工作台背景";
 "ChangeList" = "更改列表";
@@ -580,6 +587,7 @@
 "Changes were saved, but Lithe could not reload them: %@" = "更改已保存，但 Lithe 无法重新加载它们：%@";
 "Changing channels requires a full installation and may install an older version. On its first launch, Lithe-Dev copies Stable settings and workspaces if it has no user data. The apps then save settings and caches separately. Some accounts may need sign-in again. Your project files stay in their current locations." = "切换渠道需要全量安装，可能安装较旧的版本。Lithe-Dev 首次启动且没有自己的用户数据时，会自动复制正式版的设置和工作区，之后两版分别保存设置和缓存。部分账号可能需要重新登录。项目文件仍保留在原位置。";
 "Changing channels requires a full installation and may install an older version. Open the selected release page to download its installer. Your channel selection is saved for future updates." = "切换渠道需要全量安装，可能安装较旧的版本。请打开所选渠道的发布页下载安装包。渠道选择已保存，用于后续更新。";
+"Channel" = "通道";
 "Chapter: %@" = "章节：%@";
 "Chat Completions" = "Chat Completions";
 "Chat History" = "对话历史";
@@ -723,7 +731,7 @@
 "Clear date filter" = "清除日期筛选";
 "Clear debug output" = "清除调试输出";
 "Clear log search" = "清除日志搜索";
-"Clear only the selected server's visible logs. Collected diagnostic logs are kept." = "仅清空所选服务器的可见日志，保留已采集的诊断日志。";
+"Clear only the display; log files are kept" = "只清空显示，保留磁盘上的日志文件";
 "Clear path filter" = "清除路径筛选";
 "Clear run output" = "清除运行输出";
 "Clear search" = "清除搜索";
@@ -732,10 +740,13 @@
 "Clear the current project's Java index and rebuild it on next use" = "清除当前项目的 Java 索引，并在下次使用时重建";
 "Clear the override and inherit" = "清除覆盖并恢复继承";
 "Clear this project's local history?" = "清空此项目的本地历史？";
+"Clear time range" = "清除时间范围";
 "Clear user filter" = "清除用户筛选";
+"Clear view" = "清空显示";
 "Clearing…" = "正在清空…";
 "Click the editor gutter to add a breakpoint" = "点击编辑器左侧行号区域添加断点";
 "Click the folded options to expand; right-click for command details." = "点击折叠参数可展开；右键查看命令详情。";
+"Click to jump · drag for time range" = "点击跳转 · 拖动框选时间";
 "Client: %@" = "客户端：%@";
 "Cline, Cursor, Kilo, Mistral, and more with ACP technology" = "Cline、Cursor、Kilo、Mistral，以及更多采用 ACP 技术的 Agent";
 "Clojure Support" = "Clojure 支持";
@@ -809,6 +820,7 @@
 "Collapse long graph edges" = "收束长连线";
 "Collapse matching stack frames" = "折叠匹配的栈帧";
 "Collapse notification" = "收起通知";
+"Collapse repeats" = "折叠重复";
 "Collapse repository" = "折叠仓库";
 "Collapse section" = "折叠分组";
 "Collapse unchanged fragments" = "折叠未更改的片段";
@@ -817,6 +829,7 @@
 "Color theme" = "配色主题";
 "Colorize bracket pairs" = "彩色配对括号";
 "Column-based wrapping is not supported and was skipped." = "不支持按指定列数换行，已跳过。";
+"Columns" = "列";
 "Combine the messages when the rebase runs, including changes made at earlier Edit stops" = "变基执行时合并消息，包含此前暂停修订时更新的消息";
 "Combined commit message" = "合并后的提交消息";
 "Combines the pull request into one commit on the base branch." = "将拉取请求压缩为目标分支上的一个提交。";
@@ -991,16 +1004,21 @@
 "Copy Thread Name" = "复制线程名";
 "Copy Value" = "复制值";
 "Copy agent configuration" = "复制 Agent 配置";
+"Copy as JSON" = "复制为 JSON";
+"Copy as Markdown" = "复制为 Markdown";
 "Copy code" = "复制代码";
 "Copy command" = "复制命令";
 "Copy complete command" = "复制完整命令";
 "Copy complete console" = "复制完整控制台";
 "Copy complete output" = "复制完整输出";
+"Copy field value" = "复制字段值";
+"Copy line" = "复制这一行";
 "Copy message" = "复制消息";
 "Copy output" = "复制输出";
 "Copy path" = "复制路径";
 "Copy reply" = "复制回复";
 "Copy repository path" = "复制仓库路径";
+"Copy selection as Markdown" = "把选中行复制为 Markdown";
 "Copy session ID" = "复制会话 ID";
 "Copy table" = "复制表格";
 "Copy worktree path" = "复制工作树路径";
@@ -1025,6 +1043,7 @@
 "Could not load changed files" = "无法加载更改的文件";
 "Could not load dependencies" = "无法加载依赖";
 "Could not load file preview" = "无法加载文件预览";
+"Could not load logs. Try again." = "无法读取日志，请重试。";
 "Could not load older commits. Refresh history" = "无法加载更早的提交，点击刷新历史";
 "Could not load project" = "无法加载项目";
 "Could not load saved changes" = "无法加载已保存的更改";
@@ -1207,6 +1226,7 @@
 "Deselect all" = "取消全选";
 "Destination folder" = "目标文件夹";
 "Detached HEAD" = "分离 HEAD";
+"Detail" = "详情";
 "Detailed" = "详细";
 "Detailed diagnostics" = "详细诊断";
 "Detailed diagnostics cover the selected module and expire after 15 minutes. Refresh to see the current status." = "详细诊断仅覆盖所选模块，15 分钟后自动关闭。刷新可查看当前状态。";
@@ -1327,6 +1347,7 @@
 "Drop Stash" = "丢弃 Stash";
 "Drop files here" = "拖放文件到这里";
 "Drop this shelf?" = "丢弃此 Shelf 吗？";
+"Dropped %lld" = "已丢弃 %lld";
 "Dropped: %lld; write failures: %lld" = "已丢弃：%lld；写入失败：%lld";
 "Duplicate" = "复制";
 "Duration: %lld ms" = "耗时：%lld 毫秒";
@@ -1473,6 +1494,8 @@
 "Evaluate expression" = "计算表达式";
 "Evaluate expression while paused" = "暂停时计算表达式";
 "Evaluating…" = "正在计算…";
+"Event" = "事件";
+"Events over time" = "事件分布";
 "Every saved version of this project's files is deleted. Open files are not changed." = "此项目文件的所有已保存版本都会被删除，已打开的文件不受影响。";
 "Example" = "示例";
 "Exception" = "异常";
@@ -1504,10 +1527,12 @@
 "Expanded" = "已展开";
 "Explain the intent, testing, and anything reviewers should know…" = "说明更改目的、测试情况，以及审查者需要了解的内容…";
 "Explain what must change before this pull request can be approved." = "说明在批准此拉取请求之前必须修改的内容。";
+"Export" = "导出";
 "Export Diagnostics Bundle" = "导出诊断包";
 "Export Diagnostics Bundle…" = "导出诊断包…";
 "Export as PDF…" = "导出为 PDF…";
 "Export conversations" = "导出会话";
+"Export diagnostic logs" = "导出诊断日志";
 "Export logs" = "导出日志";
 "Exported environment" = "导出环境变量";
 "Exporting conversations…" = "正在导出会话…";
@@ -1564,6 +1589,7 @@
 "Fetched Git remotes" = "已获取 Git 远程仓库";
 "Field Breakpoint" = "字段断点";
 "Field Breakpoints" = "字段断点";
+"Fields" = "字段";
 "File %lld of %lld" = "第 %lld 个文件，共 %lld 个";
 "File changed. Run Preview again to refresh results." = "文件已更改。请再次运行预览以刷新结果。";
 "File context" = "文件上下文";
@@ -1585,10 +1611,13 @@
 "Files will stay unchanged. Nothing will be staged or committed automatically." = "文件内容保持不变，不会自动暂存或提交。";
 "Filter by changed path" = "按更改路径筛选";
 "Filter by title, author, or label" = "按标题、作者或标签筛选";
+"Filter channel" = "只看此通道";
+"Filter error at %lld–%lld: %@" = "过滤错误，位置 %lld–%lld：%@";
 "Filter log messages" = "筛选日志内容";
 "Filter problems by severity" = "按严重级别筛选问题";
 "Filter results" = "筛选结果";
 "Filter route, controller, or method" = "筛选路由、控制器或方法";
+"Filter: server:jdtls  level>=warn  -event:lsp.trace.received  /regex/  op:c0ffee" = "过滤：server:jdtls  level>=warn  -event:lsp.trace.received  /正则/  op:c0ffee";
 "Find" = "查找";
 "Find Branch" = "查找分支";
 "Find Next" = "查找下一个";
@@ -1624,6 +1653,7 @@
 "Follow system proxy" = "跟随系统代理";
 "Follow system uses the proxies configured in macOS network settings. No proxy contacts every host directly. Custom routes requests through the server configured below." = "「跟随系统」使用 macOS 网络设置中配置的代理；「不走代理」直接连接所有主机；「自定义」经由下方配置的代理服务器转发请求。";
 "Follow the instructions you define below" = "遵循你在下方定义的指令";
+"Following" = "跟随中";
 "Follows each remote's tag setting" = "按各远程的标签设置";
 "Font" = "字体";
 "Font ligatures" = "字体连字";
@@ -1790,6 +1820,7 @@
 "Hide configuration list" = "收起运行配置列表";
 "Hide plan" = "收起计划";
 "Hide thinking" = "收起思考";
+"Hide this event" = "隐藏这个事件";
 "Hide tool details" = "收起工具详情";
 "Hide visualization" = "隐藏可视化";
 "Hide worktree repositories" = "隐藏工作树仓库";
@@ -2030,7 +2061,6 @@
 "Korean characters" = "韩文字符";
 "Kotlin Support" = "Kotlin 支持";
 "LSP" = "LSP";
-"LSP Logs" = "LSP 日志";
 "Labels" = "标签";
 "Labels and assignees" = "标签和负责人";
 "Language" = "语言";
@@ -2079,6 +2109,7 @@
 "Leave empty when the proxy does not require authentication. The password is stored in the Keychain, never in settings files." = "代理无需认证时留空。密码保存在钥匙串中，不会写入设置文件。";
 "Legacy SSE probing is unavailable. Use the publisher's Streamable HTTP endpoint." = "暂不支持检测旧式 SSE 连接，请使用发布者提供的 Streamable HTTP 地址。";
 "Let connected agents inspect and control this project." = "允许连接的 Agent 查看和控制此项目。";
+"Level" = "级别";
 "Library" = "资源库";
 "License" = "许可证";
 "Lifecycle" = "生命周期";
@@ -2222,6 +2253,7 @@
 "Login shell" = "登录 Shell";
 "Logs" = "日志";
 "Logs and Diagnostics" = "日志与诊断";
+"Logs…" = "日志…";
 "Look Up Again" = "重新查询";
 "Look Up Location" = "查询地区";
 "Looked in: %@" = "已查找：%@";
@@ -2323,6 +2355,7 @@
 "Merge pull request?" = "合并拉取请求？";
 "Merged" = "已合并";
 "Merging pull request…" = "正在合并拉取请求…";
+"Message" = "消息";
 "Message (optional)" = "说明（可选）";
 "Message the Agent" = "向 Agent 发送消息";
 "Messages" = "对话消息";
@@ -2395,6 +2428,7 @@
 "Name" = "名称";
 "Name and email are written to the global Git configuration. Existing commits do not change." = "姓名和邮箱写入全局 Git 配置，已有提交不会改变。";
 "Name and email are written to this repository's Git configuration and override the global values. Existing commits do not change." = "姓名和邮箱写入当前仓库的 Git 配置并覆盖全局值，已有提交不会改变。";
+"Name for this filter" = "给这个过滤起个名字";
 "Name:" = "名称：";
 "Native installer" = "原生安装器";
 "Native instruction file" = "原生指令文件";
@@ -2542,6 +2576,7 @@
 "No matches in Files" = "文件中没有匹配项";
 "No matches in Symbols" = "符号中没有匹配项";
 "No matches in Text" = "文本中没有匹配项";
+"No matches — try another level or channel" = "没有匹配的记录，换个级别或通道试试";
 "No matching Hooks." = "没有匹配的 Hook。";
 "No matching MCP servers" = "没有匹配的 MCP 服务器";
 "No matching branches" = "没有匹配的分支";
@@ -2550,7 +2585,6 @@
 "No matching commits in the loaded history." = "已加载的历史中没有匹配的提交。";
 "No matching conversations" = "没有匹配的会话";
 "No matching items" = "没有匹配项";
-"No matching language server logs" = "没有匹配的语言服务器日志";
 "No matching logs" = "没有匹配的日志";
 "No matching messages" = "没有匹配的消息";
 "No matching plugins" = "没有匹配的插件";
@@ -2593,6 +2627,7 @@
 "No runnable services were detected in this project." = "未在此项目中检测到可运行的服务。";
 "No running debug process accepts standard input" = "没有正在运行且接受标准输入的调试进程";
 "No saved changes" = "没有已保存的更改";
+"No saved filters" = "还没有书签";
 "No selectable items" = "没有可选项";
 "No settings found" = "未找到设置";
 "No settings to import yet" = "暂时没有可导入的设置";
@@ -2711,6 +2746,7 @@
 "Only the first %lld installations of a tool were checked." = "每个工具只检查了前 %lld 个安装。";
 "Only the most recent archived conversations are shown." = "仅显示最近的归档会话。";
 "Only the reported Agent edits will be reversed. Conflicting changes and unsaved editor changes will be preserved." = "仅回撤 Agent 上报的修改；有冲突或未保存编辑的文件会保留。";
+"Op %@ · %lld records · %@" = "操作 %@ · %lld 条 · 共 %@";
 "Open" = "打开";
 "Open %@" = "打开 %@";
 "Open AI & Commit settings" = "打开“AI 与提交”设置";
@@ -2786,6 +2822,7 @@
 "Open remote" = "打开远程仓库";
 "Open service in browser" = "在浏览器中打开服务";
 "Open the Markdown file inside a workspace before pasting an image" = "请先打开工作区内的 Markdown 文件，再粘贴图片";
+"Open the application log window" = "打开应用日志窗口";
 "Open the target file directly. Symbolic-link editing is not supported by this file adapter." = "请直接打开目标文件。当前文件适配器暂不支持编辑符号链接。";
 "Open to inspect" = "打开后检查";
 "Opening it moves the conversation out of %@'s archive and back into its history. Browsing archived conversations never changes them." = "打开后，该会话会从 %@ 的归档中移回历史记录。仅浏览归档会话不会改动它们。";
@@ -2849,6 +2886,7 @@
 "Pause the process to inspect variables" = "暂停程序以查看变量";
 "Pause the program to run debugger commands" = "先暂停程序，再运行调试器命令";
 "Paused" = "已暂停";
+"Paused (scrolled up)" = "已暂停（向上滚动）";
 "Peak this run" = "本次运行峰值";
 "Peak total" = "峰值总计";
 "Pending" = "等待执行";
@@ -3250,6 +3288,7 @@
 "Repair or prune the missing checkout before changing its lock." = "请先修复或清理路径缺失的工作树，再更改锁定状态。";
 "Repaired worktree records" = "已修复工作树记录";
 "Repeated %lld times" = "重复 %lld 次";
+"Repeated %lld times · last %@" = "重复 %lld 次 · 末次 %@";
 "Replace" = "替换";
 "Replace All" = "全部替换";
 "Replace all matches (Shift+Return)" = "替换所有匹配项（Shift+Return）";
@@ -3488,6 +3527,7 @@
 "Save after" = "保存延迟";
 "Save as Independent File" = "保存为独立文件";
 "Save changed files automatically" = "自动保存已修改的文件";
+"Save current filter…" = "保存当前过滤…";
 "Save each field separately. Switching scope reloads the saved values." = "每个字段单独保存。切换范围时会重新加载已保存的值。";
 "Save instructions" = "保存指令";
 "Save local changes with" = "本地更改保存方式";
@@ -3501,6 +3541,7 @@
 "Saved" = "已保存";
 "Saved breakpoints could not be read." = "无法读取已保存的断点。";
 "Saved debugger stepping filters could not be read." = "无法读取已保存的调试器步进过滤器。";
+"Saved filters" = "书签";
 "Saved in .lithe/run/configurations.json for the whole team. Local JDK paths are never shared." = "保存在 .lithe/run/configurations.json，供整个团队使用。本机 JDK 路径不会共享。";
 "Saved in .lithe/run/local.json and excluded from Git." = "保存在 .lithe/run/local.json，并已从 Git 中排除。";
 "Saved in Keychain" = "已保存在钥匙串中";
@@ -3611,7 +3652,6 @@
 "Sensitive files are not sent to an AI provider." = "敏感文件不会发送给 AI 服务商。";
 "Separate arguments with spaces; quote an argument that contains spaces." = "参数之间用空格分隔；包含空格的参数请加引号。";
 "Server" = "服务器";
-"Server Logs" = "服务器日志";
 "Server URL" = "服务器 URL";
 "Server address" = "服务器地址";
 "Server default" = "服务器默认";
@@ -3620,6 +3660,9 @@
 "Services" = "服务";
 "Session" = "会话";
 "Session statistics" = "会话统计";
+"Session: all" = "会话：全部";
+"Session: current" = "会话：本次";
+"Session: previous" = "会话：上次";
 "Sessions" = "会话";
 "Set" = "设置";
 "Set Instruction Breakpoint" = "设置指令断点";
@@ -3708,6 +3751,8 @@
 "Show long graph edges" = "显示完整长连线";
 "Show minimap" = "显示代码缩略图";
 "Show more" = "显示更多";
+"Show only this channel" = "只看这个通道";
+"Show only this event" = "只看这个事件";
 "Show or hide Git history" = "显示或隐藏 Git 历史";
 "Show or hide Java diagnostics" = "显示或隐藏 Java 诊断";
 "Show or hide language diagnostics" = "显示或隐藏语言诊断";
@@ -3729,7 +3774,6 @@
 "Showing available matches." = "仍显示可用的匹配项。";
 "Showing the previous Java entries while the Java language service prepares the project." = "Java 语言服务正在准备项目，暂时显示上次的 Java 入口。";
 "Shown across the entire workbench, including toolbars, project tree, editor, tabs, terminals, and status bar." = "显示在整个工作台内，包括工具栏、项目文件树、编辑区、标签栏、终端和状态栏。";
-"Shows session events and server output. Server Trace and RPC message capture are not available." = "显示会话事件和服务器输出。暂不支持服务器跟踪和 RPC 消息采集。";
 "Side-by-side" = "并排";
 "Side-by-side view" = "并排视图";
 "Sign in again" = "重新登录";
@@ -4447,6 +4491,7 @@
 "This project is not a Git repository" = "当前项目不是 Git 仓库";
 "This project window is no longer available." = "此项目窗口已不可用。";
 "This rebase session is no longer active in the current repository." = "此变基会话在当前仓库中已失效。";
+"This record has no op id" = "这条记录没有 op";
 "This recovery result is no longer active in the current repository." = "此恢复结果在当前仓库中已失效。";
 "This reference appearance value fills a setting absent from the source. It may differ by version or profile." = "此参考外观值用于补充来源中未保存的设置，可能与具体版本或配置档案不同。";
 "This removes Git registrations whose checkout directories no longer exist. It does not delete branches." = "这会移除检出目录已不存在的 Git 注册记录，但不会删除分支。";
@@ -4480,6 +4525,7 @@
 "This worktree has no uncommitted changes." = "此工作树没有未提交的更改。";
 "Threads" = "线程";
 "Threads & Variables" = "线程和变量";
+"Time" = "时间";
 "Time to exit" = "等待退出时间";
 "Timed Out" = "已超时";
 "Timeout (seconds)" = "超时（秒）";
@@ -4521,6 +4567,8 @@
 "Tools sent" = "发送的工具";
 "Total" = "总计";
 "Total tokens: %@" = "总 token：%@";
+"Trace operation" = "追踪此操作";
+"Trace this operation" = "追踪这个操作";
 "Tracking %@" = "跟踪 %@";
 "Tracking Branch" = "跟踪的分支";
 "Trailing" = "行尾空白";
@@ -4600,6 +4648,7 @@
 "Unpin" = "取消置顶";
 "Unpin configuration" = "取消置顶运行配置";
 "Unpin conversation" = "取消置顶";
+"Unread errors" = "未查看的错误";
 "Unrestricted access to the internet and any file on your computer" = "允许访问网络和电脑上的所有文件。";
 "Unsaved changes" = "有未保存的修改";
 "Unsigned Decimal" = "无符号十进制";
@@ -4731,6 +4780,7 @@
 "Values are masked here but stored as plain text in the Agent's configuration file." = "此处仅做遮蔽显示，值会以明文保存在 Agent 配置文件中。";
 "Variable scope" = "变量作用域";
 "Variables" = "变量";
+"Verbose diagnostics on" = "详细诊断已开启";
 "Verification" = "验证";
 "Verified" = "已验证";
 "Verifying stable release…" = "正在校验正式版…";
@@ -4761,6 +4811,7 @@
 "View Saved Changes" = "查看已保存的更改";
 "View breakpoints" = "查看断点";
 "View breakpoints (⌘⇧F8)" = "查看断点（⌘⇧F8）";
+"View cleared — files on disk are untouched; new records will appear here" = "已清空显示，磁盘上的日志文件不受影响；新记录会继续出现在这里";
 "View skill" = "查看";
 "Visualization" = "可视化";
 "Vue Support" = "Vue 支持";
@@ -4850,6 +4901,7 @@
 "Wrap into rows" = "多行展开";
 "Write" = "写入";
 "Write a clear, actionable comment…" = "写下清晰、可执行的评论…";
+"Write failures %lld" = "写入失败 %lld";
 "Write shared instructions once, then enable them for each Agent. Lithe only changes its marked block; the rest of each native file stays yours. Start a new conversation to load changes. Project instructions still apply." = "共享指令只需写一次，再为各 Agent 开启。Lithe 只修改标记区块，保留原生文件的其他内容。新建对话后加载更新，项目指令仍然生效。";
 "Write to global config" = "写入全局配置";
 "Write to this repository" = "写入当前仓库";
@@ -5048,6 +5100,78 @@
 "java.launch.error.unsupported" = "当前运行环境不支持 Java 启动准备。";
 "just now" = "刚刚";
 "local commit(s)" = "个本地提交";
+"logs.filter.emptyValue" = "需要填写值";
+"logs.filter.expressionTooLong" = "过滤表达式超过 1024 字节";
+"logs.filter.invalidEscape" = "不支持的转义字符";
+"logs.filter.invalidLevel" = "未知日志级别";
+"logs.filter.invalidOperator" = "运算符无效";
+"logs.filter.invalidQuote" = "引号无效";
+"logs.filter.invalidRegex" = "正则表达式无效";
+"logs.filter.regexTooLong" = "正则表达式过长";
+"logs.filter.unterminatedQuote" = "请补齐引号";
+"logs.filter.unterminatedRegex" = "请用 / 结束正则表达式";
+"logs.window.absoluteTime" = "绝对时间";
+"logs.window.allChannels" = "全部通道";
+"logs.window.autoOffIn" = "自动关闭倒计时 %1$@";
+"logs.window.callChain" = "调用链";
+"logs.window.category" = "类别：%1$@";
+"logs.window.channel" = "通道";
+"logs.window.clearOnlyTheDisplayLogFilesAreKept" = "只清空显示，保留磁盘上的日志文件";
+"logs.window.clearTimeRange" = "清除时间范围";
+"logs.window.clearView" = "清空显示";
+"logs.window.clickToJumpDragForTimeRange" = "点击跳转 · 拖动框选时间";
+"logs.window.clickToSelectSeveral" = "⌘ 点击可多选";
+"logs.window.collapseRepeats" = "折叠重复";
+"logs.window.columns" = "列";
+"logs.window.copyAsJSON" = "复制为 JSON";
+"logs.window.copyAsMarkdown" = "复制为 Markdown";
+"logs.window.copyFieldValue" = "复制字段值";
+"logs.window.copyLine" = "复制这一行";
+"logs.window.copySelectionAsMarkdown" = "把选中行复制为 Markdown";
+"logs.window.couldNotLoadLogsTryAgain" = "无法读取日志，请重试。";
+"logs.window.detail" = "详情";
+"logs.window.droppedLld" = "已丢弃 %1$lld";
+"logs.window.event" = "事件";
+"logs.window.eventsOverTime" = "事件分布";
+"logs.window.export" = "导出";
+"logs.window.exportAccessibility" = "导出诊断日志";
+"logs.window.fields" = "字段";
+"logs.window.filterChannel" = "只看此通道";
+"logs.window.filterErrorAtLldLld" = "过滤错误，位置 %1$lld–%2$lld：%3$@";
+"logs.window.filterServerJdtlsLevelWarnEventLspTraceReceivedRegexOpC0ffee" = "过滤：server:jdtls  level>=warn  -event:lsp.trace.received  /正则/  op:c0ffee";
+"logs.window.following" = "跟随中";
+"logs.window.hideThisEvent" = "隐藏这个事件";
+"logs.window.histogramTooltip" = "%1$@ · ERROR %2$lld · WARN %3$lld · 其它 %4$lld";
+"logs.window.level" = "级别";
+"logs.window.lldNewLogsJumpToLatest" = "↓ %1$lld 条新日志，回到最新";
+"logs.window.lldRowsLldSelected" = "%1$lld 条 · 已选 %2$lld";
+"logs.window.logs" = "日志…";
+"logs.window.message" = "消息";
+"logs.window.nameForThisFilter" = "给这个过滤起个名字";
+"logs.window.noMatchesTryAnotherLevelOrChannel" = "没有匹配的记录，换个级别或通道试试";
+"logs.window.noSavedFilters" = "还没有书签";
+"logs.window.opLldRecords" = "操作 %1$@ · %2$lld 条 · 共 %3$@";
+"logs.window.openTheApplicationLogWindow" = "打开应用日志窗口";
+"logs.window.pausedScrolledUp" = "已暂停（向上滚动）";
+"logs.window.previous" = "相对上一行";
+"logs.window.redactedValuesWereMaskedByCoreTheWindowAndExportsNeverShowTheOriginal" = "‹redacted› 的值已由 Core 脱敏，窗口和导出都不会显示原文";
+"logs.window.repeatedLldTimesLast" = "重复 %1$lld 次 · 末次 %2$@";
+"logs.window.saveCurrentFilter" = "保存当前过滤…";
+"logs.window.savedFilters" = "书签";
+"logs.window.selected" = "相对选中行";
+"logs.window.sessionAll" = "会话：全部";
+"logs.window.sessionCurrent" = "会话：本次";
+"logs.window.sessionPrevious" = "会话：上次";
+"logs.window.showOnlyThisChannel" = "只看这个通道";
+"logs.window.showOnlyThisEvent" = "只看这个事件";
+"logs.window.thisRecordHasNoOpId" = "这条记录没有 op";
+"logs.window.time" = "时间";
+"logs.window.traceOperation" = "追踪此操作";
+"logs.window.traceThisOperation" = "追踪这个操作";
+"logs.window.unreadErrors" = "未查看的错误";
+"logs.window.verboseDiagnosticsOn" = "详细诊断已开启";
+"logs.window.viewClearedFilesOnDiskAreUntouchedNewRecordsWillAppearHere" = "已清空显示，磁盘上的日志文件不受影响；新记录会继续出现在这里";
+"logs.window.writeFailuresLld" = "写入失败 %1$lld";
 "lsp.completion.invalidTriggerKind" = "补全请求的触发类型无效";
 "lsp.completion.missingTriggerCharacter" = "补全请求缺少有效的触发字符";
 "mac.editor.tabWidthStatus" = "Tab 宽度：%1$lld";
@@ -7217,11 +7341,7 @@
 "native.low" = "低";
 "native.lowEffortAndASmallOutputLimitAreRecommendedForFastCommitMessageGeneration" = "为了快速生成提交信息，建议使用低推理强度和较小的输出限制。";
 "native.lowRecommended" = "低（推荐）";
-"native.lspAvailableLogChannels" = "显示会话事件和服务器输出。暂不支持服务器跟踪和 RPC 消息采集。";
-"native.lspClearViewHint" = "仅清空所选服务器的可见日志，保留已采集的诊断日志。";
-"native.lspLogsTitle" = "LSP 日志";
 "native.lspNotStarted" = "未启动";
-"native.lspServerLogs" = "服务器日志";
 "native.lspStatusLabel" = "LSP";
 "native.lspStopOnDemandHint" = "打开、切换到或编辑匹配的文档时将再次启动。";
 "native.luaSupport" = "Lua 支持";
@@ -7533,7 +7653,6 @@
 "native.noMatchingConversations" = "没有匹配的会话";
 "native.noMatchingHooks" = "没有匹配的 Hook。";
 "native.noMatchingItems" = "没有匹配项";
-"native.noMatchingLanguageServerLogs" = "没有匹配的语言服务器日志";
 "native.noMatchingLogs" = "没有匹配的日志";
 "native.noMatchingMcpServers" = "没有匹配的 MCP 服务器";
 "native.noMatchingMessages" = "没有匹配的消息";
@@ -9941,6 +10060,8 @@
 "vcs.commitFiles.trashWarning" = "这些文件将移到 macOS 废纸篓。";
 "vcs.commitFiles.vcsDeleteWarning" = "版本控制插件将删除这些文件并记录删除操作，文件可能不会移入废纸篓。";
 "version managed from %@" = "依赖管理前版本为 %@";
+"Δ previous" = "相对上一行";
+"Δ selected" = "相对选中行";
 "— Click the Run icon in the editor gutter" = "— 点击编辑器行号栏中的运行图标";
 "— Launch a" = "— 启动";
 "— Select \"Debug...\" in the editor context menu" = "— 在编辑器右键菜单中选择“调试...”";
@@ -9953,6 +10074,9 @@
 "… %lld more files" = "… 另 %lld 个文件";
 "… %lld more references" = "… 另 %lld 个引用";
 "… more" = "… 更多";
+"‹redacted› values were masked by Core; the window and exports never show the original" = "‹redacted› 的值已由 Core 脱敏，窗口和导出都不会显示原文";
 "↑↓ Select · Tab Fill · Enter Run · Esc Close" = "↑↓ 选择 · Tab 填充 · Enter 执行 · Esc 关闭";
 "→ %@" = "→ %@";
+"↓ %lld new logs, jump to latest" = "↓ %lld 条新日志，回到最新";
+"⌘-click to select several" = "⌘ 点击可多选";
 /* END GENERATED SHARED I18N */

@@ -96,6 +96,21 @@ final class AppSettings: ObservableObject {
         let presets: [String: [String: [KeyboardShortcutBinding]]]
     }
 
+    var logWindowSink: (any LogSink)?
+    var logWindowPreferences: LogWindowPreferences {
+        get {
+            guard let data = defaults.data(forKey: "settings.logWindow"), data.count <= 256_000 else { return .init() }
+            do { return try JSONDecoder().decode(LogWindowPreferences.self, from: data) }
+            catch {
+                logWindowSink?.emit(AppLoggingDiagnosticsFailed(error: error))
+                return .init()
+            }
+        }
+        set {
+            do { defaults.set(try JSONEncoder().encode(newValue), forKey: "settings.logWindow") }
+            catch { logWindowSink?.emit(AppLoggingDiagnosticsFailed(error: error)) }
+        }
+    }
     private let defaults: any KeyValueStore
     private let logDirectoryProvider: any LogDirectoryProviding
 

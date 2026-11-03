@@ -88,7 +88,6 @@ extension AppModel {
         guard wasActive else { return }
 
         switch fallbackItem {
-        case .languageLogs: selectLanguageServerLogsTab()
         case .agentConversation(let tab): showAgentChatsInEditor(tab: tab)
         case .repositoryDiff(let id):
             selectRepositoryDiffTab(id)

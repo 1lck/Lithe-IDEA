@@ -66,6 +66,7 @@
 "%@ · %@ / %@ context used" = "%@ · %@ / %@ context used";
 "%@ · %@ used" = "%@ · %@ used";
 "%@ · %lld of %lld steps processed" = "%@ · %lld of %lld steps processed";
+"%@ · ERROR %lld · WARN %lld · other %lld" = "%@ · ERROR %lld · WARN %lld · other %lld";
 "%@ ↔ Working Tree" = "%@ ↔ Working Tree";
 "%@, %@" = "%@, %@";
 "%@, Line %lld, %@" = "%@, Line %lld, %@";
@@ -113,6 +114,7 @@
 "%lld results" = "%lld results";
 "%lld routes" = "%lld routes";
 "%lld rows" = "%lld rows";
+"%lld rows · %lld selected" = "%lld rows · %lld selected";
 "%lld running" = "%lld running";
 "%lld s" = "%lld s";
 "%lld selected" = "%lld selected";
@@ -217,6 +219,7 @@
 "Abort this rebase and restore its original branch?" = "Abort this rebase and restore its original branch?";
 "Abort…" = "Abort…";
 "Absolute" = "Absolute";
+"Absolute time" = "Absolute time";
 "Accept" = "Accept";
 "Accept edits" = "Accept edits";
 "Accepts all permissions" = "Skip routine approval prompts; environment and managed policies still apply.";
@@ -313,6 +316,7 @@
 "All References" = "All References";
 "All Repositories" = "All Repositories";
 "All Users" = "All Users";
+"All channels" = "All channels";
 "All completed" = "All completed";
 "All configurations" = "All configurations";
 "All conflicts resolved. Continue to finish, or abort to undo." = "All conflicts resolved. Continue to finish, or abort to undo.";
@@ -438,6 +442,7 @@
 "Auto" = "Auto";
 "Auto-compact at" = "Auto-compact at";
 "Auto-compact must not be larger than the context length." = "Auto-compact must not be larger than the context length.";
+"Auto-off in %@" = "Auto-off in %@";
 "AutoBuild Rolling" = "AutoBuild Rolling";
 "AutoBuild Update" = "AutoBuild Update";
 "AutoBuild is rebuilt nightly and may contain unfinished features, serious bugs, or other problems. Stable releases are recommended for most users." = "AutoBuild is rebuilt nightly and may contain unfinished features, serious bugs, or other problems. Stable releases are recommended for most users.";
@@ -543,6 +548,7 @@
 "Cache write" = "Cache write";
 "Cache write tokens: %@" = "Cache write tokens: %@";
 "Call Stack" = "Call Stack";
+"Call chain" = "Call chain";
 "Camera and microphone in use" = "Camera and microphone in use";
 "Camera in use" = "Camera in use";
 "Cancel" = "Cancel";
@@ -562,6 +568,7 @@
 "Cannot locate the Agent user directory." = "Cannot locate the Agent user directory.";
 "Cannot use %@; using the project JDK instead." = "Cannot use %@; using the project JDK instead.";
 "Category" = "Category";
+"Category: %@" = "Category: %@";
 "Change the values stored in the selected scope. Choose Inherit to remove an override." = "Change the values stored in the selected scope. Choose Inherit to remove an override.";
 "Change workbench background" = "Change workbench background";
 "ChangeList" = "ChangeList";
@@ -580,6 +587,7 @@
 "Changes were saved, but Lithe could not reload them: %@" = "Changes were saved, but Lithe could not reload them: %@";
 "Changing channels requires a full installation and may install an older version. On its first launch, Lithe-Dev copies Stable settings and workspaces if it has no user data. The apps then save settings and caches separately. Some accounts may need sign-in again. Your project files stay in their current locations." = "Changing channels requires a full installation and may install an older version. On its first launch, Lithe-Dev copies Stable settings and workspaces if it has no user data. The apps then save settings and caches separately. Some accounts may need sign-in again. Your project files stay in their current locations.";
 "Changing channels requires a full installation and may install an older version. Open the selected release page to download its installer. Your channel selection is saved for future updates." = "Changing channels requires a full installation and may install an older version. Open the selected release page to download its installer. Your channel selection is saved for future updates.";
+"Channel" = "Channel";
 "Chapter: %@" = "Chapter: %@";
 "Chat Completions" = "Chat Completions";
 "Chat History" = "Chat History";
@@ -723,7 +731,7 @@
 "Clear date filter" = "Clear date filter";
 "Clear debug output" = "Clear debug output";
 "Clear log search" = "Clear log search";
-"Clear only the selected server's visible logs. Collected diagnostic logs are kept." = "Clear only the selected server's visible logs. Collected diagnostic logs are kept.";
+"Clear only the display; log files are kept" = "Clear only the display; log files are kept";
 "Clear path filter" = "Clear path filter";
 "Clear run output" = "Clear run output";
 "Clear search" = "Clear search";
@@ -732,10 +740,13 @@
 "Clear the current project's Java index and rebuild it on next use" = "Clear the current project's Java index and rebuild it on next use";
 "Clear the override and inherit" = "Clear the override and inherit";
 "Clear this project's local history?" = "Clear this project's local history?";
+"Clear time range" = "Clear time range";
 "Clear user filter" = "Clear user filter";
+"Clear view" = "Clear view";
 "Clearing…" = "Clearing…";
 "Click the editor gutter to add a breakpoint" = "Click the editor gutter to add a breakpoint";
 "Click the folded options to expand; right-click for command details." = "Click the folded options to expand; right-click for command details.";
+"Click to jump · drag for time range" = "Click to jump · drag for time range";
 "Client: %@" = "Client: %@";
 "Cline, Cursor, Kilo, Mistral, and more with ACP technology" = "Cline, Cursor, Kilo, Mistral, and more with ACP technology";
 "Clojure Support" = "Clojure Support";
@@ -809,6 +820,7 @@
 "Collapse long graph edges" = "Collapse long graph edges";
 "Collapse matching stack frames" = "Collapse matching stack frames";
 "Collapse notification" = "Collapse notification";
+"Collapse repeats" = "Collapse repeats";
 "Collapse repository" = "Collapse repository";
 "Collapse section" = "Collapse section";
 "Collapse unchanged fragments" = "Collapse unchanged fragments";
@@ -817,6 +829,7 @@
 "Color theme" = "Color theme";
 "Colorize bracket pairs" = "Colorize bracket pairs";
 "Column-based wrapping is not supported and was skipped." = "Column-based wrapping is not supported and was skipped.";
+"Columns" = "Columns";
 "Combine the messages when the rebase runs, including changes made at earlier Edit stops" = "Combine the messages when the rebase runs, including changes made at earlier Edit stops";
 "Combined commit message" = "Combined commit message";
 "Combines the pull request into one commit on the base branch." = "Combines the pull request into one commit on the base branch.";
@@ -991,16 +1004,21 @@
 "Copy Thread Name" = "Copy Thread Name";
 "Copy Value" = "Copy Value";
 "Copy agent configuration" = "Copy agent configuration";
+"Copy as JSON" = "Copy as JSON";
+"Copy as Markdown" = "Copy as Markdown";
 "Copy code" = "Copy code";
 "Copy command" = "Copy command";
 "Copy complete command" = "Copy complete command";
 "Copy complete console" = "Copy complete console";
 "Copy complete output" = "Copy complete output";
+"Copy field value" = "Copy field value";
+"Copy line" = "Copy line";
 "Copy message" = "Copy message";
 "Copy output" = "Copy output";
 "Copy path" = "Copy path";
 "Copy reply" = "Copy reply";
 "Copy repository path" = "Copy repository path";
+"Copy selection as Markdown" = "Copy selection as Markdown";
 "Copy session ID" = "Copy session ID";
 "Copy table" = "Copy table";
 "Copy worktree path" = "Copy worktree path";
@@ -1025,6 +1043,7 @@
 "Could not load changed files" = "Could not load changed files";
 "Could not load dependencies" = "Could not load dependencies";
 "Could not load file preview" = "Could not load file preview";
+"Could not load logs. Try again." = "Could not load logs. Try again.";
 "Could not load older commits. Refresh history" = "Could not load older commits. Refresh history";
 "Could not load project" = "Could not load project";
 "Could not load saved changes" = "Could not load saved changes";
@@ -1207,6 +1226,7 @@
 "Deselect all" = "Deselect all";
 "Destination folder" = "Destination folder";
 "Detached HEAD" = "Detached HEAD";
+"Detail" = "Detail";
 "Detailed" = "Detailed";
 "Detailed diagnostics" = "Detailed diagnostics";
 "Detailed diagnostics cover the selected module and expire after 15 minutes. Refresh to see the current status." = "Detailed diagnostics cover the selected module and expire after 15 minutes. Refresh to see the current status.";
@@ -1327,6 +1347,7 @@
 "Drop Stash" = "Drop Stash";
 "Drop files here" = "Drop files here";
 "Drop this shelf?" = "Drop this shelf?";
+"Dropped %lld" = "Dropped %lld";
 "Dropped: %lld; write failures: %lld" = "Dropped: %lld; write failures: %lld";
 "Duplicate" = "Duplicate";
 "Duration: %lld ms" = "Duration: %lld ms";
@@ -1473,6 +1494,8 @@
 "Evaluate expression" = "Evaluate expression";
 "Evaluate expression while paused" = "Evaluate expression while paused";
 "Evaluating…" = "Evaluating…";
+"Event" = "Event";
+"Events over time" = "Events over time";
 "Every saved version of this project's files is deleted. Open files are not changed." = "Every saved version of this project's files is deleted. Open files are not changed.";
 "Example" = "Example";
 "Exception" = "Exception";
@@ -1504,10 +1527,12 @@
 "Expanded" = "Expanded";
 "Explain the intent, testing, and anything reviewers should know…" = "Explain the intent, testing, and anything reviewers should know…";
 "Explain what must change before this pull request can be approved." = "Explain what must change before this pull request can be approved.";
+"Export" = "Export";
 "Export Diagnostics Bundle" = "Export Diagnostics Bundle";
 "Export Diagnostics Bundle…" = "Export Diagnostics Bundle…";
 "Export as PDF…" = "Export as PDF…";
 "Export conversations" = "Export conversations";
+"Export diagnostic logs" = "Export diagnostic logs";
 "Export logs" = "Export logs";
 "Exported environment" = "Exported environment";
 "Exporting conversations…" = "Exporting conversations…";
@@ -1564,6 +1589,7 @@
 "Fetched Git remotes" = "Fetched Git remotes";
 "Field Breakpoint" = "Field Breakpoint";
 "Field Breakpoints" = "Field Breakpoints";
+"Fields" = "Fields";
 "File %lld of %lld" = "File %lld of %lld";
 "File changed. Run Preview again to refresh results." = "File changed. Run Preview again to refresh results.";
 "File context" = "File context";
@@ -1585,10 +1611,13 @@
 "Files will stay unchanged. Nothing will be staged or committed automatically." = "Files will stay unchanged. Nothing will be staged or committed automatically.";
 "Filter by changed path" = "Filter by changed path";
 "Filter by title, author, or label" = "Filter by title, author, or label";
+"Filter channel" = "Filter channel";
+"Filter error at %lld–%lld: %@" = "Filter error at %lld–%lld: %@";
 "Filter log messages" = "Filter log messages";
 "Filter problems by severity" = "Filter problems by severity";
 "Filter results" = "Filter results";
 "Filter route, controller, or method" = "Filter route, controller, or method";
+"Filter: server:jdtls  level>=warn  -event:lsp.trace.received  /regex/  op:c0ffee" = "Filter: server:jdtls  level>=warn  -event:lsp.trace.received  /regex/  op:c0ffee";
 "Find" = "Find";
 "Find Branch" = "Find Branch";
 "Find Next" = "Find Next";
@@ -1624,6 +1653,7 @@
 "Follow system proxy" = "Follow system proxy";
 "Follow system uses the proxies configured in macOS network settings. No proxy contacts every host directly. Custom routes requests through the server configured below." = "Follow system uses the proxies configured in macOS network settings. No proxy contacts every host directly. Custom routes requests through the server configured below.";
 "Follow the instructions you define below" = "Follow the instructions you define below";
+"Following" = "Following";
 "Follows each remote's tag setting" = "Follows each remote's tag setting";
 "Font" = "Font";
 "Font ligatures" = "Font ligatures";
@@ -1790,6 +1820,7 @@
 "Hide configuration list" = "Hide configuration list";
 "Hide plan" = "Hide plan";
 "Hide thinking" = "Hide thinking";
+"Hide this event" = "Hide this event";
 "Hide tool details" = "Hide tool details";
 "Hide visualization" = "Hide visualization";
 "Hide worktree repositories" = "Hide worktree repositories";
@@ -2030,7 +2061,6 @@
 "Korean characters" = "Korean characters";
 "Kotlin Support" = "Kotlin Support";
 "LSP" = "LSP";
-"LSP Logs" = "LSP Logs";
 "Labels" = "Labels";
 "Labels and assignees" = "Labels and assignees";
 "Language" = "Language";
@@ -2079,6 +2109,7 @@
 "Leave empty when the proxy does not require authentication. The password is stored in the Keychain, never in settings files." = "Leave empty when the proxy does not require authentication. The password is stored in the Keychain, never in settings files.";
 "Legacy SSE probing is unavailable. Use the publisher's Streamable HTTP endpoint." = "Legacy SSE probing is unavailable. Use the publisher's Streamable HTTP endpoint.";
 "Let connected agents inspect and control this project." = "Let connected agents inspect and control this project.";
+"Level" = "Level";
 "Library" = "Library";
 "License" = "License";
 "Lifecycle" = "Lifecycle";
@@ -2222,6 +2253,7 @@
 "Login shell" = "Login shell";
 "Logs" = "Logs";
 "Logs and Diagnostics" = "Logs and Diagnostics";
+"Logs…" = "Logs…";
 "Look Up Again" = "Look Up Again";
 "Look Up Location" = "Look Up Location";
 "Looked in: %@" = "Looked in: %@";
@@ -2323,6 +2355,7 @@
 "Merge pull request?" = "Merge pull request?";
 "Merged" = "Merged";
 "Merging pull request…" = "Merging pull request…";
+"Message" = "Message";
 "Message (optional)" = "Message (optional)";
 "Message the Agent" = "Message the Agent";
 "Messages" = "Messages";
@@ -2395,6 +2428,7 @@
 "Name" = "Name";
 "Name and email are written to the global Git configuration. Existing commits do not change." = "Name and email are written to the global Git configuration. Existing commits do not change.";
 "Name and email are written to this repository's Git configuration and override the global values. Existing commits do not change." = "Name and email are written to this repository's Git configuration and override the global values. Existing commits do not change.";
+"Name for this filter" = "Name for this filter";
 "Name:" = "Name:";
 "Native installer" = "Native installer";
 "Native instruction file" = "Native instruction file";
@@ -2542,6 +2576,7 @@
 "No matches in Files" = "No matches in Files";
 "No matches in Symbols" = "No matches in Symbols";
 "No matches in Text" = "No matches in Text";
+"No matches — try another level or channel" = "No matches — try another level or channel";
 "No matching Hooks." = "No matching Hooks.";
 "No matching MCP servers" = "No matching MCP servers";
 "No matching branches" = "No matching branches";
@@ -2550,7 +2585,6 @@
 "No matching commits in the loaded history." = "No matching commits in the loaded history.";
 "No matching conversations" = "No matching conversations";
 "No matching items" = "No matching items";
-"No matching language server logs" = "No matching language server logs";
 "No matching logs" = "No matching logs";
 "No matching messages" = "No matching messages";
 "No matching plugins" = "No matching plugins";
@@ -2593,6 +2627,7 @@
 "No runnable services were detected in this project." = "No runnable services were detected in this project.";
 "No running debug process accepts standard input" = "No running debug process accepts standard input";
 "No saved changes" = "No saved changes";
+"No saved filters" = "No saved filters";
 "No selectable items" = "No selectable items";
 "No settings found" = "No settings found";
 "No settings to import yet" = "No settings to import yet";
@@ -2711,6 +2746,7 @@
 "Only the first %lld installations of a tool were checked." = "Only the first %lld installations of a tool were checked.";
 "Only the most recent archived conversations are shown." = "Only the most recent archived conversations are shown.";
 "Only the reported Agent edits will be reversed. Conflicting changes and unsaved editor changes will be preserved." = "Only the reported Agent edits will be reversed. Conflicting changes and unsaved editor changes will be preserved.";
+"Op %@ · %lld records · %@" = "Op %@ · %lld records · %@";
 "Open" = "Open";
 "Open %@" = "Open %@";
 "Open AI & Commit settings" = "Open AI & Commit settings";
@@ -2786,6 +2822,7 @@
 "Open remote" = "Open remote";
 "Open service in browser" = "Open service in browser";
 "Open the Markdown file inside a workspace before pasting an image" = "Open the Markdown file inside a workspace before pasting an image";
+"Open the application log window" = "Open the application log window";
 "Open the target file directly. Symbolic-link editing is not supported by this file adapter." = "Open the target file directly. Symbolic-link editing is not supported by this file adapter.";
 "Open to inspect" = "Open to inspect";
 "Opening it moves the conversation out of %@'s archive and back into its history. Browsing archived conversations never changes them." = "Opening it moves the conversation out of %@'s archive and back into its history. Browsing archived conversations never changes them.";
@@ -2849,6 +2886,7 @@
 "Pause the process to inspect variables" = "Pause the process to inspect variables";
 "Pause the program to run debugger commands" = "Pause the program to run debugger commands";
 "Paused" = "Paused";
+"Paused (scrolled up)" = "Paused (scrolled up)";
 "Peak this run" = "Peak this run";
 "Peak total" = "Peak total";
 "Pending" = "Pending";
@@ -3250,6 +3288,7 @@
 "Repair or prune the missing checkout before changing its lock." = "Repair or prune the missing checkout before changing its lock.";
 "Repaired worktree records" = "Repaired worktree records";
 "Repeated %lld times" = "Repeated %lld times";
+"Repeated %lld times · last %@" = "Repeated %lld times · last %@";
 "Replace" = "Replace";
 "Replace All" = "Replace All";
 "Replace all matches (Shift+Return)" = "Replace all matches (Shift+Return)";
@@ -3488,6 +3527,7 @@
 "Save after" = "Save after";
 "Save as Independent File" = "Save as Independent File";
 "Save changed files automatically" = "Save changed files automatically";
+"Save current filter…" = "Save current filter…";
 "Save each field separately. Switching scope reloads the saved values." = "Save each field separately. Switching scope reloads the saved values.";
 "Save instructions" = "Save instructions";
 "Save local changes with" = "Save local changes with";
@@ -3501,6 +3541,7 @@
 "Saved" = "Saved";
 "Saved breakpoints could not be read." = "Saved breakpoints could not be read.";
 "Saved debugger stepping filters could not be read." = "Saved debugger stepping filters could not be read.";
+"Saved filters" = "Saved filters";
 "Saved in .lithe/run/configurations.json for the whole team. Local JDK paths are never shared." = "Saved in .lithe/run/configurations.json for the whole team. Local JDK paths are never shared.";
 "Saved in .lithe/run/local.json and excluded from Git." = "Saved in .lithe/run/local.json and excluded from Git.";
 "Saved in Keychain" = "Saved in Keychain";
@@ -3611,7 +3652,6 @@
 "Sensitive files are not sent to an AI provider." = "Sensitive files are not sent to an AI provider.";
 "Separate arguments with spaces; quote an argument that contains spaces." = "Separate arguments with spaces; quote an argument that contains spaces.";
 "Server" = "Server";
-"Server Logs" = "Server Logs";
 "Server URL" = "Server URL";
 "Server address" = "Server address";
 "Server default" = "Server default";
@@ -3620,6 +3660,9 @@
 "Services" = "Services";
 "Session" = "Session";
 "Session statistics" = "Session statistics";
+"Session: all" = "Session: all";
+"Session: current" = "Session: current";
+"Session: previous" = "Session: previous";
 "Sessions" = "Sessions";
 "Set" = "Set";
 "Set Instruction Breakpoint" = "Set Instruction Breakpoint";
@@ -3708,6 +3751,8 @@
 "Show long graph edges" = "Show long graph edges";
 "Show minimap" = "Show minimap";
 "Show more" = "Show more";
+"Show only this channel" = "Show only this channel";
+"Show only this event" = "Show only this event";
 "Show or hide Git history" = "Show or hide Git history";
 "Show or hide Java diagnostics" = "Show or hide Java diagnostics";
 "Show or hide language diagnostics" = "Show or hide language diagnostics";
@@ -3729,7 +3774,6 @@
 "Showing available matches." = "Showing available matches.";
 "Showing the previous Java entries while the Java language service prepares the project." = "Showing the previous Java entries while the Java language service prepares the project.";
 "Shown across the entire workbench, including toolbars, project tree, editor, tabs, terminals, and status bar." = "Shown across the entire workbench, including toolbars, project tree, editor, tabs, terminals, and status bar.";
-"Shows session events and server output. Server Trace and RPC message capture are not available." = "Shows session events and server output. Server Trace and RPC message capture are not available.";
 "Side-by-side" = "Side-by-side";
 "Side-by-side view" = "Side-by-side view";
 "Sign in again" = "Sign in again";
@@ -4447,6 +4491,7 @@
 "This project is not a Git repository" = "This project is not a Git repository";
 "This project window is no longer available." = "This project window is no longer available.";
 "This rebase session is no longer active in the current repository." = "This rebase session is no longer active in the current repository.";
+"This record has no op id" = "This record has no op id";
 "This recovery result is no longer active in the current repository." = "This recovery result is no longer active in the current repository.";
 "This reference appearance value fills a setting absent from the source. It may differ by version or profile." = "This reference appearance value fills a setting absent from the source. It may differ by version or profile.";
 "This removes Git registrations whose checkout directories no longer exist. It does not delete branches." = "This removes Git registrations whose checkout directories no longer exist. It does not delete branches.";
@@ -4480,6 +4525,7 @@
 "This worktree has no uncommitted changes." = "This worktree has no uncommitted changes.";
 "Threads" = "Threads";
 "Threads & Variables" = "Threads & Variables";
+"Time" = "Time";
 "Time to exit" = "Time to exit";
 "Timed Out" = "Timed Out";
 "Timeout (seconds)" = "Timeout (seconds)";
@@ -4521,6 +4567,8 @@
 "Tools sent" = "Tools sent";
 "Total" = "Total";
 "Total tokens: %@" = "Total tokens: %@";
+"Trace operation" = "Trace operation";
+"Trace this operation" = "Trace this operation";
 "Tracking %@" = "Tracking %@";
 "Tracking Branch" = "Tracking Branch";
 "Trailing" = "Trailing";
@@ -4600,6 +4648,7 @@
 "Unpin" = "Unpin";
 "Unpin configuration" = "Unpin configuration";
 "Unpin conversation" = "Unpin conversation";
+"Unread errors" = "Unread errors";
 "Unrestricted access to the internet and any file on your computer" = "Unrestricted access to the internet and any file on your computer";
 "Unsaved changes" = "Unsaved changes";
 "Unsigned Decimal" = "Unsigned Decimal";
@@ -4731,6 +4780,7 @@
 "Values are masked here but stored as plain text in the Agent's configuration file." = "Values are masked here but stored as plain text in the Agent's configuration file.";
 "Variable scope" = "Variable scope";
 "Variables" = "Variables";
+"Verbose diagnostics on" = "Verbose diagnostics on";
 "Verification" = "Verification";
 "Verified" = "Verified";
 "Verifying stable release…" = "Verifying stable release…";
@@ -4761,6 +4811,7 @@
 "View Saved Changes" = "View Saved Changes";
 "View breakpoints" = "View breakpoints";
 "View breakpoints (⌘⇧F8)" = "View breakpoints (⌘⇧F8)";
+"View cleared — files on disk are untouched; new records will appear here" = "View cleared — files on disk are untouched; new records will appear here";
 "View skill" = "View skill";
 "Visualization" = "Visualization";
 "Vue Support" = "Vue Support";
@@ -4850,6 +4901,7 @@
 "Wrap into rows" = "Wrap into rows";
 "Write" = "Write";
 "Write a clear, actionable comment…" = "Write a clear, actionable comment…";
+"Write failures %lld" = "Write failures %lld";
 "Write shared instructions once, then enable them for each Agent. Lithe only changes its marked block; the rest of each native file stays yours. Start a new conversation to load changes. Project instructions still apply." = "Write shared instructions once, then enable them for each Agent. Lithe only changes its marked block; the rest of each native file stays yours. Start a new conversation to load changes. Project instructions still apply.";
 "Write to global config" = "Write to global config";
 "Write to this repository" = "Write to this repository";
@@ -5048,6 +5100,78 @@
 "java.launch.error.unsupported" = "Java launch preparation is not supported by this runtime.";
 "just now" = "just now";
 "local commit(s)" = "local commit(s)";
+"logs.filter.emptyValue" = "A value is required";
+"logs.filter.expressionTooLong" = "Filter is longer than 1024 bytes";
+"logs.filter.invalidEscape" = "Unsupported escape";
+"logs.filter.invalidLevel" = "Unknown log level";
+"logs.filter.invalidOperator" = "Invalid operator";
+"logs.filter.invalidQuote" = "Invalid quote";
+"logs.filter.invalidRegex" = "Invalid regular expression";
+"logs.filter.regexTooLong" = "Regular expression is too long";
+"logs.filter.unterminatedQuote" = "Close the quoted value";
+"logs.filter.unterminatedRegex" = "Close the regular expression with /";
+"logs.window.absoluteTime" = "Absolute time";
+"logs.window.allChannels" = "All channels";
+"logs.window.autoOffIn" = "Auto-off in %1$@";
+"logs.window.callChain" = "Call chain";
+"logs.window.category" = "Category: %1$@";
+"logs.window.channel" = "Channel";
+"logs.window.clearOnlyTheDisplayLogFilesAreKept" = "Clear only the display; log files are kept";
+"logs.window.clearTimeRange" = "Clear time range";
+"logs.window.clearView" = "Clear view";
+"logs.window.clickToJumpDragForTimeRange" = "Click to jump · drag for time range";
+"logs.window.clickToSelectSeveral" = "⌘-click to select several";
+"logs.window.collapseRepeats" = "Collapse repeats";
+"logs.window.columns" = "Columns";
+"logs.window.copyAsJSON" = "Copy as JSON";
+"logs.window.copyAsMarkdown" = "Copy as Markdown";
+"logs.window.copyFieldValue" = "Copy field value";
+"logs.window.copyLine" = "Copy line";
+"logs.window.copySelectionAsMarkdown" = "Copy selection as Markdown";
+"logs.window.couldNotLoadLogsTryAgain" = "Could not load logs. Try again.";
+"logs.window.detail" = "Detail";
+"logs.window.droppedLld" = "Dropped %1$lld";
+"logs.window.event" = "Event";
+"logs.window.eventsOverTime" = "Events over time";
+"logs.window.export" = "Export";
+"logs.window.exportAccessibility" = "Export diagnostic logs";
+"logs.window.fields" = "Fields";
+"logs.window.filterChannel" = "Filter channel";
+"logs.window.filterErrorAtLldLld" = "Filter error at %1$lld–%2$lld: %3$@";
+"logs.window.filterServerJdtlsLevelWarnEventLspTraceReceivedRegexOpC0ffee" = "Filter: server:jdtls  level>=warn  -event:lsp.trace.received  /regex/  op:c0ffee";
+"logs.window.following" = "Following";
+"logs.window.hideThisEvent" = "Hide this event";
+"logs.window.histogramTooltip" = "%1$@ · ERROR %2$lld · WARN %3$lld · other %4$lld";
+"logs.window.level" = "Level";
+"logs.window.lldNewLogsJumpToLatest" = "↓ %1$lld new logs, jump to latest";
+"logs.window.lldRowsLldSelected" = "%1$lld rows · %2$lld selected";
+"logs.window.logs" = "Logs…";
+"logs.window.message" = "Message";
+"logs.window.nameForThisFilter" = "Name for this filter";
+"logs.window.noMatchesTryAnotherLevelOrChannel" = "No matches — try another level or channel";
+"logs.window.noSavedFilters" = "No saved filters";
+"logs.window.opLldRecords" = "Op %1$@ · %2$lld records · %3$@";
+"logs.window.openTheApplicationLogWindow" = "Open the application log window";
+"logs.window.pausedScrolledUp" = "Paused (scrolled up)";
+"logs.window.previous" = "Δ previous";
+"logs.window.redactedValuesWereMaskedByCoreTheWindowAndExportsNeverShowTheOriginal" = "‹redacted› values were masked by Core; the window and exports never show the original";
+"logs.window.repeatedLldTimesLast" = "Repeated %1$lld times · last %2$@";
+"logs.window.saveCurrentFilter" = "Save current filter…";
+"logs.window.savedFilters" = "Saved filters";
+"logs.window.selected" = "Δ selected";
+"logs.window.sessionAll" = "Session: all";
+"logs.window.sessionCurrent" = "Session: current";
+"logs.window.sessionPrevious" = "Session: previous";
+"logs.window.showOnlyThisChannel" = "Show only this channel";
+"logs.window.showOnlyThisEvent" = "Show only this event";
+"logs.window.thisRecordHasNoOpId" = "This record has no op id";
+"logs.window.time" = "Time";
+"logs.window.traceOperation" = "Trace operation";
+"logs.window.traceThisOperation" = "Trace this operation";
+"logs.window.unreadErrors" = "Unread errors";
+"logs.window.verboseDiagnosticsOn" = "Verbose diagnostics on";
+"logs.window.viewClearedFilesOnDiskAreUntouchedNewRecordsWillAppearHere" = "View cleared — files on disk are untouched; new records will appear here";
+"logs.window.writeFailuresLld" = "Write failures %1$lld";
 "lsp.completion.invalidTriggerKind" = "Invalid completion trigger kind";
 "lsp.completion.missingTriggerCharacter" = "Completion trigger character is required";
 "mac.editor.tabWidthStatus" = "Tab width: %1$lld";
@@ -7217,11 +7341,7 @@
 "native.low" = "Low";
 "native.lowEffortAndASmallOutputLimitAreRecommendedForFastCommitMessageGeneration" = "Low effort and a small output limit are recommended for fast commit-message generation.";
 "native.lowRecommended" = "Low (recommended)";
-"native.lspAvailableLogChannels" = "Shows session events and server output. Server Trace and RPC message capture are not available.";
-"native.lspClearViewHint" = "Clear only the selected server's visible logs. Collected diagnostic logs are kept.";
-"native.lspLogsTitle" = "LSP Logs";
 "native.lspNotStarted" = "Not started";
-"native.lspServerLogs" = "Server Logs";
 "native.lspStatusLabel" = "LSP";
 "native.lspStopOnDemandHint" = "Starts again when a matching document is opened or edited.";
 "native.luaSupport" = "Lua Support";
@@ -7533,7 +7653,6 @@
 "native.noMatchingConversations" = "No matching conversations";
 "native.noMatchingHooks" = "No matching Hooks.";
 "native.noMatchingItems" = "No matching items";
-"native.noMatchingLanguageServerLogs" = "No matching language server logs";
 "native.noMatchingLogs" = "No matching logs";
 "native.noMatchingMcpServers" = "No matching MCP servers";
 "native.noMatchingMessages" = "No matching messages";
@@ -9941,6 +10060,8 @@
 "vcs.commitFiles.trashWarning" = "These files will be moved to the macOS Trash.";
 "vcs.commitFiles.vcsDeleteWarning" = "The version control provider will delete these files and record their removal. They may not be moved to Trash.";
 "version managed from %@" = "version managed from %@";
+"Δ previous" = "Δ previous";
+"Δ selected" = "Δ selected";
 "— Click the Run icon in the editor gutter" = "— Click the Run icon in the editor gutter";
 "— Launch a" = "— Launch a";
 "— Select \"Debug...\" in the editor context menu" = "— Select \"Debug...\" in the editor context menu";
@@ -9953,6 +10074,9 @@
 "… %lld more files" = "… %lld more files";
 "… %lld more references" = "… %lld more references";
 "… more" = "… more";
+"‹redacted› values were masked by Core; the window and exports never show the original" = "‹redacted› values were masked by Core; the window and exports never show the original";
 "↑↓ Select · Tab Fill · Enter Run · Esc Close" = "↑↓ Select · Tab Fill · Enter Run · Esc Close";
 "→ %@" = "→ %@";
+"↓ %lld new logs, jump to latest" = "↓ %lld new logs, jump to latest";
+"⌘-click to select several" = "⌘-click to select several";
 /* END GENERATED SHARED I18N */

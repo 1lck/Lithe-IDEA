@@ -135,12 +135,7 @@ extension AppModel {
         do {
             entrypoints = try await sessions.javaEntrypoints(rootURL: identity.url)
         } catch {
-            sessions.recordLanguageServerLog(
-                providerID: "java",
-                level: .warning,
-                message: L10n.string("Java entry-point freshness check failed"),
-                detail: error.localizedDescription
-            )
+            sessions.recordHostFailure(providerID: "java", stage: "entrypointFreshness", error: error)
             return
         }
         guard isCurrentWorkspace(identity) else { return }

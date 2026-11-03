@@ -1267,6 +1267,8 @@ struct WorkbenchView: View {
                 },
                 .action("Plugins…") { model.showSettings(category: .plugins) },
                 .separator,
+                .action("Logs…") { model.openLogs() },
+                .separator,
                 .action("Theme…") { model.showSettings(category: .general) },
                 .action("Keymap…") { model.showSettings(category: .keymap) }
             ]) { EmptyView() }

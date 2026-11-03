@@ -153,11 +153,6 @@ extension AppModel {
     }
 
     private func recordJavaRunMarkerFailure(_ error: Error, sessions: LanguageToolingSessionManager) {
-        sessions.recordLanguageServerLog(
-            providerID: "java",
-            level: .warning,
-            message: L10n.string("Java Run marker request failed"),
-            detail: error.localizedDescription
-        )
+        sessions.recordHostFailure(providerID: "java", stage: "runMarkers", error: error)
     }
 }

@@ -778,34 +778,6 @@ package struct LanguageServerInfo: Equatable, Sendable {
     }
 }
 
-package struct LanguageServerLogEntry: Identifiable, Equatable, Sendable {
-    package let id: UUID
-    package let timestamp: Date
-    package let providerID: String
-    package let operationID: String?
-    package let level: LanguageServerLogLevel
-    package let message: String
-    package let detail: String?
-
-    package init(
-        id: UUID = UUID(),
-        timestamp: Date = Date(),
-        providerID: String,
-        operationID: String? = nil,
-        level: LanguageServerLogLevel,
-        message: String,
-        detail: String? = nil
-    ) {
-        self.id = id
-        self.timestamp = timestamp
-        self.providerID = providerID
-        self.operationID = operationID
-        self.level = level
-        self.message = message
-        self.detail = detail
-    }
-}
-
 package struct MavenProfileProjectResult: Equatable, Sendable {
     package let projectURI: URL
     package let status: String

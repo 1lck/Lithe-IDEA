@@ -385,6 +385,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         detectedAIConfigurations.first { $0.source == .claude }
     }
 
+    func openLogs(_ request: LogWindowOpenRequest = .init()) { services.logWindowCoordinator?.open(request) }
+
     func showSettings(category: SettingsCategory = .general) {
         workbenchFeature.presentSettings(category: category)
     }

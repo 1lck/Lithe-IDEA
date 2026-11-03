@@ -50,26 +50,15 @@ extension AppModel {
     }
 
     func showLanguageServerLogs(providerID: String) {
-        languageToolingFeature.logs.providerID = providerID
-        if !editorTabOrderFeature.contains(.languageLogs) { editorTabOrderFeature.moveToEnd(.languageLogs) }
-        selectLanguageServerLogsTab()
-    }
-
-    func selectLanguageServerLogsTab() {
-        guard editorTabOrderFeature.contains(.languageLogs) else { return }
-        terminalPlacementFeature.activateDocument()
-        mediaFeature.deactivate()
-        editorTabOrderFeature.repositoryDiffSelected = false
-        activeDocumentID = nil
-        editorNavigationTarget = nil
-        editorTabOrderFeature.focus(.languageLogs)
-    }
-
-    func closeLanguageServerLogsTab() {
-        let order = editorTabOrderFeature
-        let wasFocused = order.focusedItem == .languageLogs
-        order.remove(.languageLogs)
-        if wasFocused, let fallback = order.focusedItem ?? order.items.last { selectEditorTab(fallback) }
+        guard let logging = services.logWindowLogging else { return }
+        Task {
+            do {
+                let channel = try await logging.windowEngineChannel(providerID: providerID)
+                openLogs(.init(channelPrefixes: [channel]))
+            } catch {
+                services.logSink?.emit(AppLoggingDiagnosticsFailed(error: error))
+            }
+        }
     }
 
     @discardableResult
@@ -86,12 +75,6 @@ extension AppModel {
         let workspaceURL = identity.url
         let activationToken = languageToolingFeature.activationToken(providerID: descriptor.id)
         guard !languageToolingFeature.isDisabled(descriptor.id) else {
-            languageToolingSessionsIfActive?.recordLanguageServerLog(
-                providerID: descriptor.id,
-                level: .info,
-                message: L10n.string("Language server activation skipped"),
-                detail: L10n.string("Disabled in this workspace")
-            )
             return false
         }
         if isModuleRuntimeShuttingDown {
@@ -327,13 +310,6 @@ extension AppModel {
     func cancelJavaLanguageServerPreparation() {
         cancelPendingJavaLaunchDecision()
         if case .preparing(let owner) = javaFeature.languageServerWorkspaceState {
-            languageToolingSessionsIfActive?.recordLanguageServerLog(
-                providerID: "java",
-                operationID: owner.operationID,
-                level: .warning,
-                message: L10n.string("Java workspace preparation cancelled"),
-                detail: nil
-            )
             javaFeature.cancelLanguageServerPreparation()
             return
         }

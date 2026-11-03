@@ -32,7 +32,6 @@ struct LanguageIntelligenceModuleTests {
             session.onLog?(.info, "Language server is ready", nil, nil)
             session.onLog?(.info, "Language server terminated", nil, nil)
             #expect(recorder.events.count == count)
-            #expect(manager.languageServerLogs.contains { $0.message == "Language server ready" })
         }
         manager.stopLanguageServer(providerID: "java")
         let stages = recorder.events.compactMap { $0 as? LspSessionStageChanged }
@@ -52,7 +51,7 @@ struct LanguageIntelligenceModuleTests {
     }
 
     @Test
-    func subjectResolutionFailureIsCachedAndDoesNotAffectStartupOrLegacyLogs() throws {
+    func subjectResolutionFailureIsCachedAndDoesNotAffectStartup() throws {
         let root = URL(fileURLWithPath: "/workspace/log-subject-failure")
         let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(for: root.appendingPathComponent("Main.java")))
         let session = WorkspaceStateLanguageServerSession()
@@ -69,11 +68,10 @@ struct LanguageIntelligenceModuleTests {
         #expect(attempts == 1)
         #expect(recorder.events.isEmpty)
         #expect(session.startCallCount == 1)
-        #expect(manager.languageServerLogs.contains { $0.message == "Language server session registered" })
     }
 
     @Test
-    func coreLogCallbackPreservesFieldsAndLegacyBufferRemainsBounded() throws {
+    func coreLogCallbackPreservesFieldsWithoutLegacyBuffer() throws {
         let root = URL(fileURLWithPath: "/workspace/log-buffer")
         let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(for: root.appendingPathComponent("Main.java")))
         let session = WorkspaceStateLanguageServerSession()
@@ -87,8 +85,6 @@ struct LanguageIntelligenceModuleTests {
         session.onCoreLog?(record)
         #expect(received == [record])
         for index in 0..<105 { session.onLog?(.info, "v1 message", "projectCount=\(index)", nil) }
-        #expect(manager.languageServerLogs.count == 100)
-        #expect(manager.languageServerLogs.first?.detail == "projectCount=104")
         #expect(received == [record])
     }
 
@@ -721,12 +717,6 @@ struct LanguageIntelligenceModuleTests {
         session.publish(.ready)
         manager.stopLanguageServer(providerID: "java")
 
-        #expect(manager.languageServerLogs.contains {
-            $0.operationID == operationID.uuidString && $0.message == "Language server ready"
-        })
-        #expect(manager.languageServerLogs.contains {
-            $0.operationID == operationID.uuidString && $0.message == "Stopping language server"
-        })
         #expect(callbacks.contains { $0.0 == .ready && $0.1 == operationID })
         #expect(callbacks.contains { $0.0 == .stopped && $0.1 == operationID })
         #expect(manager.languageServerOperationIDs["java"] == nil)
@@ -1404,10 +1394,6 @@ struct LanguageIntelligenceModuleTests {
             )
         }
 
-        #expect(manager.languageServerLogs.contains {
-            $0.operationID == operationID.uuidString
-                && $0.message == "Language server start timed out"
-        })
         #expect(manager.languageServerStates["java"] == .failed(timeoutFailure))
     }
 
@@ -1442,15 +1428,6 @@ struct LanguageIntelligenceModuleTests {
         )
 
         #expect(cleanedFingerprint == "active-fingerprint")
-        #expect(manager.languageServerLogs.contains {
-            $0.operationID == operationID.uuidString
-                && $0.message == "Language server cache cleanup started"
-        })
-        #expect(manager.languageServerLogs.contains {
-            $0.operationID == operationID.uuidString
-                && $0.message == "Language server cache cleanup succeeded"
-                && $0.detail == "removedCount=2"
-        })
     }
 
     @Test
@@ -1485,11 +1462,6 @@ struct LanguageIntelligenceModuleTests {
         }
 
         #expect(!session.isRunning)
-        #expect(manager.languageServerLogs.contains {
-            $0.operationID == operationID.uuidString
-                && $0.level == .error
-                && $0.message == "Language server workspace fingerprint failed"
-        })
         #expect(manager.languageServerStates["java"] == .failed(LanguageServerSessionFailure(
             code: "workspace_fingerprint_failed",
             stage: "workspaceFingerprint",
@@ -1530,11 +1502,6 @@ struct LanguageIntelligenceModuleTests {
 
         #expect(session.isRunning)
         #expect(session.startedFingerprint == "active-fingerprint")
-        #expect(manager.languageServerLogs.contains {
-            $0.operationID == operationID.uuidString
-                && $0.level == .warning
-                && $0.message == "Language server cache cleanup failed"
-        })
         #expect(observed.contains { $0.0 == true && $0.2 == "cacheCleanupFailed" })
     }
 

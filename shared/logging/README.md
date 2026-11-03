@@ -89,7 +89,7 @@ PR3 引擎采用按角色事件族：`lsp.*` 使用 `lsp/{server}`，`vcs.*` 使
 
 PR3 macOS 将 CoreLogRecord 原样交给统一 LogSink/MacLogStore，按现有 drain、flush 和退出节奏一次排空 Core 队列，保留 ts/op、分配 seq，并继续 validateCatalog:true；不新增空闲轮询或独立 writer。启动者显式声明 role、真实 pluginId 与 VCS logSubject；宿主不解析 providerID。详细诊断类别沿用 lsp→language、vcs→git、plugins→plugins，对活动和新会话发送 lsp.setDetailedDiagnostics，15 分钟单次到期关闭，失败以 app.logging.diagnostics_failed 记录一次。
 
-v1 detail/message/level 保持兼容原文，v2 字段通过独立 EngineLogInput 传递，禁止从 detail 反解。stderr 唯一兼容变化是从任意 trim 的读取块改为逐行文本；保留行内空格、移除 LF/末尾 CR，并应用已声明的有界长度和限流。原始通知 JSON、projectCount=N 和 navigation 格式不变。LanguageToolingSessionManager 的 100 条 v1 内存缓冲继续供旧日志视图使用，到 PR4 再删除，不写 v1 文件。
+v1 detail/message/level 保持兼容原文，v2 字段通过独立 EngineLogInput 传递，禁止从 detail 反解。stderr 唯一兼容变化是从任意 trim 的读取块改为逐行文本；保留行内空格、移除 LF/末尾 CR，并应用已声明的有界长度和限流。原始通知 JSON、projectCount=N 和 navigation 格式不变。PR4 已删除 LanguageToolingSessionManager 的 100 条 v1 内存缓冲和旧语言服务日志标签页；macOS 日志窗口统一读取 v2 会话文件与写入器的实时批次，不写 v1 文件。
 
 本地启动前由 MacLogStore 用 Core plugin_files_path 创建当前 sessions/<session>/plugins/<id>/files/，目录 0700，描述符相对 no-follow 遍历防止符号链接越界；只属于当前日志会话，不注册为跨工作树可复用构建资源，不写 bundle 或安装目录。存储不可用时不传 logDirectory，使用 ${logDir} 的模板按现有 invalidRequest 失败。远程进程不能写本机日志目录，因此同样不传并拒绝该变量。安装验证只使用未创建的占位目录校验展开，不启动或写入。
 

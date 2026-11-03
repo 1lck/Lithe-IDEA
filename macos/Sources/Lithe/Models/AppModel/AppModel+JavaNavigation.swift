@@ -13,12 +13,7 @@ extension AppModel {
                 rootURL: workspaceURL
             )
         } catch {
-            sessions.recordLanguageServerLog(
-                providerID: "java",
-                level: .warning,
-                message: L10n.string("Java navigation marker synchronization failed"),
-                detail: error.localizedDescription
-            )
+            sessions.recordHostFailure(providerID: "java", stage: "navigationSync", error: error)
             return []
         }
         return await withCheckedContinuation { continuation in
@@ -28,22 +23,12 @@ extension AppModel {
                     case .success(let markers):
                         continuation.resume(returning: markers.map(JavaImplementationMarker.init))
                     case .failure(let error):
-                        sessions.recordLanguageServerLog(
-                            providerID: "java",
-                            level: .warning,
-                            message: L10n.string("Java navigation marker request failed"),
-                            detail: error.localizedDescription
-                        )
+                        sessions.recordHostFailure(providerID: "java", stage: "navigation", error: error)
                         continuation.resume(returning: [])
                     }
                 }
             } catch {
-                sessions.recordLanguageServerLog(
-                    providerID: "java",
-                    level: .warning,
-                    message: L10n.string("Java navigation marker request failed"),
-                    detail: error.localizedDescription
-                )
+                sessions.recordHostFailure(providerID: "java", stage: "navigation", error: error)
                 continuation.resume(returning: [])
             }
         }

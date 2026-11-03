@@ -1150,6 +1150,7 @@ final class MacServiceContainer {
             debugPerformanceSampler: MacDebugPerformanceSampler(processRegistry: processRegistry),
             testJVMPerformance: MacTestJVMPerformance(processRegistry: processRegistry)
         )
+        services.logWindowLogging = applicationLogging as? any LogWindowLogging
         services.logSink = applicationLogging as? any LogSink
         services.editorSettingsImportScan = { try await MacEditorSettingsImportReader.scan(directory: $0) }
         services.ideCapabilityRegistry = ideCapabilityRegistry

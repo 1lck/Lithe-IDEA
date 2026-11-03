@@ -50,36 +50,16 @@ final class JavaLanguageServerPreparationCoordinator {
             do {
                 let sessions = try await sessionsProvider()
                 guard !Task.isCancelled, ownsPreparation() else { return }
-                sessions.recordLanguageServerLog(
-                    providerID: "java",
-                    operationID: owner.operationID,
-                    level: .info,
-                    message: "Bundled JDK preparation started",
-                    detail: nil
-                )
                 let preparation = await runtimePreparation()
                 guard !Task.isCancelled, ownsPreparation() else { return }
                 switch preparation {
                 case .unprepared:
                     return
                 case .failed(let message):
-                    sessions.recordLanguageServerLog(
-                        providerID: "java",
-                        operationID: owner.operationID,
-                        level: .error,
-                        message: "Bundled JDK preparation failed",
-                        detail: message
-                    )
                     onFailure(.failed(message: message))
                     return
-                case .ready(let executableURL):
-                    sessions.recordLanguageServerLog(
-                        providerID: "java",
-                        operationID: owner.operationID,
-                        level: .info,
-                        message: "Bundled JDK preparation succeeded",
-                        detail: executableURL.path
-                    )
+                case .ready:
+                    break
                 }
                 // Runtime and plugin preparation can suspend after the first
                 // import wait. Rejoin the current detection immediately before
@@ -137,22 +117,15 @@ final class JavaLanguageServerPreparationCoordinator {
                     // Cancelling the previous reload stops only its replacement
                     // session. Its successor still owes this root a restart.
                     guard replacesRecovery else { return }
-                case .failed(let failure):
+                case .failed:
                     self?.mavenRecoveryRoot = workspaceURL
-                    sessions.recordLanguageServerLog(
-                        providerID: "java", level: .warning,
-                        message: "Build-system Maven import update needs recovery", detail: failure.userMessage
-                    )
                 }
                 try await sessions.reloadJavaWorkspace(rootURL: workspaceURL)
             } catch is CancellationError {
                 return
             } catch {
                 guard !Task.isCancelled, self?.mavenConfigurationID == id, ownsWorkspace() else { return }
-                sessions.recordLanguageServerLog(
-                    providerID: "java", level: .warning,
-                    message: "Build-system Maven import recovery failed", detail: error.localizedDescription
-                )
+                sessions.recordHostFailure(providerID: "java", stage: "mavenConfiguration", error: error)
             }
         }
         mavenConfigurationTask = task
@@ -218,12 +191,7 @@ final class JavaLanguageServerPreparationCoordinator {
                 changes: languageServerChanges
             )
         } catch {
-            sessions?.recordLanguageServerLog(
-                providerID: "java",
-                level: .error,
-                message: "Java workspace change notification failed",
-                detail: error.localizedDescription
-            )
+            sessions?.recordHostFailure(providerID: "java", stage: "workspaceFilesChanged", error: error)
         }
     }
 
