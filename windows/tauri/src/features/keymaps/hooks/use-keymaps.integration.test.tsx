@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from "bun:test";
+import { installKeymapContextPlans } from "@/test-utils/keymap-context-plans";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { installHappyDom } from "@/test-utils/happy-dom";
@@ -23,6 +24,7 @@ mock.module("@/features/settings/stores/settings.store", () => ({
         keybindingPreset: "none",
       },
     }),
+    subscribe: () => () => {},
   },
 }));
 mock.module("@/features/window/stores/ui-state.store", () => ({
@@ -38,6 +40,9 @@ const { useKeymaps } = await import("./use-keymaps");
 const { useKeymapStore } = await import("../stores/keymaps.store");
 const { registerDefaultKeymaps } = await import("../defaults/register-defaults");
 const { keymapRegistry } = await import("../utils/registry");
+const { prepareKeymapContexts } = await import("../utils/context");
+
+const coreInvoke = installKeymapContextPlans();
 
 let root: Root;
 let container: HTMLDivElement;
@@ -52,12 +57,14 @@ beforeAll(async () => {
   document.body.append(container);
   root = createRoot(container);
   await act(async () => {
+    await prepareKeymapContexts(keymapRegistry.getAllKeybindings());
     root.render(<Probe />);
   });
 });
 
 afterEach(async () => {
   await act(async () => {
+    await prepareKeymapContexts(keymapRegistry.getAllKeybindings());
     nativeMenuBar = false;
     keymapRegistry.clear();
     useKeymapStore.getState().actions.resetToDefaults();
@@ -72,12 +79,50 @@ afterEach(async () => {
 
 afterAll(async () => {
   await act(async () => {
+    await prepareKeymapContexts(keymapRegistry.getAllKeybindings());
     root.unmount();
   });
   restoreDom();
+  coreInvoke.mockRestore();
 });
 
 describe("keymap input routing", () => {
+  test("a malformed hydrated condition stays inactive and does not block subsequent keyboard events", async () => {
+    const execute = mock(() => undefined);
+    keymapRegistry.registerCommand({ id: "test.bad", title: "test", execute });
+    await act(async () => {
+      useKeymapStore.setState({
+        keybindings: [{ key: "ctrl+j", command: "test.bad", when: "@", source: "user" }],
+      });
+    });
+    const bad = new KeyboardEvent("keydown", {
+      key: "j",
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    await act(async () => {
+      document.body.dispatchEvent(bad);
+    });
+    expect(bad.defaultPrevented).toBe(false);
+    expect(execute).not.toHaveBeenCalled();
+    await act(async () => {
+      await useKeymapStore
+        .getState()
+        .actions.addKeybinding({ key: "ctrl+j", command: "test.bad", source: "user" });
+    });
+    const valid = new KeyboardEvent("keydown", {
+      key: "j",
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    await act(async () => {
+      document.body.dispatchEvent(valid);
+    });
+    expect(valid.defaultPrevented).toBe(true);
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
   test("routes cursor history separately from text undo and keeps find input native", async () => {
     const executed: string[] = [];
     for (const id of ["editor.cursorUndo", "editor.cursorRedo", "editor.undo"]) {
@@ -112,6 +157,7 @@ describe("keymap input routing", () => {
         cancelable: true,
       });
       await act(async () => {
+        await prepareKeymapContexts(keymapRegistry.getAllKeybindings());
         editorInput.dispatchEvent(event);
       });
       expect(event.defaultPrevented).toBe(true);
@@ -126,6 +172,7 @@ describe("keymap input routing", () => {
       cancelable: true,
     });
     await act(async () => {
+      await prepareKeymapContexts(keymapRegistry.getAllKeybindings());
       findInput.dispatchEvent(nativeEvent);
     });
     expect(nativeEvent.defaultPrevented).toBe(false);
@@ -133,6 +180,7 @@ describe("keymap input routing", () => {
 
     editorInput.focus();
     await act(async () => {
+      await prepareKeymapContexts(keymapRegistry.getAllKeybindings());
       useKeymapStore.getState().actions.addKeybinding({
         key: "ctrl+alt+z",
         command: "editor.cursorUndo",
@@ -148,6 +196,7 @@ describe("keymap input routing", () => {
       cancelable: true,
     });
     await act(async () => {
+      await prepareKeymapContexts(keymapRegistry.getAllKeybindings());
       editorInput.dispatchEvent(customizedEvent);
     });
     expect(customizedEvent.defaultPrevented).toBe(true);
@@ -185,6 +234,7 @@ describe("keymap input routing", () => {
       cancelable: true,
     });
     await act(async () => {
+      await prepareKeymapContexts(keymapRegistry.getAllKeybindings());
       editorInput.dispatchEvent(event);
     });
 
@@ -200,6 +250,7 @@ describe("keymap input routing", () => {
       cancelable: true,
     });
     await act(async () => {
+      await prepareKeymapContexts(keymapRegistry.getAllKeybindings());
       editorInput.dispatchEvent(compatibilityEvent);
     });
 
@@ -251,6 +302,7 @@ describe("keymap input routing", () => {
       cancelable: true,
     });
     await act(async () => {
+      await prepareKeymapContexts(keymapRegistry.getAllKeybindings());
       editorInput.dispatchEvent(goBackEvent);
     });
 
@@ -267,6 +319,7 @@ describe("keymap input routing", () => {
       cancelable: true,
     });
     await act(async () => {
+      await prepareKeymapContexts(keymapRegistry.getAllKeybindings());
       editorInput.dispatchEvent(goForwardEvent);
     });
 
@@ -294,6 +347,7 @@ describe("keymap input routing", () => {
       cancelable: true,
     });
     await act(async () => {
+      await prepareKeymapContexts(keymapRegistry.getAllKeybindings());
       document.body.dispatchEvent(event);
     });
 
@@ -315,6 +369,7 @@ describe("keymap input routing", () => {
       when: "editorFocus",
     });
     await act(async () => {
+      await prepareKeymapContexts(keymapRegistry.getAllKeybindings());
       useKeymapStore.getState().actions.setContexts({ editorFocus: false });
     });
 
@@ -332,6 +387,7 @@ describe("keymap input routing", () => {
       cancelable: true,
     });
     await act(async () => {
+      await prepareKeymapContexts(keymapRegistry.getAllKeybindings());
       findInput.dispatchEvent(findPaste);
     });
 
@@ -350,6 +406,7 @@ describe("keymap input routing", () => {
       cancelable: true,
     });
     await act(async () => {
+      await prepareKeymapContexts(keymapRegistry.getAllKeybindings());
       editorInput.dispatchEvent(editorPaste);
     });
 

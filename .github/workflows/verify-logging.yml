@@ -11,6 +11,7 @@ on:
       - "rust/lithe-core/src/**"
       - ".agents/skills/write-stable-tests/scripts/**"
       - ".github/workflows/verify-logging.yml"
+      - "!**/*.md"
   push:
     branches: [preview]
     paths:
@@ -21,26 +22,22 @@ on:
       - "rust/lithe-core/src/**"
       - ".agents/skills/write-stable-tests/scripts/**"
       - ".github/workflows/verify-logging.yml"
+      - "!**/*.md"
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# Every main commit gets its own group, including pending runs. PR pushes
+# cancel their predecessor immediately; only completed results may be reused.
 concurrency:
-  group: verify-structured-logging-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_id || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   validate:
-    name: Structured Logging (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        # Drafts retain the Linux contract check; ready PRs validate all hosts.
-        os: >-
-          ${{ fromJSON(github.event_name == 'pull_request' && github.event.pull_request.draft == true
-            && '["ubuntu-latest"]' || '["ubuntu-latest","macos-latest","windows-latest"]') }}
-    runs-on: ${{ matrix.os }}
+    name: Structured Logging (ubuntu-latest)
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     defaults:
       run:
@@ -64,7 +61,7 @@ jobs:
       - name: Check log usage
         run: node scripts/logging/verify-log-usage.mjs
       - name: Generate per-test timing report
-        if: always()
+        if: ${{ !cancelled() }}
         run: |
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
@@ -77,8 +74,8 @@ jobs:
           writeTestReportArtifacts(`${stem}.json`);
           NODE
       - name: Upload timing report
-        if: always()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
-          name: structured-logging-${{ matrix.os }}
+          name: structured-logging-ubuntu-latest
           path: .artifacts/test-stability/

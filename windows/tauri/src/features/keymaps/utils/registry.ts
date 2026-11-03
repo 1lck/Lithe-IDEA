@@ -9,6 +9,18 @@ import type { Command, Keybinding } from "../types/keymaps.types";
 class KeymapRegistry {
   private commands = new Map<string, Command>();
   private keybindings: Keybinding[] = [];
+  private listeners = new Set<() => void>();
+
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  private bindingsChanged(): void {
+    for (const listener of this.listeners) listener();
+  }
 
   registerCommand(command: Command): void {
     if (this.commands.has(command.id)) {
@@ -47,11 +59,13 @@ class KeymapRegistry {
     }
 
     this.keybindings.push(keybinding);
+    this.bindingsChanged();
     logger.debug("Keymaps", `Registered keybinding: ${keybinding.key} -> ${keybinding.command}`);
   }
 
   unregisterKeybinding(commandId: string): void {
     this.keybindings = this.keybindings.filter((kb) => kb.command !== commandId);
+    this.bindingsChanged();
     logger.debug("Keymaps", `Unregistered keybinding for: ${commandId}`);
   }
 
@@ -86,6 +100,7 @@ class KeymapRegistry {
   clear(): void {
     this.commands.clear();
     this.keybindings = [];
+    this.bindingsChanged();
   }
 }
 

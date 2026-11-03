@@ -540,7 +540,12 @@ private struct DescendantFixture {
 
     func descendantPID() throws -> pid_t {
         let contents = try String(contentsOf: pidFile, encoding: .utf8)
-        return try #require(pid_t(contents.trimmingCharacters(in: .whitespacesAndNewlines)))
+        // A newly created PID file can still be empty while the startup poll reads it.
+        // Report readiness only after parsing; a retry must not record a test issue.
+        guard let pid = pid_t(contents.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        return pid
     }
 
     func cleanup() {

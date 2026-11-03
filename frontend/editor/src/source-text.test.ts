@@ -2,6 +2,16 @@ import { expect, test } from "bun:test";
 import { SourceText } from "./source-text";
 
 const normalized = (text: string) => text.replace(/\r\n|\r/g, "\n");
+
+test("anchor edits exclude the unchanged context carried by source synchronization", () => {
+  const source = new SourceText("first();\r\nrun();\r\n", 1);
+  const mirrorChanges = source.apply([{ rangeOffset: 0, rangeLength: 9, text: "" }], 2);
+  expect(source.lastAnchorChanges).toEqual([{
+    offset: 0, length: 10, text: "", start: { line: 0, column: 0 }, end: { line: 1, column: 0 },
+  }]);
+  expect(mirrorChanges[0]!.length).toBeGreaterThan(source.lastAnchorChanges[0]!.length);
+  expect(source.value).toBe("run();\r\n");
+});
 function applyNative(text: string, changes: { offset: number; length: number; text: string }[]) {
   for (const change of [...changes].sort((a, b) => b.offset - a.offset)) {
     text = text.slice(0, change.offset) + change.text + text.slice(change.offset + change.length);

@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [ValidateSet("All", "Frontend", "WindowsRust", "SharedRust")]
+    [ValidateSet("All", "Frontend", "WindowsRust", "SharedRust", "SharedRustCore", "SharedRustHosts")]
     [string]$Scope = "All",
     [ValidateRange(1, 3600)]
     [int]$WarnSeconds = 1,
@@ -8,10 +8,15 @@ param(
     [int]$MaxSeconds = 15,
     [ValidateRange(1, 7200)]
     [int]$SuiteTimeoutSeconds = 1200,
-    [string[]]$FrontendTestPath = @()
+    [string[]]$FrontendTestPath = @(),
+    [ValidateRange(1, 16)]
+    [int]$CoreShardIndex = 1,
+    [ValidateRange(1, 16)]
+    [int]$CoreShardCount = 1
 )
 
 $ErrorActionPreference = "Stop"
+if ($CoreShardIndex -gt $CoreShardCount) { throw "CoreShardIndex must not exceed CoreShardCount." }
 if ($WarnSeconds -ge $MaxSeconds) { throw "WarnSeconds must be lower than MaxSeconds." }
 
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
@@ -69,6 +74,7 @@ function Invoke-TimedRustTests {
             $arguments += @("--package", $Package)
         }
         if ($Package -eq "lithe-core") {
+            $arguments += @("--shard-index", $CoreShardIndex, "--shard-count", $CoreShardCount)
             # These cases start real Git and the production TypeScript module
             # in Node. One Node startup hit its old 10s local deadline on CI.
             $arguments += @("--test-budget", "git_paths_roundtrip_=60000")
@@ -193,7 +199,7 @@ if ($Scope -in @("All", "WindowsRust")) {
         -Report (Join-Path $reportRoot "windows-rust.json")
 }
 
-if ($Scope -in @("All", "SharedRust")) {
+if ($Scope -in @("All", "SharedRust", "SharedRustHosts")) {
     # Dependency tests are not selected by -p lithe-core. Exercise the native
     # process and AskPass adapter on Windows as a separate timed package.
     Invoke-TimedRustTests `
@@ -214,6 +220,9 @@ if ($Scope -in @("All", "SharedRust")) {
         -TargetDirectory "rust/target" `
         -Report (Join-Path $reportRoot "ide-host-rust.json")
 
+}
+
+if ($Scope -in @("All", "SharedRust", "SharedRustCore")) {
     Invoke-TimedRustTests `
         -Manifest "rust/Cargo.toml" `
         -Package "lithe-core" `

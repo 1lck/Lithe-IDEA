@@ -104,6 +104,8 @@ assert_classification() {
 
     local actual
     actual="$(scripts/ci/common/classify-ci-changes.sh "$BASE_REVISION" HEAD)"
+    # Validation is captured before scope/draft filtering; tested separately below.
+    actual="$(printf '%s\n' "$actual" | sed '/^validation=/d')"
     if [[ "$actual" != "$expected" ]]; then
         printf 'Classifier case %s failed:\nExpected:\n%s\nActual:\n%s\n' \
             "$name" "$expected" "$actual" >&2
@@ -459,3 +461,12 @@ assert_classification rust-bridge-verifier \
     modify_rust_bridge_verifier
 
 printf '%s\n' 'CI change classifier tests passed'
+
+# The required gate remains on docs, but tooling runs only for code/infrastructure.
+git reset --hard -q "$BASE_REVISION"
+modify_readme
+git add . && git commit -q -m validation-docs
+[[ "$(scripts/ci/common/classify-ci-changes.sh "$BASE_REVISION" HEAD)" == *"validation=false"* ]]
+modify_rust_code
+git add . && git commit -q -m validation-code
+[[ "$(LITHE_CI_DRAFT_PULL_REQUEST=true scripts/ci/common/classify-ci-changes.sh "$BASE_REVISION" HEAD)" == *"validation=true"* ]]

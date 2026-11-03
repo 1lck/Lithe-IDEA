@@ -20,7 +20,7 @@
 
 旧工作区会话中的 `project`、`changes`、`search`、`pullRequests` 名称由兼容适配映射到贡献 ID；插件左栏直接保存贡献 ID。旧会话里的插件已卸载或模块已禁用时回退项目入口，不能把无效 ID 打开成空白底栏。旧尺寸配置没有左栏字段时保留原会话选择，新配置明确记录左栏选择和展开状态。恢复所有内置或声明式窗口时按贡献归属激活所属模块，原生窗口通过注册的激活回调复用能力缓存和观察绑定，不能用文本字段或可见标志判断模块已经准备好；例如 Services 即使已恢复为可见也要完成数据库按需激活。Show 入口共用这个 open-only 路径。恢复声明式插件左栏时必须激活其所属模块，并使用只打开语义，不能把已选中的窗口误当成用户切换关闭；等待激活时用户关闭窗口或选择另一窗口，也不能在激活结束后重新抢回左栏。左侧入口列表复用现有滚动控件，插件增加入口后不挤掉设置按钮。几何提交、模块释放与正常退出均不能覆盖用户最后保存的左栏状态。项目树行高与提交背景状态参与渲染身份，既能跟随现有设置，又不会在分隔条每帧更新时重复构造内容。
 
-命令面板复用已有 `LitheActionRegistry`，内置命令以及主工具栏 Run/Debug/Stop 也从宿主动作注册表执行；工具栏读取注册贡献。现有入口右键提供显示、隐藏入口、移至左侧/底部/右侧和调整顺序。主工具栏不再显示 Workbench Actions 省略号菜单；注册目录、已有入口右键动作及偏好存储保留。左侧活动栏在上方工具组之后提供“工具窗口”省略号菜单，补齐“隐藏入口”后的恢复路径。菜单读取完整可用贡献目录，而不是已经按隐藏偏好过滤的侧栏列表；原生与插件工具窗口均由同一个 Show 动作恢复入口并按需激活，保留保存的停靠位置，已经打开的窗口不切换关闭。菜单沿用注册图标、快捷键及可见、可用、勾选和激活中状态，执行时再次校验旧引用；不列出工具栏或普通命令入口。显示入口与显示内容是不同动作：业务流程显式打开窗口时恢复其入口，隐藏入口不停止模块拥有的进程。
+命令面板复用已有 `LitheActionRegistry`，内置命令以及主工具栏 Run/Debug/Stop 也从宿主动作注册表执行；工具栏读取注册贡献。现有入口右键保留显示和隐藏入口，将移至左侧/底部/右侧、前移/后移统一放进“移动”二级菜单；工具窗口再用一条分隔线隔开其后的六个精确停靠分区。工具栏入口复用同一个“移动”分组，不加入工具窗口专属分区。主工具栏不再显示 Workbench Actions 省略号菜单；注册目录、已有入口右键动作及偏好存储保留。左侧活动栏在上方工具组之后提供“工具窗口”省略号菜单，补齐“隐藏入口”后的恢复路径。菜单读取完整可用贡献目录，而不是已经按隐藏偏好过滤的侧栏列表；原生与插件工具窗口均由同一个 Show 动作恢复入口并按需激活，保留保存的停靠位置，已经打开的窗口不切换关闭。菜单沿用注册图标、快捷键及可见、可用、勾选和激活中状态，执行时再次校验旧引用；不列出工具栏或普通命令入口。显示入口与显示内容是不同动作：业务流程显式打开窗口时恢复其入口，隐藏入口不停止模块拥有的进程。
 
 Run、Debug 和 Stop 的主工具栏入口也使用宿主贡献 ID，与插件按钮共用显隐、顺序和工作区偏好。具体按钮保留既有原生呈现，动作由注册表决定运行、重跑或停止目标；禁用所属执行或调试模块时入口不可执行。命令面板中的内置命令与插件命令都从贡献目录读取，保留原分组、快捷键和业务动作，宿主可保存每个入口的隐藏状态和顺序；快捷键也从同一注册表执行，隐藏入口不禁止仍有效的快捷键。原生窗口的命令别名委托已有窗口注册动作，命令面板勾选状态跟随同一个窗口 ID；尤其打开 Run 输出窗口必须走按需激活动作，不能只修改显示布尔值。命令面板和快捷键复用同一模块所有权判断。找回工具栏或菜单入口只恢复可见性，不执行命令；只有显示工具窗口才按需激活。活动栏的恢复菜单只管理工具窗口，不提供“菜单命令”和“命令面板入口”的统一恢复子菜单。插件可以声明左侧、右侧或底部为首次停靠区域，保存布局仍优先。
 
@@ -38,13 +38,13 @@ Agent 的配置入口由同一个目录补齐，移动到任何已有停靠区�
 
 动作搜索必须使用与结果行一致的翻译边界：内置标题、说明和分组交给共享语言包，插件自有标题保持原文。平台提供原始文案与当前语言文案，由 Core 的 `search.actions` 一次匹配小型动作目录，保留原顺序和宿主动作身份；不再在 Swift 中逐条执行英文子序列匹配。这个修复针对“中文界面输入切换终端却没有结果”：原实现始于 `a36717731`，只读取未翻译的 `title/subtitle/group`，而结果行后来独立翻译，导致显示与搜索使用不同文本。隐藏侧栏图标不隐藏其独立可用命令；模块禁用仍由注册表阻止执行。Core 不持久保存目录、不扫描工作区，候选数、字段数和 UTF-8 字节数均有上限，插件标题不被宿主翻译。
 
-活动栏省略号参照 IDEA Community `c7f91397daa3a961b4e78bc634fe467a0a7d9ade` 的 `platform/platform-impl/src/com/intellij/toolWindow/MoreSquareStripeButton.kt`（MoreHorizontal 图标和工具窗口动作弹层）及 `platform/platform-impl/src/com/intellij/ide/actions/ToolWindowsGroup.java`（从窗口目录生成激活动作）。Lithe 复用既有 `LitheActivityBarButtonStyle` 和 `LitheDropdownPopover`，不修改共享菜单几何；为避免侧栏与菜单重复，菜单只提供被用户隐藏入口且仍可用的工具窗口；已显示在活动栏的项目不再重复列出，全部恢复后收起省略号。右键菜单项提供“取消隐藏”，只恢复原停靠组的图标、不激活模块或展开面板；左键继续恢复并打开。共享动作菜单的可选 contextItems 只承载原生右键呈现，先关闭原菜单，再把原工作台窗口作为新菜单所有者，避免最后一项恢复导致宿主卸载时把新菜单关闭。所有注册项的出现仍受模块可用性控制，不从截图补造 Bookmarks 等尚未实现的工具。
+活动栏省略号参照 IDEA Community `c7f91397daa3a961b4e78bc634fe467a0a7d9ade` 的 `platform/platform-impl/src/com/intellij/toolWindow/MoreSquareStripeButton.kt`（MoreHorizontal 图标和工具窗口动作弹层）及 `platform/platform-impl/src/com/intellij/ide/actions/ToolWindowsGroup.java`（从窗口目录生成激活动作）。Lithe 复用既有 `LitheActivityBarButtonStyle` 和 `LitheDropdownPopover`，不修改共享菜单几何；为避免侧栏与菜单重复，菜单只提供被用户隐藏入口且仍可用的工具窗口；已显示在活动栏的项目不再重复列出，全部恢复后收起省略号。隐藏窗口名称右侧显示子菜单箭头，展开后只放“显示”动作，执行时恢复原停靠组的入口并打开内容；快捷键、勾选和激活中禁用状态放在该动作上。名称继续保留注册图标及内置翻译/插件原文边界。取消旧的右键替换整张弹层路径，右键菜单行不关闭当前弹层；用户用左键或方向键进入子菜单，再明确选择显示。这样无需发现隐藏的右键操作，也避免父弹层关闭和子菜单创建之间的窗口生命周期交接。共享呈现器的 contextItems 仅供该旧路径使用，因此一起删除，不保留无调用方的替换菜单能力。所有注册项的出现仍受模块可用性控制，不从截图补造 Bookmarks 等尚未实现的工具。
 
 正确做法：数据库注册 `database.workspace` 和其 renderer，宿主根据保存的位置显示。新数据插件声明工具窗口和打开命令，通用适配器完成注册。
 
 不要这样做：按插件名称在 `WorkbenchView` 增加分支；从插件包加载第三方 UI 代码；把终端会话或数据库连接放到显示位置的状态里；运行时写入 app bundle 或插件安装目录。
 
-恢复菜单打开终端时，激活模块与创建会话是两步：只有工作区、贡献可用性和停靠组显示请求都仍有效，并且窗口已展开后，才执行注册动作的 `didShow`。终端在此处仅在缺少工具会话时创建一个默认会话；已有会话复用，右键取消隐藏不走此回调。不能把创建会话塞进 `activateOwner`，否则用户在等待时取消或切换同组工具后仍会启动进程。注册适配器还明确标记标题来源：内置条目使用共享翻译，声明式、构建系统和 VCS 插件标题保留原文；菜单排序和显示读取同一个标记，插件名即使等于 Terminal 等宿主词条也不被改写。
+恢复菜单打开终端时，激活模块与创建会话是两步：只有工作区、贡献可用性和停靠组显示请求都仍有效，并且窗口已展开后，才执行注册动作的 `didShow`。终端在此处仅在缺少工具会话时创建一个默认会话；已有会话复用；仅展开窗口名称的子菜单不激活模块或创建会话。不能把创建会话塞进 `activateOwner`，否则用户在等待时取消或切换同组工具后仍会启动进程。注册适配器还明确标记标题来源：内置条目使用共享翻译，声明式、构建系统和 VCS 插件标题保留原文；菜单排序和显示读取同一个标记，插件名即使等于 Terminal 等宿主词条也不被改写。
 
 首次打开、Show 和布局恢复都按停靠组记录临时显示请求。激活完成只提交仍属于该组最新请求的窗口；同组 A 等待期间选中 B 后，A 不能抢回选择。不同组互不取消。用户显隐、移动和布局重置使相应请求失效，这些 token 不写入持久布局。工具窗口贡献排序与实际入口都读取 `ToolWindowState.order`，前移/后移据此寻找相邻项；非窗口命令继续读取贡献偏好或声明顺序。
 
@@ -62,9 +62,9 @@ Agent 的配置入口由同一个目录补齐，移动到任何已有停靠区�
 
 ## 验证
 
-- `WorkbenchContributionHostTests.chineseActionSearchFindsAndRestoresHiddenTerminal` 使用实际中英资源验证中文标题、中文说明和英文别名，执行后恢复终端入口，切换回英文后不再沿用旧语言；修复前中文查询确认为空。Core 的 `shared/fixtures/search/actions-v1.json` 验证排序、Unicode、插件原文和输入预算。
+- `WorkbenchContributionHostTests.chineseActionSearchFindsAndRestoresHiddenTerminal` 使用实际中英资源验证中文标题、中文说明和英文别名，执行后恢复终端入口，切换回英文后不再沿用旧语言；修复前中文查询确认为空。Core 的 `shared/fixtures/search/actions-v1.json` 验证排序、Unicode、插件原文和输入预算。 动作匹配实现位于 `rust/lithe-core/src/action_search/mod.rs`，遵循 Core 根目录仅保留 `lib.rs` 的既有布局规则；模块路径和 `search.actions` 协议不变。
 
-- `WorkbenchContributionHostTests.toolWindowsMenuRestoresHiddenTerminalAtItsSavedDockWithoutToggling` 覆盖隐藏入口恢复、原停靠组、重复 Show 不关闭、模块禁用及旧菜单动作；已安装声明式插件流程补充从同一菜单恢复。`ContextMenuCoverageTests.rightClickOnMenuItemReplacesThePopupWithoutRunningItsPrimaryAction` 用原生右键事件验证菜单交接与执行，不运行主动作；模型回归确认恢复图标时没有模块激活或终端会话。实际产品还需在深浅主题检查左侧“…”、菜单打开/关闭、快捷键与终端已有会话。
+- `WorkbenchContributionHostTests.toolWindowsMenuRestoresHiddenTerminalAtItsSavedDockWithoutToggling` 覆盖隐藏入口恢复、原停靠组、重复 Show 不关闭、模块禁用及旧菜单动作；已安装声明式插件流程补充从同一菜单恢复。`ContextMenuCoverageTests.rightClickOnSubmenuKeepsThePopupAndShowRemainsKeyboardAccessible` 用原生右键事件验证父弹层保持可见，再用方向键和 Return 执行显示；模型回归确认菜单构造不激活模块或创建终端会话。实际产品还需在深浅主题检查左侧“…”、菜单打开/关闭、快捷键与终端已有会话。
 
 - `./scripts/architecture/verify-shared-contracts.sh`
 - `cargo test --manifest-path rust/lithe-core/Cargo.toml --lib declarative_plugins`

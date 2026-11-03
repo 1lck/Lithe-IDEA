@@ -2,13 +2,13 @@ import Foundation
 import LitheModuleAPI
 
 extension AppModel {
-    func showContributionEntry(_ contribution: ModuleContribution, openToolWindow: Bool = true) {
+    func showContributionEntry(_ contribution: ModuleContribution) {
         guard workbenchContributions.contains(contribution) else { return }
         if contribution.kind == .toolWindow {
             let state = workbenchUIRegistry.state(for: contribution, model: self)
             guard state.isVisible && state.isEnabled && !state.isPending else { return }
             workbenchFeature.customizeContribution(contribution.id, isHidden: false)
-            if openToolWindow { restoreRegisteredToolWindows([contribution.id]) }
+            restoreRegisteredToolWindows([contribution.id])
         } else {
             // Restoring a button or menu entry must never execute its command.
             workbenchFeature.customizeContribution(contribution.id, isHidden: false)

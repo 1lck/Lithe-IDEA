@@ -2,6 +2,18 @@
   "schemaVersion": 1,
   "messages": [
     {
+      "id": "debugger.breakpointRelocationFailed",
+      "description": "Breakpoint relocation failed; reset unsafe source anchors before debugging.",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "markdown.renderFailed",
+      "description": "Windows Markdown preview rendering failed; edit or reopen to retry",
+      "platforms": ["windows"]
+    },
+    {
       "id": "agent.actions.close",
       "description": "Windows UI: agent.actions.close",
       "platforms": [
@@ -24021,6 +24033,19 @@
       ]
     },
     {
+      "id": "keybindings.invalidWhen",
+      "description": "Windows shortcut context validation or concurrent save failed",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "keybindings.saveFailed",
+      "description": "Windows shortcut save failure",
+      "platforms": ["windows"],
+      "parameters": { "error": "string" }
+    },
+    {
       "id": "layout.actions",
       "description": "Windows UI: layout.actions",
       "platforms": [
@@ -24652,13 +24677,6 @@
         "feature": "string",
         "name": "string"
       }
-    },
-    {
-      "id": "markdown.documentProperties",
-      "description": "Windows UI: markdown.documentProperties",
-      "platforms": [
-        "windows"
-      ]
     },
     {
       "id": "markdownDocument.placeholder",
@@ -38133,6 +38151,39 @@
       ],
       "macos": {
         "key": "Find",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.findAction",
+      "description": "Native UI: Find Action",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Find Action",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.findAction.variant2",
+      "description": "Native UI: Find Action…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Find Action…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.findAndExecuteCommand",
+      "description": "Native UI: Find and execute a command",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Find and execute a command",
         "arguments": []
       }
     },
@@ -85378,7 +85429,8 @@
       "id": "native.languageServerReturnedAnInvalidTextRange",
       "description": "Native UI: Language server returned an invalid text range.",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "Language server returned an invalid text range.",
@@ -85389,7 +85441,8 @@
       "id": "native.languageServerReturnedOverlappingTextEdits",
       "description": "Native UI: Language server returned overlapping text edits.",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "Language server returned overlapping text edits.",
@@ -95278,6 +95331,13 @@
       "parameters": {
         "arg1": "integer"
       }
+    },
+    {
+      "id": "editor.workspaceEditStale",
+      "description": "Workspace edit rejected after document or workspace changes.",
+      "platforms": [
+        "windows"
+      ]
     },
     {
       "id": "workspace.appStore",

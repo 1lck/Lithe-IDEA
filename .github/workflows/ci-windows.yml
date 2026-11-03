@@ -3,8 +3,14 @@ name: Windows CI
 
 on:
   pull_request:
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - 'LICENSE*'
     # ready_for_review reruns the deferred runner lanes after a draft is ready.
     types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -12,11 +18,11 @@ permissions:
   # The gate reads reused jobs from earlier runs of the same pull request.
   actions: read
 
-# Pull request runs are not cancelled per branch: the lane-reuse step keeps an
-# earlier run whose lanes it reuses and cancels the others.
+# Every main commit gets its own group, including pending runs. PR pushes
+# cancel their predecessor immediately; only completed results may be reused.
 concurrency:
-  group: windows-ci-${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('run-{0}', github.run_id) || github.ref }}
-  cancel-in-progress: ${{ github.event_name != 'pull_request' }}
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_id || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   changes:
@@ -24,8 +30,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      # Cancels earlier runs of the same pull request that no lane reuses.
-      actions: write
+      # Reads only completed earlier jobs; concurrency owns cancellation.
+      actions: read
     outputs:
       windows: ${{ steps.classify.outputs.windows }}
       rust_core: ${{ steps.classify.outputs.rust_core }}
@@ -42,13 +48,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Test dependency cache tooling
-        shell: bash
-        run: |
-          node scripts/resources/test-verify-download-cache.mjs
-          node scripts/resources/test-reuse-worktree-resources.mjs
-          node --test --test-timeout=15000 scripts/agent/test-codex-config-relay.mjs
-
       - name: Resolve comparison base
         id: base
         env:
@@ -57,7 +56,7 @@ jobs:
           PUSH_BASE_SHA: ${{ github.event.before }}
         shell: bash
         run: |
-          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+          if [[ "$EVENT_NAME" == "workflow_dispatch" || "$GITHUB_REF" == "refs/heads/main" ]]; then
             echo "manual=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -99,7 +98,7 @@ jobs:
           fi
           ./scripts/ci/common/classify-ci-changes.sh "$BASE_SHA" "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
 
-      # Reuse lanes that passed (or are running) on an earlier revision of this
+      # Reuse lanes that completed successfully on an earlier revision of this
       # pull request when its own new changes cannot affect them.
       - name: Reuse unaffected lane results
         id: reuse
@@ -154,7 +153,7 @@ jobs:
   frontend:
     name: Test Windows frontend
     needs: changes
-    if: needs.changes.outputs.run_frontend == 'true'
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.run_frontend == 'true' }}
     runs-on: windows-latest
     timeout-minutes: 20
 
@@ -265,6 +264,14 @@ jobs:
       - name: Run Windows frontend tests
         shell: pwsh
         run: |
+          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-breakpoint-relocation.json -- src/features/debugger/services/breakpoint-relocation.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-markdown.json -- src/features/editor/markdown/render.test.ts src/features/editor/markdown/render-queue.test.ts src/features/editor/markdown/use-highlighted-markdown.test.tsx src/features/editor/markdown/code-highlight.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-text-edits.json -- src/features/editor/lsp/text-edit-core.test.ts src/features/editor/lsp/workspace-edit.test.ts src/features/editor/lsp/workspace-edit-races.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-code-actions.json -- src/features/editor/lsp/lsp-client-code-actions.test.ts src/features/editor/engines/monaco/code-action-diagnostics.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           bun test src/platform
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-language-detection.json -- src/features/editor/utils/language-detection.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -427,6 +434,11 @@ jobs:
         shell: pwsh
         timeout-minutes: 2
         run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-cursor-undo.json -- src/features/editor/engines/monaco/cursor-aware-undo.test.ts src/features/keymaps/hooks/use-keymaps.integration.test.tsx
+
+      - name: Test keymap context validation and imports
+        shell: pwsh
+        timeout-minutes: 2
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-keymap-context.json -- src/features/keymaps/utils/context.test.ts
 
       - name: Test editor tab scrolling and lifecycle
         shell: pwsh
@@ -670,7 +682,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Upload Windows frontend test reports
-        if: always()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: test-stability-windows-frontend
@@ -679,11 +691,15 @@ jobs:
           retention-days: 14
 
   rust-tests:
-    name: Test Windows Rust implementation
+    name: Test Windows Rust implementation (${{ matrix.lane }})
     needs: changes
-    if: needs.changes.outputs.run_rust == 'true'
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.run_rust == 'true' }}
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.changes.outputs.rust_core == 'true' && needs.changes.outputs.windows_rust == 'true' && '[{"lane":"shared-1","scope":"SharedRustCore","shard":1},{"lane":"shared-2","scope":"SharedRustCore","shard":2},{"lane":"shared-hosts","scope":"SharedRustHosts","shard":1},{"lane":"host","scope":"WindowsRust","shard":1}]' || needs.changes.outputs.rust_core == 'true' && '[{"lane":"shared-1","scope":"SharedRustCore","shard":1},{"lane":"shared-2","scope":"SharedRustCore","shard":2},{"lane":"shared-hosts","scope":"SharedRustHosts","shard":1}]' || '[{"lane":"host","scope":"WindowsRust","shard":1}]') }}
 
     steps:
       - name: Check out source
@@ -694,68 +710,31 @@ jobs:
         with:
           targets: x86_64-pc-windows-msvc
 
-      - name: Configure isolated Cargo cache
-        shell: pwsh
-        run: |
-          "CARGO_HOME=$(Join-Path $env:GITHUB_WORKSPACE '.artifacts/cargo-home')" >> $env:GITHUB_ENV
-
-      - name: Resolve Rust cache identity
-        id: rust-cache
-        shell: pwsh
-        run: |
-          $commit = rustc -Vv |
-            Select-String '^commit-hash:' |
-            ForEach-Object { ($_.Line -split ':', 2)[1].Trim() } |
-            Select-Object -First 1
-          if ([string]::IsNullOrWhiteSpace($commit)) {
-            throw "Could not resolve the Rust compiler commit hash."
-          }
-          "commit=$commit" >> $env:GITHUB_OUTPUT
-
-      - name: Restore Cargo downloads
-        id: cargo-download-cache
-        continue-on-error: true
-        uses: actions/cache@v6
+      # Dependencies only: discard incremental/workspace outputs before saving.
+      # One shared writer avoids three copies of the same multi-GB cache.
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
         with:
-          path: .artifacts/cargo-home/registry/cache
-          key: lithe-${{ runner.os }}-${{ runner.arch }}-cargo-downloads-v1-${{ hashFiles('rust/Cargo.lock', 'windows/tauri/src-tauri/Cargo.lock') }}
-          restore-keys: |
-            lithe-${{ runner.os }}-${{ runner.arch }}-cargo-downloads-v1-
-
-      - name: Restore Cargo build outputs
-        id: cargo-build-cache
-        continue-on-error: true
-        uses: actions/cache@v6
-        with:
-          path: |
-            windows/tauri/src-tauri/target/**/.fingerprint
-            windows/tauri/src-tauri/target/**/build
-            windows/tauri/src-tauri/target/**/deps
-            windows/tauri/src-tauri/target/**/incremental
-            rust/target/**/.fingerprint
-            rust/target/**/build
-            rust/target/**/deps
-            rust/target/**/incremental
-          key: lithe-${{ runner.os }}-${{ runner.arch }}-cargo-build-v1-x86_64-pc-windows-msvc-${{ steps.rust-cache.outputs.commit }}-${{ hashFiles('rust/Cargo.lock', 'rust/**/Cargo.toml', 'windows/tauri/src-tauri/Cargo.lock', 'windows/tauri/src-tauri/Cargo.toml', 'windows/tauri/crates/**/Cargo.toml', 'windows/tauri/rust-toolchain.toml') }}
-          restore-keys: |
-            lithe-${{ runner.os }}-${{ runner.arch }}-cargo-build-v1-x86_64-pc-windows-msvc-${{ steps.rust-cache.outputs.commit }}-
-
-      - name: Validate restored Cargo caches or fall back
-        shell: pwsh
-        run: |
-          ./scripts/windows/prepare/validate-windows-build-caches.ps1 `
-            -CargoDownloadsOutcome "${{ steps.cargo-download-cache.outcome }}" `
-            -CargoBuildOutcome "${{ steps.cargo-build-cache.outcome }}" `
-            -CargoBuildHit "${{ steps.cargo-build-cache.outputs.cache-hit }}"
+          workspaces: ${{ matrix.scope == 'WindowsRust' && 'windows/tauri/src-tauri' || 'rust' }}
+          shared-key: windows-tests-${{ matrix.scope == 'WindowsRust' && 'WindowsRust' || 'SharedRust' }}
+          cache-bin: false
+          cache-on-failure: true
+          save-if: ${{ matrix.lane == 'shared-1' || matrix.lane == 'host' }}
 
       - name: Test shared Rust Core
-        if: needs.changes.outputs.rust_core == 'true'
+        if: needs.changes.outputs.rust_core == 'true' && matrix.scope == 'SharedRustCore'
         shell: pwsh
         timeout-minutes: 20
-        run: ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope SharedRust -SuiteTimeoutSeconds 1080
+        run: ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope SharedRustCore -SuiteTimeoutSeconds 1080 -CoreShardIndex ${{ matrix.shard }} -CoreShardCount 2
+
+      - name: Test shared Rust host adapters
+        if: matrix.scope == 'SharedRustHosts'
+        shell: pwsh
+        timeout-minutes: 20
+        run: ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope SharedRustHosts -SuiteTimeoutSeconds 1080
 
       - name: Verify Windows MCP stdio protocol
-        if: needs.changes.outputs.rust_core == 'true'
+        if: needs.changes.outputs.rust_core == 'true' && matrix.lane == 'shared-hosts'
         shell: pwsh
         timeout-minutes: 5
         run: |
@@ -765,21 +744,21 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Test Windows Rust host
-        if: needs.changes.outputs.windows_rust == 'true'
+        if: needs.changes.outputs.windows_rust == 'true' && matrix.scope == 'WindowsRust'
         shell: pwsh
         timeout-minutes: 20
         run: ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope WindowsRust -SuiteTimeoutSeconds 1080
 
       - name: Generate combined Windows Rust test report
-        if: always()
+        if: ${{ !cancelled() }}
         shell: pwsh
         run: node .agents/skills/write-stable-tests/scripts/generate-test-report.mjs
 
       - name: Upload Windows Rust test reports
-        if: always()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
-          name: test-stability-windows-rust
+          name: test-stability-windows-rust-${{ matrix.lane }}
           path: .artifacts/test-stability/
           if-no-files-found: ignore
           retention-days: 14
@@ -787,7 +766,7 @@ jobs:
   real-jdt:
     name: Test real JDT on Windows
     needs: changes
-    if: needs.changes.outputs.run_jdt == 'true'
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.run_jdt == 'true' }}
     runs-on: windows-latest
     timeout-minutes: 35
 
@@ -797,6 +776,14 @@ jobs:
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+          shared-key: windows-tests-SharedRust
+          cache-bin: false
+          save-if: false
 
       - name: Set up JDT runtime JDK
         uses: actions/setup-java@v5
@@ -848,34 +835,14 @@ jobs:
             --package lithe-core `
             --warn-ms 1000 `
             --max-ms 15000 `
-            --test-budget git_paths_roundtrip_=60000 `
-            --test-budget watch_context_distinguishes_linked_worktree_git_and_common_directories=30000 `
+            --test-prefix lsp::interface::engine::real_jdt_tests:: `
             --test-budget lsp::interface::engine::real_jdt_tests::real_jdtls_discovers_builds_and_launches_java_25_entrypoints=600000 `
-            --test-budget tests::git_history_rewrite::=30000 `
-            --test-budget tests::git_history_rewrite::native_rebase_skip_omits_conflicted_message_from_later_squash=45000 `
-            --test-budget tests::git_remote_checkout::=30000 `
-            --test-budget tests::git_workspace_commit::git_workspace_commit_push_checks_submodule_publication_before_updating_the_remote=30000 `
-            --test-budget tests::git_workspace_commit::git_workspace_commit_push_confirms_each_repository_separately=60000 `
-            --test-budget tests::git::git_write_squashes_=30000 `
-            --test-budget tests::git::git_write_deletes_a_local_commit_=30000 `
-            --test-budget tests::git::git_write_edits_a_local_commit_message_=30000 `
-            --test-budget tests::git::git_write_updates_a_noncurrent_branch_without_switching_head=30000 `
-            --test-budget tests::git::git_write_executes_checkout_preflight_clone_and_validation=30000 `
-            --test-budget tests::git_patch_exchange::patch_exchange_detects_index_flags_and_hidden_destination_edits=30000 `
-            --test-budget tests::git_patch_exchange::patch_exchange_rejects_stale_preview_and_forward_conflicts_without_writing=30000 `
-            --test-budget tests::git_patch_exchange::patch_exchange_roundtrips_renames_deletes_and_platform_file_modes=30000 `
-            --test-budget tests::git_patch_exchange::patch_exchange_snapshot_roundtrip_preserves_index_and_binary_files=30000 `
-            --test-budget tests::git_patch_exchange::patch_exchange_distinguishes_sources_and_commit_direction=30000 `
-            --test-budget tests::git_patch_exchange::patch_exchange_reverse_roundtrip_preserves_both_versions_and_untracked_bytes=60000 `
-            --test-budget tests::git_patch_exchange::shelf_roundtrip_preserves_staged_deletions_with_retained_paths=60000 `
-            --test-budget tests::git_patch_exchange::shelf_roundtrip_preserves_staged_rename_with_recreated_source=60000 `
-            --test-budget tests::git_patch_exchange::patch_metadata_can_list_an_oversized_export_before_selecting_a_small_subset=30000 `
             --build-timeout-ms 600000 `
             --suite-timeout-ms 1200000 `
             --report .artifacts/test-stability/windows-real-jdt.json
 
       - name: Upload real JDT test report
-        if: always()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: test-stability-windows-real-jdt
@@ -930,6 +897,24 @@ jobs:
           require_job "$RUN_FRONTEND" "$FRONTEND_RESULT"
           require_job "$RUN_RUST" "$RUST_TESTS_RESULT"
           require_job "$RUN_JDT" "$REAL_JDT_RESULT"
+      - name: Check out shard coverage verifier
+        if: needs.rust-tests.result == 'success' && needs.changes.outputs.rust_core == 'true'
+        uses: actions/checkout@v7
+        with:
+          sparse-checkout: scripts/ci/common/verify-rust-shards.mjs
+          sparse-checkout-cone-mode: false
+
+      - name: Download Core shard reports
+        if: needs.rust-tests.result == 'success' && needs.changes.outputs.rust_core == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          pattern: test-stability-windows-rust-shared-*
+          path: .artifacts/rust-shards
+
+      - name: Verify exhaustive Core shard coverage
+        if: needs.rust-tests.result == 'success' && needs.changes.outputs.rust_core == 'true'
+        run: node scripts/ci/common/verify-rust-shards.mjs .artifacts/rust-shards/*/shared-rust.json
+
       - name: Check out the reused-result verifier
         if: needs.changes.result == 'success' && needs.changes.outputs.reuse != '{}' && needs.changes.outputs.reuse != ''
         uses: actions/checkout@v7

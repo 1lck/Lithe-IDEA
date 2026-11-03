@@ -2,10 +2,15 @@ import { afterEach, beforeEach, expect, mock, test } from "bun:test";
 
 type Listener = (event: { payload: unknown }) => void;
 const listeners = new Map<string, Listener>();
+let onConnect: () => Promise<void> = async () => {};
+let relocate: () => Promise<unknown> = async () => ({ breakpoints: [], originalIndices: [] });
 let respond: (args: Record<string, unknown>) => void = () => {};
 const invoke = mock(async (command: string, args: Record<string, unknown>) => {
-  if (command === "debug_connect_session")
+  if (command === "debug.relocateBreakpoints") return await relocate();
+  if (command === "debug_connect_session") {
+    await onConnect();
     return { id: "session-1", command: "tcp", cwd: "D:/work", args: [] };
+  }
   if (command !== "debug_send_request") return undefined;
   // Mirror the real Tauri signature: debug_send_request(app, request: DebugSendRequest).
   const request = args.request as Record<string, unknown> | undefined;
@@ -29,6 +34,8 @@ beforeEach(() => {
   listeners.clear();
   invoke.mockClear();
   respond = () => {};
+  relocate = async () => ({ breakpoints: [] });
+  onConnect = async () => {};
 });
 afterEach(() => {
   listeners.clear();
@@ -112,4 +119,51 @@ test("the real native request envelope queues breakpoints before Java attach and
       operationId: undefined,
     },
   });
+});
+
+
+test("Java attach waits for source edits and reads fresh breakpoint lines after the barrier", async () => {
+  const { useDebuggerStore } = await import("../stores/debugger.store");
+  const { queueBreakpointRelocation, flushBreakpointRelocations } = await import("./breakpoint-relocation");
+  const previous = useDebuggerStore.getState();
+  useDebuggerStore.setState({ breakpoints: [{ id: "before", filePath: "D:/work/Main.java", line: 1, enabled: true, createdAt: 1 }] });
+  let release!: (value: unknown) => void;
+  let entered!: () => void;
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const response = new Promise<unknown>(resolve => { release = resolve; });
+  relocate = async () => { entered(); return await response; };
+  let launch: Promise<unknown> | undefined;
+  try {
+    queueBreakpointRelocation("D:/work/Main.java", { previousContent: "first();\nrun();\n", content: "\nfirst();\nrun();\n", external: false,
+      changes: [{ offset: 0, length: 0, text: "\n", start: { line: 0, column: 0 }, end: { line: 0, column: 0 } }] });
+    await started;
+    launch = startConnectedDebugLaunchSession({ id: "boot", name: "Boot", runtime: "custom", request: "attach", source: "generated" },
+      4711, () => useDebuggerStore.getState().breakpoints, "D:/work");
+    expect(invoke.mock.calls.map(call => call[0])).toEqual(["debug.relocateBreakpoints"]);
+    release({ breakpoints: [{ line: 3, enabled: true }], originalIndices: [0] });
+    await launch;
+    const sent = invoke.mock.calls.find(call => call[0] === "debug_send_request" && (call[1].request as Record<string, unknown>).command === "setBreakpoints");
+    expect(sent?.[1]).toMatchObject({ request: { arguments: { breakpoints: [{ line: 3 }] } } });
+  } finally {
+    release({ breakpoints: [], originalIndices: [] });
+    if (launch) await launch;
+    useDebuggerStore.getState().actions.clearBreakpoints();
+    await flushBreakpointRelocations();
+    useDebuggerStore.setState(previous);
+  }
+});
+
+
+test("adapter connection cannot freeze a breakpoint snapshot before source edits finish", async () => {
+  const { useDebuggerStore } = await import("../stores/debugger.store");
+  const previous = useDebuggerStore.getState();
+  const point = { id: "bp", filePath: "D:/work/Main.java", line: 1, enabled: true, createdAt: 1 };
+  useDebuggerStore.setState({ breakpoints: [point] });
+  onConnect = async () => { useDebuggerStore.setState({ breakpoints: [{ ...point, line: 4 }] }); };
+  try {
+    await startConnectedDebugLaunchSession({ id: "boot", name: "Boot", runtime: "custom", request: "attach", source: "generated" },
+      4711, () => useDebuggerStore.getState().breakpoints, "D:/work");
+    const sent = invoke.mock.calls.find(call => call[0] === "debug_send_request" && (call[1].request as Record<string, unknown>).command === "setBreakpoints");
+    expect(sent?.[1]).toMatchObject({ request: { arguments: { breakpoints: [{ line: 5 }] } } });
+  } finally { useDebuggerStore.setState(previous); }
 });

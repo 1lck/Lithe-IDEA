@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { installHappyDom } from "@/test-utils/happy-dom";
+import { installKeymapContextPlans } from "@/test-utils/keymap-context-plans";
 import { LocaleProvider } from "@/i18n/locale-provider";
 import { createTranslator, type DisplayLanguage } from "@/i18n/locale";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
@@ -69,6 +70,7 @@ const queryInput = () =>
 
 beforeEach(async () => {
   restoreDom = installHappyDom();
+  spies.push(installKeymapContextPlans());
   spies.push(spyOn(globalThis, "requestAnimationFrame").mockReturnValue(0));
   previousAct = actGlobal.IS_REACT_ACT_ENVIRONMENT;
   actGlobal.IS_REACT_ACT_ENVIRONMENT = true;

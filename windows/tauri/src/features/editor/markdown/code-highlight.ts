@@ -233,28 +233,34 @@ export function renderHighlightedCodeHtml(code: string, segments: CodeHighlightS
 }
 
 export async function highlightMarkdownCodeBlocks(html: string): Promise<string> {
-  const codeBlockRegex = /<pre><code class="language-([^"]+)">([\s\S]*?)<\/code><\/pre>/g;
-  const matches: { lang: string; code: string }[] = [];
+  // Core emits data-sourcepos on pre/code. Preserve those attributes and
+  // operate only on the code text, without rebuilding the full document DOM.
+  const codeBlockRegex =
+    /(<pre\b[^>]*><code\b[^>]*\bclass="[^"]*\blanguage-([^"\s]+)[^"]*"[^>]*>)([\s\S]*?)<\/code><\/pre>/g;
+  const matches: { opening: string; lang: string; code: string }[] = [];
 
   for (const match of html.matchAll(codeBlockRegex)) {
     matches.push({
-      lang: match[1],
-      code: match[2],
+      opening: match[1],
+      lang: match[2],
+      code: match[3],
     });
   }
 
   if (matches.length === 0) return html;
 
+  const decoder = document.createElement("textarea");
   const highlightedMatches = await Promise.all(
     matches.map(async (match) => {
-      const rawCode = match.code.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+      // Decode exactly once, including numeric entities emitted by Comrak.
+      decoder.innerHTML = match.code;
+      const rawCode = decoder.value;
       const segments = await getCodeHighlightSegments(rawCode, match.lang);
       if (segments.length === 0) return null;
 
       const highlighted = renderHighlightedCodeHtml(rawCode, segments);
-      const languageId = normalizeCodeFenceLanguage(match.lang);
       return {
-        replacement: `<pre><code class="language-${languageId}">${highlighted}</code></pre>`,
+        replacement: `${match.opening}${highlighted}</code></pre>`,
       };
     }),
   );
@@ -264,8 +270,5 @@ export async function highlightMarkdownCodeBlocks(html: string): Promise<string>
   // took seconds for documents with a thousand code fences, and a string
   // replacement expands `$&`-style patterns that code itself contains.
   let index = 0;
-  return html.replace(
-    codeBlockRegex,
-    (full) => highlightedMatches[index++]?.replacement ?? full,
-  );
+  return html.replace(codeBlockRegex, (full) => highlightedMatches[index++]?.replacement ?? full);
 }

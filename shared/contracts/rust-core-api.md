@@ -1,5 +1,52 @@
 # Rust Core API
 
+## Shortcut context compilation
+
+`keymap.parseContext` accepts `{expression: string}` and returns
+`{parsed: {keys: string[], values: boolean[]} | null, error: {code: string, byteOffset: number} | null}`.
+Exactly one of `parsed` and `error` is non-null. Diagnostics use zero-based UTF-8
+byte offsets in the original expression, not editor UTF-16 positions.
+
+The grammar supports boolean context identifiers (`[A-Za-z0-9_.]+`, with
+`true`/`false` reserved), quoted strings, parentheses, unary `!`, strict typed
+`==`/`!=`, `&&`, and `||`, in that descending precedence order (unary precedes
+equality, which precedes AND and OR). Comparisons are not chainable; use explicit
+boolean operators. Strings support escaped quotes, backslash, `n`, `r`, and `t`.
+Missing context keys are false; non-empty strings are truthy. Whitespace-only
+source is an unconditional match. This is Lithe's boolean context grammar,
+not the full VS Code context-key language.
+
+Source is limited to 4096 UTF-8 bytes, 128 tokens, 32 nested parentheses/unary
+operations, and 12 distinct context identifiers. Full consumption is required.
+Syntax diagnostic codes are `invalid_character`, `invalid_escape`,
+`unclosed_string`, `expected_operand`, `expected_closing_paren`,
+`trailing_token`, `too_long`, and `too_complex`. Syntax diagnostics are
+successful protocol responses with no partial plan; malformed request shapes
+use the existing `invalid_request` envelope.
+
+Core computes the entire truth table. `keys` are sorted by ASCII order and
+`values` has exactly `2 ** keys.length` entries; key zero supplies the least
+significant bit of the index. A native boolean snapshot can synchronously
+project its key values to that index and look up the Core-produced result.
+Hosts must not tokenize source, interpret an AST, or recompute expression
+semantics. This preserves synchronous keyboard default prevention without
+an IPC round trip per key event. The maximum table has 4096 outcomes.
+
+`keymap.evaluateContext` accepts `{parsed, context: {[key: string]: boolean}}`
+and returns `{matches: boolean}`. It evaluates the same precompiled table,
+rejecting oversized, noncanonical, duplicate-key or incorrectly sized plans
+with `invalid_request`; it never reparses source. Parsed tables are portable
+data, not authorization tokens. Neither command retains global state.
+
+Windows validates imports before changing the preset/store and validates
+additions/updates before persistence. Hydrated/default/extension bindings stay
+inactive until their Core table is ready; invalid conditions stay inactive.
+Compilation is refreshed on binding/preset changes, and the keyboard owner
+releases preparations on teardown. Expression caching is limited to 256 entries
+and native compilation to 16 outstanding requests. Cache limits, teardown and
+stale-store guards belong to the window adapter. macOS has no free-form
+`when` parser and is unchanged. See `shared/fixtures/keymap/context-v1.json`.
+
 The Rust core is the shared application runtime for macOS SwiftUI and Windows
 React/Tauri. macOS calls the stable C ABI while the Tauri host links the Rust
 crate directly. The C ABI remains:
@@ -2197,6 +2244,15 @@ has an LSP range with zero-based `line` and UTF-16 `utf16Column` fields plus
 `invalid_request` with details `overlappingEdits`; invalid positions return
 details `invalidRange`. Successful responses return `{ "text": string }`.
 
+Windows workspace edits and formatting use this command instead of calculating
+text offsets locally. The cross-platform cases in
+`shared/fixtures/lsp/text-edits-v1.json` use LSP wire `character` fields; the
+Windows adapter maps those fields to Core `utf16Column` without changing their
+zero-based values. Core retains its existing normalization: columns beyond a
+line clamp before its line ending, and positions inside a UTF-16 surrogate pair
+resolve to the character start. Missing/negative lines, negative columns,
+reversed ranges and overlapping replacements are rejected.
+
 `lsp.plainSnippet` accepts `{ "value": string }` and returns `{ "text": string }`
 after removing LSP tab stops and replacing simple placeholder defaults such as
 `${1:name}` with `name`.
@@ -3063,6 +3119,13 @@ completion and resolve, hover, definition/declaration/type-definition, reference
 implementation, rename, formatting, code actions and resolve, execute command,
 inlay hints, full-document semantic tokens, folding ranges, code lens, provider
 virtual documents, `javaEntrypoints`, `javaTestItems`, and `javaMainMethods`.
+For code actions, `diagnostics` contains the original `LspClientDiagnostic`
+objects returned by Core: nullable integer `severity`, `tags`, and
+`relatedInformation` remain intact, and every range uses zero-based `line` /
+`utf16Column` positions. A platform's display severity or marker projection is
+not a diagnostic request model. Non-LSP markers may request actions with a range
+and an empty diagnostic context. The round-trip fixture is
+`shared/fixtures/lsp/diagnostic-code-actions-v1.json`.
 `javaEntrypoints` invokes Java Debug Server's
 `vscode.java.resolveMainClass` for the session workspace and returns schema
 version 1 with deterministic workspace-relative `{ sourcePath, mainClass,
@@ -5022,6 +5085,43 @@ workspace root set changes. Removing a nested root restores parent scanning.
 An unavailable non-current root does not fail a scoped request for an accessible
 root; a missing descendant retains its ownership boundary until removed by the host.
 
+
+### Windows source-breakpoint relocation
+
+Windows forwards the editor's exact source-preserving edits to
+`debug.relocateBreakpoints` and converts its zero-based store lines to/from Core's
+one-based lines. The context-expanded patches used to synchronize the editor's
+source mirror must not be used as anchor edits: unchanged neighboring code must
+not be treated as deleted. The existing cases in
+`shared/fixtures/debug/breakpoint-relocation-v1.json` cover both platforms.
+
+Each native multi-cursor event is sent as one batch of original-source edits;
+Core applies the edits before projecting anchors. Rapid events serialize or share
+one ordered request, split views share a mutation identity, and launch reads the
+current owner after all pending relocations complete.
+
+## Markdown rendering
+
+`markdown.render` accepts `{ "source": "<Markdown text>" }` and returns
+`{ "html": "<sanitized HTML fragment>" }`. The existing Comrak dialect and
+Ammonia sanitizer are shared by macOS and Windows; platforms must not parse
+Markdown again or fall back to another dialect. Closed leading `---` front
+matter is omitted, not rendered as a platform-specific property card.
+Code fences preserve whitespace and language classes, and rendered elements
+can contain `data-sourcepos` attributes. Platform syntax coloring must preserve
+these attributes and the original decoded code text.
+
+Raw formatting HTML can survive, but scripts, executable attributes, embeds,
+arbitrary inline styles and unsafe URL schemes are removed in Core before
+embedding. Windows asynchronously requests this existing command via its
+central dispatcher, discards obsolete responses and falls back to the sanitized
+fragment if syntax coloring fails. Render failures are shown as localized text;
+there is no frontend Markdown parser fallback. This does not promise Windows
+math or diagram rendering parity.
+
+Shared examples: `shared/fixtures/editor/markdown-render-v1.json`,
+`markdown-html-v1.json` and `markdown-rich-content-v1.json`.
+
 ### Structured logging of recoverable LSP maintenance warnings
 
 `lsp.pollEvents` log observations may carry the existing `error` object even at
@@ -5043,6 +5143,23 @@ observation), `stderrReadFailed` (stderr I/O), `navigationLimited` (batch cap),
 that observation; arbitrary upstream messages retain `upstreamDiagnostic`.
 
 Hosts persist these controlled identities, never the raw detail, URL, output or argv.
+
+### Batched breakpoint relocation snapshots
+
+`debug.relocateBreakpoints` retains the single `edit` input and also accepts `edits`, an array of non-overlapping original-source UTF-16 replacements. Character anchors are retained until the complete batch finishes; only then are positions projected and duplicates merged. LF, CRLF and lone CR are line boundaries.
+
+Optional `editBatches` contains up to 127 additional editor mutations in order,
+with up to 4096 edits and 64 MiB of replacement text across those additional
+batches. Each batch uses UTF-16
+offsets in the text produced by the preceding mutation. Core projects and
+deduplicates breakpoints after each mutation, exactly as for separate calls, and
+keeps `originalIndices` relative to the request's original breakpoint list.
+
+The response's `originalIndices` array identifies the zero-based input breakpoint
+that survived for each entry in `breakpoints`, in the same order. It allows a host
+to preserve breakpoint identity after relocation and collision resolution.
+
+Optional `document: {id, version}` enables bounded process-local source reuse. Version 1 supplies `source`; each subsequent version increments by one and omits source. Missing or stale snapshots fail closed. The cache holds four sources of at most 16 MiB each, evicts least-recently-used entries, and never writes runtime resources. Hosts reset with a new identity when the exact source chain changes.
 
 ### Engine logging v2 handoff (PR3)
 
