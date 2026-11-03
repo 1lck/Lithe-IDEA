@@ -1479,13 +1479,13 @@ package final class GitFeatureModel: ObservableObject {
     /// The read is outside the user command context and does not rediscover or
     /// wait for unrelated repositories, stashes, history or project services.
     private func withGitChangeOperation<T: Sendable>(
-        _ changes: [GitChange], onWorktreeSettled: @escaping @MainActor () -> Void = {},
+        _ changes: [GitChange], additionalRoots: [URL] = [], onWorktreeSettled: @escaping @MainActor () -> Void = {},
         _ operation: () async -> T
     ) async -> T {
         let generation = workspaceCommitGeneration
         let workspace = workspaceURLProvider?()?.standardizedFileURL
         let hostGeneration = worktreeOperationHost?.workspaceCommitGeneration
-        let requests = Dictionary(uniqueKeysWithValues: Set(changes.map { $0.repositoryRoot.standardizedFileURL }).map { ($0, UUID()) })
+        let requests = Dictionary(uniqueKeysWithValues: Set(changes.map { $0.repositoryRoot.standardizedFileURL } + additionalRoots.map(\.standardizedFileURL)).map { ($0, UUID()) })
         invalidateChangeReads(requests)
         worktreeOperationHost?.invalidateChangeReads(requests)
         return await withGitOperation(afterOperation: {
@@ -2088,41 +2088,45 @@ package final class GitFeatureModel: ObservableObject {
     /// in selected files remain intact; unrelated staged files are excluded.
     package func prepareCommitFiles(_ changes: [GitChange]) async -> Bool {
         guard canPrepareCommitFiles(changes), let first = changes.first else { return false }
-        activateChangelist(changelists.listID(for: first))
+        let targetList = changelists.listID(for: first)
+        activateChangelist(targetList)
         guard canPrepareCommitFiles(changes) else { return false }
         let generation = workspaceCommitGeneration
         let workspace = workspaceURLProvider?()?.standardizedFileURL
-        let selectedIDs = Set(changes.map(\.id))
-        let alreadyStaged = Set(changes.filter(\.isStaged).map(\.id))
-        let excluded = gitChanges.filter { $0.isStaged && !selectedIDs.contains($0.id) }
-        let included = coveringUntrackedDirectoryContents(changes.filter { !alreadyStaged.contains($0.id) })
+        let selected = coveringUntrackedDirectoryContents(changes)
+        let roots = Set(availableRepositoryRoots.map(\.standardizedFileURL) + changes.map { $0.repositoryRoot.standardizedFileURL }).sorted { $0.path < $1.path }
+        let selectedByRoot = Dictionary(grouping: selected) { $0.repositoryRoot.standardizedFileURL }
+        let request = GitCommitSelectionRequest(repositories: roots.map {
+            GitCommitSelectionRequest.Repository(root: $0, selected: selectedByRoot[$0] ?? [])
+        })
+        let affected = gitChanges.filter(\.isStaged) + changes
         isPreparingCommitFiles = true
         defer { if workspaceCommitGeneration == generation { isPreparingCommitFiles = false } }
         func isCurrent() -> Bool {
             workspaceCommitGeneration == generation && workspaceURLProvider?()?.standardizedFileURL == workspace
                 && !Task.isCancelled && GitExecutionContext.current?.isCancellationRequested != true
         }
-        let succeeded = await withGitChangeOperation(excluded + changes) {
-            var seen: Set<String> = []
-            for (targets, staged) in [(excluded, false), (included, true)] {
-                seen = []
-                for change in targets where seen.insert(change.id).inserted {
-                    guard isCurrent() else { return false }
-                    let target = GitRollbackSelection.operationTarget(change)
-                    let result = await recordingGitCommand {
-                        staged ? await service.stage(target) : await service.unstage(target)
-                    }
-                    guard isCurrent() else { return false }
-                    guard result.succeeded else {
-                        notifyWithReference(trimmedMessage(result))
-                        return false
-                    }
+        let succeeded = await withGitChangeOperation(affected, additionalRoots: roots) {
+            let result = await recordingGitCommand { await service.prepareCommitSelection(request) }
+            guard isCurrent() else { return false }
+            guard result.succeeded else {
+                if result.output.contains("GIT_COMMIT_SELECTION_STALE") {
+                    notifyWithReference(L10n.string("The staged files changed. Review the checked files before committing."))
+                } else {
+                    notifyWithReference(trimmedMessage(result))
                 }
+                return false
             }
-            return isCurrent()
+            return true
         }
         guard isCurrent() else { return false }
         guard isCurrent(), succeeded else { return false }
+        let currentRoots = Set(availableRepositoryRoots.map(\.standardizedFileURL) + changes.map { $0.repositoryRoot.standardizedFileURL })
+        guard currentRoots == Set(roots), changelists.activeID == targetList,
+              changes.allSatisfy({ changelists.listID(for: $0) == targetList }) else {
+            notifyWithReference(L10n.string("The staged files changed. Review the checked files before committing."))
+            return false
+        }
         let staged = gitChanges.filter(\.isStaged)
         func matches(_ current: GitChange, _ selected: GitChange) -> Bool {
             current.repositoryRoot.standardizedFileURL == selected.repositoryRoot.standardizedFileURL

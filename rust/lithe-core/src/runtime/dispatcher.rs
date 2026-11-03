@@ -2812,6 +2812,11 @@ fn execute(request: &str) -> CoreResponse {
             parsed.payload,
             crate::git::history_action_capabilities_command,
         ),
+        CoreCommand::GitPrepareCommitSelection => plugin_response(
+            id,
+            parsed.payload,
+            crate::git::prepare_commit_selection_command,
+        ),
         CoreCommand::GitRollbackPrepare => {
             plugin_response(id, parsed.payload, crate::git::rollback_prepare_command)
         }

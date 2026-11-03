@@ -13,6 +13,7 @@ package struct NullGitPerformanceLogger: GitPerformanceLogger {
 }
 
 package protocol GitOperations: Sendable {
+    func prepareCommitSelection(_ request: GitCommitSelectionRequest) -> GitProcessResult?
     func prepareWorkspaceCommit(_ request: GitWorkspaceCommitRequest) -> Result<GitWorkspaceCommitPreparation, GitWorkspaceCommitFailure>
     func stepWorkspaceCommit(_ session: GitWorkspaceCommitSession) -> Result<GitWorkspaceCommitSession, GitWorkspaceCommitFailure>
 
@@ -212,6 +213,7 @@ package protocol GitOperations: Sendable {
 
 package extension GitOperations {
     func historyDateMatches(_ query: GitHistoryDateQuery) -> [String]? { nil }
+    func prepareCommitSelection(_ request: GitCommitSelectionRequest) -> GitProcessResult? { nil }
     func prepareRollback(at root: URL, changes: [GitChange], deleteAddedFiles: Bool) -> Result<GitRollbackPlan, GitRollbackFailure> {
         .failure(GitRollbackFailure(L10n.string("Could not refresh Git status. Refresh to verify the changes.")))
     }
@@ -463,6 +465,10 @@ package struct GitService: Sendable {
 
     func repositories(in workspace: URL) async -> [URL] {
         await read(priority: .utility) { $0.repositories(in: workspace) } ?? []
+    }
+
+    func prepareCommitSelection(_ request: GitCommitSelectionRequest) async -> CommandResult {
+        await command { $0.prepareCommitSelection(request) }
     }
 
     func prepareWorkspaceCommit(_ request: GitWorkspaceCommitRequest) async -> Result<GitWorkspaceCommitPreparation, GitWorkspaceCommitFailure> {

@@ -165,6 +165,15 @@ struct RustGitOperations: GitOperations, Sendable {
         write(at: root, operation: step.operation.rawValue, paths: step.paths)
     }
 
+    func prepareCommitSelection(_ request: GitCommitSelectionRequest) -> GitProcessResult? {
+        struct Response: Decodable { let prepared: Bool }
+        let result: Result<Response, RustCoreBridge.CoreCallError> = core.executeResult(command: "git.prepareCommitSelection", payload: request)
+        switch result {
+        case .success(let response): return GitProcessResult(output: "", exitCode: response.prepared ? 0 : 1)
+        case .failure(let error): return GitProcessResult(output: error.userMessage, exitCode: 1)
+        }
+    }
+
     func prepareWorkspaceCommit(_ request: GitWorkspaceCommitRequest) -> Result<GitWorkspaceCommitPreparation, GitWorkspaceCommitFailure> {
         let result: Result<GitWorkspaceCommitPreparation, RustCoreBridge.CoreCallError> = core.executeResult(
             command: "git.workspaceCommitPrepare", payload: request)

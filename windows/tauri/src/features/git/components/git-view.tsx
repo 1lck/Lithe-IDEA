@@ -1,3 +1,6 @@
+import type { GitFile } from "../types/git.types";
+import { refreshedCommitSelectionMatches } from "../utils/git-status-selection";
+import { normalizeRepositoryPath } from "../api/git-repository-path";
 import { GitSavedChanges } from "./stash/git-saved-changes";
 import { isChangelistStorageEvent } from "../api/git-changelist-storage";
 import { GitChangelistBar } from "./git-changelist-bar";
@@ -242,11 +245,12 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
   const gitChangesFolderView = useSettingsStore((state) => state.settings.gitChangesFolderView);
   // Diff file navigation follows the rows the Commit panel actually shows.
   const orderedWorkingTreeFiles = useMemo(
-    () => orderGitStatusFilesForDisplay(visibleGitFiles, {
-      repoPath: activeRepoPath ?? undefined,
-      changelists,
-      folderView: gitChangesFolderView,
-    }),
+    () =>
+      orderGitStatusFilesForDisplay(visibleGitFiles, {
+        repoPath: activeRepoPath ?? undefined,
+        changelists,
+        folderView: gitChangesFolderView,
+      }),
     [visibleGitFiles, activeRepoPath, changelists, gitChangesFolderView],
   );
   useEffect(() => {
@@ -290,6 +294,29 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
     Boolean(batch.review) ||
     Boolean(batch.session && !batch.session.succeeded);
   const changelistsBusy = commitWorkflowBusy || savedChangesWorkspaceBusy;
+  const commitSelectionRootsMatch = (files: GitFile[], preparedRoots: string[]) => {
+    const currentRoots = new Set(
+      [
+        ...useRepositoryStore.getStore(scopedWorkspaceId ?? activeWorkspaceId).getState()
+          .availableRepoPaths,
+        ...files.map((file) => file.repositoryPath ?? activeRepoPath ?? "").filter(Boolean),
+      ].map(normalizeRepositoryPath),
+    );
+    const expectedRoots = new Set(preparedRoots.map(normalizeRepositoryPath));
+    return (
+      currentRoots.size === expectedRoots.size &&
+      [...currentRoots].every((root) => expectedRoots.has(root))
+    );
+  };
+  const commitSelectionListMatches = (id: string, files: GitFile[]) => {
+    const current = useGitChangelistsStore.getState();
+    const lists = workspaceChangelists(current, changelistWorkspace);
+    return (
+      !current.unavailable &&
+      lists.activeId === id &&
+      files.every((file) => fileChangelist(lists, file, activeRepoPath ?? undefined) === id)
+    );
+  };
   const commitSelectedFiles = useMemo(
     () =>
       (changelistsUnavailable ? [] : (gitStatus?.files ?? [])).filter(
@@ -893,6 +920,30 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
                 </div>
               }
               changelists={showChangelists ? changelists : undefined}
+              commitChangelists={changelists}
+              commitSelectionDisabled={storageUnavailable || changelistsBusy}
+              commitWorkspaceKey={`${scopedWorkspaceId ?? activeWorkspaceId}\0${changelistWorkspace}`}
+              onActivateCommitChangelist={(id, files, preparedRoots) => {
+                if (!commitSelectionRootsMatch(files, preparedRoots)) return false;
+                useGitChangelistsStore.getState().activateList(changelistWorkspace, id);
+                return commitSelectionListMatches(id, files);
+              }}
+              isCommitChangelistCurrent={(id, files, preparedRoots) => {
+                useGitChangelistsStore.getState().loadWorkspace(changelistWorkspace);
+                const gitState = useGitStore
+                  .getStore(scopedWorkspaceId ?? activeWorkspaceId)
+                  .getState();
+                return (
+                  commitSelectionRootsMatch(files, preparedRoots) &&
+                  commitSelectionListMatches(id, files) &&
+                  !!gitState.gitStatus &&
+                  refreshedCommitSelectionMatches(
+                    files,
+                    gitState.gitStatus.files,
+                    activeRepoPath ?? undefined,
+                  )
+                );
+              }}
               showChangelistGroups={showChangelists}
               changelistsDisabled={changelistsBusy}
               stagingDisabled={changelistsUnavailable || changelistsBusy}

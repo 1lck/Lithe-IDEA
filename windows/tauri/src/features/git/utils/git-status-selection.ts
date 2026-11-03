@@ -1,3 +1,4 @@
+import { normalizeRepositoryPath } from "../api/git-repository-path";
 import type { GitFile } from "../types/git.types";
 import { withoutListedUntrackedContents } from "./git-untracked-directories";
 
@@ -106,4 +107,46 @@ export function resolveGitStatusDeletionPaths(
   return [
     ...new Set(files.filter((file) => file.status !== "deleted").map((file) => file.path)),
   ].sort((left, right) => left.localeCompare(right));
+}
+
+/** Check the refreshed presentation before moving focus to the commit editor. */
+export function refreshedCommitSelectionMatches(
+  selected: readonly GitFile[],
+  current: readonly GitFile[],
+  fallbackRepoPath?: string,
+): boolean {
+  const groups = new Map<string, Set<string>>();
+  for (const file of selected) {
+    const root = getGitFileRepositoryPath(file, fallbackRepoPath);
+    if (!root) return false;
+    const key = normalizeRepositoryPath(root);
+    const paths = groups.get(key) ?? new Set<string>();
+    paths.add(getGitFileRepositoryRelativePath(file));
+    groups.set(key, paths);
+  }
+  const matched = new Map<string, Set<string>>();
+  for (const file of current) {
+    if (!file.staged) continue;
+    const root = getGitFileRepositoryPath(file, fallbackRepoPath);
+    if (!root) return false;
+    const key = normalizeRepositoryPath(root);
+    const paths = groups.get(key);
+    if (!paths) return false;
+    const path = getGitFileRepositoryRelativePath(file);
+    let owner = paths.has(path) ? path : undefined;
+    if (!owner) {
+      for (let index = path.indexOf("/"); index >= 0; index = path.indexOf("/", index + 1)) {
+        const directory = path.slice(0, index + 1);
+        if (paths.has(directory)) {
+          owner = directory;
+          break;
+        }
+      }
+    }
+    if (!owner) return false;
+    const found = matched.get(key) ?? new Set<string>();
+    found.add(owner);
+    matched.set(key, found);
+  }
+  return [...groups].every(([root, paths]) => matched.get(root)?.size === paths.size);
 }

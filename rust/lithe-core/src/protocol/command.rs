@@ -465,6 +465,8 @@ pub enum CoreCommand {
     GitRollbackPlan,
     /// Rechecks Git identities and plans rollback (`git.rollbackPrepare`).
     GitRollbackPrepare,
+    /// Prepares the real index for an explicit selected-file commit.
+    GitPrepareCommitSelection,
     /// Projects retained Git console records without executing Git (`git.consolePresentation`).
     GitConsolePresentation,
     /// Reads an optional remote URL without a visible command (`git.remoteUrl`).
@@ -832,6 +834,7 @@ impl CoreCommand {
             "git.write" => Some(Self::GitWrite),
             "git.rollbackPlan" => Some(Self::GitRollbackPlan),
             "git.rollbackPrepare" => Some(Self::GitRollbackPrepare),
+            "git.prepareCommitSelection" => Some(Self::GitPrepareCommitSelection),
             "git.consolePresentation" => Some(Self::GitConsolePresentation),
             "git.remoteUrl" => Some(Self::GitRemoteUrl),
             "git.fetchPlan" => Some(Self::GitFetchPlan),
