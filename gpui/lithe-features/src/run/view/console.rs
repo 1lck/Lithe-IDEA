@@ -20,27 +20,21 @@ use lithe_ui::{LitheIcon, LitheMetrics, LitheTokens, icon, mono_font_family};
 use crate::console::{AnsiPalette, ConsoleCaretHandler, console_line_element, console_scrollbar};
 
 use super::session::RunMode;
-use super::state::SessionState;
 use super::{
-    CONSOLE_ACTION_STRIPE_WIDTH, CONSOLE_CONTEXT, CONSOLE_LINE_HEIGHT, CopySelection, PANEL_PADDING,
-    RunPanel,
+    CONSOLE_ACTION_STRIPE_WIDTH, CONSOLE_CONTEXT, CONSOLE_LINE_HEIGHT, CopySelection,
+    PANEL_PADDING, RunPanel,
 };
 
 impl RunPanel {
     /// 把行数变化同步给虚拟化列表。
     ///
     /// 行数变化时跟随最新输出。虚拟列表的行数在渲染时传入，
-    /// 这里只负责把贴底跟随落成滚动指令。
+    /// 这里只负责把贴底跟随落成滚动指令；退出 System 行追加后
+    /// 会话已不处于运行态，跟随不再要求运行中。
     pub(super) fn sync_console_lines(&mut self) {
         let count = self.selected_line_count();
-        let running = self
-            .selected_id
-            .as_ref()
-            .and_then(|id| self.sessions.get(id))
-            .is_some_and(SessionState::is_active);
         if self.console.sync_line_count(count, CONSOLE_LINE_HEIGHT)
             && self.console_follow_tail
-            && running
             && count > 0
         {
             self.console
@@ -439,6 +433,13 @@ impl RunPanel {
                                                         })
                                                     };
                                                     let raw_line = this.selected_line_text(index);
+                                                    // System 行（退出提示等）用弱化色，
+                                                    // 不按普通输出或严重级别着色。
+                                                    let mut line_style = text_style.clone();
+                                                    if this.selected_line_is_system(index) {
+                                                        line_style.color =
+                                                            Some(line_tokens.tertiary_text);
+                                                    }
                                                     let selected_range = selection_snapshot
                                                         .and_then(|sel| {
                                                             sel.range_for_line(
@@ -450,7 +451,7 @@ impl RunPanel {
                                                         format!("lithe-run-line:{index}"),
                                                         index,
                                                         &raw_line,
-                                                        text_style.clone(),
+                                                        line_style,
                                                         &palette,
                                                         line_tokens,
                                                         console_caret
@@ -521,6 +522,14 @@ impl RunPanel {
             .and_then(|id| self.sessions.get(id))
             .map(|session| session.line_at(index).to_string())
             .unwrap_or_default()
+    }
+
+    /// 当前会话第 `index` 行是否是 System 行。
+    fn selected_line_is_system(&self, index: usize) -> bool {
+        self.selected_id
+            .as_ref()
+            .and_then(|id| self.sessions.get(id))
+            .is_some_and(|session| session.is_system_line(index))
     }
 }
 
