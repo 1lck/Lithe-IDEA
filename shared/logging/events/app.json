@@ -243,6 +243,21 @@
       },
       "rate": 60,
       "owner": "lithe-core"
+    },
+    {
+      "id": "app.action_search.failed",
+      "channel": "app",
+      "level": "error",
+      "message": "Action catalog search failed",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Core command failure while matching the current action catalog; excludes query text and action content"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
     }
   ]
 }

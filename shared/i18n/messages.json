@@ -95824,6 +95824,17 @@
         "arg1": "string",
         "arg2": "string"
       }
+    },
+    {
+      "id": "mac.workbench.unhide",
+      "description": "Restore a hidden tool window rail entry without opening its panel",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Unhide",
+        "arguments": []
+      }
     }
   ]
 }

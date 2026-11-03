@@ -39,6 +39,8 @@ pub enum CoreCommand {
     IdeHostControl,
     /// Reports the Core and protocol versions (`core.ping`).
     Ping,
+    /// Matches host-localized action text without workspace I/O (`search.actions`).
+    SearchActions,
     /// Detects Node.js and npm and lists catalog agent installs (`agent.status`).
     AgentStatus,
     /// Reads the effective native global instruction file (`agent.instructions.read`).
@@ -679,6 +681,7 @@ impl CoreCommand {
             "workspace.searchIndex.warm" => Some(Self::WorkspaceSearchIndexWarm),
             "workspace.searchIndex.update" => Some(Self::WorkspaceSearchIndexUpdate),
             "workspace.searchIndex.invalidate" => Some(Self::WorkspaceSearchIndexInvalidate),
+            "search.actions" => Some(Self::SearchActions),
             "workspace.search" => Some(Self::WorkspaceSearch),
             "workspace.searchEverywhere" => Some(Self::WorkspaceSearchEverywhere),
             "workspace.replacePreview" => Some(Self::WorkspaceReplacePreview),

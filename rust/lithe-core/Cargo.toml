@@ -34,6 +34,7 @@ tree-sitter-java = "0.23"
 serde_yaml_ng = "0.10.0"
 zip = { version = "2.4", default-features = false, features = ["deflate"] }
 url = "2.5"
+unicode-normalization = "0.1"
 
 [target.'cfg(unix)'.dev-dependencies]
 lithe-remote = { path = "../lithe-remote", default-features = false, features = ["server"] }

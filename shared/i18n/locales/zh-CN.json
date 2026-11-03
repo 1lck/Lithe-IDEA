@@ -9956,7 +9956,8 @@
     "workspace.openWith": "打开方式",
     "workspace.openWithAppStore": "App Store…",
     "workspace.openWithOther": "其他…",
-    "workspace.nativeMenuDescription": "{arg1} — {arg2}"
+    "workspace.nativeMenuDescription": "{arg1} — {arg2}",
+    "mac.workbench.unhide": "取消隐藏"
   },
   "overrides": {
     "macos": {

@@ -4584,6 +4584,7 @@
 "Undo Commit…" = "撤销最近一次提交（保留更改）…";
 "Undo last import" = "撤销上次导入";
 "Unhandled" = "未处理";
+"Unhide" = "取消隐藏";
 "Unified view" = "统一视图";
 "Uninstall" = "卸载";
 "Uninstall %@ from the Installed tab and restart Lithe first. It is the retired official version of this plugin and supports the same language." = "请先在“已安装”中卸载 %@ 并重启 Lithe。它是此插件已退役的官方版本，支持同一种语言。";
@@ -5071,6 +5072,7 @@
 "mac.editorImport.extended6" = "快捷键与“%1$@”冲突，请调整键位后再导入。";
 "mac.editorImport.extended7" = "外观默认值已单独标注。跳过工作区与语言覆盖、格式化器、扩展和账号数据。";
 "mac.editorImport.inheritedKeymapScope" = "映射受支持的键盘命令；跳过未知键位方案、鼠标快捷键和连续按键。";
+"mac.workbench.unhide" = "取消隐藏";
 "macOS could not prepare the update disk image. Download the release manually and try again." = "macOS 无法准备更新磁盘映像，请手动下载版本后重试。";
 "macOS could not prepare the update disk image. Open the Release page and install it manually." = "macOS 无法准备更新磁盘映像。请打开 Release 页面手动安装。";
 "main Java" = "主代码";
