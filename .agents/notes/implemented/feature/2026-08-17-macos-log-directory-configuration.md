@@ -61,9 +61,8 @@
 该 Note 的目录、scope 与记录格式设计已由
 [结构化日志通道与事件目录](../architecture/2026-11-03-structured-logging-channels.md) 部分取代。
 v2 在本 Note 的有效日志根下计算会话和通道相对路径，不改变根目录选择与失败回退的所有权。
-macOS 的 PR2 已接入生产 writer，时间线与导出只收集 v2，v1 文件仅按年龄过期；插件
-`${logDir}` 与独立窗口方案见
-[结构化日志宿主接入与独立窗口](../../proposed/architecture/2026-11-03-structured-logging-host-integration.md)。
+macOS 的 PR2 已接入生产 writer，日志窗口与导出只收集 v2，v1 文件仅按年龄过期；日志窗口
+与导出见 [应用级日志窗口与诊断导出](2026-11-03-structured-logging-log-window.md)。
 日志 writer 仍然由 macOS 应用启动和设置观察机制驱动，目录配置本身不负责
 日志内容治理、轮换、清理或上传。未来如果改变日志文件名、诊断导出来源
 或 Windows 日志策略，需要重新检查 `LogDirectoryProviding` 与本 Note 的

@@ -39,6 +39,9 @@ pub struct LogQueryV2Request {
     pub channel_prefixes: Vec<String>,
     /// Inclusive minimum severity.
     pub minimum_level: Option<LogLevel>,
+    /// Exact severity set for independent level toggles; an empty set matches nothing.
+    #[serde(default)]
+    pub levels: Option<Vec<LogLevel>>,
     /// Inclusive RFC3339 lower bound, compared as an instant.
     pub since: Option<String>,
     /// Inclusive RFC3339 upper bound, compared as an instant.
@@ -52,6 +55,12 @@ pub struct LogQueryV2Request {
     pub op: Option<String>,
     /// Return the newest 1 through 10000 matches, in ascending time/sequence order.
     pub limit: Option<usize>,
+    /// Optional 1024-byte expression, intersected with all existing filters.
+    #[serde(default)]
+    pub expression: Option<String>,
+    /// Optional event distribution resolution, strictly 1 through 240.
+    #[serde(default)]
+    pub histogram_buckets: Option<usize>,
 }
 /// One owned structured event with its physical source location.
 #[derive(Debug, Serialize)]
@@ -65,6 +74,13 @@ pub struct QueriedLogRecord {
     pub relative_path: String,
     /// One-based physical line number, including headers and skipped lines.
     pub line_number: usize,
+    /// FNV-1a 64 over length-prefixed channel/level/event/message UTF-8, in that order.
+    pub fold_key: String,
+    /// Parsed event instant in milliseconds since Unix epoch.
+    pub epoch_ms: i64,
+    /// Relative to the first filtered operation match before the output limit; absent without op.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub op_offset_ms: Option<i64>,
     /// Redacted structured event.
     #[serde(flatten)]
     pub record: LogRecord,
@@ -76,6 +92,56 @@ pub struct ChannelSeverityCounts {
     pub warn: usize,
     /// Number of matching ERROR events.
     pub error: usize,
+}
+/// Unfiltered counts over every successfully decoded record in the supplied byte budget.
+#[derive(Debug, Default, Serialize)]
+pub struct ChannelCounts {
+    /// Total decoded events before any query filters.
+    pub total: usize,
+    /// Number of WARN events in this count scope.
+    pub warn: usize,
+    /// Number of ERROR events in this count scope.
+    pub error: usize,
+}
+/// Per-severity event counts for one half-open histogram bucket.
+#[derive(Debug, Default, Clone, Serialize)]
+pub struct HistogramBucket {
+    /// Number of DEBUG events in this bucket.
+    pub debug: usize,
+    /// Number of INFO events in this bucket.
+    pub info: usize,
+    /// Number of WARN events in this count scope.
+    pub warn: usize,
+    /// Number of ERROR events in this count scope.
+    pub error: usize,
+}
+/// Uniform integer-millisecond buckets, including empty buckets; end is exclusive.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LogHistogram {
+    /// Inclusive first bucket boundary, milliseconds since Unix epoch.
+    pub start_epoch_ms: i64,
+    /// Exclusive final bucket boundary, milliseconds since Unix epoch.
+    pub end_epoch_ms: i64,
+    /// Uniform positive bucket width in milliseconds.
+    pub bucket_ms: i64,
+    /// Ascending time buckets, including empty buckets.
+    pub buckets: Vec<HistogramBucket>,
+}
+/// All filtered operation matches before the output limit, with inclusive first/last instants.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpSummary {
+    /// Exact operation identity supplied by the query.
+    pub op: String,
+    /// Matching event count before output limiting.
+    pub count: usize,
+    /// Earliest matching instant in Unix milliseconds; zero for an empty result.
+    pub first_epoch_ms: i64,
+    /// Latest matching instant in Unix milliseconds; zero for an empty result.
+    pub last_epoch_ms: i64,
+    /// Elapsed milliseconds from first to last match; zero for an empty result.
+    pub duration_ms: i64,
 }
 /// Owned merged evidence and explicit incompleteness indicators.
 #[derive(Debug, Serialize)]
@@ -89,6 +155,15 @@ pub struct LogQueryV2Response {
     pub truncated: bool,
     /// Invalid physical lines; intentionally discarded partial first lines are excluded.
     pub skipped_invalid_lines: usize,
+    /// Minimum consecutive equal fold keys needed for native collapsing.
+    pub fold_minimum_run: usize,
+    /// Unfiltered per-channel counts over supplied successfully decoded evidence.
+    pub channels: BTreeMap<String, ChannelCounts>,
+    /// Excludes only since/until from the query predicates; null when disabled or empty.
+    pub histogram: Option<LogHistogram>,
+    /// Absent without an explicit op request, including when the expression filters op.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub op_summary: Option<OpSummary>,
 }
 
 fn parse_time(value: &str) -> Result<DateTime<FixedOffset>, LogError> {
@@ -284,7 +359,7 @@ fn field_matches(record: &LogRecord, key: &str, value: &str) -> bool {
         _ => record.fields.get(key).is_some_and(|v| v == value),
     }
 }
-fn redact_record(mut record: LogRecord) -> LogRecord {
+pub(super) fn redact_record(mut record: LogRecord) -> LogRecord {
     record.msg = sanitize_log_text_unbounded(&record.msg);
     for (key, value) in &mut record.fields {
         *value = redact_log_field(key, value);
@@ -295,6 +370,14 @@ fn redact_record(mut record: LogRecord) -> LogRecord {
 /// Parses and merges only supplied evidence. Invalid lines are counted; invalid query arguments fail.
 /// Channel counts use the same filters as records, before limiting the newest returned matches.
 pub fn query_logs_v2(request: LogQueryV2Request) -> Result<LogQueryV2Response, LogError> {
+    let filter =
+        super::filter::CompiledFilter::compile(request.expression.as_deref().unwrap_or(""))?;
+    if request
+        .histogram_buckets
+        .is_some_and(|n| !(1..=240).contains(&n))
+    {
+        return Err(LogError::new(-32061, "Invalid histogram bucket count"));
+    }
     for prefix in &request.channel_prefixes {
         if prefix != "_overflow" {
             LogChannel::parse(prefix)?;
@@ -313,11 +396,23 @@ pub fn query_logs_v2(request: LogQueryV2Request) -> Result<LogQueryV2Response, L
         channel_counts: BTreeMap::new(),
         truncated: false,
         skipped_invalid_lines: 0,
+        fold_minimum_run: 3,
+        channels: BTreeMap::new(),
+        histogram: None,
+        op_summary: request.op.as_ref().map(|op| OpSummary {
+            op: op.clone(),
+            count: 0,
+            first_epoch_ms: 0,
+            last_epoch_ms: 0,
+            duration_ms: 0,
+        }),
     };
     let needle = request.search.as_deref().unwrap_or("").to_lowercase();
     let mut remaining = MAX_LOG_EXPORT_BYTES;
     let limit = request.limit.unwrap_or(2000).clamp(1, 10000);
     let mut records = BTreeMap::new();
+    // Only timestamps/severities are retained for histogram projection, bounded by native input bytes.
+    let mut histogram_points = Vec::new();
     for (source_index, source) in request.sources.into_iter().enumerate() {
         let (mut channel, legacy) = source_channel(&source.relative_path)?;
         if source.first_line_number == 0 {
@@ -357,6 +452,10 @@ pub fn query_logs_v2(request: LogQueryV2Request) -> Result<LogQueryV2Response, L
                     continue;
                 }
             };
+            let all_counts = response.channels.entry(channel.clone()).or_default();
+            all_counts.total += 1;
+            all_counts.warn += usize::from(record.level == LogLevel::Warn);
+            all_counts.error += usize::from(record.level == LogLevel::Error);
             if !request.channel_prefixes.is_empty()
                 && !request
                     .channel_prefixes
@@ -369,8 +468,10 @@ pub fn query_logs_v2(request: LogQueryV2Request) -> Result<LogQueryV2Response, L
             if request
                 .minimum_level
                 .is_some_and(|level| record.level < level)
-                || since.is_some_and(|bound| time < bound)
-                || until.is_some_and(|bound| time > bound)
+                || request
+                    .levels
+                    .as_ref()
+                    .is_some_and(|levels| !levels.contains(&record.level))
                 || request
                     .op
                     .as_ref()
@@ -382,19 +483,27 @@ pub fn query_logs_v2(request: LogQueryV2Request) -> Result<LogQueryV2Response, L
             {
                 continue;
             }
-            if !needle.is_empty() {
-                let text = format!(
-                    "{} {} {} {} {:?}",
-                    channel,
-                    record.event,
-                    record.op.as_deref().unwrap_or(""),
-                    record.msg,
-                    record.fields
-                )
-                .to_lowercase();
-                if !text.contains(&needle) {
-                    continue;
+            if (!needle.is_empty() && !super::filter::search_matches(&record, &channel, &needle))
+                || !filter.matches(&record, &channel)
+            {
+                continue;
+            }
+            let epoch_ms = time.timestamp_millis();
+            if request.histogram_buckets.is_some() {
+                histogram_points.push((epoch_ms, record.level));
+            }
+            if since.is_some_and(|bound| time < bound) || until.is_some_and(|bound| time > bound) {
+                continue;
+            }
+            if let Some(summary) = &mut response.op_summary {
+                if summary.count == 0 {
+                    summary.first_epoch_ms = epoch_ms;
+                    summary.last_epoch_ms = epoch_ms;
                 }
+                summary.count += 1;
+                summary.first_epoch_ms = summary.first_epoch_ms.min(epoch_ms);
+                summary.last_epoch_ms = summary.last_epoch_ms.max(epoch_ms);
+                summary.duration_ms = summary.last_epoch_ms - summary.first_epoch_ms;
             }
             let counts = response.channel_counts.entry(channel.clone()).or_default();
             if record.level == LogLevel::Warn {
@@ -419,6 +528,9 @@ pub fn query_logs_v2(request: LogQueryV2Request) -> Result<LogQueryV2Response, L
                     channel: channel.clone(),
                     relative_path: source.relative_path.clone(),
                     line_number,
+                    fold_key: fold_key(&channel, &record),
+                    epoch_ms,
+                    op_offset_ms: None,
                     record,
                 },
             );
@@ -429,7 +541,52 @@ pub fn query_logs_v2(request: LogQueryV2Request) -> Result<LogQueryV2Response, L
         }
     }
     response.records = records.into_values().collect();
+    if let Some(summary) = &response.op_summary {
+        for record in &mut response.records {
+            record.op_offset_ms = Some(record.epoch_ms - summary.first_epoch_ms);
+        }
+    }
+    if let (Some(count), Some(start), Some(last)) = (
+        request.histogram_buckets,
+        histogram_points.iter().map(|p| p.0).min(),
+        histogram_points.iter().map(|p| p.0).max(),
+    ) {
+        let bucket_ms = ((last - start + 1) + count as i64 - 1) / count as i64;
+        let mut buckets = vec![HistogramBucket::default(); count];
+        for (time, level) in histogram_points {
+            let bucket = &mut buckets[((time - start) / bucket_ms) as usize];
+            match level {
+                LogLevel::Debug => bucket.debug += 1,
+                LogLevel::Info => bucket.info += 1,
+                LogLevel::Warn => bucket.warn += 1,
+                LogLevel::Error => bucket.error += 1,
+            }
+        }
+        response.histogram = Some(LogHistogram {
+            start_epoch_ms: start,
+            end_epoch_ms: start + bucket_ms * count as i64,
+            bucket_ms,
+            buckets,
+        });
+    }
     Ok(response)
+}
+
+// Length prefixes are fixed-width little-endian u64, so tuple boundaries and hashes remain stable
+// across architectures and future releases; timestamps, seq, fields and op deliberately do not fold.
+fn fold_key(channel: &str, record: &LogRecord) -> String {
+    let mut hash = 0xcbf29ce484222325u64;
+    for value in [channel, record.level.label(), &record.event, &record.msg] {
+        for byte in (value.len() as u64)
+            .to_le_bytes()
+            .into_iter()
+            .chain(value.bytes())
+        {
+            hash ^= u64::from(byte);
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+    }
+    format!("{hash:016x}")
 }
 
 #[cfg(test)]
@@ -529,5 +686,95 @@ mod tests {
         assert!(result.truncated);
         assert_eq!(result.skipped_invalid_lines, 0);
         assert!(result.records.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod window_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn window_statistics_keep_full_distribution_and_unfiltered_channels() {
+        let text = "2026-11-03T00:00:00.000Z WARN seq=1 event=app.failed op=one msg=failed\n2026-11-03T00:00:01.000Z WARN seq=2 event=app.failed op=one msg=failed\n2026-11-03T00:00:02.000Z ERROR seq=3 event=app.failed op=one msg=failed";
+        let response = query_logs_v2(serde_json::from_value(json!({"sources":[{"relativePath":"app.log","text":text},{"relativePath":"vcs/git.log","text":text}],"channelPrefixes":["app"],"expression":"failed", "op":"one", "histogramBuckets":3,"since":"2026-11-03T00:00:01Z","limit":1})).unwrap()).unwrap();
+        assert_eq!(response.channels["vcs/git"].total, 3);
+        assert_eq!(response.channels["app"].error, 1);
+        assert_eq!(response.channel_counts["app"].warn, 1);
+        assert_eq!(response.fold_minimum_run, 3);
+        let histogram = response.histogram.unwrap();
+        assert_eq!(histogram.bucket_ms, 667);
+        assert_eq!(
+            histogram
+                .buckets
+                .iter()
+                .map(|b| b.warn + b.error)
+                .sum::<usize>(),
+            3
+        );
+        assert_eq!(histogram.end_epoch_ms, 1793664002001);
+        let summary = response.op_summary.unwrap();
+        assert_eq!(summary.count, 2);
+        assert_eq!(summary.duration_ms, 1000);
+        assert_eq!(response.records[0].op_offset_ms, Some(1000));
+        assert!(response.truncated);
+        let all = query_logs_v2(
+            serde_json::from_value(json!({"sources":[{"relativePath":"app.log","text":text}]}))
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(all.records[0].fold_key, all.records[1].fold_key);
+        assert_ne!(all.records[1].fold_key, all.records[2].fold_key);
+        assert!(all.op_summary.is_none());
+        assert!(all.records[0].op_offset_ms.is_none());
+        assert_eq!(all.records[0].epoch_ms, 1793664000000);
+        // Fixed vector protects the byte encoding and hash across future releases.
+        assert_eq!(all.records[0].fold_key, "c4d60ef213ff7102");
+    }
+    #[test]
+    fn level_set_selects_exact_severities_and_empty_set_matches_nothing() {
+        let text = "2026-11-03T00:00:00.000Z DEBUG seq=1 event=app.trace msg=a\n2026-11-03T00:00:01.000Z INFO seq=2 event=app.ready msg=b\n2026-11-03T00:00:02.000Z ERROR seq=3 event=app.failed msg=c";
+        let query = |levels: serde_json::Value| {
+            query_logs_v2(
+                serde_json::from_value(
+                    json!({"sources":[{"relativePath":"app.log","text":text}],"levels":levels}),
+                )
+                .unwrap(),
+            )
+            .unwrap()
+        };
+        let selected = query(json!(["DEBUG", "ERROR"]));
+        assert_eq!(
+            selected
+                .records
+                .iter()
+                .map(|r| r.record.seq)
+                .collect::<Vec<_>>(),
+            [1, 3]
+        );
+        assert!(query(json!([])).records.is_empty());
+        // Unfiltered sidebar counts still see every decoded record.
+        assert_eq!(query(json!([])).channels["app"].total, 3);
+    }
+    #[test]
+    fn empty_histogram_invalid_resolution_and_invalid_expression_are_distinct() {
+        let response = query_logs_v2(
+            serde_json::from_value(json!({"histogramBuckets":240,"op":"none"})).unwrap(),
+        )
+        .unwrap();
+        assert!(response.histogram.is_none());
+        assert_eq!(response.op_summary.unwrap().count, 0);
+        for (request, code) in [
+            (json!({"histogramBuckets":0}), -32061),
+            (json!({"histogramBuckets":241}), -32061),
+            (json!({"expression":"/[/"}), -32060),
+        ] {
+            assert_eq!(
+                query_logs_v2(serde_json::from_value(request).unwrap())
+                    .unwrap_err()
+                    .code,
+                code
+            );
+        }
     }
 }

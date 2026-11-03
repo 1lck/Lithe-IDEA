@@ -37,6 +37,12 @@ pub struct PlanLogCollectionRequest {
     pub session: String,
     /// Existing product category; absent selects every channel.
     pub category: Option<String>,
+    /// Intersect selection with the newest N sessions in the inventory (including current).
+    #[serde(default)]
+    pub recent_sessions: Option<usize>,
+    /// Inclusive RFC3339 cutoff: session start OR file modification must reach it.
+    #[serde(default)]
+    pub since: Option<String>,
 }
 
 /// One bounded native read selected by Core.
@@ -53,11 +59,16 @@ pub struct LogTailRead {
 
 /// Deterministic read order and explicit omission state.
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LogCollectionPlan {
     /// Newest sessions first, active files before rotations, then newest native modification time.
     pub reads: Vec<LogTailRead>,
     /// True if any eligible bytes or files were omitted.
     pub truncated: bool,
+    /// Sum of bounded reads, before compression; no native byte estimates are inferred.
+    pub estimated_bytes: u64,
+    /// Eligible session names before budgets, newest first; excludes sessions with no selected files.
+    pub sessions: Vec<String>,
 }
 
 /// Selects v2 evidence before applying file/byte budgets, keeping all active channels ahead of rotations.
@@ -65,6 +76,19 @@ pub fn plan_log_collection(
     request: PlanLogCollectionRequest,
 ) -> Result<LogCollectionPlan, LogError> {
     let invalid = || LogError::new(-32058, "Invalid collection inventory or selection");
+    if request.files.len() > 10000
+        || request
+            .recent_sessions
+            .is_some_and(|n| !(1..=10).contains(&n))
+    {
+        return Err(invalid());
+    }
+    let since = request
+        .since
+        .as_deref()
+        .map(DateTime::parse_from_rfc3339)
+        .transpose()
+        .map_err(|_| LogError::new(-32035, "Invalid timestamp"))?;
     if !["all", "current", "previous"].contains(&request.session.as_str())
         || request
             .category
@@ -121,15 +145,39 @@ pub fn plan_log_collection(
         .filter(|(name, ..)| name != &request.current_session)
         .max_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(&b.0)))
         .map(|v| v.0.clone());
-    candidates.retain(|(session, _, _, _, channel, _)| {
+    let mut newest: Vec<_> = candidates.iter().map(|c| (c.1, c.0.clone())).collect();
+    if !request.current_session.is_empty() {
+        let current = parse_session_directory_name(&request.current_session)?;
+        newest.push((
+            DateTime::parse_from_rfc3339(&current.started).map_err(|_| invalid())?,
+            request.current_session.clone(),
+        ));
+    }
+    newest.sort_by(|a, b| b.cmp(a));
+    newest.dedup();
+    let mut recent = BTreeSet::new();
+    if request.recent_sessions.is_some() && !request.current_session.is_empty() {
+        // The live session remains included even if native clocks give an inactive directory
+        // a future timestamp. Missing live files still consume one requested session slot.
+        recent.insert(request.current_session.clone());
+    }
+    for (_, session) in newest {
+        if recent.len() >= request.recent_sessions.unwrap_or(usize::MAX) {
+            break;
+        }
+        recent.insert(session);
+    }
+    candidates.retain(|(session, started, _, modified, channel, _)| {
         (match request.session.as_str() {
             "current" => session == &request.current_session,
             "previous" => previous.as_ref() == Some(session),
             _ => true,
-        }) && request
-            .category
-            .as_ref()
-            .is_none_or(|category| log_category(channel) == category)
+        }) && recent.contains(session)
+            && since.is_none_or(|bound| *started >= bound || *modified >= bound)
+            && request
+                .category
+                .as_ref()
+                .is_none_or(|category| log_category(channel) == category)
     });
     candidates.sort_by(|a, b| {
         b.1.cmp(&a.1)
@@ -141,9 +189,14 @@ pub fn plan_log_collection(
     let mut plan = LogCollectionPlan {
         reads: Vec::new(),
         truncated: false,
+        estimated_bytes: 0,
+        sessions: Vec::new(),
     };
     let mut remaining = COLLECTION_BYTES;
-    for (_, _, _, _, _, file) in candidates {
+    for (session, _, _, _, _, file) in candidates {
+        if plan.sessions.last() != Some(&session) {
+            plan.sessions.push(session);
+        }
         if plan.reads.len() >= COLLECTION_FILES || remaining == 0 {
             plan.truncated = true;
             continue;
@@ -152,6 +205,7 @@ pub fn plan_log_collection(
         let offset = file.size_bytes - count;
         plan.truncated |= offset > 0;
         remaining -= count;
+        plan.estimated_bytes += count;
         plan.reads.push(LogTailRead {
             relative_path: file.relative_path,
             offset,
@@ -221,6 +275,75 @@ mod tests {
                 case["name"]
             );
             assert_eq!(plan.truncated, case["truncated"], "{}", case["name"]);
+            assert_eq!(
+                plan.estimated_bytes,
+                case["estimatedBytes"].as_u64().unwrap()
+            );
+            assert_eq!(serde_json::json!(plan.sessions), case["sessions"]);
         }
+    }
+}
+
+#[cfg(test)]
+mod selection_tests {
+    use super::*;
+    use serde_json::json;
+    #[test]
+    fn recent_time_session_and_category_are_intersections_before_budgets() {
+        let current = "2026-11-03T00-00-00_33333333";
+        let files = json!([
+            {"relativePath":format!("sessions/{current}/app.log"),"sizeBytes":10,"modifiedAt":"2026-11-01T00:00:00Z"},
+            {"relativePath":"sessions/2026-11-02T00-00-00_22222222/app.log","sizeBytes":20,"modifiedAt":"2026-11-03T01:00:00Z"},
+            {"relativePath":"sessions/2026-11-01T00-00-00_11111111/app.log","sizeBytes":30,"modifiedAt":"2026-11-03T01:00:00Z"},
+            {"relativePath":"sessions/2026-11-02T00-00-00_22222222/vcs/git.log","sizeBytes":40,"modifiedAt":"2026-11-03T01:00:00Z"}
+        ]);
+        let input = json!({"files":files,"currentSession":current,"session":"all","category":"application","recentSessions":2,"since":"2026-11-02T12:00:00Z"});
+        let plan = plan_log_collection(serde_json::from_value(input.clone()).unwrap()).unwrap();
+        assert_eq!(plan.estimated_bytes, 30);
+        assert_eq!(plan.sessions, vec![current, "2026-11-02T00-00-00_22222222"]);
+        for (session, expected) in [("current", 10), ("previous", 20)] {
+            let mut selected = input.clone();
+            selected["session"] = json!(session);
+            assert_eq!(
+                plan_log_collection(serde_json::from_value(selected).unwrap())
+                    .unwrap()
+                    .estimated_bytes,
+                expected
+            );
+        }
+        let mut selected = input.clone();
+        selected["session"] = json!("previous");
+        selected["recentSessions"] = json!(1);
+        assert!(
+            plan_log_collection(serde_json::from_value(selected).unwrap())
+                .unwrap()
+                .sessions
+                .is_empty()
+        );
+        for recent in [0, 11] {
+            let mut selected = input.clone();
+            selected["recentSessions"] = json!(recent);
+            assert_eq!(
+                plan_log_collection(serde_json::from_value(selected).unwrap())
+                    .unwrap_err()
+                    .code,
+                -32058
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod clock_skew_tests {
+    #[test]
+    fn recent_selection_always_reserves_a_slot_for_the_live_session() {
+        let current = "2026-11-02T00-00-00_22222222";
+        let input = serde_json::json!({"files":[
+            {"relativePath":format!("sessions/{current}/app.log"),"sizeBytes":10,"modifiedAt":"2026-11-02T00:00:00Z"},
+            {"relativePath":"sessions/2026-11-03T00-00-00_33333333/app.log","sizeBytes":20,"modifiedAt":"2026-11-03T00:00:00Z"}
+        ],"currentSession":current,"session":"all","recentSessions":1});
+        let plan = super::plan_log_collection(serde_json::from_value(input).unwrap()).unwrap();
+        assert_eq!(plan.sessions, vec![current]);
+        assert_eq!(plan.estimated_bytes, 10);
     }
 }

@@ -76,9 +76,12 @@ Rust 通过静态 `EVENTS`（按 ID 排序）和二分查找 `event_by_id` 暴�
 
 ## 用法门禁与存量
 
-扫描生产 Swift 的 `NSLog`、stderr 写入、`os_log`、导入 `os.log` 后的 `Logger` 和 `.record(level:)`；扫描 Rust 的 `eprintln!`、`println!`、`dbg!`。词法遮蔽注释和字符串内容，排除 `Tests/`、`tests/`、`tests.rs` 及明确 `#[cfg(test)]` 项。此门禁检查已列出的直接写法，不试图跨文件追踪别名或动态调用。
+门禁分两类规则，都只扫描生产代码：词法遮蔽注释和字符串内容，排除 `Tests/`、`tests/`、`tests.rs` 及明确 `#[cfg(test)]` 项；只检查列出的直接写法，不跨文件追踪别名或动态调用。
 
-`log-usage-baseline.json` 按文件、规则精确计数，PR3 Core 已清零 Rust 存量；非 LSP 事实通过 256 条的 Core 队列交给宿主。`log-usage-allowlist.json` 是永久例外，必须有具体的协议/架构理由和精确计数；当前为空，macOS Swift 基线已清零。禁止把新违规追加到基线来通过检查。机器性能标记迁移时需同步其消费者，不能直接删除测试依赖的协议输出。
+- 绕过日志：Swift 的 `NSLog`、stderr 写入、`os_log`、导入 `os.log` 后的 `Logger`、`.record(level:)`、`print`/`debugPrint`；Rust 的 `eprintln!`、`println!`、`dbg!`。这些写法不经过目录和脱敏，只能改成生成事件；确属机器协议时进 `log-usage-allowlist.json`。这类写法的存量已在 PR2/PR3 清零；Rust 的非 LSP 事实通过 256 条的 Core 队列交给宿主。
+- 吞掉失败：Swift 语句级 `try?`（含 `_ = try?`）、块体只有 `return`/`break`/`continue` 的 `catch`；Rust 语句级 `.ok();` 和 `let _ = …;`。失败要么处理并记录事件，要么在同一行或上一行写 `// log-exempt: <原因>`。原因至少 3 个非空白字符，必须属于日志参考页的四类封闭例外；空原因本身报错。标记只对这四条规则生效，不能豁免绕过日志的写法。
+
+`log-usage-baseline.json` 按（文件、规则）精确记录存量，统一原因为“存量：修改所在函数时补日志或写明豁免”。数量超过基线失败；低于基线也失败，要求运行 `node scripts/logging/verify-log-usage.mjs --update-baseline` 写回当前值，防止空出来的额度被新违规占用。`--update-baseline` 只写观察到的计数并打印变化，存在空原因的标记时拒绝更新。禁止为通过检查而把新违规写进基线。`log-usage-allowlist.json` 是永久例外，必须有具体的协议/架构理由和精确计数，当前为空。机器性能标记迁移时需同步其消费者，不能直接删除测试依赖的协议输出。
 
 CI 的 Draft PR 只跑 Linux，ready PR 和 preview push 跑三平台。输入和已提交生成物均由 Git 持有，每个 worktree 本地重建、检查；没有跨工作树可复用 identity stamp，不复制其他工作树的生成物。这些类型无运行时 I/O、不写 app bundle、插件资源或安装目录，不影响签名与 Sparkle delta。
 
