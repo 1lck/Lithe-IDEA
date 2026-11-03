@@ -39,6 +39,8 @@ pub enum CoreCommand {
     IdeHostControl,
     /// Reports the Core and protocol versions (`core.ping`).
     Ping,
+    /// Matches host-localized action text without workspace I/O (`search.actions`).
+    SearchActions,
     /// Detects Node.js and npm and lists catalog agent installs (`agent.status`).
     AgentStatus,
     /// Reads the effective native global instruction file (`agent.instructions.read`).
@@ -397,6 +399,8 @@ pub enum CoreCommand {
     LspPollEvents,
     /// Waits for queued session events (`lsp.waitEvents`).
     LspWaitEvents,
+    /// Toggles upstream verbose trace for one session (`lsp.setDetailedDiagnostics`).
+    LspSetDetailedDiagnostics,
     /// Stops and removes a server session (`lsp.destroyServer`).
     LspDestroyServer,
     /// Validates layered run-configuration documents (`runConfig.inspect`).
@@ -565,6 +569,20 @@ pub enum CoreCommand {
     DiagnosticsPrepareLogEvent,
     /// Filters and merges bounded host-collected log tails (`diagnostics.queryLogs`).
     DiagnosticsQueryLogs,
+    /// Encodes structured log events independently in one batch (`diagnostics.encodeLogBatch`).
+    DiagnosticsEncodeLogBatch,
+    /// Drains bounded process-owned Core log facts (`diagnostics.drainCoreEvents`).
+    DiagnosticsDrainCoreEvents,
+    /// Merges structured and legacy log evidence (`diagnostics.queryLogsV2`).
+    DiagnosticsQueryLogsV2,
+    /// Plans bounded native tail reads (`diagnostics.planLogCollection`).
+    DiagnosticsPlanLogCollection,
+    /// Plans log cleanup without filesystem access (`diagnostics.planLogRetention`).
+    DiagnosticsPlanLogRetention,
+    /// Validates a logical channel and resolves its session-relative path (`diagnostics.resolveLogChannel`).
+    DiagnosticsResolveLogChannel,
+    /// Resolves the engine routing identity without starting a session (`diagnostics.resolveEngineLogSubject`).
+    DiagnosticsResolveEngineLogSubject,
     /// Shapes a deterministic diagnostic bundle manifest from host-gathered facts (`diagnostics.buildManifest`).
     DiagnosticsBuildManifest,
 }
@@ -673,6 +691,7 @@ impl CoreCommand {
             "workspace.searchIndex.warm" => Some(Self::WorkspaceSearchIndexWarm),
             "workspace.searchIndex.update" => Some(Self::WorkspaceSearchIndexUpdate),
             "workspace.searchIndex.invalidate" => Some(Self::WorkspaceSearchIndexInvalidate),
+            "search.actions" => Some(Self::SearchActions),
             "workspace.search" => Some(Self::WorkspaceSearch),
             "workspace.searchEverywhere" => Some(Self::WorkspaceSearchEverywhere),
             "workspace.replacePreview" => Some(Self::WorkspaceReplacePreview),
@@ -756,6 +775,7 @@ impl CoreCommand {
             "java.prepareLaunch" => Some(Self::JavaPrepareLaunch),
             "lsp.cancelOperation" => Some(Self::LspCancelOperation),
             "lsp.pollEvents" => Some(Self::LspPollEvents),
+            "lsp.setDetailedDiagnostics" => Some(Self::LspSetDetailedDiagnostics),
             "lsp.waitEvents" => Some(Self::LspWaitEvents),
             "lsp.destroyServer" => Some(Self::LspDestroyServer),
             "runConfig.inspect" => Some(Self::RunConfigInspect),
@@ -842,6 +862,13 @@ impl CoreCommand {
             "diagnostics.redactText" => Some(Self::DiagnosticsRedactText),
             "diagnostics.prepareLogEvent" => Some(Self::DiagnosticsPrepareLogEvent),
             "diagnostics.queryLogs" => Some(Self::DiagnosticsQueryLogs),
+            "diagnostics.drainCoreEvents" => Some(Self::DiagnosticsDrainCoreEvents),
+            "diagnostics.encodeLogBatch" => Some(Self::DiagnosticsEncodeLogBatch),
+            "diagnostics.queryLogsV2" => Some(Self::DiagnosticsQueryLogsV2),
+            "diagnostics.planLogCollection" => Some(Self::DiagnosticsPlanLogCollection),
+            "diagnostics.planLogRetention" => Some(Self::DiagnosticsPlanLogRetention),
+            "diagnostics.resolveLogChannel" => Some(Self::DiagnosticsResolveLogChannel),
+            "diagnostics.resolveEngineLogSubject" => Some(Self::DiagnosticsResolveEngineLogSubject),
             "diagnostics.buildManifest" => Some(Self::DiagnosticsBuildManifest),
             _ => None,
         }

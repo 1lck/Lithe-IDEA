@@ -1496,6 +1496,7 @@ dependencies = [
  "toml_edit",
  "tree-sitter",
  "tree-sitter-java",
+ "unicode-normalization",
  "url",
  "zip",
 ]

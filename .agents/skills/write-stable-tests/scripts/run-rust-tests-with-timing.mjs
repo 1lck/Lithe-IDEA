@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { createHash } from "node:crypto";
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -29,6 +30,9 @@ export function parseArguments(arguments_) {
     suiteTimeoutMs: 1200000,
     report: null,
     keepGoing: false,
+    shardIndex: 1,
+    shardCount: 1,
+    testPrefix: null,
   };
   for (let index = 0; index < arguments_.length; index += 1) {
     const argument = arguments_[index];
@@ -51,6 +55,12 @@ export function parseArguments(arguments_) {
     } else if (argument === "--suite-timeout-ms") {
       options.suiteTimeoutMs = positiveInteger(arguments_[++index], "--suite-timeout-ms");
     } else if (argument === "--report") options.report = path.resolve(arguments_[++index]);
+    else if (argument === "--shard-index") options.shardIndex = positiveInteger(arguments_[++index], "--shard-index");
+    else if (argument === "--shard-count") options.shardCount = positiveInteger(arguments_[++index], "--shard-count");
+    else if (argument === "--test-prefix") {
+      options.testPrefix = arguments_[++index];
+      if (!options.testPrefix || options.testPrefix.startsWith("--")) throw new Error("--test-prefix requires a nonempty prefix.");
+    }
     else if (argument === "--keep-going") options.keepGoing = true;
     else throw new Error(`Unknown argument: ${argument}`);
   }
@@ -61,7 +71,14 @@ export function parseArguments(arguments_) {
   if (options.testBudgets.some((budget) => budget.maxMs <= options.warnMs)) {
     throw new Error("--test-budget must be higher than --warn-ms.");
   }
+  if (options.shardIndex > options.shardCount) throw new Error("--shard-index must not exceed --shard-count.");
   return options;
+}
+
+// Hash the stable target/name identity rather than enumeration order. Adding a
+// test cannot move every later case, and every case belongs to exactly one shard.
+export function shardForTest(target, name, count) {
+  return createHash("sha256").update(`${target}::${name}`).digest().readUInt32BE(0) % count + 1;
 }
 
 function artifactFromLine(line) {
@@ -106,6 +123,7 @@ export async function run(
   writeFileSync(logPath, "");
   const artifacts = new Map();
   const records = [];
+  const inventory = [];
   const compilerMessages = [];
   const suiteStartedAt = now();
   const suiteDeadline = suiteStartedAt + options.suiteTimeoutMs;
@@ -146,6 +164,12 @@ export async function run(
       testBudgets: options.testBudgets ?? [],
       suiteTimeoutMs: options.suiteTimeoutMs,
       buildDurationMs,
+      inventory,
+      selection: {
+        shardIndex: options.shardIndex ?? 1,
+        shardCount: options.shardCount ?? 1,
+        testPrefix: options.testPrefix ?? null,
+      },
       suite: {
         timedOut: suiteTimedOutStage !== null,
         stage: suiteTimedOutStage,
@@ -249,7 +273,10 @@ export async function run(
         .map((line) => line.match(/^(.*): test$/)?.[1])
         .filter(Boolean);
 
+      inventory.push(...tests.map(name => `${artifact.target}::${name}`));
       for (const testName of tests) {
+        if (options.testPrefix && !testName.startsWith(options.testPrefix)) continue;
+        if (shardForTest(artifact.target, testName, options.shardCount ?? 1) !== (options.shardIndex ?? 1)) continue;
         console.log(`RUN  ${artifact.target}::${testName}`);
         // The most specific integration-test prefix wins. The shared suite
         // deadline still caps every subprocess, including longer native tests.

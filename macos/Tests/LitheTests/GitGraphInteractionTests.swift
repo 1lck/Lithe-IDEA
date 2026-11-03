@@ -1,6 +1,7 @@
 import AppKit
 import CoreText
 import Foundation
+import ObjectiveC
 @testable import LitheGitModule
 import SwiftUI
 @testable import Lithe
@@ -448,8 +449,9 @@ struct GitGraphInteractionTests {
         #expect(directions == [.up, .down])
     }
 
-    @Test("SwiftUI diagonal arrows receive clicks on the tip and its inner stroke", arguments: [CGFloat(0), CGFloat(0.5)])
-    func swiftUIDiagonalArrowTips(_ inset: CGFloat) async throws {
+    @Test("SwiftUI diagonal arrows receive clicks on the tip and its inner stroke",
+          arguments: [CGFloat(0), CGFloat(0.5)], [CGFloat(1), CGFloat(2)])
+    func swiftUIDiagonalArrowTips(_ inset: CGFloat, backingScale: CGFloat) async throws {
         let layout = expandedMergeFixture()
         var targets: [String] = []
         var selections: [String] = []
@@ -466,9 +468,10 @@ struct GitGraphInteractionTests {
             var callbacks = actions { selections.append($0.hash) }
             callbacks.onNavigateHash = { targets.append($0) }
             let hosting = NSHostingView(rootView: GitGraphView(presentation: presentation(viewport), selectedHash: nil,
-                showCommitDecorations: true, actions: callbacks))
+                showCommitDecorations: true, actions: callbacks).environment(\.displayScale, backingScale))
             let frame = NSRect(x: 0, y: 0, width: 850, height: CGFloat(viewport.rows.count) * GitGraphGeometry.rowHeight)
-            let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+            let window = ArrowBackingScaleWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+            window.testBackingScale = backingScale
             window.isReleasedWhenClosed = false
             window.contentView = hosting
             defer { window.orderOut(nil); window.close() }
@@ -477,11 +480,23 @@ struct GitGraphInteractionTests {
             let tip = GitGraphGeometry.line(for: edge, rowHeight: GitGraphGeometry.rowHeight, backingScale: window.backingScaleFactor).end
             let point = CGPoint(x: tip.x, y: CGFloat(pair.offset - first) * GitGraphGeometry.rowHeight + tip.y + (direction == .up ? inset : -inset))
             let location = hosting.convert(point, to: nil)
-            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-                let event = try #require(NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: 0,
-                    windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0))
-                window.sendEvent(event)
+            // Direct window dispatch does not establish NSApp.currentEvent.
+            // Keep a preceding move in scope to expose that stale-context case.
+            let move = try #require(NSEvent.mouseEvent(with: .mouseMoved, location: location,
+                modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
+                context: nil, eventNumber: 0, clickCount: 0, pressure: 0))
+            let previousEvent = NSApp.currentEvent
+            try withCurrentApplicationEvent(move) {
+                for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                    let event = try #require(NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: 0,
+                        windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0))
+                    try withCurrentApplicationEvent(event) {
+                        window.sendEvent(event)
+                    }
+                    #expect(NSApp.currentEvent === move)
+                }
             }
+            #expect(NSApp.currentEvent === previousEvent)
             let clock = ContinuousClock()
             let deadline = clock.now.advanced(by: .seconds(1))
             // Native gesture callbacks arrive asynchronously; observe their
@@ -490,6 +505,26 @@ struct GitGraphInteractionTests {
             #expect(targets == expected, "Clicking the drawn diagonal tip must activate its endpoint")
             #expect(selections.isEmpty, "An arrow click must not also select the adjacent row")
         }
+    }
+
+    private final class ArrowBackingScaleWindow: NSWindow {
+        var testBackingScale: CGFloat = 1
+        override var backingScaleFactor: CGFloat { testBackingScale }
+    }
+
+    // The native event loop normally supplies this public AppKit context.
+    // This synchronous, MainActor-only scope restores the getter even on failure;
+    // no queued event or process-global replacement survives the dispatched click.
+    private func withCurrentApplicationEvent(_ event: NSEvent, body: () throws -> Void) throws {
+        let getter = try #require(class_getInstanceMethod(NSApplication.self, #selector(getter: NSApplication.currentEvent)))
+        let block: @convention(block) (NSApplication) -> NSEvent? = { _ in event }
+        let replacement = imp_implementationWithBlock(block)
+        let original = method_setImplementation(getter, replacement)
+        defer {
+            method_setImplementation(getter, original)
+            imp_removeBlock(replacement)
+        }
+        try body()
     }
 
     private func expandedMergeFixture() -> GitGraphLayout {

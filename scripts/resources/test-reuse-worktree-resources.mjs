@@ -120,6 +120,12 @@ try {
       assert.ok(snapshots.locations.some(location => location.includes(component)), component);
     }
   });
+  await test("CI compilation caches remain isolated from worktree resource reuse", { timeout: 15000 }, async () => {
+    const refused = reuse(["--resource", "ci-rust-compilation-state"]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /ci-rust-compilation-state is isolated.*cannot be reused/);
+    await assert.rejects(fs.access(targetRoot), { code: "ENOENT" });
+  });
   await test("SwiftPM build products and compiler stamps cannot be reused", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const resource = registry.excludedResources.find(item => item.id === "swiftpm-build-state");
@@ -154,6 +160,18 @@ try {
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /editor-theme-assets.*cannot be reused/);
   });
+  await test("shared logging generated APIs cannot cross worktrees", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "shared-logging");
+    assert.equal(resource.reusable, false);
+    assert.ok(resource.locations.includes("rust/lithe-core/src/diagnostics/catalog_generated.rs"));
+    const listed = run(process.execPath, [reuseScript, "--list"]);
+    assertSucceeded(listed);
+    assert.ok(!listed.stdout.includes(resource.id));
+    const refused = reuse(["--resource", resource.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /shared-logging.*cannot be reused/);
+  });
   await test("shared translations are regenerated locally rather than reused", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const resource = registry.excludedResources.find(item => item.id === "shared-i18n");
@@ -184,6 +202,8 @@ try {
   await test("application log state and export snapshots cannot be reused", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const resource = registry.excludedResources.find(item => item.id === "application-log-state");
+    assert(resource.locations.includes("<platform-log-root>/sessions/<session>/plugins/<id>/files/"));
+    assert.match(resource.reason, /0700.*no-follow/);
     assert.equal(resource.reusable, false);
     assert.ok(resource.locations.some(location => location.includes("diagnostics-export")));
     const result = reuse(["--resource", resource.id]);

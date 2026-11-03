@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 import LitheCoreContracts
 
@@ -7,6 +8,7 @@ struct MacRemoteBuildStateLocator: BuildSystemStateLocating {
     let local: any BuildSystemStateLocating
     let registry: RemoteWorkspaceRegistry
     let host: any RemoteBuildStateAccess
+    var logSink: (any LogSink)? = nil
     var packages: (any RemotePluginPackageDeploying)? = nil
 
     func workspaceStateDirectory(pluginID: String, buildSystemID: String, workspaceURL: URL) throws -> URL {
@@ -52,7 +54,7 @@ struct MacRemoteBuildStateLocator: BuildSystemStateLocating {
         return BuildSystemRunResources(pluginDirectory: deployed?.packageURL, workspaceStateDirectory: state, outputFile: output) {
             if let output {
                 do { try await Self.worker { try host.removeBuildOutputFile(output.path, session: session) } }
-                catch { NSLog("Remote build output cleanup failed (%@)", String(describing: type(of: error))) }
+                catch { logSink?.emit(RemoteBuildCleanupFailed(error: error)) }
             }
             await deployed?.release()
         }

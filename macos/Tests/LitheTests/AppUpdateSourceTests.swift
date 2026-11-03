@@ -258,7 +258,7 @@ private struct CheckerFixture {
 
     @MainActor
     func makeChecker() -> UpdateChecker {
-        UpdateChecker(bundle: Bundle(url: directory)!, preferences: defaults, diagnosticSink: { _ in })
+        UpdateChecker(bundle: Bundle(url: directory)!, preferences: defaults, logSink: nil)
     }
 
     func cleanUp() {

@@ -878,7 +878,11 @@ package protocol LanguageServerSession: AnyObject {
     /// Packaged Java Test runner, if this JDT LS session was launched with one.
     var javaTestRunnerURL: URL? { get }
     var onDiagnostics: ((URL, [LanguageServerDiagnostic]) -> Void)? { get set }
+    var onCoreLog: ((CoreLogRecord) -> Void)? { get set }
     var onLog: ((LanguageServerLogLevel, String, String?, String?) -> Void)? { get set }
+    /// Controlled issue facts: isWarning, source stage, stable code, exit status, operation ID.
+    /// No message/detail payload crosses this persistence callback.
+    var onLogIssue: ((Bool, String, String, Int?, String?) -> Void)? { get set }
     var onStateChange: ((LanguageServerSessionState) -> Void)? { get set }
     var features: LanguageServerFeatureSet { get }
     var onFeaturesChange: ((LanguageServerFeatureSet) -> Void)? { get set }
@@ -1165,7 +1169,15 @@ package extension LanguageServerSession {
         get { nil }
         set {}
     }
+    var onCoreLog: ((CoreLogRecord) -> Void)? {
+        get { nil }
+        set { }
+    }
     var onLog: ((LanguageServerLogLevel, String, String?, String?) -> Void)? {
+        get { nil }
+        set {}
+    }
+    var onLogIssue: ((Bool, String, String, Int?, String?) -> Void)? {
         get { nil }
         set {}
     }

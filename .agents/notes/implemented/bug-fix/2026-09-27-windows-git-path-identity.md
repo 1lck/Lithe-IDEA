@@ -37,6 +37,7 @@ Issue #627 中，前端先判断绝对路径再替换反斜杠，把原生 UNC �
 - 长路径用例先在短路径建立真实仓库，再移入超长目录。Windows CI 已观察到文件系统可访问但创建 Git 进程的工作目录被 `ERROR_DIRECTORY` 拒绝；用例仅接受成功读到原提交，或带原生错误 267 的 `process_start_failed`，不能返回空仓库或访问其他目录。
 - Windows 专属测试真实创建末尾点/空格目录及普通同名目录，确认请求明确拒绝，不误用普通目录。
 - 原生 watcher 测试用有界事件接收验证外部提交/切换所写的共享引用与独立 HEAD 元数据会通知对应工作树；没有用 sleep 等待防抖。
+  - 多仓库监听的通知可能分批到达，不能断言接收的第一批就包含目标仓库。等待必须按仓库身份匹配，并共用五秒单调截止时间；收到其他仓库的通知不得重置期限。回归场景通过真实文件写入，先确认另一仓库的通知已经入队，再注册并修改目标仓库，保留共享持有者和窗口关闭后的资源释放断言。CI 41608482993 在旧断言处失败，固定通知顺序后旧断言同样失败；修复后的六项 Git watcher 测试在 macOS 原生监听器上通过，不替代 Windows 原生验证。
 - `./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope SharedRust`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope WindowsRust`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend`

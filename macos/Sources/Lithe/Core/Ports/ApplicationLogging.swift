@@ -28,7 +28,6 @@ struct ApplicationLogCollection: Sendable {
 }
 
 protocol ApplicationLogging: Sendable {
-    func record(level: String, scope: String, message: String, fields: [String: String])
     func collect(query: ApplicationLogQuery) async throws -> ApplicationLogCollection
     func configureDiagnostic(category: String?, enabled: Bool) async
     func clear() async throws

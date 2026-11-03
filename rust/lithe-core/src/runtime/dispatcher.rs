@@ -87,6 +87,16 @@ fn agent_response<T: serde::de::DeserializeOwned>(
     }
 }
 
+// Domain failures retain their unique numeric logging codes inside the existing Core envelope.
+fn log_v2_result<T: serde::Serialize>(
+    result: Result<T, crate::diagnostics::channel::LogError>,
+) -> serde_json::Value {
+    match result {
+        Ok(value) => serde_json::json!({"result": value}),
+        Err(error) => serde_json::json!({"error": error}),
+    }
+}
+
 fn execute(request: &str) -> CoreResponse {
     let parsed: CoreRequest = match serde_json::from_str(request) {
         Ok(request) => request,
@@ -732,6 +742,13 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::SearchActions => agent_response(
+            id,
+            parsed.payload,
+            |request: crate::action_search::Request| {
+                crate::action_search::search(request).map(|indices| json!({"indices": indices}))
+            },
+        ),
         CoreCommand::WorkspaceSearch => {
             match serde_json::from_value::<SearchRequest>(parsed.payload)
                 .map_err(|error| {
@@ -2162,6 +2179,22 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::LspSetDetailedDiagnostics => {
+            match serde_json::from_value::<crate::lsp::SetDetailedDiagnosticsRequest>(
+                parsed.payload,
+            )
+            .map_err(|_| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid detailed diagnostics request",
+                )
+            })
+            .and_then(crate::lsp::set_detailed_diagnostics)
+            {
+                Ok(()) => CoreResponse::success(id, json!({})),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::LspWaitEvents => {
             match serde_json::from_value::<crate::lsp::WaitEventsRequest>(parsed.payload)
                 .map_err(|error| {
@@ -3390,6 +3423,100 @@ fn execute(request: &str) -> CoreResponse {
                 Err(_) => CoreResponse::failure(
                     id,
                     CoreError::new(ErrorCode::InvalidRequest, "Invalid log query request"),
+                ),
+            }
+        }
+        CoreCommand::DiagnosticsDrainCoreEvents => CoreResponse::success(
+            id,
+            serde_json::to_value(crate::diagnostics::core_events::drain())
+                .expect("Core logs encode"),
+        ),
+        CoreCommand::DiagnosticsEncodeLogBatch => {
+            match serde_json::from_value::<crate::diagnostics::record::EncodeLogBatchRequest>(
+                parsed.payload,
+            ) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(crate::diagnostics::record::encode_log_batch(request))
+                        .expect("Log batch should encode"),
+                ),
+                Err(_) => CoreResponse::failure(
+                    id,
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid log batch request"),
+                ),
+            }
+        }
+        CoreCommand::DiagnosticsPlanLogCollection => {
+            match serde_json::from_value::<crate::diagnostics::collection::PlanLogCollectionRequest>(
+                parsed.payload,
+            ) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    log_v2_result(crate::diagnostics::collection::plan_log_collection(request)),
+                ),
+                Err(_) => CoreResponse::failure(
+                    id,
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid log collection request"),
+                ),
+            }
+        }
+        CoreCommand::DiagnosticsQueryLogsV2 => {
+            match serde_json::from_value::<crate::diagnostics::query_v2::LogQueryV2Request>(
+                parsed.payload,
+            ) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    log_v2_result(crate::diagnostics::query_v2::query_logs_v2(request)),
+                ),
+                Err(_) => CoreResponse::failure(
+                    id,
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid structured log query"),
+                ),
+            }
+        }
+        CoreCommand::DiagnosticsPlanLogRetention => {
+            match serde_json::from_value::<crate::diagnostics::retention::PlanLogRetentionRequest>(
+                parsed.payload,
+            ) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    log_v2_result(crate::diagnostics::retention::plan_log_retention(request)),
+                ),
+                Err(_) => CoreResponse::failure(
+                    id,
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid log retention request"),
+                ),
+            }
+        }
+        CoreCommand::DiagnosticsResolveEngineLogSubject => {
+            match serde_json::from_value::<crate::lsp::ResolveEngineLogSubjectRequest>(
+                parsed.payload,
+            ) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(crate::lsp::resolve_engine_log_subject(request))
+                        .expect("Engine log subject should encode"),
+                ),
+                Err(_) => CoreResponse::failure(
+                    id,
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid engine log subject request",
+                    ),
+                ),
+            }
+        }
+        CoreCommand::DiagnosticsResolveLogChannel => {
+            match serde_json::from_value::<crate::diagnostics::channel::ResolveLogChannelRequest>(
+                parsed.payload,
+            ) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    log_v2_result(crate::diagnostics::channel::resolve_log_channel(request)),
+                ),
+                Err(_) => CoreResponse::failure(
+                    id,
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid log channel request"),
                 ),
             }
         }

@@ -3,14 +3,22 @@ name: Remote Workspace CI
 
 on:
   pull_request:
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - 'LICENSE*'
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# Every main commit gets its own group, including pending runs. PR pushes
+# cancel their predecessor immediately; only completed results may be reused.
 concurrency:
-  group: remote-ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_id || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   changes:
@@ -33,7 +41,7 @@ jobs:
           PUSH_BASE_SHA: ${{ github.event.before }}
         shell: bash
         run: |
-          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+          if [[ "$EVENT_NAME" == "workflow_dispatch" || "$GITHUB_REF" == "refs/heads/main" ]]; then
             echo "manual=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -87,7 +95,7 @@ jobs:
   rust-remote-tests:
     name: Rust remote workspace tests
     needs: changes
-    if: needs.changes.outputs.rust_remote == 'true'
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.rust_remote == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -101,13 +109,13 @@ jobs:
           components: rustfmt, clippy
           targets: x86_64-unknown-linux-musl, aarch64-unknown-linux-musl, aarch64-apple-darwin, x86_64-apple-darwin, x86_64-pc-windows-msvc
 
-      - name: Restore Cargo dependencies
-        uses: actions/cache@v6
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/git
-            ~/.cargo/registry
-          key: cargo-dependencies-${{ runner.os }}-${{ hashFiles('rust/Cargo.lock') }}
+          workspaces: rust
+          shared-key: remote-linux
+          cache-bin: false
+          cache-on-failure: true
 
       - name: Check formatting, lints and remote server targets
         run: ./scripts/remote/verify-remote-workspace.sh --static
@@ -116,7 +124,7 @@ jobs:
         run: ./scripts/remote/verify-remote-workspace.sh --tests
 
       - name: Upload test timing report
-        if: always()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: rust-remote-tests-linux

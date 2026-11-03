@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "root": "terminal",
+  "events": [
+    {
+      "id": "terminal.renderer.fallback_selected",
+      "channel": "terminal",
+      "level": "warn",
+      "message": "Terminal renderer fallback selected",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Metal renderer activation error that caused the terminal to select Core Graphics"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "terminal.shell.discovery_failed",
+      "channel": "terminal",
+      "level": "warn",
+      "message": "Registered login shell discovery failed",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Filesystem error raised while reading the registered login shell list"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    }
+  ]
+}
