@@ -539,6 +539,11 @@ impl Workbench {
     }
 
     pub(super) fn restore_layout(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // Render 的 defer 与 `open_project` 都可能触发恢复：二次执行会覆盖
+        // 用户手选的标签，还会重复启动 watcher 与恢复会话。
+        if self.layout_restored {
+            return;
+        }
         // 启动时自动打开的最近项目只填了 `project_root`，没有经过
         // `open_project`：这里补上工作区根，锚点布局和标签会话才会被恢复，
         // 之后的标签变化也才能继续写盘。

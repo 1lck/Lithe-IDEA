@@ -68,19 +68,27 @@ impl Workbench {
         self.pending_reveal = Some((absolute, line, self.open_generation));
     }
 
-    /// 文档装上后执行待跳转行；路径或打开代次不匹配时丢弃请求。
+    /// 文档装上后执行待跳转行；路径或打开代次不匹配时保留/丢弃请求。
     fn apply_pending_reveal(
         &mut self,
         absolute: &Path,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some((path, line, generation)) = self.pending_reveal.take() else {
+        let Some((path, line, generation)) = self.pending_reveal.clone() else {
             return;
         };
-        if generation != self.open_generation || file_identity(&path) != file_identity(absolute) {
+        if generation != self.open_generation {
+            // 打开代次已经过期：这件请求属于上一个工作区，直接丢弃。
+            self.pending_reveal = None;
             return;
         }
+        if file_identity(&path) != file_identity(absolute) {
+            // 装上的不是请求的目标文件：保留请求，等目标文件真正装上
+            // 再消费，不能被无关文件的恢复/安装抢走。
+            return;
+        }
+        self.pending_reveal = None;
         self.editor.update(cx, |editor, editor_cx| {
             editor.go_to_line(line, window, editor_cx);
         });

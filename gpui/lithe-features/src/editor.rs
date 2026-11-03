@@ -853,6 +853,23 @@ impl EditorSurface {
         self.texts.get(&id).cloned()
     }
 
+    /// 后台标签跟随外部修改：更新 `texts` 缓存里该文档的文本。
+    ///
+    /// 只改缓存，不动当前编辑区和脏状态。调用方负责保证该路径不是活动
+    /// 文档、且对应标签没有未保存修改；活动文档必须走
+    /// [`Self::handle_disk_change`]。
+    pub fn replace_cached_text(&mut self, root: &Path, path: &Path, text: String) {
+        let (id, _, _) = document_identity(root, path);
+        if self
+            .document
+            .as_ref()
+            .is_some_and(|document| document.id == id)
+        {
+            return;
+        }
+        self.texts.insert(id, text);
+    }
+
     /// 文档已写盘后同步编辑器状态，不触发“Saved”通知。
     ///
     /// 当前活动文档会清除脏标记；后台标签不在编辑区，只能更新它的文本

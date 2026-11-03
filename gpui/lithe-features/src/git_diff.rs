@@ -21,9 +21,9 @@ use crate::git::model::{command_failure_detail, parse_command};
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::{Disableable as _, Icon, Sizable as _, h_flex, v_flex};
 use gpui_kit::{
-    AnyElement, AppContext as _, ClickEvent, Context, FontWeight, InteractiveElement as _,
-    IntoElement, ParentElement as _, Render, SharedString, StatefulInteractiveElement as _,
-    Styled as _, Window, div, px,
+    AnyElement, AppContext as _, ClickEvent, Context, FocusHandle, FontWeight,
+    InteractiveElement as _, IntoElement, KeyDownEvent, ParentElement as _, Render, SharedString,
+    StatefulInteractiveElement as _, Styled as _, Window, div, px,
 };
 use lithe_core_client::CoreClient;
 use lithe_ui::i18n::tr;
@@ -114,7 +114,6 @@ pub fn parse_diff_rows(value: &Value) -> Vec<DiffRow> {
 #[derive(Debug, Clone, Default)]
 pub struct DiffHunk {
     pub id: String,
-    pub header: String,
     pub patch: String,
 }
 
@@ -131,11 +130,6 @@ pub fn parse_diff_hunks(value: &Value) -> Vec<DiffHunk> {
                     let patch = item.get("patch").and_then(Value::as_str)?;
                     Some(DiffHunk {
                         id: id.to_string(),
-                        header: item
-                            .get("header")
-                            .and_then(Value::as_str)
-                            .unwrap_or_default()
-                            .to_string(),
                         patch: patch.to_string(),
                     })
                 })
@@ -167,6 +161,8 @@ pub struct CommitDiffView {
     error: Option<SharedString>,
     /// 丢弃过期异步结果。
     generation: u64,
+    /// 丢弃确认层的键盘焦点；Esc 关闭确认层。
+    confirm_focus: FocusHandle,
     /// 关闭请求：由工作台注册，用于回到原编辑器。
     on_close: Option<Rc<dyn Fn(&mut Window, &mut gpui_kit::App)>>,
     /// 变更块写操作成功后的回调：工作台用它刷新 Git 面板。
@@ -175,7 +171,6 @@ pub struct CommitDiffView {
 
 impl CommitDiffView {
     pub fn new(client: CoreClient, cx: &mut Context<Self>) -> Self {
-        let _ = cx;
         Self {
             client,
             root: None,
@@ -190,6 +185,7 @@ impl CommitDiffView {
             loading: false,
             error: None,
             generation: 0,
+            confirm_focus: cx.focus_handle(),
             on_close: None,
             on_changed: None,
         }
@@ -212,6 +208,26 @@ impl CommitDiffView {
         self.rows.clear();
         self.hunks.clear();
         self.pending_discard_hunk = None;
+        self.action_error = None;
+        self.error = None;
+        cx.notify();
+    }
+
+    /// 清空差异页的全部内容与在途请求，但保留根目录。
+    ///
+    /// 工作台在关闭差异页（切项目、关项目、打开普通文件）时调用：不能只把
+    /// 可见性置 false，否则再次打开同一路径时旧的确认层、错误行和过期读盘
+    /// 结果会复活。
+    pub fn reset(&mut self, cx: &mut Context<Self>) {
+        self.generation = self.generation.wrapping_add(1);
+        self.commit.clear();
+        self.path.clear();
+        self.working_tree_staged = None;
+        self.rows.clear();
+        self.hunks.clear();
+        self.pending_discard_hunk = None;
+        self.busy = false;
+        self.loading = false;
         self.action_error = None;
         self.error = None;
         cx.notify();
@@ -351,11 +367,18 @@ impl CommitDiffView {
 
     /// 请求丢弃一个变更块：先进入确认态，不立即执行（对齐 macOS
     /// `requestDiscardHunk`）。
-    fn request_discard_hunk(&mut self, hunk: DiffHunk, cx: &mut Context<Self>) {
+    fn request_discard_hunk(
+        &mut self,
+        hunk: DiffHunk,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.busy || self.loading {
             return;
         }
         self.pending_discard_hunk = Some(hunk);
+        // 确认层自己接管键盘：Esc 关闭，按钮点击与焦点都落在这个面板上。
+        window.focus(&self.confirm_focus, cx);
         cx.notify();
     }
 
@@ -506,8 +529,8 @@ impl CommitDiffView {
                         .icon(Icon::new(gpui_kit::assets::IconName::Undo2).with_size(px(12.0)))
                         .tooltip(tr("Discard"))
                         .disabled(busy)
-                        .on_click(cx.listener(move |this, _, _window, cx| {
-                            this.request_discard_hunk(discard_hunk.clone(), cx);
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.request_discard_hunk(discard_hunk.clone(), window, cx);
                         })),
                 );
             }
@@ -570,6 +593,12 @@ impl CommitDiffView {
                 v_flex()
                     .id("lithe-hunk-discard-panel")
                     .occlude()
+                    .track_focus(&self.confirm_focus)
+                    .on_key_down(cx.listener(|this, event: &KeyDownEvent, _window, cx| {
+                        if event.keystroke.key == "escape" && !this.busy {
+                            this.cancel_discard_hunk(cx);
+                        }
+                    }))
                     .w(px(360.0))
                     .rounded(px(LitheMetrics::PANE_RADIUS))
                     .overflow_hidden()
@@ -613,7 +642,7 @@ impl CommitDiffView {
                                     })),
                             )
                             .child(
-                                Button::new("lithe-hunk-discard-confirm")
+                                Button::new("lithe-hunk-discard-confirm-button")
                                     .danger()
                                     .small()
                                     .label(tr("Discard"))

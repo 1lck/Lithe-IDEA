@@ -107,6 +107,19 @@ impl Workbench {
     }
 
     pub(super) fn clear_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // 提交差异页属于上一个工作区：关掉页面、清空旧根并丢弃待确认的
+        // 丢弃请求，否则差异仍渲染旧仓库内容，hunk 按钮也会继续作用于旧
+        // 仓库（数据安全）。
+        self.close_commit_diff(cx);
+        self.commit_diff
+            .update(cx, |view, diff_cx| view.set_root(None, diff_cx));
+        // 作废所有在途读盘与会话恢复：旧项目的结果不能再装进新工作区或
+        // 已经关闭的工作区。恢复任务在派生时记录代次，这里递增后随之启动
+        // 的恢复任务记录的是递增后的值，不会被自己误伤。
+        self.open_generation = self.open_generation.wrapping_add(1);
+        self._read_task = Task::ready(());
+        self._watch_read_task = Task::ready(());
+        self.pending_reveal = None;
         self.close_editor_split(cx);
         self.tabs.clear();
         self.active_tab = None;
@@ -663,92 +676,192 @@ impl Workbench {
         // a. 项目树整树刷新：清空目录缓存后按已展开路径重新请求，保留展开状态。
         self.refresh_project_tree(window, cx);
 
-        // b. 命中当前活动文档时交给编辑器决定重载还是提示冲突。
-        let Some(active) = self.active_tab_path() else {
-            return;
-        };
-        if self.is_active_tab_untitled() {
-            return;
+        // b. 命中事件的已打开标签：活动文档交给编辑器决定重载还是提示冲突；
+        //    后台标签也按各自路径同步磁盘文本，否则切回后保存会把磁盘上的
+        //    新内容覆盖掉。
+        let active = self
+            .active_tab_path()
+            .filter(|_| !self.is_active_tab_untitled());
+        let active_identity = active.as_deref().map(super::tabs::file_identity);
+
+        // 未命中的标签不读盘：构建、批量保存这类活动会带来大量事件，逐个
+        // 读盘只会白白拖慢 UI 线程和 Core。事件路径先去重成集合，避免为每个
+        // 标签把整批路径再扫一遍。
+        let changed_identities: std::collections::HashSet<String> = changed
+            .iter()
+            .map(|path| super::tabs::file_identity(path))
+            .collect();
+        let mut active_target: Option<(PathBuf, String)> = None;
+        let mut background_targets: Vec<(PathBuf, String)> = Vec::new();
+        let mut background_conflicts: usize = 0;
+        for tab in &self.tabs {
+            if tab.id.starts_with("untitled:") {
+                continue;
+            }
+            let identity = super::tabs::file_identity(&tab.absolute_path);
+            let hit = rescan || changed_identities.contains(&identity);
+            if !hit {
+                continue;
+            }
+            // 删除/重命名给的是已经不存在的路径：不重载，保留用户内容。
+            if !tab.absolute_path.exists() {
+                continue;
+            }
+            let Some(relative) = super::tabs::workspace_relative_option(&root, &tab.absolute_path)
+            else {
+                continue;
+            };
+            if Some(identity.as_str()) == active_identity.as_deref() {
+                active_target = Some((tab.absolute_path.clone(), relative));
+            } else if tab.modified {
+                // 有未保存修改的后台标签不能自动覆盖：本轮只在状态栏汇总
+                // 提示，逐标签的冲突 UI 留给后续迭代。
+                background_conflicts += 1;
+            } else {
+                background_targets.push((tab.absolute_path.clone(), relative));
+            }
         }
-        let active_identity = super::tabs::file_identity(&active);
-        let hit = rescan
-            || changed
-                .iter()
-                .any(|path| super::tabs::file_identity(path) == active_identity);
-        // 删除/重命名给的是已经不存在的路径：不重载编辑区，保留用户内容。
-        if !hit || !active.exists() {
+
+        if background_conflicts > 0 {
+            self.status_message = Some(
+                format!(
+                    "{} ({})",
+                    tr("Background tabs changed on disk while having unsaved edits"),
+                    background_conflicts
+                )
+                .into(),
+            );
+        }
+        if active_target.is_none() && background_targets.is_empty() {
+            if background_conflicts > 0 {
+                cx.notify();
+            }
             return;
         }
 
         let client = self.client;
         let read_root = root.clone();
-        let read_path = active.clone();
-        // Core 读取需要工作区相对路径；活动标签按定义在工作区内。
-        let Some(relative) = super::tabs::workspace_relative_option(&root, &active) else {
-            return;
-        };
+        let task_root = root.clone();
+        let active_identity_for_task = active_identity.clone();
         self._watch_read_task = cx.spawn_in(window, async move |this, cx| {
-            let read_root_for_task = read_root.clone();
-            let result = cx
-                .background_spawn(async move { client.read_file(&read_root_for_task, &relative) })
-                .await;
+            // 同一批事件命中多个文件时顺序读盘：结果顺序稳定，也不会同时
+            // 向 Core 压上一串并发请求。
+            let mut active_text: Option<(PathBuf, String)> = None;
+            if let Some((absolute, relative)) = active_target {
+                let read_root = read_root.clone();
+                if let Ok(file) = cx
+                    .background_spawn(async move { client.read_file(&read_root, &relative) })
+                    .await
+                {
+                    active_text = Some((absolute, file.text));
+                }
+            }
+            let mut background_texts: Vec<(PathBuf, String)> = Vec::new();
+            for (absolute, relative) in background_targets {
+                let read_root = read_root.clone();
+                let Ok(file) = cx
+                    .background_spawn(async move { client.read_file(&read_root, &relative) })
+                    .await
+                else {
+                    // 读取失败（权限、编码、已删除）：保留标签里的旧内容，
+                    // 不制造假的外部修改。
+                    continue;
+                };
+                background_texts.push((absolute, file.text));
+            }
+
             let _ = this.update_in(cx, move |this, window, cx| {
+                // 项目已关闭或切换：这批结果属于旧工作区。
                 if this.watch_generation != generation {
                     return;
                 }
-                // 用户在读盘期间切了标签：结果不再属于当前文档。
-                let still_active = this
-                    .active_tab_path()
-                    .map(|path| super::tabs::file_identity(&path))
-                    .as_deref()
-                    == Some(active_identity.as_str());
-                if !still_active {
-                    return;
-                }
-                // 读取失败（权限、编码、已删除）时保留编辑区内容，不弹假冲突。
-                let Ok(file) = result else {
-                    return;
-                };
-                let outcome = this.editor.update(cx, |editor, editor_cx| {
-                    editor.handle_disk_change(
-                        &read_root,
-                        &read_path,
-                        file.text.clone(),
-                        window,
-                        editor_cx,
-                    )
-                });
-                match outcome {
-                    DiskChangeOutcome::Reloaded => {
-                        let identity = super::tabs::file_identity(&read_path);
-                        if let Some(tab) = this
-                            .tabs
-                            .iter_mut()
-                            .find(|tab| super::tabs::file_identity(&tab.absolute_path) == identity)
-                        {
-                            // 标签缓存必须跟着磁盘内容走，否则切走再切回来
-                            // 会重新装回旧文本。
-                            tab.text = file.text.clone();
-                            tab.modified = false;
+                let mut needs_notify = false;
+
+                // c. 活动文档：用户在读盘期间切了标签的话，结果不再属于当前
+                //    文档，直接丢弃。
+                if let Some((read_path, text)) = active_text {
+                    let still_active = this
+                        .active_tab_path()
+                        .map(|path| super::tabs::file_identity(&path))
+                        .as_deref()
+                        == active_identity_for_task.as_deref();
+                    if still_active && read_path.exists() {
+                        let outcome = this.editor.update(cx, |editor, editor_cx| {
+                            editor.handle_disk_change(
+                                &task_root,
+                                &read_path,
+                                text.clone(),
+                                window,
+                                editor_cx,
+                            )
+                        });
+                        match outcome {
+                            DiskChangeOutcome::Reloaded => {
+                                let identity = super::tabs::file_identity(&read_path);
+                                if let Some(tab) = this.tabs.iter_mut().find(|tab| {
+                                    super::tabs::file_identity(&tab.absolute_path) == identity
+                                }) {
+                                    // 标签缓存必须跟着磁盘内容走，否则切走
+                                    // 再切回来会重新装回旧文本。
+                                    tab.text = text.clone();
+                                    tab.modified = false;
+                                }
+                                this.status_message =
+                                    Some(tr("Loaded file-system version").into());
+                                this.push_notification(
+                                    tr("Loaded file-system version"),
+                                    Some(super::tabs::file_title(&read_path)),
+                                    NotificationKind::Info,
+                                );
+                                // 分屏只读窗格与 Markdown 预览都展示同一份
+                                // 内容，跟着重载结果一起刷新。
+                                this.sync_editor_secondary(window, cx);
+                                this.sync_preview_with_active_tab(cx);
+                                needs_notify = true;
+                            }
+                            DiskChangeOutcome::Conflict => {
+                                this.status_message = Some(
+                                    tr("External edits conflict with unsaved changes").into(),
+                                );
+                                needs_notify = true;
+                            }
+                            DiskChangeOutcome::Ignored => {}
                         }
-                        this.status_message = Some(tr("Loaded file-system version").into());
-                        this.push_notification(
-                            tr("Loaded file-system version"),
-                            Some(super::tabs::file_title(&read_path)),
-                            NotificationKind::Info,
-                        );
-                        // 分屏只读窗格与 Markdown 预览都展示同一份内容，
-                        // 跟着重载结果一起刷新，避免两边不一致。
-                        this.sync_editor_secondary(window, cx);
-                        this.sync_preview_with_active_tab(cx);
-                        cx.notify();
                     }
-                    DiskChangeOutcome::Conflict => {
-                        this.status_message =
-                            Some(tr("External edits conflict with unsaved changes").into());
-                        cx.notify();
+                }
+
+                // d. 后台标签：只同步读盘期间仍然未修改、且仍然不是活动
+                //    文档的标签，避免覆盖用户刚输入的内容。
+                let active_now = this
+                    .active_tab_path()
+                    .map(|path| super::tabs::file_identity(&path));
+                for (path, text) in background_texts {
+                    let identity = super::tabs::file_identity(&path);
+                    if active_now.as_deref() == Some(identity.as_str()) {
+                        // 读盘期间用户切到了这个标签：交给活动文档流程。
+                        continue;
                     }
-                    DiskChangeOutcome::Ignored => {}
+                    let Some(tab) = this
+                        .tabs
+                        .iter_mut()
+                        .find(|tab| super::tabs::file_identity(&tab.absolute_path) == identity)
+                    else {
+                        continue;
+                    };
+                    if tab.modified || tab.text == text {
+                        continue;
+                    }
+                    tab.text = text.clone();
+                    // 后台标签不在编辑区，只能同步文本缓存；切回时
+                    // `open_file` 会从这里装回最新磁盘内容。
+                    this.editor.update(cx, |editor, _editor_cx| {
+                        editor.replace_cached_text(&task_root, &path, text);
+                    });
+                    needs_notify = true;
+                }
+
+                if needs_notify {
+                    cx.notify();
                 }
             });
         });

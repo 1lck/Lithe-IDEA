@@ -217,9 +217,14 @@ impl Workbench {
     }
 
     /// 关闭差异页，回到普通编辑器内容。
+    ///
+    /// 除了收起可见性，还要清空差异视图自身的行、变更块、错误和待确认的
+    /// 丢弃请求：只置 false 会让再次打开同一路径时旧的确认层复活。
     pub(super) fn close_commit_diff(&mut self, cx: &mut Context<Self>) {
-        if self.commit_diff_visible {
-            self.commit_diff_visible = false;
+        let was_visible = self.commit_diff_visible;
+        self.commit_diff_visible = false;
+        self.commit_diff.update(cx, |view, diff_cx| view.reset(diff_cx));
+        if was_visible {
             cx.notify();
         }
     }
