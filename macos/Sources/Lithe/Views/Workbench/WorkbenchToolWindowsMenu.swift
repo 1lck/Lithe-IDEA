@@ -44,19 +44,16 @@ struct WorkbenchToolWindowsMenu: View {
                     AnyView(LitheIDEAIcon(resourcePath: WorkbenchContributionIcon.Asset.actionPaths[$0] ?? $0,
                                           size: LitheTheme.Metrics.toolbarIconSize))
                 }
-            return .action(contribution.title,
-                           localizesTitle: model.workbenchUIRegistry.localizesTitle(for: contribution),
-                           icon: icon,
-                           checked: state.isChecked,
-                           shortcut: command.flatMap { model.keyboardShortcutFeature.displayText(for: $0.id) },
-                           isEnabled: state.isEnabled && !state.isPending,
-                           contextItems: {
-                               [.action(L10n.string("Unhide")) {
-                                   model.showContributionEntry(contribution, openToolWindow: false)
-                               }]
-                           }) {
+            let show = LitheContextMenuItem.action(L10n.string("Show"),
+                checked: state.isChecked,
+                shortcut: command.flatMap { model.keyboardShortcutFeature.displayText(for: $0.id) },
+                isEnabled: state.isEnabled && !state.isPending) {
                 model.showContributionEntry(contribution)
             }
+            var item = LitheContextMenuItem.submenu(contribution.title, icon: icon, items: [show])
+            item.localizesTitle = model.workbenchUIRegistry.localizesTitle(for: contribution)
+            item.isEnabled = show.isEnabled
+            return item
         }
     }
 }

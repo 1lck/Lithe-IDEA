@@ -1337,7 +1337,10 @@ struct WorkbenchView: View {
         .background(frameChromeBackground)
     }
 
-    private func contributionCustomizationItems(_ contribution: ModuleContribution) -> [LitheContextMenuItem] {
+    private func contributionCustomizationItems(
+        _ contribution: ModuleContribution,
+        dockMoveItems: [LitheContextMenuItem] = []
+    ) -> [LitheContextMenuItem] {
         let workbench = model.workbenchFeature
         let state = moduleUIRegistry.state(for: contribution, model: model)
         let hidden = workbench.contributionPreferences[contribution.id]?.isHidden == true
@@ -1350,17 +1353,22 @@ struct WorkbenchView: View {
                 workbench.customizeContribution(contribution.id, isHidden: true)
             }
         ]
+        var moveItems: [LitheContextMenuItem] = []
         if contribution.kind == .toolWindow {
-            items += [
+            moveItems += [
                 .action(L10n.string("Move to Left")) { workbench.customizeContribution(contribution.id, placement: .leftSidebar) },
                 .action(L10n.string("Move to Bottom")) { workbench.customizeContribution(contribution.id, placement: .activityBar) },
                 .action(L10n.string("Move to Right")) { workbench.customizeContribution(contribution.id, placement: .rightSidebar) }
             ]
         }
-        items += [
+        moveItems += [
             .action(L10n.string("Move Earlier")) { workbench.moveContribution(contribution.id, earlier: true) },
             .action(L10n.string("Move Later")) { workbench.moveContribution(contribution.id, earlier: false) }
         ]
+        if !dockMoveItems.isEmpty {
+            moveItems += [.separator] + dockMoveItems
+        }
+        items.append(.submenu(L10n.string("Move"), items: moveItems))
         return items
     }
 
@@ -1441,7 +1449,7 @@ struct WorkbenchView: View {
                         let editorItems: [LitheContextMenuItem] = renderer?.openInEditor.map { open in
                             [.action(L10n.string("Open in Editor")) { open(model) }, .separator]
                         } ?? []
-                        return editorItems + (entry.map { contributionCustomizationItems($0) } ?? []) + DockAnchor.allCases.flatMap { anchor in
+                        let dockMoveItems = DockAnchor.allCases.flatMap { anchor in
                             DockGroup.allCases.map { group in
                                 let destination = DockPosition(anchor: anchor, group: group)
                                 return LitheContextMenuItem.action(dockMoveTitle(destination), action: {
@@ -1449,6 +1457,9 @@ struct WorkbenchView: View {
                                 })
                             }
                         }
+                        return editorItems + (entry.map {
+                            contributionCustomizationItems($0, dockMoveItems: dockMoveItems)
+                        } ?? [.submenu(L10n.string("Move"), items: dockMoveItems)])
                     }
                     .accessibilityIdentifier("tool-window-" + tool.rawValue)
                 }
