@@ -214,6 +214,20 @@ for (const workflow of workflows) {
     assert.deepEqual(bindings(workflow.required), workflow.bindings);
   });
 
+  for (const lane of workflow.lanes) {
+    test(`${workflow.id}: ${lane.job} stops on cancellation and requires successful classification`, testOptions, () => {
+      const condition = scalar(block(workflow.source, `${lane.job}:`, 2), 'if', 4);
+      assert.equal(evaluate(condition, fixture(workflow)), true);
+      assert.equal(evaluate(condition, fixture(workflow, false)), false);
+      const cancelled = fixture(workflow);
+      cancelled.cancelled = true;
+      assert.equal(evaluate(condition, cancelled), false);
+      const failed = fixture(workflow);
+      failed.needs.changes.result = 'failure';
+      assert.equal(evaluate(condition, failed), false);
+    });
+  }
+
   for (const classification of ['failure', 'cancelled', 'skipped', '']) {
     test(`${workflow.id}: classification ${classification || 'missing'} fails even when no lane runs`, testOptions, async () => {
       const context = fixture(workflow, false);

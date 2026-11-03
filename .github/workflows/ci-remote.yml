@@ -95,7 +95,7 @@ jobs:
   rust-remote-tests:
     name: Rust remote workspace tests
     needs: changes
-    if: needs.changes.outputs.rust_remote == 'true'
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.rust_remote == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
 

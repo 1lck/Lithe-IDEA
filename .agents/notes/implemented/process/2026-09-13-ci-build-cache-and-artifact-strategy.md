@@ -436,6 +436,17 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 其他测试的时间门禁。因此修正采样范围与位图坐标，继续使用原有上限；完整
 图的正确性检查不减少，批量绘制不能替代可见区域的帧成本测量。
 
+### 只依赖 workflow concurrency 的取消配置
+
+2026-11-03 实测 `41606589663` 在新提交触发取消后仍执行打包约五分钟，
+后继 `41611588243` 因此等待到强制取消才开始。GitHub 取消时会重新计算 job
+条件；只检查分类输出的条件仍然成立。因此被选中的 job 显式要求
+`!cancelled()`，同时保留分类成功条件，防止状态函数覆盖隐含 `success()` 后
+错误启动分类失败的 lane。报告和缓存保存步骤也不使用取消后仍成立的
+`always()`；正常失败仍保留报告，取消优先释放 runner。
+依据：[GitHub workflow cancellation](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-cancellation)。
+回归测试分别验证选中、未选中、取消和分类失败四种状态。
+
 ## 后果
 
 - 普通 macOS Swift PR 更快得到必需检查结果；被选中的打包改动在 PR 中获得

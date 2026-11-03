@@ -153,7 +153,7 @@ jobs:
   frontend:
     name: Test Windows frontend
     needs: changes
-    if: needs.changes.outputs.run_frontend == 'true'
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.run_frontend == 'true' }}
     runs-on: windows-latest
     timeout-minutes: 20
 
@@ -680,7 +680,7 @@ jobs:
   rust-tests:
     name: Test Windows Rust implementation (${{ matrix.lane }})
     needs: changes
-    if: needs.changes.outputs.run_rust == 'true'
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.run_rust == 'true' }}
     runs-on: windows-latest
     timeout-minutes: 30
     strategy:
@@ -753,7 +753,7 @@ jobs:
   real-jdt:
     name: Test real JDT on Windows
     needs: changes
-    if: needs.changes.outputs.run_jdt == 'true'
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.run_jdt == 'true' }}
     runs-on: windows-latest
     timeout-minutes: 35
 

@@ -120,7 +120,7 @@ jobs:
   plugin-tests:
     name: Plugin tests and package verification
     needs: changes
-    if: needs.changes.outputs.run_plugins == 'true'
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.run_plugins == 'true' }}
     runs-on: macos-26
     timeout-minutes: 75
 

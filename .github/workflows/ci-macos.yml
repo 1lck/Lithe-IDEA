@@ -208,7 +208,7 @@ jobs:
   tooling:
     name: CI tooling tests
     needs: changes
-    if: needs.changes.outputs.validation == 'true'
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.validation == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -300,7 +300,7 @@ jobs:
   swift-tests:
     name: Swift tests
     needs: changes
-    if: needs.changes.outputs.run_swift == 'true'
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.run_swift == 'true' }}
     runs-on: macos-26
     timeout-minutes: 80
 
@@ -437,7 +437,7 @@ jobs:
   rust-core-tests:
     name: Rust Core tests
     needs: changes
-    if: needs.changes.outputs.run_rust == 'true'
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.run_rust == 'true' }}
     runs-on: macos-26
     # A cold Rust build without a compilation cache can take 20 minutes.
     # Individual test harness deadlines still bound the integration suites.
@@ -482,7 +482,7 @@ jobs:
   release-build:
     name: Release package verification (${{ matrix.architecture }})
     needs: changes
-    if: needs.changes.outputs.run_release == 'true'
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.run_release == 'true' }}
     runs-on: macos-26
     # A universal build without a Cargo compilation cache takes about 45
     # minutes: Rust and Swift compile once per slice before packaging twice.
@@ -516,7 +516,7 @@ jobs:
         run: ./scripts/macos/probe/probe-macos-monaco.sh --workbench-tests
 
       - name: Upload Monaco workbench test report
-        if: always() && matrix.architecture != 'x86_64'
+        if: ${{ !cancelled() && matrix.architecture != 'x86_64' }}
         uses: actions/upload-artifact@v4
         with:
           name: monaco-workbench-${{ matrix.architecture }}
@@ -636,7 +636,7 @@ jobs:
       # requests restore preview's entries without saving: PR-scoped copies are
       # unreadable by preview and pushed its own entries past the cache quota.
       - name: Save Cargo compilation cache
-        if: always() && github.event_name != 'pull_request'
+        if: ${{ !cancelled() && github.event_name != 'pull_request' }}
         uses: ./.github/actions/save-macos-cargo-build-cache
         with:
           key: ${{ steps.dependency_cache.outputs.cargo-build-key }}
