@@ -33,6 +33,9 @@ pub struct RelocateBreakpointsRequest {
     /// Original-source edits, validated and applied together before projecting lines.
     #[serde(default)]
     pub edits: Vec<DebugSourceEdit>,
+    /// Further editor mutations, each expressed relative to the previous mutation's result.
+    #[serde(default)]
+    pub edit_batches: Vec<Vec<DebugSourceEdit>>,
     /// Optional ephemeral snapshot identity; version one supplies the complete source.
     #[serde(default)]
     pub document: Option<DebugSourceDocument>,
@@ -56,6 +59,9 @@ struct SourceSnapshot {
 
 const MAX_SNAPSHOT_BYTES: usize = 16 * 1024 * 1024;
 const MAX_SNAPSHOTS: usize = 4;
+const MAX_ADDITIONAL_BATCHES: usize = 127;
+const MAX_ADDITIONAL_EDITS: usize = 4096;
+const MAX_ADDITIONAL_REPLACEMENT_BYTES: usize = 64 * 1024 * 1024;
 type SnapshotCache = BTreeMap<String, SourceSnapshot>;
 static SNAPSHOTS: OnceLock<Mutex<SnapshotCache>> = OnceLock::new();
 
@@ -73,6 +79,19 @@ pub struct RelocateBreakpointsResult {
 pub fn relocate_breakpoints(
     request: RelocateBreakpointsRequest,
 ) -> Result<RelocateBreakpointsResult, CoreError> {
+    if request.edit_batches.len() > MAX_ADDITIONAL_BATCHES
+        || request.edit_batches.iter().map(Vec::len).sum::<usize>() > MAX_ADDITIONAL_EDITS
+        || request
+            .edit_batches
+            .iter()
+            .flatten()
+            .try_fold(0usize, |total, edit| {
+                total.checked_add(edit.replacement.len())
+            })
+            .is_none_or(|total| total > MAX_ADDITIONAL_REPLACEMENT_BYTES)
+    {
+        return Err(invalid_request("Too many queued debug source edits."));
+    }
     if let Some(document) = &request.document {
         if document.id.is_empty() || document.id.len() > 128 || document.version == 0 {
             return Err(invalid_request("Invalid debug source snapshot identity."));
@@ -95,8 +114,13 @@ pub fn relocate_breakpoints(
                 "Debug source snapshot exceeds its size limit.",
             ));
         }
-        let (result, updated) =
-            relocate_batch(source, request.edit, request.edits, request.breakpoints)?;
+        let (result, updated) = relocate_sequence(
+            source,
+            request.edit,
+            request.edits,
+            request.edit_batches,
+            request.breakpoints,
+        )?;
         if updated.len() > MAX_SNAPSHOT_BYTES {
             return Err(invalid_request(
                 "Debug source snapshot exceeds its size limit.",
@@ -121,13 +145,96 @@ pub fn relocate_breakpoints(
         );
         return Ok(result);
     }
-    relocate_batch(
+    relocate_sequence(
         request.source,
         request.edit,
         request.edits,
+        request.edit_batches,
         request.breakpoints,
     )
     .map(|(result, _)| result)
+}
+
+// Each editor event projects and deduplicates before the next one, matching
+// separate requests; preserve the original input identity through each step.
+fn relocate_sequence(
+    source: String,
+    edit: Option<DebugSourceEdit>,
+    edits: Vec<DebugSourceEdit>,
+    edit_batches: Vec<Vec<DebugSourceEdit>>,
+    breakpoints: Vec<SourceBreakpoint>,
+) -> Result<(RelocateBreakpointsResult, String), CoreError> {
+    let (mut result, mut source) = relocate_batch(source, edit, edits, breakpoints)?;
+    if edit_batches.is_empty() {
+        return Ok((result, source));
+    }
+    let mut fast_anchor = if source.is_ascii() && !result.breakpoints.is_empty() {
+        Some(
+            result
+                .breakpoints
+                .iter()
+                .map(|point| breakpoint_anchor_utf16_offset(&source, point))
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .max()
+                .expect("nonempty breakpoints"),
+        )
+    } else {
+        None
+    };
+    for mut batch in edit_batches {
+        if let Some(anchor) = fast_anchor {
+            if apply_ascii_edits_after_anchors(&mut source, &mut batch, anchor)? {
+                continue;
+            }
+            fast_anchor = None;
+        }
+        let previous_indices = result.original_indices;
+        let (mut next, updated) = relocate_batch(source, None, batch, result.breakpoints)?;
+        next.original_indices = next
+            .original_indices
+            .into_iter()
+            .map(|index| previous_indices[index])
+            .collect();
+        result = next;
+        source = updated;
+    }
+    Ok((result, source))
+}
+
+// ASCII byte offsets equal UTF-16 offsets. Edits strictly after every anchor
+// cannot change any breakpoint's position or its next first-code anchor.
+fn apply_ascii_edits_after_anchors(
+    source: &mut String,
+    edits: &mut [DebugSourceEdit],
+    last_anchor: usize,
+) -> Result<bool, CoreError> {
+    if edits
+        .iter()
+        .any(|edit| edit.start_utf16_offset <= last_anchor || !edit.replacement.is_ascii())
+    {
+        return Ok(false);
+    }
+    edits.sort_by_key(|edit| (edit.start_utf16_offset, edit.end_utf16_offset));
+    let mut previous_end = 0;
+    for edit in edits.iter() {
+        if edit.start_utf16_offset < previous_end
+            || edit.start_utf16_offset > edit.end_utf16_offset
+            || edit.end_utf16_offset > source.len()
+        {
+            return Err(invalid_request(
+                "Debug source edits must form non-overlapping UTF-16 ranges.",
+            ));
+        }
+        previous_end = edit.end_utf16_offset;
+    }
+    for edit in edits.iter().rev() {
+        source.replace_range(
+            edit.start_utf16_offset..edit.end_utf16_offset,
+            &edit.replacement,
+        );
+    }
+    Ok(true)
 }
 
 fn relocate_batch(
@@ -359,6 +466,7 @@ mod tests {
                 replacement: "\n".to_string(),
             }),
             edits: vec![],
+            edit_batches: vec![],
             document: None,
             breakpoints: vec![breakpoint(2)],
         })
@@ -379,6 +487,7 @@ mod tests {
                 replacement: "Now".to_string(),
             }),
             edits: vec![],
+            edit_batches: vec![],
             document: None,
             breakpoints: vec![breakpoint(2)],
         })
@@ -400,6 +509,7 @@ mod tests {
                 replacement: String::new(),
             }),
             edits: vec![],
+            edit_batches: vec![],
             document: None,
             breakpoints: vec![breakpoint(3)],
         })
@@ -423,6 +533,7 @@ mod tests {
                 replacement: "next".to_string(),
             }),
             edits: vec![],
+            edit_batches: vec![],
             document: None,
             breakpoints: vec![SourceBreakpoint {
                 line: 2,
@@ -450,6 +561,7 @@ mod tests {
                 replacement: String::new(),
             }),
             edits: vec![],
+            edit_batches: vec![],
             document: None,
             breakpoints: vec![deleted_breakpoint, surviving_breakpoint.clone()],
         })
@@ -469,6 +581,7 @@ mod tests {
                 replacement: String::new(),
             }),
             edits: vec![],
+            edit_batches: vec![],
             document: None,
             breakpoints: vec![],
         })
@@ -501,6 +614,132 @@ mod tests {
     }
 
     #[test]
+    fn queued_document_events_project_between_edits() {
+        let result = relocate_breakpoints(RelocateBreakpointsRequest {
+            source: "aaa\nbbb".into(),
+            edit: Some(DebugSourceEdit {
+                start_utf16_offset: 3,
+                end_utf16_offset: 4,
+                replacement: String::new(),
+            }),
+            edits: vec![],
+            edit_batches: vec![vec![DebugSourceEdit {
+                start_utf16_offset: 1,
+                end_utf16_offset: 1,
+                replacement: "\n".into(),
+            }]],
+            document: None,
+            breakpoints: vec![breakpoint(2)],
+        })
+        .unwrap();
+        // After the first event the breakpoint belongs to the merged line.
+        assert_eq!(result.breakpoints, vec![breakpoint(1)]);
+        assert_eq!(result.original_indices, vec![0]);
+    }
+
+    #[test]
+    fn queued_ascii_edits_after_anchors_keep_positions_and_original_indices() {
+        let (result, source) = relocate_sequence(
+            "alpha\nomega".into(),
+            Some(DebugSourceEdit {
+                start_utf16_offset: 11,
+                end_utf16_offset: 11,
+                replacement: "!".into(),
+            }),
+            vec![],
+            vec![
+                vec![DebugSourceEdit {
+                    start_utf16_offset: 7,
+                    end_utf16_offset: 9,
+                    replacement: "\n".into(),
+                }],
+                vec![DebugSourceEdit {
+                    start_utf16_offset: 11,
+                    end_utf16_offset: 11,
+                    replacement: "?".into(),
+                }],
+            ],
+            vec![breakpoint(2), breakpoint(1)],
+        )
+        .unwrap();
+        assert_eq!(source, "alpha\no\nga!?");
+        assert_eq!(result.breakpoints, vec![breakpoint(1), breakpoint(2)]);
+        assert_eq!(result.original_indices, vec![1, 0]);
+    }
+
+    #[test]
+    fn queued_ascii_fast_path_rejects_invalid_ranges_atomically() {
+        let (result, source) = relocate_batch(
+            "abc".into(),
+            Some(DebugSourceEdit {
+                start_utf16_offset: 3,
+                end_utf16_offset: 3,
+                replacement: "!".into(),
+            }),
+            vec![],
+            vec![breakpoint(1)],
+        )
+        .unwrap();
+        let mut invalid = vec![DebugSourceEdit {
+            start_utf16_offset: 5,
+            end_utf16_offset: 6,
+            replacement: String::new(),
+        }];
+        let mut unchanged = source.clone();
+        assert!(apply_ascii_edits_after_anchors(&mut unchanged, &mut invalid, 0).is_err());
+        assert_eq!(unchanged, source);
+        assert_eq!(result.breakpoints, vec![breakpoint(1)]);
+    }
+
+    #[test]
+    fn queued_document_event_budget_is_enforced() {
+        let request = RelocateBreakpointsRequest {
+            source: "a".into(),
+            edit: None,
+            edits: vec![],
+            edit_batches: vec![vec![]; MAX_ADDITIONAL_BATCHES + 1],
+            document: None,
+            breakpoints: vec![],
+        };
+        assert!(matches!(
+            relocate_breakpoints(request).unwrap_err().code,
+            ErrorCode::InvalidRequest
+        ));
+    }
+
+    #[test]
+    fn invalid_queued_event_does_not_advance_the_source_snapshot() {
+        let document = |version| {
+            Some(DebugSourceDocument {
+                id: "sequence-atomicity".into(),
+                version,
+            })
+        };
+        let request = |version, source: &str, extra| RelocateBreakpointsRequest {
+            source: source.into(),
+            edit: Some(DebugSourceEdit {
+                start_utf16_offset: 0,
+                end_utf16_offset: 0,
+                replacement: "\n".into(),
+            }),
+            edits: vec![],
+            edit_batches: extra,
+            document: document(version),
+            breakpoints: vec![breakpoint(version as i64)],
+        };
+        relocate_breakpoints(request(1, "a", vec![])).unwrap();
+        let invalid = vec![vec![DebugSourceEdit {
+            start_utf16_offset: 999,
+            end_utf16_offset: 999,
+            replacement: String::new(),
+        }]];
+        assert!(relocate_breakpoints(request(2, "", invalid)).is_err());
+        let recovered = relocate_breakpoints(request(2, "", vec![])).unwrap();
+        assert_eq!(recovered.breakpoints, vec![breakpoint(3)]);
+        assert_eq!(recovered.original_indices, vec![0]);
+    }
+
+    #[test]
     fn lone_cr_and_crlf_keep_line_anchors() {
         for source in ["a\rb", "a\r\nb", "a\nb"] {
             let (result, _) = relocate_batch(
@@ -528,6 +767,7 @@ mod tests {
                 end_utf16_offset: 0,
                 replacement: "\n".into(),
             }],
+            edit_batches: vec![],
             document: Some(DebugSourceDocument {
                 id: "snapshot-regression".into(),
                 version,

@@ -4953,6 +4953,13 @@ Hosts persist these controlled identities, never the raw detail, URL, output or 
 
 `debug.relocateBreakpoints` retains the single `edit` input and also accepts `edits`, an array of non-overlapping original-source UTF-16 replacements. Character anchors are retained until the complete batch finishes; only then are positions projected and duplicates merged. LF, CRLF and lone CR are line boundaries.
 
+Optional `editBatches` contains up to 127 additional editor mutations in order,
+with up to 4096 edits and 64 MiB of replacement text across those additional
+batches. Each batch uses UTF-16
+offsets in the text produced by the preceding mutation. Core projects and
+deduplicates breakpoints after each mutation, exactly as for separate calls, and
+keeps `originalIndices` relative to the request's original breakpoint list.
+
 The response's `originalIndices` array identifies the zero-based input breakpoint
 that survived for each entry in `breakpoints`, in the same order. It allows a host
 to preserve breakpoint identity after relocation and collision resolution.

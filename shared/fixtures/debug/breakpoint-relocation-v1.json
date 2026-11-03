@@ -277,6 +277,111 @@
           0
         ]
       }
+    },
+    {
+      "name": "sequential edits preserve survivor identity",
+      "payload": {
+        "source": "first();\nrun();\n",
+        "edit": {
+          "startUtf16Offset": 0,
+          "endUtf16Offset": 9,
+          "replacement": ""
+        },
+        "editBatches": [
+          [
+            {
+              "startUtf16Offset": 0,
+              "endUtf16Offset": 0,
+              "replacement": "\n"
+            }
+          ]
+        ],
+        "breakpoints": [
+          {
+            "line": 1,
+            "column": null,
+            "enabled": false,
+            "condition": null,
+            "hitCondition": null,
+            "logMessage": null
+          },
+          {
+            "line": 2,
+            "column": null,
+            "enabled": true,
+            "condition": null,
+            "hitCondition": null,
+            "logMessage": null
+          }
+        ]
+      },
+      "expected": {
+        "breakpoints": [
+          {
+            "line": 2,
+            "column": null,
+            "enabled": true,
+            "condition": null,
+            "hitCondition": null,
+            "logMessage": null
+          }
+        ],
+        "originalIndices": [
+          1
+        ]
+      }
+    },
+    {
+      "name": "sequential UTF-16 CRLF edits preserve lines",
+      "payload": {
+        "source": "中😀\r\nrun();\r\n",
+        "edit": {
+          "startUtf16Offset": 0,
+          "endUtf16Offset": 0,
+          "replacement": "\n"
+        },
+        "editBatches": [
+          [
+            {
+              "startUtf16Offset": 6,
+              "endUtf16Offset": 6,
+              "replacement": "  "
+            }
+          ],
+          [
+            {
+              "startUtf16Offset": 0,
+              "endUtf16Offset": 0,
+              "replacement": "x\n"
+            }
+          ]
+        ],
+        "breakpoints": [
+          {
+            "line": 2,
+            "column": null,
+            "enabled": false,
+            "condition": null,
+            "hitCondition": null,
+            "logMessage": null
+          }
+        ]
+      },
+      "expected": {
+        "breakpoints": [
+          {
+            "line": 4,
+            "column": null,
+            "enabled": false,
+            "condition": null,
+            "hitCondition": null,
+            "logMessage": null
+          }
+        ],
+        "originalIndices": [
+          0
+        ]
+      }
     }
   ]
 }

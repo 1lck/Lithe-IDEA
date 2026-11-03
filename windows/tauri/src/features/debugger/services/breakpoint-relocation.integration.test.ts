@@ -47,15 +47,18 @@ for (const item of fixture.cases) {
       } finally { library!.symbols.lithe_core_free_string(pointer); }
     });
     try {
-      const edit = item.payload.edit;
-      const source = item.payload.source;
-      const model = new SourceText(source, 1);
-      const changes = model.apply([{
-        rangeOffset: source.slice(0, edit.startUtf16Offset).replace(/\r\n/g, "\n").length,
-        rangeLength: source.slice(edit.startUtf16Offset, edit.endUtf16Offset).replace(/\r\n/g, "\n").length,
-        text: edit.replacement,
-      }], 2);
-      queueBreakpointRelocation(path, { previousContent: source, content: model.value, changes, anchorChanges: model.lastAnchorChanges, external: false });
+      const model = new SourceText(item.payload.source, 1);
+      const extra = ("editBatches" in item.payload ? item.payload.editBatches : undefined) ?? [];
+      const batches = [[item.payload.edit], ...extra];
+      for (const [index, batch] of batches.entries()) {
+        const source = model.value;
+        const changes = model.apply(batch.map(edit => ({
+          rangeOffset: source.slice(0, edit.startUtf16Offset).replace(/\r\n/g, "\n").length,
+          rangeLength: source.slice(edit.startUtf16Offset, edit.endUtf16Offset).replace(/\r\n/g, "\n").length,
+          text: edit.replacement,
+        })), index + 2);
+        queueBreakpointRelocation(path, { previousContent: source, content: model.value, changes, anchorChanges: model.lastAnchorChanges, external: false });
+      }
       await flushBreakpointRelocations();
       const points = useDebuggerStore.getState().breakpoints;
       expect(points.map(point => ({ line: point.line + 1, enabled: point.enabled })))
@@ -103,3 +106,44 @@ test.skipIf(!library)("native retry keeps a breakpoint added while relocation is
     release(); actions.clearBreakpoints(); await flushBreakpointRelocations(); invoke.mockRestore();
   }
 });
+
+test.skipIf(!library)("native large-file queue batches typing while a request is in flight", async () => {
+  const path = "D:/fixture/Large.java";
+  const actions = useDebuggerStore.getState().actions;
+  actions.toggleBreakpoint(path, 0);
+  let entered!: () => void;
+  let release!: () => void;
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const payloads: unknown[] = [];
+  const invoke = spyOn(native, "invoke").mockImplementation(async (command, payload) => {
+    payloads.push(payload);
+    const input = Buffer.from(JSON.stringify({ id: "large", command, payload }) + "\0");
+    const pointer = library!.symbols.lithe_core_execute_json(input);
+    if (!pointer) throw new Error("Core returned a null response pointer");
+    let response: { ok: boolean; data: unknown; error?: { message: string } };
+    try { response = JSON.parse(new CString(pointer).toString()); }
+    finally { library!.symbols.lithe_core_free_string(pointer); }
+    if (!response.ok) throw new Error(response.error?.message);
+    if (payloads.length === 1) { entered(); await gate; }
+    return response.data as never;
+  });
+  try {
+    let source = "a".repeat(9 * 1024 * 1024);
+    for (let index = 0; index < 128; index++) {
+      const content = source + "x";
+      queueBreakpointRelocation(path, { previousContent: source, content,
+        changes: [{ offset: source.length, length: 0, text: "x",
+          start: { line: 0, column: source.length }, end: { line: 0, column: source.length } }], external: false });
+      source = content;
+      if (index === 0) await started;
+    }
+    release();
+    await flushBreakpointRelocations();
+    expect(payloads.length).toBe(2);
+    expect(JSON.stringify(payloads[1]).length).toBeLessThan(20_000);
+    expect(actions.getBreakpointsForFile(path).map(point => point.line)).toEqual([0]);
+  } finally {
+    release(); actions.clearBreakpoints(); await flushBreakpointRelocations(); invoke.mockRestore();
+  }
+}, 30_000);

@@ -367,3 +367,78 @@ test("large document incremental IPC omits the source after the initial snapshot
   expect(bytes).toBeLessThan(11*1024*1024);
  } finally {invoke.mockRestore();}
 });
+
+test("large-file typing queues bounded incremental edits while native relocation is in flight", async () => {
+ const path = "D:/work/LargeQueued.java";
+ const actions = useDebuggerStore.getState().actions;
+ actions.toggleBreakpoint(path, 0);
+ let release!: (value: {breakpoints:{line:number;enabled:boolean}[]; originalIndices:number[]}) => void;
+ let entered!: () => void;
+ const started = new Promise<void>(resolve => { entered = resolve; });
+ const blocked = new Promise<{breakpoints:{line:number;enabled:boolean}[]; originalIndices:number[]}>(resolve => { release = resolve; });
+ let calls = 0;
+ const invoke = spyOn(native, "invoke").mockImplementation(async <T>(_command: string, args?: unknown): Promise<T> => {
+  if (++calls === 1) { entered(); return await blocked as T; }
+  const payload = args as { source?: string; editBatches?: unknown[][] };
+  expect(payload.source).toBeUndefined();
+  expect(payload.editBatches).toHaveLength(126);
+  expect(JSON.stringify(payload).length).toBeLessThan(20_000);
+  return {breakpoints:[{line:1,enabled:true}],originalIndices:[0]} as T;
+ });
+ try {
+  let source = "x".repeat(9 * 1024 * 1024);
+  const change = () => {
+   const next = source + "a";
+   const event = {previousContent:source, content:next, external:false,
+    changes:[{offset:source.length,length:0,text:"a",start:{line:0,column:source.length},end:{line:0,column:source.length}}]};
+   source = next;
+   return event;
+  };
+  queueBreakpointRelocation(path, change());
+  await started;
+  for (let index = 0; index < 127; index++) queueBreakpointRelocation(path, change());
+  release({breakpoints:[{line:1,enabled:true}],originalIndices:[0]});
+  await flushBreakpointRelocations();
+  expect(calls).toBe(2);
+  expect(actions.getBreakpointsForFile(path).map(point => point.line)).toEqual([0]);
+ } finally {
+  release({breakpoints:[],originalIndices:[]});
+  actions.clearBreakpoints(); await flushBreakpointRelocations(); invoke.mockRestore();
+ }
+});
+
+test("queued edits are not coalesced across a breakpoint change", async () => {
+ const actions = useDebuggerStore.getState().actions;
+ actions.toggleBreakpoint("D:/work/Block.java", 0);
+ actions.toggleBreakpoint("D:/work/Queued.java", 0);
+ let release!: (value: {breakpoints:{line:number;enabled:boolean}[]; originalIndices:number[]}) => void;
+ let entered!: () => void;
+ const started = new Promise<void>(resolve => { entered = resolve; });
+ const blocked = new Promise<{breakpoints:{line:number;enabled:boolean}[]; originalIndices:number[]}>(resolve => { release = resolve; });
+ let calls = 0;
+ const invoke = spyOn(native, "invoke").mockImplementation(async <T>(_command: string, args?: unknown): Promise<T> => {
+  const payload = args as {breakpoints:{line:number}[]; editBatches?:unknown[][]};
+  if (++calls === 1) { entered(); return await blocked as T; }
+  expect(payload.editBatches).toBeUndefined();
+  if (calls === 2) return {breakpoints:[{line:2,enabled:true}],originalIndices:[0]} as T;
+  expect(payload.breakpoints.map(point => point.line).sort()).toEqual([2,3]);
+  return {breakpoints:[{line:3,enabled:true},{line:4,enabled:true}],originalIndices:[1,0]} as T;
+ });
+ const first = insertion();
+ try {
+  queueBreakpointRelocation("D:/work/Block.java", first);
+  await started;
+  queueBreakpointRelocation("D:/work/Queued.java", {...first});
+  actions.toggleBreakpoint("D:/work/Queued.java", 2);
+  queueBreakpointRelocation("D:/work/Queued.java", {
+   ...first, previousContent:first.content, content:"\n" + first.content,
+  });
+  release({breakpoints:[{line:2,enabled:true}],originalIndices:[0]});
+  await flushBreakpointRelocations();
+  expect(calls).toBe(3);
+  expect(actions.getBreakpointsForFile("D:/work/Queued.java").map(point => point.line).sort()).toEqual([2,3]);
+ } finally {
+  release({breakpoints:[],originalIndices:[]});
+  actions.clearBreakpoints(); await flushBreakpointRelocations(); invoke.mockRestore();
+ }
+});
