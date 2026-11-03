@@ -9,6 +9,10 @@ import LitheGitModule
 @Suite("Unified context menus", .serialized)
 @MainActor
 struct ContextMenuCoverageTests {
+    init() {
+        _ = NSApplication.shared
+    }
+
     @Test(arguments: [false, true], [ColorScheme.dark, .light])
     func dropdownTriggerClosesItsPopupAndSwitchesToAnother(customContent: Bool, scheme: ColorScheme) async throws {
         let host = NSHostingView(rootView: HStack(spacing: 20) {
