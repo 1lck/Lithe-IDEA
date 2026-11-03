@@ -29,6 +29,7 @@ Project/Dependencies 标题与 Terminal shell/动作入口同样使用 `LitheMen
 - Git Log 筛选按钮的名称与选中值保持不同前景色，但必须由同一段单行文字完成布局和尾部截断。Community `c7f91397daa3a961b4e78bc634fe467a0a7d9ade` 的 `platform/vcs-log/impl/src/com/intellij/util/ui/FilterComponent.java` 是名称、值、3pt 箭头间距及 4pt 内缩的来源；SwiftUI 不能照搬为两个可独立压缩的 `Text`，否则窄工具栏中的名称和长用户名会挤压重叠（#1342）。不要用固定用户名宽度或整体禁止压缩来修复，这会把溢出转移到相邻筛选按钮和清除按钮。
 - Branch、User、Date、Paths 都按触发按钮左下角定位。Date 原先按点击坐标弹出，造成同一按钮点击不同位置时菜单偏移；现在也使用同一个原生锚点，并保留操作菜单的键盘导航、选中勾与关闭回调。右键菜单仍以点击位置定位。
 - 产品下拉框直接显示透明面板，`animationBehavior = .none`，不使用 SwiftUI `Menu`、菜单式 `Picker` 或系统 `NSPopover` 的弹跳展开，也不添加缩放或弹簧过渡。新增或修改产品下拉框时必须走共享组件；AI 的强制入口规则位于 `develop-lithe` Skill。
+- 对需要异步检查资格的动作菜单，在同一菜单会话中只更新既有条目的启用状态；保持窗口、条目身份、焦点和布局不变，旧会话的迟到结果不得影响新菜单，关闭时取消查询。
 - 调用方只提交条目、动作、可用条件和定位信息。例如 Git Log 设置调用 `show(items:at:appearance:locale:)`；不要重新增加样式布尔值或局部绘制另一套菜单。
 
 ### 操作菜单保留所属窗口的激活外观

@@ -55,6 +55,7 @@ pub use rebase_session::{
 };
 pub(crate) use rollback::{rollback_plan_command, rollback_prepare_command};
 
+pub(crate) use rewrite::history_action_capabilities_command;
 pub use rewrite::{
     history_rewrite_preview, GitHistoryRewriteExpectation, GitHistoryRewritePreviewRequest,
     GitHistoryRewriteResult,

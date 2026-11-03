@@ -11,10 +11,3 @@ export function splitGitCommitMessage(message: string): { title: string; body: s
 export function joinGitCommitMessage(title: string, body: string): string {
   return body ? `${title}\n\n${body}` : title;
 }
-
-export function isGitHeadCommit(commit: { decorations: string }): boolean {
-  return commit.decorations.split(",").some((decoration) => {
-    const value = decoration.trim();
-    return value === "HEAD" || value.startsWith("HEAD -> ");
-  });
-}

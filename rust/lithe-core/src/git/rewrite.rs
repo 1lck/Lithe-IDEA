@@ -174,6 +174,114 @@ impl Drop for RewriteLease {
     }
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HistoryActionCapabilitiesRequest {
+    root: String,
+    revisions: Vec<String>,
+}
+
+// This is only a menu hint. History rewrite preview remains the authority for
+// dirty worktrees, operation state, mutable refs and execution authorization.
+pub(crate) fn history_action_capabilities_command(
+    payload: serde_json::Value,
+) -> Result<serde_json::Value, CoreError> {
+    let request: HistoryActionCapabilitiesRequest = serde_json::from_value(payload)
+        .map_err(|_| invalid("Invalid history action capabilities request"))?;
+    if request.revisions.len() > MAX_REWRITE_COMMITS
+        || request.revisions.iter().any(|revision| {
+            !matches!(revision.len(), 40 | 64)
+                || !revision.bytes().all(|byte| byte.is_ascii_hexdigit())
+        })
+    {
+        return Err(invalid(
+            "History selections require full Git commit identities",
+        ));
+    }
+    let root = repository_root(&validate_root(&request.root)?)?
+        .to_string_lossy()
+        .into_owned();
+    let head = execute_git_readonly(
+        &root,
+        &[
+            "rev-parse".into(),
+            "--verify".into(),
+            "--quiet".into(),
+            "HEAD".into(),
+        ],
+        None,
+    )?;
+    if head.exit_code > 1 {
+        return Err(CoreError::new(
+            ErrorCode::ProcessFailed,
+            "Could not resolve Git HEAD",
+        ));
+    }
+    if head.exit_code != 0 {
+        return Ok(
+            serde_json::json!({"head":null,"canCherryPick":false,"canUndo":false,"canSquash":false}),
+        );
+    }
+    let head = head.stdout.trim().to_string();
+    let branch = execute_git_readonly(
+        &root,
+        &["symbolic-ref".into(), "--quiet".into(), "HEAD".into()],
+        None,
+    )?;
+    if branch.exit_code > 1 {
+        return Err(CoreError::new(
+            ErrorCode::ProcessFailed,
+            "Could not inspect the current Git branch",
+        ));
+    }
+    let on_branch = branch.exit_code == 0 && branch.stdout.trim().starts_with("refs/heads/");
+    let selected: BTreeSet<_> = request
+        .revisions
+        .iter()
+        .map(|revision| revision.to_ascii_lowercase())
+        .collect();
+    let one = request.revisions.len() == 1;
+    let single_parent_count = if one {
+        let revision = format!("{}^{{commit}}", request.revisions[0]);
+        let commit = execute_git_readonly(
+            &root,
+            &[
+                "rev-list".into(),
+                "--parents".into(),
+                "--max-count=1".into(),
+                revision,
+            ],
+            None,
+        )?;
+        (commit.exit_code == 0).then(|| commit.stdout.split_whitespace().count().saturating_sub(1))
+    } else {
+        None
+    };
+    let can_cherry_pick = single_parent_count.is_some() && !selected.contains(&head);
+    let can_undo = on_branch && single_parent_count == Some(1) && selected.contains(&head);
+    let mut can_squash = false;
+    if on_branch && request.revisions.len() >= 2 && selected.len() == request.revisions.len() {
+        let chain = checked_output(
+            &root,
+            &["rev-list", "--first-parent", "--max-count=1001", &head],
+        )?;
+        let chain = std::str::from_utf8(&chain)
+            .map_err(|_| invalid("Git returned an invalid commit identifier"))?;
+        let indices: Vec<_> = chain
+            .lines()
+            .enumerate()
+            .filter_map(|(index, hash)| selected.contains(hash).then_some(index))
+            .collect();
+        can_squash = indices.len() == selected.len()
+            && indices.last().is_some_and(|last| {
+                *last < MAX_REWRITE_COMMITS && *last - indices[0] + 1 == indices.len()
+            });
+    }
+    Ok(
+        serde_json::json!({"head":head,"canCherryPick":can_cherry_pick,"canUndo":can_undo,"canSquash":can_squash}),
+    )
+}
+
 /// Resolves a real first-parent range and rejects unsupported history before UI confirmation.
 pub fn history_rewrite_preview(
     request: GitHistoryRewritePreviewRequest,

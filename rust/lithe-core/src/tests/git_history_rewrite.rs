@@ -97,6 +97,78 @@ impl Drop for Repository {
 }
 
 #[test]
+fn history_action_capabilities_use_real_head_and_complete_first_parent_chain() {
+    let repo = Repository::new("history-action-capabilities");
+    let first = repo.commit("story.txt", "one\n", "one");
+    let root_actions = repo.request(
+        "git.historyActionCapabilities",
+        json!({"revisions":[first]}),
+    );
+    assert_eq!(root_actions["data"]["canUndo"], false, "{root_actions}");
+    let second = repo.commit("story.txt", "two\n", "two");
+    let third = repo.commit("story.txt", "three\n", "three");
+    let head = repo.commit("story.txt", "four\n", "four");
+    repo.git(&["checkout", "-qb", "side", &second]);
+    let side = repo.commit("side.txt", "side\n", "side");
+    repo.git(&["checkout", "-q", "main"]);
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/git/history-action-capabilities-v1.json"
+    ))
+    .unwrap();
+    let capabilities = |revisions: Vec<&str>| {
+        let mut request = fixture["request"].clone();
+        request["revisions"] = json!(revisions);
+        let response = repo.request("git.historyActionCapabilities", request);
+        assert_eq!(response["ok"], true, "{response}");
+        response["data"].clone()
+    };
+    let remote = capabilities(vec![&side]);
+    let mut expected_other = fixture["otherResponse"].clone();
+    expected_other["head"] = json!(head);
+    assert_eq!(remote, expected_other);
+    assert_eq!(remote["head"], head);
+    assert_eq!(remote["canCherryPick"], true);
+    assert_eq!(remote["canUndo"], false);
+    let selected_head = capabilities(vec![&head]);
+    let mut expected_head = fixture["headResponse"].clone();
+    expected_head["head"] = json!(head);
+    assert_eq!(selected_head, expected_head);
+    assert_eq!(selected_head["canCherryPick"], false);
+    assert_eq!(selected_head["canUndo"], true);
+    assert_eq!(capabilities(vec![&third, &second])["canSquash"], true);
+    assert_eq!(capabilities(vec![&head, &second])["canSquash"], false);
+    assert_eq!(capabilities(vec![&first, &side])["canSquash"], false);
+    assert_eq!(capabilities(vec![&third, &third])["canSquash"], false);
+    repo.git(&["checkout", "-q", "--detach", &head]);
+    let detached = capabilities(vec![&head]);
+    assert_eq!(detached["canUndo"], false);
+    assert_eq!(capabilities(vec![&third, &second])["canSquash"], false);
+}
+
+#[test]
+fn history_action_capabilities_reject_invalid_identities_and_handle_unborn_head() {
+    let repo = Repository::new("history-actions-invalid");
+    let unborn = repo.request("git.historyActionCapabilities", json!({"revisions":[]}));
+    assert_eq!(unborn["ok"], true, "{unborn}");
+    assert_eq!(unborn["data"]["head"], Value::Null);
+    assert_eq!(unborn["data"]["canSquash"], false);
+    for invalid in ["HEAD", "-bad", "a"] {
+        let result = repo.request(
+            "git.historyActionCapabilities",
+            json!({"revisions":[invalid]}),
+        );
+        assert_eq!(result["ok"], false, "{result}");
+        assert_eq!(result["error"]["code"], "invalid_request");
+    }
+    let excessive = vec!["a".repeat(40); 1001];
+    let result = repo.request(
+        "git.historyActionCapabilities",
+        json!({"revisions":excessive}),
+    );
+    assert_eq!(result["ok"], false, "{result}");
+}
+
+#[test]
 fn undo_preserves_staged_unstaged_and_untracked_content_and_keeps_recovery() {
     let repo = Repository::new("undo-reviewed");
     let parent = repo.commit("story.txt", "one\n", "one");

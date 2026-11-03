@@ -926,6 +926,7 @@ export function GitLogToolWindow() {
           <ResizableHandle />
           <ResizablePanel id="commits" defaultSize="57" minSize={320}>
             <GitCommitTable
+              repoPath={repoPath}
               emptyState={<GitRepositoryEmptyState root={repoPath} onRefresh={refresh} onShowConsole={() => setPanel("console")} />}
               commits={history.commits}
               repositoryCommits={repositoryCommits}

@@ -120,6 +120,7 @@ package protocol GitOperations: Sendable {
     func cherryPick(_ hash: String, at rootURL: URL) -> GitProcessResult?
     func revert(_ hash: String, at rootURL: URL) -> GitProcessResult?
     func resetCurrentBranch(to hash: String, mode: String, at rootURL: URL) -> GitProcessResult?
+    func historyActionCapabilities(at rootURL: URL, revisions: [String], operationID: String) -> Result<GitHistoryActionCapabilities, GitHistoryActionFailure>
     func historyRewritePreview(at rootURL: URL, operation: GitHistoryRewriteOperation, revisions: [String]) -> GitHistoryRewritePreview?
     func rewriteHistory(at rootURL: URL, expectedState: GitHistoryRewriteExpectedState, message: String?) -> GitProcessResult?
     func interactiveRebasePreview(at rootURL: URL, revision: String) -> Result<GitRebasePreview, GitRebaseFailure>
@@ -290,6 +291,7 @@ package extension GitOperations {
         .failure(GitPatchFailure("Patch preview is unavailable."))
     }
     func applyExchangePatch(at rootURL: URL, patch: String, target: GitPatchTarget, expectedState: String) -> GitProcessResult? { nil }
+    func historyActionCapabilities(at rootURL: URL, revisions: [String], operationID: String) -> Result<GitHistoryActionCapabilities, GitHistoryActionFailure> { .failure(GitHistoryActionFailure()) }
     func historyRewritePreview(at rootURL: URL, operation: GitHistoryRewriteOperation, revisions: [String]) -> GitHistoryRewritePreview? { nil }
     func rewriteHistory(at rootURL: URL, expectedState: GitHistoryRewriteExpectedState, message: String?) -> GitProcessResult? { nil }
     func repositories(in workspaceURL: URL) -> [URL] {
@@ -658,6 +660,21 @@ package struct GitService: Sendable {
 
     func commit(at repositoryRoot: URL, message: String, amend: Bool = false) async -> CommandResult {
         await command(at: repositoryRoot) { $0.commit(at: repositoryRoot, message: message, amend: amend) }
+    }
+
+    func historyActionCapabilities(at root: URL, revisions: [String], operationID: String) async -> GitHistoryActionCapabilities? {
+        let result = await cancellableRead(operationID: operationID) {
+            $0.historyActionCapabilities(at: root, revisions: revisions, operationID: operationID)
+        }
+        guard let result else { return nil }
+        switch result {
+        case .success(let capabilities): return capabilities
+        case .failure:
+            if !Task.isCancelled {
+                performanceLogger.emit(VcsHistoryActionCapabilitiesFailed(error: LogFailure(domain: "GitHistoryActions", code: "query_failed")))
+            }
+            return nil
+        }
     }
 
     func historyRewritePreview(at repositoryRoot: URL, operation: GitHistoryRewriteOperation, revisions: [String]) async -> GitHistoryRewritePreview? {

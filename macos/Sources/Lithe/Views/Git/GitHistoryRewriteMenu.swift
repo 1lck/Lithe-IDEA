@@ -6,12 +6,14 @@ enum GitHistoryRewriteMenu {
         guard let root = feature.gitRepositoryRoot else { return [] }
         let editor = feature.historyEditing
         let count = editor.selection.hashes.count
+        let capabilities = editor.capabilities(at: root)
         let historyItems: [LitheContextMenuItem] = [.separator] + GitHistoryRewriteOperation.allCases.map { operation in
             .action(
                 operation.menuTitle,
                 role: operation == .deleteCommit ? .destructive : .standard,
                 isEnabled: !feature.isPerformingBranchOperation && !editor.isBusy
-                    && (operation == .squashCommits ? count > 1 : count == 1),
+                    && (operation == .squashCommits ? capabilities?.canSquash == true :
+                        operation == .undoCommit ? capabilities?.canUndo == true : count == 1),
                 action: { editor.begin(operation, at: root, clickedHash: commit.hash) }
             )
         }
