@@ -8,7 +8,10 @@ struct KeyboardShortcutTests {
     @Test
     func catalogHasStableUniqueCommandsAndConflictFreeDefaults() throws {
         let commands = LitheCommandCatalog.commands
-        #expect(commands.count == 39)
+        #expect(commands.count == 40)
+        let startOrContinue = try #require(LitheCommandCatalog.command(id: "debug-start-or-continue"))
+        #expect(startOrContinue.defaultBindings.isEmpty)
+        #expect(LitheCommandCatalog.moduleOwner(for: startOrContinue.id) == .debug)
         let findAction = try #require(LitheCommandCatalog.command(id: "find-action"))
         #expect(findAction.defaultBindings
             == [.keyPress(key: "a", modifiers: [.shift, .command])])

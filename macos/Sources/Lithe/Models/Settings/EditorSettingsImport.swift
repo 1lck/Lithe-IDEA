@@ -6,7 +6,7 @@ struct EditorSettingsImportSource: Identifiable, Equatable, Sendable {
     var id: String { directory.path }
     let directory: URL
     let title: String
-    let revision: String
+    var revision: String
     var values: [String: String]
     var warnings: [String]
     var lineHeightFontSize: String? = nil
@@ -94,6 +94,7 @@ struct EditorSettingsImportJournal: Codable {
 
 enum EditorSettingsImportError: Error, LocalizedError {
     case changed, invalid, storage, read, fontSizeDependency
+    case ambiguousShortcutProviders
     case shortcutConflict(String)
     var errorDescription: String? {
         if case .shortcutConflict(let command) = self {
@@ -103,6 +104,7 @@ enum EditorSettingsImportError: Error, LocalizedError {
     }
     private var messageKey: String {
         switch self {
+        case .ambiguousShortcutProviders: "More than one plugin can import shortcuts from this source. Disable duplicate providers and scan again."
         case .shortcutConflict: "Keyboard shortcuts"
         case .fontSizeDependency: "Select the source font size together with pixel line height, or keep the current line height."
         case .changed: "Settings changed. Scan again before importing or restoring."

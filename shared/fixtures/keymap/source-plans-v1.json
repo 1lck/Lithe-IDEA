@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "limits": {
+    "selectors": 16,
+    "probes": 16,
+    "files": 128,
+    "fileBytes": 1048576,
+    "totalBytes": 8388608,
+    "chunkBytes": 131072,
+    "directoryEntries": 4096,
+    "directoryMatches": 64
+  },
+  "cases": [
+    {"providerID": "first", "expected": {"recognition": [{"kind": "file", "path": "bindings.json"}, {"kind": "root", "base": "userConfig", "components": ["FirstEditor", "User"]}, {"kind": "root", "base": "userConfig", "components": ["FirstEditor", "User", "profiles", "*"]}], "inputs": [{"kind": "file", "path": "bindings.json"}]}},
+    {"providerID": "second", "expected": {"recognition": [{"kind": "directory", "path": "keymaps"}], "inputs": [{"kind": "file", "path": "options/map.xml"}, {"kind": "directory", "path": "keymaps", "extension": "xml"}]}},
+    {"providerID": "unlisted", "expected": null}
+  ]
+}

@@ -162,7 +162,7 @@ async function requiredFile(root, relativePath, resourceID) {
 async function validatorArguments(resource, cachePath, targetRoot) {
   if (resource.validator === "cargo") {
     const lockPaths = [];
-    for (const relativePath of ["rust/Cargo.lock", "windows/tauri/src-tauri/Cargo.lock"]) {
+    for (const relativePath of ["rust/Cargo.lock", "windows/tauri/src-tauri/Cargo.lock", "Plugins/mac/Official/EditorKeymapImport/Cargo.lock"]) {
       const candidate = path.join(targetRoot, relativePath);
       if (await pathExists(candidate)) lockPaths.push(candidate);
     }
@@ -433,6 +433,7 @@ async function main() {
       // loopback capabilities; they stay on this exclusion route, never a copy stage.
       // Agent edit-and-paste state is user-owned runtime data, without a copy stage.
       // editor-theme-assets rebuild palettes, bundled Make/CMake/Groovy grammars and notices together.
+      // editor-keymap-provider-build is worktree-local Cargo state and a sealed plugin, never a reusable cache.
       // Git-owned grammar inputs and memory-only tokenizer workers never enter a copy validator.
       if (excludedResources.some((resource) => resource.id === identifier)) {
         // Per-launch relays also own their provider admission route; they stay

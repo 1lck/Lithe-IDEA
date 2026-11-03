@@ -69,7 +69,7 @@ enum MacEditorSettingsImportReader {
     private static func read(root: URL, title: String, vscode: Bool, fonts: Set<String>, logSink: (any LogSink)?) throws -> EditorSettingsImportSource {
         let fm = FileManager.default
         var files: [String: Data] = [:]
-        var names = vscode ? ["settings.json", "keybindings.json"] : ["options/editor.xml", "options/editor-font.xml", "options/colors.scheme.xml", "options/laf.xml", "options/keymap.xml", "options/code.style.schemes.xml"]
+        var names = vscode ? ["settings.json"] : ["options/editor.xml", "options/editor-font.xml", "options/colors.scheme.xml", "options/laf.xml", "options/code.style.schemes.xml"]
         if !vscode {
             let colors = root.appendingPathComponent("colors")
             if fm.fileExists(atPath: colors.path) {
@@ -81,7 +81,7 @@ enum MacEditorSettingsImportReader {
             }
         }
         if !vscode {
-            for folder in ["keymaps", "codestyles"] {
+            for folder in ["codestyles"] {
                 let directory = root.appendingPathComponent(folder)
                 if fm.fileExists(atPath: directory.path) {
                     guard directory.resolvingSymlinksInPath().path.hasPrefix(root.resolvingSymlinksInPath().path + "/") else { throw EditorSettingsImportError.read }
@@ -107,7 +107,6 @@ enum MacEditorSettingsImportReader {
             guard totalBytes <= 8_388_608 else { throw EditorSettingsImportError.read }
             files[name] = data
         }
-        guard vscode || !files.isEmpty else { throw EditorSettingsImportError.read }
         var digest = SHA256()
         for name in names { digest.update(data: Data(name.utf8)); digest.update(data: files[name] ?? Data()) }
         // ponytail: parse at most 8 MiB twice to distinguish explicit values from reference defaults.
@@ -116,18 +115,11 @@ enum MacEditorSettingsImportReader {
         var resolved = try vscode
             ? parseVSCode(files["settings.json"] ?? Data("{}".utf8), fonts: fonts, includeAppearanceDefaults: true)
             : parseIDEA(files, fonts: fonts, includeAppearanceDefaults: true)
-        if vscode {
-            let bindings = try MacImportedKeybindings.parseVSCode(files["keybindings.json"] ?? Data("[]".utf8), includeDefaults: true)
-            if !bindings.isEmpty { resolved.0["keymap"] = EditorImportKeymap(preset: "", commands: bindings).encoded }
-            if files["keybindings.json"] != nil { resolved.1.append(MacImportedKeybindings.skipped) }
-        }
         if resolved.0["colorScheme"] != nil, resolved.0["customTheme"] == nil { resolved.0["customTheme"] = "" }
         var defaults = Set(resolved.0.keys).subtracting(parsed.0.keys)
-        if vscode, files["keybindings.json"] != nil { defaults.remove("keymap") }
         // Pixel height is explicit even when its conversion depends on the reference font size.
         if vscode, resolved.2 != nil { defaults.remove("lineHeight") }
         var approximate: Set<String> = resolved.0["colorScheme"] == nil ? [] : ["colorScheme"]
-        if vscode, resolved.0["keymap"] != nil { approximate.insert("keymap") }
         if !vscode { approximate.formUnion(defaults); if resolved.0["lineHeight"] != nil { approximate.insert("lineHeight") } }
         return EditorSettingsImportSource(directory: root, title: title,
             revision: digest.finalize().map { String(format: "%02x", $0) }.joined(), values: resolved.0, warnings: resolved.1, lineHeightFontSize: resolved.2, isVSCode: vscode, settingsFileMissing: vscode && files["settings.json"] == nil, defaultFields: defaults, approximateFields: approximate)
@@ -383,24 +375,6 @@ enum MacEditorSettingsImportReader {
         put(.detectIndentation, code?.codeOptions["AUTODETECT_INDENTS"] ?? (includeAppearanceDefaults && knownCodeBase ? "true" : nil))
         if code != nil || includeAppearanceDefaults { warnings.append("Only global indentation is imported. Language-specific code styles and formatter rules are skipped.") }
 
-        let active = documents["options/keymap.xml"]?.activeKeymap ?? (includeAppearanceDefaults ? "Mac OS X 10.5+" : nil)
-        if let active {
-            var visited: Set<String> = []
-            func resolve(_ name: String) throws -> [String: [KeyboardShortcutBinding]] {
-                guard visited.insert(name).inserted, visited.count <= 64 else { throw EditorSettingsImportError.invalid }
-                let matches = documents.filter { $0.key.hasPrefix("keymaps/") && $0.value.keymapName == name }.map(\.value)
-                guard matches.count <= 1 else { throw EditorSettingsImportError.invalid }
-                guard let map = matches.first else { return includeAppearanceDefaults ? MacImportedKeybindings.ideaDefaults(name) ?? [:] : [:] }
-                var result = includeAppearanceDefaults && map.keymapParent != nil ? try resolve(map.keymapParent!) : [:]
-                result.merge(map.keyBindings) { _, explicit in explicit }
-                // Unsupported explicit actions mask inherited bindings; never revive their parent shortcut.
-                for rejected in map.rejectedActions { result.removeValue(forKey: rejected) }
-                return result
-            }
-            let bindings = try resolve(active)
-            if !bindings.isEmpty { values["keymap"] = EditorImportKeymap(preset: "", commands: bindings).encoded }
-            warnings.append("Supported keyboard commands are mapped; unknown keymaps, mouse shortcuts and chords are skipped.")
-        }
         warnings.append("Appearance defaults are labeled separately. Workspace and language overrides, formatters, extensions and account data are skipped.")
         if let version = font["VERSION"], !["0", "1"].contains(version) {
             for key in ["fontFamily", "fontSize", "lineHeight", "fontLigatures"] { values.removeValue(forKey: key) }
@@ -418,12 +392,6 @@ enum MacEditorSettingsImportReader {
 /// XMLParser never resolves external entities; declarations are rejected before parsing.
 final class ImportXML: NSObject, XMLParserDelegate {
     var components: [String: [String: String]] = [:]
-    var activeKeymap: String?
-    var keymapName: String?
-    var keymapParent: String?
-    var keyBindings: [String: [KeyboardShortcutBinding]] = [:]
-    private var action: String?
-    var rejectedActions: Set<String> = []
     var codeName: String?
     var codeParent: String?
     var codeOptions: [String: String] = [:]
@@ -453,23 +421,6 @@ final class ImportXML: NSObject, XMLParserDelegate {
         let parent = elements.last
         elements.append(elementName)
         optionNames.append(elementName == "option" ? attributes["name"] : nil)
-        if elementName == "active_keymap", component == "KeymapManager" { activeKeymap = attributes["name"] }
-        if elementName == "keymap", elements.count == 1 { keymapName = attributes["name"]; keymapParent = attributes["parent"] }
-        if elementName == "action", parent == "keymap", elements.count == 2 {
-            action = attributes["id"].flatMap { MacImportedKeybindings.idea[$0] }
-            if let action {
-                if keyBindings[action] != nil { rejectedActions.insert(action) }
-                keyBindings[action] = []
-            }
-        }
-        if elementName == "keyboard-shortcut", parent == "action", elements.count == 3, let action {
-            if attributes["second-keystroke"] != nil { rejectedActions.insert(action) }
-            else if let key = attributes["first-keystroke"], let binding = MacImportedKeybindings.binding(key, idea: true),
-                    keyBindings[action, default: []].count < 8 {
-                if !keyBindings[action, default: []].contains(binding) { keyBindings[action, default: []].append(binding) }
-            } else { rejectedActions.insert(action) }
-        }
-        if elementName == "mouse-shortcut", let action { rejectedActions.insert(action) }
         if elementName == "code_scheme", elements.count == 1 { codeName = attributes["name"]; codeParent = attributes["parent_scheme"] }
         if elementName == "option", let name = attributes["name"], let value = attributes["value"], codeName != nil {
             if parent == "code_scheme", elements.count == 2 { codeOptions[name] = value }
@@ -510,8 +461,6 @@ final class ImportXML: NSObject, XMLParserDelegate {
         if elementName == "global_color_scheme", component == "EditorColorsManager" { scheme = attributes["name"] }
     }
     func parser(_ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?, qualifiedName qName: String?) {
-        if elementName == "action" { action = nil }
-        if elementName == "keymap" { for rejected in rejectedActions { keyBindings.removeValue(forKey: rejected) } }
         optionNames.removeLast()
         if elementName == "component" { component = nil }
         elements.removeLast()

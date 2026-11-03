@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { publishDirectory } from "./reuse-worktree-resources.mjs";
+import { publishDirectory, validatorArguments } from "./reuse-worktree-resources.mjs";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const reuseScript = path.join(scriptDirectory, "reuse-worktree-resources.mjs");
@@ -171,6 +171,28 @@ try {
     const refused = reuse(["--resource", resource.id]);
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /shared-logging.*cannot be reused/);
+  });
+  await test("editor keymap provider build state cannot cross worktrees", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "editor-keymap-provider-build");
+    assert.equal(resource.reusable, false);
+    assert.ok(resource.locations.includes(".artifacts/editor-keymap-provider-target/"));
+    assert.ok(resource.locations.includes("Plugins/mac/Official/EditorKeymapImport/target/"));
+    assert.ok(resource.locations.includes(".artifacts/cargo-home/git/"));
+    assert.match(resource.identity, /Cargo.lock.*SDK Git revision.*target architecture/);
+    assert.match(resource.reason, /read-only at runtime/);
+    const listed = run(process.execPath, [reuseScript, "--list"]);
+    assertSucceeded(listed);
+    assert.ok(!listed.stdout.includes(resource.id));
+    const refused = reuse(["--resource", resource.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /editor-keymap-provider-build.*cannot be reused/);
+    const isolated = path.join(testRoot, "keymap-lock-target");
+    const lock = path.join(isolated, "Plugins/mac/Official/EditorKeymapImport/Cargo.lock");
+    await fs.mkdir(path.dirname(lock), { recursive: true });
+    await fs.writeFile(lock, "version = 4\n");
+    assert.deepEqual(await validatorArguments({ validator: "cargo" }, "/cache", isolated),
+      ["--cargo-cache", "/cache", "--cargo-lock", lock]);
   });
   await test("shared translations are regenerated locally rather than reused", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));

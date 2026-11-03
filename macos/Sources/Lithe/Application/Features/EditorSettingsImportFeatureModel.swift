@@ -17,12 +17,18 @@ final class EditorSettingsImportFeatureModel: ObservableObject {
     let settings: AppSettings
     private let chooseSourceDirectory: () -> URL?
     private let scanSources: ((URL?) async throws -> [EditorSettingsImportSource])?
+    private let planKeymap: (([KeymapImportCurrent], [KeymapImportBinding]) throws -> KeymapImportBindingPlan)?
+    private let loadKeymapOnSelection: Bool
     init(settings: AppSettings, chooseDirectory: @escaping () -> URL?,
-         scan: ((URL?) async throws -> [EditorSettingsImportSource])?) {
+         scan: ((URL?) async throws -> [EditorSettingsImportSource])?,
+         planKeymap: (([KeymapImportCurrent], [KeymapImportBinding]) throws -> KeymapImportBindingPlan)? = nil,
+         loadKeymapOnSelection: Bool = false) {
         self.settings = settings
         startupFinished = settings.didOfferEditorSettingsImport
         chooseSourceDirectory = chooseDirectory
         scanSources = scan
+        self.planKeymap = planKeymap
+        self.loadKeymapOnSelection = loadKeymapOnSelection
     }
     var source: EditorSettingsImportSource? { sources.first { $0.id == sourceID } }
 
@@ -39,13 +45,58 @@ final class EditorSettingsImportFeatureModel: ObservableObject {
         var values = source?.values ?? [:]
         if let incoming = values["keymap"].flatMap(EditorImportKeymap.decode),
            var current = baseline["keymap"].flatMap(EditorImportKeymap.decode) {
+            if let (plan, registrations) = try? keymapPlan(incoming: incoming, current: current), plan.conflicts.isEmpty {
+                for displaced in plan.displaced {
+                    guard let registration = registrations.first(where: { $0.commandID == displaced.commandID }) else { continue }
+                    let keys = Set(displaced.keys)
+                    current.commands[displaced.commandID] = registration.bindings.filter { binding in
+                        guard let key = Self.portableKey(binding) else { return true }
+                        return !keys.contains(key)
+                    }
+                }
+            }
             current.commands.merge(incoming.commands) { _, imported in imported }
             values["keymap"] = current.encoded
         }
         return values
     }
 
+    private static func portableKey(_ binding: KeyboardShortcutBinding) -> KeymapImportBinding.Key? {
+        guard case let .keyPress(key, modifiers) = binding else { return nil }
+        var result: [KeymapImportBinding.Key.Modifier] = []
+        if modifiers.contains(.control) { result.append(.control) }
+        if modifiers.contains(.option) { result.append(.alt) }
+        if modifiers.contains(.shift) { result.append(.shift) }
+        if modifiers.contains(.command) { result.append(.meta) }
+        return .init(key: key == "delete" ? "backspace" : key, modifiers: result)
+    }
+
+    private func keymapPlan(incoming: EditorImportKeymap, current: EditorImportKeymap) throws
+        -> (KeymapImportBindingPlan, [KeyboardShortcutRegistration])? {
+        guard let planKeymap else { return nil }
+        let registrations = KeyboardShortcutFeatureModel(settings: settings).registrations(for: current.commands)
+        let currentBindings = registrations.map { registration in
+            KeymapImportCurrent(commandID: registration.commandID,
+                customized: current.commands[registration.commandID] != nil,
+                keys: registration.bindings.compactMap(Self.portableKey))
+        }
+        let incomingRows = incoming.commands.map { id, bindings in
+            (KeymapImportBinding(commandID: id, keys: bindings.compactMap(Self.portableKey)), bindings.count)
+        }
+        // Never silently discard a binding the shared plan cannot represent.
+        guard incomingRows.allSatisfy({ $0.0.keys.count == $0.1 }) else { throw KeyboardShortcutUpdateError.invalidBinding }
+        return (try planKeymap(currentBindings, incomingRows.map(\.0)), registrations)
+    }
+
     var keymapConflict: String? {
+        if let incoming = source?.values["keymap"].flatMap(EditorImportKeymap.decode),
+           let current = baseline["keymap"].flatMap(EditorImportKeymap.decode) {
+            do {
+                if let (plan, _) = try keymapPlan(incoming: incoming, current: current), let conflict = plan.conflicts.first {
+                    return LitheCommandCatalog.command(id: conflict.ownerID)?.title ?? conflict.ownerID
+                }
+            } catch { return "Keyboard shortcuts" }
+        }
         guard let map = importValues["keymap"].flatMap(EditorImportKeymap.decode) else { return nil }
         do { try KeyboardShortcutFeatureModel(settings: settings).validateOverrides(map.commands) }
         // log-exempt: 随输入实时重算的校验提示：导入草稿的快捷键冲突预览尚未执行写入
@@ -83,6 +134,7 @@ final class EditorSettingsImportFeatureModel: ObservableObject {
         defer { isBusy = false }
         do {
             let scanned = try await scan(directory)
+            try Task.checkCancellation()
             if isChoosingSettings, let directory {
                 // Refresh this preview without losing the other choices when navigating back.
                 sources = sources.flatMap { $0.directory == directory ? scanned : [$0] }
@@ -92,8 +144,11 @@ final class EditorSettingsImportFeatureModel: ObservableObject {
             select(scanned.first?.id ?? "")
             if scanned.isEmpty { message = "No supported IDE configuration was found. You can choose a configuration directory." }
             return true
+        } catch is CancellationError {
+            return false
         } catch {
-            message = "The configuration could not be read. Check the selected directory and file permissions."
+            message = (error as? EditorSettingsImportError)?.errorDescription
+                ?? "The configuration could not be read. Check the selected directory and file permissions."
             return false
         }
     }
@@ -103,10 +158,13 @@ final class EditorSettingsImportFeatureModel: ObservableObject {
         await scan(directory: directory)
     }
 
-    func chooseSource(_ id: String) {
+    func chooseSource(_ id: String) async {
         guard !isBusy, sources.contains(where: { $0.id == id }) else { return }
         select(id)
         isChoosingSettings = true
+        if loadKeymapOnSelection, let source, source.values["keymap"] == nil {
+            await scan(directory: source.directory)
+        }
     }
 
     func backToSources() {
@@ -149,6 +207,7 @@ final class EditorSettingsImportFeatureModel: ObservableObject {
         defer { isBusy = false; isImporting = false }
         do {
             let refreshed = try await scan(source.directory)
+            try Task.checkCancellation()
             guard let current = refreshed.first(where: { $0.id == source.id }), current.revision == source.revision,
                   current.values == source.values else { throw EditorSettingsImportError.changed }
             let live = settings.editorImportValues()
@@ -166,11 +225,14 @@ final class EditorSettingsImportFeatureModel: ObservableObject {
                 throw EditorSettingsImportError.fontSizeDependency
             }
             if chosen["keymap"] != nil, let conflict = keymapConflict { throw EditorSettingsImportError.shortcutConflict(conflict) }
+            try Task.checkCancellation()
             if !changes.isEmpty { try settings.importEditorSettings(changes, baseline: importBaseline) }
             baseline = settings.editorImportValues()
             selected.removeAll()
             importResult = (changes.count, unselected)
             return true
+        } catch is CancellationError {
+            return false
         } catch {
             message = (error as? EditorSettingsImportError)?.errorDescription ?? "The configuration could not be read. Check the selected directory and file permissions."
             return false

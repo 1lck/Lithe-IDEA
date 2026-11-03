@@ -58,9 +58,15 @@ struct EditorSettingsImportStartup<Content: View>: View {
 
 struct EditorSettingsImportView: View {
     @ObservedObject var feature: EditorSettingsImportFeatureModel
+    @State private var operation: Task<Void, Never>?
     var startup = false
     let onDismiss: () -> Void
     private var language: AppLanguage { feature.settings.language }
+
+    private func start(_ work: @escaping @MainActor () async -> Void) {
+        operation?.cancel()
+        operation = Task { await work() }
+    }
 
     private func display(_ value: String, field: EditorSettingsImportField) -> String {
         let title: String
@@ -104,7 +110,7 @@ struct EditorSettingsImportView: View {
             HStack {
                 Spacer()
                 Button {
-                    Task { await feature.scan(directory: feature.isChoosingSettings ? feature.source?.directory : nil) }
+                    start { await feature.scan(directory: feature.isChoosingSettings ? feature.source?.directory : nil) }
                 } label: {
                     Text("Scan again").font(LitheTheme.uiFont(size: 11))
                 }
@@ -123,6 +129,7 @@ struct EditorSettingsImportView: View {
             feature.backToSources()
             if !startup, feature.sources.isEmpty { await feature.scan() }
         }
+        .onDisappear { operation?.cancel(); operation = nil }
     }
 
     private var sourcePage: some View {
@@ -134,7 +141,7 @@ struct EditorSettingsImportView: View {
             ScrollView {
                 VStack(spacing: 8) {
                     ForEach(feature.sources) { source in
-                        Button { feature.chooseSource(source.id) } label: {
+                        Button { start { await feature.chooseSource(source.id) } } label: {
                             HStack(spacing: 8) {
                                 LitheIDEAIcon(resourcePath: source.isCursor ? "importSettings/cursor.svg" : source.isVSCode ? "importSettings/vscode.svg" : "importSettings/idea.svg",
                                               size: 20, preservesOriginalColors: true)
@@ -306,13 +313,13 @@ struct EditorSettingsImportView: View {
             Button("Close") { onDismiss() }.buttonStyle(LitheActionButtonStyle())
             if feature.isChoosingSettings, feature.source?.values.isEmpty == false {
                 Button("Import selected") {
-                    Task { if await feature.apply(), startup { onDismiss() } }
+                    start { if await feature.apply(), startup { onDismiss() } }
                 }
                 .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                 .accessibilityIdentifier("editor-import-apply")
                 .disabled(feature.source?.readFailed == true || feature.selected.isEmpty || feature.settings.editorImportRecoveryFailed)
             } else if !feature.isChoosingSettings {
-                Button("Choose directory") { Task { await feature.chooseDirectory() } }.buttonStyle(LitheActionButtonStyle())
+                Button("Choose directory") { start { await feature.chooseDirectory() } }.buttonStyle(LitheActionButtonStyle())
             }
         }
         .disabled(feature.isBusy)

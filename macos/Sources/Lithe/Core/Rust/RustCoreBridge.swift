@@ -2005,6 +2005,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let hostServices: [String]?
         /// Manifest providers offered to a plugin backend; omitted when none.
         let toolchainProviders: [String]?
+        /// Shortcut import providers offered to a plugin backend; omitted when none.
+        let keymapImportProviders: [String]?
         let runtimeExecutablePath: String?
         let jdtlsLaunchResources: LspJdtlsLaunchResourcesRequest?
         let cacheDirectory: String?
@@ -2155,6 +2157,13 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     private struct LspToolchainRequest: Encodable {
         let sessionId: String
         let params: ToolingJSONValue
+        let timeoutMilliseconds: Int
+    }
+
+    private struct LspKeymapImportRequest: Encodable {
+        let sessionId: String
+        let providerID: String
+        let snapshotID: String
         let timeoutMilliseconds: Int
     }
 
@@ -3959,6 +3968,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         workspaceConfiguration: ToolingJSONValue? = nil,
         hostServices: [String] = [],
         toolchainProviders: [String] = [],
+        keymapImportProviders: [String] = [],
         runtimeExecutableURL: URL? = nil,
         jdtlsLaunchResources: JDTLSLaunchResources? = nil,
         cacheDirectoryURL: URL? = nil,
@@ -3984,6 +3994,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 workspaceConfiguration: workspaceConfiguration,
                 hostServices: hostServices.isEmpty ? nil : hostServices,
                 toolchainProviders: toolchainProviders.isEmpty ? nil : toolchainProviders,
+                keymapImportProviders: keymapImportProviders.isEmpty ? nil : keymapImportProviders,
                 runtimeExecutablePath: runtimeExecutableURL?.standardizedFileURL.path,
                 jdtlsLaunchResources: jdtlsLaunchResources.map {
                     LspJdtlsLaunchResourcesRequest(
@@ -4307,6 +4318,22 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             command: "lsp.toolchainRequest",
             payload: LspToolchainRequest(
                 sessionId: sessionID, params: params, timeoutMilliseconds: max(1, Self.milliseconds(timeout))
+            )
+        )
+    }
+
+    /// Requests a negotiated import provider using only a host-owned snapshot reference.
+    func lspKeymapImportRequest(
+        sessionID: String,
+        providerID: String,
+        snapshotID: String,
+        timeout: TimeInterval
+    ) -> Result<LspOperationPayload, CoreCallError> {
+        executeResult(
+            command: "lsp.keymapImportRequest",
+            payload: LspKeymapImportRequest(
+                sessionId: sessionID, providerID: providerID, snapshotID: snapshotID,
+                timeoutMilliseconds: max(1, Self.milliseconds(timeout))
             )
         )
     }

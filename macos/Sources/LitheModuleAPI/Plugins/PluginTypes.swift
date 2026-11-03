@@ -519,6 +519,7 @@ public struct PluginManifest: Equatable, Codable, Sendable {
     /// level 3 plugin that requires anything else. Validating a capability is
     /// not running it, so an entry is added only with its host support.
     public static let hostCapabilities: [String: [Int]] = [
+        "keymapImportProviders": [1],
         "packageTrust": [1],
         "backend": [1, 2],
         "buildProviders": [1, 2, 3, 4, 5, 6], "buildModelInputs": [1],

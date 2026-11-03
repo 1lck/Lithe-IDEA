@@ -139,6 +139,7 @@ enum LitheCommandCatalog {
 
         command("run", "Run", "Run selected configuration", .run, "r", [.control]),
         command("debug", "Debug", "Start debugging", .run, "d", [.control]),
+        command("debug-start-or-continue", "Debug: Start or Continue", "Start debugging or continue the paused session", .run),
         command("stop-run", "Stop Run", "Stop the current run", .run),
         command("stop-debug", "Stop Debug", "Stop the current debug session", .run),
         command("debug-resume", "Debug: Resume", "Resume the paused debug session", .run, "f9"),
@@ -192,7 +193,7 @@ enum LitheCommandCatalog {
     static func moduleOwner(for id: String) -> ModuleID? {
         switch id {
         case "run", "stop-run", "toggle-run", "toggle-tests": .execution
-        case "debug", "stop-debug", "debug-resume", "debug-step-over", "debug-step-into", "debug-step-out",
+        case "debug", "debug-start-or-continue", "stop-debug", "debug-resume", "debug-step-over", "debug-step-into", "debug-step-out",
              "toggle-breakpoint", "view-breakpoints", "toggle-debug": .debug
         case "toggle-terminal": .terminal
         case "toggle-git-log": .git

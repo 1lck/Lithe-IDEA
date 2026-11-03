@@ -15,11 +15,15 @@ final class AppServices {
     /// Process log sink supplied by the composition root; modules receive the same instance.
     var logSink: (any LogSink)?
     var editorSettingsImportScan: ((URL?) async throws -> [EditorSettingsImportSource])?
+    var editorSettingsImportKeymapPlan: (([KeymapImportCurrent], [KeymapImportBinding]) throws -> KeymapImportBindingPlan)?
+    var editorSettingsImportLoadKeymapOnSelection = false
+    var debugStartOrContinue: ((Bool, Bool, Bool) throws -> DebugStartOrContinueAction)?
     func makeEditorSettingsImport(settings: AppSettings) -> EditorSettingsImportFeatureModel {
         EditorSettingsImportFeatureModel(settings: settings, chooseDirectory: { [platformUI] in
             platformUI.chooseDirectory(title: settings.language.localizedString("Choose IDE configuration directory"),
                                        prompt: settings.language.localizedString("Choose"))
-        }, scan: editorSettingsImportScan)
+        }, scan: editorSettingsImportScan, planKeymap: editorSettingsImportKeymapPlan,
+        loadKeymapOnSelection: editorSettingsImportLoadKeymapOnSelection)
     }
 
     var ideCapabilityRegistry: IdeCapabilityRegistry?

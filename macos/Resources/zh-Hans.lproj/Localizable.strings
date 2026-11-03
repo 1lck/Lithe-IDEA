@@ -1175,6 +1175,7 @@
 "Debug support is not available for %@" = "%@ 暂时没有可用的调试支持";
 "Debug target" = "调试目标";
 "Debug: Resume" = "调试：继续";
+"Debug: Start or Continue" = "调试：启动或继续";
 "Debug: Step Into" = "调试：步入";
 "Debug: Step Out" = "调试：步出";
 "Debug: Step Over" = "调试：步过";
@@ -2401,6 +2402,7 @@
 "More information" = "查看说明";
 "More paths changed than are shown." = "更改的路径多于此处显示的数量。";
 "More session settings" = "更多会话设置";
+"More than one plugin can import shortcuts from this source. Disable duplicate providers and scan again." = "多个插件都可以从此来源导入快捷键。请停用重复的提供方后重新扫描。";
 "Move" = "移动";
 "Move %lld items to Trash?" = "将 %lld 个项目移到废纸篓？";
 "Move Earlier" = "向前移动";
@@ -2710,6 +2712,7 @@
 "Octal" = "八进制";
 "Off" = "关闭";
 "Off for this project" = "已在此项目关闭";
+"Offer shortcut mappings for import" = "提供可导入的快捷键映射";
 "Official" = "官方";
 "Official MCP Registry" = "官方 MCP Registry";
 "Official plugin %@ declares a signature policy that does not match the host trust policy." = "官方插件 %@ 声明的签名策略与宿主信任策略不一致。";
@@ -3135,6 +3138,7 @@
 "Read Memory at Address" = "读取此地址的内存";
 "Read Memory at Value" = "读取此值指向的内存";
 "Read again" = "重新读取";
+"Read declared shortcut files from the editor you select for import" = "读取所选编辑器中声明的快捷键配置文件以供导入";
 "Read result" = "读取结果";
 "Read, write and search files only in the directories you allow. Requires Node.js 24 or later." = "读写、搜索你允许的目录中的文件。需要 Node.js 24 或更高版本。";
 "Read-only" = "只读";
@@ -3710,6 +3714,7 @@
 "Shelve and Continue" = "保存为 Shelf 并继续";
 "Shelving saves these changes in Lithe, runs the operation, then restores them. If conflicts stop the operation, the shelf stays saved until you finish it." = "保存为 Shelf 会把这些更改保存在 Lithe 中，执行操作后再恢复。如果操作因冲突中断，Shelf 会一直保留，直到你完成该操作。";
 "Ships with Lithe" = "随 Lithe 发行";
+"Shortcut import is unavailable. Update Lithe and the editor import plugin, then try again." = "快捷键导入不可用。请更新 Lithe 和编辑器导入插件后重试。";
 "Shortcut is already assigned to this command" = "该命令已使用此快捷键";
 "Shortcut needs Command, Control, or Option" = "快捷键需要包含 Command、Control 或 Option";
 "Show" = "显示";
@@ -3904,6 +3909,7 @@
 "Start a local Java debug session to view performance." = "启动本地 Java 调试会话以查看性能。";
 "Start a new conversation after saving to load the updated instructions. Project instructions still apply." = "保存后请新建对话以加载更新后的指令。项目指令仍然有效。";
 "Start debugging" = "开始调试";
+"Start debugging or continue the paused session" = "启动调试或继续已暂停的会话";
 "Start debugging the current Java file" = "开始调试当前 Java 文件";
 "Start from" = "起始引用";
 "Start in new conversation" = "在新对话中开始";
@@ -6202,6 +6208,7 @@
 "native.debugResume" = "调试：继续";
 "native.debugSelectedTest" = "调试所选测试";
 "native.debugSessions" = "调试会话";
+"native.debugStartOrContinue" = "调试：启动或继续";
 "native.debugStepInto" = "调试：步入";
 "native.debugStepOut" = "调试：步出";
 "native.debugStepOver" = "调试：步过";
@@ -7124,6 +7131,10 @@
 "native.kernel" = "内核";
 "native.keychainErrorLld" = "钥匙串错误 %1$@：%2$@";
 "native.keymap" = "快捷键…";
+"native.keymapImportAmbiguous" = "多个插件都可以从此来源导入快捷键。请停用重复的提供方后重新扫描。";
+"native.keymapImportProviderPermission" = "提供可导入的快捷键映射";
+"native.keymapImportRuntimeUnavailable" = "快捷键导入不可用。请更新 Lithe 和编辑器导入插件后重试。";
+"native.keymapImportSourceReadPermission" = "读取所选编辑器中声明的快捷键配置文件以供导入";
 "native.koreanCharacters" = "韩文字符";
 "native.kotlinSupport" = "Kotlin 支持";
 "native.labels" = "标签";
@@ -8881,6 +8892,7 @@
 "native.startANewConversationAfterSavingToLoadTheUpdatedInstructionsProjectInstructionsStillApply" = "保存后请新建对话以加载更新后的指令。项目指令仍然有效。";
 "native.startDebugging" = "开始调试";
 "native.startDebugging.variant2" = "开始调试";
+"native.startDebuggingOrContinuePausedSession" = "启动调试或继续已暂停的会话";
 "native.startDebuggingTheCurrentJavaFile" = "开始调试当前 Java 文件";
 "native.startFrom" = "起始引用";
 "native.startInNewConversation" = "在新对话中开始";

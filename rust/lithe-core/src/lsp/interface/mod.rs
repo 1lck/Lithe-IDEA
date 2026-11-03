@@ -4,6 +4,7 @@ mod build_provider;
 mod client;
 mod engine;
 mod engine_logging;
+mod keymap_provider;
 pub(crate) mod plugin_function;
 pub(crate) mod process;
 pub(crate) mod remote_process;

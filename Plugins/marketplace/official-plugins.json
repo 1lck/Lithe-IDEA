@@ -21,6 +21,26 @@
         "tags": ["java", "language"],
         "license": "Multiple; see bundled third-party licenses"
       }
+    },
+    {
+      "id": "dev.lithe.plugin.editor-keymap-import",
+      "releaseEnabled": false,
+      "bundledUntilPublishedVersion": "1.0.0",
+      "tagPrefix": "plugin-editor-keymap-import-v",
+      "packageDirectory": "Plugins/mac/Official/EditorKeymapImport",
+      "inputPaths": ["scripts/plugins/build-official-plugins.sh"],
+      "assets": [
+        {"assetName": "Lithe-Editor-Keymap-Import-{version}-darwin-arm64.zip", "platforms": ["darwin-arm64"], "arch": "arm64"},
+        {"assetName": "Lithe-Editor-Keymap-Import-{version}-darwin-x64.zip", "platforms": ["darwin-x64"], "arch": "x86_64"}
+      ],
+      "index": {
+        "name": "Editor Shortcut Import",
+        "author": "Lithe",
+        "repository": "https://github.com/1lck/Lithe-IDEA",
+        "description": "Import supported shortcut bindings from other editors.",
+        "tags": ["editor", "keymap"],
+        "license": "Multiple; see bundled third-party licenses"
+      }
     }
   ]
 }

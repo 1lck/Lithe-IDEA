@@ -1,5 +1,88 @@
 # Rust Core API
 
+## Normalized shortcut import validation
+
+`keymap.decodeImport` accepts `{commandIDs: string[], reply: {bindings:
+[{commandID: string, keys: [{key: string, modifiers: string[]}]}]}}` and
+returns `{bindings: [...]}`. The caller supplies its current action catalog;
+unknown or duplicate actions, duplicate keys or modifiers, unknown fields,
+unsupported keys and unmodified printable keys fail with `invalid_request` and
+no partial result. Modifiers are `control`, `alt`, `shift` and `meta`, in
+that canonical order. Keys are lowercase single ASCII graphic characters,
+`f1` through `f24`, or `up`, `down`, `left`, `right`, `return`, `tab`,
+`space`, `backspace`, `delete`, `escape`, `pageup`, `pagedown`, `home`, `end`
+and `insert`. This is the portable vocabulary; each host must still reject keys
+its native input and shortcut model cannot represent. A printable character or `space` requires `control`, `alt` or
+`meta`. Empty key lists represent an explicit unbinding. Actions are returned
+in ID order; each action's key order is retained because the first is its
+primary binding. A shortcut used by different actions is retained for the
+host's final conflict check. Requests are limited to 1 MiB, 4096 catalog IDs,
+4096 actions, eight keys per action and 128 UTF-8 bytes per ID. The shared
+[fixtures](../fixtures/keymap/import-provider-v1.json) cover this contract.
+
+This validates normalized results only. It neither parses an IDE's private
+format nor discovers or starts a provider; an unimplemented provider API must
+not be inferred from the existence of this Core command. Conditional rules and
+multi-stroke keys cannot be represented and must not be silently made global.
+
+`debug.startOrContinue` accepts `{active, paused, requestPending}` booleans and returns
+`{action: "start" | "continue" | "none"}`. An in-flight request or an active,
+non-paused session returns `none`; an inactive session starts, and an active
+paused session continues. The platform executes the result against its current
+session and must still guard against state changes.
+
+`keymap.planImportBindings` accepts `{current: [{commandID, customized, keys}],
+incoming: {bindings}}` and returns `{displaced, conflicts}`. Current entries
+are the host's complete action catalog and effective key-press bindings;
+non-key-press bindings remain in the host and are never displaced. Incoming
+bindings use the same validation as `keymap.decodeImport`. Each displacement
+names an unchanged default action and only the keys to remove. A customized
+owner or two imported actions claiming the same key produces a conflict naming
+`commandID`, `ownerID` and `key`; a conflict clears all displacements so a
+caller cannot apply a partial plan. Actions included in the import replace
+their old bindings, permitting swaps. Results are deterministic. Requests are
+bounded to 1 MiB, 4096 actions, eight keys per action, 4096 conflicts and
+131072 ownership comparisons. Hosts must recheck the source and settings
+revisions at apply time. See [plan fixtures](../fixtures/keymap/import-plan-v1.json).
+
+`keymap.planImportSources` accepts `{manifest, providerID}` and returns
+`{inputs, recognition, limits}` for exactly that declared provider after validating the entire
+manifest; an unknown provider or invalid manifest returns `invalid_request`.
+The payload is bounded to 1 MiB. It performs no filesystem I/O and does not
+establish package trust: callers must supply the enabled, previously accepted
+plugin manifest. Selectors and native read limits are defined by the
+[plugin contract](plugins/v1/README.md#shortcut-import-providers-core-foundation).
+The returned limits bound selectors, recognition probes, files, bytes per file and per snapshot,
+bytes per chunk, directory entries scanned and matching entries per directory;
+native adapters apply these values to their I/O.
+See [source plan fixtures](../fixtures/keymap/source-plans-v1.json).
+
+For the provider foundation, `lsp.startServer` optionally accepts
+`keymapImportProviders`, an array of at most eight declared plugin-local IDs.
+Only a plugin-owned session with valid IDs offers
+`experimental.litheKeymapImport: {versions: [1], providers}`. A backend may
+select a non-empty, duplicate-free subset using `{version: 1, providers}`;
+Core emits `keymapImportProviders` with `result: {providers}` only for a valid
+selection. Invalid IDs, unknown selections and unsupported versions enable no
+providers. This negotiation alone does not implement the product workflow. See the
+[negotiation fixtures](../fixtures/keymap/provider-negotiation-v1.json).
+
+`lsp.keymapImportRequest` accepts `{sessionId, operationId?, providerID,
+snapshotID, timeoutMilliseconds?}` and returns `{operationId}`. The requested
+provider must have been selected in that exact session. `snapshotID` is an
+opaque 1–128 byte ASCII alphanumeric, hyphen or underscore token, never a
+filesystem path; the native snapshot service must separately enforce ownership,
+expiry and read permissions before supplying any source data. The method sends
+`lithe/keymap/import` with only `{providerID, snapshotID}` and caps the request
+deadline at 60 seconds. Completion returns the untrusted JSON-RPC reply as
+`result.value: {id, response}`; callers must validate successful reply data via
+`keymap.decodeImport` before applying it. Replies larger than 1 MiB fail with
+`plugin.keymapImport.replyTooLarge`; no partial result is returned. Normal
+session cancellation and teardown apply. Backend attempts to call
+`lithe/keymap/*` are refused as recursive domain calls. The macOS host has a
+scoped snapshot service, but native provider discovery and a product consumer
+are not implemented yet.
+
 ## Shortcut context compilation
 
 `keymap.parseContext` accepts `{expression: string}` and returns
@@ -1129,6 +1212,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `lsp.hostResponse` | Answer one host-service request a plugin backend sent |
 | `lsp.hostNotify` | Send one host notification to a plugin backend that negotiated it |
 | `lsp.toolchainRequest` | Send one `toolchains/query` to a plugin backend that negotiated the provider |
+| `lsp.keymapImportRequest` | Send one shortcut import request to a negotiated plugin provider |
 | `lsp.vcsRequest` | Send one VCS operation, planned by Core, to a session that negotiated the VCS-provider protocol |
 | `java.prepareLaunch` | Prepare a saved Java source through shared entry selection, serialized build and runtime path resolution |
 | `java.navigationMarkers` | Resolve versioned Java gutter markers from bounded JDT LS semantic requests |

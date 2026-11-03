@@ -59,6 +59,7 @@ enum LitheActionRegistry {
         [
             action("run", model: model) { model.runSelectedConfiguration() },
             action("debug", model: model) { model.startDebugging() },
+            action("debug-start-or-continue", model: model) { model.startOrContinueDebugging() },
             action("stop-run", model: model) { model.stopSelectedRun() },
             action("stop-debug", model: model) { model.stopDebugging() },
             action("debug-resume", model: model) { model.resumeDebugging() },

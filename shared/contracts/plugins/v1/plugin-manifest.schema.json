@@ -20,6 +20,7 @@
     },
     {"if": {"required": ["toolDefinitions"]}, "then": {"properties": {"pluginAPIVersion": {"minimum": 3}, "requires": {"required": ["toolDefinitions", "executableResolution"], "properties": {"executableResolution": {"const": 2}}}}}},
     {"if": {"required": ["toolchainProviders"]}, "then": {"required": ["backend"], "properties": {"pluginAPIVersion": {"minimum": 3}, "requires": {"required": ["toolchainProviders", "backend", "serverProcess"], "properties": {"backend": {"const": 2}}}, "permissions": {"allOf": [{"contains": {"const": "toolchains.provide"}}, {"contains": {"const": "backend.launch"}}]}}}},
+    {"if": {"required": ["keymapImportProviders"]}, "then": {"required": ["backend", "permissions"], "properties": {"pluginAPIVersion": {"minimum": 3}, "requires": {"required": ["keymapImportProviders", "backend", "serverProcess"], "properties": {"backend": {"const": 2}}}, "permissions": {"allOf": [{"contains": {"const": "keymaps.provide"}}, {"contains": {"const": "keymaps.readSelectedSources"}}, {"contains": {"const": "backend.launch"}}]}}}},
     {"if": {"required": ["requires"], "properties": {"requires": {"required": ["settings"], "properties": {"settings": {"const": 2}}}}}, "else": {"properties": {"settings": {"items": {"$ref": "#/$defs/settingVersion1"}}, "settingActions": {"maxItems": 0}}}},
     {"if": {"required": ["requires"], "properties": {"requires": {"required": ["languageServers"], "properties": {"languageServers": {"const": 2}}}}}, "else": {"properties": {"languageServers": {"items": {"properties": {"workspaceConfiguration": false}}}}}}
   ],
@@ -50,6 +51,7 @@
         "settings": { "description": "Required exactly when settings or settingActions is non-empty. Version 1 is the API level 2 section: integer, enum, and boolean options. Version 2 adds scope, effect, page, section, the multiSelect, text, file, and directory types, and settingActions.", "enum": [1, 2] },
         "toolDefinitions": { "const": 1 },
         "toolchainProviders": { "const": 1 },
+        "keymapImportProviders": { "const": 1 },
         "ui": { "description": "Version 2 adds web content; version 3 adds native controls; version 4 adds backend-only commands.", "enum": [1, 2, 3, 4] },
         "vcsProviders": { "description": "Required exactly when vcsProviders is non-empty. The provider protocol itself is negotiated in initialize (shared/contracts/vcs-provider-v1.md).", "enum": [1] }
       }
@@ -80,6 +82,8 @@
           "editor.open",
           "preview.open",
           "toolchains.provide",
+          "keymaps.provide",
+          "keymaps.readSelectedSources",
           "browser.open",
           "window.messages",
           "terminal.create"] }
@@ -94,6 +98,7 @@
     },
     "toolDefinitions": { "type": "array", "minItems": 1, "maxItems": 32, "items": { "$ref": "#/$defs/toolchainToolDefinition" } },
     "toolchainProviders": { "type": "array", "minItems": 1, "maxItems": 8, "items": { "$ref": "#/$defs/toolchainProvider" } },
+    "keymapImportProviders": { "type": "array", "minItems": 1, "maxItems": 8, "items": { "$ref": "#/$defs/keymapImportProvider" } },
     "languages": {
       "type": "array",
       "minItems": 0,
@@ -263,6 +268,43 @@
     }
   },
   "$defs": {
+    "keymapImportProvider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "displayName", "recognition", "inputs"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[^\\u0000-\\u001f\\u007f]+$" },
+        "recognition": { "type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true,
+          "items": { "$ref": "#/$defs/keymapImportRecognition" } },
+        "inputs": { "type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true,
+          "items": { "$ref": "#/$defs/keymapImportInput" } }
+      }
+    },
+    "keymapImportRecognition": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["kind", "path"],
+          "properties": { "kind": { "enum": ["file", "directory"] }, "path": { "$ref": "#/$defs/keymapImportInput/properties/path" } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "base", "components"],
+          "properties": { "kind": { "const": "root" }, "base": { "const": "userConfig" },
+            "components": { "type": "array", "minItems": 1, "maxItems": 8,
+              "contains": { "const": "*" }, "minContains": 0, "maxContains": 1,
+              "items": { "type": "string", "maxLength": 256, "pattern": "^(?:\\*|(?!.*[. ]$)[^/\\\\:*?\\u0000-\\u001f\\u007f]+)$" } } } }
+      ]
+    },
+    "keymapImportInput": {
+      "type": "object", "additionalProperties": false, "required": ["kind", "path"],
+      "properties": {
+        "kind": { "enum": ["file", "directory"] },
+        "path": { "type": "string", "minLength": 1, "maxLength": 256,
+          "pattern": "^(?!/)(?!.*(?:^|/)(?:\\.|\\.\\.)(?:/|$))(?!.*(?:^|/)[^/]*[. ](?:/|$))[^/\\\\:*?\\u0000-\\u001f\\u007f]+(?:/[^/\\\\:*?\\u0000-\\u001f\\u007f]+)*$" },
+        "extension": { "type": "string", "pattern": "^[a-z0-9]{1,16}$" }
+      },
+      "allOf": [
+        { "if": { "properties": { "kind": { "const": "directory" } } }, "then": { "required": ["extension"] } },
+        { "if": { "properties": { "kind": { "const": "file" } } }, "then": { "not": { "required": ["extension"] } } }
+      ]
+    },
     "debugLocalID": {
       "type": "string",
       "pattern": "^[a-z][a-z0-9._-]{0,63}$"
