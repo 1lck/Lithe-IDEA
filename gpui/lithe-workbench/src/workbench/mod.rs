@@ -276,6 +276,16 @@ impl Workbench {
         let welcome = cx.new(|welcome_cx| WelcomeView::new(platform.clone(), welcome_cx));
         let git = cx.new(|git_cx| GitPanel::new(client, tree_root.clone(), git_cx));
         let git_log = cx.new(|git_cx| GitPanel::new_log(client, tree_root.clone(), git_cx));
+        // 差异页里按变更块 Stage / Unstage / Discard 成功后，刷新提交面板的
+        // 变更与历史（对齐 macOS `withGitChangeOperation` 的整仓刷新）。
+        {
+            let git = git.clone();
+            commit_diff.update(cx, |view, _view_cx| {
+                view.on_changed(move |_window, cx| {
+                    git.update(cx, |git, cx| git.refresh_data(cx));
+                });
+            });
+        }
         let search = cx.new(|search_cx| SearchPanel::new(client, tree_root.clone(), search_cx));
         let java_language = cx.new(|_| JavaLanguageServiceModel::new(client));
         let run_panel = cx.new(|run_cx| {
