@@ -34,7 +34,6 @@ pub(crate) fn render_project_tool_header(
     search_query: &str,
     _options_open: bool,
     show_hidden: bool,
-    show_ignored: bool,
     view_mode_dependencies: bool,
     _window: &mut Window,
     cx: &mut Context<Workbench>,
@@ -157,7 +156,14 @@ pub(crate) fn render_project_tool_header(
         tokens,
     );
 
-    // 5. 选项/偏好设置按钮 (SlidersHorizontal) -> 真正的浮动级联下拉菜单，完全对齐 Tauri
+    // 5. 选项/偏好设置按钮 (SlidersHorizontal) -> 浮动级联下拉菜单，
+    //    结构对齐 Tauri file-explorer-tree.tsx 的 Preferences 下拉。
+    //
+    //    Tauri 的开关都写 settings store 的 fileTreeSettings，再由文件树按设置
+    //    呈现。gpui 目前只有「隐藏文件」有真实落点（项目树的点前缀行过滤）；
+    //    其余依赖 fileTreeSettings 设置渠道与 gitignore / 行装饰数据通道，本
+    //    构建还没有，按规则以禁用项如实呈现，不做无效的假开关，等渠道落地
+    //    后把它们改回真实开关。
     let owner_options = owner.clone();
     let btn_options = Button::new("project-action:options")
         .ghost()
@@ -174,14 +180,14 @@ pub(crate) fn render_project_tool_header(
             let owner = owner_options;
             move |menu, window, cx| {
                 let owner_hidden = owner.clone();
-                let owner_ignored = owner.clone();
 
-                // 子菜单 1：可见性
+                // 子菜单 1：可见性。「隐藏文件」是真实开关；被 Git 忽略的文件
+                // 与 Git 状态标记需要 gitignore / git status → 项目树的展示
+                // 通道，尚未接入，禁用呈现。
                 let visibility_menu = PopupMenu::build(window, cx, move |menu, _, _| {
                     let owner_h = owner_hidden.clone();
-                    let owner_i = owner_ignored.clone();
                     menu.item(
-                        PopupMenuItem::new("隐藏文件")
+                        PopupMenuItem::new(tr("Hidden Files"))
                             .checked(show_hidden)
                             .on_click(move |_, _, cx| {
                                 let _ = owner_h.update(cx, |this, cx| {
@@ -190,56 +196,62 @@ pub(crate) fn render_project_tool_header(
                             }),
                     )
                     .item(
-                        PopupMenuItem::new("被 Git 忽略的文件")
-                            .checked(show_ignored)
-                            .on_click(move |_, _, cx| {
-                                let _ = owner_i.update(cx, |this, cx| {
-                                    this.toggle_show_ignored_files(cx);
-                                });
-                            }),
+                        PopupMenuItem::new(tr("Gitignored Files")).disabled(true),
                     )
-                    .item(PopupMenuItem::new("Git 状态标记").checked(true))
+                    .item(
+                        PopupMenuItem::new(tr("Git Status Decorations"))
+                            .disabled(true),
+                    )
                 });
 
-                // 子菜单 2：外观
+                // 子菜单 2：外观。文件树固定渲染文件图标、不渲染缩进参考线、
+                // 不做同名目录折叠，也不隐藏根目录；这些偏好都还没有设置渠道。
                 let appearance_menu = PopupMenu::build(window, cx, |menu, _, _| {
-                    menu.item(PopupMenuItem::new("文件图标").checked(true))
-                        .item(PopupMenuItem::new("缩进参考线").checked(true))
-                        .item(PopupMenuItem::new("紧凑文件夹").checked(true))
-                        .item(PopupMenuItem::new("隐藏根文件夹").checked(false))
+                    menu.item(PopupMenuItem::new(tr("File Icons")).disabled(true))
+                        .item(PopupMenuItem::new(tr("Indent Guides")).disabled(true))
+                        .item(PopupMenuItem::new(tr("Compact Folders")).disabled(true))
+                        .item(PopupMenuItem::new(tr("Hide Root Folder")).disabled(true))
                 });
 
-                // 子菜单 3：排序顺序
+                // 子菜单 3：排序顺序。树行顺序来自 Core 的 IDEA 自然名排序，
+                // 没有两种可选模式。
                 let sort_menu = PopupMenu::build(window, cx, |menu, _, _| {
-                    menu.item(PopupMenuItem::new("文件夹置顶").checked(true))
-                        .item(PopupMenuItem::new("按名称").checked(false))
+                    menu.item(PopupMenuItem::new(tr("Folders First")).disabled(true))
+                        .item(PopupMenuItem::new(tr("Name")).disabled(true))
                 });
 
-                // 子菜单 4：缩进
+                // 子菜单 4：缩进。树的缩进宽度内部固定，还没有缩进尺寸设置。
                 let indent_menu = PopupMenu::build(window, cx, |menu, _, _| {
-                    menu.item(PopupMenuItem::new("紧凑 (12px)").checked(false))
-                        .item(PopupMenuItem::new("默认 (16px)").checked(true))
-                        .item(PopupMenuItem::new("宽松 (20px)").checked(false))
+                    menu.item(PopupMenuItem::new(tr("Compact")).disabled(true))
+                        .item(PopupMenuItem::new(tr("Default")).disabled(true))
+                        .item(PopupMenuItem::new(tr("Spacious")).disabled(true))
+                        .item(PopupMenuItem::new(tr("Wide")).disabled(true))
                 });
 
                 menu.item(
-                    PopupMenuItem::submenu("可见性", visibility_menu)
+                    PopupMenuItem::submenu(tr("Visibility"), visibility_menu)
                         .icon(Icon::new(IconName::Eye)),
                 )
                 .item(
-                    PopupMenuItem::submenu("外观", appearance_menu)
+                    PopupMenuItem::submenu(tr("Appearance"), appearance_menu)
                         .icon(Icon::new(IconName::Palette)),
                 )
-                .item(PopupMenuItem::submenu("排序顺序", sort_menu).icon(Icon::new(IconName::List)))
                 .item(
-                    PopupMenuItem::submenu("缩进", indent_menu)
+                    PopupMenuItem::submenu(tr("Sort Order"), sort_menu)
+                        .icon(Icon::new(IconName::List)),
+                )
+                .item(
+                    PopupMenuItem::submenu(tr("Indentation"), indent_menu)
                         .icon(Icon::new(IconName::ListIndentIncrease)),
                 )
                 .item(PopupMenuItem::separator())
+                // 删除前确认：gpui 项目树删除永远走确认覆盖层（与 Tauri
+                // `confirmBeforeFileDelete` 的默认值一致），暂不提供关闭开关。
                 .item(
-                    PopupMenuItem::new("删除前确认")
+                    PopupMenuItem::new(tr("Confirm Before Delete"))
                         .icon(Icon::new(IconName::Trash))
-                        .checked(true),
+                        .checked(true)
+                        .disabled(true),
                 )
             }
         })

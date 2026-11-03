@@ -1,10 +1,15 @@
-//! 提交工具窗标题栏（对齐 Tauri `git-view.tsx` 的 `SidebarTitleBar`）。
+//! 提交工具窗标题栏（对齐 Tauri `git-view.tsx` 的 `SidebarTitleBar` +
+//! `git-actions-menu.tsx` 的 16 项操作菜单）。
 //!
 //! Tauri 的提交工具窗标题栏只有两件事：
 //! - 左侧「提交 / Stash」分段（`git-commit-tab`，选中态带独立底色与边框）；
 //! - 右侧一个 `MoreHorizontal` 操作按钮，点开 Git 操作菜单。
 //!
-//! 刷新按钮属于变更区工具栏（`GitStatusPanel` 的 `toolbarLeading`），不在这里
+//! 全部菜单项都有真实动作（对齐 git-actions-menu.tsx 的 disabled / 降级
+//! 规则）：写操作转发给 `GitPanel`；管理器对话框统一经
+//! `CommitHeaderAction::Dialog(GitDialogKind)` 交给工作台打开。没有 Git
+//! 仓库时菜单降级为「Initialize Repository + Refresh」两项（对齐
+//! git-actions-menu.tsx:315-333）。刷新按钮属于变更区工具栏，不在这里
 //! 重复一份；收起按钮由工具窗容器统一提供。
 
 use gpui_kit::assets::IconName;
@@ -15,6 +20,7 @@ use gpui_kit::{
     Anchor, AnyElement, Context, FontWeight, InteractiveElement as _, IntoElement,
     ParentElement as _, StatefulInteractiveElement as _, Styled as _, WeakEntity, div, px,
 };
+use lithe_features::git::GitDialogKind;
 use lithe_ui::i18n::tr;
 use lithe_ui::{LitheIcon, LitheMetrics, LitheTokens, icon};
 
@@ -39,6 +45,7 @@ pub(crate) enum CommitTab {
 /// 渲染提交工具窗标题栏。
 pub(crate) fn render_commit_tool_header(
     active_tab: CommitTab,
+    has_git_repo: bool,
     tokens: LitheTokens,
     owner: WeakEntity<Workbench>,
     cx: &mut Context<Workbench>,
@@ -58,7 +65,7 @@ pub(crate) fn render_commit_tool_header(
         ))
         .child(render_commit_tab(
             "lithe-commit-tab:stash",
-            "Stash",
+            tr("Stash"),
             active_tab == CommitTab::Stash,
             true,
             tokens,
@@ -74,47 +81,151 @@ pub(crate) fn render_commit_tool_header(
         .tooltip(tr("Git actions"))
         .accessibility_label(tr("Git actions"))
         .dropdown_menu_with_anchor(Anchor::TopRight, {
-            let owner = actions_owner.clone();
             move |menu, _window, _cx| {
-                let owner_stage = owner.clone();
-                let owner_discard = owner.clone();
+                // 每个菜单项的闭包单独捕获一份 owner（与既有代码同型）。
+                let owner_repo_select = owner.clone();
+                let owner_dialog_branch = owner.clone();
+                let owner_log = owner.clone();
+                let owner_dialog_push = owner.clone();
+                let owner_dialog_pull = owner.clone();
+                let owner_fetch = owner.clone();
+                let owner_dialog_remotes = owner.clone();
+                let owner_dialog_tags = owner.clone();
                 let owner_stash = owner.clone();
                 let owner_refresh = owner.clone();
-                let owner_branch = owner.clone();
-                let owner_repo = owner.clone();
+                let owner_dialog_worktrees = owner.clone();
+                let owner_dialog_rebase = owner.clone();
+                let owner_dialog_patch = owner.clone();
+                let owner_dialog_apply = owner.clone();
+                let owner_discard = owner.clone();
+
+                if !has_git_repo {
+                    // Tauri 的降级菜单：没有仓库时只剩「初始化」与「刷新」。
+                    // `PopupMenu::item` 是消费式构建器，必须把返回值作为
+                    // 闭包结果直接返回，不能丢弃后再用 `menu`。
+                    return menu
+                        .item(
+                            PopupMenuItem::new(tr("Initialize Repository"))
+                                .icon(Icon::new(IconName::FolderGit))
+                                .on_click(move |_, window, cx| {
+                                    let _ = owner_repo_select.update(cx, |this, cx| {
+                                        this.commit_header_action(
+                                            CommitHeaderAction::Initialize,
+                                            window,
+                                            cx,
+                                        );
+                                    });
+                                }),
+                        )
+                        .item(
+                            PopupMenuItem::new(tr("Refresh Status"))
+                                .icon(Icon::new(IconName::RotateCw))
+                                .on_click(move |_, window, cx| {
+                                    let _ = owner_refresh.update(cx, |this, cx| {
+                                        this.refresh_tool(ToolWindow::Changes, window, cx)
+                                    });
+                                }),
+                        );
+                }
 
                 menu.item(
                     PopupMenuItem::new(tr("Select Repository"))
                         .icon(Icon::new(IconName::Folder))
                         .on_click(move |_, window, cx| {
-                            let _ = owner_repo.update(cx, |this, cx| this.pick_project(window, cx));
+                            let _ = owner_repo_select
+                                .update(cx, |this, cx| this.pick_project(window, cx));
                         }),
                 )
                 .separator()
                 .item(
                     PopupMenuItem::new(tr("Manage Branches"))
                         .icon(Icon::new(IconName::GitBranch))
+                        // Tauri 这里打开完整的分支管理器；面板内引用树的右键
+                        // 菜单仍是独立的分支操作入口（两处入口并存）。
                         .on_click(move |_, window, cx| {
-                            let _ = owner_branch
-                                .update(cx, |this, cx| this.toggle_branch_menu(window, cx));
+                            let _ = owner_dialog_branch.update(cx, |this, cx| {
+                                this.commit_header_action(
+                                    CommitHeaderAction::Dialog(GitDialogKind::Branches),
+                                    window,
+                                    cx,
+                                );
+                            });
                         }),
                 )
                 .item(
                     PopupMenuItem::new(tr("Show Branch Diff"))
                         .icon(Icon::new(IconName::GitPullRequest))
                         .on_click(move |_, window, cx| {
-                            let _ = owner_stage.update(cx, |this, cx| {
+                            let _ = owner_log.update(cx, |this, cx| {
                                 this.show_tool(ToolWindow::GitLog, window, cx)
                             });
                         }),
                 )
                 .separator()
-                .item(PopupMenuItem::new(tr("Push Changes")).icon(Icon::new(IconName::Upload)))
-                .item(PopupMenuItem::new(tr("Pull Changes")).icon(Icon::new(IconName::Download)))
-                .item(PopupMenuItem::new(tr("Fetch")).icon(Icon::new(IconName::GitPullRequest)))
+                .item(
+                    PopupMenuItem::new(tr("Push Changes"))
+                        .icon(Icon::new(IconName::Upload))
+                        .on_click(move |_, window, cx| {
+                            let _ = owner_dialog_push.update(cx, |this, cx| {
+                                this.commit_header_action(
+                                    CommitHeaderAction::Dialog(GitDialogKind::Push),
+                                    window,
+                                    cx,
+                                );
+                            });
+                        }),
+                )
+                .item(
+                    PopupMenuItem::new(tr("Pull Changes"))
+                        .icon(Icon::new(IconName::Download))
+                        .on_click(move |_, window, cx| {
+                            let _ = owner_dialog_pull.update(cx, |this, cx| {
+                                this.commit_header_action(
+                                    CommitHeaderAction::Dialog(GitDialogKind::Pull),
+                                    window,
+                                    cx,
+                                );
+                            });
+                        }),
+                )
+                .item(
+                    PopupMenuItem::new(tr("Fetch"))
+                        .icon(Icon::new(IconName::GitPullRequest))
+                        .on_click(move |_, window, cx| {
+                            let _ = owner_fetch.update(cx, |this, cx| {
+                                // 对齐 Tauri handleFetch：默认参数直执行，
+                                // toast + 刷新，无对话框。
+                                this.commit_header_action(CommitHeaderAction::Fetch, window, cx);
+                            });
+                        }),
+                )
                 .separator()
-                .item(PopupMenuItem::new(tr("Manage Remotes")).icon(Icon::new(IconName::HardDrive)))
-                .item(PopupMenuItem::new(tr("Manage Tags")).icon(Icon::new(IconName::Tag)))
+                .item(
+                    PopupMenuItem::new(tr("Manage Remotes"))
+                        .icon(Icon::new(IconName::HardDrive))
+                        .on_click(move |_, window, cx| {
+                            let _ = owner_dialog_remotes.update(cx, |this, cx| {
+                                this.commit_header_action(
+                                    CommitHeaderAction::Dialog(GitDialogKind::Remotes),
+                                    window,
+                                    cx,
+                                );
+                            });
+                        }),
+                )
+                .item(
+                    PopupMenuItem::new(tr("Manage Tags"))
+                        .icon(Icon::new(IconName::Tag))
+                        .on_click(move |_, window, cx| {
+                            let _ = owner_dialog_tags.update(cx, |this, cx| {
+                                this.commit_header_action(
+                                    CommitHeaderAction::Dialog(GitDialogKind::Tags),
+                                    window,
+                                    cx,
+                                );
+                            });
+                        }),
+                )
                 .item(
                     PopupMenuItem::new(tr("View Stashes"))
                         .icon(Icon::new(IconName::Archive))
@@ -134,20 +245,72 @@ pub(crate) fn render_commit_tool_header(
                         }),
                 )
                 .separator()
-                .item(PopupMenuItem::new(tr("Manage Worktrees…")).icon(Icon::new(IconName::Folder)))
+                .item(
+                    PopupMenuItem::new(tr("Manage Worktrees…"))
+                        .icon(Icon::new(IconName::Folder))
+                        .on_click(move |_, window, cx| {
+                            let _ = owner_dialog_worktrees.update(cx, |this, cx| {
+                                this.commit_header_action(
+                                    CommitHeaderAction::Dialog(GitDialogKind::Worktrees),
+                                    window,
+                                    cx,
+                                );
+                            });
+                        }),
+                )
                 .item(
                     PopupMenuItem::new(tr("Interactive Rebase Session…"))
-                        .icon(Icon::new(IconName::GitBranch)),
+                        .icon(Icon::new(IconName::GitBranch))
+                        .on_click(move |_, window, cx| {
+                            let _ = owner_dialog_rebase.update(cx, |this, cx| {
+                                this.commit_header_action(
+                                    CommitHeaderAction::Dialog(GitDialogKind::Rebase),
+                                    window,
+                                    cx,
+                                );
+                            });
+                        }),
                 )
-                .item(PopupMenuItem::new(tr("Create Patch…")).icon(Icon::new(IconName::Upload)))
-                .item(PopupMenuItem::new(tr("Apply Patch…")).icon(Icon::new(IconName::Download)))
+                .item(
+                    PopupMenuItem::new(tr("Create Patch…"))
+                        .icon(Icon::new(IconName::Upload))
+                        .on_click(move |_, window, cx| {
+                            let _ = owner_dialog_patch.update(cx, |this, cx| {
+                                this.commit_header_action(
+                                    CommitHeaderAction::Dialog(GitDialogKind::CreatePatch),
+                                    window,
+                                    cx,
+                                );
+                            });
+                        }),
+                )
+                .item(
+                    PopupMenuItem::new(tr("Apply Patch…"))
+                        .icon(Icon::new(IconName::Download))
+                        .on_click(move |_, window, cx| {
+                            let _ = owner_dialog_apply.update(cx, |this, cx| {
+                                this.commit_header_action(
+                                    CommitHeaderAction::Dialog(GitDialogKind::ApplyPatch),
+                                    window,
+                                    cx,
+                                );
+                            });
+                        }),
+                )
                 .separator()
                 .item(
                     PopupMenuItem::new(tr("Discard All Changes"))
                         .icon(Icon::new(IconName::RotateCcw))
-                        .on_click(move |_, _, cx| {
+                        .on_click(move |_, window, cx| {
                             let _ = owner_discard.update(cx, |this, cx| {
-                                this.commit_header_action(CommitHeaderAction::DiscardSelected, cx);
+                                // 对齐 Tauri handleDiscardAllChanges：Core
+                                // `git.write discardAll`，确认受
+                                // confirmBeforeDiscard 控制。
+                                this.commit_header_action(
+                                    CommitHeaderAction::DiscardAll,
+                                    window,
+                                    cx,
+                                );
                             });
                         }),
                 )

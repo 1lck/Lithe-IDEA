@@ -11,6 +11,8 @@
 use std::path::PathBuf;
 use std::rc::Rc;
 
+use crate::git::execute_git_command;
+
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::{Icon, Sizable as _, h_flex, v_flex};
 use gpui_kit::{
@@ -101,6 +103,9 @@ pub struct CommitDiffView {
     /// 当前展示的提交哈希与文件路径。
     commit: String,
     path: String,
+    /// 工作区差异来源；`Some(staged)` 时请求 `git.diff { staged }` 而不是
+    /// `git.show <commit>`（Core `GitDiffRequest` 的 staged / 默认工作区模式）。
+    working_tree_staged: Option<bool>,
     rows: Vec<DiffRow>,
     loading: bool,
     error: Option<SharedString>,
@@ -118,6 +123,7 @@ impl CommitDiffView {
             root: None,
             commit: String::new(),
             path: String::new(),
+            working_tree_staged: None,
             rows: Vec::new(),
             loading: false,
             error: None,
@@ -142,12 +148,36 @@ impl CommitDiffView {
 
     /// 展示某个提交里某个文件的差异（对齐 Tauri `getCommitDiff`）。
     pub fn show(&mut self, commit: String, path: String, cx: &mut Context<Self>) {
-        if self.commit == commit && self.path == path && !self.rows.is_empty() {
+        if self.commit == commit
+            && self.path == path
+            && self.working_tree_staged.is_none()
+            && !self.rows.is_empty()
+        {
             cx.notify();
             return;
         }
         self.commit = commit;
         self.path = path;
+        self.working_tree_staged = None;
+        self.reload(cx);
+    }
+
+    /// 展示工作区（staged / 未暂存）维度的文件差异。
+    ///
+    /// 对齐 Tauri `viewFileDiff` 的 `working-tree` 差异页（commitHash =
+    /// `"working-tree"`）：Core `git.diff` 不带 commit/reference 时按
+    /// `staged` 标志返回已暂存或未暂存的工作区差异。
+    pub fn show_working_tree(&mut self, staged: bool, path: String, cx: &mut Context<Self>) {
+        if self.working_tree_staged == Some(staged)
+            && self.path == path
+            && !self.rows.is_empty()
+        {
+            cx.notify();
+            return;
+        }
+        self.commit = String::from("working-tree");
+        self.path = path;
+        self.working_tree_staged = Some(staged);
         self.reload(cx);
     }
 
@@ -169,7 +199,7 @@ impl CommitDiffView {
         let Some(root_text) = root.to_str().map(str::to_string) else {
             return;
         };
-        if self.commit.is_empty() {
+        if self.commit.is_empty() && self.working_tree_staged.is_none() {
             return;
         }
 
@@ -182,15 +212,23 @@ impl CommitDiffView {
 
         let client = self.client;
         let commit = self.commit.clone();
+        let working_tree_staged = self.working_tree_staged;
         let path = self.path.clone();
         cx.spawn(async move |this, cx| {
-            let payload = serde_json::json!({
-                "root": root_text,
-                "commit": commit,
-                "pathspecs": [path],
-            });
+            let payload = match working_tree_staged {
+                Some(staged) => serde_json::json!({
+                    "root": root_text,
+                    "staged": staged,
+                    "pathspecs": [path],
+                }),
+                None => serde_json::json!({
+                    "root": root_text,
+                    "commit": commit,
+                    "pathspecs": [path],
+                }),
+            };
             let raw = cx
-                .background_spawn(async move { client.execute_raw("git.diff", payload) })
+                .background_spawn(async move { execute_git_command(&client, "git.diff", payload) })
                 .await;
 
             let _ = this.update(cx, |this, cx| {
@@ -219,7 +257,19 @@ impl CommitDiffView {
     fn render_header(&self, cx: &mut Context<Self>) -> AnyElement {
         let tokens = current_tokens(cx);
         let short_commit: String = self.commit.chars().take(8).collect();
-        let title = if self.path.is_empty() {
+        let title = if let Some(staged) = self.working_tree_staged {
+            if self.path.is_empty() {
+                if staged {
+                    tr("Staged Diff").to_string()
+                } else {
+                    tr("Working Tree Diff").to_string()
+                }
+            } else if staged {
+                format!("{} · {}", self.path, tr("Staged"))
+            } else {
+                format!("{} · {}", self.path, tr("Working tree"))
+            }
+        } else if self.path.is_empty() {
             tr("Commit Diff").to_string()
         } else {
             format!("{} · {short_commit}", self.path)
