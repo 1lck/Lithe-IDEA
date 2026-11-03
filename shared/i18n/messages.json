@@ -2,6 +2,11 @@
   "schemaVersion": 1,
   "messages": [
     {
+      "id": "markdown.renderFailed",
+      "description": "Windows Markdown preview rendering failed; edit or reopen to retry",
+      "platforms": ["windows"]
+    },
+    {
       "id": "agent.actions.close",
       "description": "Windows UI: agent.actions.close",
       "platforms": [
@@ -24652,13 +24657,6 @@
         "feature": "string",
         "name": "string"
       }
-    },
-    {
-      "id": "markdown.documentProperties",
-      "description": "Windows UI: markdown.documentProperties",
-      "platforms": [
-        "windows"
-      ]
     },
     {
       "id": "markdownDocument.placeholder",

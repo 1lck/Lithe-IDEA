@@ -1,5 +1,6 @@
 {
   "messages": {
+    "markdown.renderFailed": "Markdown preview could not be rendered. Edit or reopen the document to retry.",
     "agent.actions.close": "Close the Agent panel",
     "agent.actions.closeSearch": "Close search",
     "agent.actions.hideDetails": "Hide session details",
@@ -3208,7 +3209,6 @@
     "lsp.timedOutNamed": "{name} language service preparation timed out.",
     "lsp.unavailableNamed": "{name} language service is unavailable.",
     "lsp.unsupportedFeatureNamed": "{name} language server does not support {feature}.",
-    "markdown.documentProperties": "Document properties",
     "markdownDocument.placeholder": "Start writing, or type / for commands...",
     "maven.add": "Add",
     "maven.addProfile": "Add Maven profile",

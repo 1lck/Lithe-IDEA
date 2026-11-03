@@ -4911,6 +4911,28 @@ workspace root set changes. Removing a nested root restores parent scanning.
 An unavailable non-current root does not fail a scoped request for an accessible
 root; a missing descendant retains its ownership boundary until removed by the host.
 
+## Markdown rendering
+
+`markdown.render` accepts `{ "source": "<Markdown text>" }` and returns
+`{ "html": "<sanitized HTML fragment>" }`. The existing Comrak dialect and
+Ammonia sanitizer are shared by macOS and Windows; platforms must not parse
+Markdown again or fall back to another dialect. Closed leading `---` front
+matter is omitted, not rendered as a platform-specific property card.
+Code fences preserve whitespace and language classes, and rendered elements
+can contain `data-sourcepos` attributes. Platform syntax coloring must preserve
+these attributes and the original decoded code text.
+
+Raw formatting HTML can survive, but scripts, executable attributes, embeds,
+arbitrary inline styles and unsafe URL schemes are removed in Core before
+embedding. Windows asynchronously requests this existing command via its
+central dispatcher, discards obsolete responses and falls back to the sanitized
+fragment if syntax coloring fails. Render failures are shown as localized text;
+there is no frontend Markdown parser fallback. This does not promise Windows
+math or diagram rendering parity.
+
+Shared examples: `shared/fixtures/editor/markdown-render-v1.json`,
+`markdown-html-v1.json` and `markdown-rich-content-v1.json`.
+
 ### Structured logging of recoverable LSP maintenance warnings
 
 `lsp.pollEvents` log observations may carry the existing `error` object even at

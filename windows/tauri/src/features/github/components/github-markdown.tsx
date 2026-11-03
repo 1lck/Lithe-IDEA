@@ -3,7 +3,7 @@ import "../styles/github-markdown.css";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { memo, startTransition, useCallback, useEffect, useMemo, useState } from "react";
 import { highlightMarkdownCodeBlocks } from "@/features/editor/markdown/code-highlight";
-import { parseMarkdown } from "@/features/editor/markdown/parser";
+import { renderMarkdownWhenReady } from "@/features/editor/markdown/render";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useTranslation } from "@/i18n/locale-provider";
 import { isGitHubEntityLinkForRepository, parseGitHubEntityLink } from "../utils/github-link-utils";
@@ -29,11 +29,12 @@ function getRenderedMarkdownSnapshot(content: string): string | null {
   return cached;
 }
 
-async function getCachedRenderedMarkdown(content: string): Promise<string> {
+async function getCachedRenderedMarkdown(content: string, signal?: AbortSignal): Promise<string> {
   const cached = getRenderedMarkdownSnapshot(content);
   if (cached) return cached;
 
-  const rendered = await highlightMarkdownCodeBlocks(stripRedundantBreaks(parseMarkdown(content)));
+  const parsed = await renderMarkdownWhenReady(content, signal);
+  const rendered = await highlightMarkdownCodeBlocks(parsed).catch(() => parsed);
   markdownRenderCache.set(content, rendered);
 
   if (markdownRenderCache.size > MARKDOWN_RENDER_CACHE_LIMIT) {
@@ -44,13 +45,6 @@ async function getCachedRenderedMarkdown(content: string): Promise<string> {
   }
 
   return rendered;
-}
-
-function stripRedundantBreaks(html: string): string {
-  return html
-    .replace(/<br\s*\/?>/gi, "")
-    .replace(/(?:\s*\n\s*){2,}/g, "\n")
-    .trim();
 }
 
 // GitHub-flavored markdown renderer for PR descriptions and comments
@@ -66,8 +60,10 @@ const GitHubMarkdown = memo(
     const [renderedHtml, setRenderedHtml] = useState<string | null>(() =>
       getRenderedMarkdownSnapshot(normalizedContent),
     );
+    const [renderFailed, setRenderFailed] = useState(false);
 
     useEffect(() => {
+      setRenderFailed(false);
       const cached = getRenderedMarkdownSnapshot(normalizedContent);
       if (cached) {
         setRenderedHtml(cached);
@@ -77,6 +73,7 @@ const GitHubMarkdown = memo(
       setRenderedHtml(null);
 
       let cancelled = false;
+      const controller = new AbortController();
       const idleApi = window as Window & {
         requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
         cancelIdleCallback?: (id: number) => void;
@@ -84,9 +81,11 @@ const GitHubMarkdown = memo(
       const schedule = idleApi.requestIdleCallback;
 
       const render = async () => {
-        const nextHtml = await getCachedRenderedMarkdown(normalizedContent);
-        if (!cancelled) {
-          setRenderedHtml(nextHtml);
+        try {
+          const nextHtml = await getCachedRenderedMarkdown(normalizedContent, controller.signal);
+          if (!cancelled) setRenderedHtml(nextHtml);
+        } catch {
+          if (!cancelled) setRenderFailed(true);
         }
       };
 
@@ -94,6 +93,7 @@ const GitHubMarkdown = memo(
         const idleId = schedule(() => void render(), { timeout: 200 });
         return () => {
           cancelled = true;
+          controller.abort();
           idleApi.cancelIdleCallback?.(idleId);
         };
       }
@@ -101,6 +101,7 @@ const GitHubMarkdown = memo(
       const timeoutId = window.setTimeout(() => void render(), 0);
       return () => {
         cancelled = true;
+        controller.abort();
         window.clearTimeout(timeoutId);
       };
     }, [normalizedContent]);
@@ -173,6 +174,7 @@ const GitHubMarkdown = memo(
         onClick={handleClick}
       >
         <div className={`markdown-content ${contentClassName ?? ""}`.trim()}>
+          {renderFailed && <p role="alert">{t("markdown.renderFailed")}</p>}
           {renderedHtml !== null ? (
             <div dangerouslySetInnerHTML={{ __html: renderedHtml }} />
           ) : (
