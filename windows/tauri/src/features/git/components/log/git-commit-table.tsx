@@ -651,7 +651,7 @@ export function GitCommitTable({
                             {t("git.resetToCommit")}
                           </ContextMenuItem>
                           <ContextMenuItem
-                            disabled={isMutatingHistory || commits[0]?.hash === row.commit.hash}
+                            disabled={isMutatingHistory || isGitHeadCommit(row.commit)}
                             onClick={() => onCherryPick(row.commit)}
                           >
                             <CherryPick />

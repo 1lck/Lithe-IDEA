@@ -21,6 +21,7 @@ let host: HTMLDivElement;
 let previousPreferences: ReturnType<typeof useGitLogPreferencesStore.getState>;
 const spies: Array<{ mockRestore(): void }> = [];
 const onCreateTag = mock((_commit: GitCommit) => {});
+const onCherryPick = mock((_commit: GitCommit) => {});
 const contextCommit = mock((_commit: GitCommit) => {});
 const emptyMenu = mock(() => {});
 const commits: GitCommit[] = ["a", "b"].map((letter) => ({
@@ -39,6 +40,7 @@ beforeEach(() => {
   previousPreferences = useGitLogPreferencesStore.getState();
   useGitLogPreferencesStore.setState({ filterQuery: "", filterScope: "text" });
   onCreateTag.mockClear();
+  onCherryPick.mockClear();
   contextCommit.mockClear();
   emptyMenu.mockClear();
   // Other tests can import Base UI before installing a DOM, choosing its SSR
@@ -69,6 +71,9 @@ afterEach(async () => {
   try {
     await act(async () => root.unmount());
   } finally {
+    commits.forEach((commit) => {
+      commit.decorations = "";
+    });
     spies.splice(0).forEach((spy) => spy.mockRestore());
     useGitLogPreferencesStore.setState(previousPreferences);
     host.remove();
@@ -108,7 +113,7 @@ function Harness({ selected = true }: { selected?: boolean }) {
         onDelete={() => {}}
         onSquash={() => {}}
         onReset={() => {}}
-        onCherryPick={() => {}}
+        onCherryPick={onCherryPick}
         onRevert={() => {}}
         onLoadMore={() => {}}
         onSelectReference={() => {}}
@@ -196,4 +201,31 @@ test("Escape closes the real menu and returns focus to the stable viewport", asy
   expect(host.querySelector('[data-git-commit-index="1"]')?.getAttribute("aria-pressed")).toBe(
     "true",
   );
+});
+
+test("cherry-pick is enabled for another branch tip at the first row", async () => {
+  commits[1]!.decorations = "HEAD -> main";
+  await render();
+  viewport().focus();
+  await key("ContextMenu");
+  const item = Array.from(openMenu()!.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(
+    (entry) => entry.textContent === "Cherry-pick Commit",
+  )!;
+  expect(item.getAttribute("aria-disabled")).not.toBe("true");
+  await act(async () => item.click());
+  expect(onCherryPick.mock.calls).toEqual([[commits[0]!]]);
+});
+
+test("cherry-pick is disabled for actual HEAD even when it is not the first row", async () => {
+  commits[1]!.decorations = "HEAD -> main";
+  await render();
+  viewport().focus();
+  await key("ArrowDown");
+  await key("ContextMenu");
+  const item = Array.from(openMenu()!.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(
+    (entry) => entry.textContent === "Cherry-pick Commit",
+  )!;
+  expect(item.getAttribute("aria-disabled")).toBe("true");
+  await act(async () => item.click());
+  expect(onCherryPick).not.toHaveBeenCalled();
 });
