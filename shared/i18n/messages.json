@@ -92516,7 +92516,58 @@
     },
     {
       "id": "gpui.settings.updatesNote",
-      "description": "GPUI settings note: Automatic updates are not available in this build yet. The channel and auto-check choices are saved for a future update service.",
+      "description": "GPUI settings note: Update checks query GitHub Releases for the stable channel; Auto Build downloads from the release page.",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.updates.notChecked",
+      "description": "GPUI updates: Not checked yet",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.updates.checkFailedDetail",
+      "description": "GPUI updates: Failed to check for updates: {detail}",
+      "platforms": [
+        "gpui"
+      ],
+      "parameters": {
+        "detail": "string"
+      }
+    },
+    {
+      "id": "gpui.updates.httpStatus",
+      "description": "GPUI updates: The update server returned HTTP {status}.",
+      "platforms": [
+        "gpui"
+      ],
+      "parameters": {
+        "status": "string"
+      }
+    },
+    {
+      "id": "gpui.updates.timedOut",
+      "description": "GPUI updates: The update request timed out. Try again later.",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.updates.connectionFailed",
+      "description": "GPUI updates: Could not reach the update server: {detail}",
+      "platforms": [
+        "gpui"
+      ],
+      "parameters": {
+        "detail": "string"
+      }
+    },
+    {
+      "id": "gpui.updates.invalidResponse",
+      "description": "GPUI updates: The update server returned an unexpected response.",
       "platforms": [
         "gpui"
       ]
