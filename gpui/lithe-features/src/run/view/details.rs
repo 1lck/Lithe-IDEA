@@ -163,6 +163,8 @@ impl RunPanel {
                 "{}: {percent}%",
                 tr("Importing Java project and dependencies")
             )
+        } else if let Some(artifact) = preparation.download_artifact.as_deref() {
+            format!("{}: {artifact}", preparation.phase.label())
         } else {
             preparation.phase.label().to_string()
         };

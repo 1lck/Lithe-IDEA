@@ -14,7 +14,6 @@ use super::model::{PreparationPhase, PreparationStatus, ProjectPreparation};
 /// - `current_project`：正在导入的项目名；
 /// - `download_artifact`：正在下载的依赖构件名。
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[allow(dead_code)]
 pub(crate) enum PreparationEvent {
     /// 准备阶段推进。
     Phase {
@@ -29,10 +28,29 @@ pub(crate) enum PreparationEvent {
     Failed,
 }
 
+impl PreparationEvent {
+    /// 把 session 侧的同名事件转为本模块契约；字段一一对应，转换无损。
+    pub(super) fn from_session(event: super::session::PreparationEvent) -> Self {
+        match event {
+            super::session::PreparationEvent::Phase {
+                phase,
+                import_percent,
+                current_project,
+                download_artifact,
+            } => Self::Phase {
+                phase,
+                import_percent,
+                current_project,
+                download_artifact,
+            },
+            super::session::PreparationEvent::Ready => Self::Ready,
+            super::session::PreparationEvent::Failed => Self::Failed,
+        }
+    }
+}
+
 impl RunPanel {
     /// 消费一条准备阶段事件并刷新准备状态条。
-    /// 事件数据源待 `run/session.rs` 产出 `PreparationEvent` 后接入。
-    #[allow(dead_code)]
     pub(crate) fn apply_preparation_event(
         &mut self,
         event: PreparationEvent,

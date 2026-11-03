@@ -16,6 +16,7 @@ use crate::console::ConsoleScroll;
 
 use super::config::{self, LoadedRunConfigurations};
 use super::model::{ProjectPreparation, RunConfiguration, RunExecution, RunLanguage, RunScope};
+use super::preparation::PreparationEvent;
 use super::session::{self, RunMode, SessionEvent};
 use super::state::SessionState;
 use super::{
@@ -531,6 +532,7 @@ impl RunPanel {
         let is_output = matches!(&event, SessionEvent::Output(_));
         let mut output_chunk: Option<String> = None;
         let mut failed_output: Option<String> = None;
+        let mut preparation_event: Option<preparation::PreparationEvent> = None;
         let mut preparation_failed = false;
         if let Some(session) = self.sessions.get_mut(id) {
             match event {
@@ -542,6 +544,9 @@ impl RunPanel {
                     session.tree = Some(tree);
                     session.starting = false;
                     session.running = true;
+                }
+                SessionEvent::Preparation(event) => {
+                    preparation_event = Some(PreparationEvent::from_session(event));
                 }
                 SessionEvent::Exited(code) => {
                     session.starting = false;
@@ -572,6 +577,9 @@ impl RunPanel {
                 .or_default()
                 .push_str(&text);
             self.flush_output(cx);
+        }
+        if let Some(event) = preparation_event {
+            self.apply_preparation_event(event, cx);
         }
         if preparation_failed {
             self.mark_preparation_failed();

@@ -157,13 +157,14 @@ impl SessionState {
     }
 }
 
-/// 识别 `session::exit_system_line` 产出的退出 System 行。
+/// 识别运行会话产出的 System 行。
 ///
-/// 四种文本与 `session.rs` 的生成格式一一对应：自然退出、用户停止、
-/// 退出码未知、停止时未报告退出码。
+/// 与 `session.rs` 的生成格式一一对应：退出行四种措辞，以及宽限期后
+/// 强制停止的提示行。
 fn is_exit_system_line(line: &str) -> bool {
     if line == "Process finished with an unknown exit code"
         || line == "Process stopped before it reported an exit code"
+        || line == "Process was force-stopped after the grace period"
     {
         return true;
     }
@@ -275,6 +276,9 @@ mod tests {
         ));
         assert!(is_exit_system_line(
             "Process stopped before it reported an exit code"
+        ));
+        assert!(is_exit_system_line(
+            "Process was force-stopped after the grace period"
         ));
         assert!(!is_exit_system_line("Process finished with exit code abc"));
         assert!(!is_exit_system_line(
