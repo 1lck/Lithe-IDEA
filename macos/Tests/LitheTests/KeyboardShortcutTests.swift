@@ -6,9 +6,15 @@ import Testing
 @MainActor
 struct KeyboardShortcutTests {
     @Test
-    func catalogHasStableUniqueCommandsAndConflictFreeDefaults() {
+    func catalogHasStableUniqueCommandsAndConflictFreeDefaults() throws {
         let commands = LitheCommandCatalog.commands
-        #expect(commands.count == 38)
+        #expect(commands.count == 39)
+        let findAction = try #require(LitheCommandCatalog.command(id: "find-action"))
+        #expect(findAction.defaultBindings
+            == [.keyPress(key: "a", modifiers: [.shift, .command])])
+        for preset in [KeyboardShortcutPreset.ideaClassic, .eclipse] {
+            #expect(preset.bindings(for: findAction).isEmpty)
+        }
         // Build plugin windows own their actions; Maven is no longer a built-in command.
         #expect(LitheCommandCatalog.command(id: "toggle-maven") == nil)
         #expect(Set(commands.map(\.id)).count == commands.count)
@@ -103,6 +109,7 @@ struct KeyboardShortcutTests {
         #expect(actionIDs == commandIDs)
         #expect(actionIDs.contains("save"))
         #expect(actionIDs.contains("search-everywhere"))
+        #expect(actionIDs.contains("find-action"))
         #expect(actionIDs.contains("find-next"))
         #expect(actionIDs.contains("find-previous"))
         #expect(actionIDs.contains("navigate-back"))
@@ -145,17 +152,23 @@ struct KeyboardShortcutTests {
             modifiers: [.command, .option]
         )
 
-        try feature.replaceBindings(for: "run", with: [replacement])
-        #expect(feature.effectiveBindings(for: "run") == [replacement])
-        #expect(AppSettings(store: store).keyboardShortcutOverrides["run"] == [replacement])
+        try feature.replaceBindings(for: "find-action", with: [replacement])
+        #expect(feature.effectiveBindings(for: "find-action") == [replacement])
+        #expect(feature.primaryKeyPress(for: "find-action") == replacement)
+        #expect(feature.displayText(for: "find-action") == replacement.displayText)
+        #expect(feature.registrations.first { $0.commandID == "find-action" }?.bindings == [replacement])
+        #expect(AppSettings(store: store).keyboardShortcutOverrides["find-action"] == [replacement])
 
-        try feature.replaceBindings(for: "run", with: [])
-        #expect(feature.effectiveBindings(for: "run").isEmpty)
+        try feature.replaceBindings(for: "find-action", with: [])
+        #expect(feature.effectiveBindings(for: "find-action").isEmpty)
+        #expect(feature.primaryKeyPress(for: "find-action") == nil)
+        #expect(feature.displayText(for: "find-action") == nil)
+        #expect(feature.registrations.first { $0.commandID == "find-action" }?.bindings == [])
 
-        feature.resetCommand("run")
+        feature.resetCommand("find-action")
         #expect(
-            feature.effectiveBindings(for: "run")
-                == LitheCommandCatalog.command(id: "run")?.defaultBindings
+            feature.effectiveBindings(for: "find-action")
+                == LitheCommandCatalog.command(id: "find-action")?.defaultBindings
         )
 
         settings.editorFontSize = 17

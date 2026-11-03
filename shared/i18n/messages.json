@@ -38325,6 +38325,39 @@
       }
     },
     {
+      "id": "native.findAction",
+      "description": "Native UI: Find Action",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Find Action",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.findAction.variant2",
+      "description": "Native UI: Find Action…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Find Action…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.findAndExecuteCommand",
+      "description": "Native UI: Find and execute a command",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Find and execute a command",
+        "arguments": []
+      }
+    },
+    {
       "id": "native.findFilesAndActions",
       "description": "Native UI: Find files and actions",
       "platforms": [

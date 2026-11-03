@@ -48,6 +48,7 @@ enum KeyboardShortcutPreset: String, CaseIterable, Sendable {
         "toggle-breakpoint": shortcut("f8", [.control]),
         "view-breakpoints": shortcut("f8", [.control, .shift]),
         "search-everywhere": [.doubleTap(.shift)],
+        "find-action": [],
         "navigate-back": shortcut("left", [.control, .option]),
         "navigate-forward": shortcut("right", [.control, .option]),
         "find-in-file": shortcut("f", [.control]),
@@ -80,6 +81,7 @@ enum KeyboardShortcutPreset: String, CaseIterable, Sendable {
         "toggle-breakpoint": shortcut("f8", [.control]),
         "view-breakpoints": shortcut("f8", [.control, .shift]),
         "search-everywhere": [.doubleTap(.shift)],
+        "find-action": [],
         "navigate-back": shortcut("[", [.command]),
         "navigate-forward": shortcut("]", [.command]),
         "find-in-file": shortcut("f", [.command]),
@@ -156,6 +158,7 @@ enum LitheCommandCatalog {
                 .keyPress(key: "o", modifiers: [.shift, .command])
             ]
         ),
+        command("find-action", "Find Action", "Find and execute a command", .navigation, "a", [.shift, .command]),
         command("navigate-back", "Back", "Navigate to the previous editor location", .navigation, "[", [.command]),
         command("navigate-forward", "Forward", "Navigate to the next editor location", .navigation, "]", [.command]),
         command("find-in-file", "Find in File", "Search within the active editor", .navigation, "f", [.command]),
@@ -192,7 +195,7 @@ enum LitheCommandCatalog {
              "toggle-breakpoint", "view-breakpoints", "toggle-debug": .debug
         case "toggle-terminal": .terminal
         case "toggle-git-log": .git
-        case "search-everywhere", "search-in-project", "replace-in-project": .search
+        case "search-everywhere", "find-action", "search-in-project", "replace-in-project": .search
         case "toggle-problems", "spring-endpoints": .languageIntelligence
         case "local-history", "project-local-history": .localHistory
         default: nil

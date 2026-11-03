@@ -185,6 +185,15 @@ struct AppLocalizationTests {
     func simplifiedChineseResourcesCoverKeymapControls() throws {
         let translations = try simplifiedChineseTranslations()
 
+        let resources = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Resources")
+        let english = try #require(Bundle(url: resources.appendingPathComponent("en.lproj")))
+        for key in ["Find Action", "Find Action…", "Find and execute a command"] {
+            #expect(english.localizedString(forKey: key, value: "MISSING", table: nil) == key)
+        }
+        #expect(translations["Find Action"] == "查找操作")
+        #expect(translations["Find Action…"] == "查找操作…")
+        #expect(translations["Find and execute a command"] == "查找并执行命令")
         #expect(translations["Keymap"] == "快捷键")
         #expect(translations["Search actions or shortcuts"] == "搜索操作或快捷键")
         #expect(translations["Restore All Defaults"] == "全部恢复默认")
