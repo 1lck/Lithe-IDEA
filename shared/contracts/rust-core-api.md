@@ -4921,11 +4921,32 @@ source mirror must not be used as anchor edits: unchanged neighboring code must
 not be treated as deleted. The existing cases in
 `shared/fixtures/debug/breakpoint-relocation-v1.json` cover both platforms.
 
-Multi-cursor events replay the native source edits from the end. Between edits,
-`lsp.applyTextEdits` supplies intermediate source text; Windows does not calculate
-breakpoint offsets or replacement text itself. Rapid events serialize, split
-views share a mutation identity, and launch reads the current owner after all
-pending relocations complete. No new Core request fields or commands are added.
+Each native multi-cursor event is sent as one batch of original-source edits;
+Core applies the edits before projecting anchors. Rapid events serialize or share
+one ordered request, split views share a mutation identity, and launch reads the
+current owner after all pending relocations complete.
+
+## Markdown rendering
+
+`markdown.render` accepts `{ "source": "<Markdown text>" }` and returns
+`{ "html": "<sanitized HTML fragment>" }`. The existing Comrak dialect and
+Ammonia sanitizer are shared by macOS and Windows; platforms must not parse
+Markdown again or fall back to another dialect. Closed leading `---` front
+matter is omitted, not rendered as a platform-specific property card.
+Code fences preserve whitespace and language classes, and rendered elements
+can contain `data-sourcepos` attributes. Platform syntax coloring must preserve
+these attributes and the original decoded code text.
+
+Raw formatting HTML can survive, but scripts, executable attributes, embeds,
+arbitrary inline styles and unsafe URL schemes are removed in Core before
+embedding. Windows asynchronously requests this existing command via its
+central dispatcher, discards obsolete responses and falls back to the sanitized
+fragment if syntax coloring fails. Render failures are shown as localized text;
+there is no frontend Markdown parser fallback. This does not promise Windows
+math or diagram rendering parity.
+
+Shared examples: `shared/fixtures/editor/markdown-render-v1.json`,
+`markdown-html-v1.json` and `markdown-rich-content-v1.json`.
 
 ### Structured logging of recoverable LSP maintenance warnings
 

@@ -3,80 +3,145 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { LocaleProvider } from "@/i18n/locale-provider";
 import { installHappyDom } from "@/test-utils/happy-dom";
+import { useHighlightedMarkdown } from "./use-highlighted-markdown";
 
-/** Highlighter whose calls the test completes, in the order it chooses. */
-function controlledHighlighter() {
-  const pending: Array<{ html: string; resolve: (html: string) => void; done: Promise<string> }> = [];
-  const highlight = (html: string) => {
-    let resolve!: (html: string) => void;
-    const done = new Promise<string>((settle) => {
-      resolve = settle;
+function controlledOperation() {
+  const calls: Array<{ input: string; resolve: (html: string) => void; reject: () => void }> = [];
+  const run = (input: string) =>
+    new Promise<string>((resolve, reject) => {
+      calls.push({ input, resolve, reject: () => reject(new Error("test failure")) });
     });
-    pending.push({ html, resolve, done });
-    return done;
-  };
-  // Marks the code as highlighted the way the real highlighter's output would.
-  const finish = async () => {
-    const call = pending.shift();
-    if (!call) throw new Error("No highlight is pending");
-    call.resolve(call.html.replace(/\b(select|delete)\b/, '<span class="token-keyword">$1</span>'));
-    await call.done;
-  };
-  // Teardown releases work an assertion failure left pending.
   const releaseAll = () => {
-    for (const call of pending.splice(0)) call.resolve(call.html);
+    for (const call of calls) call.resolve(call.input);
   };
-  return { highlight, finish, releaseAll, pending };
+  return { run, calls, releaseAll };
 }
 
-test("an edit replaces the highlighted preview once, without showing plain code in between", async () => {
+async function withPreview(
+  scenario: (probe: {
+    update: (source: string) => Promise<void>;
+    unmount: () => Promise<void>;
+    rendered: string[];
+    render: ReturnType<typeof controlledOperation>;
+    highlight: ReturnType<typeof controlledOperation>;
+  }) => Promise<void>,
+) {
   const restoreDom = installHappyDom();
-  // DOMPurify binds to the window it finds on first import.
-  const { useHighlightedMarkdown } = await import("./use-highlighted-markdown");
   const environment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
   const previousAct = environment.IS_REACT_ACT_ENVIRONMENT;
   const host = document.createElement("div");
   const rendered: string[] = [];
-  const highlighter = controlledHighlighter();
+  const render = controlledOperation();
+  const highlight = controlledOperation();
   let root: Root | undefined;
-  function Probe({ content }: { content: string }) {
-    const html = useHighlightedMarkdown(content, undefined, highlighter.highlight);
+  function Probe({ source }: { source: string }) {
+    const html = useHighlightedMarkdown(source, highlight.run, render.run);
     if (rendered[rendered.length - 1] !== html) rendered.push(html);
     return null;
   }
-  const render = (content: string) => (
-    <LocaleProvider language="en-US">
-      <Probe content={content} />
-    </LocaleProvider>
-  );
+  const unmount = async () => {
+    if (root) {
+      const mounted = root;
+      root = undefined;
+      await act(async () => mounted.unmount());
+    }
+  };
   try {
     environment.IS_REACT_ACT_ENVIRONMENT = true;
     document.body.append(host);
     root = createRoot(host);
-    const mountedRoot = root;
-
-    await act(async () => mountedRoot.render(render("# Notes\n\n```sql\nselect 1\n```\n")));
-    await act(highlighter.finish);
-    // The first render shows the document before highlighting finishes.
-    expect(rendered).toHaveLength(2);
-    expect(rendered[0]).not.toContain("token-keyword");
-    expect(rendered[1]).toContain('<span class="token-keyword">select</span>');
-
-    await act(async () => mountedRoot.render(render("# Notes\n\n```sql\ndelete from t\n```\n")));
-    // While the edit is being highlighted, the previous highlighted preview stays.
-    expect(rendered).toHaveLength(2);
-    await act(highlighter.finish);
-    expect(rendered).toHaveLength(3);
-    expect(rendered[2]).toContain('<span class="token-keyword">delete</span>');
-
-    await act(async () => mountedRoot.render(render("")));
-    expect(rendered[rendered.length - 1]).toBe("");
-    expect(highlighter.pending).toHaveLength(0);
+    const update = async (source: string) => {
+      await act(async () =>
+        root!.render(
+          <LocaleProvider language="en-US">
+            <Probe source={source} />
+          </LocaleProvider>,
+        ),
+      );
+    };
+    await scenario({ update, unmount, rendered, render, highlight });
   } finally {
-    highlighter.releaseAll();
-    if (root) await act(async () => root!.unmount());
+    await unmount();
+    render.releaseAll();
+    highlight.releaseAll();
     host.remove();
     environment.IS_REACT_ACT_ENVIRONMENT = previousAct;
     restoreDom();
   }
+}
+
+test("an edit replaces the highlighted preview once without showing plain code in between", async () => {
+  await withPreview(async ({ update, rendered, render, highlight }) => {
+    await update("first");
+    expect(rendered).toEqual([""]);
+    await act(async () => render.calls[0]!.resolve("<pre>select</pre>"));
+    expect(rendered).toEqual(["", "<pre>select</pre>"]);
+    await act(async () => highlight.calls[0]!.resolve("<pre><span>select</span></pre>"));
+    await update("second");
+    await act(async () => render.calls[1]!.resolve("<pre>delete</pre>"));
+    expect(rendered[rendered.length - 1]).toBe("<pre><span>select</span></pre>");
+    await act(async () => highlight.calls[1]!.resolve("<pre><span>delete</span></pre>"));
+    expect(rendered).toHaveLength(4);
+    expect(rendered[rendered.length - 1]).toBe("<pre><span>delete</span></pre>");
+  });
+});
+
+test("an obsolete Core response cannot overwrite the current document or start highlighting", async () => {
+  await withPreview(async ({ update, rendered, render, highlight }) => {
+    await update("old");
+    await update("new");
+    await act(async () => render.calls[1]!.resolve("<p>new</p>"));
+    await act(async () => highlight.calls[0]!.resolve("<p>new ready</p>"));
+    await act(async () => render.calls[0]!.resolve("<p>old</p>"));
+    expect(rendered[rendered.length - 1]).toBe("<p>new ready</p>");
+    expect(highlight.calls).toHaveLength(1);
+  });
+});
+
+test("obsolete highlighting cannot overwrite a newer preview", async () => {
+  await withPreview(async ({ update, rendered, render, highlight }) => {
+    await update("old");
+    await act(async () => render.calls[0]!.resolve("<p>old</p>"));
+    await update("new");
+    await act(async () => render.calls[1]!.resolve("<p>new</p>"));
+    await act(async () => highlight.calls[1]!.resolve("<p>new ready</p>"));
+    await act(async () => highlight.calls[0]!.resolve("<p>old ready</p>"));
+    expect(rendered[rendered.length - 1]).toBe("<p>new ready</p>");
+  });
+});
+
+test("clearing and unmounting discard pending renders", async () => {
+  await withPreview(async ({ update, unmount, rendered, render, highlight }) => {
+    await update("old");
+    await update("");
+    await act(async () => render.calls[0]!.resolve("<p>old</p>"));
+    expect(rendered[rendered.length - 1]).toBe("");
+    expect(highlight.calls).toHaveLength(0);
+    await update("closing");
+    await unmount();
+    await act(async () => render.calls[1]!.resolve("<p>closing</p>"));
+    expect(highlight.calls).toHaveLength(0);
+  });
+});
+
+test("Core failure shows a localized diagnostic and the next edit can recover", async () => {
+  await withPreview(async ({ update, rendered, render, highlight }) => {
+    await update("bad");
+    await act(async () => render.calls[0]!.reject());
+    expect(rendered[rendered.length - 1]).toContain('role="alert"');
+    expect(rendered[rendered.length - 1]).toContain("Edit or reopen the document");
+    await update("fixed");
+    await act(async () => render.calls[1]!.resolve("<p>fixed</p>"));
+    await act(async () => highlight.calls[0]!.resolve("<p>fixed ready</p>"));
+    expect(rendered[rendered.length - 1]).toBe("<p>fixed ready</p>");
+  });
+});
+
+test("highlighter failure preserves sanitized Core HTML", async () => {
+  await withPreview(async ({ update, rendered, render, highlight }) => {
+    await update("plain");
+    await act(async () => render.calls[0]!.resolve("<p>safe</p>"));
+    await act(async () => highlight.calls[0]!.reject());
+    expect(rendered[rendered.length - 1]).toBe("<p>safe</p>");
+  });
 });

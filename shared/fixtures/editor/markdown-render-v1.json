@@ -1,0 +1,109 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "nested lists and task items",
+      "source": "- Parent\n  - Child\n\n1. First\n2. Second\n\n- [x] Done\n- [ ] Next\n",
+      "contains": [
+        "<ul",
+        "<ol",
+        "type=\"checkbox\"",
+        "checked=\"\"",
+        "disabled=\"\"",
+        "Child"
+      ],
+      "absent": []
+    },
+    {
+      "name": "fenced code whitespace Chinese emoji CRLF",
+      "source": "```sql\r\n  select '<script>中文😀</script>', '$&';\r\n\r\n```\r\n",
+      "contains": [
+        "language-sql",
+        "  select",
+        "&lt;script&gt;中文😀&lt;/script&gt;",
+        "$&amp;",
+        "data-sourcepos="
+      ],
+      "absent": [
+        "<script>"
+      ]
+    },
+    {
+      "name": "front matter hidden by shared dialect",
+      "source": "---\ntitle: secret-title\nnested:\n  value: secret-value\n---\n\n# Visible\n",
+      "contains": [
+        "Visible",
+        "lithe-heading-visible"
+      ],
+      "absent": [
+        "secret-title",
+        "secret-value",
+        "markdown-front-matter"
+      ]
+    },
+    {
+      "name": "safe HTML and unsafe content",
+      "source": "<details open><summary>More</summary><p align=\"center\">Safe<br><img src=\"badge.png\" onerror=\"bad()\"></p></details>\n\n<script>danger()</script>\n<style>body{display:none}</style>\n<iframe src=\"https://example.com\"></iframe>\n<a href=\"javascript:bad()\" onclick=\"bad()\">unsafe</a>\n<a href=\"file:///secret\">file</a>\n",
+      "contains": [
+        "<details",
+        "<summary>More</summary>",
+        "align=\"center\"",
+        "badge.png",
+        "<br"
+      ],
+      "absent": [
+        "<script",
+        "danger()",
+        "<style",
+        "display:none",
+        "<iframe",
+        "javascript:",
+        "onerror",
+        "onclick",
+        "file:///"
+      ]
+    },
+    {
+      "name": "table escaped inline code and footnotes",
+      "source": "| A | B |\n| - | - |\n| 中文😀 | **bold** |\n\n`<img src=x onerror=bad()>` and note[^1]\n\n[^1]: footnote\n",
+      "contains": [
+        "<table",
+        "<strong",
+        "中文😀",
+        "&lt;img",
+        "footnotes"
+      ],
+      "absent": [
+        "<img"
+      ]
+    },
+    {
+      "name": "unclosed fence preserves text",
+      "source": "~~~text\n  literal **中文😀**\n",
+      "contains": [
+        "language-text",
+        "  literal **中文😀**"
+      ],
+      "absent": [
+        "<strong"
+      ]
+    },
+    {
+      "name": "empty document",
+      "source": "",
+      "contains": [],
+      "absent": [
+        "<p"
+      ]
+    },
+    {
+      "name": "semantic hard breaks and fenced blank lines",
+      "source": "first  \nsecond\\\nthird<br>fourth\n\n```text\na\n\nb\n```\n",
+      "contains": [
+        "<br",
+        "a\n\nb\n"
+      ],
+      "absent": []
+    }
+  ]
+}

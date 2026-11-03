@@ -35,7 +35,7 @@ export function MarkdownPreview() {
   // Re-parse at low priority so live typing in the split editor stays smooth;
   // the preview lags a beat behind, matching the macOS preview debounce.
   const deferredSourceContent = useDeferredValue(sourceContent);
-  const html = useHighlightedMarkdown(deferredSourceContent, { frontMatter: "render" });
+  const html = useHighlightedMarkdown(deferredSourceContent);
 
   const resolvePath = useCallback(
     (href: string, currentFilePath: string): string => {

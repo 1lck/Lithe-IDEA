@@ -266,6 +266,8 @@ jobs:
         run: |
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-breakpoint-relocation.json -- src/features/debugger/services/breakpoint-relocation.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-markdown.json -- src/features/editor/markdown/render.test.ts src/features/editor/markdown/render-queue.test.ts src/features/editor/markdown/use-highlighted-markdown.test.tsx src/features/editor/markdown/code-highlight.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-text-edits.json -- src/features/editor/lsp/text-edit-core.test.ts src/features/editor/lsp/workspace-edit.test.ts src/features/editor/lsp/workspace-edit-races.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-code-actions.json -- src/features/editor/lsp/lsp-client-code-actions.test.ts src/features/editor/engines/monaco/code-action-diagnostics.test.ts
