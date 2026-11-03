@@ -212,6 +212,10 @@ fn platform_response(
     if command == "ideHost.control" && envelope.get("ok").and_then(Value::as_bool) == Some(true) {
         return Ok(envelope.get("data").cloned().unwrap_or(Value::Null));
     }
+    if command == "lsp.applyTextEdits" && envelope.get("ok").and_then(Value::as_bool) == Some(false)
+    {
+        return Ok(json!({ "editError": envelope.get("error").cloned().unwrap_or(Value::Null) }));
+    }
     core_response(envelope, preserve_history_rewrite, preserve_stash_restore)
 }
 
@@ -1282,6 +1286,17 @@ mod tests {
         assert!(super::platform_response("git.command", &envelope, false, false).is_err());
         let failure = json!({"ok":false,"error":{"message":"IDE broker unavailable"}});
         assert!(super::platform_response("ideHost.control", &failure, false, false).is_err());
+    }
+
+    #[test]
+    fn text_edit_failure_preserves_codes_for_localization() {
+        let failure = json!({"ok":false,"error":{"code":"invalid_request","details":"overlappingEdits","message":"upstream detail"}});
+        assert_eq!(
+            super::platform_response("lsp.applyTextEdits", &failure, false, false).unwrap()
+                ["editError"],
+            failure["error"]
+        );
+        assert!(super::platform_response("git.command", &failure, false, false).is_err());
     }
 
     #[test]

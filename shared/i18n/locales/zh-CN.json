@@ -9949,6 +9949,7 @@
     "mac.editorImport.customThemeHelp": "导入的编辑器颜色覆盖内置配色。移除导入主题后恢复内置颜色。",
     "mac.editorImport.customThemeScope": "导入的主题颜色应用于源码编辑器。跳过未映射的效果和语言规则；内置基础配色为近似值。",
     "mac.editor.tabWidthStatus": "Tab 宽度：{arg1}",
+    "editor.workspaceEditStale": "准备修改时文档已发生变化，请重新执行操作。",
     "workspace.appStore": "App Store",
     "workspace.chooseApplication": "选择应用程序",
     "workspace.defaultApplication": "{arg1}（默认）",

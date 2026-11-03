@@ -2194,6 +2194,15 @@ has an LSP range with zero-based `line` and UTF-16 `utf16Column` fields plus
 `invalid_request` with details `overlappingEdits`; invalid positions return
 details `invalidRange`. Successful responses return `{ "text": string }`.
 
+Windows workspace edits and formatting use this command instead of calculating
+text offsets locally. The cross-platform cases in
+`shared/fixtures/lsp/text-edits-v1.json` use LSP wire `character` fields; the
+Windows adapter maps those fields to Core `utf16Column` without changing their
+zero-based values. Core retains its existing normalization: columns beyond a
+line clamp before its line ending, and positions inside a UTF-16 surrogate pair
+resolve to the character start. Missing/negative lines, negative columns,
+reversed ranges and overlapping replacements are rejected.
+
 `lsp.plainSnippet` accepts `{ "value": string }` and returns `{ "text": string }`
 after removing LSP tab stops and replacing simple placeholder defaults such as
 `${1:name}` with `name`.
