@@ -15,7 +15,9 @@ use lithe_ui::i18n::tr;
 use crate::console::ConsoleScroll;
 
 use super::config::{self, LoadedRunConfigurations};
-use super::model::{ProjectPreparation, RunConfiguration, RunExecution, RunLanguage, RunScope};
+use super::model::{
+    PreparationPhase, ProjectPreparation, RunConfiguration, RunExecution, RunLanguage, RunScope,
+};
 use super::preparation::PreparationEvent;
 use super::session::{self, RunMode, SessionEvent};
 use super::state::SessionState;
@@ -76,6 +78,7 @@ impl RunPanel {
             on_open_settings: None,
             preparation_expanded: false,
             preparation: None,
+            preparation_seen: Vec::new(),
             launch_decision: None,
             skip_build_check: false,
         }
@@ -115,6 +118,7 @@ impl RunPanel {
         self.restart_pending = None;
         self.pending_initial_load = self.root.is_some();
         self.preparation = None;
+        self.preparation_seen.clear();
         self.emit(cx);
         cx.notify();
     }
@@ -385,6 +389,7 @@ impl RunPanel {
         }
         if self.preparation.is_none() {
             self.preparation = Some(ProjectPreparation::starting());
+            self.preparation_seen = vec![PreparationPhase::Starting];
         }
         cx.notify();
     }
@@ -410,6 +415,7 @@ impl RunPanel {
             }
         } else {
             self.preparation = None;
+            self.preparation_seen.clear();
         }
         self.emit(cx);
         cx.notify();

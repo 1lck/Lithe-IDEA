@@ -5,8 +5,8 @@ use gpui_kit::component::resizable::{h_resizable, resizable_panel};
 use gpui_kit::component::{Disableable as _, Icon, IconName, Sizable as _, h_flex, v_flex};
 use gpui_kit::{
     AnyElement, Context, FontWeight, Hsla, InteractiveElement as _, IntoElement,
-    ParentElement as _, Render, SharedString, StatefulInteractiveElement as _, Styled as _,
-    Window, div, px,
+    ParentElement as _, Render, SharedString, StatefulInteractiveElement as _, Styled as _, Window,
+    div, px,
 };
 use lithe_ui::i18n::tr;
 use lithe_ui::{LitheMetrics, LitheTokens, current_tokens};

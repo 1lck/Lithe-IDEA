@@ -157,16 +157,16 @@ impl RunPanel {
         let is_failed = preparation.status == PreparationStatus::Failed;
 
         let label = if is_failed {
-            tr("Java project preparation failed — view details").to_string()
+            tr("Launch preparation failed — view details").to_string()
         } else if let Some(percent) = preparation.import_percent {
             format!(
                 "{}: {percent}%",
                 tr("Importing Java project and dependencies")
             )
         } else if let Some(artifact) = preparation.download_artifact.as_deref() {
-            format!("{}: {artifact}", preparation.phase.label())
+            format!("{}: {artifact}", preparation_phase_text(preparation.phase))
         } else {
-            preparation.phase.label().to_string()
+            preparation_phase_text(preparation.phase)
         };
 
         let summary_icon = if is_loading {
@@ -218,37 +218,40 @@ impl RunPanel {
             return summary.into_any_element();
         }
 
-        let phases = [
-            (PreparationPhase::Starting, tr("Starting Java service")),
-            (
-                PreparationPhase::Importing,
-                tr("Importing Java project and dependencies"),
-            ),
-            (
-                PreparationPhase::Configuring,
-                tr("Synchronizing Java project configuration"),
-            ),
-            (PreparationPhase::Building, tr("Building Java project")),
-        ];
+        // 阶段清单按真实启动路径渲染：只列出真实收到过事件的阶段，
+        // 再加必定经过的启动步骤行；未执行过的阶段不渲染、不追认完成。
+        let mut phase_rows: Vec<(PreparationPhase, String)> =
+            [PreparationPhase::Configuring, PreparationPhase::Building]
+                .into_iter()
+                .filter(|phase| self.preparation_seen.contains(phase))
+                .map(|phase| (phase, preparation_phase_text(phase)))
+                .collect();
+        phase_rows.push((
+            PreparationPhase::Ready,
+            tr("Launching application").to_string(),
+        ));
 
-        let phase_order = |p: PreparationPhase| -> u8 {
-            match p {
-                PreparationPhase::Starting => 0,
-                PreparationPhase::Importing => 1,
-                PreparationPhase::Configuring => 2,
-                PreparationPhase::Building => 3,
-                PreparationPhase::Ready => 4,
-                _ => 0,
-            }
+        // 阶段行已完成：真实收到过该阶段事件、且已离开该阶段；失败时不追认任何行。
+        let phase_row_done = |phase: PreparationPhase| {
+            self.preparation_seen.contains(&phase)
+                && preparation.status != PreparationStatus::Failed
+                && preparation.phase != phase
         };
 
-        let current_order = phase_order(preparation.phase);
-
         let mut phase_list = v_flex().gap(px(4.0));
-        for (phase, phase_label) in phases {
-            let order = phase_order(phase);
-            let is_current = preparation.phase == phase;
-            let is_done = order < current_order || preparation.status == PreparationStatus::Ready;
+        for (index, (phase, phase_label)) in phase_rows.iter().enumerate() {
+            let is_launch_step = *phase == PreparationPhase::Ready;
+            let is_current = if is_launch_step {
+                preparation.status == PreparationStatus::Loading
+                    && phase_rows[..index].iter().all(|(p, _)| phase_row_done(*p))
+            } else {
+                preparation.phase == *phase && preparation.status == PreparationStatus::Loading
+            };
+            let is_done = if is_launch_step {
+                preparation.status == PreparationStatus::Ready
+            } else {
+                !is_current && phase_row_done(*phase)
+            };
 
             let icon_element = if is_current && is_loading {
                 Icon::new(IconName::RotateCw)
@@ -282,7 +285,7 @@ impl RunPanel {
                             .text_size(px(LitheMetrics::SMALL_FONT_SIZE))
                             .when(is_current, |this| this.font_weight(FontWeight::MEDIUM))
                             .text_color(text_color)
-                            .child(phase_label),
+                            .child(phase_label.clone()),
                     ),
             );
         }
@@ -301,7 +304,9 @@ impl RunPanel {
                 div()
                     .text_size(px(LitheMetrics::SMALL_FONT_SIZE))
                     .text_color(tokens.tertiary_text)
-                    .child(tr("The Java workspace must finish preparation before launch. Background indexing does not block running; compilation runs before launch.")),
+                    .child(tr(
+                        "Dependencies are compiled and resolved with Maven before the application starts.",
+                    )),
             )
             .child(
                 h_flex()
@@ -391,6 +396,22 @@ fn empty_state(tokens: LitheTokens, message: &str) -> AnyElement {
                 .child(message.to_string()),
         )
         .into_any_element()
+}
+
+/// 准备阶段的界面文案；GPUI 没有 Java 语言服务导入，
+/// 按真实启动路径描述，不复用 macOS 的 JLS 阶段词条。
+fn preparation_phase_text(phase: PreparationPhase) -> String {
+    match phase {
+        PreparationPhase::Starting => tr("Preparing launch").to_string(),
+        PreparationPhase::Importing => tr("Importing Java project and dependencies").to_string(),
+        PreparationPhase::Configuring => tr("Preparing launch steps").to_string(),
+        PreparationPhase::Building => {
+            tr("Compiling and resolving dependencies (Maven)").to_string()
+        }
+        PreparationPhase::Ready => tr("Application launched").to_string(),
+        PreparationPhase::Failed => tr("Launch preparation failed").to_string(),
+        PreparationPhase::Stopped => tr("Launch preparation stopped").to_string(),
+    }
 }
 
 #[allow(dead_code)]

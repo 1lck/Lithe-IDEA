@@ -12,8 +12,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, ClipboardItem, Context, FontWeight, InteractiveElement as _, IntoElement,
     MouseButton, MouseMoveEvent, ParentElement as _, ScrollEvent, ScrollStrategy,
-    StatefulInteractiveElement as _, Styled as _, TextStyleRefinement, WhiteSpace, Window, div,
-    px,
+    StatefulInteractiveElement as _, Styled as _, TextStyleRefinement, WhiteSpace, Window, div, px,
 };
 use lithe_ui::i18n::tr;
 use lithe_ui::{LitheIcon, LitheMetrics, LitheTokens, icon, mono_font_family};

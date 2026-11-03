@@ -76,6 +76,9 @@ impl RunPanel {
                 } else {
                     prep.status = PreparationStatus::Loading;
                 }
+                if !self.preparation_seen.contains(&phase) {
+                    self.preparation_seen.push(phase);
+                }
             }
             PreparationEvent::Ready => {
                 *prep = ProjectPreparation::ready();
