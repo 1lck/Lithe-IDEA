@@ -520,9 +520,14 @@ pub(super) fn spawn_session(
 }
 
 /// 停止整棵进程树。调用方应放到后台线程，避免等待内核回收时卡住界面。
+///
+/// 第一次停止先等宽限期让进程自行退出（Unix 先发 SIGINT），超时才强杀；
+/// 对同一棵进程树再次调用跳过宽限期立即强杀，对应界面的连续停止。
 pub fn stop(tree: Arc<ProcessTree>) -> Result<(), String> {
     mark_user_stop(&tree);
-    tree.terminate(Duration::from_secs(10))
+    // 返回值区分是否经历过强杀；呈现交给控制台渲染层，这里只负责终止。
+    tree.terminate_gracefully(Duration::from_secs(10))
+        .map(|_| ())
         .map_err(|error| format!("{}: {error}", lithe_ui::i18n::tr("Could not stop run")))
 }
 
