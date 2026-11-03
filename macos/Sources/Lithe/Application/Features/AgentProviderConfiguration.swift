@@ -88,7 +88,8 @@ struct AgentProviderConfiguration {
         }
         let provider = AIProviderProfile(id: existing?.id ?? UUID(), name: name,
             endpoint: snapshot.endpoint.trimmingCharacters(in: .whitespacesAndNewlines), model: snapshot.model,
-            apiProtocol: snapshot.apiProtocol, authentication: snapshot.authentication,
+            apiProtocol: snapshot.apiProtocol, chatTokenLimitField: existing?.chatTokenLimitField ?? .maxCompletionTokens,
+            authentication: snapshot.authentication,
             allowsInsecureHTTP: draft.allowsInsecureHTTP, apiKeyIdentifier: existing?.apiKeyIdentifier)
         guard provider.isValid, let url = provider.endpointURL,
               url.user == nil, url.password == nil, url.query == nil, url.fragment == nil else {

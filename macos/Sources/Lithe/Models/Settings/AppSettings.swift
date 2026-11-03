@@ -1052,6 +1052,7 @@ final class AppSettings: ObservableObject {
             endpoint: snapshot.endpoint,
             model: snapshot.model,
             apiProtocol: snapshot.apiProtocol,
+            chatTokenLimitField: existing?.chatTokenLimitField ?? .maxCompletionTokens,
             authentication: snapshot.authentication,
             allowsInsecureHTTP: existing?.allowsInsecureHTTP ?? false,
             apiKeyIdentifier: "lithe.\(snapshot.source.rawValue).imported.apiKey",

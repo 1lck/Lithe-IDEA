@@ -2140,6 +2140,7 @@
 "Lithe needs to identify the project before Run and Debug are available. Project and local overrides will not be changed." = "使用运行和调试功能前，Lithe 需要先识别项目。项目配置和本机覆盖配置不会被修改。";
 "Lithe publisher signature verified" = "已验证 Lithe 发布者签名";
 "Lithe reads the servers registered in your Codex and Claude Code configuration. Saving writes only the changed entry, keeps backups in Application Support, and never overwrites an entry created outside Lithe. Agents read MCP configuration when a session starts, so restart a session to apply changes." = "Lithe 会读取你已在 Codex 与 Claude Code 配置中注册的服务器。保存时只改写发生变化的条目，备份存放在 Application Support 中，且不会覆盖在 Lithe 之外创建的条目。Agent 在会话启动时读取 MCP 配置，重启会话后生效。";
+"Lithe uses this field for commit requests. Choose max_tokens for older gateways." = "Lithe 使用此字段发送提交信息请求。旧网关请选择 max_tokens。";
 "Lithe will clone the repository into %@." = "Lithe 会将仓库克隆到 %@。";
 "Lithe will clone the repository into (destinationDescription)." = "Lithe 会将仓库克隆到（目标文件夹）。";
 "Lithe will download the update and restart after replacing the current app." = "Lithe 将下载更新，替换当前应用后重新启动。";
@@ -2819,6 +2820,7 @@
 "Output" = "输出";
 "Output language" = "输出语言";
 "Output speed (TPS)" = "输出速度（TPS）";
+"Output token field" = "输出额度字段";
 "Output: %@" = "输出：%@";
 "Overridden by a later value" = "已被更高优先级的值覆盖";
 "Overridden in this project" = "已被此项目覆盖";
@@ -4897,6 +4899,10 @@
 "ai.project" = "项目";
 "ai.settings" = "设置";
 "ai.terminal" = "终端";
+"aiCommit.aiCOMMITINVALIDOPTIONS" = "请检查提交信息生成设置。";
+"aiCommit.aiCOMMITOUTPUTLIMIT" = "服务商在生成完整提交信息前用尽输出额度，请降低推理强度或减少 Diff 字符限制后重试。";
+"aiCommit.outputTokenField" = "输出额度字段";
+"aiCommit.outputTokenFieldInfo" = "Lithe 使用此字段发送提交信息请求。旧网关请选择 max_tokens。";
 "avg" = "平均";
 "basic Latin letters" = "基本拉丁字母";
 "characters used by the interface and your files" = "界面和文件用到的字符";

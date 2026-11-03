@@ -1,5 +1,7 @@
 {
   "messages": {
+    "aiCommit.outputTokenField": "Output token field",
+    "aiCommit.outputTokenFieldInfo": "Lithe uses this field for commit requests. Choose max_tokens for older gateways.",
     "markdown.renderFailed": "Markdown preview could not be rendered. Edit or reopen the document to retry.",
     "agent.actions.close": "Close the Agent panel",
     "agent.actions.closeSearch": "Close search",

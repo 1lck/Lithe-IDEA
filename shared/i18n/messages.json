@@ -2,6 +2,18 @@
   "schemaVersion": 1,
   "messages": [
     {
+      "id": "aiCommit.outputTokenField",
+      "description": "Lithe Chat Completions output budget field",
+      "platforms": ["macos"],
+      "macos": {"key": "Output token field", "arguments": []}
+    },
+    {
+      "id": "aiCommit.outputTokenFieldInfo",
+      "description": "Explain Lithe's gateway compatibility setting",
+      "platforms": ["macos"],
+      "macos": {"key": "Lithe uses this field for commit requests. Choose max_tokens for older gateways.", "arguments": []}
+    },
+    {
       "id": "debugger.breakpointRelocationFailed",
       "description": "Breakpoint relocation failed; reset unsafe source anchors before debugging.",
       "platforms": [
@@ -4248,8 +4260,9 @@
     },
     {
       "id": "aiCommit.aiCOMMITINVALIDOPTIONS",
-      "description": "Windows UI: aiCommit.AI_COMMIT_INVALID_OPTIONS",
+      "description": "AI commit generation: invalid settings",
       "platforms": [
+        "macos",
         "windows"
       ],
       "windows": {
@@ -4318,8 +4331,9 @@
     },
     {
       "id": "aiCommit.aiCOMMITOUTPUTLIMIT",
-      "description": "Windows UI: aiCommit.AI_COMMIT_OUTPUT_LIMIT",
+      "description": "AI commit generation: provider output limit",
       "platforms": [
+        "macos",
         "windows"
       ],
       "windows": {

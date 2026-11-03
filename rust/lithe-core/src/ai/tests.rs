@@ -409,3 +409,94 @@ fn default_effort_omits_reasoning_but_explicit_none_is_preserved() {
         );
     }
 }
+
+#[test]
+fn commit_commands_expose_the_existing_shared_planner_and_decoder() {
+    let (_, _, _, mut fixture) = fixture();
+    for file in fixture["files"].as_array_mut().unwrap() {
+        file["originalCharacters"] = file["diff"].as_str().unwrap().chars().count().into();
+    }
+    for case in fixture["responses"].as_array().unwrap() {
+        let mut provider = fixture["provider"].clone();
+        provider["apiProtocol"] = case["protocol"].clone();
+        let planned: Value = serde_json::from_str(&crate::execute_json(&json!({
+            "id": "plan", "command": "ai.planCommit",
+            "payload": {"provider": provider, "options": fixture["options"], "files": fixture["files"]}
+        }).to_string())).unwrap();
+        assert_eq!(planned["ok"], true, "{planned}");
+        assert_eq!(
+            planned["data"]["body"][case["tokenField"].as_str().unwrap()],
+            4096
+        );
+        let decoded: Value = serde_json::from_str(&crate::execute_json(&json!({
+            "id": "decode", "command": "ai.decodeCommitMessage",
+            "payload": {"protocol": case["protocol"], "response": case["body"], "includeBody": false}
+        }).to_string())).unwrap();
+        assert_eq!(decoded["data"]["message"], fixture["expectedMessage"]);
+    }
+    let mut files = fixture["files"].clone();
+    files[0]["path"] = "auth.json".into();
+    let rejected: Value = serde_json::from_str(&crate::execute_json(&json!({
+        "id": "sensitive", "command": "ai.planCommit",
+        "payload": {"provider": fixture["provider"], "options": fixture["options"], "files": files}
+    }).to_string())).unwrap();
+    assert_eq!(rejected["error"]["message"], "AI_COMMIT_SENSITIVE_FILE");
+    let exhausted: Value = serde_json::from_str(&crate::execute_json(&json!({
+        "id": "limit", "command": "ai.decodeCommitMessage",
+        "payload": {"protocol": "responses", "response": {"incomplete_details": {"reason": "max_output_tokens"}, "output_text": "partial"}, "includeBody": false}
+    }).to_string())).unwrap();
+    assert_eq!(exhausted["error"]["message"], "AI_COMMIT_OUTPUT_LIMIT");
+}
+
+#[test]
+fn commit_input_budgets_bound_cross_boundary_diffs_without_losing_truncation() {
+    let (_, _, _, fixture) = fixture();
+    let budgets: Value = serde_json::from_str(&crate::execute_json(
+        &json!({
+            "id": "budget", "command": "ai.commitInputBudget",
+            "payload": {"maximumDiffCharacters": 8000, "fileLengths": [10000, 20]}
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(budgets["ok"], true, "{budgets}");
+    assert_eq!(budgets["data"]["files"][0]["characters"], 4000);
+    assert_eq!(budgets["data"]["files"][0]["truncated"], true);
+    assert_eq!(budgets["data"]["files"][1]["characters"], 20);
+    let mut options = fixture["options"].clone();
+    options["maximumDiffCharacters"] = 8000.into();
+    let files = json!([
+        {"path":"src/a", "changeKind":"modified", "diff":"界".repeat(4000), "originalCharacters":10000},
+        {"path":"src/b", "changeKind":"modified", "diff":"b".repeat(20), "originalCharacters":20}
+    ]);
+    let plan: Value = serde_json::from_str(&crate::execute_json(
+        &json!({
+            "id":"plan", "command":"ai.planCommit",
+            "payload":{"provider":fixture["provider"], "options":options, "files":files}
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(plan["ok"], true, "{plan}");
+    let body = plan["data"]["body"].to_string();
+    assert!(body.contains("Diff truncated"));
+    assert!(body.contains("src/b"));
+}
+
+#[test]
+fn commit_json_rejects_inconsistent_prefix_without_echoing_input() {
+    let (_, _, _, fixture) = fixture();
+    let response: Value = serde_json::from_str(&crate::execute_json(&json!({
+        "command":"ai.planCommit",
+        "payload": {"provider":fixture["provider"], "options":fixture["options"], "files":[
+            {"path":"src/test", "changeKind":"modified", "diff":"private-evidence", "originalCharacters":100000}
+        ]}
+    }).to_string())).unwrap();
+    assert_eq!(response["error"]["message"], "AI_COMMIT_INVALID_OPTIONS");
+    assert!(!response.to_string().contains("private-evidence"));
+    let malformed: Value = serde_json::from_str(&crate::execute_json(&json!({
+        "command":"ai.decodeCommitMessage", "payload":{"protocol":"responses", "response":"private-evidence"}
+    }).to_string())).unwrap();
+    assert_eq!(malformed["error"]["message"], "AI_COMMIT_INVALID_OPTIONS");
+    assert!(!malformed.to_string().contains("private-evidence"));
+}
