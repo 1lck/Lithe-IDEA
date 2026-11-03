@@ -378,6 +378,11 @@ SwiftPM 的 `.build/`、资源 bundle 和 `.lithe-swift-toolchain` 标记登记�
 跟随所在工作树的源码和机器，没有 identity stamp；工具在本工作树重新构建，不写 app bundle、
 安装目录或 Sparkle delta 基线。
 
+结构化日志目录位于 `shared/logging/`，Swift/Rust 生成源码随 Git 获取。在每个工作树运行
+`node scripts/logging/generate-log-events.mjs --check`；修改目录后本地重新生成再编译。
+`shared-logging` 登记为不可复用资源：没有封存的版本、平台、架构、工具链 identity stamp，
+校验和复制阶段均拒绝跨工作树搬运；没有下载物或缓存，也没有运行时写入，签名和 Sparkle delta 不受影响。
+
 共享翻译源文件位于 `shared/i18n/`。每个工作树通过 Git 获取源文件和已提交的
 macOS 字符串表、`AppLanguage.generated.swift`、Windows `shared.generated.ts`，
 然后运行 `node scripts/i18n/generate-i18n.mjs --check` 校验。修改源翻译后运行不带

@@ -1,0 +1,96 @@
+{
+  "version": 1,
+  "root": "remote",
+  "events": [
+    {
+      "id": "remote.build.cleanup_failed",
+      "channel": "remote",
+      "level": "warn",
+      "message": "Remote build output cleanup failed",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Filesystem error raised while removing remote build output staging"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "remote.directory.watch_failed",
+      "channel": "remote",
+      "level": "warn",
+      "message": "Remote directory watch ended",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Error that ended the remote workspace directory observation stream"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "remote.plugins.cleanup_failed",
+      "channel": "remote",
+      "level": "warn",
+      "message": "Remote plugin {stage} cleanup failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Remote plugin deployment cleanup target, e.g. snapshot or extraction"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Filesystem error raised while deleting remote plugin deployment staging"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "remote.process.cleanup_failed",
+      "channel": "remote/{connection}",
+      "level": "warn",
+      "message": "Remote backend cleanup failed on connection {connection}",
+      "fields": {
+        "connection": {
+          "type": "id",
+          "required": true,
+          "description": "Validated internal connection id that owns the remote backend process"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Remote process cleanup error returned before the backend ownership was released"
+        }
+      },
+      "rate": 60,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "remote.upload.abort_failed",
+      "channel": "remote/{connection}",
+      "level": "warn",
+      "message": "Remote upload abort failed on connection {connection}",
+      "fields": {
+        "connection": {
+          "type": "id",
+          "required": true,
+          "description": "Validated internal connection id that owns the abandoned upload staging"
+        },
+        "error": {
+          "type": "error",
+          "required": false,
+          "description": "Remote abort request error, when available; staging remains owned by connection expiry"
+        }
+      },
+      "rate": 60,
+      "owner": "lithe-core"
+    }
+  ]
+}

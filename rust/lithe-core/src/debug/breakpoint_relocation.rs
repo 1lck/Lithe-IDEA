@@ -1,6 +1,7 @@
 //! Deterministic source-breakpoint relocation across UTF-16 editor edits.
 
 use std::collections::BTreeMap;
+use std::sync::{Mutex, OnceLock};
 
 use serde::{Deserialize, Serialize};
 
@@ -25,11 +26,38 @@ pub struct DebugSourceEdit {
 /// Relocates requested breakpoints after one exact editor mutation.
 pub struct RelocateBreakpointsRequest {
     /// Complete source text before the mutation.
+    #[serde(default)]
     pub source: String,
-    pub edit: DebugSourceEdit,
+    #[serde(default)]
+    pub edit: Option<DebugSourceEdit>,
+    /// Original-source edits, validated and applied together before projecting lines.
+    #[serde(default)]
+    pub edits: Vec<DebugSourceEdit>,
+    /// Optional ephemeral snapshot identity; version one supplies the complete source.
+    #[serde(default)]
+    pub document: Option<DebugSourceDocument>,
     #[serde(default)]
     pub breakpoints: Vec<SourceBreakpoint>,
 }
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// Versioned, process-local source snapshot, isolated from installed resources.
+pub struct DebugSourceDocument {
+    pub id: String,
+    pub version: u64,
+}
+
+struct SourceSnapshot {
+    last_used: std::time::Instant,
+    version: u64,
+    source: String,
+}
+
+const MAX_SNAPSHOT_BYTES: usize = 16 * 1024 * 1024;
+const MAX_SNAPSHOTS: usize = 4;
+type SnapshotCache = BTreeMap<String, SourceSnapshot>;
+static SNAPSHOTS: OnceLock<Mutex<SnapshotCache>> = OnceLock::new();
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -42,66 +70,133 @@ pub struct RelocateBreakpointsResult {
 pub fn relocate_breakpoints(
     request: RelocateBreakpointsRequest,
 ) -> Result<RelocateBreakpointsResult, CoreError> {
-    let source_utf16_length = request.source.encode_utf16().count();
-    if request.edit.start_utf16_offset > request.edit.end_utf16_offset
-        || request.edit.end_utf16_offset > source_utf16_length
-    {
-        return Err(invalid_request(
-            "Debug source edit offsets must form a valid UTF-16 range.",
-        ));
-    }
-
-    let start_byte = byte_index_at_utf16_offset(&request.source, request.edit.start_utf16_offset)?;
-    let end_byte = byte_index_at_utf16_offset(&request.source, request.edit.end_utf16_offset)?;
-    let mut updated_source = String::with_capacity(
-        request.source.len() - (end_byte - start_byte) + request.edit.replacement.len(),
-    );
-    updated_source.push_str(&request.source[..start_byte]);
-    updated_source.push_str(&request.edit.replacement);
-    updated_source.push_str(&request.source[end_byte..]);
-
-    let replacement_utf16_length = request.edit.replacement.encode_utf16().count();
-    let mut relocated = BTreeMap::new();
-    for breakpoint in request.breakpoints {
-        let anchor = breakpoint_anchor_utf16_offset(&request.source, &breakpoint)?;
-        let anchor_was_replaced = request.edit.start_utf16_offset < request.edit.end_utf16_offset
-            && anchor >= request.edit.start_utf16_offset
-            && anchor < request.edit.end_utf16_offset;
-        let relocated_anchor = relocate_anchor(
-            anchor,
-            request.edit.start_utf16_offset,
-            request.edit.end_utf16_offset,
-            replacement_utf16_length,
-        );
-        let (line, column) = position_at_utf16_offset(&updated_source, relocated_anchor)?;
-        let relocated_breakpoint = SourceBreakpoint {
-            line,
-            column: breakpoint.column.map(|_| column),
-            enabled: breakpoint.enabled,
-            condition: breakpoint.condition,
-            hit_condition: breakpoint.hit_condition,
-            log_message: breakpoint.log_message,
+    if let Some(document) = &request.document {
+        if document.id.is_empty() || document.id.len() > 128 || document.version == 0 {
+            return Err(invalid_request("Invalid debug source snapshot identity."));
+        }
+        let mut cache = SNAPSHOTS
+            .get_or_init(|| Mutex::new(BTreeMap::new()))
+            .lock()
+            .map_err(|_| invalid_request("Debug source snapshots are unavailable."))?;
+        let source = if document.version == 1 {
+            request.source.clone()
+        } else {
+            let snapshot = cache
+                .get(&document.id)
+                .filter(|entry| entry.version.checked_add(1) == Some(document.version))
+                .ok_or_else(|| invalid_request("Debug source snapshot is missing or stale."))?;
+            snapshot.source.clone()
         };
-        let identity = (
-            relocated_breakpoint.line,
-            relocated_breakpoint.column.unwrap_or(0),
+        if source.len() > MAX_SNAPSHOT_BYTES {
+            return Err(invalid_request(
+                "Debug source snapshot exceeds its size limit.",
+            ));
+        }
+        let (result, updated) =
+            relocate_batch(source, request.edit, request.edits, request.breakpoints)?;
+        if updated.len() > MAX_SNAPSHOT_BYTES {
+            return Err(invalid_request(
+                "Debug source snapshot exceeds its size limit.",
+            ));
+        }
+        if !cache.contains_key(&document.id) && cache.len() >= MAX_SNAPSHOTS {
+            if let Some(key) = cache
+                .iter()
+                .min_by_key(|(_, entry)| entry.last_used)
+                .map(|(key, _)| key.clone())
+            {
+                cache.remove(&key);
+            }
+        }
+        cache.insert(
+            document.id.clone(),
+            SourceSnapshot {
+                last_used: std::time::Instant::now(),
+                version: document.version,
+                source: updated,
+            },
         );
+        return Ok(result);
+    }
+    relocate_batch(
+        request.source,
+        request.edit,
+        request.edits,
+        request.breakpoints,
+    )
+    .map(|(result, _)| result)
+}
+
+fn relocate_batch(
+    mut source: String,
+    edit: Option<DebugSourceEdit>,
+    mut edits: Vec<DebugSourceEdit>,
+    breakpoints: Vec<SourceBreakpoint>,
+) -> Result<(RelocateBreakpointsResult, String), CoreError> {
+    if let Some(edit) = edit {
+        edits.push(edit);
+    }
+    edits.sort_by_key(|edit| (edit.start_utf16_offset, edit.end_utf16_offset));
+    let source_length = source.encode_utf16().count();
+    let mut previous_end = 0;
+    for edit in &edits {
+        if edit.start_utf16_offset < previous_end
+            || edit.start_utf16_offset > edit.end_utf16_offset
+            || edit.end_utf16_offset > source_length
+        {
+            return Err(invalid_request(
+                "Debug source edits must form non-overlapping UTF-16 ranges.",
+            ));
+        }
+        byte_index_at_utf16_offset(&source, edit.start_utf16_offset)?;
+        byte_index_at_utf16_offset(&source, edit.end_utf16_offset)?;
+        previous_end = edit.end_utf16_offset;
+    }
+    let mut anchors = breakpoints
+        .into_iter()
+        .map(|point| {
+            let anchor = breakpoint_anchor_utf16_offset(&source, &point)?;
+            Ok((point, anchor, false))
+        })
+        .collect::<Result<Vec<_>, CoreError>>()?;
+    // Keep exact character anchors across every edit. A line-only intermediate
+    // projection loses surviving code and can merge distinct breakpoints early.
+    for edit in edits.iter().rev() {
+        let start_byte = byte_index_at_utf16_offset(&source, edit.start_utf16_offset)?;
+        let end_byte = byte_index_at_utf16_offset(&source, edit.end_utf16_offset)?;
+        let replacement_length = edit.replacement.encode_utf16().count();
+        for (_, anchor, replaced) in &mut anchors {
+            *replaced |= edit.start_utf16_offset < edit.end_utf16_offset
+                && *anchor >= edit.start_utf16_offset
+                && *anchor < edit.end_utf16_offset;
+            *anchor = relocate_anchor(
+                *anchor,
+                edit.start_utf16_offset,
+                edit.end_utf16_offset,
+                replacement_length,
+            );
+        }
+        source.replace_range(start_byte..end_byte, &edit.replacement);
+    }
+    let mut relocated = BTreeMap::new();
+    for (mut point, anchor, replaced) in anchors {
+        let (line, column) = position_at_utf16_offset(&source, anchor)?;
+        point.line = line;
+        point.column = point.column.map(|_| column);
+        let identity = (line, point.column.unwrap_or(0));
         match relocated.get(&identity) {
-            Some((existing_anchor_was_replaced, _))
-                if !existing_anchor_was_replaced || anchor_was_replaced => {}
+            Some((was_replaced, _)) if !was_replaced || replaced => {}
             _ => {
-                // Preserve conditions and log settings from code that survived the edit
-                // when a removed anchor collapses onto the same resulting position.
-                relocated.insert(identity, (anchor_was_replaced, relocated_breakpoint));
+                relocated.insert(identity, (replaced, point));
             }
         }
     }
-    Ok(RelocateBreakpointsResult {
-        breakpoints: relocated
-            .into_values()
-            .map(|(_, breakpoint)| breakpoint)
-            .collect(),
-    })
+    Ok((
+        RelocateBreakpointsResult {
+            breakpoints: relocated.into_values().map(|(_, point)| point).collect(),
+        },
+        source,
+    ))
 }
 
 fn breakpoint_anchor_utf16_offset(
@@ -119,11 +214,17 @@ fn breakpoint_anchor_utf16_offset(
     let Some(&line_start) = line_starts.get(line_index) else {
         return Err(invalid_request("Debug breakpoint line is out of range."));
     };
-    let line_end = line_starts
+    let mut line_end = line_starts
         .get(line_index + 1)
         .copied()
         .map(|offset| offset.saturating_sub(1))
         .unwrap_or_else(|| source.encode_utf16().count());
+    if line_end > line_start {
+        let units: Vec<u16> = source.encode_utf16().collect();
+        if units.get(line_end - 1) == Some(&(b'\r' as u16)) {
+            line_end -= 1;
+        }
+    }
     let column = match breakpoint.column {
         Some(column) => usize::try_from(column - 1)
             .map_err(|_| invalid_request("Debug breakpoint column is out of range."))?,
@@ -171,9 +272,13 @@ fn relocate_anchor(
 fn line_start_utf16_offsets(source: &str) -> Vec<usize> {
     let mut values = vec![0];
     let mut offset = 0;
-    for character in source.chars() {
+    let mut characters = source.chars().peekable();
+    while let Some(character) = characters.next() {
         offset += character.len_utf16();
-        if character == '\n' {
+        if character == '\r' && characters.peek() == Some(&'\n') {
+            continue;
+        }
+        if character == '\n' || character == '\r' {
             values.push(offset);
         }
     }
@@ -239,11 +344,13 @@ mod tests {
         let line_start = source.find("    void").unwrap();
         let result = relocate_breakpoints(RelocateBreakpointsRequest {
             source: source.to_string(),
-            edit: DebugSourceEdit {
+            edit: Some(DebugSourceEdit {
                 start_utf16_offset: line_start,
                 end_utf16_offset: line_start,
                 replacement: "\n".to_string(),
-            },
+            }),
+            edits: vec![],
+            document: None,
             breakpoints: vec![breakpoint(2)],
         })
         .unwrap();
@@ -257,11 +364,13 @@ mod tests {
         let edit_offset = source.find("run").unwrap() + "run".len();
         let result = relocate_breakpoints(RelocateBreakpointsRequest {
             source: source.to_string(),
-            edit: DebugSourceEdit {
+            edit: Some(DebugSourceEdit {
                 start_utf16_offset: edit_offset,
                 end_utf16_offset: edit_offset,
                 replacement: "Now".to_string(),
-            },
+            }),
+            edits: vec![],
+            document: None,
             breakpoints: vec![breakpoint(2)],
         })
         .unwrap();
@@ -276,11 +385,13 @@ mod tests {
         let deletion_end = source.find("    void").unwrap();
         let result = relocate_breakpoints(RelocateBreakpointsRequest {
             source: source.to_string(),
-            edit: DebugSourceEdit {
+            edit: Some(DebugSourceEdit {
                 start_utf16_offset: deletion_start,
                 end_utf16_offset: deletion_end,
                 replacement: String::new(),
-            },
+            }),
+            edits: vec![],
+            document: None,
             breakpoints: vec![breakpoint(3)],
         })
         .unwrap();
@@ -297,11 +408,13 @@ mod tests {
         expected.column = Some(29);
         let result = relocate_breakpoints(RelocateBreakpointsRequest {
             source: source.to_string(),
-            edit: DebugSourceEdit {
+            edit: Some(DebugSourceEdit {
                 start_utf16_offset: anchor_utf16,
                 end_utf16_offset: anchor_utf16,
                 replacement: "next".to_string(),
-            },
+            }),
+            edits: vec![],
+            document: None,
             breakpoints: vec![SourceBreakpoint {
                 line: 2,
                 column: Some(25),
@@ -322,11 +435,13 @@ mod tests {
         surviving_breakpoint.condition = Some("surviving".to_string());
         let result = relocate_breakpoints(RelocateBreakpointsRequest {
             source: source.to_string(),
-            edit: DebugSourceEdit {
+            edit: Some(DebugSourceEdit {
                 start_utf16_offset: 0,
                 end_utf16_offset: "first();\n".len(),
                 replacement: String::new(),
-            },
+            }),
+            edits: vec![],
+            document: None,
             breakpoints: vec![deleted_breakpoint, surviving_breakpoint.clone()],
         })
         .unwrap();
@@ -339,15 +454,85 @@ mod tests {
     fn edit_cannot_split_a_utf16_surrogate_pair() {
         let error = relocate_breakpoints(RelocateBreakpointsRequest {
             source: "🚀".to_string(),
-            edit: DebugSourceEdit {
+            edit: Some(DebugSourceEdit {
                 start_utf16_offset: 1,
                 end_utf16_offset: 1,
                 replacement: String::new(),
-            },
+            }),
+            edits: vec![],
+            document: None,
             breakpoints: vec![],
         })
         .unwrap_err();
 
         assert!(matches!(error.code, ErrorCode::InvalidRequest));
+    }
+    #[test]
+    fn batch_keeps_surviving_character_anchor_until_final_projection() {
+        let (result, text) = relocate_batch(
+            "aaa\nbbb".into(),
+            None,
+            vec![
+                DebugSourceEdit {
+                    start_utf16_offset: 1,
+                    end_utf16_offset: 1,
+                    replacement: "\n".into(),
+                },
+                DebugSourceEdit {
+                    start_utf16_offset: 3,
+                    end_utf16_offset: 4,
+                    replacement: String::new(),
+                },
+            ],
+            vec![breakpoint(2)],
+        )
+        .unwrap();
+        assert_eq!(text, "a\naabbb");
+        assert_eq!(result.breakpoints, vec![breakpoint(2)]);
+    }
+
+    #[test]
+    fn lone_cr_and_crlf_keep_line_anchors() {
+        for source in ["a\rb", "a\r\nb", "a\nb"] {
+            let (result, _) = relocate_batch(
+                source.into(),
+                Some(DebugSourceEdit {
+                    start_utf16_offset: 0,
+                    end_utf16_offset: 0,
+                    replacement: "x\r".into(),
+                }),
+                vec![],
+                vec![breakpoint(2)],
+            )
+            .unwrap();
+            assert_eq!(result.breakpoints, vec![breakpoint(3)]);
+        }
+    }
+
+    #[test]
+    fn source_snapshot_reuses_text_and_rejects_stale_versions() {
+        let request = |version, source: &str| RelocateBreakpointsRequest {
+            source: source.into(),
+            edit: None,
+            edits: vec![DebugSourceEdit {
+                start_utf16_offset: 0,
+                end_utf16_offset: 0,
+                replacement: "\n".into(),
+            }],
+            document: Some(DebugSourceDocument {
+                id: "snapshot-regression".into(),
+                version,
+            }),
+            breakpoints: vec![breakpoint(version as i64)],
+        };
+        assert_eq!(
+            relocate_breakpoints(request(1, "b")).unwrap().breakpoints[0].line,
+            2
+        );
+        assert_eq!(
+            relocate_breakpoints(request(2, "")).unwrap().breakpoints[0].line,
+            3
+        );
+        assert!(relocate_breakpoints(request(2, "")).is_err());
     }
 }

@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import AppKit
 import CoreText
 import Foundation
@@ -13,13 +14,9 @@ enum MacBundledFontRegistry {
             return ["Inter-\(face).otf", "Inter-\(italic).otf"]
         } + ["Regular", "Bold", "Italic", "BoldItalic"].map { "JetBrainsMonoNerdFontMono-\($0).ttf" }
 
-    static func registerFonts(bundle: Bundle = .main) {
-        registerFonts(bundle: bundle, reporter: report)
-    }
-
     static func registerFonts(
         bundle: Bundle = .main,
-        reporter: (String) -> Void
+        logSink: (any LogSink)? = nil
     ) {
         guard bundle.url(forResource: "JetBrainsMono-Regular", withExtension: "ttf", subdirectory: "Fonts") != nil else {
             return
@@ -27,7 +24,7 @@ enum MacBundledFontRegistry {
 
         for font in fonts {
             guard let url = bundle.url(forResource: font, withExtension: nil, subdirectory: "Fonts") else {
-                reporter("Lithe font registration: Missing bundled font: \(font)\n")
+                logSink?.emit(AppFontMissing(font: font))
                 continue
             }
 
@@ -35,15 +32,10 @@ enum MacBundledFontRegistry {
             guard CTFontManagerRegisterFontsForURL(url as CFURL, .process, &registrationError) else {
                 let error = registrationError?.takeRetainedValue()
                 if let error, CFErrorGetCode(error) == CTFontManagerError.alreadyRegistered.rawValue { continue }
-                let detail = error?.localizedDescription ?? "Unknown CoreText error"
-                reporter("Lithe font registration: Could not register \(font): \(detail)\n")
+                logSink?.emit(AppFontRegistrationFailed(error: error.map { $0 as Error } ?? NSError(domain: "CoreText", code: -1), font: font))
                 continue
             }
         }
     }
 
-    private static func report(_ message: String) {
-        guard let data = message.data(using: .utf8) else { return }
-        FileHandle.standardError.write(data)
-    }
 }

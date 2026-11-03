@@ -83,6 +83,8 @@ async function readRegistry() {
   // both original state and migration snapshots and must not gain a validator.
   // Plugin grammar workers use checkout-built editor assets; decoded grammars,
   // document tokens and editor action leases are memory-only, never reusable.
+  // Shared logging catalogs and generated API sources also use the refusal route:
+  // validate with generate-log-events.mjs in the target checkout; never copy.
   // Shared i18n source and generated tables take this same refusal route:
   // rebuild from the target checkout, never copy another worktree's translations.
   // AutoBuild publication checkpoints and baseline downloads are invocation-owned,

@@ -25,6 +25,7 @@ const WATCH_EXPRESSIONS_STORAGE_KEY = "lithe-debugger-watch-expressions";
 interface DebuggerState {
   breakpoints: DebugBreakpoint[];
   breakpointGeneration: number;
+  breakpointUserRevisions: Record<string, number>;
   watchExpressions: DebugWatchExpression[];
   watchResults: Record<string, DebugWatchResult>;
   workspaceConfigs: DebugLaunchConfig[];
@@ -152,6 +153,7 @@ export const useDebuggerStore = createSelectors(
   create<DebuggerState>()((set, get) => ({
     breakpoints: loadBreakpoints(),
     breakpointGeneration: 0,
+    breakpointUserRevisions: {},
     watchExpressions: loadWatchExpressions(),
     watchResults: {},
     workspaceConfigs: [],
@@ -208,27 +210,29 @@ export const useDebuggerStore = createSelectors(
               ];
 
           saveBreakpoints(nextBreakpoints);
-          return { breakpoints: nextBreakpoints };
+          return { breakpoints: nextBreakpoints, breakpointUserRevisions: { ...state.breakpointUserRevisions, [key]: (state.breakpointUserRevisions[key] ?? 0) + 1 } };
         });
       },
 
       setBreakpointEnabled: (breakpointId, enabled) => {
         set((state) => {
+          const key = debugSourcePathKey(state.breakpoints.find(point => point.id === breakpointId)?.filePath ?? "");
           const nextBreakpoints = state.breakpoints.map((breakpoint) =>
             breakpoint.id === breakpointId ? { ...breakpoint, enabled } : breakpoint,
           );
           saveBreakpoints(nextBreakpoints);
-          return { breakpoints: nextBreakpoints };
+          return { breakpoints: nextBreakpoints, breakpointUserRevisions: { ...state.breakpointUserRevisions, [key]: (state.breakpointUserRevisions[key] ?? 0) + 1 } };
         });
       },
 
       removeBreakpoint: (breakpointId) => {
         set((state) => {
+          const key = debugSourcePathKey(state.breakpoints.find(point => point.id === breakpointId)?.filePath ?? "");
           const nextBreakpoints = state.breakpoints.filter(
             (breakpoint) => breakpoint.id !== breakpointId,
           );
           saveBreakpoints(nextBreakpoints);
-          return { breakpoints: nextBreakpoints };
+          return { breakpoints: nextBreakpoints, breakpointUserRevisions: { ...state.breakpointUserRevisions, [key]: (state.breakpointUserRevisions[key] ?? 0) + 1 } };
         });
       },
 

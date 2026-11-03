@@ -356,6 +356,8 @@ struct PluginLanguageServerLaunchResolverTests {
             core: RustCoreBridge()
         )
         var states: [LanguageServerSessionState] = []
+        var issues: [(Bool, String, String)] = []
+        session.onLogIssue = { warning, stage, code, _, _ in issues.append((warning, stage, code)) }
         session.onStateChange = { states.append($0) }
 
         #expect(throws: LanguageServerSessionStartError.self) {
@@ -367,6 +369,10 @@ struct PluginLanguageServerLaunchResolverTests {
             return
         }
         #expect(failure.code == "plugin.launch.invalidRequest")
+        #expect(issues.count == 1)
+        #expect(issues.first?.0 == false)
+        #expect(issues.first?.1 == "processStart")
+        #expect(issues.first?.2 == "plugin.launch.invalidRequest")
     }
 
     // MARK: Fixtures

@@ -265,6 +265,8 @@ jobs:
       - name: Run Windows frontend tests
         shell: pwsh
         run: |
+          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-breakpoint-relocation.json -- src/features/debugger/services/breakpoint-relocation.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           bun test src/platform
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-language-detection.json -- src/features/editor/utils/language-detection.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

@@ -1,10 +1,31 @@
 import Foundation
 import Sparkle
+import LitheModuleAPI
 import Testing
 @testable import Lithe
 
 @Suite("Update download relay", .serialized)
 struct UpdateDownloadRelayTests {
+    @Test(arguments: [UpdateDownloadFailure.timedOut, .connectionFailed, .tlsOrProxyFailure,
+                      .httpStatus(403), .httpStatus(429), .invalidResponse])
+    func downloadFailureRetainsControlledCauseAndHTTPStatus(failure: UpdateDownloadFailure) throws {
+        let event = failure.logEvent
+        let expected: String
+        switch failure {
+        case .timedOut: expected = "timedOut"
+        case .connectionFailed: expected = "connectionFailed"
+        case .tlsOrProxyFailure: expected = "tlsOrProxyFailure"
+        case .httpStatus: expected = "httpStatus"
+        case .invalidResponse: expected = "invalidResponse"
+        }
+        if case .token(let reason) = event.fields["reason"] { #expect(reason == expected) }
+        else { Issue.record("Missing download failure classification") }
+        if case .httpStatus(let status) = failure {
+            if case .int(let actual) = event.fields["http_status"] { #expect(actual == status) }
+            else { Issue.record("Missing HTTP status") }
+        } else { #expect(event.fields["http_status"] == nil) }
+    }
+
     @Test
     func freshDownloadStreamsEverythingAndRemovesThePartial() async throws {
         let fixture = try RelayFixture()
@@ -220,7 +241,7 @@ struct UpdateDownloadRelayTests {
         fixture.script([.respond(status: 200, headers: ["ETag": "\"v1\"", "Content-Length": "5"],
                                  chunks: ["hello"], failure: nil)])
         let relay = UpdateDownloadRelay(store: fixture.store, configuration: fixture.configuration,
-                                        diagnosticSink: { _ in })
+                                        logSink: nil)
         defer { relay.stop() }
         let relayed = try #require(relay.relayURL(for: fixture.upstream))
         #expect(relayed.host == "127.0.0.1")

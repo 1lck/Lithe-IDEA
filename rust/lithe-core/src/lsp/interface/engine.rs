@@ -1345,8 +1345,10 @@ impl RuntimeSession {
         drop(outbound_order);
 
         for detail in warnings {
-            self.log(
+            self.log_issue(
                 "warn",
+                "mavenSettings",
+                "mavenSettingsUnchanged",
                 "Maven settings were passed to the Java language service unchanged",
                 Some(detail),
             );
@@ -2073,8 +2075,10 @@ impl LspEngine {
             );
         }
         for detail in maven_settings_warnings {
-            session.log(
+            session.log_issue(
                 "warn",
+                "mavenSettings",
+                "mavenSettingsUnchanged",
                 "Maven settings were passed to the Java language service unchanged",
                 Some(detail),
             );
@@ -2088,8 +2092,10 @@ impl LspEngine {
                 );
             }
             if let Some(failure) = area.cleanup_failure {
-                session.log(
+                session.log_issue(
                     "warn",
+                    "configurationCleanup",
+                    "configurationCleanupFailed",
                     "Unused Java language-server configuration areas could not be removed",
                     Some(failure),
                 );
@@ -3634,14 +3640,18 @@ impl RuntimeSession {
             while error_session.active.load(Ordering::Acquire) {
                 match stderr.read(&mut chunk) {
                     Ok(0) => break,
-                    Ok(count) => error_session.log(
+                    Ok(count) => error_session.log_issue(
                         "warning",
+                        "stderr",
+                        "upstreamStderr",
                         "Language-server stderr",
                         Some(String::from_utf8_lossy(&chunk[..count]).trim().to_string()),
                     ),
                     Err(error) => {
-                        error_session.log(
+                        error_session.log_issue(
                             "warning",
+                            "stderr",
+                            "stderrReadFailed",
                             "Could not read language-server stderr",
                             Some(error.to_string()),
                         );
@@ -4035,10 +4045,12 @@ impl RuntimeSession {
                                     .java_navigation_marker_batches
                                     .insert(operation_id.clone(), batch);
                                 if total_tasks > MAX_JAVA_NAVIGATION_TASKS {
-                                    push_log_event(
+                                    push_issue_log_event(
                                         self,
                                         &mut state,
                                         "warning",
+                                        "navigation",
+                                        "navigationLimited",
                                         "Java navigation marker batch was limited",
                                         Some(format!(
                                             "operationId={operation_id}, uri={}, documentVersion={}, tasks={total_tasks}, limit={MAX_JAVA_NAVIGATION_TASKS}",
@@ -4074,10 +4086,12 @@ impl RuntimeSession {
                                     batch.record_active_result(value.get("result"));
                                 }
                             } else {
-                                push_log_event(
+                                push_issue_log_event(
                                     self,
                                     &mut state,
                                     "warning",
+                                    "navigation",
+                                    "navigationMarkerFailed",
                                     "JDT LS could not verify one Java navigation marker",
                                     Some(format!(
                                         "operationId={operation_id}, uri={}, documentVersion={}, error={}",
@@ -4179,17 +4193,25 @@ impl RuntimeSession {
                             "errorDetails": error_details,
                         }))
                         .ok();
-                        push_log_event(
-                            self,
-                            &mut state,
-                            if status == MavenProfileTaskStatus::Failed {
-                                "error"
-                            } else {
-                                "info"
-                            },
-                            "Maven profile project update completed",
-                            detail,
-                        );
+                        if status == MavenProfileTaskStatus::Failed {
+                            push_issue_log_event(
+                                self,
+                                &mut state,
+                                "error",
+                                "mavenProfile",
+                                "mavenProfileUpdateFailed",
+                                "Maven profile project update completed",
+                                detail,
+                            );
+                        } else {
+                            push_log_event(
+                                self,
+                                &mut state,
+                                "info",
+                                "Maven profile project update completed",
+                                detail,
+                            );
+                        }
                     }
                     if let Some(result) = completed_result {
                         push_maven_profile_project_event(self, &mut state, result);
@@ -5195,8 +5217,10 @@ impl RuntimeSession {
             match self.maven_profile_requests() {
                 Ok((messages, _)) => messages,
                 Err(error) => {
-                    self.log(
+                    self.log_issue(
                         "warn",
+                        "mavenProfileStart",
+                        "mavenProfileStartFailed",
                         "Could not start the pending Maven profile update",
                         Some(error.message),
                     );
@@ -5280,10 +5304,12 @@ impl RuntimeSession {
                         .as_mut()
                         .and_then(|diagnostics| diagnostics.take_idle_warning(now));
                     if let Some(detail) = warning {
-                        push_log_event(
+                        push_issue_log_event(
                             self,
                             &mut state,
                             "warning",
+                            "workspaceImport",
+                            "workspaceImportStalled",
                             "Java workspace import has not reported progress; still waiting for ServiceReady",
                             Some(detail),
                         );
@@ -5405,10 +5431,12 @@ impl RuntimeSession {
                         "errorDetails": error_details,
                     }))
                     .ok();
-                    push_log_event(
+                    push_issue_log_event(
                         self,
                         &mut state,
                         "error",
+                        "mavenProfile",
+                        "mavenProfileUpdateFailed",
                         "Maven profile project update completed",
                         detail,
                     );
@@ -5455,10 +5483,12 @@ impl RuntimeSession {
             {
                 state.shutdown_deadline = None;
                 shutdown_timeout = true;
-                push_log_event(
+                push_issue_log_event(
                     self,
                     &mut state,
                     "warning",
+                    "shutdown",
+                    "shutdownTimeout",
                     "Language-server shutdown timed out; forcing termination",
                     None,
                 );
@@ -5495,10 +5525,12 @@ impl RuntimeSession {
             self.kill_process();
         } else if maven_context_timeout {
             if let Ok(mut state) = self.lock_state() {
-                push_log_event(
+                push_issue_log_event(
                     self,
                     &mut state,
                     "error",
+                    "mavenProfile",
+                    "mavenProfileTimeout",
                     "JDT LS Maven profile application timed out; session remains available",
                     None,
                 );
@@ -5643,6 +5675,19 @@ impl RuntimeSession {
     fn log(&self, level: &str, message: &str, detail: Option<String>) {
         if let Ok(mut state) = self.lock_state() {
             push_log_event(self, &mut state, level, message, detail);
+        }
+    }
+
+    fn log_issue(
+        &self,
+        level: &str,
+        stage: &str,
+        code: &str,
+        message: &str,
+        detail: Option<String>,
+    ) {
+        if let Ok(mut state) = self.lock_state() {
+            push_issue_log_event(self, &mut state, level, stage, code, message, detail);
         }
     }
 
@@ -7031,6 +7076,30 @@ fn push_log_event(
     message: &str,
     detail: Option<String>,
 ) {
+    push_classified_log_event(session, state, level, message, detail, None);
+}
+
+fn push_issue_log_event(
+    session: &RuntimeSession,
+    state: &mut SessionState,
+    level: &str,
+    stage: &str,
+    code: &str,
+    message: &str,
+    detail: Option<String>,
+) {
+    let error = runtime_error(session, code, stage, None, None, message, None, None);
+    push_classified_log_event(session, state, level, message, detail, Some(error));
+}
+
+fn push_classified_log_event(
+    session: &RuntimeSession,
+    state: &mut SessionState,
+    level: &str,
+    message: &str,
+    detail: Option<String>,
+    error: Option<LspRuntimeError>,
+) {
     let sequence = take_sequence(state);
     enqueue_runtime_event(
         session,
@@ -7047,7 +7116,7 @@ fn push_log_event(
             version: None,
             diagnostics: None,
             result: None,
-            error: None,
+            error,
             capabilities: None,
             server_info: None,
             level: Some(level.to_string()),
@@ -8086,6 +8155,19 @@ mod tests {
             "a duplicate readiness notification must not enqueue duplicate profile updates"
         );
         assert_eq!(harness.snapshot().state, LspLifecycleState::Ready);
+        let completed_logs: Vec<_> = harness
+            .events
+            .iter()
+            .filter(|event| {
+                event.kind == "log"
+                    && event.maven_profile_project.is_none()
+                    && event.message.as_deref() == Some("Maven profile project update completed")
+            })
+            .collect();
+        assert_eq!(completed_logs.len(), 2);
+        assert!(completed_logs
+            .iter()
+            .all(|event| { event.level.as_deref() == Some("info") && event.error.is_none() }));
 
         harness.server.send(json!({
             "jsonrpc": "2.0",
@@ -8134,6 +8216,14 @@ mod tests {
             .map(|result| result.project_uri.as_str())
             .unwrap_or_default();
         assert!(!project_uri.contains("/Users/") && !project_uri.contains("\\Users\\"));
+        assert!(project_event.error.is_none());
+        assert!(harness.events.iter().any(|event| {
+            event.kind == "log"
+                && event.level.as_deref() == Some("error")
+                && event.error.as_ref().is_some_and(|error| {
+                    error.stage == "mavenProfile" && error.code == "mavenProfileUpdateFailed"
+                })
+        }));
         harness.await_state(LspLifecycleState::Ready);
         assert_eq!(harness.snapshot().state, LspLifecycleState::Ready);
     }
@@ -8544,6 +8634,56 @@ mod tests {
     }
 
     #[test]
+    fn structured_logging_warnings_keep_source_stage_and_code() {
+        let harness = Harness::ready();
+        let session = harness.session();
+        session.log_issue(
+            "warn",
+            "configurationCleanup",
+            "configurationCleanupFailed",
+            "Cleanup failed",
+            None,
+        );
+        let event = session
+            .poll_events()
+            .unwrap()
+            .into_iter()
+            .find(|event| event.kind == "log")
+            .unwrap();
+        assert_eq!(event.level.as_deref(), Some("warn"));
+        let error = event.error.unwrap();
+        assert_eq!(error.code, "configurationCleanupFailed");
+        assert_eq!(error.stage, "configurationCleanup");
+        assert!(error.underlying_message.is_none());
+        for (stage, code) in [
+            ("stderr", "upstreamStderr"),
+            ("stderr", "stderrReadFailed"),
+            ("shutdown", "shutdownTimeout"),
+        ] {
+            session.log_issue("warning", stage, code, "Updated diagnostic wording", None);
+            let event = session
+                .poll_events()
+                .unwrap()
+                .into_iter()
+                .find(|event| event.kind == "log")
+                .unwrap();
+            assert_eq!(event.level.as_deref(), Some("warning"));
+            let error = event.error.unwrap();
+            assert_eq!(error.stage, stage);
+            assert_eq!(error.code, code);
+        }
+        // Ordinary logs must remain unclassified even when their wording matches an issue.
+        session.log("warning", "Language-server stderr", None);
+        let event = session
+            .poll_events()
+            .unwrap()
+            .into_iter()
+            .find(|event| event.kind == "log")
+            .unwrap();
+        assert!(event.error.is_none());
+    }
+
+    #[test]
     fn maven_profile_log_redacts_absolute_project_paths() {
         let redacted = redacted_project_uri("file:///Users/alice/workspace/module-a/");
         assert!(redacted.starts_with("file:///module-a-"));
@@ -8600,6 +8740,7 @@ mod tests {
                 .unwrap();
             assert_eq!(event.level.as_deref(), Some(level));
             assert_eq!(event.message.as_deref(), Some(message));
+            assert!(event.error.is_none());
             assert_eq!(event.maven_profile_project.unwrap().status, status);
         }
     }
@@ -8728,18 +8869,23 @@ mod tests {
         // A quiet m2e batch is not a heartbeat failure. Advance only the deadline
         // clock so the test needs neither a real project nor a 46-second sleep.
         session.expire_deadlines_at(Instant::now() + Duration::from_secs(46));
-        harness.await_event(|event| {
-            event.message.as_deref() == Some(
-            "Java workspace import has not reported progress; still waiting for ServiceReady",
-        )
+        let warning = harness.await_event(|event| {
+            event.error.as_ref().is_some_and(|error| {
+                error.stage == "workspaceImport" && error.code == "workspaceImportStalled"
+            })
         });
+        assert_eq!(warning.kind, "log");
+        assert_eq!(warning.level.as_deref(), Some("warning"));
         assert_eq!(harness.snapshot().state, LspLifecycleState::Initializing);
         harness.server.send(json!({
             "jsonrpc": "2.0", "method": "language/status",
             "params": { "type": "ServiceReady" }
         }));
         harness.await_state(LspLifecycleState::Ready);
-        assert!(!harness.events.iter().any(|event| event.error.is_some()));
+        assert!(!harness
+            .events
+            .iter()
+            .any(|event| event.kind != "log" && event.error.is_some()));
     }
 
     #[test]
@@ -10303,10 +10449,9 @@ mod tests {
         silent.await_state(LspLifecycleState::Stopped);
         silent.await_event(|event| {
             event.kind == "log"
-                && event
-                    .message
-                    .as_deref()
-                    .is_some_and(|message| message.contains("shutdown timed out"))
+                && event.error.as_ref().is_some_and(|error| {
+                    error.stage == "shutdown" && error.code == "shutdownTimeout"
+                })
         });
     }
 
@@ -12555,6 +12700,12 @@ public class Main {
                 .map(Vec::len),
             Some(1)
         );
+        assert!(harness.events.iter().any(|event| {
+            event.kind == "log"
+                && event.error.as_ref().is_some_and(|error| {
+                    error.stage == "navigation" && error.code == "navigationMarkerFailed"
+                })
+        }));
     }
 
     #[test]
@@ -12643,7 +12794,9 @@ public class Main {
         );
         assert!(harness.events.iter().any(|event| {
             event.kind == "log"
-                && event.message.as_deref() == Some("Java navigation marker batch was limited")
+                && event.error.as_ref().is_some_and(|error| {
+                    error.stage == "navigation" && error.code == "navigationLimited"
+                })
         }));
     }
 

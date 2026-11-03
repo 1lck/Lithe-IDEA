@@ -31,7 +31,7 @@ test("editing updates the persisted owner, its gutter projection and the one-bas
     await flushBreakpointRelocations();
     const points = useDebuggerStore.getState().breakpoints;
     expect(invoke.mock.calls[0]).toEqual(["debug.relocateBreakpoints", {
-      source: "first();\nrun();\n", edit: { startUtf16Offset: 0, endUtf16Offset: 0, replacement: "\n" },
+      source: "first();\nrun();\n", document: expect.objectContaining({ version: 1 }), edits: [ { startUtf16Offset: 0, endUtf16Offset: 0, replacement: "\n" }],
       breakpoints: [{ line: 2, enabled: true }],
     }]);
     expect(points[0]?.line).toBe(2);
@@ -146,24 +146,54 @@ test("a failed relocation blocks launch until the user clears unsafe anchors", a
   } finally { invoke.mockRestore(); }
 });
 
-test("multi-cursor native edits replay from the end and Core supplies intermediate text", async () => {
-  const source = "first();\nsecond();\nrun();\n";
-  const model = new SourceText(source, 1);
-  const changes = model.apply([
-    { rangeOffset: 0, rangeLength: 0, text: "\n" },
-    { rangeOffset: 9, rangeLength: 0, text: "\n" },
-  ], 2);
-  useDebuggerStore.getState().actions.toggleBreakpoint("D:/work/Main.java", 2);
-  const invoke = spyOn(native, "invoke")
-    .mockResolvedValueOnce({ breakpoints: [{ line: 4, enabled: true }] })
-    .mockResolvedValueOnce({ text: "first();\n\nsecond();\nrun();\n" })
-    .mockResolvedValueOnce({ breakpoints: [{ line: 5, enabled: true }] });
-  try {
-    queueBreakpointRelocation("D:/work/Main.java", { previousContent: source, content: model.value, changes, external: false });
-    await flushBreakpointRelocations();
-    expect(invoke.mock.calls.map(call => call[0])).toEqual([
-      "debug.relocateBreakpoints", "lsp.applyTextEdits", "debug.relocateBreakpoints",
-    ]);
-    expect(useDebuggerStore.getState().breakpoints[0]?.line).toBe(4);
-  } finally { invoke.mockRestore(); }
+test("multi-cursor native edits are submitted together to preserve character anchors", async () => {
+ const source = "first();\nsecond();\nrun();\n";
+ const model = new SourceText(source, 1);
+ const changes = model.apply([{rangeOffset:0,rangeLength:0,text:"\n"},{rangeOffset:9,rangeLength:0,text:"\n"}], 2);
+ useDebuggerStore.getState().actions.toggleBreakpoint("D:/work/Batch.java",2);
+ const invoke = spyOn(native,"invoke").mockResolvedValue({breakpoints:[{line:5,enabled:true}]});
+ try {
+  queueBreakpointRelocation("D:/work/Batch.java",{previousContent:source,content:model.value,changes,external:false});
+  await flushBreakpointRelocations();
+  expect(invoke).toHaveBeenCalledTimes(1);
+  expect((invoke.mock.calls[0]?.[1] as {edits:unknown[]}).edits).toHaveLength(2);
+  expect(useDebuggerStore.getState().actions.getBreakpointsForFile("D:/work/Batch.java")[0]?.line).toBe(4);
+ } finally { invoke.mockRestore(); }
+});
+
+test("user breakpoint edits while another file blocks the queue reject stale coordinates", async () => {
+ const actions = useDebuggerStore.getState().actions;
+ actions.toggleBreakpoint("D:/work/Block.java", 1); actions.toggleBreakpoint("D:/work/Queued.java", 1);
+ let release!: (value: {breakpoints: {line:number;enabled:boolean}[]}) => void; let enter!:()=>void;
+ const started = new Promise<void>(resolve => {enter=resolve;});
+ const blocked = new Promise<{breakpoints:{line:number;enabled:boolean}[]}>(resolve => {release=resolve;});
+ const invoke = spyOn(native,"invoke").mockImplementation(async command => { if(command === "debug.relocateBreakpoints") {enter(); return await blocked as never;} return undefined as never; });
+ try {
+  queueBreakpointRelocation("D:/work/Block.java", insertion()); await started;
+  queueBreakpointRelocation("D:/work/Queued.java", insertion());
+  actions.toggleBreakpoint("D:/work/Queued.java", 0);
+  release({breakpoints:[{line:3,enabled:true}]});
+  await expect(flushBreakpointRelocations()).rejects.toBeInstanceOf(Error);
+  expect(invoke.mock.calls.filter(call=>call[0] === "debug.relocateBreakpoints")).toHaveLength(1);
+  expect(actions.getBreakpointsForFile("D:/work/Queued.java").map(point=>point.line)).toEqual([1,0]);
+ } finally {release({breakpoints:[]}); actions.clearBreakpoints(); await flushBreakpointRelocations(); invoke.mockRestore();}
+});
+
+test("large document incremental IPC omits the source after the initial snapshot", async () => {
+ const source = "x".repeat(10 * 1024 * 1024);
+ useDebuggerStore.getState().actions.toggleBreakpoint("D:/work/Large.java",0);
+ const invoke = spyOn(native,"invoke").mockResolvedValue({breakpoints:[{line:1,enabled:true}]});
+ let current = source;
+ try {
+  for(let index=0;index<128;index++) {
+   const next = current + "x";
+   queueBreakpointRelocation("D:/work/Large.java",{previousContent:current,content:next,external:false,changes:[{offset:current.length,length:0,text:"x",start:{line:0,column:current.length},end:{line:0,column:current.length}}]});
+   await flushBreakpointRelocations(); current=next;
+  }
+  const payloads = invoke.mock.calls.filter(call=>call[0] === "debug.relocateBreakpoints").map(call=>call[1] as {source?:string});
+  expect(payloads).toHaveLength(128);
+  expect(payloads.filter(payload=>payload.source !== undefined)).toHaveLength(1);
+  const bytes=payloads.reduce((sum,payload)=>sum+new TextEncoder().encode(JSON.stringify(payload)).length,0);
+  expect(bytes).toBeLessThan(11*1024*1024);
+ } finally {invoke.mockRestore();}
 });

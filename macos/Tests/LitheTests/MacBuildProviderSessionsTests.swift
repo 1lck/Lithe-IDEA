@@ -9,6 +9,29 @@ import Testing
 /// process a request reuses, and when the host stops or restarts it.
 @MainActor
 struct MacBuildProviderSessionsTests {
+    @Test func runtimeWarningsAndFailuresKeepSourceClassificationAndNumbers() async throws {
+        let core = ScriptedProviderCore()
+        let session = LanguageServerRuntimeSession(providerID: "fixture",
+            executableURL: URL(fileURLWithPath: "/tools/server"), arguments: [], environment: [:], core: core)
+        let observed = TestGate()
+        var issues: [(Bool, String, String, Int?)] = []
+        session.onLogIssue = { warning, stage, code, exit, _ in
+            issues.append((warning, stage, code, exit))
+            if issues.count == 3 { observed.open() }
+        }
+        defer { session.stop() }
+        try session.start(rootURL: URL(fileURLWithPath: "/workspace"), workspaceFingerprint: nil)
+        core.enqueueLogIssues()
+        #expect(await observed.waitUntilOpen())
+        #expect(issues.map { $0.2 } == ["mavenSettingsUnchanged", "configurationCleanupFailed", "initializeTimeout"])
+        #expect(issues.first?.0 == true)
+        #expect(issues.last?.0 == false)
+        #expect(issues.last?.1 == "initialize")
+        #expect(issues.last?.3 == 17)
+        session.stop()
+        #expect(await core.destroyed.waitUntilOpen())
+    }
+
     @Test func stopAndWaitIncludesTerminalEventAndAsynchronousResourceRelease() async throws {
         let core = ScriptedProviderCore(readyAfterStop: true)
         let session = LanguageServerRuntimeSession(providerID: "fixture",
@@ -208,10 +231,13 @@ struct MacBuildProviderSessionsTests {
                     core: core, release: { released.open() })
             }, core: core
         )
+        var issues: [(String, String)] = []
+        session.onLogIssue = { _, stage, code, _, _ in issues.append((stage, code)) }
         defer { session.stop() }
         try session.start(rootURL: URL(fileURLWithPath: "/workspace"), workspaceFingerprint: nil)
         #expect(await released.waitUntilOpen())
         #expect(!session.isRunning)
+        #expect(issues.contains { $0.0 == "processStart" && $0.1 == "processFailed" })
     }
 
     @Test
@@ -1013,6 +1039,20 @@ private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked 
         }
         started.open()
         return .success(result)
+    }
+
+    func enqueueLogIssues() {
+        lock.withLock {
+            events["provider-\(nextSession)", default: []] += [
+                LanguageServerRuntimeEvent(type: "log", error: LanguageServerRuntimeError(code: "mavenSettingsUnchanged", stage: "mavenSettings", message: "settings warning", underlyingMessage: nil, processExitCode: nil), level: "warn",
+                    message: "Maven settings were passed to the Java language service unchanged", detail: "private upstream detail"),
+                LanguageServerRuntimeEvent(type: "log", error: LanguageServerRuntimeError(code: "configurationCleanupFailed", stage: "configurationCleanup", message: "cleanup warning", underlyingMessage: nil, processExitCode: nil), level: "warn",
+                    message: "Unused Java language-server configuration areas could not be removed", detail: "private command output"),
+                LanguageServerRuntimeEvent(type: "stateChanged", state: "failed", error:
+                    LanguageServerRuntimeError(code: "initializeTimeout", stage: "initialize", message: "private URL",
+                        underlyingMessage: nil, processExitCode: 17))
+            ]
+        }
     }
 
     func becomeReady() {
