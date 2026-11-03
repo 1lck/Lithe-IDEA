@@ -1191,6 +1191,37 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::KeymapParseContext => {
+            match serde_json::from_value::<crate::keymap::ParseContextRequest>(parsed.payload) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(crate::keymap::parse_context(request))
+                        .expect("context plan should encode"),
+                ),
+                Err(_) => CoreResponse::failure(
+                    id,
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid keymap parse request"),
+                ),
+            }
+        }
+        CoreCommand::KeymapEvaluateContext => {
+            let result =
+                serde_json::from_value::<crate::keymap::EvaluateContextRequest>(parsed.payload)
+                    .map_err(|_| {
+                        CoreError::new(
+                            ErrorCode::InvalidRequest,
+                            "Invalid keymap evaluation request",
+                        )
+                    })
+                    .and_then(crate::keymap::evaluate_context);
+            match result {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("context result should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::MarkdownRender => {
             match serde_json::from_value::<MarkdownRenderRequest>(parsed.payload).map_err(|error| {
                 CoreError::new(ErrorCode::InvalidRequest, "Invalid Markdown render request")

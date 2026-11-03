@@ -19,7 +19,11 @@ import { resolveFocusedFileOpenTarget } from "./use-file-open-target";
 import { getEffectiveKeybindings } from "../utils/effective-keymaps";
 import { isEditorKeyboardTarget } from "../utils/editor-keyboard-target";
 import { resolveEffectiveKeymapContexts } from "../utils/effective-contexts";
-import { evaluateWhenClause } from "../utils/context";
+import {
+  evaluateWhenClause,
+  prepareKeymapContexts,
+  releasePreparedContexts,
+} from "../utils/context";
 import { eventToKey, keysMatch, matchKeybinding } from "../utils/matcher";
 import { isNativeMenuAccelerator } from "../utils/native-menu-accelerators";
 import { parseKeybinding } from "../utils/parser";
@@ -59,6 +63,35 @@ export function useKeymaps() {
   const chordTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastCloseTabShortcutAtRef = useRef(0);
   const doubleShiftRecognizerRef = useRef(new DoubleShiftGestureRecognizer());
+
+  useEffect(() => {
+    let preparation: AbortController | undefined;
+    const refresh = () => {
+      preparation?.abort();
+      preparation = new AbortController();
+      const bindings = getEffectiveKeybindings({
+        preset: useSettingsStore.getState().settings.keybindingPreset,
+        registryKeybindings: keymapRegistry.getAllKeybindings(),
+        userKeybindings: useKeymapStore.getState().keybindings,
+      });
+      void prepareKeymapContexts(bindings, preparation.signal);
+    };
+    refresh();
+    const removeRegistry = keymapRegistry.subscribe(refresh);
+    const removeStore = useKeymapStore.subscribe((state, previous) => {
+      if (state.keybindings !== previous.keybindings) refresh();
+    });
+    const removeSettings = useSettingsStore.subscribe((state, previous) => {
+      if (state.settings.keybindingPreset !== previous.settings.keybindingPreset) refresh();
+    });
+    return () => {
+      removeRegistry();
+      removeStore();
+      removeSettings();
+      preparation?.abort();
+      releasePreparedContexts();
+    };
+  }, []);
 
   useEffect(() => {
     if (!IS_LINUX || typeof window === "undefined") return;

@@ -26,6 +26,7 @@ import { useKeymapStore } from "@/features/keymaps/stores/keymaps.store";
 import type { Keybinding } from "@/features/keymaps/types/keymaps.types";
 import { getEffectiveKeybindingForCommand } from "@/features/keymaps/utils/effective-keymaps";
 import { localizeKeymapCommand } from "@/features/keymaps/utils/command-localization";
+import { KeymapContextError } from "@/features/keymaps/utils/context";
 import {
   createKeybindingsExportPayload,
   getExportableUserKeybindings,
@@ -199,7 +200,7 @@ export const KeyboardSettings = () => {
 
       try {
         const text = await file.text();
-        const imported = parseKeybindingsImportJson(text);
+        const imported = await parseKeybindingsImportJson(text);
 
         if (!imported) {
           showToast({ message: t("settings.keyboard.invalidFile"), type: "error" });
@@ -212,7 +213,7 @@ export const KeyboardSettings = () => {
 
         const { addKeybinding } = useKeymapStore.getState().actions;
         for (const binding of imported.keybindings) {
-          addKeybinding(binding);
+          await addKeybinding(binding);
         }
 
         showToast({
@@ -224,7 +225,10 @@ export const KeyboardSettings = () => {
         });
       } catch (error) {
         showToast({
-          message: t("settings.keyboard.importFailed", { error: String(error) }),
+          message:
+            error instanceof KeymapContextError
+              ? t("keybindings.invalidWhen")
+              : t("settings.keyboard.importFailed", { error: String(error) }),
           type: "error",
         });
       }

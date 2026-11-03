@@ -4,6 +4,69 @@ use base64::Engine as _;
 use serde_json::Value;
 
 #[test]
+fn keymap_context_fixtures_cross_the_json_boundary() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/keymap/context-v1.json"
+    ))
+    .unwrap();
+    let call = |command: &str, payload: Value| -> Value {
+        serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": "keymap", "command": command, "payload": payload
+            })
+            .to_string(),
+        ))
+        .unwrap()
+    };
+    for (expression, expected) in fixture["bundledPlans"].as_object().unwrap() {
+        let result = call(
+            "keymap.parseContext",
+            serde_json::json!({"expression": expression}),
+        );
+        assert_eq!(result["data"]["parsed"], *expected, "{expression}");
+    }
+    for case in fixture["cases"].as_array().unwrap() {
+        let parsed = call(
+            "keymap.parseContext",
+            serde_json::json!({"expression": case["expression"]}),
+        );
+        assert_eq!(parsed["ok"], true, "{case}");
+        if case.get("error").is_some() {
+            assert_eq!(parsed["data"]["parsed"], Value::Null, "{case}");
+            assert_eq!(parsed["data"]["error"]["code"], case["error"], "{case}");
+            assert!(parsed["data"]["error"]["byteOffset"].is_u64(), "{case}");
+        } else {
+            assert_eq!(parsed["data"]["error"], Value::Null, "{case}");
+            let result = call(
+                "keymap.evaluateContext",
+                serde_json::json!({
+                    "parsed": parsed["data"]["parsed"], "context": case["context"]
+                }),
+            );
+            assert_eq!(result["ok"], true, "{case}");
+            assert_eq!(result["data"]["matches"], case["matches"], "{case}");
+        }
+    }
+}
+
+#[test]
+fn keymap_context_evaluation_rejects_malformed_tables() {
+    for parsed in [
+        serde_json::json!({"keys": ["focus"], "values": [true]}),
+        serde_json::json!({"keys": ["z", "a"], "values": [true, false, true, false]}),
+        serde_json::json!({"keys": ["a", "a"], "values": [true, false, true, false]}),
+        serde_json::json!({"keys": ["@"], "values": [true, false]}),
+        serde_json::json!({"keys": (0..13).map(|i| format!("k{i:02}")).collect::<Vec<_>>(), "values": []}),
+    ] {
+        let result: Value = serde_json::from_str(&execute_json(&serde_json::json!({
+            "id": "table", "command": "keymap.evaluateContext", "payload": {"parsed": parsed, "context": {}}
+        }).to_string())).unwrap();
+        assert_eq!(result["ok"], false);
+        assert_eq!(result["error"]["code"], "invalid_request");
+    }
+}
+
+#[test]
 fn action_search_crosses_the_json_boundary() {
     let response: Value = serde_json::from_str(&execute_json(
         r#"{"command":"search.actions","payload":{"query":"切换终端","candidates":[{"texts":["Toggle Terminal","切换终端"]}]}}"#,

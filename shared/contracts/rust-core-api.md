@@ -1,5 +1,52 @@
 # Rust Core API
 
+## Shortcut context compilation
+
+`keymap.parseContext` accepts `{expression: string}` and returns
+`{parsed: {keys: string[], values: boolean[]} | null, error: {code: string, byteOffset: number} | null}`.
+Exactly one of `parsed` and `error` is non-null. Diagnostics use zero-based UTF-8
+byte offsets in the original expression, not editor UTF-16 positions.
+
+The grammar supports boolean context identifiers (`[A-Za-z0-9_.]+`, with
+`true`/`false` reserved), quoted strings, parentheses, unary `!`, strict typed
+`==`/`!=`, `&&`, and `||`, in that descending precedence order (unary precedes
+equality, which precedes AND and OR). Comparisons are not chainable; use explicit
+boolean operators. Strings support escaped quotes, backslash, `n`, `r`, and `t`.
+Missing context keys are false; non-empty strings are truthy. Whitespace-only
+source is an unconditional match. This is Lithe's boolean context grammar,
+not the full VS Code context-key language.
+
+Source is limited to 4096 UTF-8 bytes, 128 tokens, 32 nested parentheses/unary
+operations, and 12 distinct context identifiers. Full consumption is required.
+Syntax diagnostic codes are `invalid_character`, `invalid_escape`,
+`unclosed_string`, `expected_operand`, `expected_closing_paren`,
+`trailing_token`, `too_long`, and `too_complex`. Syntax diagnostics are
+successful protocol responses with no partial plan; malformed request shapes
+use the existing `invalid_request` envelope.
+
+Core computes the entire truth table. `keys` are sorted by ASCII order and
+`values` has exactly `2 ** keys.length` entries; key zero supplies the least
+significant bit of the index. A native boolean snapshot can synchronously
+project its key values to that index and look up the Core-produced result.
+Hosts must not tokenize source, interpret an AST, or recompute expression
+semantics. This preserves synchronous keyboard default prevention without
+an IPC round trip per key event. The maximum table has 4096 outcomes.
+
+`keymap.evaluateContext` accepts `{parsed, context: {[key: string]: boolean}}`
+and returns `{matches: boolean}`. It evaluates the same precompiled table,
+rejecting oversized, noncanonical, duplicate-key or incorrectly sized plans
+with `invalid_request`; it never reparses source. Parsed tables are portable
+data, not authorization tokens. Neither command retains global state.
+
+Windows validates imports before changing the preset/store and validates
+additions/updates before persistence. Hydrated/default/extension bindings stay
+inactive until their Core table is ready; invalid conditions stay inactive.
+Compilation is refreshed on binding/preset changes, and the keyboard owner
+releases preparations on teardown. Expression caching is limited to 256 entries
+and native compilation to 16 outstanding requests. Cache limits, teardown and
+stale-store guards belong to the window adapter. macOS has no free-form
+`when` parser and is unchanged. See `shared/fixtures/keymap/context-v1.json`.
+
 The Rust core is the shared application runtime for macOS SwiftUI and Windows
 React/Tauri. macOS calls the stable C ABI while the Tauri host links the Rust
 crate directly. The C ABI remains:

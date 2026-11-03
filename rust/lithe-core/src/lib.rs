@@ -13,6 +13,7 @@ mod editor;
 pub mod execution;
 mod git;
 mod github;
+mod keymap;
 mod languages;
 mod lsp;
 mod mcp;

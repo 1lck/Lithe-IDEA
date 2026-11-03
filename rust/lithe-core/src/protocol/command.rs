@@ -280,6 +280,10 @@ pub enum CoreCommand {
     MavenTestResults,
     /// Renders and sanitizes shared Markdown (`markdown.render`).
     MarkdownRender,
+    /// Compiles a bounded boolean shortcut context (`keymap.parseContext`).
+    KeymapParseContext,
+    /// Evaluates a precompiled shortcut context (`keymap.evaluateContext`).
+    KeymapEvaluateContext,
     /// Creates one transport-neutral Debug Adapter Protocol session (`debug.createSession`).
     DebugCreateSession,
     /// Queues a launch or attach request for a debug session (`debug.launch`).
@@ -716,6 +720,8 @@ impl CoreCommand {
             "maven.diagnostics" => Some(Self::MavenDiagnostics),
             "maven.testResults" => Some(Self::MavenTestResults),
             "markdown.render" => Some(Self::MarkdownRender),
+            "keymap.parseContext" => Some(Self::KeymapParseContext),
+            "keymap.evaluateContext" => Some(Self::KeymapEvaluateContext),
             "debug.createSession" => Some(Self::DebugCreateSession),
             "debug.launch" => Some(Self::DebugLaunch),
             "debug.javaTestLaunch" => Some(Self::DebugJavaTestLaunch),

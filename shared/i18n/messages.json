@@ -24033,6 +24033,19 @@
       ]
     },
     {
+      "id": "keybindings.invalidWhen",
+      "description": "Windows shortcut context validation or concurrent save failed",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "keybindings.saveFailed",
+      "description": "Windows shortcut save failure",
+      "platforms": ["windows"],
+      "parameters": { "error": "string" }
+    },
+    {
       "id": "layout.actions",
       "description": "Windows UI: layout.actions",
       "platforms": [

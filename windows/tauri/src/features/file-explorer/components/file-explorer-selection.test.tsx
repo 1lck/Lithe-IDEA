@@ -17,6 +17,7 @@ import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { workspaceRuntimeRegistry as registry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import { LocaleProvider } from "@/i18n/locale-provider";
 import { installHappyDom } from "@/test-utils/happy-dom";
+import { installKeymapContextPlans } from "@/test-utils/keymap-context-plans";
 import { useKeymaps } from "@/features/keymaps/hooks/use-keymaps";
 import { openFocusedFile } from "@/features/keymaps/hooks/use-file-open-target";
 import { registerDefaultKeymaps } from "@/features/keymaps/defaults/register-defaults";
@@ -118,6 +119,7 @@ function settledDebounce<T>(value: T): ReturnType<typeof debounce.useDebounce<T>
 }
 
 beforeEach(async () => {
+  spies.push(installKeymapContextPlans());
   enableMapSet();
   registry.resetForTests();
   registry.activateWorkspace({ id: "selection-test", name: "Selection" }, "ready");

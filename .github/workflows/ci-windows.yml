@@ -435,6 +435,11 @@ jobs:
         timeout-minutes: 2
         run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-cursor-undo.json -- src/features/editor/engines/monaco/cursor-aware-undo.test.ts src/features/keymaps/hooks/use-keymaps.integration.test.tsx
 
+      - name: Test keymap context validation and imports
+        shell: pwsh
+        timeout-minutes: 2
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-keymap-context.json -- src/features/keymaps/utils/context.test.ts
+
       - name: Test editor tab scrolling and lifecycle
         shell: pwsh
         run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-tabs.json -- src/features/tabs src/features/editor/stores/buffer-new-tab.test.ts src/features/editor/stores/buffer-close-saved-tabs.test.ts
