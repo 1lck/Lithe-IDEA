@@ -89,7 +89,7 @@ final class MacLogStore: ApplicationLogging, LogWindowLogging, LogSink, @uncheck
     }
 
     deinit {
-        for value in handles.values { try? value.handle.close() }
+        closeHandles()
         for value in subscribers.values { value.finish() }
     }
 
@@ -555,7 +555,7 @@ final class MacLogStore: ApplicationLogging, LogWindowLogging, LogSink, @uncheck
                 try token.check()
                 let target = try safeURL(root: root, relative: read.relativePath)
                 let handle = try FileHandle(forReadingFrom: target)
-                defer { try? handle.close() }
+                defer { do { try handle.close() } catch { lock.withLock { failures += 1 } } }
                 try handle.seek(toOffset: read.offset)
                 let data = try handle.read(upToCount: read.maxBytes) ?? Data()
                 truncated = truncated || data.count < read.maxBytes
