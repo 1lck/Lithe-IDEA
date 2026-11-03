@@ -2,7 +2,9 @@
 
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
-use gpui_kit::component::{Disableable as _, Icon, IconName, Selectable as _, Sizable as _, h_flex};
+use gpui_kit::component::{
+    Disableable as _, Icon, IconName, Selectable as _, Sizable as _, h_flex,
+};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, ClickEvent, Context, DismissEvent, EventEmitter as _, Focusable as _, FontWeight,

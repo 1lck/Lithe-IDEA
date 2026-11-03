@@ -345,7 +345,11 @@ impl RunPanel {
     /// 配置诊断提示条。对齐 macOS `configurationNotice`：Core 会为每个配置各返回
     /// 一条诊断（`RunDiagnostic.id` 指向具体配置），逐条铺开会把同一句话重复几十
     /// 遍，所以这里只展示一条——优先 staleFingerprint，否则取第一条。
-    pub(super) fn render_banners(&self, tokens: LitheTokens, cx: &mut Context<Self>) -> Vec<AnyElement> {
+    pub(super) fn render_banners(
+        &self,
+        tokens: LitheTokens,
+        cx: &mut Context<Self>,
+    ) -> Vec<AnyElement> {
         let mut banners = Vec::new();
         if let Some(decision) = &self.launch_decision {
             banners.push(java_decision::render_java_launch_decision_banner(
