@@ -11,6 +11,8 @@ import { createSingleFileWorkingTreeDiff } from "../../utils/working-tree-multi-
 import { createRoot, type Root } from "react-dom/client";
 import * as virtual from "@tanstack/react-virtual";
 import * as statusApi from "../../api/git-status-api";
+import * as dialogs from "@/ui/dialog";
+import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { installHappyDom } from "@/test-utils/happy-dom";
 import { LocaleProvider } from "@/i18n/locale-provider";
 import GitStatusPanel from "./git-status-panel";
@@ -112,6 +114,7 @@ const render = async (
     isCommitChangelistCurrent?: (id: string, files: GitFile[], roots: string[]) => boolean;
     onCommitSelection?: (paths: string[]) => void;
     onStagingRefresh?: () => Promise<void>;
+    onRefresh?: () => Promise<void>;
   } = {},
 ) => {
   await act(async () =>
@@ -781,3 +784,49 @@ test("rollback sends the owning repository and both rename identities from the s
     globals.ResizeObserver = previousResizeObserver;
   }
 });
+
+test("delete reconciles the selected staged addition in its owning repository", async () => {
+  const confirm = spyOn(dialogs, "showConfirmDialog").mockResolvedValue(true);
+  const reconcile = spyOn(statusApi, "reconcileDeletedSelection").mockResolvedValue(undefined);
+  const previousDelete = useFileSystemStore.getState().deleteFile;
+  const remove = mock(async (_path: string) => {});
+  let finishRefresh!: () => void;
+  const refreshed = new Promise<void>((resolve) => {
+    finishRefresh = resolve;
+  });
+  const refresh = mock(async () => {
+    finishRefresh();
+  });
+  await act(async () => useFileSystemStore.setState({ deleteFile: remove }));
+  try {
+    await render(
+      [{ ...file("B", "new.ts"), rawStatus: "A ", status: "added", staged: true }],
+      undefined,
+      { onRefresh: refresh },
+    );
+    const label = container.querySelector('[aria-label="Exclude new.ts from commit"]');
+    expect(label).not.toBeNull();
+    const row = label!.closest("[data-git-status-row-index]")!.querySelector('[role="treeitem"]')!;
+    await act(async () =>
+      row.dispatchEvent(new window.MouseEvent("contextmenu", { bubbles: true })),
+    );
+    const item = Array.from(document.querySelectorAll<HTMLElement>("[role=menuitem]")).find(
+      (element) => element.textContent?.trim() === "Delete",
+    );
+    expect(item).toBeDefined();
+    await act(async () => {
+      item!.click();
+      await refreshed;
+      await Promise.resolve();
+    });
+    expect(remove.mock.calls[0]?.[0].replace(/\\/g, "/")).toBe("C:/workspace/B/src/new.ts");
+    expect(reconcile).toHaveBeenCalledWith("C:/workspace/B", [
+      { path: "src/new.ts", status: "A " },
+    ]);
+    expect(refresh).toHaveBeenCalledTimes(1);
+  } finally {
+    confirm.mockRestore();
+    reconcile.mockRestore();
+    await act(async () => useFileSystemStore.setState({ deleteFile: previousDelete }));
+  }
+}, 1000);

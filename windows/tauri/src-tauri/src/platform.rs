@@ -258,6 +258,7 @@ fn is_interactive_git(core_command: &str, command: &str) -> bool {
         core_command,
         "git.write"
             | "git.prepareCommitSelection"
+            | "git.reconcileDeletedSelection"
             | "git.workspaceCommitStep"
             | "git.commit"
             | "git.apply"

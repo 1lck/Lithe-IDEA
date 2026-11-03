@@ -540,3 +540,26 @@ export async function prepareCommitSelection(
   };
   await run(0);
 }
+
+/** Reconcile only selected additions that are missing after deletion. */
+export async function reconcileDeletedSelection(
+  repoPath: string,
+  changes: GitRollbackChange[],
+): Promise<void> {
+  const root = await resolveRepositoryPathOrThrow(repoPath);
+  await enqueueStagingWrite(root, async () => {
+    try {
+      await tauriInvoke(
+        "git.reconcileDeletedSelection",
+        { root, changes },
+        { gitExecutionSource: "user" },
+      );
+    } finally {
+      emitGitChanged({
+        repoPath: root,
+        scopes: ["working-tree"],
+        source: "reconcile-deleted-selection",
+      });
+    }
+  });
+}

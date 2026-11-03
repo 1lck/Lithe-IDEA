@@ -55,6 +55,7 @@ import {
   addPathsToLocalGitExclude,
   rollbackFilesChanges,
   prepareCommitSelection,
+  reconcileDeletedSelection,
   setFilesStaged,
 } from "../../api/git-status-api";
 import type { GitFile } from "../../types/git.types";
@@ -949,7 +950,27 @@ const GitStatusPanel = ({
           return deleteFile(joinPath(fileRepoPath, relativePath));
         },
         async () => onRefresh?.(),
+        async () => {
+          const selectedPaths = new Set(filePaths);
+          const selected = withoutListedUntrackedContents(
+            entries.flatMap((entry) => entry.files),
+          ).filter((file) => selectedPaths.has(file.path));
+          for (const group of groupGitFilesByRepository(selected, repoPath)) {
+            await reconcileDeletedSelection(
+              group.repoPath,
+              group.files.map((file) => ({
+                path: getGitFileRepositoryRelativePath(file),
+                status: file.rawStatus ?? "",
+              })),
+            );
+          }
+        },
       );
+      if (result.reconciliationError) {
+        const error = result.reconciliationError;
+        const message = error instanceof Error ? error.message : String(error);
+        toast.error(t("git.operationError", { error: message }));
+      }
       for (const failure of result.failures) {
         console.error(`Failed to delete source-control file ${failure.path}:`, failure.error);
       }

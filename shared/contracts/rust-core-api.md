@@ -1161,6 +1161,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `git.rollbackPlan` | Plan whole-file rollback from explicit Git status identities without reading or changing a repository |
 | `git.rollbackPrepare` | Recheck selected identities against the repository and return rollback steps |
 | `git.prepareCommitSelection` | Prepare and verify the real indexes for explicitly selected changes |
+| `git.reconcileDeletedSelection` | Clear missing selected staged additions after filesystem deletion |
 | `git.untrackedDirectory` | List one level of a summarized untracked directory: its files and subdirectory summaries |
 | `git.commitState` | Read exact HEAD, symbolic branch and index preconditions for a workspace commit |
 | `git.watchContext` | Resolve the repository and absolute Git metadata roots needed by native file watchers |
@@ -1669,6 +1670,15 @@ execute steps in order, stopping on failure and refreshing after any attempted
 write. This status check cannot detect content changes that preserve the same
 status or lock out external Git clients between preparation and writes; it is
 not a content snapshot or an atomic transaction.
+
+`git.reconcileDeletedSelection` accepts a repository `root` and the selected
+pre-delete `changes` (`path`, two-character `status`). Under the repository
+write lease, Core re-reads the selected literal paths and unstages only staged
+additions or copy destinations that are now missing. Retained paths, tracked
+deletions, unselected paths, and copy sources are not unstaged. Filesystem
+operations may partially fail and external Git clients do not share this lease;
+hosts must refresh after success or failure, and concurrent external modifications
+are not an atomic snapshot. Up to 10,000 selected identities are accepted.
 
 `git.prepareCommitSelection` accepts `repositories`, a nonempty list of up to
 128 distinct repository roots and each root's selected identities (`path`,
