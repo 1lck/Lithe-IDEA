@@ -105,6 +105,8 @@ pub struct EditorSurface {
     diagnostics: Vec<DiagnosticItem>,
     error: Option<SharedString>,
     editor_font_size: f32,
+    /// 编辑器字体族；`None` 使用内置等宽字体。
+    editor_font_family: Option<String>,
     editor_wrap: bool,
     editor_line_numbers: bool,
     editor_scroll_beyond_last_line: bool,
@@ -126,6 +128,7 @@ impl EditorSurface {
             diagnostics: Vec::new(),
             error: None,
             editor_font_size: LitheMetrics::CODE_FONT_SIZE,
+            editor_font_family: None,
             editor_wrap: false,
             editor_line_numbers: true,
             editor_scroll_beyond_last_line: false,
@@ -153,6 +156,17 @@ impl EditorSurface {
         self.editor_line_numbers = line_numbers;
         self.editor_scroll_beyond_last_line = scroll_beyond_last_line;
         self.apply_view_options(window, cx);
+        cx.notify();
+    }
+
+    /// 设置编辑器字体族；`None` 回到内置等宽字体。字体名是系统标识，
+    /// 不经过 i18n。
+    pub fn set_font_family(&mut self, family: Option<String>, cx: &mut Context<Self>) {
+        let family = family.filter(|value| !value.trim().is_empty());
+        if self.editor_font_family == family {
+            return;
+        }
+        self.editor_font_family = family;
         cx.notify();
     }
 
@@ -374,6 +388,18 @@ impl EditorSurface {
             Undo,
         };
 
+        // 行级编辑操作：gpui-kit 编辑器没有对应 action，这里用
+        // InputBaseState 的公开文本 API（selected_range / replace / insert）
+        // 原生实现，每次操作在 undo 栈里算一步。
+        match command {
+            "editor.action.commentLine" => return self.toggle_line_comment(window, cx),
+            "editor.action.copyLinesDownAction" => return self.duplicate_lines(window, cx),
+            "editor.action.deleteLines" => return self.delete_lines(window, cx),
+            "editor.action.moveLinesUpAction" => return self.move_lines(true, window, cx),
+            "editor.action.moveLinesDownAction" => return self.move_lines(false, window, cx),
+            _ => {}
+        }
+
         let action: Option<Box<dyn gpui_kit::Action>> = match command {
             "undo" => Some(Box::new(Undo)),
             "redo" => Some(Box::new(Redo)),
@@ -393,6 +419,242 @@ impl EditorSurface {
         self.focus(window, cx);
         window.dispatch_action(action, cx);
         true
+    }
+
+    /// 当前编辑器与选中行范围（0 起始，含端点）。
+    /// 选区结尾恰好落在下一行行首时按 Monaco 语义排除该行。
+    fn selected_line_range(&self, cx: &App) -> Option<(Entity<EditorState>, usize, usize)> {
+        let editor = self.editor.clone()?;
+        let (start_row, end_row) = editor.read_with(cx, |state, _| {
+            let text = state.text();
+            let selection = state.selected_range();
+            let start = text.offset_to_point(text.offset_utf16_to_offset(selection.start));
+            let mut end = text.offset_to_point(text.offset_utf16_to_offset(selection.end));
+            if end.column == 0 && end.row > start.row {
+                end.row -= 1;
+            }
+            (start.row as usize, end.row as usize)
+        });
+        Some((editor, start_row, end_row))
+    }
+
+    /// 用一次编辑替换字节区间；选区随后由调用方按需要恢复。
+    fn replace_byte_range(
+        editor: &Entity<EditorState>,
+        range: std::ops::Range<usize>,
+        replacement: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        editor.update(cx, |state, cx| {
+            let start = state.text().offset_to_offset_utf16(range.start);
+            let end = state.text().offset_to_offset_utf16(range.end);
+            state.set_selected_range(start..end, cx);
+            state.replace(replacement, window, cx);
+        });
+    }
+
+    /// Edit > Toggle Comment：对选中行切换行注释。
+    /// 全为非空白行已注释时去掉注释，否则统一加上；返回 false 表示该文件
+    /// 类型没有可识别的行注释前缀。
+    fn toggle_line_comment(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let Some(prefix) = self.current_path().and_then(line_comment_prefix) else {
+            return false;
+        };
+        let Some((editor, start_row, end_row)) = self.selected_line_range(cx) else {
+            return false;
+        };
+
+        let (range, replacement, any_code) = editor.read_with(cx, |state, _| {
+            let text = state.text();
+            let lines: Vec<String> = (start_row..=end_row)
+                .map(|row| text.slice_line(row).to_string())
+                .collect();
+            let any_code = lines.iter().any(|line| !line.trim().is_empty());
+            let all_commented = any_code
+                && lines.iter().all(|line| {
+                    let body = line.trim_start();
+                    body.is_empty() || body.starts_with(prefix)
+                });
+            let new_lines: Vec<String> = lines
+                .iter()
+                .map(|line| {
+                    let indent_len = line.len() - line.trim_start().len();
+                    let (indent, body) = line.split_at(indent_len);
+                    if body.is_empty() {
+                        return line.clone();
+                    }
+                    if all_commented {
+                        // 去掉前缀与其后一个空格（如果有）。
+                        let rest = &body[prefix.len()..];
+                        let rest = rest.strip_prefix(' ').unwrap_or(rest);
+                        format!("{indent}{rest}")
+                    } else {
+                        format!("{indent}{prefix} {body}")
+                    }
+                })
+                .collect();
+            let start = text.line_start_offset(start_row);
+            let end = text.line_end_offset(end_row);
+            (start..end, new_lines.join("\n"), any_code)
+        });
+        if !any_code {
+            return true;
+        }
+
+        self.focus(window, cx);
+        Self::replace_byte_range(&editor, range.clone(), &replacement, window, cx);
+        // 恢复选中行，方便连续切换。
+        editor.update(cx, |state, cx| {
+            let start = state.text().offset_to_offset_utf16(range.start);
+            let end = state
+                .text()
+                .offset_to_offset_utf16(range.start + replacement.len());
+            state.set_selected_range(start..end, cx);
+        });
+        true
+    }
+
+    /// Edit > Duplicate Line：把选中行复制到原块正下方并选中副本。
+    fn duplicate_lines(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let Some((editor, start_row, end_row)) = self.selected_line_range(cx) else {
+            return false;
+        };
+        let (insert_at, text_to_insert, copy_len) = editor.read_with(cx, |state, _| {
+            let text = state.text();
+            let block = text.slice_lines(start_row..end_row + 1).to_string();
+            let end = text.line_end_offset(end_row);
+            if block.ends_with('\n') {
+                // 块自带换行：副本从下一行行首开始。
+                (end + 1, block.clone(), block.len())
+            } else {
+                // 末行没有换行符：先补一个换行再接副本。
+                (end, format!("\n{block}"), block.len())
+            }
+        });
+
+        self.focus(window, cx);
+        editor.update(cx, |state, cx| {
+            let at = state.text().offset_to_offset_utf16(insert_at);
+            state.set_selected_range(at..at, cx);
+            state.insert(text_to_insert.as_str(), window, cx);
+        });
+        // 选中刚插入的副本（跳过为末行补上的换行符）。
+        editor.update(cx, |state, cx| {
+            let copy_start = insert_at + usize::from(text_to_insert.len() > copy_len);
+            let start = state.text().offset_to_offset_utf16(copy_start);
+            let end = state.text().offset_to_offset_utf16(copy_start + copy_len);
+            state.set_selected_range(start..end, cx);
+        });
+        true
+    }
+
+    /// Edit > Delete Line：删除选中行（含换行），光标留在原行号处。
+    fn delete_lines(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let Some((editor, start_row, end_row)) = self.selected_line_range(cx) else {
+            return false;
+        };
+        let range = editor.read_with(cx, |state, _| {
+            let text = state.text();
+            let lines_len = text.lines_len();
+            if end_row + 1 < lines_len {
+                text.line_start_offset(start_row)..text.line_start_offset(end_row + 1)
+            } else if start_row > 0 {
+                // 删到文件末尾：连同前一行的换行符一起删，不留空尾行。
+                text.line_end_offset(start_row - 1)..text.len()
+            } else {
+                0..text.len()
+            }
+        });
+
+        self.focus(window, cx);
+        Self::replace_byte_range(&editor, range, "", window, cx);
+        editor.update(cx, |state, cx| {
+            let row = start_row.min(state.text().lines_len().saturating_sub(1));
+            let offset = state.text().offset_to_offset_utf16(state.text().line_start_offset(row));
+            state.set_selected_range(offset..offset, cx);
+        });
+        true
+    }
+
+    /// Edit > Move Line Up/Down：把选中行整体上移/下移一行并保持选中。
+    fn move_lines(&mut self, up: bool, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let Some((editor, start_row, end_row)) = self.selected_line_range(cx) else {
+            return false;
+        };
+        let Some((range, replacement, block_len_rows, new_start_row)) = editor.read_with(cx, |state, _| {
+            let text = state.text();
+            let lines_len = text.lines_len();
+            if up && start_row == 0 {
+                return None;
+            }
+            if !up && end_row + 1 >= lines_len {
+                return None;
+            }
+            let (region_start, region_end) = if up {
+                (start_row - 1, end_row)
+            } else {
+                (start_row, end_row + 1)
+            };
+            let region = text.slice_lines(region_start..region_end + 1).to_string();
+            let trailing_newline = region.ends_with('\n');
+            let body = region.strip_suffix('\n').unwrap_or(&region);
+            let lines: Vec<&str> = body.split('\n').collect();
+            let block_rows = end_row - start_row + 1;
+            let rotated: Vec<&str> = if up {
+                // [prev, block...] -> [block..., prev]
+                lines[1..].iter().chain(lines[..1].iter()).copied().collect()
+            } else {
+                // [block..., next] -> [next, block...]
+                lines[block_rows..]
+                    .iter()
+                    .chain(lines[..block_rows].iter())
+                    .copied()
+                    .collect()
+            };
+            let mut replacement = rotated.join("\n");
+            if trailing_newline {
+                replacement.push('\n');
+            }
+            let start = text.line_start_offset(region_start);
+            let end = if region_end + 1 < lines_len {
+                text.line_start_offset(region_end + 1)
+            } else {
+                text.len()
+            };
+            let new_start = if up { start_row - 1 } else { start_row + 1 };
+            Some((start..end, replacement, block_rows, new_start))
+        }) else {
+            // 已在首行/末行：边界 no-op 也算处理过。
+            return true;
+        };
+
+        self.focus(window, cx);
+        Self::replace_byte_range(&editor, range, &replacement, window, cx);
+        editor.update(cx, |state, cx| {
+            let text = state.text();
+            let new_end_row = new_start_row + block_len_rows - 1;
+            let start = text.offset_to_offset_utf16(text.line_start_offset(new_start_row));
+            let end = text.offset_to_offset_utf16(text.line_end_offset(new_end_row));
+            state.set_selected_range(start..end, cx);
+        });
+        true
+    }
+
+    /// Go to Line：把光标移到目标行行首（1 起始，超界收拢）并滚动到可见。
+    pub fn go_to_line(&mut self, line: u32, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(editor) = self.editor.clone() else {
+            return;
+        };
+        self.focus(window, cx);
+        editor.update(cx, |state, cx| {
+            let row = line
+                .max(1)
+                .saturating_sub(1)
+                .min(state.text().lines_len().saturating_sub(1) as u32);
+            state.set_cursor_position(Position::new(row, 0), window, cx);
+        });
+        self.reveal_line(line, window, cx);
     }
 
     /// 滚动到指定行（1-based）。
@@ -660,10 +922,15 @@ impl Render for EditorSurface {
         let tokens = current_tokens(cx);
         let error = self.error.clone();
         let font_size = self.editor_font_size;
+        let font_family = self
+            .editor_font_family
+            .clone()
+            .map(SharedString::from)
+            .unwrap_or_else(|| SharedString::from(MONO_FONT_FAMILY));
 
         let content = match self.editor.as_ref() {
             Some(editor) => Editor::new(editor)
-                .font_family(MONO_FONT_FAMILY)
+                .font_family(font_family)
                 .text_size(px(font_size))
                 .h_full()
                 .into_any_element(),
@@ -966,6 +1233,19 @@ fn cursor_position(state: &Entity<EditorState>, cx: &Context<EditorSurface>) -> 
     let end = point.column.min(line.len());
     let column = line[..end].chars().count();
     Some((point.row as u32 + 1, column as u32 + 1))
+}
+
+/// 行注释前缀；返回 None 表示该扩展名没有单行注释或暂未识别
+/// （CSS/HTML/Markdown 等需要块注释，不在 Toggle Comment 的范围内）。
+fn line_comment_prefix(path: &Path) -> Option<&'static str> {
+    let extension = path.extension()?.to_str()?;
+    match extension {
+        "java" | "js" | "jsx" | "ts" | "tsx" | "json" | "jsonc" | "rs" | "go" | "c" | "h"
+        | "cpp" | "hpp" | "cs" | "kt" | "kts" | "swift" | "php" | "scala" | "less" => Some("//"),
+        "py" | "rb" | "sh" | "bash" | "zsh" | "yaml" | "yml" | "toml" | "pl" | "ps1" => Some("#"),
+        "sql" | "lua" => Some("--"),
+        _ => None,
+    }
 }
 
 fn path_text(document: &Option<DocumentState>) -> String {

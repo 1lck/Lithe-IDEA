@@ -19,6 +19,7 @@ pub(crate) enum PromptAction {
     NewProject,
     NewJavaType,
     NewJavaPackage,
+    GoToLine,
 }
 
 impl Workbench {
@@ -150,6 +151,16 @@ impl Workbench {
         );
     }
 
+    /// Edit > Go to Line：输入 1 起始的行号，确认后由编辑器移动光标并滚动。
+    pub(crate) fn open_go_to_line_prompt(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_prompt(
+            PromptSpec::new(tr("Go to Line"), tr("Go to Line")),
+            PromptAction::GoToLine,
+            window,
+            cx,
+        );
+    }
+
     pub(crate) fn close_prompt(&mut self, cx: &mut Context<Self>) {
         let was_open = self.prompt.take().is_some();
         self.prompt_action = None;
@@ -177,6 +188,18 @@ impl Workbench {
             return;
         }
 
+        // Go to Line 只接受行号，不走下面的路径校验。
+        if action == PromptAction::GoToLine {
+            if let Ok(line) = name.parse::<u32>() {
+                if line > 0 {
+                    self.editor.update(cx, |editor, editor_cx| {
+                        editor.go_to_line(line, window, editor_cx);
+                    });
+                }
+            }
+            return;
+        }
+
         let relative = Path::new(&name);
         if relative.is_absolute()
             || relative
@@ -189,6 +212,8 @@ impl Workbench {
         }
 
         match action {
+            // 已在上面提前处理，走到这里说明未来有人改了流程却漏了分支。
+            PromptAction::GoToLine => {}
             PromptAction::NewFile | PromptAction::NewFolder => {
                 let Some(root) = self.project_root.clone() else {
                     return;
