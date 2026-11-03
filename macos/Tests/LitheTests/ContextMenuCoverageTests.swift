@@ -1011,6 +1011,36 @@ struct ContextMenuCoverageTests {
         #expect(calls == ["open", "folder"])
     }
 
+    @Test func rightClickOnMenuItemReplacesThePopupWithoutRunningItsPrimaryAction() async throws {
+        let presenter = LitheContextMenuPresenter()
+        let owner = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 400, height: 300),
+            styleMask: [.borderless], backing: .buffered, defer: false)
+        owner.isReleasedWhenClosed = false
+        owner.makeKeyAndOrderFront(nil)
+        defer { presenter.dismiss(); LitheContextMenuPresenter.shared.dismiss(); owner.close() }
+        var primaryCalls = 0, restored = false
+        presenter.show(items: [.action("Terminal", contextItems: {
+            [.action("Unhide") { restored = true }]
+        }) { primaryCalls += 1 }], at: NSPoint(x: 200, y: 300), appearance: nil,
+            locale: Locale(identifier: "en"), parentWindow: owner)
+        let root = try #require(owner.childWindows?.first { $0.isVisible })
+        let content = try #require(root.contentView)
+        await Task.yield()
+        content.layoutSubtreeIfNeeded()
+        await Task.yield()
+        content.layoutSubtreeIfNeeded()
+        root.sendEvent(try #require(NSEvent.mouseEvent(with: .rightMouseDown,
+            location: NSPoint(x: root.frame.width / 2, y: root.frame.height / 2), modifierFlags: [], timestamp: 0,
+            windowNumber: root.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1)))
+        let context = try #require(owner.childWindows?.first { $0 !== root && $0.isVisible })
+        #expect(!root.isVisible)
+        #expect(primaryCalls == 0 && !restored)
+        try sendKey(125, to: context)
+        try sendKey(36, to: context)
+        #expect(restored && primaryCalls == 0)
+        #expect(!context.isVisible)
+    }
+
     @Test(arguments: [false, true])
     func projectAndActionDropdownsRenderTheSameChrome(isDark: Bool) throws {
         // Capture the real panel: sharing tokens alone did not prevent the old

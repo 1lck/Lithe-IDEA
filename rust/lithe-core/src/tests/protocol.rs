@@ -4,6 +4,15 @@ use base64::Engine as _;
 use serde_json::Value;
 
 #[test]
+fn action_search_crosses_the_json_boundary() {
+    let response: Value = serde_json::from_str(&execute_json(
+        r#"{"command":"search.actions","payload":{"query":"切换终端","candidates":[{"texts":["Toggle Terminal","切换终端"]}]}}"#,
+    )).unwrap();
+    assert_eq!(response["ok"], true);
+    assert_eq!(response["data"]["indices"], serde_json::json!([0]));
+}
+
+#[test]
 fn debug_adapter_endpoint_validation_crosses_the_json_boundary() {
     let fixture: Value = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
