@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "root": "vcs",
+  "events": [
+    {
+      "id": "vcs.git.command",
+      "channel": "vcs/{provider}",
+      "level": "info",
+      "message": "Git {command}",
+      "fields": {
+        "provider": {
+          "type": "id",
+          "required": true,
+          "description": "VCS provider id that owns the repository, e.g. git"
+        },
+        "command": {
+          "type": "token",
+          "required": true,
+          "description": "Git subcommand that ran, e.g. fetch or push"
+        },
+        "exit_code": {
+          "type": "int",
+          "required": false,
+          "description": "Exit status of the git process; absent when it could not start"
+        }
+      },
+      "rate": 600,
+      "owner": "LitheGitModule",
+      "span": {
+        "failureLevel": "error"
+      }
+    },
+    {
+      "id": "vcs.git.request",
+      "channel": "vcs/{provider}",
+      "level": "info",
+      "message": "Git request {command}",
+      "fields": {
+        "provider": {
+          "type": "id",
+          "required": true,
+          "description": "VCS provider id that owns the repository, e.g. git"
+        },
+        "command": {
+          "type": "token",
+          "required": true,
+          "description": "Git service request being executed, e.g. fetch or history"
+        },
+        "exit_code": {
+          "type": "int",
+          "required": false,
+          "description": "Exit status reported for the request result; absent when no git process result is available"
+        }
+      },
+      "rate": 600,
+      "owner": "LitheGitModule",
+      "span": {
+        "failureLevel": "error"
+      }
+    }
+  ]
+}

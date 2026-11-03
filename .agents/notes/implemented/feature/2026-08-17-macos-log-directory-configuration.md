@@ -56,8 +56,14 @@
 用户可以立即切换目录，重启后也能保持选择。目录不可用时会自动恢复可用
 默认值，代价是用户需要重新选择一个可用目录。
 
-模块日志与导出快照的后续决策见
+模块日志的共享脱敏、导出冻结与 Windows v1 现状见
 [双端模块日志与诊断快照](../architecture/2026-10-20-modular-application-logging.md)。
+该 Note 的目录、scope 与记录格式设计已由
+[结构化日志通道与事件目录](../architecture/2026-11-03-structured-logging-channels.md) 部分取代。
+v2 在本 Note 的有效日志根下计算会话和通道相对路径，不改变根目录选择与失败回退的所有权。
+PR1 尚未接入生产 writer，不表示运行中的日志已经改为会话目录；macOS 接入、插件
+`${logDir}` 与独立窗口方案见
+[结构化日志宿主接入与独立窗口](../../proposed/architecture/2026-11-03-structured-logging-host-integration.md)。
 日志 writer 仍然由 macOS 应用启动和设置观察机制驱动，目录配置本身不负责
 日志内容治理、轮换、清理或上传。未来如果改变日志文件名、诊断导出来源
 或 Windows 日志策略，需要重新检查 `LogDirectoryProviding` 与本 Note 的

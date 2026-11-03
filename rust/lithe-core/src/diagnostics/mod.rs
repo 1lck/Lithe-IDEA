@@ -7,7 +7,12 @@
 //! each platform's own adapters per `develop-lithe`'s platform-adapter
 //! boundary.
 
+pub mod catalog;
+pub mod channel;
 pub mod logging;
+pub mod query_v2;
+pub mod record;
+pub mod retention;
 
 mod manifest;
 mod redaction;

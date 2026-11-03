@@ -561,6 +561,14 @@ pub enum CoreCommand {
     DiagnosticsPrepareLogEvent,
     /// Filters and merges bounded host-collected log tails (`diagnostics.queryLogs`).
     DiagnosticsQueryLogs,
+    /// Encodes structured log events independently in one batch (`diagnostics.encodeLogBatch`).
+    DiagnosticsEncodeLogBatch,
+    /// Merges structured and legacy log evidence (`diagnostics.queryLogsV2`).
+    DiagnosticsQueryLogsV2,
+    /// Plans log cleanup without filesystem access (`diagnostics.planLogRetention`).
+    DiagnosticsPlanLogRetention,
+    /// Validates a logical channel and resolves its session-relative path (`diagnostics.resolveLogChannel`).
+    DiagnosticsResolveLogChannel,
     /// Shapes a deterministic diagnostic bundle manifest from host-gathered facts (`diagnostics.buildManifest`).
     DiagnosticsBuildManifest,
 }
@@ -836,6 +844,10 @@ impl CoreCommand {
             "diagnostics.redactText" => Some(Self::DiagnosticsRedactText),
             "diagnostics.prepareLogEvent" => Some(Self::DiagnosticsPrepareLogEvent),
             "diagnostics.queryLogs" => Some(Self::DiagnosticsQueryLogs),
+            "diagnostics.encodeLogBatch" => Some(Self::DiagnosticsEncodeLogBatch),
+            "diagnostics.queryLogsV2" => Some(Self::DiagnosticsQueryLogsV2),
+            "diagnostics.planLogRetention" => Some(Self::DiagnosticsPlanLogRetention),
+            "diagnostics.resolveLogChannel" => Some(Self::DiagnosticsResolveLogChannel),
             "diagnostics.buildManifest" => Some(Self::DiagnosticsBuildManifest),
             _ => None,
         }
