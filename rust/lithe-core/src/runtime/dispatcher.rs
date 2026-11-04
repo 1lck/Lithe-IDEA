@@ -2691,6 +2691,15 @@ fn execute_parsed(parsed: CoreRequest) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::GitWorkspaceStatusMerge => {
+            match serde_json::from_value::<git::workspace_status::Request>(parsed.payload)
+                .map_err(|error| CoreError::new(ErrorCode::InvalidRequest, "Invalid workspace Git status request").with_details(error.to_string()))
+                .and_then(git::workspace_status::plan)
+            {
+                Ok(data) => CoreResponse::success(id, serde_json::to_value(data).expect("Git workspace status plan should encode")),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::GitResolveFileContext => {
             match serde_json::from_value::<git::file_context::Request>(parsed.payload)
                 .map_err(|error| CoreError::new(ErrorCode::InvalidRequest, "Invalid Git file context request").with_details(error.to_string()))

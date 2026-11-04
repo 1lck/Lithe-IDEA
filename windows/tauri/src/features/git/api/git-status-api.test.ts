@@ -31,6 +31,17 @@ const invoke = mock(
     }
     if (command === "git.write" && interceptWrite) return interceptWrite(args ?? {});
     if (command === "git_diff_file") return fileDiffResponse;
+    if (command === "git.workspaceStatusMerge") {
+      const roots = args?.roots as string[];
+      const previous = new Set(args?.previousRoots as string[]);
+      const outcomes = args?.outcomes as Array<{ root: string; success: boolean }>;
+      return {
+        entries: roots.map((root) => ({ root, source: outcomes.find((item) => item.root === root)?.success
+          ? "current" : previous.has(root) ? "previous" : "missing" })),
+        confirmedRoots: outcomes.filter((item) => item.success).map((item) => item.root),
+        failedRoots: outcomes.filter((item) => !item.success).map((item) => item.root),
+      };
+    }
     if (command === "git.resolveFileContext") {
       const root = String(args?.root ?? "");
       const path = String(args?.path ?? "");
@@ -81,6 +92,7 @@ const {
   getWorkspaceRootGitStatus,
   getGitStatus,
   getRepositoryGitStatuses,
+  getWorkspaceStatusRefresh,
 } = await import("./git-status-api");
 const { isUntrackedDirectoryExpanded, setUntrackedDirectoryExpanded } =
   await import("../services/git-untracked-directory-expansions");
@@ -622,6 +634,33 @@ describe("Git staging write coordination", () => {
 });
 
 describe("Git status query failures", () => {
+  test("publishes healthy roots while preserving a failed root and removing old roots", async () => {
+    const first = "C:/workspace/service-a";
+    const second = "C:/workspace/service-b";
+    const previous = { branch: "previous", ahead: 0, behind: 0, files: [{ path: "old.txt", status: "modified" as const, staged: false }] };
+    unavailableRepo = second;
+    const result = await getWorkspaceStatusRefresh([first, second], "background", [first, second], {
+      [second]: previous, "C:/workspace/removed": previous,
+    });
+    expect(result.statuses[first]?.branch).toBe("main");
+    expect(result.statuses[second]).toEqual(previous);
+    expect(result.statuses["C:/workspace/removed"]).toBeUndefined();
+    expect(result.confirmedRoots).toEqual([first]);
+    expect(result.failedRoots).toEqual([second]);
+  });
+
+  test("keeps a first-time failure unknown and recovers when the root succeeds", async () => {
+    const root = "C:/workspace/service-b";
+    unavailableRepo = root;
+    const failed = await getWorkspaceStatusRefresh([root], "background", [root], {});
+    expect(failed.statuses[root]).toBeNull();
+    expect(failed.failedRoots).toEqual([root]);
+    unavailableRepo = null;
+    const recovered = await getWorkspaceStatusRefresh([root], "background", [root], failed.statuses);
+    expect(recovered.statuses[root]?.branch).toBe("develop");
+    expect(recovered.failedRoots).toEqual([]);
+  });
+
   test("bootstrap preserves root-relative paths while reading every discovered repository", async () => {
     const snapshot = await getWorkspaceRootGitStatus("C:/repo", [
       "C:/repo",

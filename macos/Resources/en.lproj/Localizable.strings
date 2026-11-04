@@ -3871,6 +3871,7 @@
 "Some directories could not be scanned. Automatic project analysis was not refreshed." = "Some directories could not be scanned. Automatic project analysis was not refreshed.";
 "Some installation versions were not checked in time." = "Some installation versions were not checked in time.";
 "Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations." = "Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations.";
+"Some repositories could not be refreshed. Displayed changes may be out of date." = "Some repositories could not be refreshed. Displayed changes may be out of date.";
 "Some selected diffs could not be read. Refresh Git changes and retry." = "Some selected diffs could not be read. Refresh Git changes and retry.";
 "Some selected files belong to another version control root. Refresh and select them again." = "Some selected files belong to another version control root. Refresh and select them again.";
 "Some settings have unsupported values and were skipped." = "Some settings have unsupported values and were skipped.";
@@ -5120,6 +5121,7 @@
 "git.saved.conflicts" = "Resolve conflicts before shelving changes.";
 "git.saved.failed" = "Saved changes operation failed";
 "git.saved.noChanges" = "There are no changes to shelve";
+"git.status.partialRefresh" = "Some repositories could not be refreshed. Displayed changes may be out of date.";
 "git.status.refreshFailed" = "Could not refresh Git status. Refresh to verify the changes.";
 "git.unifiedView" = "Unified view";
 "history.clearFailed" = "Could not clear this project's local history. Check storage permissions and try again.";

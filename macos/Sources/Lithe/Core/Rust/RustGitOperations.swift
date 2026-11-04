@@ -812,6 +812,10 @@ struct RustGitOperations: GitOperations, Sendable {
         }
     }
 
+    func workspaceStatusPlan(roots: [String], previousRoots: [String], outcomes: [GitWorkspaceStatusOutcome]) -> GitWorkspaceStatusPlan? {
+        core.gitWorkspaceStatusPlan(roots: roots, previousRoots: previousRoots, outcomes: outcomes)
+    }
+
     func resolveFileContext(fileURL: URL, relativeTo rootURL: URL) -> GitFileContext? {
         core.gitFileContext(fileURL: fileURL, relativeTo: rootURL)
     }

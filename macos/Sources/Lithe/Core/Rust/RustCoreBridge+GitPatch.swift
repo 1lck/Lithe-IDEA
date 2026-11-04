@@ -2,6 +2,17 @@ import Foundation
 import LitheGitModule
 
 extension RustCoreBridge {
+    private struct GitWorkspaceStatusPlanRequest: Encodable {
+        let roots: [String]
+        let previousRoots: [String]
+        let outcomes: [GitWorkspaceStatusOutcome]
+    }
+
+    func gitWorkspaceStatusPlan(roots: [String], previousRoots: [String], outcomes: [GitWorkspaceStatusOutcome]) -> GitWorkspaceStatusPlan? {
+        let result: Result<GitWorkspaceStatusPlan, CoreCallError> = executeResult(command: "git.workspaceStatusMerge", payload: GitWorkspaceStatusPlanRequest(roots: roots, previousRoots: previousRoots, outcomes: outcomes))
+        return try? result.get()
+    }
+
     private struct GitFileContextRequest: Encodable {
         let root: String
         let path: String

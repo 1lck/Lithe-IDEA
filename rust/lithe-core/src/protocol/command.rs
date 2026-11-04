@@ -487,6 +487,8 @@ pub enum CoreCommand {
     GitRepositoryRoot,
     /// Resolves a file to its owning Git checkout (`git.resolveFileContext`).
     GitResolveFileContext,
+    /// Plans workspace status publication across successful and failed roots (`git.workspaceStatusMerge`).
+    GitWorkspaceStatusMerge,
     /// Performs one supported Git mutation (`git.write`).
     GitWrite,
     /// Plans whole-file rollback from Git change identities (`git.rollbackPlan`).
@@ -875,6 +877,7 @@ impl CoreCommand {
             "git.command" => Some(Self::GitCommand),
             "git.repositoryRoot" => Some(Self::GitRepositoryRoot),
             "git.resolveFileContext" => Some(Self::GitResolveFileContext),
+            "git.workspaceStatusMerge" => Some(Self::GitWorkspaceStatusMerge),
             "git.write" => Some(Self::GitWrite),
             "git.rollbackPlan" => Some(Self::GitRollbackPlan),
             "git.rollbackPrepare" => Some(Self::GitRollbackPrepare),

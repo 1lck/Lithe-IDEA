@@ -1,6 +1,6 @@
 import { normalizeWorkspaceFolders } from "@/features/file-system/controllers/workspace-session";
 import { discoverWorkspaceRepositories } from "@/features/git/api/git-repo-api";
-import { getRepositoryGitStatuses } from "@/features/git/api/git-status-api";
+import { getWorkspaceStatusRefresh } from "@/features/git/api/git-status-api";
 import { useGitStore } from "@/features/git/stores/git.store";
 import { frontendTrace } from "@/utils/frontend-trace";
 import { workspaceRuntimeRegistry } from "../runtime/workspace-runtime-registry";
@@ -71,13 +71,18 @@ export async function ensureWorkspaceGitBootstrap(
   bootstrap.task = bootstrapWorkspaceGit({
     workspaceRootPaths: rootPaths,
     discoverRepositories: discoverWorkspaceRepositories,
-    loadStatus: (repoPaths) => {
+    loadStatus: async (repoPaths) => {
       repositoryPaths = repoPaths;
-      return getRepositoryGitStatuses([...repoPaths, scope.root], "background", repoPaths);
+      const result = await getWorkspaceStatusRefresh([...repoPaths, scope.root], "background", repoPaths,
+        gitStore.getState().repositoryStatuses);
+      if (repoPaths.every((root) => !result.statuses[root]) && result.failedRoots.some((root) => repoPaths.includes(root))) {
+        throw new Error("Git status query returned no snapshot");
+      }
+      return result;
     },
     isCurrent,
     publishStatus: (statuses) => gitStore.getState().actions.publishRepositoryStatuses(
-      statuses ?? { [scope.root]: null }, workingTreeVersion, repositoryPaths,
+      statuses?.statuses ?? { [scope.root]: null }, workingTreeVersion, repositoryPaths, statuses?.failedRoots,
     ),
   }).then((outcome) => {
     frontendTrace("info", "workspace-open", `gitBootstrap:${outcome}`, {

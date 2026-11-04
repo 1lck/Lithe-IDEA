@@ -115,6 +115,7 @@ package protocol GitOperations: Sendable {
         at rootURL: URL
     ) -> GitBranchComparison?
     func stashes(at rootURL: URL) -> [GitStash]?
+    func workspaceStatusPlan(roots: [String], previousRoots: [String], outcomes: [GitWorkspaceStatusOutcome]) -> GitWorkspaceStatusPlan?
     func resolveFileContext(fileURL: URL, relativeTo rootURL: URL) -> GitFileContext?
     func blame(at rootURL: URL, relativePath: String) -> [GitBlameLine]?
 
@@ -220,6 +221,7 @@ package protocol GitOperations: Sendable {
 }
 
 package extension GitOperations {
+    func workspaceStatusPlan(roots: [String], previousRoots: [String], outcomes: [GitWorkspaceStatusOutcome]) -> GitWorkspaceStatusPlan? { nil }
     func resolveFileContext(fileURL: URL, relativeTo rootURL: URL) -> GitFileContext? { nil }
     func changelistProjection(_ request: GitChangelistCoreRequest) -> GitChangelistCoreProjection? { nil }
     func historyDateMatches(_ query: GitHistoryDateQuery) -> [String]? { nil }
@@ -983,6 +985,10 @@ package struct GitService: Sendable {
                 whitespace: whitespace
             )
         } ?? DiffDocument(rows: [], hunks: [])
+    }
+
+    func workspaceStatusPlan(roots: [String], previousRoots: [String], outcomes: [GitWorkspaceStatusOutcome]) async -> GitWorkspaceStatusPlan? {
+        await read(priority: .utility) { $0.workspaceStatusPlan(roots: roots, previousRoots: previousRoots, outcomes: outcomes) }
     }
 
     func blame(fileURL: URL, at repositoryRoot: URL) async -> [GitBlameLine] {

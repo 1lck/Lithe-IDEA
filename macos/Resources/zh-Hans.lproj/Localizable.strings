@@ -3871,6 +3871,7 @@
 "Some directories could not be scanned. Automatic project analysis was not refreshed." = "部分目录无法扫描，未刷新项目自动分析。";
 "Some installation versions were not checked in time." = "部分安装的版本未能及时检查。";
 "Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations." = "部分项目目录无法读取，已有运行配置已保留。请恢复访问权限后重新识别运行配置。";
+"Some repositories could not be refreshed. Displayed changes may be out of date." = "部分仓库无法刷新，显示的更改可能已过期。";
 "Some selected diffs could not be read. Refresh Git changes and retry." = "部分勾选文件的差异读取失败，请刷新 Git 更改后重试。";
 "Some selected files belong to another version control root. Refresh and select them again." = "部分所选文件属于其他版本控制根目录。请刷新后重新选择。";
 "Some settings have unsupported values and were skipped." = "部分设置值不受支持，已跳过。";
@@ -5120,6 +5121,7 @@
 "git.saved.conflicts" = "搁置改动前，请先解决合并冲突。";
 "git.saved.failed" = "保存的改动操作失败";
 "git.saved.noChanges" = "没有可搁置的改动";
+"git.status.partialRefresh" = "部分仓库无法刷新，显示的更改可能已过期。";
 "git.status.refreshFailed" = "无法刷新 Git 状态。请刷新以确认更改结果。";
 "git.unifiedView" = "统一视图";
 "history.clearFailed" = "无法清空此项目的本地历史。请检查存储目录权限后重试。";

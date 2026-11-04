@@ -6,7 +6,7 @@ import { getBranches } from "../api/git-branches-api";
 import { getOperationState } from "../api/git-integration-api";
 import { clearRepositoryDiscoveryCache } from "../api/git-repo-api";
 import { getStashes } from "../api/git-stash-api";
-import { getRepositoryGitStatuses } from "../api/git-status-api";
+import { getWorkspaceStatusRefresh } from "../api/git-status-api";
 import {
   isGitChangeRelevant,
   isPassiveGitChange,
@@ -66,7 +66,9 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
     try {
       const repoPaths = useRepositoryStore.getState().availableRepoPaths;
       const statusRepoPaths = repoPaths.length > 0 ? repoPaths : [repoPath];
-      const repositoryStatuses = await getRepositoryGitStatuses(statusRepoPaths);
+      const statusResult = await getWorkspaceStatusRefresh(statusRepoPaths, "unknown", statusRepoPaths,
+        useGitStore.getStore(workspaceId).getState().repositoryStatuses);
+      const repositoryStatuses = statusResult.statuses;
 
       if (
         requestId !== requestIdRef.current ||
@@ -75,13 +77,16 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
         return;
       }
 
-      if (!repositoryStatuses[repoPath]) throw new Error("Git status query returned no snapshot");
-      setFailedRepoPath(null);
       gitActions.refreshGitData({
         repositoryStatuses,
+        failedStatusRoots: statusResult.failedRoots,
         workingTreeVersion,
         repoPath,
       });
+      if (statusResult.failedRoots.includes(repoPath) || !repositoryStatuses[repoPath]) {
+        throw new Error("Git status query returned no snapshot");
+      }
+      setFailedRepoPath(null);
 
       // Commit history is not read here: the Commit panel no longer lists it, the
       // Git Log tool window pages its own history, and the compare-with-commit
@@ -107,6 +112,7 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
 
         gitActions.refreshGitData({
           repositoryStatuses,
+          failedStatusRoots: statusResult.failedRoots,
           workingTreeVersion,
           branches,
           operationState: operationStateResult.ok ? operationStateResult.value : null,
@@ -154,7 +160,8 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
           const repoPaths = useRepositoryStore.getState().availableRepoPaths;
           const statusRepoPaths = repoPaths.length > 0 ? repoPaths : [repoPath];
           const [status, branches, stashes, operationStateResult] = await Promise.all([
-            getRepositoryGitStatuses(statusRepoPaths, source),
+            getWorkspaceStatusRefresh(statusRepoPaths, source, statusRepoPaths,
+              useGitStore.getStore(workspaceId).getState().repositoryStatuses),
             shouldRefreshRefs ? getBranches(repoPath, source) : Promise.resolve(undefined),
             shouldRefreshStashes ? getStashes(repoPath, source) : Promise.resolve(undefined),
             // Operation state rides along on every refresh: staging a file or
@@ -174,15 +181,18 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
             return;
           }
 
-          if (!status[repoPath]) throw new Error("Git status query returned no snapshot");
-          setFailedRepoPath(null);
           gitActions.refreshGitData({
-            repositoryStatuses: status,
+            repositoryStatuses: status.statuses,
+            failedStatusRoots: status.failedRoots,
             workingTreeVersion,
             branches,
             operationState: operationStateResult.ok ? operationStateResult.value : undefined,
             repoPath,
           });
+          if (status.failedRoots.includes(repoPath) || !status.statuses[repoPath]) {
+            throw new Error("Git status query returned no snapshot");
+          }
+          setFailedRepoPath(null);
 
           if (
             stashes &&
