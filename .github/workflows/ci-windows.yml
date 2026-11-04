@@ -837,6 +837,7 @@ jobs:
             --max-ms 15000 `
             --test-prefix lsp::interface::engine::real_jdt_tests:: `
             --test-budget lsp::interface::engine::real_jdt_tests::real_jdtls_discovers_builds_and_launches_java_25_entrypoints=600000 `
+            --test-budget lsp::interface::engine::real_jdt_tests::real_jdtls_lists_entrypoints_in_a_plain_java_folder=240000 `
             --build-timeout-ms 600000 `
             --suite-timeout-ms 1200000 `
             --report .artifacts/test-stability/windows-real-jdt.json

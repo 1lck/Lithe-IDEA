@@ -101,6 +101,13 @@ JDT 直启流程。继承插件的库模块、只有测试入口的模块和入�
 原问题换成一次不确定的错误运行。JDT 对模块化项目返回的
 `module/name.Type` 会转换为 JVM 需要的 `-m module/name.Type`。
 
+`java.main` 收到 `javaLaunch` 时同样按 JDT 直启处理，不再以 Maven reactor 字段
+作为准入条件：Core 保留 JDT 返回的类路径与模块路径，只有 Maven 项目且请求没有
+`buildPrepared` 回执时才追加原有资源处理步骤，Gradle 和无构建系统的目录直接从
+JDT 路径启动。没有 `javaLaunch` 的单文件计划保持原有的编译后运行。不要为了
+Gradle 再单独编译当前文件，否则同工程的其他类和依赖会缺失。回归见
+`java_launch_without_maven_consumes_jdt_paths_without_recompiling_one_file`。
+
 ### 阶段 D 的 Provider 资源准备
 
 macOS 已把资源步骤切入 Maven Provider 的公开项目任务：先保存文档、等待当前

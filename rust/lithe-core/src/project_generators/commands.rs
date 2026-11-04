@@ -199,9 +199,15 @@ pub(crate) fn project_check_name_command(payload: Value) -> Result<Value, CoreEr
 /// `project.extractArchive`: extracts a downloaded archive into staging.
 pub(crate) fn project_extract_archive_command(payload: Value) -> Result<Value, CoreError> {
     let payload: ExtractPayload = decode_payload(payload, "project.extractArchive")?;
+    let result = match archive::extract(&payload.archive_path, &payload.destination) {
+        Ok(files) => Ok(files),
+        Err(archive::ExtractionError::Invalid(rejection)) => Err(rejection),
+        // The extractor has closed its descriptors. Keep the first typed error:
+        // a second cancellation check would reclassify a timeout as cancellation.
+        Err(archive::ExtractionError::Interrupted(error)) => return Err(error),
+    };
     Ok(outcome(
-        archive::extract(&payload.archive_path, &payload.destination)
-            .map(|files| ("extracted", json!({"files": files}))),
+        result.map(|files| ("extracted", json!({"files": files}))),
     ))
 }
 

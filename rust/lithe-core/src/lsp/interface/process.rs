@@ -17,6 +17,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -32,9 +33,8 @@ pub struct LspProcessSpec {
 
 /// A running language-server process.
 ///
-/// Every method is infallible-by-design except writing: a process that has
-/// already exited is a normal state the engine reports through its own events,
-/// not an error to propagate from the handle.
+/// Exit notification and verified disposal are separate: a dead root may
+/// still own descendants. Disposal must succeed before releasing resources.
 pub trait LspProcessHandle: Send + Sync {
     /// OS process identifier when the platform exposes one. Scripted test
     /// handles intentionally return no identifier.
@@ -60,6 +60,19 @@ pub trait LspProcessHandle: Send + Sync {
     /// Transfers a native cleanup failure to the engine that owns role routing.
     fn take_termination_failure(&self) -> Option<std::io::Error> {
         None
+    }
+
+    /// Confirms disposal before the engine forgets the owning session.
+    /// Scripted handles have no descendants and report their own exit.
+    fn dispose(&self, _timeout: Duration) -> Result<(), CoreError> {
+        if self.exit_status().is_some() {
+            Ok(())
+        } else {
+            Err(CoreError::new(
+                ErrorCode::ProcessFailed,
+                "Language-server cleanup is incomplete.",
+            ))
+        }
     }
 }
 
@@ -208,6 +221,10 @@ fn windows_batch_env_value(value: &str) -> String {
     escaped
 }
 
+/// Interval between exit checks while a native disposal waits for the root.
+#[cfg(not(target_os = "windows"))]
+const DISPOSAL_POLL_MS: u64 = 10;
+
 struct SystemProcess {
     input: Mutex<Option<ChildStdin>>,
     child: Mutex<Child>,
@@ -279,6 +296,46 @@ impl LspProcessHandle for SystemProcess {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .take()
+    }
+
+    fn dispose(&self, timeout: Duration) -> Result<(), CoreError> {
+        #[cfg(target_os = "windows")]
+        self.tree.terminate(timeout).map_err(|error| {
+            CoreError::new(
+                ErrorCode::ProcessFailed,
+                "Language-server process tree did not exit.",
+            )
+            .with_details(error.to_string())
+        })?;
+        // A signalled child is reaped asynchronously, so an immediate status
+        // read after termination can still report it running. Repeat the
+        // idempotent kill and poll until the bounded disposal deadline. The
+        // last kill failure explains a root that outlives the deadline.
+        #[cfg(not(target_os = "windows"))]
+        let kill_failure = {
+            let mut last = None;
+            let deadline = std::time::Instant::now() + timeout;
+            while self.exit_status().is_none() && std::time::Instant::now() < deadline {
+                if let Err(error) = self.terminate_native() {
+                    last = Some(error);
+                }
+                std::thread::sleep(Duration::from_millis(DISPOSAL_POLL_MS));
+            }
+            last
+        };
+        #[cfg(target_os = "windows")]
+        let kill_failure: Option<std::io::Error> = None;
+        if self.exit_status().is_none() {
+            let error = CoreError::new(
+                ErrorCode::ProcessFailed,
+                "Language-server root did not exit.",
+            );
+            return Err(match kill_failure {
+                Some(cause) => error.with_details(cause.to_string()),
+                None => error,
+            });
+        }
+        Ok(())
     }
 }
 

@@ -162,6 +162,17 @@ and clones a real local repository. The cache retry then exhausted the existing
 suite deadline; that secondary timeout does not justify extending the whole
 suite. Keep every checkout/clone assertion and the existing request deadlines.
 
+`real_jdtls_lists_entrypoints_in_a_plain_java_folder` gets 240 seconds in the
+real-JDT lane. Like the Java 25 case, it cold-starts a real JDT LS, waits up to
+90 seconds for readiness, then up to 120 seconds for the plain folder's
+invisible project to import and list its entry point. Windows run 41817286665
+terminated it at 15.144 seconds under the default watchdog without an
+assertion failure, while the same revision passed it in 6.0 seconds on macOS
+arm64; the Java 25 case took 39.4 seconds in that run. The budget covers both
+in-test deadlines so a silent server fails with the test's own diagnostic
+rather than the watchdog. Other real-JDT cases and the suite deadline keep
+their budgets.
+
 ## Windows verification
 
 Run the PowerShell harness in a real Windows environment. A macOS boundary

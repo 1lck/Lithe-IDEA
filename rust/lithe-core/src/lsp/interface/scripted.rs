@@ -36,6 +36,8 @@ struct ScriptedShared {
     input_closed: AtomicBool,
     /// Set when the test wants writes to fail, standing in for a broken pipe.
     input_broken: AtomicBool,
+    /// Deterministic refusal of process-tree disposal after the root exits.
+    cleanup_blocked: AtomicBool,
     /// Deterministic write barrier used by concurrency-ordering tests.
     input_pause: Mutex<ScriptedInputPause>,
     input_pause_changed: Condvar,
@@ -69,6 +71,7 @@ impl ScriptedServer {
                 exit: Mutex::new(None),
                 input_closed: AtomicBool::new(false),
                 input_broken: AtomicBool::new(false),
+                cleanup_blocked: AtomicBool::new(false),
                 input_pause: Mutex::new(ScriptedInputPause::default()),
                 input_pause_changed: Condvar::new(),
                 spec: Mutex::new(None),
@@ -252,6 +255,13 @@ impl ScriptedServer {
         self.shared.input_broken.store(true, Ordering::Release);
     }
 
+    /// Simulates a descendant that survives the root, without real processes.
+    pub fn block_cleanup(&self, blocked: bool) {
+        self.shared
+            .cleanup_blocked
+            .store(blocked, Ordering::Release);
+    }
+
     /// Stops the next engine write before any bytes reach the scripted server.
     pub fn pause_input(&self) {
         let mut pause = self.shared.input_pause.lock().unwrap();
@@ -390,6 +400,16 @@ impl LspProcessHandle for ScriptedProcess {
 
     fn exit_status(&self) -> Option<Option<i32>> {
         *self.shared.exit.lock().unwrap()
+    }
+
+    fn dispose(&self, _timeout: Duration) -> Result<(), CoreError> {
+        if self.shared.cleanup_blocked.load(Ordering::Acquire) || self.exit_status().is_none() {
+            return Err(CoreError::new(
+                ErrorCode::ProcessFailed,
+                "Scripted process cleanup is incomplete.",
+            ));
+        }
+        Ok(())
     }
 
     fn terminate(&self) {
