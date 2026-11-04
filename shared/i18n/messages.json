@@ -15542,6 +15542,26 @@
       ]
     },
     {
+      "id": "git.log.arrowTargetFiltered",
+      "description": "Windows UI: git.log.arrowTargetFiltered — graph arrow target hidden by the active log filter",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "hash": "string"
+      }
+    },
+    {
+      "id": "git.log.arrowTargetUnreachable",
+      "description": "Windows UI: git.log.arrowTargetUnreachable — graph arrow target not found within the locate budget or beyond a shallow-clone boundary",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "hash": "string"
+      }
+    },
+    {
       "id": "git.log.autoStashCleanupFailed",
       "description": "Windows UI: git.log.autoStashCleanupFailed",
       "platforms": [
@@ -16103,6 +16123,16 @@
       "platforms": [
         "windows"
       ]
+    },
+    {
+      "id": "git.log.locateParent",
+      "description": "Windows UI: git.log.locateParent — graph arrow onto unloaded history offers bounded locating",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "hash": "string"
+      }
     },
     {
       "id": "git.log.loading",

@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
-import { act, useRef, useState } from "react";
+import { act, useCallback, useMemo, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import * as virtual from "@tanstack/react-virtual";
 import { LocaleProvider } from "@/i18n/locale-provider";
 import { installHappyDom } from "@/test-utils/happy-dom";
 import { useGitLogPreferencesStore } from "../../stores/git-log-preferences.store";
 import type { GitCommit } from "../../types/git.types";
-import { GitCommitTable } from "./git-commit-table";
+import { GitCommitTable, GRAPH_LOCATE_PAGE_BUDGET } from "./git-commit-table";
 
 const commit = (hash: string, parents: string[] = []): GitCommit => ({
   hash,
@@ -41,10 +41,16 @@ function Harness({
   values,
   navigationRequest = 0,
   repositoryCommits,
+  hasMore = false,
+  isLoadingMore = false,
+  onLoadMore,
 }: {
   values: GitCommit[];
   navigationRequest?: number;
   repositoryCommits?: GitCommit[];
+  hasMore?: boolean;
+  isLoadingMore?: boolean;
+  onLoadMore?: () => Promise<boolean> | boolean | void;
 }) {
   const [current, setCurrent] = useState<GitCommit | null>(null);
   const noop = () => {};
@@ -58,8 +64,8 @@ function Harness({
         selectedCommitHashes={new Set(current ? [current.hash] : [])}
         navigationRequest={navigationRequest}
         isMutatingHistory={false}
-        hasMore={false}
-        isLoadingMore={false}
+        hasMore={hasMore}
+        isLoadingMore={isLoadingMore}
         onSelect={(value, visible, options) => {
           selected(value, visible, options);
           setCurrent(value);
@@ -80,7 +86,7 @@ function Harness({
         onCherryPick={noop}
         onRevert={noop}
         onCreateTag={noop}
-        onLoadMore={noop}
+        onLoadMore={onLoadMore ?? noop}
         onSelectReference={noop}
       />
     </LocaleProvider>
@@ -89,6 +95,20 @@ function Harness({
 
 beforeEach(() => {
   restoreDom = installHappyDom();
+  // Paging tests mount with `hasMore`; the sentinel observer is not under test.
+  const globe = globalThis as typeof globalThis & { IntersectionObserver?: unknown };
+  globe.IntersectionObserver ??= class {
+    root = null;
+    rootMargin = "";
+    scrollMargin = "";
+    thresholds = [];
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+    takeRecords() {
+      return [];
+    }
+  };
   previousActEnvironment = environment.IS_REACT_ACT_ENVIRONMENT;
   environment.IS_REACT_ACT_ENVIRONMENT = true;
   previousPreferences = useGitLogPreferencesStore.getState();
@@ -157,6 +177,87 @@ afterEach(async () => {
 
 const mount = async (values = commits) => {
   await act(async () => root.render(<Harness values={values} />));
+};
+const mountWith = async (
+  values: GitCommit[],
+  options: {
+    hasMore?: boolean;
+    isLoadingMore?: boolean;
+    onLoadMore?: () => Promise<boolean> | boolean | void;
+  } = {},
+) => {
+  await act(async () =>
+    root.render(
+      <Harness
+        values={values}
+        hasMore={options.hasMore}
+        isLoadingMore={options.isLoadingMore}
+        onLoadMore={options.onLoadMore}
+      />,
+    ),
+  );
+};
+
+/**
+ * Drives pagination through component state so page arrivals rerender inside
+ * the normal React flow — no nested `act` left pending after an assertion.
+ */
+function PagedHarness({
+  pages,
+  onLoadObserved,
+}: {
+  pages: GitCommit[][];
+  onLoadObserved?: () => void;
+}) {
+  const [pageIndex, setPageIndex] = useState(1);
+  const [current, setCurrent] = useState<GitCommit | null>(null);
+  const values = useMemo(() => pages.slice(0, pageIndex).flat(), [pages, pageIndex]);
+  const hasMore = pageIndex < pages.length;
+  const noop = () => {};
+  const loadMore = useCallback(async () => {
+    onLoadObserved?.();
+    if (pageIndex >= pages.length) return false;
+    setPageIndex((index) => index + 1);
+    return true;
+  }, [onLoadObserved, pageIndex, pages.length]);
+  return (
+    <LocaleProvider language="en-US">
+      <GitCommitTable
+        commits={values}
+        references={[]}
+        selectedCommit={values.find((value) => value.hash === current?.hash) ?? null}
+        selectedCommitHashes={new Set(current ? [current.hash] : [])}
+        isMutatingHistory={false}
+        hasMore={hasMore}
+        isLoadingMore={false}
+        onSelect={(value, visible, options) => {
+          selected(value, visible, options);
+          setCurrent(value);
+        }}
+        onOpenDiff={openDiff}
+        onContextSelect={noop}
+        onCompareWithHead={noop}
+        onCopyHash={noop}
+        onCopyShortHash={noop}
+        onCopyMessage={noop}
+        onEditMessage={noop}
+        onUndo={noop}
+        onInteractiveRebase={noop}
+        onExportPatch={noop}
+        onDelete={noop}
+        onSquash={noop}
+        onReset={noop}
+        onCherryPick={noop}
+        onRevert={noop}
+        onCreateTag={noop}
+        onLoadMore={loadMore}
+        onSelectReference={noop}
+      />
+    </LocaleProvider>
+  );
+}
+const mountPaged = async (pages: GitCommit[][], onLoadObserved?: () => void) => {
+  await act(async () => root.render(<PagedHarness pages={pages} onLoadObserved={onLoadObserved} />));
 };
 const click = async (element: Element) => {
   await act(async () => element.dispatchEvent(new window.MouseEvent("click", { bubbles: true })));
@@ -233,9 +334,14 @@ test("arrow key activation does not trigger the source row's Enter diff action a
   expect(document.activeElement).toBe(document.body);
 });
 
-test("missing-history markers have no navigation target and ordinary row selection and diff remain available", async () => {
-  await mount([commit("tip", ["missing"]), commit("other")]);
-  expect(container.querySelectorAll("[data-git-graph-target]")).toHaveLength(0);
+test("missing-history markers offer a locate target while ordinary selection and diff remain available", async () => {
+  const loadMore = mock(async () => false);
+  await mountWith([commit("tip", ["missing"]), commit("other")], { onLoadMore: loadMore });
+  const locate = container.querySelector('[data-git-graph-target="missing"]')!;
+  expect(locate.getAttribute("aria-label")).toBe("Locate parent commit missing");
+  // History is exhausted: the click resolves with feedback, never more paging.
+  await click(locate);
+  expect(loadMore).not.toHaveBeenCalled();
   const row = container.querySelector('[data-git-commit-hash="tip"]')!;
   await click(row);
   await act(async () => row.dispatchEvent(new window.MouseEvent("dblclick", { bubbles: true })));
@@ -243,6 +349,88 @@ test("missing-history markers have no navigation target and ordinary row selecti
   expect(openDiff.mock.calls[0][0].hash).toBe("tip");
   await act(async () => useGitLogPreferencesStore.getState().actions.setFilterQuery("no-match"));
   expect(container.querySelectorAll("[data-git-graph-target]")).toHaveLength(0);
+});
+
+test("a fresh batch of missing parents preloads within the bounded page budget", async () => {
+  // Page 1 ends at "tip" whose parent "missing" only arrives with page 3.
+  const page1 = [
+    commit("tip", ["missing"]),
+    // The filler chain closes on itself: "tip"'s parent is the only missing one.
+    ...Array.from({ length: 9 }, (_, index) =>
+      commit(`row${index}`, index === 8 ? [] : [`row${index + 1}`]),
+    ),
+  ];
+  // Each filler page's chain closes on itself: no new missing parents of its own.
+  const page2 = [
+    ...Array.from({ length: 9 }, (_, index) => commit(`far${index}`, [`far${index + 1}`])),
+    commit("far9"),
+  ];
+  const page3 = [commit("missing", ["root"]), commit("root")];
+  let loads = 0;
+  await mountPaged([page1, page2, page3], () => {
+    loads += 1;
+  });
+  // The preload chained pages 2 and 3 on its own; every parent became jumpable.
+  expect(loads).toBe(2);
+  expect(container.querySelector('[data-git-graph-target="missing"]')).toBeNull();
+  const row = container.querySelector('[data-git-commit-hash="tip"]')!;
+  await click(row);
+  expect(selected).toHaveBeenCalledTimes(1);
+});
+
+test("the preload budget stops after five pages even when parents stay missing", async () => {
+  // The second row carries the missing-parent arrow; every later page is filler
+  // that never contains the parent, so the budget alone stops the chain.
+  const page1 = [commit("tip", ["missing"]), commit("other")];
+  const fillerPage = (index: number) => [commit(`fill${index}`)];
+  let loads = 0;
+  await mountPaged(
+    Array.from({ length: 12 }, (_, index) => (index === 0 ? page1 : fillerPage(index))),
+    () => {
+      loads += 1;
+    },
+  );
+  expect(loads).toBe(GRAPH_LOCATE_PAGE_BUDGET);
+  // The filter suppresses preloading entirely for newly arriving pages.
+  await act(async () => useGitLogPreferencesStore.getState().actions.setFilterQuery("tip"));
+  loads = 0;
+  await act(async () =>
+    root.render(
+      <PagedHarness
+        pages={Array.from({ length: 12 }, (_, index) => (index === 0 ? page1 : fillerPage(index)))}
+        onLoadObserved={() => {
+          loads += 1;
+        }}
+      />,
+    ),
+  );
+  expect(loads).toBe(0);
+});
+
+test("clicking a missing-parent arrow locates the target through bounded pages and reveals it", async () => {
+  // The second row carries the missing-parent arrow; the preload budget burns
+  // filler pages first, and the click's own locate run reaches the parent page.
+  const page1 = [commit("tip", ["missing"]), commit("other")];
+  const fillerPage = (index: number) => [commit(`fill${index}`)];
+  const targetPage = [commit("missing", ["root"]), commit("root")];
+  let loads = 0;
+  const pages = [
+    page1,
+    ...Array.from({ length: GRAPH_LOCATE_PAGE_BUDGET }, (_, index) => fillerPage(index + 1)),
+    targetPage,
+  ];
+  await mountPaged(pages, () => {
+    loads += 1;
+  });
+  // The fresh missing batch preloaded its full budget without reaching the parent.
+  expect(loads).toBe(GRAPH_LOCATE_PAGE_BUDGET);
+  const locate = container.querySelector('[data-git-graph-target="missing"]')!;
+  expect(locate).not.toBeNull();
+  await click(locate);
+  // The explicit click earns its own bounded locate run and reveals the row.
+  expect(loads).toBe(GRAPH_LOCATE_PAGE_BUDGET + 1);
+  expect(selected).toHaveBeenCalledTimes(1);
+  expect(selected.mock.calls[0][0].hash).toBe("missing");
 });
 
 test("appending a page and repainting references preserve the manually scrolled viewport and selection", async () => {

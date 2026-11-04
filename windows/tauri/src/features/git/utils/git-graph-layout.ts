@@ -31,7 +31,7 @@ export interface GitGraphPrintElement {
   /** Compact long edges and unloaded parents end with a directional marker. */
   hasArrow: boolean;
   isTerminal: boolean;
-  /** Loaded visible endpoint; missing history never invents a navigation target. */
+  /** Navigation target: a loaded visible endpoint, or the named parent of missing history. */
   targetHash: string | null;
 }
 
@@ -617,10 +617,10 @@ export function layoutGitGraph(
               isMissing: edge.down === null,
               hasArrow,
               isTerminal: nextPosition === undefined,
-              targetHash:
-                edge.down === null
-                  ? null
-                  : visibleCommits[direction === "down" ? edge.down : edge.up].hash,
+              // IntelliJ parity: an unloaded-parent arrow still names its target
+              // (GitEdge.targetId) so the row can offer locate/feedback actions;
+              // isMissing distinguishes it from a jump to a loaded row.
+              targetHash: edge.down === null ? edge.parentHash : visibleCommits[direction === "down" ? edge.down : edge.up].hash,
             },
           ];
         });

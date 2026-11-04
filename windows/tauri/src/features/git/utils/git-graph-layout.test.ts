@@ -126,6 +126,22 @@ describe("Git graph layout", () => {
     expect(parseGitDecorations("team/local", new Set(["upstream/work"]))[0].kind).toBe("branch");
   });
 
+  test("missing-parent arrows name their unloaded parent as the navigation target", () => {
+    const commits = [
+      commit("tip", ["missing"]),
+      commit("other", []),
+    ];
+    const layout = layoutGitGraph(commits);
+    expect(layout.hasMissingParents).toBe(true);
+    const arrow = layout.rows
+      .flatMap((row) => row.printElements)
+      .find((element) => element.hasArrow);
+    expect(arrow?.isMissing).toBe(true);
+    expect(arrow?.direction).toBe("down");
+    // IntelliJ parity: the arrow names the target even though its row is not loaded.
+    expect(arrow?.targetHash).toBe("missing");
+  });
+
   for (const span of [29, 30, 31, 999, 1_000]) {
     test(`compact and expanded long edges preserve topology and visible navigation endpoints at ${span} rows`, () => {
       const commits = Array.from({ length: span + 1 }, (_, row) =>
@@ -169,13 +185,16 @@ describe("Git graph layout", () => {
     });
   }
 
-  test("unloaded parent arrows have no fabricated destination", () => {
+  test("unloaded parent arrows name their real parent instead of a fabricated row", () => {
     const layout = layoutGitGraph([commit("tip", ["unloaded"]), commit("other")]);
     const arrows = layout.rows
       .flatMap((row) => row.printElements)
       .filter((element) => element.hasArrow);
     expect(arrows).toHaveLength(1);
-    expect(arrows[0].targetHash).toBeNull();
+    expect(arrows[0].isMissing).toBe(true);
+    // IntelliJ parity (NOT_LOAD_COMMIT keeps targetId): the arrow names the
+    // parent hash; isMissing marks that its row is not loaded for jumping.
+    expect(arrows[0].targetHash).toBe("unloaded");
   });
 
   test("the unfiltered 200-commit graph matches the frozen IDEA positions, terminal markers and color identities", () => {

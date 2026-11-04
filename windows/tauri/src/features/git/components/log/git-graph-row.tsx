@@ -268,9 +268,13 @@ function GitGraphArrowTargets({
     .map((element) => {
       const target = element.targetHash!;
       const rect = paint.arrowHitRect(element);
-      const label = t(element.direction === "down" ? "git.log.goToParent" : "git.log.goToChild", {
-        hash: target.slice(0, 8),
-      });
+      // IntelliJ parity: an arrow onto unloaded history still names its target
+      // (NOT_LOAD_COMMIT edges keep targetId); the click locates or explains.
+      const label = element.isMissing
+        ? t("git.log.locateParent", { hash: target.slice(0, 8) })
+        : t(element.direction === "down" ? "git.log.goToParent" : "git.log.goToChild", {
+            hash: target.slice(0, 8),
+          });
       return (
         <button
           key={element.id}

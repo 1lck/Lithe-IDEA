@@ -1,5 +1,6 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -49,6 +50,12 @@ import { GitLogBranchFilter } from "./git-log-branch-filter";
 import { GitLogColumnResizeHandle } from "./git-log-column-resize-handle";
 import { GitLogDateCell } from "./git-log-date-cell";
 import { historyActionKey, useGitHistoryActionCapabilities, type GitHistoryActionRequest } from "../../hooks/use-git-history-action-capabilities";
+
+/**
+ * Locating one unloaded arrow target, and preloading one fresh batch of
+ * missing parents, each fetch at most this many extra pages before feedback.
+ */
+export const GRAPH_LOCATE_PAGE_BUDGET = 5;
 
 export function GitCommitTable({
   commits,
@@ -117,7 +124,8 @@ export function GitCommitTable({
   onCherryPick: (commit: GitCommit) => void;
   onRevert: (commit: GitCommit) => void;
   onCreateTag: (commit: GitCommit) => void;
-  onLoadMore: () => void;
+  /** Loads the next cursor page; resolves false when no new commits arrived. */
+  onLoadMore: () => Promise<boolean> | boolean | void;
   /** Applies the Branch filter; `null` shows all references. */
   onSelectReference: (reference: GitReference | null) => void;
 }) {
@@ -331,14 +339,75 @@ export function GitCommitTable({
     ],
   );
 
+  // A located arrow target arrives in a later render; reveal it from the effect
+  // so selection uses the refreshed rows instead of the click-time closure.
+  const pendingGraphNavigateRef = useRef<string | null>(null);
+  useEffect(() => {
+    const pending = pendingGraphNavigateRef.current;
+    if (!pending) return;
+    const index = visibleRows.findIndex((row) => row.commit.hash === pending);
+    if (index < 0) return;
+    pendingGraphNavigateRef.current = null;
+    selectRowAt(index, { additive: false, range: false }, true);
+  }, [selectRowAt, visibleRows]);
+
   const navigateToHash = useCallback(
-    (hash: string) => {
+    async (hash: string) => {
       if (isMutatingHistory) return;
       const index = visibleRows.findIndex((row) => row.commit.hash === hash);
-      if (index >= 0) selectRowAt(index, { additive: false, range: false }, true);
+      if (index >= 0) {
+        selectRowAt(index, { additive: false, range: false }, true);
+        return;
+      }
+      // IntelliJ parity: every arrow click resolves with feedback. The row is
+      // either hidden by the filter, beyond the loaded history, or further down
+      // the cursor; locating is bounded to a page budget.
+      if (query.trim()) {
+        toast.info(t("git.log.arrowTargetFiltered", { hash: hash.slice(0, 8) }));
+        return;
+      }
+      if (!hasMore) {
+        toast.info(t("git.log.arrowTargetUnreachable", { hash: hash.slice(0, 8) }));
+        return;
+      }
+      pendingGraphNavigateRef.current = hash;
+      for (let page = 0; page < GRAPH_LOCATE_PAGE_BUDGET; page += 1) {
+        const progressed = await onLoadMore();
+        // Let the refreshed rows land before re-checking the pending target.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        if (pendingGraphNavigateRef.current !== hash) return;
+        if (!progressed) break;
+      }
+      if (pendingGraphNavigateRef.current === hash) {
+        pendingGraphNavigateRef.current = null;
+        toast.info(t("git.log.arrowTargetUnreachable", { hash: hash.slice(0, 8) }));
+      }
     },
-    [isMutatingHistory, selectRowAt, visibleRows],
+    [hasMore, isMutatingHistory, onLoadMore, query, selectRowAt, t, visibleRows],
   );
+
+  // Arrow-ready history: each fresh batch of missing parents earns a bounded
+  // preload budget so arrows stay jumpable; the filter hides targets, so
+  // locating is deferred to the explicit arrow click instead.
+  const missingParentsPreloadBudgetRef = useRef(0);
+  const wasMissingParentsRef = useRef(false);
+  useEffect(() => {
+    if (graphLayout.hasMissingParents && !wasMissingParentsRef.current) {
+      missingParentsPreloadBudgetRef.current = GRAPH_LOCATE_PAGE_BUDGET;
+    }
+    wasMissingParentsRef.current = graphLayout.hasMissingParents;
+  }, [graphLayout.hasMissingParents]);
+  const onLoadMoreRef = useRef(onLoadMore);
+  onLoadMoreRef.current = onLoadMore;
+  useEffect(() => {
+    if (!graphLayout.hasMissingParents) return;
+    if (query.trim() || !hasMore || isLoadingMore) return;
+    if (missingParentsPreloadBudgetRef.current <= 0) return;
+    missingParentsPreloadBudgetRef.current -= 1;
+    void onLoadMoreRef.current();
+    // `commits` re-runs this after every arrived page: with a synchronous or
+    // already-idle load state the boolean signals alone would not chain pages.
+  }, [graphLayout.hasMissingParents, commits, hasMore, isLoadingMore, query]);
 
   const handleKeyDown = (event: React.KeyboardEvent) => {
     const target = event.target as HTMLElement;

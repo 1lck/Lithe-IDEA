@@ -4,7 +4,6 @@ import { GitExecutionConsole } from "./git-execution-console";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Button } from "@/ui/button";
 import { showConfirmDialog, showPromptDialog } from "@/ui/dialog";
 import { Dropdown, useDropdownMenu } from "@/ui/dropdown";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/ui/resizable";
@@ -973,7 +972,7 @@ export function GitLogToolWindow() {
                   setTagRequest({ workspaceId, repoPath, commit });
                 }
               }}
-              onLoadMore={() => void loadMore()}
+              onLoadMore={loadMore}
               onSelectReference={handleReferenceSelect}
             />
           </ResizablePanel>
