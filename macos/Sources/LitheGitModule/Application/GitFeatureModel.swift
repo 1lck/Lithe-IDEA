@@ -2194,11 +2194,16 @@ package final class GitFeatureModel: ObservableObject {
             notifyFailure("Shelve storage is unavailable", reason: "operation_failed")
             return
         }
+        let generation = workspaceCommitGeneration
+        let workspace = workspaceURLProvider?()?.standardizedFileURL
         isPerformingShelfOperation = true
+        defer { if generation == workspaceCommitGeneration { isPerformingShelfOperation = false } }
         let result = await withGitOperation {
             await captureAndCleanShelf(message: message, at: gitRepositoryRoot)
         }
-        isPerformingShelfOperation = false
+        guard generation == workspaceCommitGeneration,
+              workspaceURLProvider?()?.standardizedFileURL == workspace,
+              self.gitRepositoryRoot?.standardizedFileURL == gitRepositoryRoot.standardizedFileURL else { return }
         switch result {
         case .saved(let entry):
             notifyWithReference("Shelved \(entry.paths.count) file(s)")
@@ -2236,71 +2241,57 @@ package final class GitFeatureModel: ObservableObject {
         case failed(String)
     }
 
+    private func shelfFailureMessage(_ message: String) -> String {
+        if message.contains("SHELF_CHANGED") { return L10n.string("The repository changed. The shelf was retained; review the working tree before retrying.") }
+        if message.contains("SHELF_CONFLICTS") { return L10n.string("Resolve conflicts before shelving changes.") }
+        return message
+    }
+
     private func captureAndCleanShelf(
         message: String,
         at repositoryRoot: URL
     ) async -> ShelfCaptureResult {
-        guard let shelveService else { return .failed("Shelve storage is unavailable") }
-        let changes = coveringUntrackedDirectoryContents(gitChanges.filter {
-            $0.repositoryRoot.standardizedFileURL == repositoryRoot.standardizedFileURL
-        })
-        guard !changes.isEmpty else { return .failed("There are no changes to shelve") }
-        guard !changes.contains(where: \.isConflicted) else {
-            return .failed("Resolve existing conflicts before shelving changes")
+        guard let shelveService else { return .failed(L10n.string("Saved changes operation failed")) }
+        let generation = workspaceCommitGeneration
+        let workspace = workspaceURLProvider?()?.standardizedFileURL
+        func current() -> Bool {
+            !Task.isCancelled && workspaceCommitGeneration == generation
+                && workspaceURLProvider?()?.standardizedFileURL == workspace
+                && gitRepositoryRoot?.standardizedFileURL == repositoryRoot.standardizedFileURL
         }
-
-        // Every change is cleaned after the shelf is saved, so one that Git
-        // could not export aborts the shelf instead of being lost. A summarized
-        // directory is cleaned as a whole, including files its patch missed.
-        var stagedPatches: [String] = []
-        var workingPatches: [String] = []
-        for change in changes {
-            if change.isStaged {
-                guard let patch = await service.stagedDiffPatch(for: change) else {
-                    return .failed("Could not create a patch for \(change.path)")
-                }
-                if !patch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    stagedPatches.append(patch)
-                }
-            }
-            if change.hasWorkingTreeChange {
-                guard let patch = await service.workingDiffPatch(for: change) else {
-                    return .failed("Could not create a patch for \(change.path)")
-                }
-                if !patch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    workingPatches.append(patch)
-                }
-            }
+        guard current() else { return .failed(L10n.string("Saved changes operation failed")) }
+        let snapshot: GitShelfSnapshot
+        switch await service.shelfCapture(at: repositoryRoot) {
+        case .success(let value): snapshot = value
+        case .failure(let error): return .failed(shelfFailureMessage(error.message))
         }
-
-        let stagedPatch = stagedPatches.joined(separator: "\n")
-        let workingPatch = workingPatches.joined(separator: "\n")
-        guard !stagedPatch.isEmpty || !workingPatch.isEmpty else {
-            return .failed("Could not create a patch for these changes")
+        guard current() else { return .failed(L10n.string("Saved changes operation failed")) }
+        guard !snapshot.stagedPatch.isEmpty || !snapshot.workingPatch.isEmpty else {
+            return .failed(L10n.string("There are no changes to shelve"))
         }
-
-        let paths = Array(Set(changes.flatMap(\.pathspecs))).sorted()
         guard let entry = await shelveService.save(
-            message: message,
-            repositoryRoot: repositoryRoot,
-            paths: paths,
-            stagedPatch: stagedPatch,
-            workingPatch: workingPatch
-        ) else {
-            return .failed("Could not save the shelf")
+            message: message, repositoryRoot: repositoryRoot, paths: snapshot.paths,
+            stagedPatch: snapshot.stagedPatch, workingPatch: snapshot.workingPatch
+        ) else { return .failed(L10n.string("Saved changes operation failed")) }
+        guard current() else { return .failed(L10n.string("The repository changed. The shelf was retained; review the working tree before retrying.")) }
+        let plan: GitShelfPlan
+        switch await service.shelfPlan(at: repositoryRoot, phase: .clean) {
+        case .success(let value): plan = value
+        case .failure(let error):
+            if current() { await refreshGit() }
+            return .failed(shelfFailureMessage(error.message))
         }
-
-        for change in changes {
-            let discarded = await recordingGitCommand {
-                await service.discardAll(change)
+        for layer in plan.layers {
+            guard current() else { return .failed(L10n.string("The repository changed. The shelf was retained; review the working tree before retrying.")) }
+            let result = await recordingGitCommand {
+                await service.shelfStep(at: repositoryRoot, phase: .clean, layer: layer, snapshot: snapshot)
             }
-            guard discarded.succeeded else {
-                await refreshGit()
-                return .failed(
-                    "Shelf saved, but could not clear \(change.path): \(trimmedMessage(discarded))"
-                )
+            if !result.succeeded {
+                if current() { await refreshGit() }
+                return .failed(shelfFailureMessage(trimmedMessage(result)))
             }
         }
+        guard current() else { return .failed(L10n.string("The repository changed. The shelf was retained; review the working tree before retrying.")) }
         await refreshGit()
         return .saved(entry)
     }
@@ -2308,54 +2299,37 @@ package final class GitFeatureModel: ObservableObject {
     @discardableResult
     private func restoreShelf(_ shelf: GitShelfEntry, at repositoryRoot: URL) async -> Bool {
         guard let shelveService else { return false }
-        if !shelf.stagedPatch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        let generation = workspaceCommitGeneration
+        let workspace = workspaceURLProvider?()?.standardizedFileURL
+        func current() -> Bool {
+            !Task.isCancelled && workspaceCommitGeneration == generation
+                && workspaceURLProvider?()?.standardizedFileURL == workspace
+                && gitRepositoryRoot?.standardizedFileURL == repositoryRoot.standardizedFileURL
+        }
+        guard current() else { return false }
+        let plan: GitShelfPlan
+        switch await service.shelfPlan(at: repositoryRoot, phase: .restore) {
+        case .success(let value): plan = value
+        case .failure(let error): notifyWithReference(shelfFailureMessage(error.message)); return false
+        }
+        let snapshot = GitShelfSnapshot(shelf)
+        for layer in plan.layers {
+            guard current() else { return false }
             let result = await recordingGitCommand {
-                await service.applyPatch(
-                    shelf.stagedPatch,
-                    at: repositoryRoot,
-                    mode: "restoreIndex"
-                )
+                await service.shelfStep(at: repositoryRoot, phase: .restore, layer: layer, snapshot: snapshot)
             }
             if !result.succeeded {
-                let alreadyApplied = await service.patchIsAlreadyApplied(
-                    shelf.stagedPatch,
-                    at: repositoryRoot,
-                    staged: true
-                )
-                guard alreadyApplied else {
-                    notifyFailure("Could not restore shelf: \(trimmedMessage(result))", reason: "operation_failed")
-                    return false
-                }
+                if current() { notifyWithReference(shelfFailureMessage(trimmedMessage(result))); await refreshGit() }
+                return false
             }
         }
-        if !shelf.workingPatch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let result = await recordingGitCommand {
-                await service.applyPatch(
-                    shelf.workingPatch,
-                    at: repositoryRoot,
-                    mode: "worktree"
-                )
-            }
-            if !result.succeeded {
-                let alreadyApplied = await service.patchIsAlreadyApplied(
-                    shelf.workingPatch,
-                    at: repositoryRoot,
-                    staged: false
-                )
-                guard alreadyApplied else {
-                    notifyWithReference("Shelf partially restored; it was kept for retry: \(trimmedMessage(result))")
-                    await refreshGit()
-                    return false
-                }
-            }
-        }
+        guard current() else { return false }
         guard await shelveService.delete(shelf, repositoryRoot: repositoryRoot) else {
-            notifyFailure("Shelf restored, but it could not be removed", reason: "operation_failed")
-            await refreshGit()
-            return true
+            if current() { notifyWithReference(L10n.string("Saved changes operation failed")); await refreshGit() }
+            return false
         }
-        await refreshGit()
-        return true
+        if current() { await refreshGit() }
+        return current()
     }
 
     package func applyStash(_ stash: GitStash, pop: Bool = false) async {

@@ -537,6 +537,7 @@ struct GitStatusObservationTests {
         let worktree = try #require(feature.gitWorktrees.first { $0.url.standardizedFileURL == linked })
         await feature.inspectWorktree(worktree)
         let scoped = feature.commitFeature(for: worktree)
+        await scoped.changelistProjectionTask?.value
         scoped.requestRollbackChanges(scoped.gitChanges, included: scoped.gitChanges)
         await scoped.confirmRollbackChanges(try #require(scoped.pendingRollbackSelection))
         #expect(try await fixture.git(["status", "--porcelain"], at: linked).isEmpty)
@@ -580,6 +581,7 @@ struct GitStatusObservationTests {
         await feature.refreshWorktrees()
         #expect(Set(feature.gitWorktreeInspection?.changes.map(\.path) ?? []) == expectedPaths)
         let scoped = feature.commitFeature(for: worktree)
+        await scoped.changelistProjectionTask?.value
         #expect(Set(scoped.gitChanges.map(\.path)) == expectedPaths)
         // Worktrees' toolbar stages through the host; Commit's checkbox batch
         // uses the scoped model. Neither entry point may add the nested root.
@@ -594,6 +596,7 @@ struct GitStatusObservationTests {
         #expect(Set(scoped.gitChanges.map(\.path)) == expectedPaths)
         let stageAll = scoped.beginSetStaging(scoped.activeChangelistChanges, staged: true, includeWorkingTreeChanges: true)
         await scoped.finishSetStaging(stageAll, staged: true)
+        await scoped.changelistProjectionTask?.value
         #expect(try await fixture.git(["diff", "--cached", "--name-only"], at: checkout) == "new.txt\ntracked.txt")
         #expect(try await !fixture.git(["ls-files", "--stage"], at: checkout).contains("160000"))
         #expect(await scoped.commitStagedChanges(message: "Keep nested repository independent", amend: false))
@@ -631,6 +634,7 @@ struct GitStatusObservationTests {
         let worktree = try #require(feature.gitWorktrees.first { $0.url.standardizedFileURL == linked })
         await feature.inspectWorktree(worktree)
         let scoped = feature.commitFeature(for: worktree)
+        await scoped.changelistProjectionTask?.value
         #expect(scoped.activeChangelistChanges.contains { $0.isStaged })
         #expect(await scoped.commitStagedChanges(message: "Selected checkout only", amend: false))
         #expect(try await fixture.git(["rev-parse", "HEAD"], at: primary) == originalHEAD)

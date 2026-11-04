@@ -133,6 +133,9 @@ package protocol GitOperations: Sendable {
     func startInteractiveRebase(at rootURL: URL, expectedState: GitRebaseExpectedState, steps: [GitRebaseStep]) -> GitRebaseProcessResult
     func controlInteractiveRebase(at rootURL: URL, sessionId: String, action: GitRebaseControlAction, amendMessage: String?, expectedHead: String?) -> GitRebaseProcessResult
     func createHistoryRecoveryBranch(named name: String, reference: String, at rootURL: URL) -> GitProcessResult?
+    func shelfCapture(at rootURL: URL) -> Result<GitShelfSnapshot, GitPatchFailure>
+    func shelfPlan(at rootURL: URL, phase: GitShelfPhase) -> Result<GitShelfPlan, GitPatchFailure>
+    func shelfStep(at rootURL: URL, phase: GitShelfPhase, layer: GitShelfLayer, snapshot: GitShelfSnapshot) -> GitProcessResult?
     func exportPatch(at rootURL: URL, source: GitPatchSource, paths: [String], base: String?, target: String?, metadataOnly: Bool) -> Result<GitPatchExport, GitPatchFailure>
     func savedStashFiles(at rootURL: URL, reference: String, base: String) -> Result<[GitSavedPatchFile], GitPatchFailure>
     func savedShelfFiles(at rootURL: URL, patch: String, version: String, base: String) -> Result<[GitSavedPatchFile], GitPatchFailure>
@@ -296,6 +299,9 @@ package extension GitOperations {
     func setUpstream(branch: GitReference, to upstream: GitReference, at rootURL: URL) -> GitProcessResult? { nil }
     func unsetUpstream(branch: GitReference, at rootURL: URL) -> GitProcessResult? { nil }
     func updateBranch(_ reference: GitReference, at rootURL: URL) -> GitProcessResult? { nil }
+    func shelfCapture(at rootURL: URL) -> Result<GitShelfSnapshot, GitPatchFailure> { .failure(GitPatchFailure(L10n.string("Saved changes operation failed"))) }
+    func shelfPlan(at rootURL: URL, phase: GitShelfPhase) -> Result<GitShelfPlan, GitPatchFailure> { .failure(GitPatchFailure(L10n.string("Saved changes operation failed"))) }
+    func shelfStep(at rootURL: URL, phase: GitShelfPhase, layer: GitShelfLayer, snapshot: GitShelfSnapshot) -> GitProcessResult? { nil }
     func exportPatch(at rootURL: URL, source: GitPatchSource, paths: [String], base: String?, target: String?, metadataOnly: Bool) -> Result<GitPatchExport, GitPatchFailure> {
         .failure(GitPatchFailure("Patch export is unavailable."))
     }
@@ -811,6 +817,16 @@ package struct GitService: Sendable {
 
     func createWorktree(_ request: GitWorktreeCreation, at root: URL) async -> CommandResult {
         await command(at: root) { $0.createWorktree(request, at: root) }
+    }
+
+    func shelfCapture(at root: URL) async -> Result<GitShelfSnapshot, GitPatchFailure> {
+        await read { $0.shelfCapture(at: root) } ?? .failure(GitPatchFailure(L10n.string("Saved changes operation failed")))
+    }
+    func shelfPlan(at root: URL, phase: GitShelfPhase) async -> Result<GitShelfPlan, GitPatchFailure> {
+        await read { $0.shelfPlan(at: root, phase: phase) } ?? .failure(GitPatchFailure(L10n.string("Saved changes operation failed")))
+    }
+    func shelfStep(at root: URL, phase: GitShelfPhase, layer: GitShelfLayer, snapshot: GitShelfSnapshot) async -> CommandResult {
+        await command(at: root) { $0.shelfStep(at: root, phase: phase, layer: layer, snapshot: snapshot) }
     }
 
     func exportPatch(at root: URL, source: GitPatchSource, paths: [String], base: String?, target: String?, metadataOnly: Bool) async -> Result<GitPatchExport, GitPatchFailure> {
