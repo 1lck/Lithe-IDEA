@@ -480,6 +480,16 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
         }
     }
 
+    /// Tells a running backend about a language server its plugin owns.
+    /// Core refuses these notifications to a session without a
+    /// `languageServer` method grant, and a refused notification stops the
+    /// backend, so they are only sent to one that holds one.
+    func notifyLanguageServer(pluginID: String, method: String, params: ToolingJSONValue) {
+        guard let entry = running[pluginID],
+              entry.hostServices.contains(where: { $0.hasPrefix("lithe/host/languageServer/") }) else { return }
+        notify(pluginID: pluginID, method: method, params: params)
+    }
+
     /// Sends a host notification to the plugin's running backend, after the
     /// ones sent before it. A backend that is not running, or negotiated a
     /// protocol without the notification, does not receive it.

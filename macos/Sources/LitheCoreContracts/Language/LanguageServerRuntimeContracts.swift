@@ -1152,6 +1152,12 @@ package extension PluginHostRequestFailure {
         message: "The language server is not running.", code: "plugin.host.languageServerUnavailable"
     )
 
+    /// The server the backend named belongs to another plugin. A plugin may
+    /// only talk to the servers its own package declares.
+    static let foreignContribution = PluginHostRequestFailure(
+        message: "The language server belongs to another plugin.", code: "plugin.host.foreignContribution"
+    )
+
     /// Core refused the call before it reached the server. Core puts the
     /// stable `plugin.host.*` code in `details`; any other diagnostic there
     /// never becomes the code the backend sees.

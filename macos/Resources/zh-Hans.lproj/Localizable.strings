@@ -4326,6 +4326,7 @@
 "The interface language changes immediately. English is the default." = "界面语言会立即生效。默认语言为英文。";
 "The item can be recovered from the macOS Trash." = "可以从 macOS 废纸篓中恢复此项目。";
 "The language server could not apply this setting. Restart it to use the new value." = "语言服务器无法应用此设置。请重启它以使用新值。";
+"The language server is not running." = "语言服务器没有运行。";
 "The language server is still stopping. Try again after it has stopped." = "语言服务器仍在停止。请在停止完成后重试。";
 "The language server this build system uses is not available. Open a file of the language and try again." = "此构建系统使用的语言服务器不可用。请打开该语言的文件后重试。";
 "The language service that hosts the debug adapter is unavailable." = "承载调试适配器的语言服务不可用。";
@@ -9357,6 +9358,7 @@
 "native.theLanguageProviderIsNotInstalled" = "%1$@ 语言 Provider 尚未安装。";
 "native.theLanguageServerCouldNotApplyThisSetting" = "语言服务器无法应用此设置。请重启它以使用新值。";
 "native.theLanguageServerIsDisabledInThisWorkspace" = "此工作区已停用 %1$@ 语言服务器。请在“设置 > LSP”中启用它。";
+"native.theLanguageServerIsNotRunning" = "语言服务器没有运行。";
 "native.theLanguageServerOfThisPluginIsNotAvailable" = "此插件的 %1$@ 语言服务器不可用。";
 "native.theLanguageServerReturnedAnInvalidTcpPortForItsDebugAdapter" = "%1$@ 语言服务器为其调试适配器返回了无效的 TCP 端口。";
 "native.theLanguageServerThisBuildSystemUsesIsNotAvailable" = "此构建系统使用的语言服务器不可用。请打开该语言的文件后重试。";

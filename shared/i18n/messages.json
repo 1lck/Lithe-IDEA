@@ -59647,6 +59647,17 @@
       }
     },
     {
+      "id": "native.theLanguageServerIsNotRunning",
+      "description": "Native UI: The language server is not running.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The language server is not running.",
+        "arguments": []
+      }
+    },
+    {
       "id": "native.theLatestStableReleaseWillBeDownloadedInFullAndReplaceThisAutoBuildAfterYouConbfd63f6a8e",
       "description": "Native UI: The latest stable release will be downloaded in full and replace this AutoBuild after you confirm installation. Projects and settings are kept, but AutoBuild-only settings may not work in the stable release.",
       "platforms": [

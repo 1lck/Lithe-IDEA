@@ -6294,6 +6294,7 @@
     "native.theJVMDoesNotExposeSupportedHeapCountersThroughJstat": "当前 JVM 未通过 jstat 提供受支持的堆计数器。",
     "native.theJavaLanguageServerDidNotTakeTheMavenConfiguration": "Java 语言服务器未能应用 Maven 配置：{arg1}",
     "native.theJavaLanguageServiceFailedToPrepareTheProject": "Java 语言服务未能完成项目准备。",
+    "native.theLanguageServerIsNotRunning": "语言服务器没有运行。",
     "native.theLatestStableReleaseWillBeDownloadedInFullAndReplaceThisAutoBuildAfterYouConbfd63f6a8e": "将全量下载最新正式版，在你确认安装后替换当前 AutoBuild。项目和设置会保留，但 AutoBuild 专有的设置可能无法在正式版中使用。",
     "native.theLatestStableReleaseWillBeDownloadedInFullAndReplaceThisPreviewAfterYouConfic01b41840e": "将全量下载最新正式版，在你确认安装后替换当前预览版。项目和设置会保留，但预览版专有的设置可能无法在正式版中使用。",
     "native.theLocalAdapterIsAtOrAboveTheVerifiedVersion": "本地适配器版本等于或高于已核验版本。",

@@ -470,6 +470,7 @@ final class MacServiceContainer {
             hostDispatcher.register(workspaceHost)
             hostDispatcher.register(PluginDocumentHostService(contexts: .shared))
             hostDispatcher.register(PluginTerminalHostService(contexts: .shared, metadata: workspaceHost))
+            hostDispatcher.register(PluginLanguageServerHostService(contexts: .shared))
             let editorActions = PluginEditorActionHostService(contexts: .shared, decoder: declarativePluginOperations)
             hostDispatcher.register(editorActions)
             hostDispatcher.register(PluginFileHostService(contexts: .shared, metadata: workspaceHost,

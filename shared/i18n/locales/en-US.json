@@ -6294,6 +6294,7 @@
     "native.theJVMDoesNotExposeSupportedHeapCountersThroughJstat": "The JVM does not expose supported heap counters through jstat.",
     "native.theJavaLanguageServerDidNotTakeTheMavenConfiguration": "The Java language server did not take the Maven configuration: {arg1}",
     "native.theJavaLanguageServiceFailedToPrepareTheProject": "The Java language service failed to prepare the project.",
+    "native.theLanguageServerIsNotRunning": "The language server is not running.",
     "native.theLatestStableReleaseWillBeDownloadedInFullAndReplaceThisAutoBuildAfterYouConbfd63f6a8e": "The latest stable release will be downloaded in full and replace this AutoBuild after you confirm installation. Projects and settings are kept, but AutoBuild-only settings may not work in the stable release.",
     "native.theLatestStableReleaseWillBeDownloadedInFullAndReplaceThisPreviewAfterYouConfic01b41840e": "The latest stable release will be downloaded in full and replace this preview after you confirm installation. Projects and settings are kept, but preview-only settings may not work in the stable release.",
     "native.theLocalAdapterIsAtOrAboveTheVerifiedVersion": "The local adapter is at or above the verified version.",

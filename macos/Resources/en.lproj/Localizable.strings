@@ -4326,6 +4326,7 @@
 "The interface language changes immediately. English is the default." = "The interface language changes immediately. English is the default.";
 "The item can be recovered from the macOS Trash." = "The item can be recovered from the macOS Trash.";
 "The language server could not apply this setting. Restart it to use the new value." = "The language server could not apply this setting. Restart it to use the new value.";
+"The language server is not running." = "The language server is not running.";
 "The language server is still stopping. Try again after it has stopped." = "The language server is still stopping. Try again after it has stopped.";
 "The language server this build system uses is not available. Open a file of the language and try again." = "The language server this build system uses is not available. Open a file of the language and try again.";
 "The language service that hosts the debug adapter is unavailable." = "The language service that hosts the debug adapter is unavailable.";
@@ -9357,6 +9358,7 @@
 "native.theLanguageProviderIsNotInstalled" = "The %1$@ language provider is not installed.";
 "native.theLanguageServerCouldNotApplyThisSetting" = "The language server could not apply this setting. Restart it to use the new value.";
 "native.theLanguageServerIsDisabledInThisWorkspace" = "The %1$@ language server is disabled in this workspace. Enable it in Settings > LSP.";
+"native.theLanguageServerIsNotRunning" = "The language server is not running.";
 "native.theLanguageServerOfThisPluginIsNotAvailable" = "The %1$@ language server of this plugin is not available.";
 "native.theLanguageServerReturnedAnInvalidTcpPortForItsDebugAdapter" = "The %1$@ language server returned an invalid TCP port for its debug adapter.";
 "native.theLanguageServerThisBuildSystemUsesIsNotAvailable" = "The language server this build system uses is not available. Open a file of the language and try again.";
