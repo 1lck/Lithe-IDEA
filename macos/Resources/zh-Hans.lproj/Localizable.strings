@@ -3028,6 +3028,7 @@
 "Preflight" = "预检";
 "Preparing conversation…" = "正在准备对话…";
 "Preparing download…" = "正在准备下载…";
+"Preparing the language server" = "正在准备语言服务器";
 "Preparing…" = "正在准备…";
 "Preserves every commit and adds a merge commit to the base branch." = "保留全部提交，并在目标分支中添加一个合并提交。";
 "Press shortcut…" = "请按下快捷键…";
@@ -3727,6 +3728,7 @@
 "Send a message to %@" = "向 %@ 发送消息";
 "Send input to debuggee" = "向调试进程发送输入";
 "Send program input" = "发送程序输入";
+"Send requests and commands to its language server for your project" = "为你的项目向它的语言服务器发送请求和命令";
 "Sending…" = "发送中…";
 "Sensitive files are not sent to an AI provider." = "敏感文件不会发送给 AI 服务商。";
 "Separate arguments with spaces; quote an argument that contains spaces." = "参数之间用空格分隔；包含空格的参数请加引号。";
@@ -4069,6 +4071,7 @@
 "Suggested" = "建议";
 "Suggested replies" = "建议的回复";
 "Supplementary message cancelled." = "补充消息已取消。";
+"Supply the text of read-only documents it opens in the editor" = "为它在编辑器中打开的只读文档提供文本";
 "Supported keyboard commands are mapped; unknown keymaps, mouse shortcuts and chords are skipped." = "映射受支持的键盘命令；跳过未知键位方案、鼠标快捷键和连续按键。";
 "Supported placeholders: {summary}, {changes}, {testing}, {risks}." = "支持的占位符：{summary}、{changes}、{testing}、{risks}。";
 "Svelte Support" = "Svelte 支持";
@@ -4330,8 +4333,10 @@
 "The interface language changes immediately. English is the default." = "界面语言会立即生效。默认语言为英文。";
 "The item can be recovered from the macOS Trash." = "可以从 macOS 废纸篓中恢复此项目。";
 "The language server could not apply this setting. Restart it to use the new value." = "语言服务器无法应用此设置。请重启它以使用新值。";
+"The language server could not get ready" = "语言服务器未能就绪";
 "The language server is not running." = "语言服务器没有运行。";
 "The language server is still stopping. Try again after it has stopped." = "语言服务器仍在停止。请在停止完成后重试。";
+"The language server runs with limited features" = "语言服务器功能受限";
 "The language server this build system uses is not available. Open a file of the language and try again." = "此构建系统使用的语言服务器不可用。请打开该语言的文件后重试。";
 "The language service that hosts the debug adapter is unavailable." = "承载调试适配器的语言服务不可用。";
 "The latest stable release will be downloaded in full and replace this AutoBuild after you confirm installation. Projects and settings are kept, but AutoBuild-only settings may not work in the stable release." = "将全量下载最新正式版，在你确认安装后替换当前 AutoBuild。项目和设置会保留，但 AutoBuild 专有的设置可能无法在正式版中使用。";
@@ -8222,6 +8227,7 @@
 "native.preparing" = "正在准备…";
 "native.preparingConversation" = "正在准备对话…";
 "native.preparingDownload" = "正在准备下载…";
+"native.preparingTheLanguageServer" = "正在准备语言服务器";
 "native.preservesEveryCommitAndAddsAMergeCommitToTheBaseBranch" = "保留全部提交，并在目标分支中添加一个合并提交。";
 "native.pressShortcut" = "请按下快捷键…";
 "native.previewBackgroundImage" = "预览背景图片";
@@ -8862,6 +8868,7 @@
 "native.sendAMessageTo" = "向 %1$@ 发送消息";
 "native.sendInputToDebuggee" = "向调试进程发送输入";
 "native.sendProgramInput" = "发送程序输入";
+"native.sendRequestsAndCommandsToItsLanguageServerForYourProject" = "为你的项目向它的语言服务器发送请求和命令";
 "native.sending" = "发送中…";
 "native.sensitiveFilesAreNotSentToAnAIProvider" = "敏感文件不会发送给 AI 服务商。";
 "native.separateArgumentsWithSpacesQuoteAnArgumentThatContainsSpaces" = "参数之间用空格分隔；包含空格的参数请加引号。";
@@ -9164,6 +9171,7 @@
 "native.suggested" = "建议";
 "native.suggestedReplies" = "建议的回复";
 "native.supplementaryMessageCancelled" = "补充消息已取消。";
+"native.supplyTheTextOfReadOnlyDocumentsItOpensInTheEditor" = "为它在编辑器中打开的只读文档提供文本";
 "native.supportedPlaceholdersSummaryChangesTestingRisks" = "支持的占位符：{summary}、{changes}、{testing}、{risks}。";
 "native.svelteSupport" = "Svelte 支持";
 "native.svgViewMode" = "SVG 视图模式";
@@ -9366,10 +9374,12 @@
 "native.theJavaTestResultListenerDidNotBecome" = "Java 测试结果监听器未能及时就绪。";
 "native.theLanguageProviderIsNotInstalled" = "%1$@ 语言 Provider 尚未安装。";
 "native.theLanguageServerCouldNotApplyThisSetting" = "语言服务器无法应用此设置。请重启它以使用新值。";
+"native.theLanguageServerCouldNotGetReady" = "语言服务器未能就绪";
 "native.theLanguageServerIsDisabledInThisWorkspace" = "此工作区已停用 %1$@ 语言服务器。请在“设置 > LSP”中启用它。";
 "native.theLanguageServerIsNotRunning" = "语言服务器没有运行。";
 "native.theLanguageServerOfThisPluginIsNotAvailable" = "此插件的 %1$@ 语言服务器不可用。";
 "native.theLanguageServerReturnedAnInvalidTcpPortForItsDebugAdapter" = "%1$@ 语言服务器为其调试适配器返回了无效的 TCP 端口。";
+"native.theLanguageServerRunsWithLimitedFeatures" = "语言服务器功能受限";
 "native.theLanguageServerThisBuildSystemUsesIsNotAvailable" = "此构建系统使用的语言服务器不可用。请打开该语言的文件后重试。";
 "native.theLanguageServiceThatHostsTheDebugAdapterIsUnavailable" = "承载调试适配器的语言服务不可用。";
 "native.theLatestStableReleaseWillBeDownloadedInFullAndReplaceThisAutoBuildAfterYouConbfd63f6a8e" = "将全量下载最新正式版，在你确认安装后替换当前 AutoBuild。项目和设置会保留，但 AutoBuild 专有的设置可能无法在正式版中使用。";

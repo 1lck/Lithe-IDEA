@@ -50218,6 +50218,17 @@
       }
     },
     {
+      "id": "native.preparingTheLanguageServer",
+      "description": "Native UI: Preparing the language server",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Preparing the language server",
+        "arguments": []
+      }
+    },
+    {
       "id": "native.preservesEveryCommitAndAddsAMergeCommitToTheBaseBranch",
       "description": "Native UI: Preserves every commit and adds a merge commit to the base branch.",
       "platforms": [
@@ -56036,6 +56047,17 @@
       }
     },
     {
+      "id": "native.sendRequestsAndCommandsToItsLanguageServerForYourProject",
+      "description": "Native UI: Send requests and commands to its language server for your project",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Send requests and commands to its language server for your project",
+        "arguments": []
+      }
+    },
+    {
       "id": "native.sending",
       "description": "Native UI: Sending…",
       "platforms": [
@@ -58586,6 +58608,17 @@
       }
     },
     {
+      "id": "native.supplyTheTextOfReadOnlyDocumentsItOpensInTheEditor",
+      "description": "Native UI: Supply the text of read-only documents it opens in the editor",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Supply the text of read-only documents it opens in the editor",
+        "arguments": []
+      }
+    },
+    {
       "id": "native.supportedPlaceholdersSummaryChangesTestingRisks",
       "description": "Native UI: Supported placeholders: {summary}, {changes}, {testing}, {risks}.",
       "platforms": [
@@ -59706,6 +59739,17 @@
       }
     },
     {
+      "id": "native.theLanguageServerCouldNotGetReady",
+      "description": "Native UI: The language server could not get ready",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The language server could not get ready",
+        "arguments": []
+      }
+    },
+    {
       "id": "native.theLanguageServerIsNotRunning",
       "description": "Native UI: The language server is not running.",
       "platforms": [
@@ -59713,6 +59757,17 @@
       ],
       "macos": {
         "key": "The language server is not running.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theLanguageServerRunsWithLimitedFeatures",
+      "description": "Native UI: The language server runs with limited features",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The language server runs with limited features",
         "arguments": []
       }
     },

@@ -769,6 +769,10 @@ enum PluginMarketplacePresentation {
             L10n.string("Add clickable actions beside document text")
         case "terminal.create":
             L10n.string("Open and manage its own native terminals, retaining bounded display history for reopening")
+        case "languageServer.request":
+            L10n.string("Send requests and commands to its language server for your project")
+        case "documents.contentProvider":
+            L10n.string("Supply the text of read-only documents it opens in the editor")
         case "keymaps.provide":
             L10n.string("Offer shortcut mappings for import")
         case "keymaps.readSelectedSources":

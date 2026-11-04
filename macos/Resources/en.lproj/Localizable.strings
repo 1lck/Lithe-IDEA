@@ -3028,6 +3028,7 @@
 "Preflight" = "Preflight";
 "Preparing conversation…" = "Preparing conversation…";
 "Preparing download…" = "Preparing download…";
+"Preparing the language server" = "Preparing the language server";
 "Preparing…" = "Preparing…";
 "Preserves every commit and adds a merge commit to the base branch." = "Preserves every commit and adds a merge commit to the base branch.";
 "Press shortcut…" = "Press shortcut…";
@@ -3727,6 +3728,7 @@
 "Send a message to %@" = "Send a message to %@";
 "Send input to debuggee" = "Send input to debuggee";
 "Send program input" = "Send program input";
+"Send requests and commands to its language server for your project" = "Send requests and commands to its language server for your project";
 "Sending…" = "Sending…";
 "Sensitive files are not sent to an AI provider." = "Sensitive files are not sent to an AI provider.";
 "Separate arguments with spaces; quote an argument that contains spaces." = "Separate arguments with spaces; quote an argument that contains spaces.";
@@ -4069,6 +4071,7 @@
 "Suggested" = "Suggested";
 "Suggested replies" = "Suggested replies";
 "Supplementary message cancelled." = "Supplementary message cancelled.";
+"Supply the text of read-only documents it opens in the editor" = "Supply the text of read-only documents it opens in the editor";
 "Supported keyboard commands are mapped; unknown keymaps, mouse shortcuts and chords are skipped." = "Supported keyboard commands are mapped; unknown keymaps, mouse shortcuts and chords are skipped.";
 "Supported placeholders: {summary}, {changes}, {testing}, {risks}." = "Supported placeholders: {summary}, {changes}, {testing}, {risks}.";
 "Svelte Support" = "Svelte Support";
@@ -4330,8 +4333,10 @@
 "The interface language changes immediately. English is the default." = "The interface language changes immediately. English is the default.";
 "The item can be recovered from the macOS Trash." = "The item can be recovered from the macOS Trash.";
 "The language server could not apply this setting. Restart it to use the new value." = "The language server could not apply this setting. Restart it to use the new value.";
+"The language server could not get ready" = "The language server could not get ready";
 "The language server is not running." = "The language server is not running.";
 "The language server is still stopping. Try again after it has stopped." = "The language server is still stopping. Try again after it has stopped.";
+"The language server runs with limited features" = "The language server runs with limited features";
 "The language server this build system uses is not available. Open a file of the language and try again." = "The language server this build system uses is not available. Open a file of the language and try again.";
 "The language service that hosts the debug adapter is unavailable." = "The language service that hosts the debug adapter is unavailable.";
 "The latest stable release will be downloaded in full and replace this AutoBuild after you confirm installation. Projects and settings are kept, but AutoBuild-only settings may not work in the stable release." = "The latest stable release will be downloaded in full and replace this AutoBuild after you confirm installation. Projects and settings are kept, but AutoBuild-only settings may not work in the stable release.";
@@ -8222,6 +8227,7 @@
 "native.preparing" = "Preparing…";
 "native.preparingConversation" = "Preparing conversation…";
 "native.preparingDownload" = "Preparing download…";
+"native.preparingTheLanguageServer" = "Preparing the language server";
 "native.preservesEveryCommitAndAddsAMergeCommitToTheBaseBranch" = "Preserves every commit and adds a merge commit to the base branch.";
 "native.pressShortcut" = "Press shortcut…";
 "native.previewBackgroundImage" = "Preview background image";
@@ -8862,6 +8868,7 @@
 "native.sendAMessageTo" = "Send a message to %1$@";
 "native.sendInputToDebuggee" = "Send input to debuggee";
 "native.sendProgramInput" = "Send program input";
+"native.sendRequestsAndCommandsToItsLanguageServerForYourProject" = "Send requests and commands to its language server for your project";
 "native.sending" = "Sending…";
 "native.sensitiveFilesAreNotSentToAnAIProvider" = "Sensitive files are not sent to an AI provider.";
 "native.separateArgumentsWithSpacesQuoteAnArgumentThatContainsSpaces" = "Separate arguments with spaces; quote an argument that contains spaces.";
@@ -9164,6 +9171,7 @@
 "native.suggested" = "Suggested";
 "native.suggestedReplies" = "Suggested replies";
 "native.supplementaryMessageCancelled" = "Supplementary message cancelled.";
+"native.supplyTheTextOfReadOnlyDocumentsItOpensInTheEditor" = "Supply the text of read-only documents it opens in the editor";
 "native.supportedPlaceholdersSummaryChangesTestingRisks" = "Supported placeholders: {summary}, {changes}, {testing}, {risks}.";
 "native.svelteSupport" = "Svelte Support";
 "native.svgViewMode" = "SVG view mode";
@@ -9366,10 +9374,12 @@
 "native.theJavaTestResultListenerDidNotBecome" = "The Java test result listener did not become ready in time.";
 "native.theLanguageProviderIsNotInstalled" = "The %1$@ language provider is not installed.";
 "native.theLanguageServerCouldNotApplyThisSetting" = "The language server could not apply this setting. Restart it to use the new value.";
+"native.theLanguageServerCouldNotGetReady" = "The language server could not get ready";
 "native.theLanguageServerIsDisabledInThisWorkspace" = "The %1$@ language server is disabled in this workspace. Enable it in Settings > LSP.";
 "native.theLanguageServerIsNotRunning" = "The language server is not running.";
 "native.theLanguageServerOfThisPluginIsNotAvailable" = "The %1$@ language server of this plugin is not available.";
 "native.theLanguageServerReturnedAnInvalidTcpPortForItsDebugAdapter" = "The %1$@ language server returned an invalid TCP port for its debug adapter.";
+"native.theLanguageServerRunsWithLimitedFeatures" = "The language server runs with limited features";
 "native.theLanguageServerThisBuildSystemUsesIsNotAvailable" = "The language server this build system uses is not available. Open a file of the language and try again.";
 "native.theLanguageServiceThatHostsTheDebugAdapterIsUnavailable" = "The language service that hosts the debug adapter is unavailable.";
 "native.theLatestStableReleaseWillBeDownloadedInFullAndReplaceThisAutoBuildAfterYouConbfd63f6a8e" = "The latest stable release will be downloaded in full and replace this AutoBuild after you confirm installation. Projects and settings are kept, but AutoBuild-only settings may not work in the stable release.";
