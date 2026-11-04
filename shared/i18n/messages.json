@@ -93458,6 +93458,17 @@
       }
     },
     {
+      "id": "native.addEditorProvidersForMatchingFiles",
+      "description": "Native UI: editor provider contribution permission",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Add definitions, hovers, completions and other editor features for matching files",
+        "arguments": []
+      }
+    },
+    {
       "id": "native.lspStatusLabel",
       "description": "Native LSP status and log viewer",
       "platforms": [

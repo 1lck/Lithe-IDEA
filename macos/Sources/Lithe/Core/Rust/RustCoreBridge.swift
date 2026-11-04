@@ -1798,6 +1798,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let workspaceConfiguration: ToolingJSONValue?
         /// Host services a plugin backend may request; omitted when none.
         let hostServices: [String]?
+        /// What the host declares for the services it serves; omitted when none.
+        let hostOptions: LspHostOptions?
         /// Manifest providers offered to a plugin backend; omitted when none.
         let toolchainProviders: [String]?
         /// Shortcut import providers offered to a plugin backend; omitted when none.
@@ -1812,6 +1814,12 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let initializeTimeoutMilliseconds: Int
         let requestTimeoutMilliseconds: Int
         let shutdownTimeoutMilliseconds: Int
+    }
+
+    /// `lsp.startServer.hostOptions`: Core relays it to the plugin backend
+    /// through `getCapabilities`, only for the methods it grants.
+    private struct LspHostOptions: Encodable {
+        let editor: PluginEditorHostOptions
     }
 
     private struct LspJavaRuntimeRequest: Encodable {
@@ -3681,6 +3689,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         initializationOptions: ToolingJSONValue? = nil,
         workspaceConfiguration: ToolingJSONValue? = nil,
         hostServices: [String] = [],
+        editorOptions: PluginEditorHostOptions? = nil,
         toolchainProviders: [String] = [],
         keymapImportProviders: [String] = [],
         runtimeExecutableURL: URL? = nil,
@@ -3708,6 +3717,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 initializationOptions: initializationOptions,
                 workspaceConfiguration: workspaceConfiguration,
                 hostServices: hostServices.isEmpty ? nil : hostServices,
+                hostOptions: editorOptions.map(LspHostOptions.init),
                 toolchainProviders: toolchainProviders.isEmpty ? nil : toolchainProviders,
                 keymapImportProviders: keymapImportProviders.isEmpty ? nil : keymapImportProviders,
                 runtimeExecutablePath: runtimeExecutableURL?.standardizedFileURL.path,

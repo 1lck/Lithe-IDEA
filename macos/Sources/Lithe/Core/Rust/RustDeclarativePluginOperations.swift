@@ -7,7 +7,7 @@ import LitheModuleAPI
 /// translates payloads and outcomes.
 struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, DeclarativeExecutionPlanning,
     DeclarativeLanguageServerLaunchPlanning, DeclarativePluginSettingsResolving, LanguageServerRuntimeVersionChecking,
-    DeclarativeEditorContributionDecoding, PluginEditorActionDecoding {
+    DeclarativeEditorContributionDecoding, PluginEditorActionDecoding, PluginEditorProviderDecoding {
     let core: RustCoreBridge
 
     func validateNativeNodes(ui: PluginNativeUI, data: ToolingJSONValue) throws -> [PluginNativeUI.Node] {
@@ -310,11 +310,74 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
         return outcome.value.language
     }
 
-    func decodeEditorActions(kind: String, value: ToolingJSONValue, text: String = "") throws -> ToolingJSONValue {
-        struct Payload: Encodable { let kind: String; let value: ToolingJSONValue; let text: String }
+    func decodeEditorActions(
+        kind: String, value: ToolingJSONValue, text: String = "", host: PluginEditorHostOptions
+    ) throws -> ToolingJSONValue {
+        struct Payload: Encodable {
+            let kind: String
+            let value: ToolingJSONValue
+            let text: String
+            let version = 2
+            let icons: [String]
+            let sourceBytes: Int
+        }
         let result: ToolingJSONValue = try core.executeResult(
-            command: "plugins.editorActions.decode", payload: Payload(kind: kind, value: value, text: text)).get()
+            command: "plugins.editorActions.decode",
+            payload: Payload(kind: kind, value: value, text: text, icons: host.actionIcons, sourceBytes: host.actionSourceBytes)
+        ).get()
         return result
+    }
+
+    func decodeEditorProviderRegistration(value: ToolingJSONValue, types: [String]) throws -> ToolingJSONValue {
+        struct Payload: Encodable { let kind = "registration"; let value: ToolingJSONValue; let types: [String] }
+        let outcome: Result<ToolingJSONValue, RustCoreBridge.CoreCallError> = core.executeResult(
+            command: "plugins.editorProviders.decode", payload: Payload(value: value, types: types))
+        switch outcome {
+        case .success(let result): return result
+        case .failure(let error):
+            // Core reports a type the host does not route as notSupported
+            // with `providers.<type>`; every other failure is malformed input.
+            if error.code == "not_supported", let option = error.details, option.hasPrefix("providers.") {
+                throw PluginEditorProviderUnsupported(option: option)
+            }
+            throw error
+        }
+    }
+
+    func decodeEditorProviderResult(
+        type: String, value: ToolingJSONValue, legend: ToolingJSONValue?
+    ) throws -> ToolingJSONValue {
+        struct Payload: Encodable {
+            let kind = "result"
+            let type: String
+            let value: ToolingJSONValue
+            let legend: ToolingJSONValue?
+        }
+        let result: ToolingJSONValue = try core.executeResult(
+            command: "plugins.editorProviders.decode", payload: Payload(type: type, value: value, legend: legend)
+        ).get()
+        return result
+    }
+
+    func mergeEditorDefinitions(
+        documentURI: String, line: Int, character: Int, server: [ToolingJSONValue], plugin: [ToolingJSONValue]
+    ) throws -> (server: [Int], plugin: [Int]) {
+        struct Position: Encodable { let line: Int; let character: Int }
+        struct Value: Encodable {
+            let documentUri: String
+            let position: Position
+            let server: [ToolingJSONValue]
+            let plugin: [ToolingJSONValue]
+        }
+        struct Payload: Encodable { let kind = "mergeDefinitions"; let value: Value }
+        struct Kept: Decodable { let server: [Int]; let plugin: [Int] }
+        let kept: Kept = try core.executeResult(
+            command: "plugins.editorProviders.decode",
+            payload: Payload(value: Value(
+                documentUri: documentURI, position: Position(line: line, character: character),
+                server: server, plugin: plugin))
+        ).get()
+        return (kept.server, kept.plugin)
     }
 
     func resolveSettings(

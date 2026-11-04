@@ -19,7 +19,7 @@ struct PluginEditorActionTests {
         defer { fixture.tearDown() }
         let contexts = PluginWorkspaceContexts()
         let context = contexts.open(owner: fixture.window, rootURL: PluginHostFixture.workspaceURL, remote: nil)
-        let service = PluginEditorActionHostService(contexts: contexts, decoder: DeclarativePluginTestSupport.operations)
+        let service = PluginEditorActionHostService(contexts: contexts, decoder: DeclarativePluginTestSupport.operations, host: .macOS)
         let dispatcher = PluginHostServiceDispatcher(contexts: contexts)
         dispatcher.register(service)
         let session = dispatcher.beginSession(pluginID: "tool", hostServices: ["lithe/host/editor/registerActions"])
@@ -46,7 +46,7 @@ struct PluginEditorActionTests {
         defer { fixture.tearDown() }
         let contexts = PluginWorkspaceContexts()
         let context = contexts.open(owner: fixture.window, rootURL: PluginHostFixture.workspaceURL, remote: nil)
-        let service = PluginEditorActionHostService(contexts: contexts, decoder: DeclarativePluginTestSupport.operations)
+        let service = PluginEditorActionHostService(contexts: contexts, decoder: DeclarativePluginTestSupport.operations, host: .macOS)
         let dispatcher = PluginHostServiceDispatcher(contexts: contexts)
         dispatcher.register(service)
         let session = dispatcher.beginSession(pluginID: "tool", hostServices: ["lithe/host/editor/registerActions"])
@@ -71,7 +71,7 @@ struct PluginEditorActionTests {
         defer { fixture.tearDown() }
         let contexts = PluginWorkspaceContexts()
         let context = contexts.open(owner: fixture.window, rootURL: PluginHostFixture.workspaceURL, remote: nil)
-        let service = PluginEditorActionHostService(contexts: contexts, decoder: DeclarativePluginTestSupport.operations)
+        let service = PluginEditorActionHostService(contexts: contexts, decoder: DeclarativePluginTestSupport.operations, host: .macOS)
         let dispatcher = PluginHostServiceDispatcher(contexts: contexts)
         dispatcher.register(service)
         dispatcher.beginSession(pluginID: "tool", hostServices: [])

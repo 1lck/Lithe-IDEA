@@ -69,16 +69,23 @@ extension AppModel {
         if !productNavigationLocations(for: document.url, line: line, utf16Column: utf16Column).isEmpty {
             completion(.success(true)); return
         }
+        // Plugin providers only supplement: they are asked when the language server found nothing.
+        let complete: (Result<Bool, Error>) -> Void = { [weak self] result in
+            guard case .success(false) = result,
+                  let pluginDefinitions = self?.pluginDefinitionQuery(for: document, line: line, utf16Column: utf16Column)
+            else { completion(result); return }
+            Task { @MainActor in completion(.success(!(await pluginDefinitions.value).isEmpty)) }
+        }
         guard let sessions = languageToolingSessionsIfActive, let workspaceURL,
               featureGraph.languageCapabilityPolicy.supports(
                 .definition, documentURL: document.url, sessions: sessions
-              ) else { completion(.success(false)); return }
+              ) else { complete(.success(false)); return }
         do {
             try sessions.navigate(
                 method: "textDocument/definition", fileURL: document.url, text: document.text,
                 position: LanguageServerPosition(line: line, utf16Column: utf16Column), rootURL: workspaceURL
-            ) { result in completion(result.map { !$0.isEmpty }) }
-        } catch { completion(.failure(error)) }
+            ) { result in complete(result.map { !$0.isEmpty }) }
+        } catch { complete(.failure(error)) }
     }
 
     func navigateToSymbol(line: Int, utf16Column: Int, in fileURL: URL) {
@@ -102,19 +109,46 @@ extension AppModel {
             )
             return
         }
-        guard languageProviderCatalog.provider(for: normalizedURL)?.capabilities.contains(.languageServer) == true
-        else { return }
-        if featureGraph.languageCapabilityPolicy.supports(
-            .definition,
-            documentURL: normalizedURL,
-            sessions: languageToolingSessionsIfActive
-        ) {
-            performGenericNavigation(
-                method: "textDocument/definition",
-                kind: .definitions,
-                fallbackToImplementationsIfSelf: true,
-                document: openDocuments.first { $0.url.standardizedFileURL == normalizedURL }
+        let document = openDocuments.first { $0.url.standardizedFileURL == normalizedURL }
+        // Plugin providers add to the language server's answer, so both run together.
+        let pluginDefinitions = document.flatMap {
+            pluginDefinitionQuery(for: $0, line: line, utf16Column: utf16Column)
+        }
+        let serverCanAnswer = languageProviderCatalog.provider(for: normalizedURL)?.capabilities.contains(.languageServer) == true
+            && featureGraph.languageCapabilityPolicy.supports(
+                .definition,
+                documentURL: normalizedURL,
+                sessions: languageToolingSessionsIfActive
             )
+        guard serverCanAnswer else {
+            if let pluginDefinitions {
+                presentPluginDefinitions(pluginDefinitions, documentURL: normalizedURL, line: line, utf16Column: utf16Column)
+            }
+            return
+        }
+        performGenericNavigation(
+            method: "textDocument/definition",
+            kind: .definitions,
+            fallbackToImplementationsIfSelf: true,
+            document: document,
+            pluginDefinitions: pluginDefinitions
+        )
+    }
+
+    /// A file with no language server answer still shows what its plugin
+    /// providers found, such as a key's entry in another file.
+    private func presentPluginDefinitions(
+        _ query: Task<[LanguageServerLocation], Never>, documentURL: URL, line: Int, utf16Column: Int
+    ) {
+        Task { @MainActor [weak self] in
+            let plugin = await query.value
+            // The caret moved on while the providers answered.
+            guard let self, !plugin.isEmpty, let caret = self.editorCaret,
+                  caret.url.standardizedFileURL == documentURL, caret.line == line, caret.utf16Column == utf16Column
+            else { return }
+            let locations = self.mergePluginDefinitions(
+                server: [], plugin: plugin, documentURL: documentURL, line: line, utf16Column: utf16Column)
+            self.presentGenericNavigationValues(locations, kind: .definitions, navigateToSingleResult: true, providerID: nil)
         }
     }
 
@@ -368,7 +402,8 @@ extension AppModel {
         kind: LanguageNavigationResultKind,
         navigateToSingleResult: Bool = true,
         fallbackToImplementationsIfSelf: Bool = false,
-        document requestedDocument: EditorDocument? = nil
+        document requestedDocument: EditorDocument? = nil,
+        pluginDefinitions: Task<[LanguageServerLocation], Never>? = nil
     ) {
         guard !languageNavigationCoordinator.state.isLoading,
               let document = requestedDocument ?? focusedEditorDocument,
@@ -389,6 +424,38 @@ extension AppModel {
             caret: caret,
             workspaceURL: workspaceURL
         )
+        func present(_ values: [LanguageServerLocation]) {
+            let fallback = languageNavigationCoordinator.implementationFallbackDecision(
+                method: method,
+                kind: kind,
+                values: values,
+                documentURL: document.url,
+                position: request.position,
+                supportsImplementation: fallbackToImplementationsIfSelf
+                    && featureGraph.languageCapabilityPolicy.supports(
+                        .implementation,
+                        documentURL: document.url,
+                        sessions: languageToolingSessionsIfActive
+                    )
+            )
+            if fallback.shouldRequestImplementations {
+                requestGenericImplementationFallback(
+                    document: document,
+                    caret: caret,
+                    workspaceURL: workspaceURL,
+                    originalValues: fallback.originalValues,
+                    navigateToSingleResult: navigateToSingleResult,
+                    providerID: provider.id
+                )
+                return
+            }
+            presentGenericNavigationValues(
+                values,
+                kind: kind,
+                navigateToSingleResult: navigateToSingleResult,
+                providerID: provider.id
+            )
+        }
         do {
             try languageToolingSessionsIfActive?.navigate(
                 method: request.method,
@@ -406,36 +473,15 @@ extension AppModel {
                         message: error.localizedDescription
                     )
                 case .success(let values):
-                    let fallback = self.languageNavigationCoordinator.implementationFallbackDecision(
-                        method: method,
-                        kind: kind,
-                        values: values,
-                        documentURL: document.url,
-                        position: request.position,
-                        supportsImplementation: fallbackToImplementationsIfSelf
-                            && self.featureGraph.languageCapabilityPolicy.supports(
-                                .implementation,
-                                documentURL: document.url,
-                                sessions: self.languageToolingSessionsIfActive
-                            )
-                    )
-                    if fallback.shouldRequestImplementations {
-                        self.requestGenericImplementationFallback(
-                            document: document,
-                            caret: caret,
-                            workspaceURL: workspaceURL,
-                            originalValues: fallback.originalValues,
-                            navigateToSingleResult: navigateToSingleResult,
-                            providerID: provider.id
-                        )
-                        return
+                    guard let pluginDefinitions else { present(values); return }
+                    // The server answered first; the providers finish within their own budgets.
+                    Task { @MainActor [weak self] in
+                        let plugin = await pluginDefinitions.value
+                        guard let self, self.languageNavigationCoordinator.owns(operationID) else { return }
+                        present(self.mergePluginDefinitions(
+                            server: values, plugin: plugin, documentURL: document.url,
+                            line: request.position.line, utf16Column: request.position.utf16Column))
                     }
-                    self.presentGenericNavigationValues(
-                        values,
-                        kind: kind,
-                        navigateToSingleResult: navigateToSingleResult,
-                        providerID: provider.id
-                    )
                 }
             }
         } catch {
@@ -517,7 +563,7 @@ extension AppModel {
         return springFeature.navigationLocations(for: url, line: line)
     }
 
-    private func presentGenericNavigationValues(
+    func presentGenericNavigationValues(
         _ values: [LanguageServerLocation],
         kind: LanguageNavigationResultKind,
         navigateToSingleResult: Bool,

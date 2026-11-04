@@ -255,6 +255,7 @@
 "Add at least one absolute folder path after the package argument, one per line. Filesystem can read and write only in the folders you allow. Requires Node.js 24 or later." = "在包参数后至少添加一个文件夹的绝对路径，每行一个。Filesystem 只可读写你允许的文件夹。需要 Node.js 24 或更高版本。";
 "Add clickable actions beside document text" = "在文档文本旁添加可点击的操作";
 "Add database connection" = "添加数据库连接";
+"Add definitions, hovers, completions and other editor features for matching files" = "为匹配的文件添加定义跳转、悬停提示、补全等编辑器功能";
 "Add header" = "添加请求头";
 "Add memory usage monitoring\n\nTrack current and average memory usage in the status bar." = "添加内存占用监控\n\n在状态栏显示当前及平均内存占用。";
 "Add memory usage visibility to the status bar" = "在状态栏显示内存占用";
@@ -5430,6 +5431,7 @@
 "native.addAtLeastOneAbsoluteFolderPathAfterThePackageArgumentOnePerLineFilesystemCanReadAndWriteOnlyInTheFoldersYouAllowRequiresNodeJs24OrLater" = "在包参数后至少添加一个文件夹的绝对路径，每行一个。Filesystem 只可读写你允许的文件夹。需要 Node.js 24 或更高版本。";
 "native.addClickableActionsBesideDocumentText" = "在文档文本旁添加可点击的操作";
 "native.addDatabaseConnection" = "添加数据库连接";
+"native.addEditorProvidersForMatchingFiles" = "为匹配的文件添加定义跳转、悬停提示、补全等编辑器功能";
 "native.addHeader" = "添加请求头";
 "native.addHook" = "添加 Hook";
 "native.addMemoryUsageMonitoringTrackCurrentAndAverageMemoryUsageInTheStatusBar" = "添加内存占用监控\n\n在状态栏显示当前及平均内存占用。";
