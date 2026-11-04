@@ -808,13 +808,13 @@ struct RustGitOperations: GitOperations, Sendable {
         for reference: GitReference,
         at rootURL: URL
     ) -> GitBranchComparison? {
-        guard let payload = core.gitComparison(at: rootURL, gitReference: reference) else {
+        guard let payload = core.gitComparison(at: rootURL, gitReference: reference, includeUntracked: true) else {
             return nil
         }
         return GitBranchComparison(
             reference: reference,
             files: payload.files.map { file in
-                GitBranchComparisonFile(status: file.status, path: file.path)
+                GitBranchComparisonFile(status: file.status, path: file.path, isUntracked: file.isUntracked ?? false)
             }
         )
     }

@@ -7,6 +7,76 @@ use std::process::Command;
 use std::time::{Duration, UNIX_EPOCH};
 
 #[test]
+fn git_comparison_can_include_untracked_worktree_files() {
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let root = temporary_root("comparison-untracked");
+    let _cleanup = Cleanup(root.clone());
+    fs::create_dir_all(&root).unwrap();
+    let run = |arguments: &[&str]| {
+        let result = Command::new("git")
+            .args(arguments)
+            .current_dir(&root)
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{:?}: {}",
+            arguments,
+            String::from_utf8_lossy(&result.stderr)
+        );
+    };
+    run(&["init", "--template=", "-q"]);
+    run(&["config", "core.autocrlf", "false"]);
+    run(&["config", "user.name", "Lithe Test"]);
+    run(&["config", "user.email", "test@example.com"]);
+    fs::write(root.join("tracked.txt"), "before\n").unwrap();
+    run(&["add", "tracked.txt"]);
+    run(&["-c", "commit.gpgsign=false", "commit", "-qm", "initial"]);
+    fs::write(root.join("tracked.txt"), "after\n").unwrap();
+    fs::write(root.join("a-untracked.txt"), "new\n").unwrap();
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/git/comparison-untracked-v1.json"
+    ))
+    .unwrap();
+    let mut payload = fixture["request"].clone();
+    payload["root"] = serde_json::json!(root);
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "comparison-untracked", "command": "git.comparison", "payload": payload
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(response["data"]["files"], fixture["expected"]);
+    let default_response: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({"id": "comparison-default", "command": "git.comparison",
+            "payload": {"root": root, "reference": "HEAD"}})
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(
+        default_response["data"]["files"],
+        serde_json::json!([
+            {"status": "M", "path": "tracked.txt"}
+        ])
+    );
+    let range_response: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({"id": "comparison-range", "command": "git.comparison",
+            "payload": {"root": root, "reference": "HEAD..HEAD", "includeUntracked": true}})
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(range_response["ok"], false);
+    assert_eq!(range_response["error"]["code"], "invalid_request");
+}
+
+#[test]
 fn git_status_returns_contract_shape() {
     let root = temporary_root("git");
     fs::create_dir_all(&root).expect("temporary repository should be creatable");

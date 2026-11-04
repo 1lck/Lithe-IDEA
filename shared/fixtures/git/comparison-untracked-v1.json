@@ -1,0 +1,10 @@
+{
+  "request": {
+    "reference": "HEAD",
+    "includeUntracked": true
+  },
+  "expected": [
+    { "path": "a-untracked.txt", "status": "A", "isUntracked": true },
+    { "path": "tracked.txt", "status": "M" }
+  ]
+}

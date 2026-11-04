@@ -1076,33 +1076,10 @@ package struct GitService: Sendable {
         for reference: GitReference,
         at repositoryRoot: URL
     ) async -> GitBranchComparison {
-        async let trackedComparison: GitBranchComparison? = read(priority: .utility) {
+        let comparison: GitBranchComparison? = await read(priority: .utility) {
             $0.comparison(for: reference, at: repositoryRoot)
         }
-        async let workingTreeSnapshot: GitSnapshot? = read(priority: .utility) {
-            $0.snapshot(at: repositoryRoot)
-        }
-
-        let (comparison, snapshot) = await (trackedComparison, workingTreeSnapshot)
-        var filesByPath: [String: GitBranchComparisonFile] = [:]
-        for file in comparison?.files ?? [] {
-            filesByPath[file.path] = file
-        }
-        for change in snapshot?.changes ?? [] where change.isUntracked {
-            if filesByPath[change.path] == nil {
-                filesByPath[change.path] = GitBranchComparisonFile(
-                    status: "A",
-                    path: change.path,
-                    isUntracked: true
-                )
-            }
-        }
-
-        let files = filesByPath.values.sorted { lhs, rhs in
-            if lhs.path == rhs.path { return lhs.status < rhs.status }
-            return lhs.path < rhs.path
-        }
-        return GitBranchComparison(reference: reference, files: files)
+        return GitBranchComparison(reference: reference, files: comparison?.files ?? [])
     }
 
     func comparison(

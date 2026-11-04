@@ -2236,7 +2236,12 @@ range comparisons.
 
 `git.comparison` accepts `root` plus the same `reference` or `gitReference` /
 `targetGitReference` forms and returns the deterministically ordered changed
-files. Platforms must not construct a two-ref range themselves.
+files. `includeUntracked: true` adds untracked worktree files with status `A`
+and `isUntracked: true`, deduplicated by path; omitted or false keeps the
+previous response. The flag is invalid for a two-reference range. If status
+cannot be read, the request fails rather than returning an incomplete result.
+See `shared/fixtures/git/comparison-untracked-v1.json`. Platforms must not
+construct a two-ref range themselves.
 `git.apply` accepts `root`, `patch`, and `mode`; supported modes are `stage`,
 `unstage`, `discard`, `restoreIndex`, `worktree`, `restoreIndexCheck`, and
 `worktreeCheck`. The two `*Check` modes only test whether the reverse patch
