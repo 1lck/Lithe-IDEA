@@ -341,6 +341,7 @@ fn real_start_request(
         role: SessionRole::LanguageServer,
         log_subject: None,
         plugin_id: None,
+        startup_operation: None,
         host_services: Vec::new(),
         toolchain_providers: Vec::new(),
         keymap_import_providers: Vec::new(),

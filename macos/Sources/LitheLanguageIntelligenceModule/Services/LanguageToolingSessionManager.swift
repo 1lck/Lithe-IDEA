@@ -96,9 +96,12 @@ package final class LanguageToolingSessionManager: ObservableObject,
     private var mavenContextProvider: (LanguageProviderDescriptor, URL) -> MavenLaunchContext? = { _, _ in nil }
     private var javaLanguageImportProvider: ((LanguageProviderDescriptor, URL) throws -> JavaLanguageImportConfiguration)?
 
+    private let pluginOperations: PluginOperationReporter
+
     package init(
         catalog: LanguageProviderCatalog = .compatibilityFallback,
         logSink: (any LogSink)? = nil,
+        pluginOperations: PluginOperationReporter = .disabled,
         resolveLogSubject: @escaping (String) throws -> LogSegment? = { _ in nil },
         runtimes: [any LanguageProviderRuntime] = [],
         runtimeFactory: (any LanguageProviderRuntimeFactory)? = nil,
@@ -110,6 +113,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
         workspaceStateResetter: ((LanguageProviderDescriptor, URL, String?) throws -> Void)? = nil,
         workspaceStateCleaner: ((LanguageProviderDescriptor, URL, String?) throws -> Int)? = nil
     ) {
+        self.pluginOperations = pluginOperations
         self.logSink = logSink
         self.resolveLogSubject = resolveLogSubject
         self.catalog = catalog
@@ -1692,11 +1696,18 @@ package final class LanguageToolingSessionManager: ObservableObject,
         }
         languageServerStartupAttempts[descriptor.id] = (rootURL, attempts + 1)
         let operationID = requestedOperationID ?? UUID()
+        // Only a declarative launch has no plugin process to report its start.
+        let startupAttempt = (descriptor.languageServerLaunch?.launchSource?.pluginID).map {
+            pluginOperations.begin(
+                pluginID: $0, operation: .languageServerStart, at: .resolve, operationID: operationID.uuidString
+            )
+        }
         languageServerOperationIDs[descriptor.id] = operationID
         recordSessionStage(.requested, providerID: descriptor.id, operationID: operationID.uuidString)
         recordSessionStage(.resolving, providerID: descriptor.id, operationID: operationID.uuidString)
 
         guard let created = runtime.makeLanguageServerSession(rootURL: rootURL) else {
+            startupAttempt?.fail()
             let message = runtime.unavailableToolingMessage ?? descriptor.displayName
             let state = LanguageServerSessionState.failed(LanguageServerSessionFailure(
                 code: "tool_not_found",
@@ -1716,6 +1727,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
                 rootURL
             )
         } catch {
+            startupAttempt?.end(throwing: error)
             let state = LanguageServerSessionState.failed(LanguageServerSessionFailure(
                 code: "workspace_fingerprint_failed",
                 stage: "workspaceFingerprint",
@@ -1744,6 +1756,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
             }
         }
 
+        if let startupAttempt { created.observePluginStartup(startupAttempt) }
         let featureProvider = LanguageServerFeatureProvider(
             providerID: descriptor.id,
             session: created,
@@ -1783,6 +1796,8 @@ package final class LanguageToolingSessionManager: ObservableObject,
                 javaGradle: importConfiguration.javaGradle
             )
         } catch {
+            // Before the session handed the attempt to Core; a no-op after.
+            startupAttempt?.end(throwing: error)
             if languageServerSessionIdentities[descriptor.id] == sessionIdentity {
                 clearLanguageServerSession(
                     providerID: descriptor.id,

@@ -8,7 +8,7 @@ import LitheModuleAPI
 /// starts, not when the provider is registered; a rejected plan surfaces as the
 /// start error.
 @MainActor
-final class MacPluginDebugAdapterTransport: DebugAdapterDrainingTransport {
+final class MacPluginDebugAdapterTransport: DebugAdapterDrainingTransport, DebugAdapterLaunchResolvingTransport {
     enum TransportError: LocalizedError, Equatable {
         case unsupportedExecutable(adapterID: String)
         case commandNotFound(adapterID: String, commands: [String])
@@ -38,6 +38,7 @@ final class MacPluginDebugAdapterTransport: DebugAdapterDrainingTransport {
     private let socketFactory: @MainActor (String, UInt16) -> any DebugAdapterSocketConnection
     private let logSink: (any LogSink)?
     private var transport: (any DebugAdapterTransport)?
+    var startupAttempt: PluginOperationAttempt?
 
     var onData: ((Data) -> Void)?
     var onErrorOutput: ((Data) -> Void)?
@@ -87,6 +88,9 @@ final class MacPluginDebugAdapterTransport: DebugAdapterDrainingTransport {
         transport.onErrorOutput = { [weak self] in self?.onErrorOutput?($0) }
         transport.onTermination = { [weak self] in self?.onTermination?($0) }
         self.transport = transport
+        // The plan, the executable and the hosted command are known; what
+        // fails from here is starting the adapter.
+        startupAttempt?.advance(to: .launch)
         try transport.start(rootURL: rootURL)
     }
 

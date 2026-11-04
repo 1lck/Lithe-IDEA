@@ -4312,6 +4312,7 @@ are unchanged:
 | -32061 | Invalid histogram bucket count |
 | -32062 | Log copy input exceeds budget |
 | -32063 | Expected canonical redacted log record |
+| -32064 | Invalid host plugin operation |
 
 Diagnostic previews freeze the selected redacted bytes before confirmation.
 Windows returns a `snapshotId` from `preview_diagnostic_bundle`; export consumes
@@ -5572,6 +5573,63 @@ are always admitted. Producers that build expensive fields check the gate first.
 
 ```json
 {"id":null,"ok":true,"data":{}}
+```
+
+`diagnostics.recordPluginOperation` records one terminal result of a declarative
+plugin contribution: work a plugin declares in its manifest that the host or a
+Core engine executes, so no plugin process can report it through `lithe/log`. It
+accepts `{pluginId,operation,outcome,stage?,durationMs,operationId?}` with no other
+keys and returns `data:{result:{}}` once the fact is queued, or
+`data:{error:{code:-32064,reason}}`. `outcome` is `finished|failed`; `stage` is
+required for `failed` and forbidden for `finished`. `durationMs` is monotonic
+milliseconds up to 2^53-1. `operationId` follows the SDK `operationId` grammar
+(1-128 bytes of ASCII letters, digits and `._:/-$`). The fact becomes
+`plugins.operation.finished` or `plugins.operation.failed` on
+`plugins/{plugin}/host`, the same events and channel an SDK-backed plugin writes,
+with fields `plugin`, `operation`, `duration_ms` and, for failures, `code`.
+Cancellation is never recorded. No plugin output, path or error text is accepted.
+
+Each accepted `operation` is one row of Core's contribution table. The row's
+lifecycle decides which stages exist and which `host.*` code each stage means, so
+a code has one meaning across every contribution with that lifecycle:
+
+| `operation` | Contribution | Lifecycle |
+| --- | --- | --- |
+| `languageServer/start` | `languageServers[]` | process start |
+| `debugAdapter/start` | `debugAdapters[]` | process start |
+| `lithe/build/model` | `buildSystems[].model` command source | command run |
+| `lithe/build/dependencies` | `buildSystems[].dependencies` command source | command run |
+
+| `stage` | Process start | Command run |
+| --- | --- | --- |
+| `plan` | rejected | `host.planFailed` |
+| `resolve` | `host.executableUnavailable` | `host.executableUnavailable` |
+| `launch` | `host.launchFailed` | `host.launchFailed` |
+| `initialize` | `host.initializeFailed` | rejected |
+| `timeout` | `host.timedOut` | `host.timedOut` |
+| `exit` | `host.exitedEarly` | `host.commandFailed` |
+| `decode` | rejected | `host.outputInvalid` |
+
+An unknown operation, a stage the lifecycle cannot reach, an unknown key, an
+invalid operation ID or an out-of-range duration all return -32064. Whoever
+executes the attempt records it. The host records debug adapter starts and build
+commands itself. A declarative language server is resolved by the host and
+supervised by Core: the host records failures before launch and otherwise passes
+`startupOperation:{operationId,elapsedMs}` on `lsp.startServer` (language server
+role with `pluginId` only; ignored otherwise). Core then records exactly one
+result: `launch` when `lsp.startServer` fails for any reason other than
+cancellation, `exit` when the process exits before `initialize` succeeds,
+`initialize` for any other terminal failure before then, `timeout` at the initialize
+deadline, or `finished` when the `initialize` result succeeds. `durationMs` adds
+the host's `elapsedMs` to Core's own monotonic time. Stopping before a result
+records nothing. A fact the engine cannot queue increments the `dropped` counter.
+
+```json
+{"version":1,"command":"diagnostics.recordPluginOperation","payload":{"pluginId":"io.example.go","operation":"debugAdapter/start","outcome":"failed","stage":"resolve","durationMs":12,"operationId":"7c0d1f0e-3f6b-4a52-9d5e-0b7c2b0b9a11"}}
+```
+
+```json
+{"id":null,"ok":true,"data":{"result":{}}}
 ```
 
 `plugins.declarative.languageServerLaunchPlan.request.logDirectory` is an

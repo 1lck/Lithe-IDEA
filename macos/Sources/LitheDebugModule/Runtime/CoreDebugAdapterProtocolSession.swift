@@ -45,9 +45,17 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
     private var errorOutputDecoder = StreamingUTF8Decoder()
     private var ownsCoreSession = false
     private var isStopping = false
+    /// Begins a declarative adapter's start attempt; nil for host-owned adapters.
+    private let beginPluginStartup: (@MainActor () -> PluginOperationAttempt)?
+    /// Ends when the adapter leaves `initializing`, fails, or the session stops.
+    private var startupAttempt: PluginOperationAttempt?
 
     public private(set) var state: DebugAdapterState = .idle {
-        didSet { if oldValue != state { onStateChange?(state) } }
+        didSet {
+            guard oldValue != state else { return }
+            endStartupAttempt(in: state)
+            onStateChange?(state)
+        }
     }
     public var onStateChange: ((DebugAdapterState) -> Void)?
     public var onEvent: ((DebugAdapterEvent) -> Void)?
@@ -70,8 +78,10 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
         sessionID: String = UUID().uuidString,
         deadlineScheduler: any DebugOperationDeadlineScheduling,
         operationTimeoutMilliseconds: Int = 10_000,
-        initializationTimeoutMilliseconds: Int? = nil
+        initializationTimeoutMilliseconds: Int? = nil,
+        beginPluginStartup: (@MainActor () -> PluginOperationAttempt)? = nil
     ) {
+        self.beginPluginStartup = beginPluginStartup
         self.logSink = logSink
         self.adapterID = adapterID
         self.disabledCapabilities = disabledCapabilities
@@ -96,17 +106,25 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
         discardPendingRunInTerminalRequests()
         discardPendingStartDebuggingRequests()
         capabilities = .unknown
+        startupAttempt?.cancel()
+        startupAttempt = beginPluginStartup?()
+        let resolving = transport as? any DebugAdapterLaunchResolvingTransport
+        resolving?.startupAttempt = startupAttempt
+        defer { resolving?.startupAttempt = nil }
         do { try transport.start(rootURL: rootURL.standardizedFileURL) }
         catch {
+            startupAttempt?.end(throwing: error)
             logSink?.emit(DebugTransportFailed(stage: "process-start", operationID: sessionID))
             throw error
         }
+        startupAttempt?.advance(to: .initialize)
         if let initializationTimeoutMilliseconds {
             let token = UUID()
             initializationToken = token
             initializationDeadline = deadlineScheduler.schedule(afterMilliseconds: initializationTimeoutMilliseconds) { [weak self] in
                 guard let self, self.initializationToken == token, self.ownsCoreSession else { return }
                 self.logSink?.emit(DebugTransportFailed(stage: "initialization-timeout", operationID: self.sessionID))
+                self.startupAttempt?.advance(to: .timeout)
                 self.onEvent?(.output(category: "stderr", output: DebugAdapterProtocolError.timedOut("initialize").localizedDescription + "\n"))
                 guard self.initializationToken == token else { return }
                 self.failSession()
@@ -125,6 +143,7 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
             ownsCoreSession = true
             try apply(update)
         } catch {
+            startupAttempt?.fail()
             cancelInitializationDeadline()
             transport.stop()
             releaseCoreSession()
@@ -135,6 +154,7 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
 
     public func stop() {
         guard state != .idle || transport.isRunning || ownsCoreSession else { return }
+        startupAttempt?.cancel()
         isStopping = true
         cancelInitializationDeadline()
         failPendingRunInTerminalRequests(DebugAdapterProtocolError.stopped)
@@ -858,6 +878,7 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
 
     private func transportTerminated(exitCode: Int) {
         guard !isStopping else { return }
+        startupAttempt?.advance(to: .exit)
         if exitCode != 0 && state != .failed {
             logSink?.emit(DebugTransportFailed(exitCode: Int64(exitCode), stage: "transport-exit", operationID: sessionID))
         }
@@ -880,6 +901,18 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
         releaseCoreSession()
         failPendingOperations(DebugAdapterProtocolError.stopped)
         state = .failed
+    }
+
+    /// Leaving `initializing` for a working state ends the start; a failure
+    /// ends it at the stage reached, and stopping already cancelled it.
+    private func endStartupAttempt(in state: DebugAdapterState) {
+        switch state {
+        case .ready, .launching, .running, .paused: startupAttempt?.succeed()
+        case .failed, .terminated: startupAttempt?.fail()
+        case .idle: startupAttempt?.cancel()
+        case .initializing: return
+        }
+        startupAttempt = nil
     }
 
     private func cancelInitializationDeadline() {

@@ -432,6 +432,97 @@ struct PluginLanguageServerLaunchResolverTests {
         #expect(issues.first?.2 == "plugin.launch.invalidRequest")
     }
 
+    // MARK: Declarative start attempt
+
+    /// A launch plan Core rejects fails the plugin's start before any process
+    /// exists, so the host records it at `resolve`; stopping afterwards adds nothing.
+    @MainActor
+    @Test
+    func aFailedLaunchPlanRecordsTheDeclarativeStartAtResolve() {
+        let operations = RecordedPluginOperations()
+        let session = LanguageServerRuntimeSession(
+            providerID: "fixture",
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["${pluginDir}/server"],
+            environment: [:],
+            launchResolver: { _ in
+                throw DeclarativePluginRejection(
+                    code: "plugin.launch.invalidRequest",
+                    message: "The launch request has no usable pluginDirectory."
+                )
+            },
+            core: RustCoreBridge()
+        )
+        session.observePluginStartup(operations.reporter.begin(
+            pluginID: "dev.example.plugin", operation: .languageServerStart, at: .resolve, operationID: "lsp-start"
+        ))
+
+        #expect(throws: LanguageServerSessionStartError.self) {
+            try session.start(rootURL: URL(fileURLWithPath: "/projects/one"), workspaceFingerprint: nil)
+        }
+        session.stop()
+
+        #expect(operations.observations == [RecordedPluginOperations.languageServerStart(
+            pluginID: "dev.example.plugin", failure: .resolve, operationID: "lsp-start"
+        )])
+    }
+
+    /// The manager begins an attempt only for a declarative launch: a server the
+    /// host owns has no plugin to attribute it to. The attempt carries the
+    /// manager's operation ID, so it joins the session's other records.
+    @MainActor
+    @Test(arguments: [true, false])
+    func aServerWithoutAnExecutableRecordsOnlyADeclarativeStart(declarative: Bool) {
+        let source = DeclarativeLanguageServerLaunchSource(
+            pluginID: "dev.example.plugin",
+            languageID: "fixture",
+            manifest: Data(),
+            packageURL: URL(fileURLWithPath: "/plugins/fixture")
+        )
+        let launch = LanguageServerLaunchDescriptor(
+            executableNames: ["fixture-language-server"],
+            arguments: [],
+            launchSource: declarative ? source : nil
+        )
+        let descriptor = LanguageProviderDescriptor(
+            id: "fixture",
+            displayName: "Fixture",
+            fileExtensions: ["fixture"],
+            capabilities: .languageServer,
+            activationPolicy: .onDemand,
+            languageServerLaunch: launch
+        )
+        let runtime = StdioLanguageProviderRuntime(
+            descriptor: descriptor,
+            runtimeService: FixedLanguageToolRuntime(candidates: [:]),
+            languageServerLaunch: launch,
+            languageServerCore: RustCoreBridge()
+        )
+        let operations = RecordedPluginOperations()
+        let manager = LanguageToolingSessionManager(
+            catalog: .init(descriptors: [descriptor]),
+            pluginOperations: operations.reporter,
+            runtimes: [runtime]
+        )
+        defer { manager.stopAllLanguageServers() }
+        let operationID = UUID()
+
+        // Only what is recorded matters here: the declarative server stops at
+        // discovery, while the host-owned one fails later at process start.
+        #expect(throws: (any Error).self) {
+            _ = try manager.startLanguageServer(
+                providerID: descriptor.id, rootURL: URL(fileURLWithPath: "/projects/one"), operationID: operationID
+            )
+        }
+
+        let expected = declarative
+            ? [RecordedPluginOperations.languageServerStart(
+                pluginID: "dev.example.plugin", failure: .resolve, operationID: operationID.uuidString
+            )]
+            : []
+        #expect(operations.observations == expected)
+    }
+
     // MARK: Fixtures
 
     private struct Fixture {

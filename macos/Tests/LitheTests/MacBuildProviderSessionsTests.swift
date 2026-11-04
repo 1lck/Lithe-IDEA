@@ -240,6 +240,130 @@ struct MacBuildProviderSessionsTests {
         #expect(issues.contains { $0.0 == "processStart" && $0.1 == "processFailed" })
     }
 
+    // MARK: Declarative start attempt
+
+    /// Once a launch is requested Core owns the plugin's start result, failed
+    /// or not; the host hands the attempt over and records nothing itself.
+    @Test(arguments: [false, true])
+    func aLaunchHandsTheDeclarativeStartToCore(failsToStart: Bool) async throws {
+        let core = ScriptedProviderCore(failStart: failsToStart)
+        let operations = RecordedPluginOperations()
+        let session = LanguageServerRuntimeSession(
+            providerID: "fixture", executableURL: URL(fileURLWithPath: "/host/bin/server"),
+            arguments: [], environment: [:], core: core, pluginID: "dev.example.fixture"
+        )
+        defer { session.stop() }
+        let settled = TestGate()
+        session.onStateChange = { state in
+            switch state {
+            case .ready, .failed: settled.open()
+            default: break
+            }
+        }
+        session.observePluginStartup(operations.reporter.begin(
+            pluginID: "dev.example.fixture", operation: .languageServerStart, at: .resolve, operationID: "lsp-start"
+        ))
+
+        try? session.start(rootURL: URL(fileURLWithPath: "/workspace"), workspaceFingerprint: nil)
+        try #require(await settled.waitUntilOpen())
+
+        #expect(core.startupHandoffs.map(\.operationId) == ["lsp-start"])
+        #expect(core.startupHandoffs.map(\.elapsedMs) == [RecordedPluginOperations.tick])
+        #expect(operations.observations.isEmpty)
+    }
+
+    /// A prepared launch starts on the core preparation returned, so that core
+    /// receives the attempt.
+    @Test
+    func aPreparedLaunchHandsTheDeclarativeStartToThePreparedCore() async throws {
+        let prepared = ScriptedProviderCore()
+        let unused = ScriptedProviderCore()
+        let released = TestGate()
+        let operations = RecordedPluginOperations()
+        let session = LanguageServerRuntimeSession(
+            providerID: "fixture", executableURL: URL(fileURLWithPath: "/unused"), arguments: [], environment: [:],
+            prepareProcess: { _ in
+                PreparedLanguageServerProcess(executableURL: URL(fileURLWithPath: "/host/bin/server"),
+                    environment: [:], launch: .init(arguments: [], initializationOptions: nil),
+                    core: prepared, release: { released.open() })
+            }, core: unused, pluginID: "dev.example.fixture"
+        )
+        defer { session.stop() }
+        session.observePluginStartup(operations.reporter.begin(
+            pluginID: "dev.example.fixture", operation: .languageServerStart, at: .resolve, operationID: "lsp-start"
+        ))
+
+        try session.start(rootURL: URL(fileURLWithPath: "/workspace"), workspaceFingerprint: nil)
+        try #require(await prepared.started.waitUntilOpen())
+
+        #expect(prepared.startupHandoffs.map(\.operationId) == ["lsp-start"])
+        #expect(unused.startupHandoffs.isEmpty)
+        #expect(operations.observations.isEmpty)
+        session.stop()
+        #expect(await released.waitUntilOpen())
+    }
+
+    @Test
+    func aFailedPreparationRecordsTheDeclarativeStartAtResolve() async throws {
+        struct PreparationFailure: Error {}
+        let core = ScriptedProviderCore()
+        let operations = RecordedPluginOperations()
+        let session = LanguageServerRuntimeSession(
+            providerID: "fixture", executableURL: URL(fileURLWithPath: "/unused"), arguments: [], environment: [:],
+            prepareProcess: { _ in throw PreparationFailure() }, core: core, pluginID: "dev.example.fixture"
+        )
+        defer { session.stop() }
+        let failed = TestGate()
+        session.onStateChange = { state in if case .failed = state { failed.open() } }
+        session.observePluginStartup(operations.reporter.begin(
+            pluginID: "dev.example.fixture", operation: .languageServerStart, at: .resolve, operationID: "lsp-start"
+        ))
+
+        try session.start(rootURL: URL(fileURLWithPath: "/workspace"), workspaceFingerprint: nil)
+        try #require(await failed.waitUntilOpen())
+
+        #expect(operations.observations == [RecordedPluginOperations.languageServerStart(
+            pluginID: "dev.example.fixture", failure: .resolve, operationID: "lsp-start"
+        )])
+        #expect(core.startupHandoffs.isEmpty)
+    }
+
+    /// Stopping during preparation cancels the start: a late package is released
+    /// unused, and neither the host nor Core records anything.
+    @Test
+    func stoppingDuringPreparationRecordsNoDeclarativeStart() async throws {
+        let core = ScriptedProviderCore()
+        let preparing = TestGate()
+        let resume = TestGate()
+        let released = TestGate()
+        let lateReply = Task { @MainActor in await resume.waitUntilOpen() }
+        let operations = RecordedPluginOperations()
+        let session = LanguageServerRuntimeSession(
+            providerID: "fixture", executableURL: URL(fileURLWithPath: "/unused"), arguments: [], environment: [:],
+            prepareProcess: { _ in
+                preparing.open()
+                guard await lateReply.value else { throw CancellationError() }
+                return PreparedLanguageServerProcess(executableURL: URL(fileURLWithPath: "/host/bin/server"),
+                    environment: [:], launch: .init(arguments: [], initializationOptions: nil),
+                    core: core, release: { released.open() })
+            }, core: core, pluginID: "dev.example.fixture"
+        )
+        defer { resume.open(); lateReply.cancel(); session.stop() }
+        session.observePluginStartup(operations.reporter.begin(
+            pluginID: "dev.example.fixture", operation: .languageServerStart, at: .resolve, operationID: "lsp-start"
+        ))
+
+        try session.start(rootURL: URL(fileURLWithPath: "/workspace"), workspaceFingerprint: nil)
+        try #require(await preparing.waitUntilOpen())
+        session.stop()
+        resume.open()
+        #expect(await released.waitUntilOpen())
+
+        #expect(operations.observations.isEmpty)
+        #expect(core.startupHandoffs.isEmpty)
+        #expect(core.startCalls.isEmpty)
+    }
+
     @Test
     func remoteStartupReturnsBeforeTheHostRepliesAndFlushesLatestDocuments() async throws {
         let core = ScriptedProviderCore(backgroundStart: true)
@@ -888,6 +1012,13 @@ private struct ProviderFixture {
 private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked Sendable {
     private var logOwners: [(LanguageServerLogRole, String?, String?)] = []
     var loggingOwners: [(LanguageServerLogRole, String?, String?)] { lock.withLock { logOwners } }
+    private var _startupHandoffs: [PluginOperationHandoff] = []
+    /// Declarative start attempts handed to this core with a start request.
+    var startupHandoffs: [PluginOperationHandoff] { lock.withLock { _startupHandoffs } }
+    func observingPluginStartup(_ handoff: PluginOperationHandoff) -> any LanguageServerRuntimeCore {
+        lock.withLock { _startupHandoffs.append(handoff) }
+        return self
+    }
     func loggingRuntime(role: LanguageServerLogRole, logSubject: String?, pluginID: String?) -> any LanguageServerRuntimeCore {
         lock.withLock { logOwners.append((role, logSubject, pluginID)) }
         return self

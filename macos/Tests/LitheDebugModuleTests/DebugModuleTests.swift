@@ -4966,6 +4966,127 @@ struct DebugModuleTests {
         return feature
     }
 
+    // MARK: Declarative adapter start
+
+    @Test
+    func aDeclarativeAdapterThatBecomesReadyRecordsOneFinishedStart() throws {
+        let transport = RecordingTransport()
+        let core = RecordingDebugProtocolCore()
+        let operations = RecordedDebugStartOperations()
+        let session = declarativeAdapterSession(transport: transport, core: core, operations: operations)
+
+        try session.start(rootURL: URL(fileURLWithPath: "/tmp/declarative-adapter"))
+        #expect(operations.observations.isEmpty)
+        core.enqueueReceive(state: "ready", events: [["sequence": 2, "type": "stateChanged", "state": "ready"]])
+        transport.emitData(Data("initialize-response".utf8))
+        #expect(session.state == .ready)
+        // An adapter that exits after its start finished does not end the start again.
+        transport.terminate(1)
+
+        #expect(operations.observations == [RecordedDebugStartOperations.expected(failure: nil)])
+    }
+
+    @Test
+    func aDeclarativeAdapterWhoseExecutableIsUnavailableRecordsTheResolveStage() {
+        let transport = RecordingTransport()
+        transport.failsToStart = true
+        let operations = RecordedDebugStartOperations()
+        let session = declarativeAdapterSession(
+            transport: transport, core: RecordingDebugProtocolCore(), operations: operations
+        )
+
+        #expect(throws: RecordingTransport.StartFailure.self) {
+            try session.start(rootURL: URL(fileURLWithPath: "/tmp/declarative-adapter"))
+        }
+
+        #expect(operations.observations == [RecordedDebugStartOperations.expected(failure: .resolve)])
+    }
+
+    @Test
+    func aDeclarativeAdapterThatFailsToLaunchRecordsTheStageItsTransportReached() {
+        let transport = LaunchFailingTransport()
+        let operations = RecordedDebugStartOperations()
+        let session = declarativeAdapterSession(
+            transport: transport, core: RecordingDebugProtocolCore(), operations: operations
+        )
+
+        #expect(throws: LaunchFailingTransport.LaunchFailure.self) {
+            try session.start(rootURL: URL(fileURLWithPath: "/tmp/declarative-adapter"))
+        }
+
+        #expect(operations.observations == [RecordedDebugStartOperations.expected(failure: .launch)])
+        #expect(transport.startupAttempt == nil, "The session lends the attempt only for the start call")
+    }
+
+    @Test
+    func aDeclarativeAdapterThatNeverInitializesRecordsTheTimeout() throws {
+        let transport = RecordingTransport()
+        let deadlines = RecordingDebugDeadlineScheduler()
+        let operations = RecordedDebugStartOperations()
+        let session = declarativeAdapterSession(
+            transport: transport, core: RecordingDebugProtocolCore(), deadlines: deadlines,
+            operations: operations, initializationTimeoutMilliseconds: 1_000
+        )
+
+        try session.start(rootURL: URL(fileURLWithPath: "/tmp/declarative-adapter"))
+        deadlines.fireLast()
+
+        #expect(session.state == .failed)
+        #expect(operations.observations == [RecordedDebugStartOperations.expected(failure: .timeout)])
+    }
+
+    @Test(arguments: [0, 3])
+    func aDeclarativeAdapterThatExitsBeforeItIsReadyRecordsTheExit(exitCode: Int) throws {
+        let transport = RecordingTransport()
+        let operations = RecordedDebugStartOperations()
+        let session = declarativeAdapterSession(
+            transport: transport, core: RecordingDebugProtocolCore(), operations: operations
+        )
+
+        try session.start(rootURL: URL(fileURLWithPath: "/tmp/declarative-adapter"))
+        transport.terminate(exitCode)
+
+        #expect(operations.observations == [RecordedDebugStartOperations.expected(failure: .exit)])
+    }
+
+    @Test
+    func stoppingADeclarativeAdapterBeforeItIsReadyRecordsNothing() throws {
+        let transport = RecordingTransport()
+        let core = RecordingDebugProtocolCore()
+        let operations = RecordedDebugStartOperations()
+        let session = declarativeAdapterSession(transport: transport, core: core, operations: operations)
+
+        try session.start(rootURL: URL(fileURLWithPath: "/tmp/declarative-adapter"))
+        session.stop()
+        transport.terminate(0)
+        #expect(session.state == .terminated)
+        #expect(operations.observations.isEmpty)
+
+        // The next start is a new attempt of its own.
+        try session.start(rootURL: URL(fileURLWithPath: "/tmp/declarative-adapter"))
+        core.enqueueReceive(state: "ready", events: [["sequence": 2, "type": "stateChanged", "state": "ready"]])
+        transport.emitData(Data("initialize-response".utf8))
+        #expect(operations.observations == [RecordedDebugStartOperations.expected(failure: nil)])
+    }
+
+    private func declarativeAdapterSession(
+        transport: any DebugAdapterTransport,
+        core: RecordingDebugProtocolCore,
+        deadlines: RecordingDebugDeadlineScheduler = RecordingDebugDeadlineScheduler(),
+        operations: RecordedDebugStartOperations,
+        initializationTimeoutMilliseconds: Int? = nil
+    ) -> CoreDebugAdapterProtocolSession {
+        CoreDebugAdapterProtocolSession(
+            adapterID: "lldb-dap",
+            transport: transport,
+            core: core,
+            sessionID: "java-session",
+            deadlineScheduler: deadlines,
+            initializationTimeoutMilliseconds: initializationTimeoutMilliseconds,
+            beginPluginStartup: { operations.begin() }
+        )
+    }
+
     private func indexedVariables(
         _ range: Range<Int>,
         idPrefix: String = "item"
@@ -4991,8 +5112,12 @@ private final class RecordingTransport: DebugAdapterTransport {
     var onTermination: ((Int) -> Void)?
     private(set) var sentData: [Data] = []
     private(set) var stopCalls = 0
+    struct StartFailure: Error {}
+    /// When set, `start` throws before anything runs, like an unresolved executable.
+    var failsToStart = false
 
     func start(rootURL: URL) throws {
+        if failsToStart { throw StartFailure() }
         isRunning = true
     }
 
@@ -5741,6 +5866,50 @@ private struct RecordingRunInTerminalCompletion: Equatable {
     let requestID: String
     let response: DebugRunInTerminalResponse?
     let errorDescription: String?
+}
+
+/// Records the start attempts a session reports, on a clock that advances
+/// `tick` milliseconds per reading, so every attempt lasts exactly one tick.
+@MainActor
+private final class RecordedDebugStartOperations {
+    static let pluginID = "io.example.debug"
+    static let operationID = "debug-start"
+    static let tick: UInt64 = 7
+    private(set) var observations: [PluginOperationObservation] = []
+    private var now: UInt64 = 0
+
+    func begin() -> PluginOperationAttempt {
+        PluginOperationReporter(
+            record: { [self] in observations.append($0) },
+            clock: { [self] in now += Self.tick; return now }
+        ).begin(pluginID: Self.pluginID, operation: .debugAdapterStart, at: .resolve, operationID: Self.operationID)
+    }
+
+    static func expected(failure: PluginOperationStage?) -> PluginOperationObservation {
+        PluginOperationObservation(
+            pluginID: pluginID, operation: .debugAdapterStart, failure: failure,
+            durationMs: tick, operationID: operationID
+        )
+    }
+}
+
+/// Resolves its launch like the plugin transport, then fails to start it.
+@MainActor
+private final class LaunchFailingTransport: DebugAdapterLaunchResolvingTransport {
+    struct LaunchFailure: Error {}
+    var startupAttempt: PluginOperationAttempt?
+    let isRunning = false
+    var onData: ((Data) -> Void)?
+    var onErrorOutput: ((Data) -> Void)?
+    var onTermination: ((Int) -> Void)?
+
+    func start(rootURL _: URL) throws {
+        startupAttempt?.advance(to: .launch)
+        throw LaunchFailure()
+    }
+
+    func send(_: Data) throws {}
+    func stop() {}
 }
 
 @MainActor

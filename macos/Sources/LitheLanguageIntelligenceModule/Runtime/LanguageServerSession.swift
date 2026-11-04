@@ -39,6 +39,14 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     private let prepareProcess: (@MainActor (URL) async throws -> PreparedLanguageServerProcess)?
     private var preparationTask: Task<Void, Never>?
     private var startingPreparedProcess = false
+    /// Held until launch: a preparation failure ends it here, a launch hands it to Core.
+    private var startupAttempt: PluginOperationAttempt?
+    package func observePluginStartup(_ attempt: PluginOperationAttempt) { startupAttempt = attempt }
+    private func endStartupAttempt(throwing error: any Error) {
+        startupAttempt?.end(throwing: error)
+        startupAttempt = nil
+    }
+
     private let launchResolver: (@MainActor (URL) throws -> ResolvedLanguageServerLaunch)?
     private let hostIntegrationLaunch: LanguageServerHostIntegrationLaunch?
     private let cacheDirectoryURL: URL?
@@ -263,6 +271,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
                     self.startingDocuments = [:]
                     self.startingDocumentBytes = 0
                     self.startingFileChanges = []
+                    self.endStartupAttempt(throwing: error)
                     let failure = LanguageServerSessionFailure(code: (error as? DeclarativePluginRejection)?.code ?? "plugin.launch.failed",
                         stage: "processStart", message: error.localizedDescription)
                     self.transition(to: .failed(failure))
@@ -282,6 +291,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
                 initializationOptions = resolved.initializationOptions
                 workspaceConfiguration = resolved.workspaceConfiguration
             } catch {
+                endStartupAttempt(throwing: error)
                 let message = "Language server launch could not be prepared: \(error.localizedDescription)"
                 let failure = LanguageServerSessionFailure(
                     code: (error as? DeclarativePluginRejection)?.code ?? "plugin.launch.missing",
@@ -300,7 +310,10 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
             ([executableURL.path] + arguments).joined(separator: " "),
             nil
         )
-        let core = core
+        // Core now owns every terminal result, including a synchronous launch
+        // failure. Only this start carries the attempt; a later restart does not.
+        let core = startupAttempt?.handOff().map { self.core.observingPluginStartup($0) } ?? self.core
+        startupAttempt = nil
         let pluginID = pluginID
         let hostServices = hostServices
         let offeredToolchainProviders = offeredToolchainProviders
@@ -1318,6 +1331,8 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     }
 
     package func stop() {
+        startupAttempt?.cancel()
+        startupAttempt = nil
         beginStop(inBackground: false)
     }
 

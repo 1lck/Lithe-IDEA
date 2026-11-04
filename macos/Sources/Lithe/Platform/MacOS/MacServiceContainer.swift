@@ -110,6 +110,9 @@ final class MacServiceContainer {
                                       gitPreferences: settings.gitExecutionPreferences,
                                       gitExecutionJournal: gitExecutionJournal,
                                       remoteWorkspaces: remoteWorkspaces)
+        // Declarative plugins have no process of their own to report their
+        // contributions; the host reports each attempt through Core.
+        let pluginOperations = PluginOperationReporter(record: { rustCore.recordPluginOperation($0) })
         let mavenRepositoryURL = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".m2/repository", isDirectory: true)
         let gradleRepositoryURL = FileManager.default.homeDirectoryForCurrentUser
@@ -590,6 +593,7 @@ final class MacServiceContainer {
                     let sessions = LanguageToolingSessionManager(
                         catalog: registry.catalog,
                         logSink: logSink,
+                        pluginOperations: pluginOperations,
                         resolveLogSubject: { try rustCore.resolveEngineLogSubject(providerID: $0) },
                         runtimes: registry.toolingRuntimes,
                         runtimeFactory: runtimeFactory,
@@ -664,6 +668,7 @@ final class MacServiceContainer {
                     let buildSystemPlugins = pluginStartup.registeredPlugins.filter { !$0.descriptor.buildSystems.isEmpty }
                     let buildSystems = buildSystemPlugins.isEmpty ? nil : BuildSystemService(
                         logSink: logSink,
+                        pluginOperations: pluginOperations,
                         planner: RustBuildSystemOperations(core: rustCore),
                         tools: MacBuildToolResolver(
                             runtime: runtimeService,
@@ -850,7 +855,10 @@ final class MacServiceContainer {
                                     }
                                 ),
                                 core: rustCore,
-                                deadlineScheduler: MacDebugOperationDeadlineScheduler()
+                                deadlineScheduler: MacDebugOperationDeadlineScheduler(),
+                                beginPluginStartup: {
+                                    pluginOperations.begin(pluginID: pluginID, operation: .debugAdapterStart, at: .resolve)
+                                }
                             )
                             // Remembered so withdrawing this plugin ends this session
                             // and no other plugin's session for the same language.

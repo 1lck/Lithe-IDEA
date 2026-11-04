@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-日志的每一种事实都先在共享事件目录里声明，再由生成的类型约束字段。Core 负责通道、单行格式、脱敏、查询和保留计划，平台只负责实际文件操作。macOS 全部写入 v2 会话文件，Windows 继续使用 v1。排查问题时，维护者能顺着同一个 op（操作关联身份）看到三层轨迹：用户按了什么，Core 执行了哪个请求，以及 Git 命令带着哪些已脱敏参数、怎样结束。
+日志的每一种事实都先在共享事件目录里声明，再由生成的类型约束字段。Core 负责通道、单行格式、脱敏、查询和保留计划，平台只负责实际文件操作。macOS 全部写入 v2 会话文件，Windows 继续使用 v1。排查问题时，维护者能顺着同一个 op（操作关联身份）看到三层轨迹：用户按了什么，Core 执行了哪个请求，以及 Git 命令带着哪些已脱敏参数、怎样结束。没有插件进程的声明式插件，由实际执行声明工作的宿主或 Core 按一张贡献映射表，代写与 SDK 插件相同的插件操作事实。
 
 ## 问题
 
@@ -215,6 +215,34 @@ Core 的目录遍历和 scratch 清理使用 `app.search.directory_skipped`、`a
 
 保留计划的默认值为 30 天、总量 100 MiB、性能 20 MiB、每插件每会话 files 20 MiB。性能预算可以删除非活动会话里的性能文件。插件超额时返回告警，只有启动清理允许删除非活动会话中最老的插件文件。这两项是完整会话删除之外的明确例外；告警去重由宿主负责。Core 接收平台采集的文件清单和显式时间，返回相对路径计划；平台执行删除并报告真实的 I/O 结果，不能把计划当成删除成功。
 
+### 声明式插件：由执行方代记同一组操作事实
+
+声明式插件（只在 manifest 里声明语言服务器、调试适配器或构建命令，没有自己的后端进程）无法发送 `lithe/log`。
+如果不处理，Go、PHP、LLDB、Gradle 这类插件出错时，`plugins/<id>/host` 通道里什么都没有，日志窗口里它们和
+SDK 插件不统一。因此谁真正执行声明的工作，谁就替插件写那一条终态事实：事件仍是
+`plugins.operation.finished|failed`，通道仍是 `plugins/<id>/host`，和 SDK 插件写出的事实在同一处、同一格式。
+
+所有贡献共用一个通用结构：Core 的 `DeclarativeOperation`（插件 ID、贡献、失败阶段、耗时、可选 op），
+Swift 侧对应 `PluginOperationAttempt`。差异只在 `plugin_operations.rs` 的 `CONTRIBUTIONS` 映射表里：每一行给出
+操作名和生命周期（`ProcessStart` 常驻进程启动，或 `CommandRun` 一次性命令）。生命周期持有“阶段 → `host.*` 码”的表，
+同一个码在所有共享该生命周期的贡献中只有一个含义；某个生命周期到不了的阶段直接拒绝（-32064），不会被猜成别的码。
+以后新增声明式契约时，开发者加一行映射，并在实际执行它的地方开始和结束一次 attempt，不新增事件、通道或错误码。
+构建命令沿用 SDK 的请求名（`lithe/build/model` 等），所以同一工作不论由声明还是后端提供，日志里都叫同一个名字。
+
+所有权按“谁执行，谁记录”划分：
+
+- 调试适配器启动和构建命令由 macOS 宿主执行，宿主在解析、启动、初始化、超时、退出和解码的真实边界推进阶段，
+  通过 `diagnostics.recordPluginOperation` 写入。
+- 语言服务器由宿主解析启动方案、由 Core 拉起和握手。宿主只记录启动前的失败；进入启动后用
+  `startupOperation:{operationId,elapsedMs}` 把 attempt 交给 Core。Core 在 spawn 失败、提前退出、握手失败、
+  初始化超时或初始化成功时记录唯一结果，耗时为宿主已用时间加 Core 计时。
+- 构建计划实际由插件后端提供时，宿主取消自己的 attempt，由 SDK 记录，避免同一次工作出现两条事实。
+
+一次 attempt 只有第一次终态生效。取消、停止、被新请求取代的过期结果都不记录，因为它们不是插件故障；
+错误码只来自阶段，从不解析本地化错误文本，也不带插件输出、路径或命令行。
+正确做法：`attempt.advance(to: .launch)` 放在真正调用 `start` 之前，失败时 `attempt.end(throwing:)`。
+不要这样做：在 catch 里按 `error.localizedDescription` 判断是哪一步失败，或在宿主里按插件名写分支。
+
 ## 考虑过的备选方案
 
 - **JSON Lines**：通用解析方便，但每行都重复键名和身份信息，手工阅读噪声多。采用有严格语法和 fixture 的单行文本，代价是维护专门的编解码器。
@@ -233,6 +261,9 @@ Core 的目录遍历和 scratch 清理使用 `app.search.directory_skipped`、`a
 - **每条事实回调一次，或在回调里直接 drain**：突发事实会产生大量跨语言调用；在记录线程里 drain 会把磁盘 I/O 带到 Core 调用方的线程，还要重入 Core。回调只安排宿主已有的单次排空。
 - **只在宿主侧过滤 DEBUG**：后台 DEBUG 会先占满 256 条的 Core 队列，之后的 WARN 和 ERROR 被丢弃，因此必须在入队前过滤。
 - **Core 轨迹的失败直接记 ERROR**：Core 不知道宿主会不会重试或降级，ERROR 会把可恢复的失败误报成用户请求失败；同一次失败再由宿主记录还会产生两条终态。
+- **为声明式插件单独起一个监听服务进程**：它看不到宿主和 Core 内部的真实阶段边界，只能事后解析输出或状态，还多一个需要管理生命周期的进程。由执行方在边界处直接记录更准确，也不增加进程。
+- **每种贡献一个专用事件或一个封闭的大枚举**：新契约要改事件目录、生成类型和所有平台代码，码的含义也会在各贡献间漂移。改为通用结构加映射表。
+- **解析错误消息判断失败阶段**：消息是本地化文本，也可能带路径和插件输出，翻译或措辞一改分类就错。阶段由代码路径显式推进。
 
 ## 后果
 
@@ -274,6 +305,7 @@ Core 的目录遍历和 scratch 清理使用 `app.search.directory_skipped`、`a
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core core_request_traces`
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core command_trace`
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core --test core_log_waker`
+- `cargo test --manifest-path rust/Cargo.toml -p lithe-core plugin_operations`
 - `./scripts/rust-core/verify-rust-core-comments.sh`
 - `./scripts/architecture/verify-shared-contracts.sh`
 - `./scripts/windows/verify/verify-windows-boundaries.sh`
@@ -289,6 +321,7 @@ fixture 覆盖往返、转义、非法输入、路径段、轮转与保留、共
 - `rust/lithe-core/src/runtime/dispatcher.rs`
 - `rust/lithe-core/src/tests/core_request_traces.rs`
 - `rust/lithe-core/src/debug/engine.rs`
+- `macos/Sources/LitheModuleAPI/Logging/PluginOperationReporter.swift`
 - `rust/lithe-agent-host/src/failure_log.rs`
 - `rust/lithe-git-host/src/failure_log.rs`
 - `rust/lithe-ide-host/src/failure_log.rs`

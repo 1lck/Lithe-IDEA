@@ -843,6 +843,10 @@ package enum WorkspaceConfigurationUpdateResult: Sendable {
 
 @MainActor
 package protocol LanguageServerSession: AnyObject {
+    /// The declarative start attempt this session continues: it fails the
+    /// attempt before launch or hands it to Core with the start request.
+    /// Sessions that never start a declarative process ignore it.
+    func observePluginStartup(_ attempt: PluginOperationAttempt)
     var onProjectPreparation: ((ProjectPreparationSnapshot) -> Void)? { get set }
     var onMavenProfileTask: ((String) -> Void)? { get set }
     var onMavenProfileProject: ((MavenProfileProjectResult) -> Void)? { get set }
@@ -1004,6 +1008,8 @@ package protocol LanguageServerSession: AnyObject {
 }
 
 package extension LanguageServerSession {
+    func observePluginStartup(_ attempt: PluginOperationAttempt) {}
+
     func stopAndWait() async -> Bool {
         stop()
         let deadline = ContinuousClock.now.advanced(by: .seconds(5))

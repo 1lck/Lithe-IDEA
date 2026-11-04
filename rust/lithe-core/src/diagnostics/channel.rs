@@ -2,6 +2,7 @@
 
 use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 
 /// Maximum distinct persisted channels in one session, excluding the overflow sink.
@@ -139,6 +140,22 @@ pub fn validate_segment(value: &str) -> Result<(), LogError> {
         return Err(LogError::new(-32033, "Invalid channel segment"));
     }
     Ok(())
+}
+
+/// Maps an installed identity to its channel segment. A valid identity stays readable;
+/// anything else becomes a stable digest, so evidence is kept and raw input never
+/// reaches a path. Every writer of one plugin's channel must use this mapping.
+pub fn identity_segment(raw: &str) -> String {
+    if validate_segment(raw).is_ok() {
+        raw.to_owned()
+    } else {
+        digest_segment(raw)
+    }
+}
+
+/// Stable `invalid-` plus 32 hex digits, always a valid segment and never raw input.
+pub fn digest_segment(raw: &str) -> String {
+    format!("invalid-{:x}", Sha256::digest(raw.as_bytes()))[..40].to_owned()
 }
 
 /// Returns a slash-separated file path relative to the writable session directory.

@@ -94,6 +94,7 @@ package struct BuildSystemEntry: Equatable, Identifiable, Sendable {
 @MainActor
 package final class BuildSystemService: ObservableObject {
     private let logSink: (any LogSink)?
+    private let pluginOperations: PluginOperationReporter
     package static let modelTimeout: Duration = .seconds(15 * 60)
     private static let visibleOutputLimit = 1_000_000
     /// Rust Core refuses larger output.
@@ -203,6 +204,7 @@ package final class BuildSystemService: ObservableObject {
 
     package init(
         logSink: (any LogSink)? = nil,
+        pluginOperations: PluginOperationReporter = .disabled,
         planner: any BuildSystemPlanning,
         tools: any BuildToolResolving,
         optionsStore: any BuildOptionsStoring,
@@ -217,6 +219,7 @@ package final class BuildSystemService: ObservableObject {
         sources: @escaping @MainActor () -> [BuildSystemPluginSource]
     ) {
         self.logSink = logSink
+        self.pluginOperations = pluginOperations
         self.planner = planner
         self.tools = tools
         self.optionsStore = optionsStore
@@ -681,10 +684,13 @@ package final class BuildSystemService: ObservableObject {
         reason: BuildLoadReason,
         owner: CommandOwner
     ) async -> Result<LoadedModel, Error> {
+        let attempt = pluginOperations.begin(pluginID: entry.instance.pluginID, operation: .buildModel, at: .plan)
         do {
             return .success(try await withPlanContext(entry, workspaceURL: workspaceURL, allocatesOutputFile: true) { context, outputFile in
             let planner = planner
-            let plan = try await outputPlan(entry, workspaceURL: workspaceURL, reason: reason, owner: owner) { hints in
+            let plan = try await outputPlan(
+                entry, workspaceURL: workspaceURL, reason: reason, owner: owner, attempt: attempt
+            ) { hints in
                 try planner.modelPlan(entry.target, context: context, outputFile: outputFile, providerHints: hints)
             }
             let title = L10n.string("Loading \(entry.instance.displayName) model")
@@ -695,7 +701,8 @@ package final class BuildSystemService: ObservableObject {
                 outputFile: outputFile,
                 title: title,
                 timeout: Self.modelTimeout,
-                owner: owner
+                owner: owner,
+                attempt: attempt
             )
             let target = entry.target
             let root = entry.instance.root
@@ -714,10 +721,13 @@ package final class BuildSystemService: ObservableObject {
                     )
                 )
             }.value
+            // A result made stale by changed inputs is superseded, not finished.
             guard modelInputsAreCurrent(context.modelInputs) else { throw CancellationError() }
+            attempt.succeed()
             return loaded
             })
         } catch {
+            attempt.end(throwing: error)
             if !(error is CancellationError) { logSink?.emit(RunPreparationFailed(error: error)) }
             return .failure(error)
         }
@@ -1184,11 +1194,16 @@ package final class BuildSystemService: ObservableObject {
         reason: BuildLoadReason,
         owner: CommandOwner
     ) async -> Result<BuildDependencyTree, Error> {
+        let attempt = pluginOperations.begin(
+            pluginID: entry.instance.pluginID, operation: .buildDependencies, at: .plan
+        )
         do {
             return .success(try await withPlanContext(entry, workspaceURL: workspaceURL, allocatesOutputFile: true) { context, outputFile in
             let planner = planner
             let selection = project.map(BuildSelection.init(project:))
-            let plan = try await outputPlan(entry, workspaceURL: workspaceURL, reason: reason, owner: owner) { hints in
+            let plan = try await outputPlan(
+                entry, workspaceURL: workspaceURL, reason: reason, owner: owner, attempt: attempt
+            ) { hints in
                 try planner.dependencyPlan(
                     entry.target, context: context, project: selection, outputFile: outputFile, providerHints: hints
                 )
@@ -1201,7 +1216,8 @@ package final class BuildSystemService: ObservableObject {
                 outputFile: outputFile,
                 title: L10n.string("Loading dependencies of \(name)"),
                 timeout: Self.modelTimeout,
-                owner: owner
+                owner: owner,
+                attempt: attempt
             )
             let target = entry.target
             let root = entry.instance.root
@@ -1210,10 +1226,13 @@ package final class BuildSystemService: ObservableObject {
                     target, workspaceURL: workspaceURL, root: root, project: project?.path, output: output
                 )
             }.value
+            // A result made stale by changed inputs is superseded, not finished.
             guard modelInputsAreCurrent(context.modelInputs) else { throw CancellationError() }
+            attempt.succeed()
             return loaded
             })
         } catch {
+            attempt.end(throwing: error)
             if !(error is CancellationError) { logSink?.emit(RunPreparationFailed(error: error)) }
             return .failure(error)
         }
@@ -1708,15 +1727,20 @@ package final class BuildSystemService: ObservableObject {
     /// neither repeats the lookup nor answers a reload from a stale snapshot.
     /// The tool is only resolved once Core says the source is a provider; a
     /// command plan resolves it when it runs.
+    ///
+    /// The host reports `attempt` only while it does the work itself: a
+    /// provider plan hands the load to the plugin's process, which reports it.
     private func outputPlan(
         _ entry: BuildSystemEntry,
         workspaceURL: URL,
         reason: BuildLoadReason,
         owner: CommandOwner,
+        attempt: PluginOperationAttempt,
         plan: (BuildProviderHints) throws -> BuildOutputPlan
     ) async throws -> BuildOutputPlan {
         let planned = try plan(BuildProviderHints(reason: reason))
         guard case .provider = planned else { return planned }
+        attempt.cancel()
         guard let executable = try await providerTool(entry, workspaceURL: workspaceURL, owner: owner) else {
             return planned
         }
@@ -1764,13 +1788,14 @@ package final class BuildSystemService: ObservableObject {
         outputFile: URL?,
         title: String,
         timeout: Duration,
-        owner: CommandOwner
+        owner: CommandOwner,
+        attempt: PluginOperationAttempt
     ) async throws -> BuildCommandOutput {
         switch plan {
         case .process(let process):
             return try await runCapturedCommand(
                 process, entry: entry, workspaceURL: workspaceURL, outputFile: outputFile,
-                title: title, timeout: timeout, owner: owner
+                title: title, timeout: timeout, owner: owner, attempt: attempt
             )
         case .provider(let request):
             guard let providers else { throw BuildSystemServiceError(Self.providerUnsupportedMessage) }
@@ -1792,9 +1817,11 @@ package final class BuildSystemService: ObservableObject {
         outputFile: URL?,
         title: String,
         timeout: Duration,
-        owner: CommandOwner
+        owner: CommandOwner,
+        attempt: PluginOperationAttempt
     ) async throws -> BuildCommandOutput {
         let capturesStandardOutput = plan.output != .outputFile
+        attempt.advance(to: .resolve)
         let request = try await commandRequest(
             plan, entry: entry, workspaceURL: workspaceURL,
             capturesStandardOutput: capturesStandardOutput, timeout: timeout
@@ -1804,20 +1831,25 @@ package final class BuildSystemService: ObservableObject {
             appendOutput("\n▶ " + title + "\n" + Self.commandLine(request), in: directory)
         }
         let tail = OutputCollector(limit: 64 * 1024, keepsTail: true)
+        attempt.advance(to: .launch)
         let result = try await run(request, owner: owner) { [weak self] chunk in
             tail.append(chunk)
             self?.appendOutput(chunk, in: directory)
         }
         switch result.termination {
         case .timedOut:
+            attempt.advance(to: .timeout)
             throw BuildSystemServiceError(L10n.string("\(title) timed out."))
         case .exited(let code) where code != 0:
+            attempt.advance(to: .exit)
             let detail = tail.text.trimmingCharacters(in: .whitespacesAndNewlines)
             let summary = L10n.string("The build tool exited with code \(Int(code)).")
             throw BuildSystemServiceError(detail.isEmpty ? summary : summary + "\n" + Self.lastLines(detail))
         case .exited:
             break
         }
+        // The caller decodes the output under the same stage.
+        attempt.advance(to: .decode)
         if capturesStandardOutput {
             guard let text = result.standardOutput else {
                 throw BuildSystemServiceError(L10n.string("The build tool output is too large or not UTF-8."))

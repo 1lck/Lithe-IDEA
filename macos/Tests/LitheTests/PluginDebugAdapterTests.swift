@@ -158,6 +158,41 @@ struct PluginDebugAdapterTests {
         }
     }
 
+    /// A missing command fails before anything starts, so the session's start
+    /// attempt stays at `resolve`; once the launch is known it moves to `launch`.
+    @Test
+    func theTransportMovesTheStartAttemptToLaunchOnlyOnceTheLaunchIsKnown() async throws {
+        let reporter = PluginOperationReporter(record: { _ in }, clock: { 0 })
+        let missing = MacPluginDebugAdapterTransport(
+            adapterID: "lldb",
+            resolve: { _ in Self.process(.commands(["lldb-dap"])) },
+            makeProcess: { Issue.record("No process starts for a missing command."); fatalError() },
+            core: RustCoreBridge(),
+            findCommand: { _ in nil }
+        )
+        let unresolved = reporter.begin(pluginID: "acme.lldb", operation: .debugAdapterStart, at: .resolve)
+        missing.startupAttempt = unresolved
+        #expect(throws: MacPluginDebugAdapterTransport.TransportError.self) {
+            try missing.start(rootURL: URL(fileURLWithPath: "/tmp/workspace", isDirectory: true))
+        }
+        #expect(unresolved.stage == .resolve)
+
+        let probe = HostedAdapterProbe()
+        let hosted = MacPluginDebugAdapterTransport(
+            adapterID: "example",
+            resolve: { _ in Self.hostedLaunch() },
+            makeProcess: { Issue.record("A hosted adapter starts no process of its own."); fatalError() },
+            core: RustCoreBridge()
+        )
+        defer { hosted.stop() }
+        hosted.onTermination = { probe.recordTermination($0) }
+        let resolved = reporter.begin(pluginID: "acme.example", operation: .debugAdapterStart, at: .resolve)
+        hosted.startupAttempt = resolved
+        try hosted.start(rootURL: URL(fileURLWithPath: "/tmp/hosted-adapter-stage", isDirectory: true))
+        #expect(resolved.stage == .launch)
+        #expect(await probe.waitUntilTerminated(), "The session did not end before the local deadline")
+    }
+
     // MARK: - Launch transport
 
     /// Resolves the fixture's `native` adapter, declared over `transport`.

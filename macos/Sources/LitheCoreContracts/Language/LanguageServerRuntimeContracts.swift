@@ -369,6 +369,8 @@ package struct JavaLanguageImportConfiguration: Equatable, Sendable {
 package enum LanguageServerLogRole: String, Sendable { case languageServer = "language_server", vcs, build, toolchain, backend }
 
 package protocol LanguageServerRuntimeCore: Sendable {
+    /// Core records the result of this declarative start attempt.
+    func observingPluginStartup(_ handoff: PluginOperationHandoff) -> any LanguageServerRuntimeCore
     func loggingRuntime(role: LanguageServerLogRole, logSubject: String?, pluginID: String?) -> any LanguageServerRuntimeCore
     func emitCoreLog(_ record: CoreLogRecord)
 
@@ -646,6 +648,7 @@ package protocol LanguageServerRuntimeCore: Sendable {
 }
 
 package extension LanguageServerRuntimeCore {
+    func observingPluginStartup(_ handoff: PluginOperationHandoff) -> any LanguageServerRuntimeCore { self }
     func loggingRuntime(role: LanguageServerLogRole, logSubject: String?, pluginID: String?) -> any LanguageServerRuntimeCore { self }
     func emitCoreLog(_ record: CoreLogRecord) {}
 
