@@ -17,6 +17,7 @@
 //!
 //! Note: the decision is recorded in .agents/notes/proposed/architecture/2026-10-25-unified-debug-engine-and-adapter-registry.md
 
+use super::types::{DebugAdapterDefaults, DebugAdapterFeatures, DeclaredAdapterBehavior};
 use crate::plugins::declarative::{
     invalid, is_safe_relative_path, validate_process_arguments, PluginRejection, ServerProcess,
     ServerRole, Validation,
@@ -165,6 +166,12 @@ pub(crate) struct DebugAdapterDeclaration {
     /// What the Debug Console offers while typing a debugger command.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) console: Option<DebugConsole>,
+    /// DAP extensions the adapter implements; `debugAdapters` 3.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) features: Option<DebugAdapterFeatures>,
+    /// Values the adapter starts with when the user set none; `debugAdapters` 3.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) defaults: Option<DebugAdapterDefaults>,
     pub(crate) launch: DebugLaunch,
 }
 
@@ -625,16 +632,16 @@ impl DebugProcess {
                 context.plugin_api_version,
                 context.declared_settings,
                 ServerRole::DebugAdapter,
+                context.runtime_tools,
             ),
             Self::SelectedRuntime(process) => {
                 let tool = process.launch.tool.as_str();
-                if !SELECTED_RUNTIME_TOOLS.contains(&tool) {
-                    return Err(PluginRejection::at(
-                        "plugin.runtime.unsupported",
-                        format!("{field}.launch.tool"),
-                        format!("The host cannot start a debug adapter on {tool}."),
-                    ));
-                }
+                context.runtime_tools.check(
+                    tool,
+                    SELECTED_RUNTIME_TOOLS,
+                    format!("{field}.launch.tool"),
+                    format!("The host cannot start a debug adapter on {tool}."),
+                )?;
                 validate_process_arguments(
                     &process.arguments,
                     &process.validation_arguments,
@@ -660,6 +667,8 @@ pub(crate) struct DeclarationContext<'a> {
     pub(crate) declared_settings: &'a DeclaredSettings,
     /// Language IDs of the plugin's `languageServers[]`.
     pub(crate) language_servers: &'a BTreeSet<String>,
+    /// Whether tool names are host runtimes or tool-definition IDs.
+    pub(crate) runtime_tools: crate::plugins::declarative::RuntimeTools<'a>,
 }
 
 /// Validates every declaration and sorts them by ID.
@@ -702,6 +711,14 @@ pub(crate) fn uses_selected_runtime(adapters: &[DebugAdapterDeclaration]) -> boo
             .and_then(DebugProcess::selected_runtime_tool)
             .is_some()
     })
+}
+
+/// Whether any adapter declares `features` or `defaults`, which need
+/// `debugAdapters` 3.
+pub(crate) fn uses_declared_features(adapters: &[DebugAdapterDeclaration]) -> bool {
+    adapters
+        .iter()
+        .any(|adapter| adapter.features.is_some() || adapter.defaults.is_some())
 }
 
 /// Whether any adapter serves `attach`, which needs its own permission.
@@ -780,6 +797,13 @@ impl DebugAdapterDeclaration {
         if let Some(console) = &mut self.console {
             console.validate(&format!("{field}.console"))?;
         }
+        let declared = DeclaredAdapterBehavior {
+            features: self.features.clone(),
+            defaults: self.defaults.clone(),
+        };
+        declared.check().map_err(|(declared_field, message)| {
+            invalid(format!("{field}.{declared_field}"), message)
+        })?;
         self.launch.validate(&format!("{field}.launch"), context)
     }
 
@@ -1867,7 +1891,7 @@ impl DebugAdapterDeclaration {
     /// What the host needs besides the process: how to reach the adapter and
     /// what to show. The process itself is the launch plan's own part.
     pub(crate) fn plan_descriptor(&self, plugin_id: &str) -> Value {
-        json!({
+        let mut descriptor = json!({
             "id": self.id,
             "providerID": format!("{plugin_id}/{}", self.id),
             "displayName": self.display_name,
@@ -1885,7 +1909,16 @@ impl DebugAdapterDeclaration {
                 "pathMappings": binding.path_mappings.is_some(),
                 "maxPathMappings": binding.path_mappings.as_ref().map_or(0, DebugPathMappingBinding::limit),
             })),
-        })
+        });
+        // The host hands these to the debug engine with the session, which then follows the
+        // declaration instead of recognizing the adapter by its ID.
+        if let Some(features) = &self.features {
+            descriptor["features"] = json!(features);
+        }
+        if let Some(defaults) = &self.defaults {
+            descriptor["defaults"] = json!(defaults);
+        }
+        descriptor
     }
 }
 

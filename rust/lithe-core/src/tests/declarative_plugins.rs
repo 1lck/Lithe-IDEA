@@ -37,6 +37,9 @@ const DEBUG_ADAPTER_LANGUAGE_SERVER_FIXTURE: &str =
     contract_file!("fixtures/debug-adapter-language-server.plugin.json");
 const DEBUG_ADAPTER_REMOTE_ATTACH_FIXTURE: &str =
     contract_file!("fixtures/debug-adapter-remote-attach.plugin.json");
+const DEBUG_ADAPTER_FEATURES_FIXTURE: &str =
+    contract_file!("fixtures/debug-adapter-features.plugin.json");
+const TOOL_REFERENCE_FIXTURE: &str = contract_file!("fixtures/tool-reference-launch.plugin.json");
 const DEBUG_ADAPTER_REJECTIONS: &str = contract_file!("fixtures/debug-adapter-rejections.json");
 const EDITOR_ACTIONS_FIXTURE: &str = contract_file!("fixtures/editor-actions.plugin.json");
 const GRAMMAR_FIXTURE: &str = contract_file!("fixtures/language-grammar.plugin.json");
@@ -68,6 +71,8 @@ fn fixture(name: &str) -> Value {
         "debug-adapter.plugin.json" => DEBUG_ADAPTER_FIXTURE,
         "debug-adapter-language-server.plugin.json" => DEBUG_ADAPTER_LANGUAGE_SERVER_FIXTURE,
         "debug-adapter-remote-attach.plugin.json" => DEBUG_ADAPTER_REMOTE_ATTACH_FIXTURE,
+        "debug-adapter-features.plugin.json" => DEBUG_ADAPTER_FEATURES_FIXTURE,
+        "tool-reference-launch.plugin.json" => TOOL_REFERENCE_FIXTURE,
         "language-grammar.plugin.json" => GRAMMAR_FIXTURE,
         other => panic!("unknown fixture {other}"),
     };
@@ -92,6 +97,8 @@ fn contract_fixtures_and_official_plugins_validate() {
         WORKSPACE_BACKEND_FIXTURE,
         DEBUG_ADAPTER_FIXTURE,
         DEBUG_ADAPTER_REMOTE_ATTACH_FIXTURE,
+        DEBUG_ADAPTER_FEATURES_FIXTURE,
+        TOOL_REFERENCE_FIXTURE,
         GRAMMAR_FIXTURE,
         EDITOR_ACTIONS_FIXTURE,
         OFFICIAL_JAVA,

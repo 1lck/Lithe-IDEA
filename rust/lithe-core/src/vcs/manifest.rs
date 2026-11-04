@@ -119,6 +119,8 @@ fn is_marker_name(value: &str) -> bool {
 pub(crate) struct DeclarationContext<'a> {
     pub(crate) plugin_api_version: u32,
     pub(crate) declared_settings: &'a DeclaredSettings,
+    /// Whether tool names are host runtimes or tool-definition IDs.
+    pub(crate) runtime_tools: crate::plugins::declarative::RuntimeTools<'a>,
 }
 
 /// Validates every declaration and sorts them by ID.
@@ -247,6 +249,7 @@ impl VcsProviderDeclaration {
             context.plugin_api_version,
             context.declared_settings,
             ServerRole::VcsProvider,
+            context.runtime_tools,
         )
     }
 

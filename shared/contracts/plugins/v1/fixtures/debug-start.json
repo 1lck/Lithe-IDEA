@@ -1,0 +1,117 @@
+{
+  "description": "Parameters of lithe/host/debug/start and what debug.decodeBackendConfiguration returns. The host passes the plugin's manifest (`manifest`, a file in this directory) and the request's `params`. `start` is the normalized start; `error` is the rejection every host reports. The 256 KiB size limit is covered by Core's own tests.",
+  "manifest": "debug-adapter-features.plugin.json",
+  "cases": [
+    {
+      "name": "the plugin's own adapter by its local ID",
+      "params": {
+        "context": { "contextID": "w-run", "generation": 1 },
+        "label": "Debug main.script",
+        "adapter": "script",
+        "request": "launch",
+        "configuration": { "program": "main.script", "args": ["--fast"] }
+      },
+      "start": {
+        "adapterID": "dev.lithe.fixture.debug-adapter-features/script",
+        "request": "launch",
+        "label": "Debug main.script",
+        "configuration": { "program": "main.script", "args": ["--fast"] }
+      }
+    },
+    {
+      "name": "the plugin's own adapter by its qualified ID",
+      "params": {
+        "label": "Debug main.script",
+        "adapter": "dev.lithe.fixture.debug-adapter-features/script",
+        "request": "launch",
+        "configuration": {}
+      },
+      "start": {
+        "adapterID": "dev.lithe.fixture.debug-adapter-features/script",
+        "request": "launch",
+        "label": "Debug main.script",
+        "configuration": {}
+      }
+    },
+    {
+      "name": "an adapter of another plugin",
+      "params": {
+        "label": "Debug",
+        "adapter": "org.example.other/script",
+        "request": "launch",
+        "configuration": {}
+      },
+      "error": { "code": "plugin.debug.foreignAdapter", "field": "adapter" }
+    },
+    {
+      "name": "an adapter the plugin does not declare",
+      "params": {
+        "label": "Debug",
+        "adapter": "missing",
+        "request": "launch",
+        "configuration": {}
+      },
+      "error": { "code": "plugin.debug.unknownAdapter", "field": "adapter" }
+    },
+    {
+      "name": "a malformed adapter ID",
+      "params": {
+        "label": "Debug",
+        "adapter": "Not An ID",
+        "request": "launch",
+        "configuration": {}
+      },
+      "error": { "code": "plugin.debug.invalidStart", "field": "adapter" }
+    },
+    {
+      "name": "a request the adapter does not serve",
+      "params": {
+        "label": "Attach",
+        "adapter": "script",
+        "request": "attach",
+        "configuration": {}
+      },
+      "error": { "code": "plugin.debug.invalidStart", "field": "request" }
+    },
+    {
+      "name": "the session mode belongs to the host",
+      "params": {
+        "label": "Debug",
+        "adapter": "script",
+        "request": "launch",
+        "configuration": { "noDebug": true }
+      },
+      "error": { "code": "plugin.debug.invalidStart", "field": "configuration.noDebug" }
+    },
+    {
+      "name": "host bookkeeping keys belong to the host",
+      "params": {
+        "label": "Debug",
+        "adapter": "script",
+        "request": "launch",
+        "configuration": { "__sessionId": "x" }
+      },
+      "error": { "code": "plugin.debug.invalidStart", "field": "configuration.__sessionId" }
+    },
+    {
+      "name": "an empty label",
+      "params": {
+        "label": " ",
+        "adapter": "script",
+        "request": "launch",
+        "configuration": {}
+      },
+      "error": { "code": "plugin.debug.invalidStart", "field": "label" }
+    },
+    {
+      "name": "a configuration that is not an object",
+      "params": {
+        "label": "Debug",
+        "adapter": "script",
+        "request": "launch",
+        "configuration": ["main.script"]
+      },
+      "error": { "code": "plugin.debug.invalidStart", "field": "params" }
+    }
+  ]
+}

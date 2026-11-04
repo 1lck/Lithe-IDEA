@@ -29,6 +29,8 @@ pub(crate) const LANGUAGES: &str = "languages";
 /// `workspaceConfiguration`.
 pub(crate) const LANGUAGE_SERVERS: &str = "languageServers";
 /// The launch fields language servers and own build providers share.
+/// Version 4 names runtimes by tool-definition ID (`requiresTools`) instead
+/// of the host's closed runtime list.
 pub(crate) const SERVER_PROCESS: &str = "serverProcess";
 /// `vendor.bundledSignatureRequirement`: origin-scoped host-seal trust for a
 /// package whose independently installed versions require a publisher signature.
@@ -61,7 +63,8 @@ pub(crate) const BACKEND: &str = "backend";
 pub(crate) const PROJECT_GENERATORS: &str = "projectGenerators";
 
 /// `debugAdapters[]`: debug adapters implemented by a plugin process; see
-/// `crate::debug::adapters`. Plugin API level 4.
+/// `crate::debug::adapters`. Plugin API level 4. Version 3 adds declared
+/// adapter `features` and `defaults`.
 pub(crate) const DEBUG_ADAPTERS: &str = "debugAdapters";
 
 /// First plugin API level that may require `debugAdapters` or `serverProcess` 2.
@@ -75,6 +78,9 @@ pub(crate) const KEYMAP_IMPORT_PROVIDERS: &str = "keymapImportProviders";
 pub(crate) const TOOL_DEFINITIONS: &str = "toolDefinitions";
 /// Backend facts that can influence the executable selected for a defined tool.
 pub(crate) const TOOLCHAIN_PROVIDERS: &str = "toolchainProviders";
+/// `outputLinkMatchers[]`: patterns that turn console output into links; see
+/// `crate::plugins::output_links`.
+pub(crate) const OUTPUT_LINK_MATCHERS: &str = "outputLinkMatchers";
 
 /// Capability versions this Core build validates and plans. Version 1 of a
 /// capability keeps the meaning its section had at API level 2.
@@ -83,15 +89,16 @@ pub const SUPPORTED_CAPABILITIES: &[(&str, &[u32])] = &[
     (BUILD_MODEL_INPUTS, &[1]),
     (BUILD_PROVIDERS, &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]),
     (BUILD_SYSTEMS, &[1, 2, 3, 4]),
-    (DEBUG_ADAPTERS, &[1, 2]),
+    (DEBUG_ADAPTERS, &[1, 2, 3]),
     (EXECUTION_PROVIDERS, &[1]),
     (EXECUTABLE_RESOLUTION, &[1, 2]),
     (KEYMAP_IMPORT_PROVIDERS, &[1]),
     (LANGUAGE_SERVERS, &[1, 2]),
     (LANGUAGES, &[1, 2]),
+    (OUTPUT_LINK_MATCHERS, &[1]),
     (PACKAGE_TRUST, &[1]),
     (PROJECT_GENERATORS, &[1]),
-    (SERVER_PROCESS, &[1, 2]),
+    (SERVER_PROCESS, &[1, 2, 3, 4]),
     (SETTINGS, &[1, 2]),
     (TOOL_DEFINITIONS, &[1]),
     (TOOLCHAIN_PROVIDERS, &[1]),

@@ -107,6 +107,8 @@ pub(crate) const HOST_PERMISSIONS: &[&str] = &[
     "window.messages",
     "terminal.create",
     "keymaps.readSelectedSources",
+    "run.start",
+    "debug.start",
 ];
 
 const CREDENTIALS_GET: &str = "lithe/host/credentials/get";
@@ -201,6 +203,9 @@ pub(crate) mod codes {
     /// The plugin made too many requests of this kind recently; the same
     /// request may succeed after a while.
     pub const HOST_RATE_LIMITED: &str = "plugin.host.rateLimited";
+    /// A tool definition the request references resolves to no executable
+    /// for this workspace; `details` carries `{tool, reason}`.
+    pub const HOST_TOOL_UNRESOLVED: &str = "plugin.host.toolUnresolved";
     /// A page's call or a host operation ended because the backend process
     /// exited. Reported by hosts to pages, never sent to a backend.
     pub const BACKEND_EXITED: &str = "plugin.backend.exited";
@@ -506,6 +511,27 @@ pub(crate) struct HostMethod {
 /// service adds its rows here, its grant to `GRANTABLE_HOST_SERVICES` and
 /// the manifest permission, and its handler to the host's dispatcher.
 pub(crate) const HOST_METHODS: &[HostMethod] = &[
+    HostMethod {
+        method: RUN_START,
+        service: HOST_SERVICE_RUN,
+        permission: Some("run.start"),
+        since: CONTEXT_VERSION,
+        params: HostParams::Object,
+    },
+    HostMethod {
+        method: "lithe/host/run/stop",
+        service: HOST_SERVICE_RUN,
+        permission: Some("run.start"),
+        since: CONTEXT_VERSION,
+        params: HostParams::Object,
+    },
+    HostMethod {
+        method: "lithe/host/debug/start",
+        service: "debug",
+        permission: Some("debug.start"),
+        since: CONTEXT_VERSION,
+        params: HostParams::Object,
+    },
     HostMethod {
         method: "lithe/host/keymapImport/listInputs",
         service: "keymapImport",
@@ -866,7 +892,7 @@ pub(crate) fn capabilities_answer(version: u64, granted: &BTreeSet<String>) -> V
     }
     for entry in HOST_NOTIFICATIONS
         .iter()
-        .filter(|entry| version >= entry.since && admitted(entry.service))
+        .filter(|entry| version >= entry.since && entry.admitted(granted))
     {
         add(entry.service, "notifications", entry.method);
     }
@@ -900,6 +926,9 @@ pub(crate) enum NotificationParams {
     /// `{ commandID, context? }`: one of the plugin's own commands and the
     /// workspace context of the window it ran in.
     Command,
+    /// `{ runID, exitCode?, signal? }`: a Run session the backend started
+    /// ended with an exit status, a signal, or neither when the host lost it.
+    RunExit,
 }
 
 /// One row of the host-notification table.
@@ -907,13 +936,33 @@ pub(crate) struct HostNotification {
     pub method: &'static str,
     /// Service whose grant admits sending it; implicit services need none.
     pub service: &'static str,
+    /// Host method whose individual grant admits it instead of `service`,
+    /// for a notification that reports on a method granted per permission.
+    pub grant: Option<&'static str>,
     pub since: u64,
     pub params: NotificationParams,
+}
+
+impl HostNotification {
+    /// Whether the session's grants admit sending this notification.
+    fn admitted(&self, granted: &BTreeSet<String>) -> bool {
+        match self.grant {
+            Some(method) => granted.contains(method),
+            None => is_implicit_service(self.service) || granted.contains(self.service),
+        }
+    }
 }
 
 const WORKSPACE_DID_CHANGE_CONTEXTS: &str = "lithe/host/workspace/didChangeContexts";
 const SUBSCRIPTIONS_NOTIFY: &str = "lithe/host/subscriptions/notify";
 const COMMANDS_DID_RUN: &str = "lithe/host/commands/didRun";
+/// Starts a host-owned Run session; its grant also admits `RUN_DID_EXIT`.
+const RUN_START: &str = "lithe/host/run/start";
+const RUN_DID_EXIT: &str = "lithe/host/run/didExit";
+/// Host-owned Run sessions a backend starts and stops.
+const HOST_SERVICE_RUN: &str = "run";
+/// Longest opaque run ID a host may hand out.
+const MAX_RUN_ID_BYTES: usize = 128;
 /// The plugin's own UI commands reaching its backend. Every plugin-owned
 /// session of version 3 has it; a command names only the plugin's own IDs.
 const HOST_SERVICE_COMMANDS: &str = "commands";
@@ -926,20 +975,30 @@ pub(crate) const HOST_NOTIFICATIONS: &[HostNotification] = &[
     HostNotification {
         method: WORKSPACE_DID_CHANGE_CONTEXTS,
         service: HOST_SERVICE_WORKSPACE,
+        grant: None,
         since: CONTEXT_VERSION,
         params: NotificationParams::Revision,
     },
     HostNotification {
         method: SUBSCRIPTIONS_NOTIFY,
         service: HOST_SERVICE_SUBSCRIPTIONS,
+        grant: None,
         since: CONTEXT_VERSION,
         params: NotificationParams::SubscriptionEvent,
     },
     HostNotification {
         method: COMMANDS_DID_RUN,
         service: HOST_SERVICE_COMMANDS,
+        grant: None,
         since: CONTEXT_VERSION,
         params: NotificationParams::Command,
+    },
+    HostNotification {
+        method: RUN_DID_EXIT,
+        service: HOST_SERVICE_RUN,
+        grant: Some(RUN_START),
+        since: CONTEXT_VERSION,
+        params: NotificationParams::RunExit,
     },
 ];
 
@@ -970,7 +1029,7 @@ pub(crate) fn host_notification(
             codes::HOST_UNAVAILABLE,
         ));
     };
-    if !is_implicit_service(entry.service) && !granted.contains(entry.service) {
+    if !entry.admitted(granted) {
         return Err(refusal(
             ErrorCode::InvalidRequest,
             "The session was not granted the service of this notification.",
@@ -1010,6 +1069,22 @@ pub(crate) fn host_notification(
                     .and_then(Value::as_str)
                     .is_some_and(is_command_id)
                 && object.get("context").map_or(true, is_context_reference)
+        }
+        NotificationParams::RunExit => {
+            only(&["runID", "exitCode", "signal"])
+                && object
+                    .get("runID")
+                    .and_then(Value::as_str)
+                    .is_some_and(|id| id.len() <= MAX_RUN_ID_BYTES && is_credential_key(id))
+                && object.get("exitCode").map_or(true, |code| {
+                    code.as_i64()
+                        .is_some_and(|code| i32::try_from(code).is_ok())
+                })
+                && object.get("signal").map_or(true, |signal| {
+                    signal
+                        .as_u64()
+                        .is_some_and(|signal| (1..=127).contains(&signal))
+                })
         }
     };
     if !well_formed {
@@ -1231,6 +1306,7 @@ pub(crate) fn host_rpc_code(code: &str) -> i64 {
         codes::HOST_PRECONDITION_FAILED => -32019,
         codes::HOST_BUSY => -32020,
         codes::HOST_RATE_LIMITED => -32021,
+        codes::HOST_TOOL_UNRESOLVED => -32025,
         _ => -32603,
     }
 }
@@ -1270,6 +1346,7 @@ pub(crate) fn host_failure(code: Option<&str>) -> (&'static str, i64) {
         Some(codes::HOST_PRECONDITION_FAILED) => codes::HOST_PRECONDITION_FAILED,
         Some(codes::HOST_BUSY) => codes::HOST_BUSY,
         Some(codes::HOST_RATE_LIMITED) => codes::HOST_RATE_LIMITED,
+        Some(codes::HOST_TOOL_UNRESOLVED) => codes::HOST_TOOL_UNRESOLVED,
         // A backend exit is reported to pages, never to the backend itself.
         _ => codes::HOST_FAILED,
     };

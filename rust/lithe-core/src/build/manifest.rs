@@ -1017,6 +1017,8 @@ pub(crate) struct DeclarationContext<'a> {
     pub(crate) declared_settings: &'a crate::plugins::settings::DeclaredSettings,
     /// Language IDs the plugin declares a language server for.
     pub(crate) language_servers: &'a BTreeSet<String>,
+    /// Whether tool names are host runtimes or tool-definition IDs.
+    pub(crate) runtime_tools: crate::plugins::declarative::RuntimeTools<'a>,
 }
 
 pub(crate) fn validate_declarations(
@@ -1532,6 +1534,7 @@ impl BuildSystemDeclaration {
                 context.plugin_api_version,
                 context.declared_settings,
                 ServerRole::BuildProvider,
+                context.runtime_tools,
             ),
         }
     }

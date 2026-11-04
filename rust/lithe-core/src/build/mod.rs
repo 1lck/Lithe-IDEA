@@ -31,6 +31,7 @@ mod outputs;
 mod plans;
 mod project_options;
 mod run_preparation;
+mod run_start;
 mod select;
 mod stored_options;
 mod template;
@@ -43,4 +44,5 @@ pub(crate) use manifest::{
     ProviderProcess,
 };
 pub(crate) use project_options::project_options_command;
+pub(crate) use run_start::run_decode_start_command;
 pub(crate) use stored_options::resolve_stored_options_command;

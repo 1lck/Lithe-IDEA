@@ -10,9 +10,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
-const MAX_ARGUMENTS: usize = 1024;
-const MAX_ARGUMENT_BYTES: usize = 65536;
-const MAX_ENVIRONMENT: usize = 64;
+pub(super) const MAX_ARGUMENTS: usize = 1024;
+pub(super) const MAX_ARGUMENT_BYTES: usize = 65536;
+pub(super) const MAX_ENVIRONMENT: usize = 64;
 
 /// Resolved user choices; only the owning provider interprets runtime semantics.
 #[derive(Debug, Deserialize, Serialize)]
