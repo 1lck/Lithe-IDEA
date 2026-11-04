@@ -10,6 +10,8 @@
 
 Rust Core 负责校验、路由、协商和测试（`lsp/interface/plugin_function.rs`、`lsp.functionRequest`）。macOS 宿主的调用入口见[宿主调用插件函数的入口](2026-10-20-host-plugin-function-invocation.md)：只有插件自己的网页、只对插件自己的构建 Provider 进程。版本 1 不提供任何宿主能力。旧插件包和旧后端不受影响。
 
+函数默认仍然私有。协议 4（见决策 8）新增了一条经过 Core 中转的跨插件通道：插件在清单里用 `pluginFunctions.exports` 明确选择导出函数、用 `calls` 声明要调用的函数，协商到协议 4 的后端用 `lithe/host/functions/providers` 与 `lithe/host/functions/invoke` 发现并调用。这条通道只放宽“私有”这一条，不放宽下面的递归、归属和信任规则。
+
 ## 问题
 
 Issue #1351 要把 Maven、Gradle 这类插件从“只给声明”推进到“插件自带逻辑”。动手前盘点了已有的几条通道，发现它们各自解决一部分，但没有一条同时具备回复、进度、取消和归属：
@@ -37,11 +39,11 @@ Issue #1351 要把 Maven、Gradle 这类插件从“只给声明”推进到“�
 
 ### 2. 禁止回调自己
 
-后端向宿主请求 `lithe/function/invoke` 或任何 `lithe/build/*`，Core 直接回 JSON-RPC `-32601`，`data.code` 是 `plugin.function.recursiveCall`。宿主能力只开放进程运行、输出、存储这类原语，不开放“再进入某个领域注册表”的入口：Maven 处理器需要跑 Maven，应当请求宿主的进程能力，而不是请求宿主“执行 Maven 任务”。版本 1 一个宿主能力都没有开放，`lithe/host/*` 一律是 `plugin.host.unavailable`；协议 2 和 3 的宿主能力都随新的协议版本开放，每个都带着参数、权限和所属操作；从协议 3 起，新的宿主能力改为在协议 3 内新增，后端用 `getCapabilities` 发现，见[插件后端的工作区上下文](2026-10-30-plugin-backend-workspace-context.md)的“协议 3 内只增不改”。
+后端向宿主请求 `lithe/function/invoke` 或任何 `lithe/build/*`，Core 直接回 JSON-RPC `-32601`，`data.code` 是 `plugin.function.recursiveCall`。宿主能力只开放进程运行、输出、存储这类原语，不开放“再进入某个领域注册表”的入口：Maven 处理器需要跑 Maven，应当请求宿主的进程能力，而不是请求宿主“执行 Maven 任务”。版本 1 一个宿主能力都没有开放，`lithe/host/*` 一律是 `plugin.host.unavailable`；协议 2 和 3 的宿主能力都随新的协议版本开放，每个都带着参数、权限和所属操作；协议 4 的 `lithe/host/functions/*` 是跨插件中转，它调用的是另一个插件的导出函数，不会“再进入”本插件或领域注册表，且由调用链检查保证不绕回自己（决策 8）；从协议 3 起，新的宿主能力改为在协议 3 内新增，后端用 `getCapabilities` 发现，见[插件后端的工作区上下文](2026-10-30-plugin-backend-workspace-context.md)的“协议 3 内只增不改”。
 
 ### 3. 引用、注册与撤回
 
-- 函数引用是 `{pluginID, functionID}`。Core 先按插件路由：只有 `lsp.startServer` 时带同一个 `pluginId` 的会话才提供该插件的函数；宿主自己的语言服务器没有 `pluginId`，不发送或接受函数协议协商，不保留函数注册表，也不发布函数发现事件，增删请求一律以 `-32601` 拒绝。所以一个插件拿不到另一个插件的函数，也不需要在宿主里按插件名判断。
+- 函数引用是 `{pluginID, functionID}`。Core 先按插件路由：只有 `lsp.startServer` 时带同一个 `pluginId` 的会话才提供该插件的函数；宿主自己的语言服务器没有 `pluginId`，不发送或接受函数协议协商，不保留函数注册表，也不发布函数发现事件，增删请求一律以 `-32601` 拒绝。所以一个插件拿不到另一个插件的**私有**函数，也不需要在宿主里按插件名判断；引用别人的私有函数仍是 `plugin.function.wrongPlugin`，该检查不因跨插件调用而删除。只有被调方在清单里导出、运行时又注册过的函数，才能由另一个插件通过协议 4 的中转调用（决策 8），那条路径由 Core 自己的中转检查把关（清单没导出的函数在那里是 `plugin.function.notExported`），不会把别人的私有函数变成可以用 `lsp.functionRequest` 引用的函数。
 - 函数 ID 是点分的 lowerCamelCase 段（`snapshot.refresh`），最长 128 字节，每个会话最多 256 个。
 - 后端在 `initialize` 回答里给出初始函数，之后用 `lithe/function/register`、`lithe/function/unregister` 增删。每个请求要么全部生效，要么整体拒绝（`plugin.function.invalidRegistration`），不会留下半个注册表；初始回答里有坏 ID 时整个协议不算协商成功，原因相同。插件会话成功完成 `initialize` 函数协议协商后发布一次 `functionsChanged`，带排序后的初始列表与空 `removed`，即使列表为空也发布；宿主因此只订阅事件就能发现初始函数，不必先尝试调用。
 - 撤回一个正在执行的函数时，调用立即以 `plugin.function.revoked` 结束，Core 同时发 `$/cancelRequest`。
@@ -67,9 +69,31 @@ Issue #1351 要把 Maven、Gradle 这类插件从“只给声明”推进到“�
 
 ### 7. 旧包兼容
 
-- 所有 API 级别的旧插件包不变：函数没有新增清单字段。
+- 所有 API 级别的旧插件包不变：私有函数没有新增清单字段；跨插件调用用的 `pluginFunctions` 是新能力键（`requires.pluginFunctions: 1`），只有声明它的插件会被不支持中转的宿主拒绝。
 - 不认识 `litheFunctions` 的后端照常服务语言和 `litheBuild`，不会收到函数调用；它发来的函数请求得到 `-32601`。
-- 对方不能忽略的新字段，只能放进新的协议版本，与旧版本一起提供。宿主能力从协议 3 起在版本内新增，靠 `getCapabilities` 发现，不再单独升版本。
+- 对方不能忽略的新字段，只能放进新的协议版本，与旧版本一起提供：协议 4 只新增中转方法和中转调用里的 `caller` 字段，协商到 3 及以下的后端既不能调用前者，也收不到后者。宿主能力从协议 3 起在版本内新增，靠 `getCapabilities` 发现，不再单独升版本。
+
+### 8. 跨插件调用：协议 4 的中转（第一阶段）
+
+这是[插件依赖、导出与跨包授权](../../proposed/architecture/2026-10-25-plugin-dependencies-and-exports.md)里第一阶段的落地部分（对应计划 API-35 的第一阶段，不新增 API 编号）。它只解决“已安装、已启用的两个插件之间调用一个被明确导出的函数”，不做安装依赖解析、版本冲突或依赖闭包。
+
+**清单。** 新能力键 `requires.pluginFunctions: 1` 加顶层 `pluginFunctions {exports, calls}`（需要 `pluginAPIVersion` 3、`backend` 和 `serverProcess`）。导出是对象 `{id, version, context}`，`context` 是封闭集合，第一阶段只有 `"workspace"`；缺失或未知的 `context` 让整个清单以 `plugin.manifest.invalid` 失败，所以没写明调用上下文的导出一律不能被调用。调用方声明 `{id, version}`，只写函数 ID，不写被调方的插件 ID：被调方由运行时发现。导出只是选择加入，后端仍要用 `lithe/function/register` 注册；清单没导出的函数不管后端注册什么都仍是私有。
+
+**协议。** `litheFunctions` 的版本集合从 1、2、3 增加到 4。只有协商到 4 的后端、并且插件声明了至少一个调用时，才能用两个宿主请求：`lithe/host/functions/providers {functionID}` 返回 `{providers: [{pluginID, version}]}`（不含调用方，按插件 ID 排序），`lithe/host/functions/invoke {pluginID, functionID, context, params?, timeoutMilliseconds?}` 返回 `{value}`。协议 3 及以下调用得到 `plugin.host.unavailable`，未声明调用的插件得到 `plugin.host.permissionDenied`。
+
+**Core 的检查与顺序。** 所有逻辑在 Rust Core（`lsp/interface/function_relay.rs`、`engine_function_relay.rs`），写入被调方进程之前先同步检查，第一个失败的赢：调用方已声明 → 被调方已安装且启用 → 被调方导出 → 版本相等 → 上下文有效 → 本地工作区 → 参数不超过 256 KiB → 调用链无环 → 深度不超过 4 → 每个调用方最多 8 个并发中转。结果同样限 256 KiB，默认超时 60 秒、最多 10 分钟。每个新拒绝都有自己的字符串码和数值码，一个码只表示一个含义；超时、取消、上下文过期和远程工作区复用已有的宿主错误码，因为含义相同。
+
+**调用链和取消。** Core 记录调用链，被调方在服务一个中转调用时发出的新调用继续扩展同一条链，调用到链上已有的插件（包括自己调自己）是 `plugin.function.callCycle`。取消一个调用，或调用方会话结束，会沿链向下给每个被调方发 `$/cancelRequest`。因此“Maven 通知 Java 配置变了”这类调用里，Java 不能在处理时再回调 Maven，要先记下新值，或等调用结束后再调。
+
+**信任不传递。** 被调方用自己的权限、状态目录和凭据运行；调用方的权限不会借给它，被调方的权限也不属于调用方。Core 不把调用方的插件 ID 写进被调方的会话身份，只在转发的 `lithe/function/invoke` 里加一个由 Core 填写的顶层 `caller: {pluginID}`，仅在被调方协商到协议 4 时出现，宿主自己发起的调用没有这个字段（没有即宿主）；调用方在宿主请求里自带的同名顶层字段会被 `plugin.host.unsupportedOption` 拒绝，所以按调用方区分的状态可以放心以它为键。导出函数不得接受调用方传来的可执行文件路径或命令并据此启动进程，这条写进契约 README，由被调方自己负责。没有新增权限项：调用方的 `calls` 声明加被调方的 `exports` 就是双方的同意。
+
+**被调方没在运行。** Core 只发出运行时事件 `functionProviderStartRequired {pluginID}`；宿主（Swift）把它当作 I/O，按普通的插件启动流程启动那个后端，Core 等被调方协商并注册函数后再派发，最多等 30 秒，超时按 `plugin.function.providerUnavailable` 失败。Core 从不替宿主启动后端，也不自动重试。
+
+**热激活。** 宿主用 Core 命令 `lsp.configureFunctionRelay` 发布插件与工作区上下文的快照，Core 据此更新发现结果，并让快照已不允许的进行中调用立刻以明确的错误结束：被调方被禁用、卸载、更新后不再导出或改了版本是 `providerDisabled`，被调方后端退出或撤回函数是 `providerUnavailable`，调用方更新后不再声明是 `notDeclared`。
+
+**远程工作区。** 中转只用于本地工作区（计划 API-40）；远程工作区的上下文得到 `plugin.host.authorityUnsupported`。
+
+**不动的旧规则。** 后端发 `lithe/function/invoke` 或任何 `lithe/build/*` 仍是 `plugin.function.recursiveCall`；引用别人的私有函数仍是 `plugin.function.wrongPlugin`。新的跨插件通道没有删除任何检查。
 
 ### 正确做法
 
@@ -115,6 +139,22 @@ Maven 插件窗口的“刷新快照”按钮
 
 后端直接回显宿主 ID 虽少一次映射，但函数 A 已结束、宿主用同一 ID 调用函数 B 时，A 的迟到进度仍会被误认成 B。永久保存已用 ID 并拒绝复用也能隔离，却会引入随会话历史增长的墓碑集合，并改变宿主调用习惯。采用每次调用唯一的后端 ID：只保留正在执行的关联，后端原样回显，宿主接口继续允许在终止后复用 ID；代价是 Core 必须在全部终止路径删除关联并在事件出口转换 ID。
 
+### 让调用方直接连被调方的进程，或由宿主在 Swift 里中转
+
+让两个后端互相知道对方的管道，或在 macOS 层按插件名转发。被否：调用方会看到被调方的进程细节，清单声明、调用链、取消和限额无处统一执行，Windows 也要再写一份。所有检查放在 Rust Core，宿主只做“启动被调方后端”这一步 I/O。
+
+### 导出时带上调用方的权限，或在被调方会话里写入调用方身份
+
+被否：信任会沿调用链传递，社区插件调用官方插件就借到官方权限，或被调方的存储和凭据被按调用方分叉。被调方始终以自己的权限运行，调用方身份只在一个由 Core 填写的 `caller` 字段里出现，不进入会话身份。
+
+### 清单只写函数 ID 的导出，不写版本和调用上下文
+
+被否：不兼容的参数变更无法发现，也没有“这个函数在什么上下文里可以被别人调用”的明确声明。导出要有整数版本和封闭的 `context`，调用方声明期望的版本，不相等就是 `plugin.function.versionMismatch`。
+
+### 给中转新增一个权限项
+
+被否：调用方的 `calls` 与被调方的 `exports` 已经是双方各自写在清单里的同意，再加一个权限只会让安装确认多一层不能表达差别的开关。以后如果导出需要额外授权，随新的 `context` 值一起设计。
+
 ### 复用 LSP 的 `workspace/executeCommand`
 
 被否：它没有插件归属、没有稳定错误码和进度约定，命令名也和语言服务器自己的命令混在一起；JDT LS 这类共享进程会收到本不属于它的调用。
@@ -126,18 +166,27 @@ Maven 插件窗口的“刷新快照”按钮
 - 代价：函数不进清单，安装审查看不到插件会提供哪些函数；如果以后函数需要额外权限，必须随新协议版本补审查。
 - 代价：本 Note 只覆盖 Core 一侧；宿主入口另见[宿主调用插件函数的入口](2026-10-20-host-plugin-function-invocation.md)，宿主能力仍未开放。
 - 后续：后端一侧的官方实现见 [官方插件后端 SDK（Node）](2026-10-20-plugin-backend-sdk.md)，它只实现本契约，不新增线上字段。
+- 收益：跨插件调用的所有判断（声明、导出、版本、调用链、深度、并发、字节上限、超时、取消）都在 Rust Core，macOS 与 Windows 以后共用；macOS 宿主只发布快照和启动被调方后端。
+- 代价：中转使用单个工作线程处理派发，被调方管道被写满时，后续中转调用会排队等待，直到各自的截止时间。
+- 代价：macOS 对带后端的插件仍只在启动时注册，所以新安装或更新的后端插件要重启后才会出现在发现结果里；禁用、启用、替换和卸载是即时的。让带后端的插件免重启激活属于 #1515 的后续工作。
 - 代价：没有操作系统级沙盒，隔离仍只到进程和通信通道。
 
 ## 验证
 
 - `cargo test -p lithe-core --lib plugin_function`：`function-protocol.json` 的协商、注册、调用、结果、进度和后端请求全部标准答案，以及消息截断、超大结果和注册上限。
 - `cargo test -p lithe-core --lib lsp::interface::engine`：用脚本化后端覆盖路由与结果、失败与插件错误码、初始函数列表（包括空列表）只靠事件发现、取消/超时/成功/失败/撤回后复用宿主 ID 的迟到进度隔离、函数结束后复用 ID 发构建请求不受旧函数撤回影响、会话停止/失败后清空注册表且迟到注册不能恢复能力、自身超时、只支持 `litheBuild` 的旧后端照常工作、宿主自有会话不提供函数、后端请求回调自己被拒绝。
+- `cargo test -p lithe-core plugins::plugin_functions`、`cargo test -p lithe-core lsp::interface::function_relay`、`cargo test -p lithe-core lsp::interface::engine`：`pluginFunctions` 清单校验，纯逻辑的深度与并发限额，以及用脚本化后端覆盖发现与调用、每一个拒绝码及其顺序、调用链、取消沿链传播、被调方未运行时的启动请求与超时、热激活后的进行中调用、`caller` 字段只在协议 4 出现且伪造被拒、旧后端不受影响。示例用一个 Python 插件调用一个 Go 插件的导出。
+- `scripts/macos/test/test-macos.sh --filter "MacPluginBackendSessionsTests|PluginHostServiceDispatchTests|PluginPublicHostAPITests"`：快照发布、启动被调方后端的 I/O、`functions` 服务授权。
 - `./scripts/architecture/verify-shared-contracts.sh`：`function-protocol.json` 的 schema 版本、协议名、用例名唯一、错误码都在 README 里有文档、不含机器路径。
 - `./scripts/rust-core/verify-rust-core.sh` 与 `./scripts/rust-core/verify-rust-core-comments.sh`：Core 编译、测试和注释规范。
 
 ## 适用范围
 
 - `rust/lithe-core/src/lsp/interface/plugin_function.rs`
+- `rust/lithe-core/src/lsp/interface/function_relay.rs`
+- `rust/lithe-core/src/lsp/interface/engine_function_relay.rs`
+- `rust/lithe-core/src/plugins/plugin_functions.rs`
+- `macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginBackendSessions.swift`
 - `rust/lithe-core/src/lsp/interface/client.rs`
 - `rust/lithe-core/src/lsp/interface/engine.rs`
 - `rust/lithe-core/src/protocol/command.rs`
