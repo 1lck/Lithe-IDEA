@@ -3,6 +3,9 @@ import LitheCoreContracts
 import LitheModuleAPI
 
 extension RustCoreBridge: LanguageServerRuntimeCore {
+    func observingPluginStartup(_ handoff: PluginOperationHandoff) -> any LanguageServerRuntimeCore {
+        var runtime = self; runtime.startupOperation = handoff; return runtime
+    }
     func loggingRuntime(role: LanguageServerLogRole, logSubject: String?, pluginID: String?) -> any LanguageServerRuntimeCore {
         var runtime = self
         runtime.logRole = role; runtime.logSubject = logSubject; runtime.logPluginID = pluginID

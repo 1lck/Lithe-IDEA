@@ -143,7 +143,7 @@ fn field_key(key: &str) -> Result<(), LogError> {
     }
     Ok(())
 }
-fn identity(value: &str) -> Result<(), LogError> {
+pub(super) fn identity(value: &str) -> Result<(), LogError> {
     if bare(value) {
         Ok(())
     } else {

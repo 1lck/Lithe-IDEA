@@ -3542,6 +3542,12 @@ fn execute_parsed(parsed: CoreRequest) -> CoreResponse {
                 ),
             }
         }
+        CoreCommand::DiagnosticsRecordPluginOperation => CoreResponse::success(
+            id,
+            log_v2_result(crate::diagnostics::plugin_operations::record_request(
+                parsed.payload,
+            )),
+        ),
         CoreCommand::DiagnosticsDrainCoreEvents => CoreResponse::success(
             id,
             serde_json::to_value(crate::diagnostics::core_events::drain())

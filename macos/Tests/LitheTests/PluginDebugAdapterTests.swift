@@ -158,6 +158,110 @@ struct PluginDebugAdapterTests {
         }
     }
 
+    /// A missing command fails before anything starts, so the session's start
+    /// attempt stays at `resolve`; once the launch is known it moves to `launch`.
+    @Test
+    func theTransportMovesTheStartAttemptToLaunchOnlyOnceTheLaunchIsKnown() async throws {
+        let reporter = PluginOperationReporter(record: { _ in }, clock: { 0 })
+        let missing = MacPluginDebugAdapterTransport(
+            adapterID: "lldb",
+            resolve: { _ in Self.process(.commands(["lldb-dap"])) },
+            makeProcess: { Issue.record("No process starts for a missing command."); fatalError() },
+            core: RustCoreBridge(),
+            findCommand: { _ in nil }
+        )
+        let unresolved = reporter.begin(pluginID: "acme.lldb", operation: .debugAdapterStart, at: .resolve)
+        missing.startupAttempt = unresolved
+        #expect(throws: MacPluginDebugAdapterTransport.TransportError.self) {
+            try missing.start(rootURL: URL(fileURLWithPath: "/tmp/workspace", isDirectory: true))
+        }
+        #expect(unresolved.stage == .resolve)
+
+        let probe = HostedAdapterProbe()
+        let hosted = MacPluginDebugAdapterTransport(
+            adapterID: "example",
+            resolve: { _ in Self.hostedLaunch() },
+            makeProcess: { Issue.record("A hosted adapter starts no process of its own."); fatalError() },
+            core: RustCoreBridge()
+        )
+        defer { hosted.stop() }
+        hosted.onTermination = { probe.recordTermination($0) }
+        let resolved = reporter.begin(pluginID: "acme.example", operation: .debugAdapterStart, at: .resolve)
+        hosted.startupAttempt = resolved
+        try hosted.start(rootURL: URL(fileURLWithPath: "/tmp/hosted-adapter-stage", isDirectory: true))
+        #expect(resolved.stage == .launch)
+        #expect(await probe.waitUntilTerminated(), "The session did not end before the local deadline")
+        // The server never hosted the adapter, so the launch is what failed.
+        #expect(resolved.stage == .launch)
+    }
+
+    /// A hosted adapter is launching until its socket connects: a start that
+    /// ends before then is the launch's, or the discovery deadline's, and only
+    /// an adapter that was reached exits. Real Core runs both the session and
+    /// the socket lifecycle; the server, the socket and the clock are fakes.
+    @Test(arguments: ["connects", "fails", "timesOut"])
+    func aHostedAdapterStartIsRecordedAtTheStageItReached(_ end: String) async throws {
+        struct Unavailable: LocalizedError { var errorDescription: String? { "The Example language server did not start." } }
+        let probe = HostedAdapterProbe()
+        let deadlines = HostedAdapterDeadlines()
+        let observations = HostedStartObservations()
+        let unanswered = UnansweredPortRequest()
+        let reporter = PluginOperationReporter(record: { observations.append($0) }, clock: { 0 })
+        let core = RustCoreBridge()
+        let transport = MacPluginDebugAdapterTransport(
+            adapterID: "example",
+            resolve: { _ in Self.hostedLaunch() },
+            makeProcess: { Issue.record("A hosted adapter starts no process of its own."); fatalError() },
+            core: core,
+            startHostedPort: { _, _, _ in
+                switch end {
+                case "fails": throw Unavailable()
+                // Never answers, like a server that never hosts the adapter.
+                // test-stability: allow(swift-unbounded-wait) reason: the test fires the discovery deadline, which closes the transport and cancels this wait; the session.stop() defer cancels it if any expectation fails first.
+                case "timesOut": return try await unanswered.wait()
+                default: return 4711
+                }
+            },
+            socketFactory: { host, port in probe.makeSocket(host: host, port: port) },
+            deadlineScheduler: deadlines
+        )
+        let sessionID = "hosted-start-\(end)-\(UUID().uuidString)"
+        let session = CoreDebugAdapterProtocolSession(
+            adapterID: "example-dap", transport: transport, core: core, sessionID: sessionID,
+            deadlineScheduler: deadlines,
+            beginPluginStartup: {
+                reporter.begin(pluginID: "acme.example", operation: .debugAdapterStart, at: .resolve, operationID: $0)
+            }
+        )
+        defer { session.stop() }
+        session.onEvent = { if case .terminated(let code) = $0 { probe.recordTermination(code ?? 0) } }
+
+        try session.start(rootURL: URL(fileURLWithPath: "/tmp/hosted-adapter-\(end)", isDirectory: true))
+        switch end {
+        case "connects":
+            #expect(await probe.waitUntilConnected(), "The socket was not opened before the local deadline")
+            #expect(observations.recorded.isEmpty)
+            probe.socket.onReady?()
+            probe.socket.onComplete?()
+        case "timesOut":
+            let discovery = try #require(deadlines.pending.first { $0.milliseconds == 120_000 })
+            discovery.fire()
+        default:
+            break
+        }
+        #expect(await probe.waitUntilTerminated(), "The session did not end before the local deadline")
+
+        let stage: PluginOperationStage = switch end {
+        case "connects": .exit
+        case "timesOut": .timeout
+        default: .launch
+        }
+        #expect(observations.recorded == [PluginOperationObservation(
+            pluginID: "acme.example", operation: .debugAdapterStart, failure: stage,
+            durationMs: 0, operationID: sessionID
+        )])
+    }
+
     // MARK: - Launch transport
 
     /// Resolves the fixture's `native` adapter, declared over `transport`.
@@ -528,6 +632,70 @@ private final class HostedAdapterSocket: DebugAdapterSocketConnection {
         completion(.success(()))
     }
     func stop() { stopCount += 1 }
+}
+
+/// The plugin operations a session recorded, in order.
+@MainActor
+private final class HostedStartObservations {
+    private(set) var recorded: [PluginOperationObservation] = []
+    func append(_ observation: PluginOperationObservation) { recorded.append(observation) }
+}
+
+/// A port request the server never answers. Only cancelling the waiting task
+/// ends it, so a test that needs the discovery deadline never races a reply.
+@MainActor
+private final class UnansweredPortRequest {
+    private var waiter: CheckedContinuation<UInt16, any Error>?
+    private var isCancelled = false
+
+    func wait() async throws -> UInt16 {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                if isCancelled { continuation.resume(throwing: CancellationError()) } else { waiter = continuation }
+            }
+        } onCancel: {
+            Task { @MainActor in self.cancel() }
+        }
+    }
+
+    private func cancel() {
+        isCancelled = true
+        waiter?.resume(throwing: CancellationError())
+        waiter = nil
+    }
+}
+
+/// Deadlines that fire only when a test fires them, so no test waits on a clock.
+@MainActor
+private final class HostedAdapterDeadlines: DebugOperationDeadlineScheduling {
+    private(set) var scheduled: [HostedAdapterDeadline] = []
+    var pending: [HostedAdapterDeadline] { scheduled.filter { !$0.isCancelled } }
+
+    func schedule(afterMilliseconds milliseconds: Int, action: @escaping @MainActor () -> Void) -> any DebugOperationDeadline {
+        let deadline = HostedAdapterDeadline(milliseconds: milliseconds, action: action)
+        scheduled.append(deadline)
+        return deadline
+    }
+}
+
+@MainActor
+private final class HostedAdapterDeadline: DebugOperationDeadline {
+    let milliseconds: Int
+    private var action: (@MainActor () -> Void)?
+    var isCancelled: Bool { action == nil }
+
+    init(milliseconds: Int, action: @escaping @MainActor () -> Void) {
+        self.milliseconds = milliseconds
+        self.action = action
+    }
+
+    func cancel() { action = nil }
+
+    func fire() {
+        let action = action
+        self.action = nil
+        action?()
+    }
 }
 
 /// Remembers that an event happened and resumes one waiter when it does. Both

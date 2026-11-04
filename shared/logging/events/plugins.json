@@ -573,17 +573,17 @@
         "plugin": {
           "type": "id",
           "required": true,
-          "description": "Installed plugin identity supplied by the owning Core session, never by the notification"
+          "description": "Installed plugin identity bound by the owning Core session or the declarative launch, never taken from plugin output"
         },
         "operation": {
           "type": "token",
           "required": true,
-          "description": "Registered plugin function or SDK protocol operation that owns this diagnostic result"
+          "description": "SDK function or protocol operation reported through lithe/log, or a declarative contribution operation from Core's contribution table, such as languageServer/start or lithe/build/model"
         },
         "duration": {
           "type": "duration",
           "required": true,
-          "description": "Monotonic elapsed milliseconds measured by the SDK for the completed plugin operation"
+          "description": "Monotonic elapsed milliseconds measured by the SDK, or by the host and Core for one declarative attempt"
         },
         "count": {
           "type": "int",
@@ -603,22 +603,22 @@
         "plugin": {
           "type": "id",
           "required": true,
-          "description": "Installed plugin identity supplied by the owning Core session, never by the notification"
+          "description": "Installed plugin identity bound by the owning Core session or the declarative launch, never taken from plugin output"
         },
         "operation": {
           "type": "token",
           "required": true,
-          "description": "Registered plugin function or SDK protocol operation that owns this diagnostic result"
+          "description": "SDK function or protocol operation reported through lithe/log, or a declarative contribution operation from Core's contribution table, such as languageServer/start or lithe/build/model"
         },
         "duration": {
           "type": "duration",
           "required": true,
-          "description": "Monotonic elapsed milliseconds measured by the SDK for the completed plugin operation"
+          "description": "Monotonic elapsed milliseconds measured by the SDK, or by the host and Core for one declarative attempt"
         },
         "code": {
           "type": "token",
           "required": true,
-          "description": "Stable plugin failure or recovery category, excluding upstream error messages and request contents"
+          "description": "Stable SDK failure category, or a host.* code Core maps from the declarative failure stage and lifecycle; excludes paths, upstream messages and request contents"
         },
         "count": {
           "type": "int",

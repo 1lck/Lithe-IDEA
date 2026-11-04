@@ -3,6 +3,7 @@ import Foundation
 import LitheApplicationKernel
 @testable import LitheExecutionModule
 import LitheCoreContracts
+import LitheModuleAPI
 import Testing
 
 @MainActor
@@ -1933,6 +1934,170 @@ struct BuildSystemServiceTests {
         #expect(harness.service.testDiscovery(Self.instanceID) == nil)
     }
 
+    // MARK: Declarative plugin operations
+
+    @Test
+    func declarativeModelCommandRecordsOneFinishedOperation() async throws {
+        let planner = FakeBuildPlanner()
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "command")])
+        planner.modelOutput = .stdout
+        let runner = FakeBuildRunner()
+        runner.script = .init(chunks: [], result: BuildCommandResult(termination: .exited(0), standardOutput: "MODEL"))
+        let operations = RecordedPluginOperations()
+        let harness = Harness(planner: planner, runner: runner, pluginOperations: operations.reporter)
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        #expect(await harness.waitForEntries { $0.first?.modelState == .notLoaded })
+
+        harness.service.loadModel(Self.instanceID)
+        #expect(await harness.waitForEntries { $0.first?.modelState == .loaded })
+
+        let recorded = try #require(operations.observations.first)
+        #expect(operations.observations.count == 1)
+        #expect(recorded.pluginId == "dev.example")
+        #expect(recorded.operation == "lithe/build/model")
+        #expect(recorded.outcome == "finished")
+        #expect(recorded.stage == nil)
+        #expect(recorded.durationMs == RecordedPluginOperations.tick)
+    }
+
+    /// Each host failure is attributed to the step that failed, never to the
+    /// message text the host shows.
+    @Test(arguments: DeclarativeCommandFailure.allCases)
+    func declarativeModelCommandFailureRecordsItsStage(_ failure: DeclarativeCommandFailure) async throws {
+        let planner = FakeBuildPlanner()
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "command")])
+        planner.modelOutput = .stdout
+        let runner = FakeBuildRunner()
+        switch failure {
+        case .plan:
+            planner.modelPlanFailure = BuildSystemServiceError("Unsupported declaration.")
+        case .resolve:
+            break
+        case .launch:
+            runner.launchFailure = BuildSystemServiceError("The tool could not be started.")
+        case .timeout:
+            runner.script = .init(chunks: [], result: BuildCommandResult(termination: .timedOut))
+        case .exit:
+            runner.script = .init(chunks: ["no such task\n"], result: BuildCommandResult(termination: .exited(2)))
+        case .decode:
+            runner.script = .init(chunks: [], result: BuildCommandResult(termination: .exited(0), standardOutput: nil))
+        }
+        let operations = RecordedPluginOperations()
+        let harness = Harness(planner: planner, runner: runner, pluginOperations: operations.reporter)
+        if failure == .resolve { harness.tools.failure = BuildToolResolutionError("The tool is not installed.") }
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        #expect(await harness.waitForEntries { $0.first?.modelState == .notLoaded })
+
+        harness.service.loadModel(Self.instanceID)
+        #expect(await harness.waitForEntries {
+            if case .failed = $0.first?.modelState { return true }
+            return false
+        })
+
+        let recorded = try #require(operations.observations.first)
+        #expect(operations.observations.count == 1)
+        #expect(recorded.operation == "lithe/build/model")
+        #expect(recorded.outcome == "failed")
+        #expect(recorded.stage == failure.stage)
+        #expect(recorded.durationMs == RecordedPluginOperations.tick)
+    }
+
+    @Test
+    func declarativeDependencyCommandRecordsItsOwnOperation() async throws {
+        let planner = FakeBuildPlanner()
+        planner.detection = BuildDetection(instances: [
+            try Self.instance(modelSource: "static", model: Self.model(name: "loaded"))
+        ])
+        let runner = FakeBuildRunner()
+        runner.script = .init(chunks: [], result: BuildCommandResult(termination: .exited(0), standardOutput: "[]"))
+        let operations = RecordedPluginOperations()
+        let harness = Harness(planner: planner, runner: runner, pluginOperations: operations.reporter)
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        #expect(await harness.waitForEntries { !$0.isEmpty })
+
+        harness.service.loadDependencies(Self.instanceID, project: nil)
+        #expect(await harness.waitForEntries { entry in
+            guard case .loaded = entry.first?.dependencies["app"] else { return false }
+            return true
+        })
+
+        #expect(operations.observations.map(\.operation) == ["lithe/build/dependencies"])
+        #expect(operations.observations.map(\.outcome) == ["finished"])
+    }
+
+    /// A provider plan hands the load to the plugin's process, which reports
+    /// it through `lithe/log`; the host recording it too would double it.
+    @Test
+    func providerModelLoadLeavesTheOperationToThePlugin() async throws {
+        let planner = FakeBuildPlanner()
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "provider")])
+        planner.providerRequest = Self.providerRequest(method: "lithe/build/model")
+        let providers = FakeBuildProviders()
+        providers.reply = .object(["projects": .array([.string("from provider")])])
+        let operations = RecordedPluginOperations()
+        let harness = Harness(planner: planner, providers: providers, pluginOperations: operations.reporter)
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        #expect(await harness.waitForEntries { $0.first?.modelState == .notLoaded })
+
+        harness.service.loadModel(Self.instanceID)
+        #expect(await harness.waitForEntries { $0.first?.modelState == .loaded })
+
+        #expect(providers.sent.count == 1)
+        #expect(operations.observations.isEmpty)
+    }
+
+    /// The host resolves the provider's tool before it sends anything; when
+    /// that fails the provider never sees the load, so the host records it.
+    @Test
+    func providerToolFailureBeforeTheRequestIsRecordedByTheHost() async throws {
+        let planner = FakeBuildPlanner()
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "provider")])
+        planner.providerRequest = Self.providerRequest(method: "lithe/build/model")
+        let providers = FakeBuildProviders()
+        let operations = RecordedPluginOperations()
+        let harness = Harness(
+            planner: planner, providers: providers,
+            settings: { _ in ["toolPath": .string("/custom tools/build")] },
+            pluginOperations: operations.reporter
+        )
+        harness.tools.failure = BuildToolResolutionError("Selected executable is unavailable.", terminal: true)
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        #expect(await harness.waitForEntries { $0.first?.modelState == .notLoaded })
+
+        harness.service.loadModel(Self.instanceID)
+        #expect(await harness.waitForEntries { if case .failed = $0.first?.modelState { return true }; return false })
+
+        #expect(providers.sent.isEmpty)
+        #expect(operations.observations.map(\.operation) == ["lithe/build/model"])
+        #expect(operations.observations.map(\.stage) == [.resolve])
+    }
+
+    @Test
+    func stoppedDeclarativeModelCommandRecordsNothing() async throws {
+        let planner = FakeBuildPlanner()
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "command")])
+        let runner = FakeBuildRunner()
+        runner.blocksUntilCancelled = true
+        let operations = RecordedPluginOperations()
+        let harness = Harness(planner: planner, runner: runner, pluginOperations: operations.reporter)
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        #expect(await harness.waitForEntries { $0.first?.modelState == .notLoaded })
+
+        harness.service.loadModel(Self.instanceID)
+        #expect(await runner.started.waitUntilOpen())
+        harness.service.stop()
+        #expect(await runner.cancelled.waitUntilOpen())
+
+        #expect(await !operations.waitsForLateRecord())
+        #expect(operations.observations.isEmpty)
+    }
+
     // MARK: Provider
 
     @Test
@@ -2516,11 +2681,13 @@ private final class Harness {
         providers: (any BuildProviderRequesting)? = nil,
         runLauncher: (any BuildRunLaunching)? = nil,
         settings: @escaping @MainActor (String) -> [String: ToolingJSONValue] = { _ in [:] },
-        waitForRedetection: @escaping @Sendable () async throws -> Void = {}
+        waitForRedetection: @escaping @Sendable () async throws -> Void = {},
+        pluginOperations: PluginOperationReporter = .disabled
     ) {
         let enabledSources = SourceList(sources)
         self.enabledSources = enabledSources
         service = BuildSystemService(
+            pluginOperations: pluginOperations,
             planner: planner,
             tools: tools,
             optionsStore: optionsStore,
@@ -2598,6 +2765,50 @@ private final class Harness {
         let observation = publisher.sink { if predicate($0) { gate.open() } }
         defer { observation.cancel() }
         return await gate.waitUntilOpen()
+    }
+}
+
+/// Where a declarative model command fails, and the stage the host records.
+enum DeclarativeCommandFailure: CaseIterable, Sendable {
+    case plan, resolve, launch, timeout, exit, decode
+
+    var stage: PluginOperationStage {
+        switch self {
+        case .plan: .plan
+        case .resolve: .resolve
+        case .launch: .launch
+        case .timeout: .timeout
+        case .exit: .exit
+        case .decode: .decode
+        }
+    }
+}
+
+/// Records the host's declarative plugin operations. Its clock advances one
+/// tick per reading, so a duration is exact without wall-clock time.
+@MainActor
+private final class RecordedPluginOperations {
+    static let tick: UInt64 = 7
+    private(set) var observations: [PluginOperationObservation] = []
+    private let recorded = BuildTestGate()
+    private var now: UInt64 = 0
+
+    var reporter: PluginOperationReporter {
+        PluginOperationReporter(
+            record: { [self] in
+                observations.append($0)
+                recorded.open()
+            },
+            clock: { [self] in
+                now += Self.tick
+                return now
+            }
+        )
+    }
+
+    /// Bounded wait for a record a correct service never makes.
+    func waitsForLateRecord() async -> Bool {
+        await recorded.waitUntilOpen(timeout: .milliseconds(500))
     }
 }
 
@@ -2717,6 +2928,7 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         var taskPlanContexts: [BuildPlanContext] = []
         var modelInputSources: [[BuildModelInputSource]] = []
         var modelPlanHints: [BuildProviderHints] = []
+        var modelPlanFailure: (any Error)?
         var dependencyPlanHints: [BuildProviderHints] = []
     }
 
@@ -2806,6 +3018,11 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
     var taskPlanContexts: [BuildPlanContext] { access { $0.taskPlanContexts } }
     /// The provider hints of every model and dependency plan, in order.
     var modelPlanHints: [BuildProviderHints] { access { $0.modelPlanHints } }
+    /// When set, the model plan fails like a declaration Core cannot plan.
+    var modelPlanFailure: (any Error)? {
+        get { access { $0.modelPlanFailure } }
+        set { access { $0.modelPlanFailure = newValue } }
+    }
     var dependencyPlanHints: [BuildProviderHints] { access { $0.dependencyPlanHints } }
     var fingerprint: String {
         get { access { $0.fingerprint } }
@@ -2934,6 +3151,7 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         providerHints: BuildProviderHints
     ) throws -> BuildOutputPlan {
         access { $0.modelPlanHints.append(providerHints) }
+        if let failure = modelPlanFailure { throw failure }
         if let request = providerRequest { return .provider(withInputs(request, context: context)) }
         return .process(plan(["model"], output: modelOutput))
     }
@@ -3272,11 +3490,17 @@ private final class FakeBuildRunner: BuildCommandRunning, @unchecked Sendable {
     private var recorded: [BuildCommandRequest] = []
     private var configuredScript = Script(chunks: [], result: BuildCommandResult(termination: .exited(0)))
     private var blocks = false
+    private var configuredLaunchFailure: (any Error)?
 
     var requests: [BuildCommandRequest] { lock.withLock { recorded } }
     var script: Script {
         get { lock.withLock { configuredScript } }
         set { lock.withLock { configuredScript = newValue } }
+    }
+    /// When set, the command fails to start.
+    var launchFailure: (any Error)? {
+        get { lock.withLock { configuredLaunchFailure } }
+        set { lock.withLock { configuredLaunchFailure = newValue } }
     }
     var blocksUntilCancelled: Bool {
         get { lock.withLock { blocks } }
@@ -3289,6 +3513,7 @@ private final class FakeBuildRunner: BuildCommandRunning, @unchecked Sendable {
     ) async throws -> BuildCommandResult {
         lock.withLock { recorded.append(request) }
         started.open()
+        if let launchFailure { throw launchFailure }
         if blocksUntilCancelled {
             let cancelled = cancelled
             await withTaskCancellationHandler {
