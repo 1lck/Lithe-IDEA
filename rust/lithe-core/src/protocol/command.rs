@@ -304,10 +304,6 @@ pub enum CoreCommand {
     HistoryUsage,
     /// Deletes every snapshot of one project (`history.clear`).
     HistoryClear,
-    /// Inspects a declared Maven reactor (`maven.scan`).
-    MavenScan,
-    /// Produces a deterministic Maven invocation (`maven.launchPlan`).
-    MavenLaunchPlan,
     /// Shortens an oversized Java launch using a JDK argument file when needed.
     ExecutionPlanLaunchCommand,
     /// Resolve environment precedence after platform tool discovery.
@@ -318,14 +314,6 @@ pub enum CoreCommand {
     ProcessLifecycleInventory,
     /// Turns a plan and the user's answers into what ends (`processLifecycle.settle`).
     ProcessLifecycleSettle,
-    /// Produces a bounded Maven dependency-tree invocation (`maven.dependencyPlan`).
-    MavenDependencyPlan,
-    /// Normalizes Maven dependency-tree output (`maven.dependencies`).
-    MavenDependencies,
-    /// Normalizes diagnostics from Maven output (`maven.diagnostics`).
-    MavenDiagnostics,
-    /// Normalizes JUnit/Surefire results from Maven output (`maven.testResults`).
-    MavenTestResults,
     /// Renders and sanitizes shared Markdown (`markdown.render`).
     MarkdownRender,
     /// Compiles a bounded boolean shortcut context (`keymap.parseContext`).
@@ -816,17 +804,11 @@ impl CoreCommand {
             "history.ignorePreview" => Some(Self::HistoryIgnorePreview),
             "history.usage" => Some(Self::HistoryUsage),
             "history.clear" => Some(Self::HistoryClear),
-            "maven.scan" => Some(Self::MavenScan),
-            "maven.launchPlan" => Some(Self::MavenLaunchPlan),
             "execution.resolveEnvironment" => Some(Self::ExecutionResolveEnvironment),
             "execution.planLaunchCommand" => Some(Self::ExecutionPlanLaunchCommand),
             "processLifecycle.resolve" => Some(Self::ProcessLifecycleResolve),
             "processLifecycle.inventory" => Some(Self::ProcessLifecycleInventory),
             "processLifecycle.settle" => Some(Self::ProcessLifecycleSettle),
-            "maven.dependencyPlan" => Some(Self::MavenDependencyPlan),
-            "maven.dependencies" => Some(Self::MavenDependencies),
-            "maven.diagnostics" => Some(Self::MavenDiagnostics),
-            "maven.testResults" => Some(Self::MavenTestResults),
             "markdown.render" => Some(Self::MarkdownRender),
             "keymap.parseContext" => Some(Self::KeymapParseContext),
             "keymap.evaluateContext" => Some(Self::KeymapEvaluateContext),
@@ -1082,14 +1064,6 @@ mod tests {
         assert!(matches!(
             CoreCommand::parse("processLifecycle.settle"),
             Some(CoreCommand::ProcessLifecycleSettle)
-        ));
-    }
-
-    #[test]
-    fn parses_maven_test_results_command() {
-        assert!(matches!(
-            CoreCommand::parse("maven.testResults"),
-            Some(CoreCommand::MavenTestResults)
         ));
     }
 

@@ -1,11 +1,71 @@
 use super::support::temporary_root;
-use crate::execute_json;
 use crate::project::{
     jdt_configuration, settings_with_local_repository, MavenLaunchContextRequest,
 };
+use crate::protocol::{CoreError, CoreResponse, ErrorCode};
 use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
+
+/// Runs one request the way the tests below were written for.
+///
+/// The Windows host answers the `maven.*` commands itself, so Core no longer
+/// dispatches them. `scan`, `dependencies` and `test_results` remain Core code
+/// because the Maven build provider calls them, and the tests below keep
+/// covering that code: the three old command names go straight to those
+/// functions, and every other command goes through Core's dispatcher.
+fn execute_json(request: &str) -> String {
+    let parsed: Value = serde_json::from_str(request).expect("test request should be JSON");
+    let id = parsed["id"].as_str().map(str::to_string);
+    let payload = parsed["payload"].clone();
+    let response = match parsed["command"].as_str() {
+        Some("maven.scan") => maven_response(
+            id,
+            payload,
+            "Invalid Maven scan request",
+            crate::project::scan,
+        ),
+        Some("maven.dependencies") => maven_response(
+            id,
+            payload,
+            "Invalid Maven dependencies request",
+            crate::project::dependencies,
+        ),
+        Some("maven.testResults") => maven_response(
+            id,
+            payload,
+            "Invalid Maven test-results request",
+            crate::project::test_results,
+        ),
+        _ => return crate::execute_json(request),
+    };
+    serde_json::to_string(&response).expect("response should encode")
+}
+
+fn maven_response<Request, Response>(
+    id: Option<String>,
+    payload: Value,
+    invalid_message: &str,
+    run: impl FnOnce(Request) -> Result<Response, CoreError>,
+) -> CoreResponse
+where
+    Request: serde::de::DeserializeOwned,
+    Response: serde::Serialize,
+{
+    let result = serde_json::from_value::<Request>(payload)
+        .map_err(|error| {
+            CoreError::new(ErrorCode::InvalidRequest, invalid_message)
+                .with_details(error.to_string())
+        })
+        .and_then(run);
+    match result {
+        Ok(data) => CoreResponse::success(
+            id,
+            serde_json::to_value(data).expect("Maven response should encode"),
+        ),
+        Err(error) => CoreResponse::failure(id, error),
+    }
+}
 
 #[test]
 fn java_launch_command_json_reuses_the_shared_argfile_planner() {
@@ -211,30 +271,6 @@ fn maven_scan_returns_recursive_shared_project_model() {
         response["data"]["modules"][0]["modules"][0]["relativePath"],
         "module-a/module-b"
     );
-    let diagnostics = serde_json::json!({
-        "id": "maven-diagnostics",
-        "command": "maven.diagnostics",
-        "payload": {
-            "root": root,
-            "output": "[ERROR] src/App.java:[12,4] cannot find symbol\n[ERROR] src/App.java:[12,4] cannot find symbol\n[WARNING] src/App.java:[4] unused import\n"
-        }
-    });
-    let diagnostics_response: Value = serde_json::from_str(&execute_json(
-        &serde_json::to_string(&diagnostics).expect("diagnostics request should encode"),
-    ))
-    .expect("diagnostics response should be JSON");
-    assert_eq!(diagnostics_response["ok"], true);
-    assert_eq!(
-        diagnostics_response["data"]["issues"]
-            .as_array()
-            .unwrap()
-            .len(),
-        2
-    );
-    assert_eq!(
-        diagnostics_response["data"]["issues"][0]["severity"],
-        "error"
-    );
     fs::remove_dir_all(root).expect("Maven fixture should be removable");
 }
 
@@ -414,62 +450,6 @@ fn maven_jdt_configuration_includes_module_java_source_paths() {
     fs::remove_dir_all(root).expect("Maven fixture should be removable");
 }
 
-#[test]
-fn maven_launch_plan_matches_the_shared_compatibility_fixture() {
-    let fixture: Value = serde_json::from_str(include_str!(
-        "../../../../shared/fixtures/maven/launch-plan-v1.json"
-    ))
-    .expect("Maven launch-plan fixture should be valid JSON");
-    let root = temporary_root("maven-launch-plan");
-    fs::create_dir_all(root.join("projects/demo/service-api"))
-        .expect("nested Maven reactor should be creatable");
-    fs::write(
-        root.join("projects/demo/pom.xml"),
-        r#"<project><artifactId>demo</artifactId><packaging>pom</packaging><modules><module>service-api</module></modules></project>"#,
-    )
-    .expect("reactor pom should be writable");
-    fs::write(
-        root.join("projects/demo/service-api/pom.xml"),
-        r#"<project><artifactId>service-api</artifactId></project>"#,
-    )
-    .expect("module pom should be writable");
-    fs::write(
-        root.join("pom.xml"),
-        r#"<project><artifactId>root</artifactId></project>"#,
-    )
-    .expect("root pom should be writable");
-    fs::create_dir_all(root.join(".mvn")).expect("Maven config directory should be creatable");
-    fs::write(root.join(".mvn/maven.config"), "-DfromConfig=true\n")
-        .expect("Maven config should be writable");
-
-    for case in fixture["cases"]
-        .as_array()
-        .expect("Maven launch-plan fixture should contain cases")
-    {
-        let request = serde_json::json!({
-            "id": case["name"],
-            "command": "maven.launchPlan",
-            "payload": {
-                "root": root,
-                "context": case["context"],
-                "module": case["module"],
-                "goals": case["goals"]
-            }
-        });
-        let response: Value = serde_json::from_str(&execute_json(&request.to_string()))
-            .expect("Maven launch-plan response should be JSON");
-
-        assert_eq!(response["ok"], true, "case {}: {response}", case["name"]);
-        assert_eq!(response["data"], case["expected"], "case {}", case["name"]);
-        assert!(!response["data"]["arguments"]
-            .as_array()
-            .expect("arguments should be an array")
-            .iter()
-            .any(|argument| argument == "-DfromConfig=true"));
-    }
-    fs::remove_dir_all(root).expect("Maven launch-plan fixture should be removable");
-}
-
 /// Temporary directory that is removed even when an assertion fails.
 struct TreeDirectory(PathBuf);
 
@@ -495,27 +475,6 @@ impl Drop for TreeDirectory {
     }
 }
 
-fn maven_dependency_plan(root: &Path, module: Value, output_file: Value) -> Value {
-    serde_json::from_str(&execute_json(
-        &serde_json::json!({
-            "id": "maven-dependency-plan",
-            "command": "maven.dependencyPlan",
-            "payload": {
-                "root": root,
-                "context": {
-                    "version": 1,
-                    "reactorPath": ".",
-                    "profiles": ["dev"]
-                },
-                "module": module,
-                "outputFile": output_file
-            }
-        })
-        .to_string(),
-    ))
-    .expect("Maven dependency-plan response should be JSON")
-}
-
 fn maven_dependencies(module_path: &str, output_file: &Path) -> Value {
     serde_json::from_str(&execute_json(
         &serde_json::json!({
@@ -537,99 +496,6 @@ fn flat_tree(nodes: usize) -> String {
         ));
     }
     tree
-}
-
-#[test]
-fn maven_dependency_plan_writes_one_module_tree_to_the_platform_file() {
-    let workspace = TreeDirectory::new("maven-dependency-plan");
-    let root = &workspace.0;
-    fs::create_dir_all(root.join("service")).expect("Maven module should be creatable");
-    fs::write(
-        root.join("pom.xml"),
-        r#"<project><artifactId>demo</artifactId><packaging>pom</packaging><modules><module>service</module></modules></project>"#,
-    )
-    .expect("reactor pom should be writable");
-    fs::write(
-        root.join("service/pom.xml"),
-        r#"<project><artifactId>service</artifactId></project>"#,
-    )
-    .expect("module pom should be writable");
-    let output_file = root.join("scratch/tree.txt");
-    let tree_arguments = |output_file: &Path| {
-        vec![
-            Value::from("org.apache.maven.plugins:maven-dependency-plugin:3.8.1:tree"),
-            Value::from("-Dverbose=true"),
-            Value::from("-DoutputType=text"),
-            Value::from("-Dtokens=standard"),
-            Value::from(format!("-DoutputFile={}", output_file.display())),
-            Value::from("-DoutputEncoding=UTF-8"),
-            Value::from("-DappendOutput=false"),
-            Value::from("-Dstyle.color=never"),
-            Value::from("-Duser.language=en"),
-            Value::from("-Duser.country=US"),
-        ]
-    };
-
-    let module =
-        maven_dependency_plan(root, Value::from("service"), serde_json::json!(output_file));
-    assert_eq!(module["ok"], true, "{module}");
-    let mut expected = vec![
-        Value::from("-B"),
-        Value::from("-ntp"),
-        Value::from("-P"),
-        Value::from("dev"),
-        Value::from("-pl"),
-        Value::from("service"),
-    ];
-    expected.extend(tree_arguments(&output_file));
-    assert_eq!(module["data"]["arguments"], Value::Array(expected));
-
-    // Without `-N` every reactor project would overwrite the same file, and
-    // the root query would return whichever module Maven visited last.
-    for root_module in [Value::Null, Value::from(".")] {
-        let reactor =
-            maven_dependency_plan(root, root_module.clone(), serde_json::json!(output_file));
-        assert_eq!(reactor["ok"], true, "{root_module}: {reactor}");
-        let mut expected = vec![
-            Value::from("-B"),
-            Value::from("-ntp"),
-            Value::from("-P"),
-            Value::from("dev"),
-            Value::from("-N"),
-        ];
-        expected.extend(tree_arguments(&output_file));
-        assert_eq!(
-            reactor["data"]["arguments"],
-            Value::Array(expected),
-            "{root_module}"
-        );
-    }
-}
-
-#[test]
-fn maven_dependency_plan_rejects_output_paths_maven_would_misread() {
-    let workspace = TreeDirectory::new("maven-dependency-plan-output");
-    let root = &workspace.0;
-    fs::write(
-        root.join("pom.xml"),
-        r#"<project><artifactId>demo</artifactId></project>"#,
-    )
-    .expect("pom should be writable");
-    let absolute = root.join("tree.txt").display().to_string();
-    for (name, output_file) in [
-        ("missing", Value::Null),
-        ("empty", Value::from("")),
-        ("relative", Value::from("scratch/tree.txt")),
-        ("padded", Value::from(format!(" {absolute}"))),
-        (
-            "control",
-            Value::from(format!("{absolute}\n-Dverbose=false")),
-        ),
-    ] {
-        let response = maven_dependency_plan(root, Value::Null, output_file);
-        assert_eq!(response["ok"], false, "case {name}: {response}");
-        assert_eq!(response["error"]["code"], "invalid_request", "case {name}");
-    }
 }
 
 #[test]
@@ -1148,45 +1014,6 @@ fn maven_test_results_reject_oversized_output_and_bound_failure_details() {
     assert_eq!(oversized["ok"], false);
     assert_eq!(oversized["error"]["code"], "parse_failed");
     fs::remove_dir_all(root).expect("Maven bounds fixture should be removable");
-}
-
-#[test]
-fn maven_launch_plan_rejects_unknown_modules_and_invalid_invocation_tokens() {
-    let root = temporary_root("maven-launch-invalid");
-    fs::create_dir_all(&root).expect("invalid Maven fixture should be creatable");
-    fs::write(
-        root.join("pom.xml"),
-        r#"<project><artifactId>demo</artifactId></project>"#,
-    )
-    .expect("pom should be writable");
-    for (name, module, goals) in [
-        ("unknown-module", Some("missing"), vec!["verify"]),
-        ("missing-goal", None, vec!["-q", "-DskipTests"]),
-        ("invalid-goal", None, vec!["verify;", "-q"]),
-        (
-            "control-character",
-            None,
-            vec!["verify", "-Dvalue=line\nbreak"],
-        ),
-    ] {
-        let response: Value = serde_json::from_str(&execute_json(
-            &serde_json::json!({
-                "id": name,
-                "command": "maven.launchPlan",
-                "payload": {
-                    "root": root,
-                    "context": {"version": 1, "reactorPath": "."},
-                    "module": module,
-                    "goals": goals
-                }
-            })
-            .to_string(),
-        ))
-        .expect("invalid Maven response should be JSON");
-        assert_eq!(response["ok"], false, "case {name}: {response}");
-        assert_eq!(response["error"]["code"], "invalid_request");
-    }
-    fs::remove_dir_all(root).expect("invalid Maven fixture should be removable");
 }
 
 #[test]

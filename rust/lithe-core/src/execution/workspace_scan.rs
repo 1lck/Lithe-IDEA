@@ -176,98 +176,9 @@ fn relative(root: &Path, path: &Path) -> String {
         .replace('\\', "/")
 }
 
-/// Returns Java paths using the same scan policy as run generation. Failure below
-/// the root is tolerated; the subsequent Core fingerprint supplies diagnostics.
-/// Stops before opening another directory once the limit is reached, retaining
-/// only Java paths from the deterministic traversal rather than a full snapshot.
-pub fn list_run_java_sources(root: &Path, limit: usize) -> Result<Vec<String>, CoreError> {
-    list_java_sources_with_reader(root, limit, &read_directory)
-}
-
-fn list_java_sources_with_reader(
-    root: &Path,
-    limit: usize,
-    read: &impl Fn(&Path) -> io::Result<Vec<(PathBuf, bool, bool)>>,
-) -> Result<Vec<String>, CoreError> {
-    let mut paths = Vec::new();
-    if limit == 0 {
-        return Ok(paths);
-    }
-    visit_with_reader(root, None, read, |directory| {
-        for name in directory.files {
-            if name.to_ascii_lowercase().ends_with(".java") {
-                paths.push(relative(root, &directory.path.join(name)));
-                if paths.len() == limit {
-                    return ControlFlow::Break(());
-                }
-            }
-        }
-        ControlFlow::Continue(())
-    })?;
-    paths.sort();
-    Ok(paths)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn java_source_limit_stops_directory_reads_and_keeps_deterministic_results() {
-        let root = Path::new("fixture");
-        for limit in [1, 8_000] {
-            let visited = std::cell::RefCell::new(Vec::new());
-            let paths = list_java_sources_with_reader(root, limit, &|path| {
-                visited.borrow_mut().push(path.to_owned());
-                if path == root {
-                    Ok(vec![
-                        (root.join("z-unvisited"), true, false),
-                        (root.join("b-sources"), true, false),
-                        (root.join("a-blocked"), true, false),
-                        (root.join(".pytest_cache"), true, false),
-                        (root.join("link"), true, true),
-                    ])
-                } else if path.ends_with("a-blocked") {
-                    Err(io::Error::from(io::ErrorKind::PermissionDenied))
-                } else if path.ends_with("b-sources") {
-                    // More than the cap in one directory must neither exceed the
-                    // result limit nor open a later directory. Reverse native
-                    // enumeration order to protect deterministic selection.
-                    Ok((0..=limit)
-                        .rev()
-                        .map(|index| (path.join(format!("Main{index:05}.java")), false, false))
-                        .chain([(path.join("nested"), true, false)])
-                        .collect())
-                } else {
-                    panic!("source budget must prevent reading {}", path.display());
-                }
-            })
-            .unwrap();
-            assert_eq!(
-                paths,
-                (0..limit)
-                    .map(|index| format!("b-sources/Main{index:05}.java"))
-                    .collect::<Vec<_>>()
-            );
-            assert_eq!(
-                *visited.borrow(),
-                [
-                    root.to_owned(),
-                    root.join("a-blocked"),
-                    root.join("b-sources")
-                ]
-            );
-        }
-    }
-
-    #[test]
-    fn java_source_zero_limit_does_not_read_the_workspace() {
-        let paths = list_java_sources_with_reader(Path::new("fixture"), 0, &|_| {
-            panic!("zero budget must not read directories")
-        })
-        .unwrap();
-        assert!(paths.is_empty());
-    }
 
     #[test]
     fn early_stop_retains_observed_unreadable_paths_without_affecting_full_scans() {
@@ -300,10 +211,6 @@ mod tests {
             .directories
             .iter()
             .any(|dir| dir.path.ends_with("z-later")));
-        assert_eq!(
-            list_java_sources_with_reader(root, 10, &read).unwrap(),
-            ["b-sources/Main.java", "z-later/Main.java"]
-        );
     }
 
     #[test]

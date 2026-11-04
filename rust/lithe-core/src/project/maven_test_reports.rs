@@ -1,6 +1,6 @@
 //! Per-test outcomes read from Maven Surefire and Failsafe XML reports.
 //!
-//! The text reporter parsed by `maven.testResults` names only failing tests,
+//! The text reporter parsed by `test_results` names only failing tests,
 //! so it cannot tell which of a class's methods passed or were skipped. The
 //! XML reports Surefire and Failsafe write for every executed class can: each
 //! `<testcase>` records its outcome. Editors use these outcomes for per-method
