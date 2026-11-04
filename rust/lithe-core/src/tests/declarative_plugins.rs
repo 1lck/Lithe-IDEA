@@ -40,6 +40,9 @@ const DEBUG_ADAPTER_REMOTE_ATTACH_FIXTURE: &str =
 const DEBUG_ADAPTER_REJECTIONS: &str = contract_file!("fixtures/debug-adapter-rejections.json");
 const EDITOR_ACTIONS_FIXTURE: &str = contract_file!("fixtures/editor-actions.plugin.json");
 const GRAMMAR_FIXTURE: &str = contract_file!("fixtures/language-grammar.plugin.json");
+const PROJECT_GENERATOR_FIXTURE: &str = contract_file!("fixtures/project-generator.plugin.json");
+const PROJECT_GENERATOR_TOOL_FIXTURE: &str =
+    contract_file!("fixtures/project-generator-tool-field.plugin.json");
 const INVALID_MANIFESTS: &str = contract_file!("fixtures/invalid-manifests.json");
 const COMMAND_PLANS: &str = contract_file!("fixtures/command-plans.json");
 const RUNTIME_VERSIONS: &str = contract_file!("fixtures/runtime-versions.json");
@@ -69,6 +72,8 @@ fn fixture(name: &str) -> Value {
         "debug-adapter-language-server.plugin.json" => DEBUG_ADAPTER_LANGUAGE_SERVER_FIXTURE,
         "debug-adapter-remote-attach.plugin.json" => DEBUG_ADAPTER_REMOTE_ATTACH_FIXTURE,
         "language-grammar.plugin.json" => GRAMMAR_FIXTURE,
+        "project-generator.plugin.json" => PROJECT_GENERATOR_FIXTURE,
+        "project-generator-tool-field.plugin.json" => PROJECT_GENERATOR_TOOL_FIXTURE,
         other => panic!("unknown fixture {other}"),
     };
     serde_json::from_str(source).expect("fixture manifest is JSON")
@@ -94,6 +99,7 @@ fn contract_fixtures_and_official_plugins_validate() {
         DEBUG_ADAPTER_REMOTE_ATTACH_FIXTURE,
         GRAMMAR_FIXTURE,
         EDITOR_ACTIONS_FIXTURE,
+        PROJECT_GENERATOR_TOOL_FIXTURE,
         OFFICIAL_JAVA,
     ] {
         let outcome = validate(serde_json::from_str(source).unwrap());

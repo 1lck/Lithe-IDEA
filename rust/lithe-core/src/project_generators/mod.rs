@@ -12,6 +12,12 @@
 //! processes in a staging directory, and move the finished project into
 //! place.
 //!
+//! A version 2 generator picks tool installations with `tool` fields. The
+//! host lists the installations of the tool a field names (through the same
+//! tool definitions and discovery the settings use); Core chooses among them
+//! (the newest that meets `minimumVersion`), reports the choice in the form,
+//! and puts the pins the host saves after creation in the plan.
+//!
 //! Core reads template files from the plugin package and extracts archives
 //! into a staging directory the host created; it never writes anywhere else.
 //!

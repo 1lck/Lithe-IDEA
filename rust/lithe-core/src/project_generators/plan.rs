@@ -2,7 +2,7 @@
 
 use super::form::{self, FormInput, FormState};
 use super::manifest::{
-    variable_is_known, GeneratorStep, ProjectGeneratorDeclaration, FIELD_RUNTIME,
+    variable_is_known, GeneratorStep, ProjectGeneratorDeclaration, FIELD_RUNTIME, FIELD_TOOL,
 };
 use super::template::{self, FieldValue, Values, Variable};
 use crate::plugins::declarative::{is_safe_relative_path, PluginRejection, Validation};
@@ -162,8 +162,33 @@ pub(crate) fn plan(
         "steps": steps,
         "openFiles": open_files,
         "runtimes": runtimes,
+        "toolPins": tool_pins(generator, &state),
         "usesNetwork": uses_network,
     }))
+}
+
+/// The tool selections the host saves once the project exists, so the
+/// project builds and runs with the installations its creator picked. A
+/// hidden field or one without an installation leaves nothing to save.
+fn tool_pins(generator: &ProjectGeneratorDeclaration, state: &FormState) -> Vec<Value> {
+    generator
+        .fields
+        .iter()
+        .filter(|field| field.is(FIELD_TOOL))
+        .filter_map(|field| {
+            let pin_as = field.pin_as?;
+            match state.values.get(&field.id) {
+                Some(FieldValue::Tool { home, executable }) if !home.is_empty() => Some(json!({
+                    "field": field.id,
+                    "tool": field.tool,
+                    "pinAs": pin_as,
+                    "home": home,
+                    "executable": executable,
+                })),
+                _ => None,
+            }
+        })
+        .collect()
 }
 
 fn reject_invalid_form(state: &FormState) -> Validation<()> {

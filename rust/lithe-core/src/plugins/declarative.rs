@@ -1065,7 +1065,13 @@ impl DeclarativePluginManifest {
                 "Project generators require plugin API level 3.",
             ));
         }
-        crate::project_generators::validate_declarations(&self.project_generators)?;
+        crate::project_generators::validate_declarations(
+            &self.project_generators,
+            self.requires
+                .get(capabilities::PROJECT_GENERATORS)
+                .copied()
+                .unwrap_or(1),
+        )?;
         crate::build::validate_declarations(
             &mut self.build_systems,
             &crate::build::DeclarationContext {
@@ -1721,6 +1727,13 @@ impl DeclarativePluginManifest {
     /// IDs of the languages the plugin declares.
     pub(crate) fn language_ids(&self) -> impl Iterator<Item = &str> {
         self.languages.iter().map(|language| language.id.as_str())
+    }
+
+    /// IDs of the tool definitions the plugin declares.
+    pub(crate) fn tool_definition_ids(&self) -> impl Iterator<Item = &str> {
+        self.tool_definitions
+            .iter()
+            .filter_map(|definition| definition["id"].as_str())
     }
 
     /// Validated project generators, in declaration order.
