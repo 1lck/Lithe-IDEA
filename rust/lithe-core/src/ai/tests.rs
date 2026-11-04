@@ -500,3 +500,27 @@ fn commit_json_rejects_inconsistent_prefix_without_echoing_input() {
     assert_eq!(malformed["error"]["message"], "AI_COMMIT_INVALID_OPTIONS");
     assert!(!malformed.to_string().contains("private-evidence"));
 }
+
+#[test]
+fn bounded_commit_evidence_preserves_truncation_and_rejects_missing_prefixes() {
+    let (provider, mut options, _, _) = fixture();
+    options.maximum_diff_characters = 8_000;
+    let file = CommitFile {
+        path: "src/main.rs".into(),
+        change_kind: "modified".into(),
+        diff: "界".repeat(8_000),
+        original_characters: None,
+    };
+    let plan = plan_commit_bounded(&provider, &options, &[file.clone()], &[12_000]).unwrap();
+    assert!(plan.body.to_string().contains("Diff truncated"));
+    let mut typed_file = file.clone();
+    typed_file.original_characters = Some(12_000);
+    let typed_plan = plan_commit(&provider, &options, &[typed_file]).unwrap();
+    assert!(typed_plan.body.to_string().contains("Diff truncated"));
+    let mut missing = file;
+    missing.diff.pop();
+    assert!(matches!(
+        plan_commit_bounded(&provider, &options, &[missing], &[12_000]),
+        Err("AI_COMMIT_INVALID_OPTIONS")
+    ));
+}

@@ -96,6 +96,10 @@ public enum CommitMessageGenerationError: LocalizedError, Sendable {
     case missingAPIKey
     case emptyDiff
     case sensitiveFileExcluded
+    case diffUnavailable
+    case staleChanges
+    case draftChanged
+    case tooManyFiles
     case httpFailure(statusCode: Int)
     case invalidResponse
     case emptyResponse
@@ -116,6 +120,14 @@ public enum CommitMessageGenerationError: LocalizedError, Sendable {
             return L10n.string("The staged changes have no textual diff to summarize.")
         case .sensitiveFileExcluded:
             return L10n.string("Sensitive files are not sent to an AI provider.")
+        case .diffUnavailable:
+            return L10n.string("Some selected diffs could not be read. Refresh Git changes and retry.")
+        case .staleChanges:
+            return L10n.string("The selected changes changed. Generate again.")
+        case .draftChanged:
+            return L10n.string("The draft changed while confirming. Your text has been kept.")
+        case .tooManyFiles:
+            return L10n.string("Select at most 1,000 files for AI generation.")
         case .httpFailure(let statusCode):
             return "\(L10n.string("The AI provider returned an HTTP error.")) (\(statusCode))"
         case .invalidResponse:

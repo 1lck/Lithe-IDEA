@@ -30,7 +30,9 @@ explicit provider value, not an instruction to omit the parameter.
 `CommitFile`: repository-relative `path`, `changeKind`, and `diff`.
 The caller must provide evidence matching its actual commit operation:
 macOS uses staged diffs, Windows uses the full working-tree snapshot of selected paths.
-Generation never stages, commits, or pushes.
+Generation never stages, commits, or pushes. Both hosts obtain this evidence through
+[`git.commitMessageContext`](git-commit-message-context.md), which captures
+fresh content, applies the shared budget and rechecks an opaque state token.
 
 ## Typed operations
 
@@ -51,7 +53,10 @@ Generation never stages, commits, or pushes.
   Serde serialization. Only metadata and `hasCredential` cross the UI boundary.
 - `plan_commit(provider, options, files)` returns a credential-free URL and JSON body.
   It validates protocol, URL and limits; distributes diff space across file boundaries;
-  and includes language, format, custom and subject/body instructions. Requests allow
+  and includes language, format, custom and subject/body instructions. When every file
+  supplies `originalCharacters`, the typed planner validates the Core-budgeted
+  prefixes and preserves truncation markers; older unbounded callers may omit it
+  for every file. Mixed or inconsistent inputs are rejected. Requests allow
   4,096 output tokens, including provider-internal reasoning, even for subject-only output.
   Chat Completions uses the provider's selected token-limit field; Responses and
   Anthropic retain their respective `max_output_tokens` and `max_tokens` fields.
@@ -106,8 +111,9 @@ The frontend maps them to actionable localized messages and discards stale resul
 
 Only one generation per commit panel is active. Changing repository/branch/selection
 or unmounting cancels it. A successful response is a draft, never a Git mutation.
-Existing text requires replacement confirmation. Selection and patch fingerprints
-are rechecked before applying; edits made while confirming are preserved.
+Existing text requires replacement confirmation. Selection and the complete Git state token are rechecked before applying;
+macOS rechecks again when a replacement is confirmed, and both platforms preserve
+edits made while confirmation or the check is pending.
 
 Subject length is an instruction to the model, not a hard truncation guarantee.
 Anthropic Messages does not receive reasoning-effort fields. Filesystem location,

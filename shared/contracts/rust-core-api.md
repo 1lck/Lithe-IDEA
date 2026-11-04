@@ -1249,6 +1249,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `git.prepareCommitSelection` | Prepare and verify the real indexes for explicitly selected changes |
 | `git.reconcileDeletedSelection` | Clear missing selected staged additions after filesystem deletion |
 | `git.changelists` | Reduce local ChangeList metadata and project membership and commit scope |
+| `git.commitMessageContext` | Capture bounded AI commit evidence and recheck its Git state |
 | `git.untrackedDirectory` | List one level of a summarized untracked directory: its files and subdirectory summaries |
 | `git.commitState` | Read exact HEAD, symbolic branch and index preconditions for a workspace commit |
 | `git.watchContext` | Resolve the repository and absolute Git metadata roots needed by native file watchers |

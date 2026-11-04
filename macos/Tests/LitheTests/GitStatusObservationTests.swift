@@ -141,6 +141,34 @@ struct GitStatusObservationTests {
     }
 
     @Test @MainActor
+    func commitMessageRejectsRestagedContentWithoutAStatusRefresh() async throws {
+        let fixture = try GitObservationFixture(label: "commit-message-stale-index")
+        let root = fixture.url.appendingPathComponent("repository", isDirectory: true)
+        try await fixture.initializeRepository(at: root)
+        let file = root.appendingPathComponent("tracked.txt")
+        try Data("staged before generation\n".utf8).write(to: file)
+        try await fixture.git(["add", "tracked.txt"], at: root)
+        try Data("unstaged version\n".utf8).write(to: file)
+        let feature = GitFeatureModel(service: GitService(operations: RustGitOperations(core: RustCoreBridge())))
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        let draft = CommitDraftFeatureModel()
+        var notices: [String] = []
+        let workflow = CommitWorkflowCoordinator(draft: draft, activateGit: { feature }, workspaceGeneration: { 0 },
+            generate: { input in
+                #expect(input.diff.contains("staged before generation"))
+                #expect(!input.diff.contains("unstaged version"))
+                try Data("restaged after generation started\n".utf8).write(to: file)
+                try await fixture.git(["add", "tracked.txt"], at: root)
+                return "Stale description"
+            }, notify: { notices.append($0) })
+        await workflow.generateMessage()
+        #expect(draft.message.isEmpty && draft.pendingGeneratedMessage == nil)
+        #expect(notices == [CommitMessageGenerationError.staleChanges.localizedDescription])
+    }
+
+    @Test @MainActor
     func mountedCommitPanelObservesExternalEditsAndKeepsRollbackEnabledDuringBackgroundReads() async throws {
         let fixture = try GitObservationFixture(label: "mounted-commit-refresh")
         let root = fixture.url.appendingPathComponent("repository", isDirectory: true)
@@ -1090,7 +1118,7 @@ private final class GitObservationRecorder {
     }
 }
 
-private final class GitObservationFixture {
+private final class GitObservationFixture: Sendable {
     let url: URL
 
     init(label: String) throws {

@@ -258,6 +258,13 @@ struct RustGitOperations: GitOperations, Sendable {
         }
     }
 
+    func captureCommitMessageContext(_ repositories: [GitCommitMessageRepository]) -> Result<GitCommitMessageCoreCapture, GitPatchFailure> {
+        core.gitCommitMessageCapture(repositories).mapError { GitPatchFailure($0.message) }
+    }
+    func checkCommitMessageContext(_ context: GitCommitMessageContext) -> Bool {
+        (try? core.gitCommitMessageCheck(context).get()) == true
+    }
+
     func exportPatch(at rootURL: URL, source: GitPatchSource, paths: [String], base: String?, target: String?, metadataOnly: Bool) -> Result<GitPatchExport, GitPatchFailure> {
         core.gitPatchExport(at: rootURL, source: source, paths: paths, base: base, target: target, metadataOnly: metadataOnly)
             .mapError { GitPatchFailure($0.userMessage) }

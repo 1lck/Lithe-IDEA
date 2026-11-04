@@ -3649,6 +3649,7 @@
 "Select a stack frame to inspect variables" = "选择一个栈帧以查看变量";
 "Select a worktree" = "选择工作树";
 "Select all" = "全选";
+"Select at most 1,000 files for AI generation." = "一次 AI 生成最多选择 1000 个文件。";
 "Select branch" = "选择分支";
 "Select configurations for batch actions" = "勾选配置以批量操作";
 "Select conversation" = "选择会话";
@@ -3870,6 +3871,7 @@
 "Some directories could not be scanned. Automatic project analysis was not refreshed." = "部分目录无法扫描，未刷新项目自动分析。";
 "Some installation versions were not checked in time." = "部分安装的版本未能及时检查。";
 "Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations." = "部分项目目录无法读取，已有运行配置已保留。请恢复访问权限后重新识别运行配置。";
+"Some selected diffs could not be read. Refresh Git changes and retry." = "部分勾选文件的差异读取失败，请刷新 Git 更改后重试。";
 "Some selected files belong to another version control root. Refresh and select them again." = "部分所选文件属于其他版本控制根目录。请刷新后重新选择。";
 "Some settings have unsupported values and were skipped." = "部分设置值不受支持，已跳过。";
 "Some special files could not be copied" = "部分特殊文件未能复制";
@@ -4227,6 +4229,7 @@
 "The downloaded plugin archive does not match the plugin repository (SHA-256 %@, expected %@)." = "下载的插件压缩包与插件仓库不符（SHA-256 为 %@，应为 %@）。";
 "The downloaded update failed its SHA-256 verification. Do not install it; retry or use the Release page." = "下载的更新未通过 SHA-256 校验，请勿安装。请重试或通过 Release 页面下载。";
 "The downloaded update failed its checksum verification." = "下载的更新未通过校验。";
+"The draft changed while confirming. Your text has been kept." = "确认期间草稿发生变化，已保留你的输入。";
 "The edit stop changed. Refresh the session before amending." = "编辑暂停位置已更改。请刷新会话后再修改提交。";
 "The end time must be after the start time." = "结束时间不能早于开始时间。";
 "The environment snapshot could not be read. Refresh to try again." = "无法读取环境快照，请刷新重试。";
@@ -4381,6 +4384,7 @@
 "The selected branch diff is sent to the active AI provider when you generate." = "生成时，所选分支的差异内容会发送给当前 AI 服务商。";
 "The selected branches have no textual changes to summarize." = "所选分支之间没有可供总结的文本更改。";
 "The selected built-in background is unavailable in this build." = "此版本不提供所选的内置背景。";
+"The selected changes changed. Generate again." = "勾选的更改已变化，请重新生成。";
 "The selected changes changed. Reopen the rollback dialog and review them again." = "所选更改已发生变化。请重新打开回滚弹窗并再次检查。";
 "The selected file changed before generation finished" = "生成完成前，选中的文件已发生变化";
 "The selected file has no textual diff to summarize." = "所选文件没有可用于总结的文本 Diff。";
@@ -4976,8 +4980,12 @@
 "ai.project" = "项目";
 "ai.settings" = "设置";
 "ai.terminal" = "终端";
+"aiCommit.aiCOMMITDIFFFAILED" = "部分勾选文件的差异读取失败，请刷新 Git 更改后重试。";
+"aiCommit.aiCOMMITDRAFTCHANGED" = "确认期间草稿发生变化，已保留你的输入。";
 "aiCommit.aiCOMMITINVALIDOPTIONS" = "请检查提交信息生成设置。";
 "aiCommit.aiCOMMITOUTPUTLIMIT" = "服务商在生成完整提交信息前用尽输出额度，请降低推理强度或减少 Diff 字符限制后重试。";
+"aiCommit.aiCOMMITSTALE" = "勾选的更改已变化，请重新生成。";
+"aiCommit.aiCOMMITTOOMANYFILES" = "一次 AI 生成最多选择 1000 个文件。";
 "aiCommit.outputTokenField" = "输出额度字段";
 "aiCommit.outputTokenFieldInfo" = "Lithe 使用此字段发送提交信息请求。旧网关请选择 max_tokens。";
 "avg" = "平均";

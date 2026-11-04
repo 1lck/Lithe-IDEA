@@ -1,108 +1,79 @@
+import { invoke } from "@/platform/tauri-core";
+import { resolveRepositoryPathOrThrow } from "../api/git-repo-api";
 import type { CommitFileInput } from "../types/ai-commit";
-import type { GitDiff, GitFile } from "../types/git.types";
+import type { GitFile } from "../types/git.types";
 import {
   getGitFileOriginalRepositoryRelativePath,
   getGitFileRepositoryPath,
   getGitFileRepositoryRelativePath,
 } from "../utils/git-status-selection";
 
-type ReadDiff = (
-  repository: string,
-  path: string,
-  untracked: boolean,
-  originalPath?: string,
-) => Promise<GitDiff | null>;
-const MAX_CONTEXT_CHARACTERS = 120_000;
-const MAX_CONTEXT_FILES = 1_000;
+type SelectionFile = { path: string; originalPath?: string; changeKind: GitFile["status"] };
+type RepositorySelection = { root: string; files: SelectionFile[] };
+export interface CommitContext {
+  files: CommitFileInput[];
+  token: string;
+  repositories: RepositorySelection[];
+}
 
 export function commitSelectionKey(repoPath: string, files: GitFile[]): string {
   return JSON.stringify([
     repoPath,
-    files
-      .map((file) => [
-        getGitFileRepositoryPath(file, repoPath),
-        getGitFileRepositoryRelativePath(file),
-        getGitFileOriginalRepositoryRelativePath(file),
-        file.status,
-        file.rawStatus,
-      ])
-      .sort(),
+    files.map((file) => [
+      getGitFileRepositoryPath(file, repoPath),
+      getGitFileRepositoryRelativePath(file),
+      getGitFileOriginalRepositoryRelativePath(file),
+      file.status,
+      file.rawStatus,
+    ]).sort(),
   ]);
 }
 
-/** Reads every selected path with at most four concurrent Git requests and bounded retained text. */
-export async function collectCommitContext(
-  repoPath: string,
-  files: GitFile[],
-  signal: AbortSignal,
-  readDiff: ReadDiff,
-): Promise<CommitFileInput[]> {
-  if (files.length > MAX_CONTEXT_FILES) throw new Error("AI_COMMIT_TOO_MANY_FILES");
-  const repositories = new Set(
-    files.map((file) => getGitFileRepositoryPath(file, repoPath) ?? repoPath),
-  );
-  const repositoryIds = [...repositories].sort();
-  const ordered = [...files].sort((a, b) =>
-    getGitFileRepositoryRelativePath(a).localeCompare(getGitFileRepositoryRelativePath(b)),
-  );
-  const inputs: CommitFileInput[] = [];
-  let next = 0;
-  let failed = false;
-  const budget = Math.floor(MAX_CONTEXT_CHARACTERS / Math.max(1, files.length));
-  const workers = Array.from({ length: Math.min(4, files.length) }, async () => {
-    try {
-      while (!failed && next < ordered.length) {
-        signal.throwIfAborted();
-        const index = next++;
-        const file = ordered[index];
-        const path = getGitFileRepositoryRelativePath(file);
-        const diff = await readDiff(
-          getGitFileRepositoryPath(file, repoPath) ?? repoPath,
-          path,
-          file.status === "untracked",
-          getGitFileOriginalRepositoryRelativePath(file),
-        );
-        signal.throwIfAborted();
-        if (!diff) throw new Error("AI_COMMIT_DIFF_FAILED");
-        const patch =
-          diff.raw_patch ??
-          diff.lines
-            .map(
-              (line) =>
-                `${line.line_type === "added" ? "+" : line.line_type === "removed" ? "-" : " "}${line.content}`,
-            )
-            .join("\n");
-        // Hash the full available patch before truncation to detect later edits outside the prompt.
-        const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(patch));
-        const fingerprint = Array.from(new Uint8Array(hash), (byte) =>
-          byte.toString(16).padStart(2, "0"),
-        ).join("");
-        const prefix = [...patch].slice(0, budget).join("");
-        const text =
-          prefix +
-          (prefix.length < patch.length || diff.is_truncated
-            ? "\n[Diff truncated; do not infer omitted changes.]"
-            : "");
-        inputs[index] = {
-          path:
-            repositories.size > 1
-              ? `repository-${repositoryIds.indexOf(getGitFileRepositoryPath(file, repoPath) ?? repoPath) + 1}/${path}`
-              : path,
-          changeKind: file.status,
-          diff: diff.is_binary ? "" : text,
-          fingerprint,
-        };
-      }
-    } catch (error) {
-      failed = true;
-      throw error;
-    }
+/** Core reads fresh worktree evidence and binds it to the exact selected state. */
+export async function captureCommitContext(
+  repoPath: string, files: GitFile[], maximumDiffCharacters: number, signal: AbortSignal,
+): Promise<CommitContext> {
+  const grouped = new Map<string, SelectionFile[]>();
+  for (const file of files) {
+    const root = getGitFileRepositoryPath(file, repoPath) ?? repoPath;
+    const selected = grouped.get(root) ?? [];
+    selected.push({
+      path: getGitFileRepositoryRelativePath(file),
+      originalPath: getGitFileOriginalRepositoryRelativePath(file),
+      changeKind: file.status,
+    });
+    grouped.set(root, selected);
+  }
+  const resolved = new Map<string, SelectionFile[]>();
+  for (const [root, selected] of grouped) {
+    signal.throwIfAborted();
+    const actual = await resolveRepositoryPathOrThrow(root);
+    const entries = resolved.get(actual) ?? [];
+    entries.push(...selected);
+    resolved.set(actual, entries);
+  }
+  signal.throwIfAborted();
+  const repositories = [...resolved].map(([root, selected]) => ({ root, files: selected }));
+  const result = await invoke<{ files: CommitFileInput[]; token: string }>("git.commitMessageContext", {
+    action: "capture", mode: "worktree", repositories, maximumDiffCharacters,
   });
-  // Drain already-started, individually bounded Git reads on errors/cancellation.
-  const results = await Promise.allSettled(workers);
-  const failure = results.find(
-    (result): result is PromiseRejectedResult => result.status === "rejected",
-  );
-  if (failure) throw failure.reason;
-  return inputs;
+  signal.throwIfAborted();
+  if (!/^[0-9a-f]{64}$/.test(result.token) || !Array.isArray(result.files) || result.files.length === 0 || result.files.length > 1_000 ||
+      result.files.some((file) => {
+        if (typeof file.path !== "string" || !file.path || typeof file.changeKind !== "string" || typeof file.diff !== "string" ||
+            !Number.isSafeInteger(file.originalCharacters) || typeof file.truncated !== "boolean") return true;
+        let length = 0;
+        for (const _ of file.diff) length += 1;
+        return file.originalCharacters! < length || file.truncated !== (file.originalCharacters! > length);
+      })) throw new Error("AI_COMMIT_DIFF_FAILED");
+  return { ...result, repositories };
+}
+
+export async function isCommitContextCurrent(context: CommitContext, signal: AbortSignal): Promise<boolean> {
+  signal.throwIfAborted();
+  const result = await invoke<{ isCurrent: boolean }>("git.commitMessageContext", {
+    action: "check", mode: "worktree", repositories: context.repositories, token: context.token,
+  });
+  signal.throwIfAborted();
+  return result.isCurrent;
 }

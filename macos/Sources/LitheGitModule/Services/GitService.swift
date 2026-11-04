@@ -14,6 +14,8 @@ package struct NullGitPerformanceLogger: GitPerformanceLogger {
 
 package protocol GitOperations: Sendable {
     func changelistProjection(_ request: GitChangelistCoreRequest) -> GitChangelistCoreProjection?
+    func captureCommitMessageContext(_ repositories: [GitCommitMessageRepository]) -> Result<GitCommitMessageCoreCapture, GitPatchFailure>
+    func checkCommitMessageContext(_ context: GitCommitMessageContext) -> Bool
     func reconcileDeletedSelection(at root: URL, changes: [GitChange]) -> GitProcessResult?
     func prepareCommitSelection(_ request: GitCommitSelectionRequest) -> GitProcessResult?
     func prepareWorkspaceCommit(_ request: GitWorkspaceCommitRequest) -> Result<GitWorkspaceCommitPreparation, GitWorkspaceCommitFailure>
@@ -302,6 +304,8 @@ package extension GitOperations {
     func shelfCapture(at rootURL: URL) -> Result<GitShelfSnapshot, GitPatchFailure> { .failure(GitPatchFailure(L10n.string("Saved changes operation failed"))) }
     func shelfPlan(at rootURL: URL, phase: GitShelfPhase) -> Result<GitShelfPlan, GitPatchFailure> { .failure(GitPatchFailure(L10n.string("Saved changes operation failed"))) }
     func shelfStep(at rootURL: URL, phase: GitShelfPhase, layer: GitShelfLayer, snapshot: GitShelfSnapshot) -> GitProcessResult? { nil }
+    func captureCommitMessageContext(_ repositories: [GitCommitMessageRepository]) -> Result<GitCommitMessageCoreCapture, GitPatchFailure> { .failure(GitPatchFailure("AI_COMMIT_DIFF_FAILED")) }
+    func checkCommitMessageContext(_ context: GitCommitMessageContext) -> Bool { false }
     func exportPatch(at rootURL: URL, source: GitPatchSource, paths: [String], base: String?, target: String?, metadataOnly: Bool) -> Result<GitPatchExport, GitPatchFailure> {
         .failure(GitPatchFailure("Patch export is unavailable."))
     }
@@ -827,6 +831,13 @@ package struct GitService: Sendable {
     }
     func shelfStep(at root: URL, phase: GitShelfPhase, layer: GitShelfLayer, snapshot: GitShelfSnapshot) async -> CommandResult {
         await command(at: root) { $0.shelfStep(at: root, phase: phase, layer: layer, snapshot: snapshot) }
+    }
+
+    func captureCommitMessageContext(_ repositories: [GitCommitMessageRepository]) async -> Result<GitCommitMessageCoreCapture, GitPatchFailure> {
+        await read { $0.captureCommitMessageContext(repositories) } ?? .failure(GitPatchFailure("AI_COMMIT_DIFF_FAILED"))
+    }
+    func checkCommitMessageContext(_ context: GitCommitMessageContext) async -> Bool {
+        await read { $0.checkCommitMessageContext(context) } ?? false
     }
 
     func exportPatch(at root: URL, source: GitPatchSource, paths: [String], base: String?, target: String?, metadataOnly: Bool) async -> Result<GitPatchExport, GitPatchFailure> {

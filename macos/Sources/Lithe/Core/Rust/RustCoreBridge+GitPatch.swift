@@ -24,6 +24,24 @@ extension RustCoreBridge {
         return result.map { _ in () }
     }
 
+    private struct CommitContextRequest: Encodable {
+        let action: String
+        let mode = "staged"
+        let repositories: [GitCommitMessageRepository]
+        let maximumDiffCharacters: Int?
+        let token: String?
+    }
+    private struct CommitContextCheck: Decodable { let isCurrent: Bool }
+
+    func gitCommitMessageCapture(_ repositories: [GitCommitMessageRepository]) -> Result<GitCommitMessageCoreCapture, CoreCallError> {
+        executeResult(command: "git.commitMessageContext", payload: CommitContextRequest(action: "capture", repositories: repositories, maximumDiffCharacters: 120_000, token: nil))
+    }
+
+    func gitCommitMessageCheck(_ context: GitCommitMessageContext) -> Result<Bool, CoreCallError> {
+        let result: Result<CommitContextCheck, CoreCallError> = executeResult(command: "git.commitMessageContext", payload: CommitContextRequest(action: "check", repositories: context.repositories, maximumDiffCharacters: nil, token: context.token))
+        return result.map(\.isCurrent)
+    }
+
     private struct PatchExportRequest: Encodable {
         let root: String
         let source: GitPatchSource

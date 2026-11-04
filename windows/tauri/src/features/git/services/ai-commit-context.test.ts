@@ -1,105 +1,70 @@
-import { expect, test } from "bun:test";
-import { collectCommitContext } from "./ai-commit-context";
-import type { GitDiff, GitFile } from "../types/git.types";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
+import * as native from "@/platform/tauri-core";
+import * as repos from "../api/git-repo-api";
+import type { GitFile } from "../types/git.types";
+import fixture from "../../../../../../shared/fixtures/git/commit-message-context-v1.json";
+import { captureCommitContext, commitSelectionKey, isCommitContextCurrent } from "./ai-commit-context";
 
-const file = (path: string): GitFile => ({
-  path,
-  status: "modified",
-  staged: true,
-  worktree: true,
+const file = (path: string, repositoryPath = "C:/repo"): GitFile => ({
+  path, repositoryPath, repositoryRelativePath: path, status: "modified", staged: true,
 });
-const diff = (path: string, patch = "+change"): GitDiff => ({
-  file_path: path,
-  is_new: false,
-  is_deleted: false,
-  is_renamed: false,
-  lines: [],
-  raw_patch: patch,
+let invoke: ReturnType<typeof spyOn<typeof native, "invoke">>;
+let resolve: ReturnType<typeof spyOn<typeof repos, "resolveRepositoryPathOrThrow">>;
+beforeEach(() => { invoke = spyOn(native, "invoke"); resolve = spyOn(repos, "resolveRepositoryPathOrThrow"); });
+afterEach(() => { invoke.mockRestore(); resolve.mockRestore(); });
+
+test("passes distinct repository-relative identities and the AI budget to Core", async () => {
+  resolve.mockImplementation(async (root) => root);
+  invoke.mockResolvedValue(fixture.captureResponse as never);
+  const selected = [file("a", "C:/first"), { ...file("new", "C:/second"), originalPath: "old", status: "renamed" as const }];
+  const context = await captureCommitContext("C:/first", selected, 8000, new AbortController().signal);
+  expect(context.repositories).toEqual([
+    { root: "C:/first", files: [{ path: "a", originalPath: undefined, changeKind: "modified" }] },
+    { root: "C:/second", files: [{ path: "new", originalPath: "old", changeKind: "renamed" }] },
+  ]);
+  expect(invoke).toHaveBeenCalledWith("git.commitMessageContext", {
+    action: "capture", mode: "worktree", repositories: context.repositories, maximumDiffCharacters: 8000,
+  });
+  expect(context.files[0].originalCharacters).toBe(8);
+  expect(context.token).toBe(fixture.captureResponse.token);
 });
-test("reads all selected staged paths", async () => {
-  const selected = Array.from({ length: 14 }, (_, i) => file(`file${i}`));
-  const paths: string[] = [];
-  const result = await collectCommitContext(
-    "repo",
-    selected,
-    new AbortController().signal,
-    async (_repo, path) => {
-      paths.push(path);
-      return diff(path);
-    },
-  );
-  expect(paths).toHaveLength(14);
-  expect(result).toHaveLength(14);
-  expect(result.every((f) => f.diff === "+change")).toBe(true);
+
+test("checks captured state through Core and rejects changes at the same path", async () => {
+  const context = { files: [], token: "captured", repositories: [{ root: "C:/repo", files: [] }] };
+  invoke.mockResolvedValue({ isCurrent: false } as never);
+  expect(await isCommitContextCurrent(context, new AbortController().signal)).toBe(false);
+  expect(invoke).toHaveBeenCalledWith("git.commitMessageContext", {
+    action: "check", mode: "worktree", repositories: context.repositories, token: "captured",
+  });
 });
-test("retains original rename path and owner repository", async () => {
-  const calls: unknown[] = [];
-  await collectCommitContext(
-    "workspace",
-    [
-      {
-        ...file("label/new"),
-        repositoryPath: "repo",
-        repositoryRelativePath: "new",
-        repositoryOriginalRelativePath: "old",
-      },
-    ],
-    new AbortController().signal,
-    async (...args) => {
-      calls.push(args);
-      return diff("new");
-    },
-  );
-  expect(calls).toEqual([["repo", "new", false, "old"]]);
-});
-test("keeps files from multiple repositories distinct and rejects unreadable paths", async () => {
-  const calls: string[] = [];
-  const inputs = await collectCommitContext(
-    "repo",
-    [file("same"), { ...file("same"), repositoryPath: "other" }],
-    new AbortController().signal,
-    async (root, path) => {
-      calls.push(root);
-      return diff(path);
-    },
-  );
-  expect(calls.sort()).toEqual(["other", "repo"]);
-  expect(inputs.map((input) => input.path)).toEqual(["repository-2/same", "repository-1/same"]);
-  await expect(
-    collectCommitContext("repo", [file("one")], new AbortController().signal, async () => null),
-  ).rejects.toThrow("AI_COMMIT_DIFF_FAILED");
-});
-test("hash detects edits beyond truncated text", async () => {
-  const prefix = "+".repeat(121000);
-  const a = await collectCommitContext(
-    "repo",
-    [file("one")],
-    new AbortController().signal,
-    async () => diff("one", prefix + "a"),
-  );
-  const b = await collectCommitContext(
-    "repo",
-    [file("one")],
-    new AbortController().signal,
-    async () => diff("one", prefix + "b"),
-  );
-  expect(a[0].diff).toBe(b[0].diff);
-  expect(a[0].fingerprint).not.toBe(b[0].fingerprint);
-});
-test("cancellation prevents starting remaining file reads", async () => {
+
+test("does not start Core capture after cancellation during repository resolution", async () => {
   const controller = new AbortController();
-  let started = 0;
-  await expect(
-    collectCommitContext(
-      "repo",
-      Array.from({ length: 8 }, (_, i) => file(String(i))),
-      controller.signal,
-      async (_repo, path) => {
-        started++;
-        controller.abort();
-        return diff(path);
-      },
-    ),
-  ).rejects.toThrow();
-  expect(started).toBe(1);
+  resolve.mockImplementation(async (root) => { controller.abort(); return root; });
+  await expect(captureCommitContext("C:/repo", [file("a")], 8000, controller.signal)).rejects.toThrow();
+  expect(invoke).not.toHaveBeenCalled();
+});
+
+test("selection keys include repository, source path and status", () => {
+  const base = file("a");
+  expect(commitSelectionKey("C:/repo", [base])).not.toBe(commitSelectionKey("C:/repo", [{ ...base, originalPath: "old" }]));
+  expect(commitSelectionKey("C:/repo", [base])).not.toBe(commitSelectionKey("C:/repo", [{ ...base, repositoryPath: "C:/other" }]));
+});
+
+test("a cancelled Core check cannot authorize a late result", async () => {
+  const controller = new AbortController();
+  let release!: (value: unknown) => void;
+  invoke.mockImplementation(() => new Promise((resolvePromise) => { release = resolvePromise; }) as never);
+  const context = { files: [], token: "captured", repositories: [] };
+  const pending = isCommitContextCurrent(context, controller.signal);
+  controller.abort();
+  release({ isCurrent: true });
+  await expect(pending).rejects.toThrow();
+});
+
+test("rejects malformed or incomplete Core evidence before generation", async () => {
+  resolve.mockImplementation(async (root) => root);
+  invoke.mockResolvedValue({ ...fixture.captureResponse, token: "invalid" } as never);
+  await expect(captureCommitContext("C:/repo", [file("a")], 8000, new AbortController().signal))
+    .rejects.toThrow("AI_COMMIT_DIFF_FAILED");
 });

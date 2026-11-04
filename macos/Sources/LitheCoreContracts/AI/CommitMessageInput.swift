@@ -19,8 +19,11 @@ public struct CommitMessageFileInput: Sendable {
     public let path: String
     public let changeKind: CommitMessageChangeKind
     public let diff: String
-    public init(path: String, changeKind: CommitMessageChangeKind, diff: String) {
+    /// Original Unicode-scalar length before Core applied the cross-boundary budget.
+    public let originalCharacters: Int
+    public init(path: String, changeKind: CommitMessageChangeKind, diff: String, originalCharacters: Int? = nil) {
         self.path = path; self.changeKind = changeKind; self.diff = diff
+        self.originalCharacters = originalCharacters ?? diff.unicodeScalars.count
     }
 }
 
