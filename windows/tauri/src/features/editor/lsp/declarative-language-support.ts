@@ -31,11 +31,20 @@ const owners = new Map<string, CachedOwner>();
 const pending = new Map<string, Promise<DeclarativeLanguageOwner | null>>();
 const listeners = new Set<() => void>();
 let revision = 0;
+let catalogRevision = 0;
 let unsubscribeActivity: (() => void) | null = null;
 
 function publishChange(): void {
   revision += 1;
   for (const listener of listeners) listener();
+}
+
+/** Scans and admitted models may unblock ownership or a failed import. */
+export function invalidateDeclarativeLanguageSupport(): void {
+  catalogRevision += 1;
+  owners.clear();
+  pending.clear();
+  publishChange();
 }
 
 export function declarativeLanguageSupportRevision(): number {
@@ -89,11 +98,12 @@ export function probeDeclarativeLanguageOwner(
   const existing = pending.get(filePath);
   if (existing) return existing;
   const assertCurrent = pluginPlanGuard();
+  const observedCatalog = catalogRevision;
   const task = (async () => {
     const { invokeDeclarativePluginOwner } =
       await import("@/features/plugins/declarative-plugin-launch");
     const owner = await invokeDeclarativePluginOwner(filePath);
-    if (!owner) return null;
+    if (!owner || observedCatalog !== catalogRevision) return null;
     try {
       assertCurrent(owner.pluginId);
     } catch {

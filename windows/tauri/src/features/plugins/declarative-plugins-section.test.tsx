@@ -42,6 +42,7 @@ function detail(plugin: DeclarativePluginSummary): PluginDetailsModel {
 }
 
 const review: PreparedDeclarativeInstall = {
+  verification: { status: "unsigned" },
   sessionId: "test-review", manifestDigest: "test-digest", displayName: "Import fixture",
   review: { pluginId: "io.example.import", version: "1.0.0", permissions: [], programs: [], newPrograms: [] },
 };
@@ -326,6 +327,22 @@ test("late management failure cannot replace another plugin or workspace", async
   expect(host.textContent).not.toContain("old operation failed");
   expect(row("io.example.beta").getAttribute("aria-pressed")).toBe("true");
   expect(button(text("settings.declarativePluginDetails.action.enable")).disabled).toBe(false);
+});
+
+test.each(["en-US", "zh-CN"] as const)("%s disk review displays only native-verified publisher trust", async (locale) => {
+  language = locale;
+  intercept = (command) => command === "prepare"
+    ? Promise.resolve({ ...review, verification: { status: "publisherSignature", keyId: "fixture-key" } })
+    : undefined;
+  await mount();
+  await click(text("settings.declarativePlugins.import"));
+  const dialog = host.querySelector('[role="dialog"]')!;
+  expect(dialog.textContent).toContain(text("settings.declarativePluginDetails.verification.publisherSignature"));
+  expect(dialog.textContent).not.toContain(text("settings.declarativePlugins.unverified"));
+  await click(text("ui.cancel"), dialog);
+  intercept = () => undefined;
+  await click(text("settings.declarativePlugins.import"));
+  expect(host.querySelector('[role="dialog"]')?.textContent).toContain(text("settings.declarativePlugins.unverified"));
 });
 
 test("a prepared import arriving after unmount is cancelled exactly once", async () => {

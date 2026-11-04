@@ -110,6 +110,23 @@ function Invoke-TimedRustTests {
             # Two repositories, three confirmation previews and two pushes invoke
             # 287 Git processes; this integration case measured 49.9s on Windows.
             $arguments += @("--test-budget", "tests::git_workspace_commit::git_workspace_commit_push_confirms_each_repository_separately=60000")
+            # R42 completed these workflows beyond their old 15s/30s bounds. Keep
+            # allowances on these exact scenarios, not the whole modules.
+            foreach ($integrationCase in @(
+                "project::indexing::tests::directory_action_fixture_preserves_real_git_search_eligibility",
+                "tests::git::git_write_squashes_a_contiguous_local_commit_range",
+                "tests::git_history_rewrite::history_preview_preserves_complete_messages_and_requires_reviewed_execution",
+                "tests::git_history_rewrite::native_rebase_edit_pause_restores_full_message_and_amend_flows_into_squash_fixup",
+                "tests::git_history_rewrite::native_rebase_large_escaped_manifest_remains_readable_through_abort",
+                "tests::git_history_rewrite::native_rebase_legacy_continue_restores_editor_and_keeps_newly_empty_commit",
+                "tests::git_history_rewrite::native_rebase_rejects_missing_or_stale_amend_head_without_changing_external_edits",
+                "tests::git_workspace_commit::git_workspace_workflow_failed_push_continues_independent_and_retries_without_duplicate_commits"
+            )) {
+                $arguments += @("--test-budget", "${integrationCase}=45000")
+            }
+            $arguments += @("--test-budget", "tests::git::git_write_creates_deletes_and_records_tags=30000")
+            # Abort, external recovery and a new reviewed plan measured 45.6s.
+            $arguments += @("--test-budget", "tests::git_history_rewrite::externally_aborted_rebase_keeps_recovery_but_allows_a_new_reviewed_plan=60000")
             # These measured multi-preview/push cases took 18.3–20.2s on Windows.
             # Fixture children and Core requests retain their own 10s deadline.
             foreach ($pushCase in @(

@@ -34,8 +34,11 @@ impl Repository {
         // Each real Git subprocess is governed by Core's local deadline; tests
         // do not synchronize using sleeps or depend on a network remote. Native
         // rebase validates and replays real history, so its requests get 20 seconds
-        // within the history-rewrite module's 30-second integration watchdog.
-        let timeout = if command.starts_with("git.rebase") {
+        // within the case watchdog. Reviewed Windows history writes replay
+        // several commits through serial children and need the same bound.
+        let timeout = if command.starts_with("git.rebase")
+            || (cfg!(windows) && command == "git.write" && payload.get("expectedState").is_some())
+        {
             20_000
         } else {
             10_000

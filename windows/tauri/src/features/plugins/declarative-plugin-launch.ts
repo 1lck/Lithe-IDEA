@@ -67,8 +67,12 @@ export interface DeclarativePluginLaunch {
 }
 
 /** Rescans bundled and installed packages; call at startup and after installs. */
-export function rescanDeclarativePlugins(): Promise<number> {
-  return invoke<number>("declarative_plugins_rescan");
+export async function rescanDeclarativePlugins(): Promise<number> {
+  const count = await invoke<number>("declarative_plugins_rescan");
+  const { invalidateDeclarativeLanguageSupport } =
+    await import("@/features/editor/lsp/declarative-language-support");
+  invalidateDeclarativeLanguageSupport();
+  return count;
 }
 
 /** Returns the cached scan result; call `rescanDeclarativePlugins` first. */
@@ -108,6 +112,7 @@ export interface DeclarativePluginInstallReview {
 
 /** A prepared disk import awaiting user confirmation. */
 export interface PreparedDeclarativeInstall {
+  verification: { status: "unsigned" } | { status: "publisherSignature"; keyId: string };
   sessionId: string;
   review: DeclarativePluginInstallReview;
   /** Digest the confirm call must present to prove the package is unchanged. */

@@ -1259,6 +1259,14 @@ fn maven_test_source_main_uses_the_test_classpath() {
 #[test]
 fn plain_java_main_uses_the_jdk_without_maven() {
     let root = temporary_root("run-config-plain-java-main");
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            crate::execution::generated_layer::forget(&self.0);
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
     let source = "src/com/example/WorkerMain.java";
     fs::create_dir_all(root.join("src/com/example")).unwrap();
     fs::write(
@@ -1300,11 +1308,7 @@ fn plain_java_main_uses_the_jdk_without_maven() {
             "command": "runConfig.createLaunchPlan",
             "payload": {
                 "root": root,
-                "configurationId": "java-main:com.example.WorkerMain",
-                "javaLaunch": {
-                    "mainClass": "injected.Main",
-                    "classPaths": ["/untrusted/classes"]
-                }
+                "configurationId": "java-main:com.example.WorkerMain"
             }
         })
         .to_string(),
@@ -1312,8 +1316,9 @@ fn plain_java_main_uses_the_jdk_without_maven() {
     .unwrap();
     assert_eq!(plan["ok"], true, "{plan}");
     assert_eq!(plan["data"]["executable"]["toolchain"], "project-jdk");
-    // Non-Maven java.main also compiles then runs by its recorded main class;
-    // project-model metadata is accepted only for Maven-owned sources.
+    // Without a prepared JDT target, standalone Java compiles then runs by its
+    // recorded main class. The JDT-path regression separately covers prepared
+    // unmanaged projects, which must retain upstream dependency/module paths.
     let output_dir = ".lithe/run/classes/java-main-com.example.WorkerMain";
     assert_eq!(
         plan["data"]["preLaunchSteps"],
@@ -1327,8 +1332,6 @@ fn plain_java_main_uses_the_jdk_without_maven() {
         plan["data"]["arguments"],
         serde_json::json!(["com.example.WorkerMain"])
     );
-
-    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]

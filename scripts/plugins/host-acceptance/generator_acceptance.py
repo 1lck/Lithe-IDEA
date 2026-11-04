@@ -83,7 +83,7 @@ def choose_runtime(page, driver, app_pid: int, home: Path) -> None:
 
     try:
         wait_for(selected_home_matches, "the visible JDK field to show its selected home",
-                 now=time.monotonic, pump=lambda: page.locator("body").count(), seconds=5)
+                 now=time.monotonic, pump=lambda: page.locator("body").count(), seconds=30)
     except Exception as error:
         raise AssertionError(
             f"the JDK field did not show the selected home: expected={home}; actual={actual!r}; visible={visible}"

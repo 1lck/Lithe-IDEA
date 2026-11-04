@@ -278,7 +278,9 @@ function InstallReviewCard({
         })}
       </p>
       <p className="text-subtle-foreground ui-text-sm">
-        {t("settings.declarativePlugins.unverified")}
+        {pending.verification.status === "publisherSignature"
+          ? t("settings.declarativePluginDetails.verification.publisherSignature")
+          : t("settings.declarativePlugins.unverified")}
       </p>
       {pending.review.permissions.length > 0 && (
         <ul className="mt-1 list-disc pl-5 ui-text-sm">

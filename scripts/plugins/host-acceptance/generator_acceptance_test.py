@@ -108,7 +108,7 @@ class GeneratorHelperTests(unittest.TestCase):
                         acceptance.choose_runtime(page, driver, 81, home)
                 self.assertIn(repr(text), str(raised.exception))
                 self.assertIn(str(home), str(raised.exception))
-                self.assertEqual(clock[0], 5)
+                self.assertEqual(clock[0], 30)
                 driver.select_native_file.assert_called_once_with(81, home)
                 page.get_by_text.assert_not_called()
 
@@ -121,7 +121,7 @@ class GeneratorHelperTests(unittest.TestCase):
                 acceptance.choose_runtime(page, driver, 81, home)
         self.assertIn(repr(text), str(raised.exception))
         self.assertIn("visible=False", str(raised.exception))
-        self.assertEqual(clock[0], 5)
+        self.assertEqual(clock[0], 30)
         driver.select_native_file.assert_called_once_with(81, home)
 
     def test_runtime_choice_text_timeout_preserves_unavailable_evidence(self):
@@ -138,11 +138,11 @@ class GeneratorHelperTests(unittest.TestCase):
     def test_runtime_choice_waits_for_visible_field_update_with_one_local_deadline(self):
         text = r"C:\fixture\JDK"
         page, driver, _, _, selected, clock = self.runtime_choice_fixture(text)
-        selected.inner_text.side_effect = ["", text]
+        selected.inner_text.side_effect = [*([""] * 7), text]
         with patch.object(acceptance.time, "monotonic", side_effect=lambda: clock[0]):
             acceptance.choose_runtime(page, driver, 81, Path("C:/fixture/JDK"))
-        self.assertEqual(clock[0], 1)
-        self.assertEqual(selected.inner_text.call_count, 2)
+        self.assertEqual(clock[0], 7)
+        self.assertEqual(selected.inner_text.call_count, 8)
         driver.select_native_file.assert_called_once()
 
     def test_transport_failure_cannot_be_reported_as_native_runtime_rejection(self):

@@ -42,7 +42,7 @@ import type {
 } from "@/features/diagnostics/types/diagnostics.types";
 import { hasTextContent, shouldStartLsp } from "@/features/panes/types/pane-content.types";
 import { useBufferStore } from "../stores/buffer.store";
-import { flushLspDocumentChanges } from "./pending-document-changes";
+import { flushLspDocumentChanges, getLspDocumentChangeOwner } from "./pending-document-changes";
 import type { EditorTextChange } from "../types/editor.types";
 import { replayEditorTextChanges } from "../utils/editor-text-change";
 import { logger } from "../utils/logger";
@@ -256,6 +256,7 @@ export class LspClient {
   private fileStartTasks = new Map<string, PendingFileStart>();
   private workspaceStartTasks = new Map<string, PendingWorkspaceStart>();
   private documentOpenTasks = new Map<string, PendingDocumentOpen>();
+  private documentSaveTasks = new Map<string, { attachmentId: string; task: Promise<void> }>();
   private documentCloseTasks = new Map<string, Promise<void>>();
   private documentChangeTasks = new Map<string, Promise<void>>();
   private documents = new Map<string, TrackedLspDocument>();
@@ -2198,24 +2199,52 @@ export class LspClient {
 
   async notifyDocumentSave(filePath: string, content: string, currentContent?: string): Promise<void> {
     const attachmentKey = trackedFileKey(filePath);
+    const mountedOwner = getLspDocumentChangeOwner(filePath);
+    const initialAttachmentId = this.fileAttachmentIds.get(attachmentKey);
+    const closing = this.documentCloseTasks?.get(attachmentKey);
+    // Restoration may not have installed an attachment yet. Reach the mounted
+    // editor's readiness boundary before taking ownership of this notification.
+    // Do not hold a save that close itself must drain while awaiting that open.
+    if (closing) await closing;
+    await flushLspDocumentChanges(filePath);
+    // A remounted editor may still expose its predecessor's native attachment
+    // while its own open is pending. Follow that editor's readiness, but never
+    // transfer a save to a different buffer or workspace that takes its place.
+    if (mountedOwner ? getLspDocumentChangeOwner(filePath) !== mountedOwner :
+        !closing && initialAttachmentId && this.fileAttachmentIds.get(attachmentKey) !== initialAttachmentId) return;
     const attachmentId = this.fileAttachmentIds.get(attachmentKey);
-    if (currentContent !== undefined) {
-      await this.synchronizeAfterQueuedChanges(filePath, currentContent);
-    }
-    // Finish the editor's preceding changes before reporting the disk save.
-    // Core rejects a delayed save whose text has already been superseded.
-    await this.documentChangeTasks.get(attachmentKey);
-    const document = this.documents.get(attachmentKey);
-    if (!attachmentId || document?.phase !== "open" || document.attachmentId !== attachmentId) {
-      return;
-    }
+    if (!attachmentId || (this.documentCloseTasks?.has(attachmentKey) &&
+        this.documents.get(attachmentKey)?.attachmentId === attachmentId)) return;
+    this.documentSaveTasks ??= new Map();
+    const previousSave = this.documentSaveTasks.get(attachmentKey);
+    const task = (async () => {
+      if (previousSave?.attachmentId === attachmentId) await previousSave.task.catch(() => undefined);
+      // A restored editor can save while its exact attachment is still opening.
+      // Never transfer the notification to a replacement attachment.
+      const pendingOpen = this.documentOpenTasks.get(attachmentKey);
+      if (pendingOpen?.attachmentId === attachmentId) await pendingOpen.task;
+      if (this.fileAttachmentIds.get(attachmentKey) !== attachmentId) return;
+      if (currentContent !== undefined) {
+        await this.synchronizeDocument(filePath, currentContent, [], attachmentId);
+      }
+      // Finish preceding edits before reporting the disk snapshot. A policy
+      // refresh must drain this save before closing the same working copy.
+      await this.documentChangeTasks.get(attachmentKey);
+      const document = this.documents.get(attachmentKey);
+      if (this.fileAttachmentIds.get(attachmentKey) !== attachmentId ||
+          document?.phase !== "open" || document.attachmentId !== attachmentId) return;
 
-    try {
-      await invoke<void>("lsp_document_save", { filePath, content, attachmentId });
-    } catch (error) {
-      logger.error("LSPClient", "LSP document save error:", error);
-      throw error;
-    }
+      try {
+        await invoke<void>("lsp_document_save", { filePath, content, attachmentId });
+      } catch (error) {
+        logger.error("LSPClient", "LSP document save error:", error);
+        throw error;
+      }
+    })().finally(() => {
+      if (this.documentSaveTasks.get(attachmentKey)?.task === task) this.documentSaveTasks.delete(attachmentKey);
+    });
+    this.documentSaveTasks.set(attachmentKey, { attachmentId, task });
+    return task;
   }
 
   async notifyDocumentClose(filePath: string, requestedAttachmentId?: string): Promise<void> {
@@ -2223,12 +2252,17 @@ export class LspClient {
     const document = this.documents.get(attachmentKey);
     const attachmentId = requestedAttachmentId ?? document?.attachmentId;
     if (!attachmentId || document?.attachmentId !== attachmentId) return;
-    if (document.phase === "closing") return this.documentCloseTasks?.get(attachmentKey);
-
-    this.documents.set(attachmentKey, { ...document, phase: "closing" });
-    useDiagnosticsStore.getState().actions.clearDiagnosticsForOwner(filePath, "lsp");
-    useLspStore.getState().actions.markDocumentStateChanged();
+    const pendingClose = this.documentCloseTasks?.get(attachmentKey);
+    if (pendingClose) return pendingClose;
     const task = (async () => {
+      const save = this.documentSaveTasks?.get(attachmentKey);
+      // Failed saves still release their owner. Their caller retains the error.
+      if (save?.attachmentId === attachmentId) await save.task.catch(() => undefined);
+      const current = this.documents.get(attachmentKey);
+      if (current?.attachmentId !== attachmentId) return;
+      this.documents.set(attachmentKey, { ...current, phase: "closing" });
+      useDiagnosticsStore.getState().actions.clearDiagnosticsForOwner(filePath, "lsp");
+      useLspStore.getState().actions.markDocumentStateChanged();
       try { await invoke<void>("lsp_document_close", { filePath, attachmentId }); }
       catch (error) { logger.error("LSPClient", "LSP document close error:", error); throw error; }
       finally {

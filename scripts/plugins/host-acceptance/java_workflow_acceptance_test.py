@@ -16,7 +16,7 @@ import zipfile
 from pathlib import Path
 from contextlib import nullcontext
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import java_workflow_acceptance as acceptance
 import java_workflow_inputs as inputs
@@ -31,6 +31,327 @@ def core(sequence, command, payload, data, *, session="java-session"):
 
 
 class JavaWorkflowHelperTests(unittest.TestCase):
+    def test_maven_compile_error_uses_approved_clean_then_original_task(self):
+        plan = {"variant": "maven", "buildPackage": {"pluginId": "io.example.maven", "buildSystemId": "maven"},
+                "buildTask": {"taskId": "compile", "scope": "workspace"}}
+        workflow = build.JavaBuildWorkflow(MagicMock(), MagicMock(), plan, Path("C:/fixture"), MagicMock(), MagicMock(), MagicMock())
+        workflow.open = MagicMock(return_value="public-pane")
+        workflow.instance = {"id": "maven:."}
+        workflow.run_task = MagicMock()
+        workflow.run_compile_error_task()
+        self.assertEqual(workflow.run_task.call_args_list, [
+            call("public-pane", workflow.instance, selection={"taskId": "clean", "scope": "workspace"},
+                 evidence_name="build-clean-before-error"),
+            call("public-pane", workflow.instance, expected="failed")])
+        self.assertEqual(plan["buildTask"], {"taskId": "compile", "scope": "workspace"})
+
+    def test_clean_failure_stops_compile_error_workflow_without_retry(self):
+        workflow = build.JavaBuildWorkflow(MagicMock(), MagicMock(),
+            {"variant": "maven", "buildPackage": {"pluginId": "io.example.maven", "buildSystemId": "maven"}},
+            Path("C:/fixture"), MagicMock(), MagicMock(), MagicMock())
+        workflow.open = MagicMock()
+        workflow.instance = {"id": "maven:."}
+        error = RuntimeError("public clean operation failed")
+        workflow.run_task = MagicMock(side_effect=error)
+        with self.assertRaises(RuntimeError) as raised:
+            workflow.run_compile_error_task()
+        self.assertIs(raised.exception, error)
+        self.assertEqual(workflow.run_task.call_count, 1)
+
+    def test_gradle_compile_error_keeps_original_task_without_extra_clean(self):
+        workflow = build.JavaBuildWorkflow(MagicMock(), MagicMock(),
+            {"variant": "gradle", "buildPackage": {"pluginId": "io.example.gradle", "buildSystemId": "gradle"}},
+            Path("C:/fixture"), MagicMock(), MagicMock(), MagicMock())
+        workflow.open = MagicMock(return_value="public-pane")
+        workflow.instance = {"id": "gradle:."}
+        workflow.run_task = MagicMock()
+        workflow.run_compile_error_task()
+        workflow.run_task.assert_called_once_with("public-pane", workflow.instance, expected="failed")
+
+    def test_build_catalog_allows_one_bounded_full_package_verification_request(self):
+        page, driver = MagicMock(), MagicMock()
+        driver.invoke.return_value = [{'pluginId': 'io.example.gradle', 'buildSystemId': 'gradle',
+                                       'buildSystemDisplayName': 'Gradle'}]
+        workflow = build.JavaBuildWorkflow(page, driver,
+            {'buildPackage': {'pluginId': 'io.example.gradle', 'buildSystemId': 'gradle'}},
+            Path('C:/fixture'), MagicMock(), MagicMock(), MagicMock())
+        self.assertIs(workflow.open(), page.get_by_role.return_value)
+        driver.invoke.assert_called_once_with(page, 'declarative_plugins_build_catalog', timeout_ms=60_000)
+        page.get_by_role.assert_called_once_with('region', name='Gradle', exact=True)
+        driver.invoke.reset_mock()
+        failure = TimeoutError('native catalog deadline')
+        driver.invoke.side_effect = failure
+        with self.assertRaises(TimeoutError) as caught:
+            workflow.open()
+        self.assertIs(caught.exception, failure)
+        driver.invoke.assert_called_once()
+
+    def test_native_ipc_deadlines_are_local_bounded_and_do_not_retry_errors(self):
+        import acceptance_driver as driver
+        for budget in (10_000, 60_000):
+            page = MagicMock()
+            page.evaluate.return_value = 'native result'
+            keywords = {} if budget == 10_000 else {'timeout_ms': budget}
+            self.assertEqual(driver.invoke(page, 'catalog', {'scope': 'fixture'}, **keywords), 'native result')
+            self.assertEqual(page.evaluate.call_args.args[1], ['catalog', {'scope': 'fixture'}, budget])
+            self.assertIn('finally', page.evaluate.call_args.args[0])
+            page.evaluate.reset_mock()
+            failure = TimeoutError('one native deadline')
+            page.evaluate.side_effect = failure
+            with self.assertRaises(TimeoutError) as caught:
+                driver.invoke(page, 'catalog', **keywords)
+            self.assertIs(caught.exception, failure)
+            page.evaluate.assert_called_once()
+        for invalid in (0, -1, 60_001, True, 10.0):
+            page = MagicMock()
+            with self.assertRaises(ValueError):
+                driver.invoke(page, 'catalog', timeout_ms=invalid)
+            page.evaluate.assert_not_called()
+
+    def test_saved_source_waits_through_native_handle_ownership_and_requires_exact_bytes(self):
+        source = MagicMock()
+        source.read_bytes.side_effect = [PermissionError('native save owns handle'),
+                                         FileNotFoundError('native replacement gap'), b'saved\r\ncontent', b'saved\ncontent']
+
+        def wait(predicate, description):
+            self.assertEqual(description, 'saved Java bytes')
+            self.assertFalse(predicate())
+            self.assertFalse(predicate())
+            self.assertFalse(predicate())
+            self.assertTrue(predicate())
+
+        acceptance.wait_saved_source(source, 'saved\ncontent', wait)
+
+    def test_saved_source_preserves_permanent_missing_or_access_failure_at_the_existing_deadline(self):
+        for failure in (PermissionError('still inaccessible'), FileNotFoundError('still inaccessible')):
+            source = MagicMock()
+            source.read_bytes.side_effect = failure
+            deadline = TimeoutError('existing local deadline')
+
+            def wait(predicate, description):
+                self.assertFalse(predicate())
+                raise deadline
+
+            with self.assertRaisesRegex(TimeoutError, 'still inaccessible') as caught:
+                acceptance.wait_saved_source(source, 'saved content', wait)
+            self.assertIs(caught.exception.__cause__, deadline)
+        source.read_bytes.side_effect = OSError('different failure')
+        with self.assertRaisesRegex(OSError, 'different failure'):
+            acceptance.wait_saved_source(source, 'saved content', wait)
+
+    def test_workspace_tab_requires_one_existing_resolved_path_and_preserves_public_title(self):
+        with tempfile.TemporaryDirectory(prefix='lithe-java-tab-') as temporary:
+            target = Path(temporary) / 'project'
+            target.mkdir()
+            sibling = target.with_name('project-other')
+            sibling.mkdir()
+            title = str(target / '..' / target.name)
+            page = MagicMock()
+            tabs = page.get_by_role.return_value
+            tabs.evaluate_all.return_value = [None, 'Main.java', str(sibling), title]
+            self.assertIs(acceptance.workspace_tab(page, target), tabs.and_.return_value)
+            page.get_by_title.assert_called_once_with(title, exact=True)
+            tabs.evaluate_all.return_value = [str(sibling)]
+            self.assertIsNone(acceptance.workspace_tab(page, target))
+            tabs.evaluate_all.return_value = [str(target), title]
+            with self.assertRaisesRegex(AssertionError, 'more than one'):
+                acceptance.workspace_tab(page, target)
+
+    def test_workspace_switch_waits_for_enabled_selection_before_continuing(self):
+        tab = MagicMock()
+        tab.is_enabled.side_effect = [False, True, False, True]
+        tab.get_attribute.return_value = 'true'
+        observations = []
+
+        def wait(predicate, description, seconds=None):
+            observations.append(description)
+            if seconds is None:
+                return predicate()
+            self.assertEqual(seconds, 60)
+            self.assertFalse(predicate())
+            if len(observations) == 2:
+                tab.click.assert_not_called()
+            else:
+                tab.click.assert_called_once_with(timeout=10_000)
+            self.assertTrue(predicate())
+
+        with patch.object(acceptance, 'workspace_tab', return_value=tab):
+            acceptance.switch_workspace_tab(MagicMock(), Path('C:/fixture'), wait)
+        self.assertEqual(len(observations), 3)
+
+    def test_build_model_preparation_does_not_execute_a_task_before_java_synchronization(self):
+        plan = {'variant': 'maven', 'jdk': {'home': 'C:/jdk'},
+                'buildPackage': {'pluginId': 'io.example.maven', 'buildSystemId': 'maven', 'archive': {'sha256': '1' * 64}},
+                'package': {'archive': {'sha256': '2' * 64}}}
+        target = Path('C:/fixture')
+        instance = {'id': 'maven:.', 'pluginID': 'io.example.maven', 'buildSystemID': 'maven', 'root': '.',
+                    'modelSource': 'hostIntegration', 'model': {'projects': [{'id': 'fixture'}]}}
+        view = {'workspaceRoot': str(target), 'generation': 7, 'instances': [instance]}
+        workflow = build.JavaBuildWorkflow(MagicMock(), MagicMock(), plan, target, MagicMock(), MagicMock(), MagicMock())
+        workflow.open = MagicMock(return_value=MagicMock())
+        workflow.offset = MagicMock(return_value=0)
+        workflow.call = MagicMock(return_value={'value': view})
+        workflow.run_task = MagicMock()
+        workflow.prepare_model()
+        self.assertEqual(workflow.generation, 7)
+        self.assertIs(workflow.instance, instance)
+        workflow.run_task.assert_not_called()
+
+    def test_extended_windows_paths_preserve_drive_and_unc_identity(self):
+        self.assertTrue(inputs.same_path(r'\\?\C:\fixture\Main.java', 'c:/fixture/Main.java'))
+        self.assertTrue(inputs.same_path(r'\\?\UNC\server\share\Main.java', '//server/share/Main.java'))
+        for other in ('C:/fixture-other/Main.java', 'D:/fixture/Main.java', 'fixture/Main.java', r'\\.\C:\fixture\Main.java'):
+            self.assertFalse(inputs.same_path(r'\\?\C:\fixture\Main.java', other))
+
+    def test_generated_plain_default_requires_matching_native_form_evaluation(self):
+        plan = {'schemaVersion': 2, 'kind': 'windows-java-workflow', 'variant': 'plain',
+                'project': {'name': 'Fixture'}, 'jdk': {'home': 'C:/jdk', 'version': '21'}}
+        request = {'pluginId': inputs.PLUGIN_ID, 'generatorId': 'java', 'packageIdentity': 'fixture-package',
+                   'form': {'projectName': 'Fixture', 'values': {}, 'edited': [],
+                            'runtimes': {'jdk': {'home': 'C:/jdk', 'version': '21'}}}}
+        evaluated = {'sequence': 1, 'command': 'declarative_plugins_generator_form', 'settled': True,
+                     'args': copy.deepcopy(request), 'value': {'valid': True, 'fields': [{'id': 'buildSystem', 'value': 'none'}]}}
+        prepared = {'sequence': 2, 'command': 'declarative_plugins_generator_prepare', 'settled': True,
+                    'args': {'request': request}, 'value': {'id': 'fixture-review'}}
+        generated = {'sequence': 3, 'command': 'declarative_plugins_generator_generate', 'settled': True,
+                     'args': {'id': 'fixture-review'}, 'value': {'root': r'\\?\C:\projects\Fixture'}}
+        target = Path('C:/projects/Fixture')
+        self.assertIsNotNone(inputs.generated_operation([evaluated, prepared, generated], plan, target))
+        invalid = [None]
+        for path, value in ((('value', 'valid'), False), (('value', 'fields'), [{'id': 'buildSystem', 'value': 'gradle'}]),
+                            (('args', 'packageIdentity'), 'older-package'), (('sequence',), 4)):
+            changed = copy.deepcopy(evaluated)
+            owner = changed
+            for key in path[:-1]:
+                owner = owner[key]
+            owner[path[-1]] = value
+            invalid.append(changed)
+        for value in invalid:
+            with self.assertRaisesRegex(AssertionError, 'Core form evaluation'):
+                inputs.generated_operation(([value] if value else []) + [prepared, generated], plan, target)
+
+    def test_ready_session_accepts_extended_launcher_path_and_rejects_sibling_package(self):
+        with tempfile.TemporaryDirectory(prefix='lithe-java-path-') as temporary:
+            package = Path(temporary) / 'plugin'
+            package.mkdir()
+            resource = package / 'runtime/launcher.jar'
+            resource.parent.mkdir()
+            resource.write_bytes(b'fixture launcher')
+            launcher = '//?/' + str(package.resolve() / 'runtime/launcher.jar')
+            payload = {'sessionId': 'fixture-session', 'pluginId': inputs.PLUGIN_ID,
+                       'rootUri': 'file:///C:/example', 'jdtlsLaunchResources': {'launcherJarPath': launcher}}
+            start = {'sequence': 1, 'command': 'core_execute', 'settled': True,
+                     'core': {'command': 'lsp.startServer', 'payload': payload},
+                     'value': {'ok': True, 'data': {'sessionId': 'fixture-session'}}}
+            ready = {'sequence': 2, 'command': 'core_execute', 'settled': True,
+                     'core': {'command': 'lsp.waitEvents', 'payload': {'sessionId': 'fixture-session'}},
+                     'value': {'ok': True, 'data': {'events': [{'type': 'stateChanged', 'state': 'ready'}]}}}
+            self.assertIsNotNone(inputs.ready_session([start, ready], Path('C:/example'), package))
+            payload['jdtlsLaunchResources']['launcherJarPath'] = str(resource)
+            self.assertIsNotNone(inputs.ready_session([start, ready], Path('C:/example'), package))
+            source = Path('C:/example/Main.java')
+            synced = core(3, 'lsp.syncDocument', {'uri': 'file:///C:/example/Main.java'},
+                          {'documentVersion': 1}, session='fixture-session')
+            self.assertIsNone(inputs.ready_document_session([start, ready], Path('C:/example'), package, source))
+            self.assertIsNotNone(inputs.ready_document_session([start, ready, synced], Path('C:/example'), package, source))
+            for field, wrong in (('sessionId', 'previous-session'), ('uri', 'file:///C:/other/Main.java')):
+                foreign = copy.deepcopy(synced)
+                foreign['core']['payload'][field] = wrong
+                self.assertIsNone(inputs.ready_document_session([start, ready, foreign], Path('C:/example'), package, source))
+            for wrong in (None, True, '1'):
+                foreign = copy.deepcopy(synced)
+                foreign['value']['data']['documentVersion'] = wrong
+                self.assertIsNone(inputs.ready_document_session([start, ready, foreign], Path('C:/example'), package, source))
+            pending = {**synced, 'settled': False}
+            self.assertIsNone(inputs.ready_document_session([start, ready, pending], Path('C:/example'), package, source))
+            failed = {**synced, 'value': {'ok': False}}
+            with self.assertRaisesRegex(AssertionError, 'did not succeed'):
+                inputs.ready_document_session([start, ready, failed], Path('C:/example'), package, source)
+            closed = core(4, 'lsp.closeDocument', {'uri': 'file:///C:/example/Main.java'}, {}, session='fixture-session')
+            history = [start, ready, synced]
+            for close in (closed, {**closed, 'settled': False}):
+                self.assertIsNone(inputs.ready_document_session([*history, close], Path('C:/example'), package, source))
+            for field, wrong in (('sessionId', 'previous-session'), ('uri', 'file:///C:/other/Main.java')):
+                foreign = copy.deepcopy(closed)
+                foreign['core']['payload'][field] = wrong
+                self.assertIsNotNone(inputs.ready_document_session([*history, foreign], Path('C:/example'), package, source))
+            reopened = core(5, 'lsp.syncDocument', {'uri': 'file:///C:/example/Main.java'},
+                            {'documentVersion': 2}, session='fixture-session')
+            self.assertEqual(inputs.ready_document_session([*history, closed, reopened], Path('C:/example'), package, source)
+                             ['document'], reopened)
+            sibling = package.with_name('plugin-other') / 'runtime/launcher.jar'
+            sibling.parent.mkdir(parents=True)
+            sibling.write_bytes(b'foreign launcher')
+            payload['jdtlsLaunchResources']['launcherJarPath'] = str(sibling)
+            with self.assertRaisesRegex(AssertionError, 'admitted plugin resources'):
+                inputs.ready_session([start, ready], Path('C:/example'), package)
+
+    def test_generator_action_waits_for_the_same_visible_enabled_button(self):
+        page = MagicMock()
+        action = page.get_by_role.return_value
+        action.is_visible.side_effect = [False, True, True]
+        action.is_enabled.side_effect = [False, True]
+        observed = []
+
+        def wait(predicate, description, seconds):
+            self.assertEqual(seconds, 60)
+            self.assertIn("Create project", description)
+            for expected in (False, False, True):
+                observed.append(predicate())
+                self.assertEqual(observed[-1], expected)
+                action.click.assert_not_called()
+
+        acceptance.click_generator_action(page, "Create project", wait)
+        page.get_by_role.assert_called_once_with("button", name="Create project", exact=True)
+        action.click.assert_called_once_with(timeout=5000)
+
+    def test_generator_action_timeout_does_not_click_or_retry(self):
+        page = MagicMock()
+        failure = TimeoutError("catalog not ready")
+        with self.assertRaises(TimeoutError) as caught:
+            acceptance.click_generator_action(page, "Java · Java Support", MagicMock(side_effect=failure))
+        self.assertIs(caught.exception, failure)
+        page.get_by_role.return_value.click.assert_not_called()
+
+    def test_java_run_action_waits_for_the_exact_configuration_before_one_click(self):
+        row = MagicMock()
+        action = row.get_by_role.return_value
+        action.is_visible.side_effect = [False, True, True]
+        action.is_enabled.side_effect = [False, True]
+
+        def wait(predicate, description, seconds):
+            self.assertEqual(seconds, 60)
+            self.assertIn("Java Run", description)
+            for expected in (False, False, True):
+                self.assertEqual(predicate(), expected)
+                action.click.assert_not_called()
+
+        acceptance.click_java_run_action(row, wait)
+        row.get_by_role.assert_called_once_with("button", name="Run", exact=True)
+        action.click.assert_called_once_with(timeout=5000)
+
+    def test_java_run_action_never_retries_a_timeout_or_an_unknown_click_completion(self):
+        for stage in ("wait", "click"):
+            with self.subTest(stage=stage):
+                row = MagicMock()
+                failure = TimeoutError("Run action " + stage)
+                wait = MagicMock(side_effect=failure if stage == "wait" else None)
+                if stage == "click":
+                    row.get_by_role.return_value.click.side_effect = failure
+                with self.assertRaises(TimeoutError) as caught:
+                    acceptance.click_java_run_action(row, wait)
+                self.assertIs(caught.exception, failure)
+                self.assertEqual(row.get_by_role.return_value.click.call_count, 0 if stage == "wait" else 1)
+
+    def test_generated_jdk_uses_version_two_configuration_and_rejects_old_or_other_homes(self):
+        home = self.plan["jdk"]["home"]
+        current = {"version": 2, "toolchain": {"java": {"homePath": home}}}
+        self.assertTrue(inputs.generated_jdk_matches(current, home))
+        for invalid in ({"toolchain": {"javaHomePath": home}},
+                        {**current, "version": 1},
+                        {"version": 2, "toolchain": {"java": {"homePath": "C:/other-jdk"}}}):
+            self.assertFalse(inputs.generated_jdk_matches(invalid, home))
+
     def test_complete_release_package_root_and_large_inventory_are_verified_without_fixture_limits(self):
         archive = self.root / 'complete-rooted.zip'
         installed = self.root / 'installed'
@@ -244,6 +565,12 @@ class JavaWorkflowHelperTests(unittest.TestCase):
         self.assertFalse((self.root / "report.json").exists())
 
     def test_graceful_cleanup_precedes_playwright_teardown_after_start_failure(self):
+        self._start_failure_cleanup(False)
+
+    def test_failed_cleanup_is_not_repeated_after_playwright_teardown(self):
+        self._start_failure_cleanup(True)
+
+    def _start_failure_cleanup(self, stop_fails):
         events = []
         image = self.root / "image"
         image.mkdir()
@@ -253,7 +580,11 @@ class JavaWorkflowHelperTests(unittest.TestCase):
         driver = MagicMock(owned_processes={}, ACCEPTANCE_IDENTIFIER="controlled")
         session = driver.AppSession.return_value
         session.start.side_effect = RuntimeError("original start failure")
-        session.stop.side_effect = lambda **kwargs: events.append("graceful-stop")
+        def stop(**kwargs):
+            events.append("graceful-stop")
+            if stop_fails:
+                raise RuntimeError("stop failed after owned fallback cleanup")
+        session.stop.side_effect = stop
         driver.sync_playwright.return_value.__exit__.side_effect = lambda *args: events.append("playwright-exit")
         def remove(path, parent, name):
             self.assertIn(path, (args.app_local_data, args.app_roaming_data, args.webview_data))
@@ -345,6 +676,7 @@ class JavaWorkflowHelperTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             package = Path(temporary) / "plugin"
             package.mkdir()
+            (package / "launcher.jar").write_bytes(b"fixture launcher")
             start = core(1, "lsp.startServer", {"pluginId": inputs.PLUGIN_ID, "rootUri": "file:///C:/example",
                          "executablePath": str(package / "runtime/java.exe"), "arguments": [str(package / "launcher.jar")]}, {"sessionId": "java-session"})
             ready = core(2, "lsp.waitEvents", {}, {"events": [{"type": "stateChanged", "state": "ready"}]})
@@ -368,6 +700,7 @@ class JavaWorkflowHelperTests(unittest.TestCase):
             plan = inputs.variant_plan(self.plan, variant)
             self.assertEqual(plan["variant"], variant)
             self.assertEqual(plan["project"]["mainClass"], "org.example.acceptance.Main")
+            self.assertEqual(plan["project"]["configurationName"], "Main")
             self.assertEqual(plan["project"]["sourcePath"], "src/main/java/org/example/acceptance/Main.java")
             self.assertNotIn("workspaceEvidence", plan)
             self.assertNotIn("packageEvidence", plan)
@@ -479,7 +812,7 @@ class JavaWorkflowHelperTests(unittest.TestCase):
         for relative in (*inputs.DESCRIPTORS[plan["variant"]], project["sourcePath"], ".lithe/run/local.json"):
             path = workspace / relative
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(inputs.json_bytes({"toolchain": {"javaHomePath": plan["jdk"]["home"]}}) if relative.endswith(".json") else b"generated-only")
+            path.write_bytes(inputs.json_bytes({"version": 2, "toolchain": {"java": {"homePath": plan["jdk"]["home"]}}}) if relative.endswith(".json") else b"generated-only")
             files[relative] = {"path": str(path), "sha256": inputs.sha256(path)}
         values = {"javaHome": plan["jdk"]["home"], "javaVersion": plan["jdk"]["version"],
                   "javaSha256": plan["jdk"]["javaSha256"], "javacSha256": plan["jdk"]["javacSha256"],

@@ -26,7 +26,7 @@ CASES = ("trusted-complete-package", "generate-open-real-jdk", "java-import-read
          "edit-save-synchronize", "prepare-launch-run-output", "stop-run-owner",
          "compile-error-refused", "product-profile-cleanup", "resource-invariance",
          "disable-uninstall-cleanup", "workspace-switch-restore", "compile-error-explicit-recovery")
-BUILD_CASES = ("trusted-build-package", "approved-build-model-task", "declarative-build-run-binding", "build-compile-error-terminal")
+BUILD_CASES = ("trusted-build-package", "approved-build-model", "approved-build-model-task", "declarative-build-run-binding", "build-compile-error-terminal")
 PENDING = {
     "other-java-variants": "Other variants require independent reports; a successful JDT session alone does not establish build-plugin acceptance.",
     "signed-installer-upgrade": "Not executed: signed installer, installed-directory immutability and upgrade require independent channel evidence.",
@@ -89,7 +89,7 @@ def variant_plan(base: dict, variant: str, group_id="org.example.acceptance", ar
     plan["project"] = {"name": base["project"]["name"] + " " + variant.title(), "buildSystem": variant,
                        "groupId": group_id, "artifactId": artifact_id,
                        "sourcePath": "src/main/java/" + group_id.replace(".", "/") + "/Main.java",
-                       "mainClass": group_id + ".Main", "configurationName": group_id + ".Main"}
+                       "mainClass": group_id + ".Main", "configurationName": "Main"}
     return plan
 
 
@@ -182,7 +182,7 @@ def receipt_blockers(plan: dict, key: str, expected: dict) -> list[str]:
                     or not same_path(path.resolve(), (root / relative).resolve())):
                 return ["workspaceEvidence generated file belongs to another workspace"]
         config = read_reference(files[".lithe/run/local.json"], json_document=True)
-        if not same_path(config.get("toolchain", {}).get("javaHomePath", ""), plan["jdk"]["home"]):
+        if not generated_jdk_matches(config, plan["jdk"]["home"]):
             return ["workspaceEvidence generated configuration has another JDK"]
     return []
 
@@ -216,8 +216,24 @@ def validate_build_package(plan: dict) -> list[str]:
         "packageSha256": package["archive"]["sha256"], "manifestSha256": package["manifestSha256"]})
 
 
+def path_key(value: str | Path) -> str:
+    """Compare Win32 extended-length spellings without resolving another owner."""
+    path = str(value).replace("\\", "/")
+    if path[:8].casefold() == "//?/unc/":
+        path = "//" + path[8:]
+    elif re.match(r"^//\?/[A-Za-z]:/", path):
+        path = path[4:]
+    return path.rstrip("/").casefold()
+
+
 def same_path(left: str | Path, right: str | Path) -> bool:
-    return str(left).replace("\\", "/").rstrip("/").casefold() == str(right).replace("\\", "/").rstrip("/").casefold()
+    return path_key(left) == path_key(right)
+
+
+def generated_jdk_matches(document: dict, home: str) -> bool:
+    """The generated run configuration uses Core's current version-two shape."""
+    return document.get("version") == 2 and same_path(
+        document.get("toolchain", {}).get("java", {}).get("homePath", ""), home)
 
 
 def file_path(uri: str) -> str:
@@ -337,8 +353,23 @@ def generated_operation(calls: list[dict], plan: dict, target: Path) -> dict | N
                 continue
             request = prepared["args"]["request"]
             form = request["form"]
-            values = form["values"]
+            values = dict(form["values"])
             variant = workflow_variant(plan)
+            if variant == "plain" and "buildSystem" not in values:
+                # Untouched defaults are absent from the public form request.
+                # Accept one only when Core evaluated these exact reviewed
+                # inputs and package as valid before prepare.
+                evaluated_args = {key: request[key] for key in ("pluginId", "generatorId", "packageIdentity", "form")}
+                verified_default = any(
+                    call["command"] == "declarative_plugins_generator_form" and call.get("settled")
+                    and not call.get("error") and call["sequence"] < prepared["sequence"]
+                    and call.get("args") == evaluated_args and call.get("value", {}).get("valid") is True
+                    and [field.get("value") for field in call["value"].get("fields", [])
+                         if field.get("id") == "buildSystem"] == ["none"]
+                    for call in calls)
+                if not verified_default:
+                    raise AssertionError("default Java build variant lacks its exact valid Core form evaluation")
+                values["buildSystem"] = "none"
             expected = {"buildSystem": "none" if variant == "plain" else variant}
             if variant != "plain":
                 expected.update(groupId=plan["project"]["groupId"], artifactId=plan["project"]["artifactId"])
@@ -374,8 +405,18 @@ def ready_session(calls: list[dict], root: Path, package_root: Path) -> dict | N
         # Core may assemble JDT's final arguments from typed resources. Bind
         # the actual launcher, not a substring that a sibling path can mimic.
         entries = [resources.get("launcherJarPath", ""), *payload.get("arguments", [])]
-        prefix = str(package_root.resolve()).replace("\\", "/").rstrip("/").casefold() + "/"
-        if not any(str(value).replace("\\", "/").casefold().startswith(prefix) for value in entries):
+        prefix = path_key(package_root.resolve(strict=True)) + "/"
+
+        def belongs_to_package(value):
+            try:
+                path = Path(value)
+                return path.is_file() and path_key(path.resolve(strict=True)).startswith(prefix)
+            except (OSError, ValueError):
+                return False
+
+        # MSIX can expose one file through logical AppData and its redirected
+        # physical path. Resolve both existing owners before containment checks.
+        if not any(belongs_to_package(value) for value in entries):
             raise AssertionError("Java server did not use the admitted plugin resources")
         session_id = core_value(start)["sessionId"]
         if any(call["core"]["payload"].get("sessionId") == session_id and call["sequence"] > start["sequence"]
@@ -392,6 +433,27 @@ def ready_session(calls: list[dict], root: Path, package_root: Path) -> dict | N
             data = core_value(call)
             if any(event.get("type") == "stateChanged" and event.get("state") == "ready" for event in data.get("events", [])):
                 return {"sessionId": session_id, "start": start, "readiness": call}
+    return None
+
+
+def ready_document_session(calls, root, package_root, source):
+    session = ready_session(calls, root, package_root)
+    if session is None:
+        return None
+    for synced in reversed(core_calls(calls, "lsp.syncDocument")):
+        payload = synced["core"]["payload"]
+        if (synced.get("settled") and payload.get("sessionId") == session["sessionId"]
+                and same_path(file_path(payload.get("uri", "")), source)):
+            # Calls are observed before completion: even a pending close makes
+            # this old sync insufficient proof of the current attachment.
+            if any(closed["sequence"] > synced["sequence"]
+                   and closed["core"]["payload"].get("sessionId") == session["sessionId"]
+                   and same_path(file_path(closed["core"]["payload"].get("uri", "")), source)
+                   for closed in core_calls(calls, "lsp.closeDocument")):
+                return None
+            version = core_value(synced).get("documentVersion")
+            if type(version) is int:
+                return {**session, "document": synced}
     return None
 
 
@@ -498,6 +560,9 @@ def main():
     base = json.loads(args.base_plan.read_text(encoding="utf-8-sig"))
     plan = base if workflow_variant(base) == args.variant else variant_plan(base, args.variant, args.group_id, args.artifact_id)
     if args.host_identity:
+        # Core presents a unique Java entry under its simple class name. The
+        # qualified main and exact source still bind prepareLaunch below.
+        plan["project"]["configurationName"] = "Main"
         if not controlled_run(plan):
             parser.error("host rebinding is only for an explicitly controlled plan")
         from text_window_fixture import source_inventory

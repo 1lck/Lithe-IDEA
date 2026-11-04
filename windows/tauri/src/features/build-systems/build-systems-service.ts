@@ -262,6 +262,8 @@ export async function loadBuildModel(
     // Execution must not occupy registryTail: refresh/revoke/close must be
     // able to reach native cancellation while a model process is running.
     const result = await native.load(review.operationId);
+    const { invalidateDeclarativeLanguageSupport } =
+      await import("@/features/editor/lsp/declarative-language-support");
     if (!stillCurrent()) return null;
     if (
       result.operationId !== review.operationId ||
@@ -271,6 +273,9 @@ export async function loadBuildModel(
       throw new Error("plugin.build.staleContext");
     completed = true;
     store.getState().actions.applyView(result.view, request);
+    // Editors whose passive language import needed this model must retry
+    // against the newly admitted snapshot, even with the same file open.
+    invalidateDeclarativeLanguageSupport();
     return result;
   } catch (error) {
     if (stillCurrent()) {

@@ -146,9 +146,13 @@ export interface LspSessionSnapshot {
 const sessions = new Map<string, Session>();
 const fileSessions = new Map<string, FileAttachment>();
 const sessionStarts = new Map<string, Promise<Session>>();
-const startOwners = new Map<string, string>();
+const startOwners = new Map<string, { providerId: string; pluginId?: string }>();
+const pluginGenerations = new Map<string, number>();
 const providerGenerations = new Map<string, number>();
 const sessionStops = new Map<string, Promise<void>>();
+// Late initialize failures share this exact owner's completed drain. A weak
+// receipt survives removal from sessionStops without retaining old sessions.
+const sessionCleanups = new WeakMap<Session, Promise<void>>();
 interface BuildProviderStartScope {
   waiters: number;
   introduced: boolean;
@@ -846,13 +850,18 @@ async function recoverSession(session: Session): Promise<Session | null> {
   }
 }
 
-async function createSession(args: JsonRecord, key: string, generation: number): Promise<Session> {
+async function createSession(args: JsonRecord, key: string, generation: number, pluginGeneration: number): Promise<Session> {
   const workspacePath = String(args.workspacePath ?? "");
   const languageId = String(args.languageId ?? "plaintext");
   const providerId = String(args.providerId ?? languageId);
   const assertCurrent = () => {
     if (buildProviderStarts.get(key)?.cancelled) throw new Error("plugin.build.cancelled");
-    if (args.pluginId) assertPluginActive(args.pluginId);
+    if (args.pluginId) {
+      assertPluginActive(args.pluginId);
+      if ((pluginGenerations.get(args.pluginId) ?? 0) !== pluginGeneration) {
+        throw new Error("Language server start was cancelled by its plugin.");
+      }
+    }
     if ((providerGenerations.get(providerId) ?? 0) !== generation) {
       throw new Error("Language server start was cancelled by its provider.");
     }
@@ -966,7 +975,7 @@ async function waitForProjectedReadiness(session: Session): Promise<"ready" | "t
   }
 }
 
-async function resolveSession(args: JsonRecord, key: string, generation: number): Promise<Session> {
+async function resolveSession(args: JsonRecord, key: string, generation: number, pluginGeneration: number): Promise<Session> {
   const stopping = sessionStops.get(key);
   if (stopping) await stopping;
 
@@ -983,7 +992,7 @@ async function resolveSession(args: JsonRecord, key: string, generation: number)
     await stopSession(existing);
   }
 
-  return createSession(args, key, generation);
+  return createSession(args, key, generation, pluginGeneration);
 }
 
 async function start(args: JsonRecord): Promise<void> {
@@ -1027,10 +1036,12 @@ async function start(args: JsonRecord): Promise<void> {
       if (!startPromise) {
         const providerId = String(args.providerId ?? languageId);
         const generation = providerGenerations.get(providerId) ?? 0;
-        startOwners.set(key, providerId);
-        startPromise = resolveSession(args, key, generation)
+        const pluginGeneration = args.pluginId ? pluginGenerations.get(args.pluginId) ?? 0 : 0;
+        startOwners.set(key, { providerId, pluginId: args.pluginId });
+        startPromise = resolveSession(args, key, generation, pluginGeneration)
           .then(async (resolved) => {
-            if ((providerGenerations.get(providerId) ?? 0) !== generation) {
+            if ((providerGenerations.get(providerId) ?? 0) !== generation ||
+                (args.pluginId && (pluginGenerations.get(args.pluginId) ?? 0) !== pluginGeneration)) {
               await stopSession(resolved);
               throw new Error("Language server start was cancelled by its provider.");
             }
@@ -1080,6 +1091,8 @@ async function start(args: JsonRecord): Promise<void> {
 }
 
 async function stopSession(session: Session, preservePreparation = false): Promise<void> {
+  const cleanup = sessionCleanups.get(session);
+  if (cleanup) return cleanup;
   if (session.languageId === "java" && !preservePreparation) clearProjectPreparation(session.workspacePath, session.id);
   clearLanguageServerProgress(session.id);
   const key = sessionKey(session.workspacePath, session.languageId);
@@ -1087,34 +1100,34 @@ async function stopSession(session: Session, preservePreparation = false): Promi
   removeSessionMappings(session);
   persistSessions();
 
-  let stopPromise = sessionStops.get(key);
-  if (!stopPromise) {
-    const operation = new LspOperationLog("sessionStop", crypto.randomUUID(), {
-      sessionId: session.id,
-      workspacePath: session.workspacePath,
-      languageId: session.languageId,
+  const operation = new LspOperationLog("sessionStop", crypto.randomUUID(), {
+    sessionId: session.id,
+    workspacePath: session.workspacePath,
+    languageId: session.languageId,
+  });
+  const stopPromise = stopAndDestroySession(session, operation.operationId)
+    .then((outcome) => {
+      if (outcome === "timedOut") {
+        operation.timedOut({ stage: "cleanup" });
+        throw new Error("Language server cleanup timed out.");
+      } else {
+        operation.succeeded();
+      }
+    })
+    .catch((reason) => {
+      // Failed drains retain the native owner and remain explicitly retryable.
+      sessionCleanups.delete(session);
+      operation.failed(reason);
+      sessions.set(key, session);
+      persistSessions();
+      throw reason;
+    })
+    .finally(() => {
+      stoppingSessionIds.delete(session.id);
+      if (sessionStops.get(key) === stopPromise) sessionStops.delete(key);
     });
-    stopPromise = stopAndDestroySession(session, operation.operationId)
-      .then((outcome) => {
-        if (outcome === "timedOut") {
-          operation.timedOut({ stage: "cleanup" });
-          throw new Error("Language server cleanup timed out.");
-        } else {
-          operation.succeeded();
-        }
-      })
-      .catch((reason) => {
-        operation.failed(reason);
-        sessions.set(key, session);
-        persistSessions();
-        throw reason;
-      })
-      .finally(() => {
-        stoppingSessionIds.delete(session.id);
-        if (sessionStops.get(key) === stopPromise) sessionStops.delete(key);
-      });
-    sessionStops.set(key, stopPromise);
-  }
+  sessionCleanups.set(session, stopPromise);
+  sessionStops.set(key, stopPromise);
   await stopPromise;
 }
 
@@ -1681,17 +1694,24 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
   }
   if (command === "lsp_stop_for_provider") {
     const providerId = typeof args.providerId === "string" ? args.providerId : "";
-    if (!providerId) return undefined as T;
-    providerGenerations.set(providerId, (providerGenerations.get(providerId) ?? 0) + 1);
+    const pluginId = typeof args.pluginId === "string" ? args.pluginId : "";
+    if (!providerId && !pluginId) return undefined as T;
+    // A package may contribute a language provider with a different ID. Plugin
+    // revocation drains only that package, including its pending Core starts.
+    const generations = pluginId ? pluginGenerations : providerGenerations;
+    const ownerId = pluginId || providerId;
+    generations.set(ownerId, (generations.get(ownerId) ?? 0) + 1);
+    const owns = (owner: { providerId: string; pluginId?: string } | undefined) =>
+      !!owner && (pluginId ? owner.pluginId === pluginId : owner.providerId === providerId);
     const pending = [...sessionStarts.entries()]
-      .filter(([key]) => startOwners.get(key) === providerId)
+      .filter(([key]) => owns(startOwners.get(key)))
       .map(([, promise]) => promise);
-    const matches = [...sessions.values()].filter((session) => session.providerId === providerId);
+    const matches = [...sessions.values()].filter(owns);
     await Promise.all(matches.map((session) => stopSession(session)));
     // A late Core response still owns a process. Its cancelled start cleans it
     // up before this barrier acknowledges that package files can be changed.
     await Promise.allSettled(pending);
-    if ([...sessions.values()].some((session) => session.providerId === providerId)) {
+    if ([...sessions.values()].some(owns)) {
       throw new Error("Plugin language server cleanup failed; package files must be preserved.");
     }
     return undefined as T;

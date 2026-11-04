@@ -67,9 +67,21 @@ pub struct PreparedInstall {
     pub manifest_digest: String,
     /// Human-readable display name from the manifest.
     pub display_name: String,
+    /// Verification of the private snapshot, never a manifest-supplied claim.
+    pub verification: InstallVerification,
     /// Host policy for explicit consent to the reviewed permissions and programs.
     #[serde(skip)]
     pub(crate) approval_required: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "status", rename_all = "camelCase")]
+pub enum InstallVerification {
+    Unsigned,
+    PublisherSignature {
+        #[serde(rename = "keyId")]
+        key_id: String,
+    },
 }
 
 /// Core's install review, reshaped for the frontend.
@@ -284,6 +296,17 @@ fn prepare_install_snapshot(
             &super::signature::trusted_keys(),
         )
         .map_err(|error| error.message())?;
+        // The snapshot is private until prepare returns. A present document
+        // has passed verify_for_install above; existence alone never grants trust.
+        let verification = if super::signature::has_signature_file(&snapshot) {
+            let document = super::signature::read_signature_document(&snapshot)
+                .map_err(|error| error.message())?;
+            InstallVerification::PublisherSignature {
+                key_id: document.key_id,
+            }
+        } else {
+            InstallVerification::Unsigned
+        };
         // The whole-package digest is frozen now: confirm and staging bind
         // the install to exactly these bytes.
         let frozen_digest =
@@ -327,6 +350,7 @@ fn prepare_install_snapshot(
         )
         .map_err(|error| error.to_string())?;
         Ok(PreparedInstall {
+            verification,
             approval_required,
             session_id: session_id.to_string(),
             review,

@@ -7,6 +7,7 @@ import { openDroppedWorkspacePaths } from "@/features/file-system/utils/open-dro
 import { GitStatusRefreshHost } from "@/features/git/runtime/git-status-refresh-host";
 import { closeMavenToolWindow } from "@/features/maven/actions/maven-tool-window-actions";
 import { applyRightToolWindowIntent } from "@/features/layout/actions/right-tool-window-actions";
+import { restoreStartupWorkspace } from "@/features/layout/actions/restore-startup-workspace";
 import { closeAgentToolWindow } from "@/features/agent/actions/agent-tool-window-actions";
 import { useMavenStore } from "@/features/maven/stores/maven.store";
 import { useMavenResolutionNotifications } from "@/features/maven/hooks/use-maven-resolution-problems";
@@ -237,11 +238,8 @@ export function MainLayout() {
           tabPath: activeTab.path,
         });
 
-        // Set flag BEFORE calling switchToProject to prevent tab bar from hiding
-        setIsSwitchingProject(true);
-
         try {
-          await switchToProject(activeTab.id);
+          await restoreStartupWorkspace(activeTab.id, switchToProject, setIsSwitchingProject);
           frontendTrace("info", "workspace-open", "startupRestore:end", {
             tabPath: activeTab.path,
           });
@@ -253,8 +251,6 @@ export function MainLayout() {
             tabPath: activeTab.path,
           });
           recordStartupMilestone("workspace:error");
-          // Make sure to clear the flag even if restoration fails
-          setIsSwitchingProject(false);
         }
       } else {
         recordStartupMilestone("workspace:ready");

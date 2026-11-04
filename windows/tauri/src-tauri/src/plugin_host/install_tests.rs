@@ -810,6 +810,10 @@ mod install_tests {
                 source.to_str().expect("source path"),
             )
             .expect("prepare accepts the signed package");
+            assert_eq!(
+                serde_json::to_value(&prepared).unwrap()["verification"],
+                json!({"status":"publisherSignature","keyId":"lithe-test-v1"})
+            );
             let confirmed = crate::plugin_host::install::confirm_disk_install_snapshot(
                 &install_root,
                 &temporary_root,
@@ -1288,6 +1292,10 @@ mod install_tests {
             third.to_str().expect("source path"),
         )
         .expect("prepare succeeds");
+        assert_eq!(
+            serde_json::to_value(&prepared).unwrap()["verification"],
+            json!({"status":"unsigned"})
+        );
         let snapshot = temporary_root.join(&prepared.session_id);
 
         // Another mutation commits version 2.0.0 while the confirm drains:

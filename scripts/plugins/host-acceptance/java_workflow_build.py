@@ -99,14 +99,19 @@ class JavaBuildWorkflow:
 
     def open(self):
         self.driver.close_settings(self.page)
-        catalogs = self.driver.invoke(self.page, "declarative_plugins_build_catalog")
+        # Complete runtime package verification can exceed the generic 10s IPC
+        # budget after a workspace switch. One request retains the case's work
+        # deadline; a timeout still fails without retrying native dispatch.
+        catalogs = self.driver.invoke(self.page, "declarative_plugins_build_catalog", timeout_ms=60_000)
         entries = [row for row in catalogs if row["pluginId"] == self.plugin and row["buildSystemId"] == self.system]
         if len(entries) != 1:
             raise AssertionError("independent build plugin has no admitted native catalog entry")
         title = entries[0]["buildSystemDisplayName"]
         region = self.page.get_by_role("region", name=title, exact=True)
         if not region.count() or not region.is_visible():
-            self.page.get_by_role("button", name=title, exact=True).click(timeout=10_000)
+            # The migration rail appends declared build entries after the
+            # legacy Maven shortcut. Bind the actual plugin pane/model below.
+            self.page.locator(".lithe-plugin-activity-rail").get_by_role("button", name=title, exact=True).last.click(timeout=10_000)
         region.wait_for(state="visible", timeout=15_000)
         return region
 
@@ -138,7 +143,7 @@ class JavaBuildWorkflow:
         region.get_by_role("combobox", name=label, exact=True).click(timeout=10_000)
         self.page.get_by_role("option", name=value, exact=True).click(timeout=10_000)
 
-    def model_and_task(self):
+    def prepare_model(self):
         region = self.open()
         after = self.offset()
         region.get_by_role("button", name="Reload", exact=True).click(timeout=10_000)
@@ -156,7 +161,6 @@ class JavaBuildWorkflow:
         if instance.get("modelError") or instance.get("stale") or not instance.get("model", {}).get("projects"):
             raise AssertionError("upstream build model is missing, stale or failed")
         self.instance = instance
-        self.run_task(region, instance)
 
     def load_model(self, region):
         declined, _ = self.approve("declarative_plugins_build_prepare_model", "Review model loading", "Allow and load",
@@ -181,8 +185,18 @@ class JavaBuildWorkflow:
                 "javaPackageSha256": self.plan["package"]["archive"]["sha256"],
                 "workspaceRoot": str(self.target), "generation": self.generation, "root": ".", "jdk": self.plan["jdk"]}
 
-    def run_task(self, region, instance, *, expected="succeeded"):
-        selected = self.plan["buildTask"]
+    def run_compile_error_task(self):
+        # JDT and Maven share class output. Maven's timestamp-based incremental
+        # check can skip invalid sources after JDT writes a newer class. Use the
+        # declared public clean task to establish an actual fresh compilation.
+        if self.plan["variant"] == "maven":
+            self.run_task(self.open(), self.instance,
+                          selection={"taskId": "clean", "scope": "workspace"},
+                          evidence_name="build-clean-before-error")
+        self.run_task(self.open(), self.instance, expected="failed")
+
+    def run_task(self, region, instance, *, expected="succeeded", selection=None, evidence_name=None):
+        selected = self.plan["buildTask"] if selection is None else selection
         manifest, _ = archive_manifest(self.plan["buildPackage"])
         system = next(row for row in manifest["buildSystems"] if row["id"] == self.system)
         task = next(row for row in system["tasks"] if row["id"] == selected["taskId"])
@@ -229,4 +243,4 @@ class JavaBuildWorkflow:
         proof = selected.get('outputContains', 'BUILD SUCCESS') if expected == 'succeeded' else 'missingAcceptanceSymbol'
         if proof not in output:
             raise AssertionError("actual build output lacks the expected upstream proof: " + proof)
-        self.write("build-task-" + expected, {"declined": declined, "review": review, "prepare": prepared, "execute": executed, "events": events, "binding": self.binding()})
+        self.write(evidence_name or "build-task-" + expected, {"declined": declined, "review": review, "prepare": prepared, "execute": executed, "events": events, "binding": self.binding()})

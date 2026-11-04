@@ -3053,6 +3053,10 @@ virtual documents, `javaEntrypoints`, `javaTestItems`, and `javaMainMethods`.
 `vscode.java.resolveMainClass` for the session workspace and returns schema
 version 1 with deterministic workspace-relative `{ sourcePath, mainClass,
 projectName? }` entries plus diagnostics for unusable upstream records.
+  Discovery queries all entries in the owned JDT session, then filters source
+  paths against the opened workspace and its resolved location. This includes
+  plain folders represented by invisible projects in JDT's writable cache;
+  unrelated workspace sources remain excluded.
 `javaTestItems` requires a file URI, invokes Java Test's
 `vscode.java.test.findTestTypesAndMethods`, and returns schema version 1 with a
 typed class/method tree. Each item carries the upstream identity, label, fully

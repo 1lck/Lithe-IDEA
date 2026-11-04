@@ -44,9 +44,9 @@ interface UseLspIntegrationOptions {
 }
 
 type LspDocumentOwnerState =
-  | { phase: "scheduled" }
+  | { phase: "scheduled"; start?: () => void }
   | { phase: "starting"; task: Promise<void> }
-  | { phase: "attached"; attachmentId: string }
+  | { phase: "attached"; attachmentId: string; task: Promise<void> }
   | { phase: "open"; attachmentId: string }
   | { phase: "stopping"; task: Promise<void>; attachmentId?: string }
   | { phase: "stopped" }
@@ -63,6 +63,7 @@ type DocumentChangeOwnerState =
 
 interface LspDocumentOwner {
   indexingKey: string;
+  declarativeRevision: number;
   // One record owns every asynchronous resource for one editor attachment.
   attachmentId: string;
   bufferId: string | undefined;
@@ -113,6 +114,8 @@ export const useLspIntegration = ({
     declarativeLanguageSupportRevision,
     declarativeLanguageSupportRevision,
   );
+  const declarativeRevisionRef = useRef(declarativeRevision);
+  declarativeRevisionRef.current = declarativeRevision;
   const isLspSupported = useMemo(
     () => isEditorLspSupported(activeFilePath),
     [activeFilePath, installedExtensions, declarativeRevision],
@@ -125,6 +128,9 @@ export const useLspIntegration = ({
   const documentOwnersRef = useRef<Map<string, LspDocumentOwner>>(new Map());
 
   const runtime = workspaceRuntimeRegistry.getWorkspace(workspaceId);
+  // Content effects replace their callbacks; the mounted buffer remains the
+  // same save owner through indexing refreshes and native attachment recovery.
+  const documentChangeOwner = useMemo(() => ({}), [bufferId, filePath, runtime, workspaceId]);
   useEffect(() => {
     if (!enabled || !filePath || !isLspSupported || !runtime) return;
     return registerMountedLspDocument(runtime, filePath);
@@ -166,9 +172,11 @@ export const useLspIntegration = ({
       previousOwner.indexingKey === indexingKey &&
       previousOwner.bufferId === bufferId &&
       previousOwner.declarativeOwner === declarativeOwner &&
+      (previousOwner.state.phase === "open" || previousOwner.state.phase === "attached" ||
+        previousOwner.declarativeRevision === declarativeRevision) &&
       workspaceScopesMatch(previousOwner.scope, scope) ? previousOwner : undefined;
     const owner: LspDocumentOwner = existingOwner ?? {
-      indexingKey, attachmentId: crypto.randomUUID(), bufferId, scope, declarativeOwner,
+      indexingKey, declarativeRevision, attachmentId: crypto.randomUUID(), bufferId, scope, declarativeOwner,
       state: { phase: "scheduled" },
       changes: { phase: "idle", completion: Promise.resolve() },
     };
@@ -189,13 +197,18 @@ export const useLspIntegration = ({
       const isStillOpen = buffer && (!bufferId || buffer.id === bufferId);
       // An open buffer can retain an attachment across view changes, but a
       // revoked plugin must release it even while its document stays open.
+      // Catalog/model changes retry a failed or pending import, including
+      // built-in Java admission whose declarative owner stays null. An already
+      // open attachment remains owned and does not restart on that hint.
       if (isStillOpen && indexingKeyRef.current === indexingKey &&
           isEditorLspSupported(filePath) &&
-          cachedDeclarativeLanguageOwner(filePath) === declarativeOwner) return;
+          cachedDeclarativeLanguageOwner(filePath) === declarativeOwner &&
+          (owner.state.phase === "open" || owner.state.phase === "attached" ||
+            owner.declarativeRevision === declarativeRevisionRef.current)) return;
 
       if (owner.state.phase === "stopping" || owner.state.phase === "stopped") return;
       const previousState = owner.state;
-      const initializationTask = previousState.phase === "starting" ? previousState.task : null;
+      const initializationTask = previousState.phase === "starting" || previousState.phase === "attached" ? previousState.task : null;
       const attachmentId = owner.attachmentId;
       const changeCompletion = owner.changes.completion;
       if (owner.changes.phase === "scheduled") clearTimeout(owner.changes.timer);
@@ -248,6 +261,7 @@ export const useLspIntegration = ({
         }
         if (owner.state.phase !== "starting" || documentOwnersRef.current.get(filePath) !== owner) return;
         logger.debug("LspIntegration", `Starting LSP for ${filePath} in ${workspacePath}`);
+        const initializationTask = owner.state.task;
         const attachment = await lspClient.startForFile(filePath, scope, "attach", owner.attachmentId);
         if (attachment.kind !== "attached") {
           owner.state = { phase: "stopped" };
@@ -261,7 +275,7 @@ export const useLspIntegration = ({
           await lspClient.stopForFile(filePath, attachmentId);
           return;
         }
-        owner.state = { phase: "attached", attachmentId };
+        owner.state = { phase: "attached", attachmentId, task: initializationTask };
 
         const text = documentTextForPath(filePath, workspaceId);
         await lspClient.notifyDocumentOpen(filePath, text, attachmentId);
@@ -289,18 +303,20 @@ export const useLspIntegration = ({
       }
     };
 
-    const cancelInitialization = deferUntilAfterNextPaint(() => {
+    const beginInitialization = () => {
       if (owner.state.phase !== "scheduled" || documentOwnersRef.current.get(filePath) !== owner) return;
       const task = Promise.resolve().then(initializeLsp);
       owner.state = { phase: "starting", task };
       void task;
-    });
+    };
+    owner.state = { phase: "scheduled", start: beginInitialization };
+    const cancelInitialization = deferUntilAfterNextPaint(beginInitialization);
 
     return () => {
       cancelInitialization();
       cleanupDocument();
     };
-  }, [enabled, filePath, bufferId, isLspSupported, declarativeOwner, lspClient, rootFolderPath, workspaceId, indexingKey, runtime]);
+  }, [enabled, filePath, bufferId, isLspSupported, declarativeOwner, declarativeRevision, lspClient, rootFolderPath, workspaceId, indexingKey, runtime]);
 
   useEffect(() => {
     if (!enabled || !filePath || !isLspSupported) return;
@@ -371,6 +387,19 @@ export const useLspIntegration = ({
       for (let attempt = 0; attempt < 3; attempt += 1) {
         if (!active) return;
         const owner = documentOwnersRef.current.get(filePath);
+        // Saves and semantic requests must drain this mounted owner's open,
+        // including restoration whose native session is already ready.
+        if (owner?.state.phase === "scheduled") owner.state.start?.();
+        if (owner?.state.phase === "stopping") {
+          await owner.state.task;
+        } else if (owner?.state.phase === "starting" || owner?.state.phase === "attached") await owner.state.task;
+        if (!active) return;
+        // A model/indexing refresh can replace initialization without replacing
+        // this callback or its mounted buffer. Drain the current attachment.
+        if (documentOwnersRef.current.get(filePath) !== owner || owner?.state.phase === "stopping") {
+          if (attempt === 2) throw new Error("LSP document attachment changed repeatedly during synchronization.");
+          continue;
+        }
         if (owner?.state.phase !== "open") return;
         if (owner.changes.phase === "scheduled") {
           clearTimeout(owner.changes.timer);
@@ -386,7 +415,7 @@ export const useLspIntegration = ({
         await documentOwnersRef.current.get(filePath)?.changes.completion;
       }
     };
-    const unregisterFlusher = registerLspDocumentChangeFlusher(filePath, flushBeforeRequest);
+    const unregisterFlusher = registerLspDocumentChangeFlusher(filePath, flushBeforeRequest, documentChangeOwner);
 
     if (hasLspDocumentChanges(filePath)) {
       scheduleFlush(true);
@@ -407,5 +436,5 @@ export const useLspIntegration = ({
         owner.changes = { phase: "idle", completion: owner.changes.completion };
       }
     };
-  }, [contentRevision, enabled, filePath, bufferId, isLspSupported, declarativeOwner, lspClient, workspaceId]);
+  }, [contentRevision, enabled, filePath, bufferId, isLspSupported, declarativeOwner, lspClient, workspaceId, documentChangeOwner]);
 };

@@ -40,6 +40,12 @@ mock.module("@/i18n/locale-provider", () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
 const { SvgEditor } = await import("./svg-editor");
+// Prepare the real model engine once before case timing. A cold Windows import
+// can exceed the case watchdog; undo/redo and owner lifetime still run inside it.
+const monaco = await import("monaco-editor/esm/vs/editor/editor.api.js");
+mock.module("monaco-editor", () => monaco);
+const { Uri } = monaco;
+const { acquireMonacoModel } = await import("../engines/monaco/model-lifecycle");
 let root: Root | undefined;
 let container: HTMLDivElement | undefined;
 
@@ -130,11 +136,6 @@ test("ordinary source files keep their original editor surface", async () => {
 });
 
 test("mode switches retain the Monaco model and its undo/redo history", async () => {
-  // Use Monaco's real model API without loading browser language contributions.
-  const monaco = await import("monaco-editor/esm/vs/editor/editor.api.js");
-  mock.module("monaco-editor", () => monaco);
-  const { Uri } = monaco;
-  const { acquireMonacoModel } = await import("../engines/monaco/model-lifecycle");
   let owned: ReturnType<typeof acquireMonacoModel> | undefined;
   let releases = 0;
   function ModelOwner() {

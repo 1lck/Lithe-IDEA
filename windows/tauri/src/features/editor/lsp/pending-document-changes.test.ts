@@ -49,4 +49,34 @@ describe("request-time document flush", () => {
     await flushLspDocumentChanges("src/main.php");
     expect(flushes).toBe(0);
   });
+
+  test("drains a replacement flusher registered while the old editor finishes", async () => {
+    const path = "src/reopened.php";
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const first = registerLspDocumentChangeFlusher(path, () => gate);
+    const events: string[] = [];
+    const flushing = flushLspDocumentChanges(path);
+    const second = registerLspDocumentChangeFlusher(path, async () => { events.push("restored"); });
+    try {
+      release(); await flushing;
+      expect(events).toEqual(["restored"]);
+    } finally {
+      release(); await flushing; first(); second();
+    }
+  }, 1000);
+
+  test("continuous owner replacement fails after three drains", async () => {
+    const path = "src/churning.php";
+    const unregister: Array<() => void> = [];
+    let calls = 0;
+    const replace = () => {
+      unregister.push(registerLspDocumentChangeFlusher(path, async () => { calls += 1; replace(); }));
+    };
+    replace();
+    try {
+      await expect(flushLspDocumentChanges(path)).rejects.toThrow("ownership changed");
+      expect(calls).toBe(3);
+    } finally { for (const stop of unregister) stop(); }
+  }, 1000);
 });

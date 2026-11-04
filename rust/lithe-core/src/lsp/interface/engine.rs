@@ -2578,7 +2578,7 @@ impl RuntimeSession {
             let response = allocate_raw_request(
                 state.client.clone(),
                 "workspace/executeCommand",
-                java_entrypoints_command(&java_entrypoint_scope_uri(&self.root_uri)),
+                java_entrypoints_command(),
             )?;
             let request_id = (response.state.next_request_id - 1).to_string();
             let now = Instant::now();
@@ -3243,11 +3243,7 @@ impl RuntimeSession {
                             "Java entry-point discovery requires the Java language service.",
                         ));
                     }
-                    allocate_raw_request(
-                        state.client.clone(),
-                        method,
-                        java_entrypoints_command(&java_entrypoint_scope_uri(&self.root_uri)),
-                    )?
+                    allocate_raw_request(state.client.clone(), method, java_entrypoints_command())?
                 }
                 LspSemanticOperation::JavaTestItems => {
                     if self.provider_id != "java" {
@@ -5987,23 +5983,6 @@ fn diagnostics_addressed_to_open_document(
     let mut message = message.clone();
     message["params"]["uri"] = Value::String(document_uri);
     Some(message)
-}
-
-/// The workspace URI that scopes Java entry-point discovery.
-///
-/// JDT imports a project at its canonical location, and Java Debug Server
-/// keeps only the classes whose project path starts with the scope path. A
-/// workspace opened through a symbolic link (`/tmp` or `/var` on macOS) would
-/// therefore match no project and silently yield an empty list, so the scope
-/// names the resolved directory. A root that cannot be resolved is sent as is.
-fn java_entrypoint_scope_uri(root_uri: &str) -> String {
-    url::Url::parse(root_uri)
-        .ok()
-        .and_then(|url| url.to_file_path().ok())
-        .and_then(|path| crate::remote::workspace_io::canonicalize(path).ok())
-        .and_then(|canonical| url::Url::from_directory_path(canonical).ok())
-        .map(|url| url.to_string())
-        .unwrap_or_else(|| root_uri.to_string())
 }
 
 /// The workspace directory with symbolic links resolved, when it exists.
@@ -11457,7 +11436,7 @@ mod tests {
             .find(|message| message["id"] == request_id)
             .expect("the discovery request should be recorded");
         assert_eq!(request["params"]["command"], "vscode.java.resolveMainClass");
-        assert_eq!(request["params"]["arguments"], json!(["file:///workspace"]));
+        assert_eq!(request["params"]["arguments"], json!([]));
 
         // Java 25 forms (no-argument, instance) arrive from JDT like any other
         // entry; Core must pass them through without judging the signature.
@@ -11496,40 +11475,6 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
-    }
-
-    // Regression: a workspace opened through a symbolic link, as `/tmp` and
-    // `/var` are on macOS, listed no entry points because JDT places the
-    // project at the resolved location and the scope named the link.
-    #[cfg(unix)]
-    #[test]
-    fn java_entrypoint_scope_names_the_workspace_a_symbolic_link_resolves_to() {
-        let stamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock should follow the Unix epoch")
-            .as_nanos();
-        let scratch = ScratchDirectory(std::env::temp_dir().join(format!(
-            "lithe-entrypoint-scope-{}-{stamp}",
-            std::process::id()
-        )));
-        let workspace = scratch.0.join("real workspace");
-        std::fs::create_dir_all(&workspace).expect("workspace should be creatable");
-        let link = scratch.0.join("link");
-        std::os::unix::fs::symlink(&workspace, &link).expect("link should be creatable");
-
-        let scope = java_entrypoint_scope_uri(
-            url::Url::from_directory_path(&link)
-                .expect("link converts to a URI")
-                .as_str(),
-        );
-        let resolved = workspace.canonicalize().expect("workspace canonicalizes");
-        assert_eq!(
-            url::Url::parse(&scope)
-                .expect("scope is a URI")
-                .to_file_path()
-                .expect("scope is a file URI"),
-            resolved
-        );
     }
 
     // Regression: JDT publishes diagnostics under the resolved path of a file
@@ -11650,13 +11595,6 @@ mod tests {
             &message(&uri_of("other.go")),
         );
         assert!(linked.examined.is_empty());
-    }
-
-    #[test]
-    fn java_entrypoint_scope_keeps_a_root_that_cannot_be_resolved() {
-        for root_uri in ["file:///lithe-missing-workspace/app", "untitled:workspace"] {
-            assert_eq!(java_entrypoint_scope_uri(root_uri), root_uri);
-        }
     }
 
     #[test]

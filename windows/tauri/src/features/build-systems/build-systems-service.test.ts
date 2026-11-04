@@ -2,6 +2,7 @@ import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 import * as runtimeSelection from "@/features/run/services/build-runtime-selection";
 import * as eventApi from "@tauri-apps/api/event";
 import * as lspAdapter from "@/platform/lsp-core-adapter";
+import { declarativeLanguageSupportRevision } from "@/features/editor/lsp/declarative-language-support";
 import type { BuildModelReview, BuildView } from "./build-systems-types";
 
 /**
@@ -1087,6 +1088,7 @@ describe("explicit command model operations", () => {
     const prepared = deferCommand("declarative_plugins_build_prepare_model");
     const loaded = deferCommand("declarative_plugins_build_load_model");
     const approve = mock(async () => true);
+    const languageRevision = declarativeLanguageSupportRevision();
     const pending = buildSystemsService.loadBuildModel(
       catalogEntry.pluginId,
       "cargo",
@@ -1105,6 +1107,7 @@ describe("explicit command model operations", () => {
       (call) => call.command === "declarative_plugins_build_load_model",
     );
     expect(execute?.args).toEqual({ operationId: review.operationId });
+    expect(declarativeLanguageSupportRevision()).toBe(languageRevision);
     loaded.resolve({
       operationId: review.operationId,
       view: cargoView(WORKSPACE_A, 1),
@@ -1112,11 +1115,13 @@ describe("explicit command model operations", () => {
     });
     expect((await pending)?.stderr).toBe("fixture warning");
     expect(useBuildSystemsStore.getStore("ws-a").getState().status).toBe("ready");
+    expect(declarativeLanguageSupportRevision()).toBe(languageRevision + 1);
   });
 
   test("declining the review releases the native slot without execution", async () => {
     resetState();
     activateWorkspace("ws-a", WORKSPACE_A);
+    const languageRevision = declarativeLanguageSupportRevision();
     const prepared = deferCommand("declarative_plugins_build_prepare_model");
     const pending = buildSystemsService.loadBuildModel(
       catalogEntry.pluginId,
@@ -1127,6 +1132,7 @@ describe("explicit command model operations", () => {
     await flushMicrotasks();
     prepared.resolve(review);
     expect(await pending).toBeNull();
+    expect(declarativeLanguageSupportRevision()).toBe(languageRevision);
     expect(
       invokeCalls.some((call) => call.command === "declarative_plugins_build_load_model"),
     ).toBe(false);
@@ -1203,7 +1209,9 @@ describe("explicit command model operations", () => {
       view: cargoView(WORKSPACE_A, 99),
       stderr: "late",
     });
+    const languageRevision = declarativeLanguageSupportRevision();
     expect(await pending).toBeNull();
+    expect(declarativeLanguageSupportRevision()).toBe(languageRevision);
     expect(useBuildSystemsStore.getStore("ws-a").getState().generation).toBe(1);
     expect(useBuildSystemsStore.getStore("ws-b").getState().generation).toBe(2);
   });
@@ -1239,6 +1247,7 @@ describe("explicit command model operations", () => {
   test("execution failure stays failed after native slot cleanup", async () => {
     resetState();
     activateWorkspace("ws-a", WORKSPACE_A);
+    const languageRevision = declarativeLanguageSupportRevision();
     const prepared = deferCommand("declarative_plugins_build_prepare_model");
     const loaded = deferCommand("declarative_plugins_build_load_model");
     const pending = buildSystemsService.loadBuildModel(
@@ -1256,6 +1265,7 @@ describe("explicit command model operations", () => {
     await flushMicrotasks();
     loaded.reject(new Error("plugin.build.outputLimit"));
     expect(String(await failed)).toContain("plugin.build.outputLimit");
+    expect(declarativeLanguageSupportRevision()).toBe(languageRevision);
     expect(useBuildSystemsStore.getStore("ws-a").getState().status).toBe("failed");
     expect(
       invokeCalls.some((call) => call.command === "declarative_plugins_build_cancel_operation"),

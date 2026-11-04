@@ -39,6 +39,16 @@ ERROR_NO_MORE_FILES = 18
 INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
 
 
+@contextlib.contextmanager
+def application_playwright_session(stop_session):
+    """Keep the CDP event loop alive until the owned application is stopped."""
+    with sync_playwright() as playwright:
+        try:
+            yield playwright
+        finally:
+            stop_session()
+
+
 class ProcessEntry32(ctypes.Structure):
     _fields_ = [
         ("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD),
@@ -642,23 +652,25 @@ def cdp_ready(port: int) -> bool:
         return False
 
 
-def invoke(page: Page, command: str, arguments: dict | None = None):
+def invoke(page: Page, command: str, arguments: dict | None = None, *, timeout_ms: int = 10_000):
+    if type(timeout_ms) is not int or not 0 < timeout_ms <= 60_000:
+        raise ValueError("native IPC deadline must be an integer from 1 to 60000 milliseconds")
     return page.evaluate(
-        """async ([command, args]) => {
+        """async ([command, args, timeoutMs]) => {
           if (!window.__TAURI_INTERNALS__?.invoke) throw new Error("Tauri IPC is unavailable");
           let deadline;
           try {
             return await Promise.race([
               window.__TAURI_INTERNALS__.invoke(command, args ?? {}),
               new Promise((_, reject) => {
-                deadline = setTimeout(() => reject(new Error(`IPC deadline exceeded: ${command}`)), 10000);
+                deadline = setTimeout(() => reject(new Error(`IPC deadline exceeded: ${command}`)), timeoutMs);
               }),
             ]);
           } finally {
             clearTimeout(deadline);
           }
         }""",
-        [command, arguments or {}],
+        [command, arguments or {}, timeout_ms],
     )
 
 
@@ -844,7 +856,9 @@ class AppSession:
             deadline = time.monotonic() + 10
             survivors = [item for item in self.owned_tree if item.running()]
             while survivors and time.monotonic() < deadline:
-                time.sleep(0.05)
+                # CDP disconnect still has queued teardown work. Yield through
+                # the pinned Playwright sync bridge so WebView2 can finish it.
+                self.playwright._sync(asyncio.sleep(0.05))
                 survivors = [item for item in survivors if item.running()]
             if survivors:
                 attempt["survivorsBeforeCleanup"] = [
@@ -1317,7 +1331,18 @@ def main() -> int:
     reporter.capture_failure = lambda: capture_session_failure(session, artifact_root)
     all_owned_fixture_pids: set[int] = set()
     cleanup_evidence = []
+    cleanup_errors = []
     failure = None
+
+    def stop_remaining_session():
+        nonlocal session
+        if session is not None:
+            try:
+                cleanup_evidence.append(session.stop(require_graceful=False))
+            except Exception as error:
+                cleanup_errors.append(str(error))
+            finally:
+                session = None
 
     local_parent = Path(os.environ["LOCALAPPDATA"])
     roaming_parent = Path(os.environ["APPDATA"])
@@ -1335,7 +1360,7 @@ def main() -> int:
             args.webview_data.mkdir(parents=True)
             assert "host-acceptance" in args.executable.name.lower()
 
-        with sync_playwright() as playwright:
+        with application_playwright_session(stop_remaining_session) as playwright:
             if args.settings_functions_fixture_root:
                 from settings_functions_acceptance import SettingsFunctionsAcceptance
 
@@ -1646,12 +1671,7 @@ def main() -> int:
     except Exception as error:  # noqa: BLE001 - final cleanup and report must always run.
         failure = failure or error
     finally:
-        cleanup_errors = []
-        if session is not None:
-            try:
-                cleanup_evidence.append(session.stop(require_graceful=False))
-            except Exception as error:
-                cleanup_errors.append(str(error))
+        stop_remaining_session()
         owned_pids = all_owned_fixture_pids | live_fixture_pids(
             args.app_local_data / "plugin-state" / PLUGIN_ID
         )

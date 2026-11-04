@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import contextlib
 import ctypes
 import json
@@ -1106,6 +1107,27 @@ def main() -> int:
                 raise AssertionError("an empty product window list was accepted")
         page.evaluate.assert_not_called()
 
+    def session_cleanup_precedes_playwright_exit(failed):
+        events = []
+        @contextlib.contextmanager
+        def playwright_context():
+            events.append("event-loop-started")
+            try:
+                yield "playwright"
+            finally:
+                events.append("event-loop-stopped")
+        primary = RuntimeError("controlled product failure")
+        with patch.object(driver, "sync_playwright", side_effect=playwright_context):
+            try:
+                with driver.application_playwright_session(lambda: events.append("application-stopped")) as playwright:
+                    assert playwright == "playwright"
+                    events.append("product-work")
+                    if failed:
+                        raise primary
+            except RuntimeError as error:
+                assert failed and error is primary
+        assert events == ["event-loop-started", "product-work", "application-stopped", "event-loop-stopped"], events
+
     def session_observes_quit_before_detach_and_keeps_failed_cleanup_evidence():
         with tempfile.TemporaryDirectory(prefix="lithe-session-stop-") as directory:
             root = Path(directory)
@@ -1185,6 +1207,42 @@ def main() -> int:
             assert recorded[0]["forced"] is True
             assert recorded[0]["error"] == "RuntimeError: identity inspection failed"
 
+    def session_drains_observer_events_while_waiting_for_owned_descendants():
+        with tempfile.TemporaryDirectory(prefix="lithe-session-event-drain-") as directory:
+            root = Path(directory)
+            playwright = MagicMock()
+            playwright._sync.side_effect = asyncio.run
+            session = driver.AppSession(playwright, root / "app.exe", root, root / "webview", root / "logs", 1)
+            owner = MagicMock(pid=101)
+            owner.running.return_value = False
+            child = MagicMock(pid=102)
+            child.running.return_value = True
+            session.root_owner = owner
+            session.owned_tree = [child]
+            session.process = MagicMock(pid=101, returncode=0)
+            session.process.poll.return_value = 0
+            original_sleep = asyncio.sleep
+
+            async def queued_observer_exit(seconds):
+                assert seconds == 0.05
+                # CDP teardown must get an event-loop turn before the retained
+                # browser helper can exit; this has no wall-clock delay.
+                asyncio.get_running_loop().call_soon(setattr, child.running, "return_value", False)
+                await original_sleep(0)
+
+            with patch.object(driver, "capture_owned_tree", return_value=[]), \
+                    patch.object(driver, "application_window_inventory", return_value=[]), \
+                    patch.object(driver.asyncio, "sleep", side_effect=queued_observer_exit), \
+                    patch.object(driver.time, "sleep", side_effect=AssertionError("blocking descendant wait starves CDP teardown")), \
+                    patch.object(driver, "terminate_process_tree") as terminate:
+                result = session.stop()
+            playwright._sync.assert_called_once()
+            terminate.assert_not_called()
+            assert result["forced"] is False
+            assert result["attempts"][0]["rootReturnCode"] == 0
+            assert result["attempts"][0]["survivorsBeforeCleanup"] == []
+            assert not child.running()
+
     def session_persists_primary_diagnostic_even_if_cleanup_wait_fails():
         diagnostic = {"schemaVersion": 1, "pid": 102, "capture": {"stage": "OpenProcess", "winerror": 5}}
         primary = RuntimeError("controlled native inspection failed")
@@ -1263,6 +1321,9 @@ def main() -> int:
         run_case("filesystem aliases preserve the retained process identity", executable_alias_retains_identity, tests)
         run_case("application quit uses all product labels and waits for real close", application_quit_uses_all_product_labels_and_waits_for_real_close, tests)
         run_case("session observes quit before detach and retains failed cleanup evidence", session_observes_quit_before_detach_and_keeps_failed_cleanup_evidence, tests)
+        run_case("session drains observer events while waiting for owned descendants", session_drains_observer_events_while_waiting_for_owned_descendants, tests)
+        for failed in (False, True):
+            run_case(f"application cleanup precedes Playwright exit (product failure: {failed})", lambda failed=failed: session_cleanup_precedes_playwright_exit(failed), tests)
         if args.dom_browser is not None:
             run_case("grouped installed rows select scoped detail actions", grouped_plugin_actions, tests, max_ms=35_000)
             run_case("CDP observer detach leaves the external browser alive", observer_detach_preserves_external_browser, tests, max_ms=35_000)

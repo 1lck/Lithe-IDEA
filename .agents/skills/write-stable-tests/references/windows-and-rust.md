@@ -29,6 +29,13 @@ without parsing upstream XML comments as JavaScript.
 
 ## Rust
 
+The real-JDT lane gives only
+`lsp::interface::engine::real_jdt_tests::real_jdtls_lists_entrypoints_in_a_plain_java_folder`
+a 300-second process budget for starting the packaged service, importing its
+invisible project and discovering the open source. The test uses bounded JDT
+events, owns shutdown and temporary cache cleanup, and checks the installation
+listing. Other cases and the lane's suite deadline remain unchanged.
+
 - Prefer channels, barriers, and injected clocks to `thread::sleep`. Channel
   receives used for coordination require `recv_timeout` or an equivalent
   bounded operation.
@@ -209,6 +216,28 @@ Git children belong to the test's non-breakaway kill-on-close Job. Successful
 runs do not verify the watchdog's forced-cleanup branch or prove a 15-second
 cleanup bound. Do not infer a production deadline or increase CI budgets from
 this fixture-only allowance.
+
+R42 retained the original failures and repeated them with the same native Git
+adapter. Smart remote checkout exhausted its five-second fixture request while
+performing serial reference checks and stash preservation. Only Windows
+`git.write` checkout requests with `autoStash` receive ten seconds; ordinary
+checkout and fixture setup retain five seconds. Reviewed history apply exhausted
+ten seconds while replaying commits. Its Windows fixture allowance is twenty
+seconds, while preview stays at ten; the history fixture gives that allowance
+only to `git.write` requests carrying `expectedState`. Production deadlines do
+not change.
+
+Complete real-repository indexing and tag scenarios measured 28.6 and 19.2
+seconds. Only those raw test names receive 45 and 30 seconds respectively.
+The contiguous squash, full-message review/apply, four rebase edit/recovery
+scenarios, and independent failed-push/retry workflow also completed beyond
+their old 30-second watchdogs; each has an exact-name 45-second allowance.
+External rebase abort followed by recovery and a new reviewed plan measured
+45.6 seconds and receives 60 seconds. SharedRust and real-JDT list the same
+overrides, keep the module defaults and suite deadline, preserve every
+assertion, and record the effective per-case budget in the report. The first
+reports are diagnostic evidence; only a complete bounded pass verifies the
+adjusted case.
 
 ## Windows verification
 

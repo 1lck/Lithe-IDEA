@@ -6,7 +6,7 @@ type DocumentChangeFlusher = () => Promise<void>;
 
 const pendingChanges = new Map<string, EditorTextChange[]>();
 const listeners = new Set<DocumentChangeListener>();
-const flushers = new Map<string, DocumentChangeFlusher>();
+const flushers = new Map<string, { flush: DocumentChangeFlusher; owner: object }>();
 
 /**
  * Appends one edit's changes. The queue is replayed in order with each range
@@ -45,13 +45,20 @@ export function subscribeLspDocumentChanges(listener: DocumentChangeListener): (
 export function registerLspDocumentChangeFlusher(
   filePath: string,
   flusher: DocumentChangeFlusher,
+  owner: object = flusher,
 ): () => void {
-  flushers.set(filePath, flusher);
+  const registration = { flush: flusher, owner };
+  flushers.set(filePath, registration);
   return () => {
-    if (flushers.get(filePath) === flusher) {
+    if (flushers.get(filePath) === registration) {
       flushers.delete(filePath);
     }
   };
+}
+
+/** Stable editor-buffer identity, independent of its pending native attachment. */
+export function getLspDocumentChangeOwner(filePath: string): object | undefined {
+  return flushers.get(filePath)?.owner;
 }
 
 /**
@@ -65,5 +72,10 @@ export function registerLspDocumentChangeFlusher(
  * on their way, and is a no-op for files without an owner or pending changes.
  */
 export async function flushLspDocumentChanges(filePath: string): Promise<void> {
-  await flushers.get(filePath)?.();
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const owner = flushers.get(filePath);
+    await owner?.flush();
+    if (flushers.get(filePath) === owner) return;
+  }
+  throw new Error("LSP document ownership changed repeatedly during synchronization.");
 }

@@ -20,12 +20,12 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from build_acceptance import missing_capabilities, source_capabilities
-from generator_acceptance import cleanup_session, runtime_paths
+from generator_acceptance import choose_runtime, cleanup_session, runtime_paths
 from java_workflow_build import JavaBuildWorkflow
 from java_workflow_inputs import (CASES, BUILD_CASES, PENDING, PLUGIN_ID, REQUIRES, DESCRIPTORS, archive_manifest, assert_actual_launch, assert_observer, completed_preparation,
                                   java_source, json_bytes, pending_rows, read_reference,
-                                  generated_operation, ready_session, same_path, saved_and_synced, sha256, validate_plan, workflow_variant)
-from java_workflow_inputs import controlled_run, verify_installed_package
+                                  generated_operation, ready_document_session, ready_session, same_path, saved_and_synced, sha256, validate_plan, workflow_variant)
+from java_workflow_inputs import controlled_run, generated_jdk_matches, verify_installed_package
 from settings_functions_acceptance import (assert_resources, resource_diff, snapshot_resources,
                                           verify_host, wait_for)
 from text_window_fixture import source_inventory
@@ -34,6 +34,71 @@ from web_bridge_fallback_acceptance import require_x64_executable
 OBSERVER = Path(__file__).with_name("java_workflow_observer.js").read_text(encoding="utf-8")
 SUITE_SECONDS = 1500
 WORK_SECONDS = 1260
+
+
+def click_generator_action(page, name, wait):
+    # Complete runtime packages are verified before catalog/prepare replies.
+    # Await the exact public action inside the existing case/work deadlines;
+    # an early screenshot or an unrelated enabled button is not readiness.
+    action = page.get_by_role("button", name=name, exact=True)
+    wait(lambda: action.is_visible() and action.is_enabled(), "generator action " + name, 60)
+    action.click(timeout=5000)
+
+
+def click_java_run_action(row, wait):
+    # The public Run pane may still be identifying the restored project.
+    # Wait for this exact configuration, then dispatch once; a timeout fails.
+    action = row.get_by_role("button", name="Run", exact=True)
+    wait(lambda: action.is_visible() and action.is_enabled(), "generated Java Run action", 60)
+    action.click(timeout=5000)
+
+
+def workspace_tab(page, workspace):
+    matches = []
+    for title in page.get_by_role("tab").evaluate_all("elements => elements.map(element => element.getAttribute('title'))"):
+        if not title or not Path(title).is_absolute():
+            continue
+        try:
+            if same_path(Path(title).resolve(strict=True), workspace.resolve(strict=True)):
+                matches.append(title)
+        except (OSError, ValueError):
+            continue
+    if len(matches) > 1:
+        raise AssertionError("workspace has more than one public project tab")
+    return page.get_by_role("tab").and_(page.get_by_title(matches[0], exact=True)) if matches else None
+
+
+def switch_workspace_tab(page, workspace, wait):
+    tab = wait(lambda: workspace_tab(page, workspace), "actual public workspace tab")
+    # Selection can precede initialization. Observe the public action boundary
+    # before continuing, within the existing case and workflow deadlines.
+    wait(lambda: tab.is_enabled(), "workspace tab ready for switching", 60)
+    tab.click(timeout=10_000)
+    wait(lambda: tab.get_attribute("aria-selected") == "true" and tab.is_enabled(),
+         "selected Java workflow workspace initialized", 60)
+
+
+def wait_saved_source(source, content, wait):
+    read_error = None
+
+    def saved():
+        nonlocal read_error
+        try:
+            actual = source.read_bytes()
+            read_error = None
+            return actual == content.encode("utf-8")
+        except (PermissionError, FileNotFoundError) as error:
+            # Native save may briefly own its handle or replace its old path.
+            # Keep the exact byte assertion and the existing local deadline.
+            read_error = error
+            return False
+
+    try:
+        wait(saved, "saved Java bytes")
+    except TimeoutError as error:
+        if read_error is not None:
+            raise TimeoutError("saved Java bytes remained inaccessible: " + str(read_error)) from error
+        raise
 
 
 def workflow_result(plan, tests, runtime_executed):
@@ -104,7 +169,7 @@ def run(args, driver, reporter, plan):
     session = page = None
     packages = []
     failure = None
-    cleanup_complete = False
+    cleanup_attempted = False
     observer_started = False
 
     def write(name, value):
@@ -170,13 +235,13 @@ def run(args, driver, reporter, plan):
         assert_resources(package["before"], after)
 
     def clean():
-        nonlocal cleanup_complete
+        nonlocal cleanup_attempted
+        cleanup_attempted = True
         with step(CASES[7]):
             cleanup = cleanup_session(args, driver, session)
             write("cleanup", cleanup)
             if cleanup["survivors"] or cleanup["errors"] or not cleanup["profilesAbsent"]:
                 raise AssertionError("Java workflow cleanup failed: " + str(cleanup))
-            cleanup_complete = True
 
     def run_row():
         navigation = page.get_by_role("navigation", name="Run configurations", exact=True)
@@ -192,11 +257,13 @@ def run(args, driver, reporter, plan):
             raise AssertionError("expected one visible generated Java editor")
         editor.focus(timeout=10_000)
         page.keyboard.press("Control+A")
-        # Native keyboard insertion reaches the real Monaco model; no store or
-        # test-only editor API is called. Ctrl+S owns the actual product save.
+        # Type this controlled fixture as a single line so Monaco's per-line
+        # auto-indent does not change its exact bytes. It is still real Java;
+        # no editor model, store, private API or system clipboard is touched.
+        content = " ".join(content.splitlines())
         page.keyboard.insert_text(content)
         page.keyboard.press("Control+S")
-        wait(lambda: source.read_text(encoding="utf-8") == content, "saved Java bytes")
+        wait_saved_source(source, content, wait)
         return wait(lambda: saved_and_synced(snapshot(), source, content, java["sessionId"]),
                     "real saved document and Core synchronization", 60)
 
@@ -234,7 +301,7 @@ def run(args, driver, reporter, plan):
                     page.get_by_role("menuitem", name="New Project…", exact=True).click(timeout=10_000)
                     page.get_by_text("Plugin project generators", exact=True).click(timeout=10_000)
                     generator = next(item for item in manifest["projectGenerators"] if item["id"] == "java")
-                    page.get_by_role("button", name=generator["displayName"] + " · " + manifest["displayName"], exact=True).click(timeout=10_000)
+                    click_generator_action(page, generator["displayName"] + " · " + manifest["displayName"], wait)
                     page.locator("#generator-name").fill(plan["project"]["name"], timeout=10_000)
                     page.locator("#generator-location").fill(str(projects), timeout=10_000)
                     build = next(field for field in generator["fields"] if field["id"] == "buildSystem")
@@ -243,13 +310,14 @@ def run(args, driver, reporter, plan):
                     if variant != "plain":
                         page.locator("#generator-field-groupId").fill(plan["project"]["groupId"], timeout=10_000)
                         page.locator("#generator-field-artifactId").fill(plan["project"]["artifactId"], timeout=10_000)
-                    page.locator("#generator-field-jdk").click(timeout=10_000)
-                    driver.select_native_file(session.process.pid, Path(plan["jdk"]["home"]))
+                    choose_runtime(page, driver, session.process.pid, Path(plan["jdk"]["home"]))
                     review_button = page.get_by_role("button", name="Review creation", exact=True)
                     wait(lambda: review_button.is_enabled(), "native runtime probe and valid Java form")
                     review_button.click(timeout=10_000)
+                    create = page.get_by_role("button", name="Create project", exact=True)
+                    wait(lambda: create.is_visible() and create.is_enabled(), "reviewed Java creation action", 60)
                     page.screenshot(path=str(evidence / "generation-review.png"), timeout=5000)
-                    page.get_by_role("button", name="Create project", exact=True).click(timeout=10_000)
+                    create.click(timeout=5000)
                     wait(lambda: (target / plan["project"]["sourcePath"]).is_file(), "actual generated Java source", 60)
                     page.get_by_role("heading", name="Plugin project generators", exact=True).wait_for(state="detached", timeout=30_000)
                     target = target.resolve(strict=True)
@@ -258,7 +326,7 @@ def run(args, driver, reporter, plan):
                     page.get_by_role("tab", selected=True).and_(page.get_by_title(target.as_posix(), exact=True)).wait_for(state="visible", timeout=30_000)
                     page.get_by_role("tab", selected=True).filter(has=page.get_by_title(source.as_posix(), exact=True)).wait_for(state="visible", timeout=30_000)
                     config = json.loads((target / ".lithe/run/local.json").read_text(encoding="utf-8"))
-                    if not same_path(config["toolchain"]["javaHomePath"], plan["jdk"]["home"]):
+                    if not generated_jdk_matches(config, plan["jdk"]["home"]):
                         raise AssertionError("created project did not preserve the selected real JDK")
                     probes = [call for call in snapshot() if call["command"] == "declarative_plugins_generator_runtime" and call.get("settled")]
                     if not any(same_path(call.get("value", {}).get("homePath", ""), plan["jdk"]["home"])
@@ -270,8 +338,12 @@ def run(args, driver, reporter, plan):
                     write("generated-opened", {"variant": variant, "root": str(target), "source": str(source), "generatedFiles": generated,
                                               "localRun": config, "runtimeProbes": probes, "generation": generation,
                                               "javaPackageSha256": plan["package"]["archive"]["sha256"]})
+                if variant != "plain":
+                    with step("approved-build-model", 480_000):
+                        build_workflow = JavaBuildWorkflow(page, driver, plan, target, raw_snapshot, wait, write)
+                        build_workflow.prepare_model()
                 with step(CASES[2], 240_000):
-                    java = wait(lambda: ready_session(snapshot(), target, package_root), "real plugin-owned JDT service ready", 230)
+                    java = wait(lambda: ready_document_session(snapshot(), target, package_root, source), "real plugin-owned JDT document ready", 230)
                     write("java-readiness", java)
                 with step(CASES[3]):
                     content = java_source("LITHE_JAVA_SAVED_BUILD_OK", package_name=plan["project"].get("groupId"))
@@ -281,23 +353,24 @@ def run(args, driver, reporter, plan):
                     local = target / ".lithe/run/local.json"
                     local_before = local.read_bytes()
                     visits = []
-                    for workspace in (startup.resolve(strict=True), target):
-                        tab = page.get_by_role("tab").and_(page.get_by_title(workspace.as_posix(), exact=True))
-                        tab.click(timeout=10_000)
-                        wait(lambda: tab.get_attribute("aria-selected") == "true", "selected Java workflow workspace")
+                    for workspace in (startup, target):
+                        switch_workspace_tab(page, workspace, wait)
                         visits.append(str(workspace))
                         if owned_runs():
                             raise AssertionError("workspace switch started an unrequested process")
                     if local.read_bytes() != local_before or (startup / ".lithe/run/local.json").exists():
                         raise AssertionError("switching workspaces changed or leaked Java runtime selection")
                     page.get_by_role("tab", selected=True).filter(has=page.get_by_title(source.as_posix(), exact=True)).wait_for(state="visible", timeout=30_000)
-                    java = wait(lambda: ready_session(snapshot(), target, package_root), "restored plugin JDT session", 180)
+                    if variant != "plain":
+                        # Switching workspaces invalidates the build generation.
+                        # Restore its reviewed model before waiting for Java import.
+                        build_workflow.prepare_model()
+                    java = wait(lambda: ready_document_session(snapshot(), target, package_root, source), "restored plugin JDT document", 180)
                     saved = edit_save(content + "\n// explicit workspace restoration\n")
                     write("workspace-switch-restore", {"visits": visits, "java": java, "save": saved, "localSha256": sha256(local)})
                 if variant != "plain":
                     with step("approved-build-model-task", 480_000):
-                        build_workflow = JavaBuildWorkflow(page, driver, plan, target, raw_snapshot, wait, write)
-                        build_workflow.model_and_task()
+                        build_workflow.run_task(build_workflow.open(), build_workflow.instance)
                 with step(CASES[4], 180_000):
                     # The default keymap opens the public Run tool window. A
                     # generic Run button could already launch a configuration.
@@ -305,7 +378,7 @@ def run(args, driver, reporter, plan):
                         page.keyboard.press("Shift+F10")
                     row = run_row()
                     before_run = {owner.pid for owner in driver.capture_owned_tree(session.root_owner)}
-                    row.get_by_role("button", name="Run", exact=True).click(timeout=10_000)
+                    click_java_run_action(row, wait)
                     prepared = wait(lambda: completed_preparation(snapshot(), source, main_class, java["sessionId"], saved["notification"]["sequence"], "ready"),
                                     "actual Core java.prepareLaunch completion", 150)
                     started = wait(lambda: next((call for call in snapshot() if call["command"] == "run_start_process" and call["sequence"] > prepared["request"]["sequence"] and call.get("settled") and not call.get("error")), None),
@@ -334,7 +407,7 @@ def run(args, driver, reporter, plan):
                         write("build-run-binding", {**build_workflow.binding(), "javaSessionId": java["sessionId"],
                                                   "prepareOperation": prepared["operationId"], "runSessionId": launch["sessionId"], "start": started})
                 with step(CASES[5]):
-                    row.get_by_role("button", name="Stop", exact=True).click(timeout=10_000)
+                    row.get_by_role("button", name="Stop run", exact=True).click(timeout=10_000)
                     wait(lambda: not owned_runs(), "Stop reclaimed all actual native run owners", 20)
                     wait(lambda: not any(owner.running() for owner in java_processes), "Stop ended the retained actual Java process", 20)
                     stops = [call for call in snapshot() if call["command"] == "run_stop_process" and call.get("settled") and not call.get("error")]
@@ -345,7 +418,7 @@ def run(args, driver, reporter, plan):
                     rejected = edit_save(java_source("unused", invalid=True, package_name=plan["project"].get("groupId")))
                 if variant != "plain":
                     with step("build-compile-error-terminal", 240_000):
-                        build_workflow.run_task(build_workflow.open(), build_workflow.instance, expected="failed")
+                        build_workflow.run_compile_error_task()
                     if not page.get_by_role("navigation", name="Run configurations", exact=True).is_visible():
                         page.keyboard.press("Shift+F10")
                 with step(CASES[6], 180_000):
@@ -377,7 +450,7 @@ def run(args, driver, reporter, plan):
                         and same_path(owner.executable, recovered_start["args"]["args"]["executable"])]
                     if len(recovery_children) != 1:
                         raise AssertionError("recovery lacks one retained actual Java child")
-                    row.get_by_role("button", name="Stop", exact=True).click(timeout=10_000)
+                    row.get_by_role("button", name="Stop run", exact=True).click(timeout=10_000)
                     wait(lambda: not owned_runs(), "recovery Stop reclaimed native owners", 20)
                     wait(lambda: not any(owner.running() for owner in recovery_children), "recovery Stop ended actual Java child", 20)
                     write("compile-error-explicit-recovery", {"save": restored, "prepare": recovery, "start": recovered_start, "owners": owned_runs()})
@@ -386,8 +459,9 @@ def run(args, driver, reporter, plan):
                     # cleanup authority. JDT is the product's own descendant.
                     retained = driver.capture_owned_tree(session.root_owner)
                     session.owned_tree = list(dict.fromkeys(session.owned_tree + retained))
-                    prefix = str(package_root).replace("\\", "/").rstrip("/").casefold() + "/"
-                    jdt_children = [owner for owner in retained if owner.running() and owner.executable.replace("\\", "/").casefold().startswith(prefix)]
+                    resolved_package = package_root.resolve(strict=True)
+                    jdt_children = [owner for owner in retained if owner.running()
+                                    and Path(owner.executable).resolve(strict=True).is_relative_to(resolved_package)]
                     if not jdt_children:
                         raise AssertionError("no retained package-owned JDT process for disable cleanup proof")
                     for package in reversed(packages):
@@ -443,7 +517,7 @@ def run(args, driver, reporter, plan):
     finally:
         reporter.runtime_executed = session is not None and session.process is not None
         try:
-            if not cleanup_complete:
+            if not cleanup_attempted:
                 clean()
         except Exception as error:
             failure = failure or error

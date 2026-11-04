@@ -154,6 +154,7 @@ function reviewFixture(overrides: Partial<MarketplaceReview> = {}): MarketplaceR
     officialPublisherVerified: false,
     requiresConfirmation: true,
     prepared: {
+      verification: { status: "unsigned" },
       sessionId: "session-1",
       manifestDigest: "digest-1",
       displayName: "Plugin io.example.alpha",

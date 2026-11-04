@@ -68,10 +68,22 @@ impl CheckoutFixture {
 
     fn call_at(&self, path: &std::path::Path, command: &str, mut payload: Value) -> Value {
         payload["root"] = json!(path);
+        // Smart checkout snapshots and restores a real stash through many
+        // serial Git children. Only this Windows integration request needs
+        // more than five seconds; setup and ordinary checkouts keep that bound.
+        let timeout = if cfg!(windows)
+            && command == "git.write"
+            && payload["operation"] == "checkout"
+            && payload["autoStash"] == true
+        {
+            10_000
+        } else {
+            5_000
+        };
         serde_json::from_str(&execute_json(
             &json!({
                 "id": "remote-checkout-test", "command": command,
-                "timeoutMilliseconds": 5000, "payload": payload,
+                "timeoutMilliseconds": timeout, "payload": payload,
             })
             .to_string(),
         ))

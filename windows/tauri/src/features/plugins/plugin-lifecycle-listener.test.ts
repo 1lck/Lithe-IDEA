@@ -178,8 +178,8 @@ test("global reload drains each product window without filtering the workspace o
       [undefined, "test.plugin"],
     ]);
     expect(stoppedLsp).toEqual([
-      ["lsp_stop_for_provider", { providerId: "test.plugin" }],
-      ["lsp_stop_for_provider", { providerId: "test.plugin" }],
+      ["lsp_stop_for_provider", { pluginId: "test.plugin" }],
+      ["lsp_stop_for_provider", { pluginId: "test.plugin" }],
     ]);
     expect(removedUI).toEqual(["test.plugin", "test.plugin"]);
     expect(() => assertPluginActive("unrelated.plugin")).not.toThrow();

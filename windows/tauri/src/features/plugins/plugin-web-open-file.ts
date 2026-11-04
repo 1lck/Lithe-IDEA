@@ -100,7 +100,7 @@ async function initializePluginLifecycleListener(): Promise<() => void> {
       if (!payload.operationId) return;
       const outcomes = await Promise.allSettled([
         declarativePluginProcessOwner.stop(undefined, payload.pluginId),
-        invokeLsp("lsp_stop_for_provider", { providerId: payload.pluginId }),
+        invokeLsp("lsp_stop_for_provider", { pluginId: payload.pluginId }),
       ]);
       const failure = outcomes.find((outcome) => outcome.status === "rejected");
       await invoke("declarative_plugins_lifecycle_ack", {

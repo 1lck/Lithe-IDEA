@@ -10,11 +10,54 @@ import {
 import {
   subscribeDeclarativeLanguageSupport,
   probeDeclarativeExecutionOwner,
+  declarativeLanguageSupportRevision,
 } from "./declarative-language-support";
 import { resolveEditorLspLaunch } from "./resolve-editor-lsp-launch";
+import { rescanDeclarativePlugins } from "@/features/plugins/declarative-plugin-launch";
 
 const pluginId = "io.example.editor-admission";
 const owner = { pluginId, displayName: "Fixture", languageId: "admission" };
+
+test("a completed scan wakes an editor whose restored document had no owner", async () => {
+  setPluginActive(pluginId, true);
+  let scanned = false;
+  const path = "C:/fixture/restored.admission";
+  const changes: number[] = [];
+  const unsubscribe = subscribeDeclarativeLanguageSupport(() => changes.push(declarativeLanguageSupportRevision()));
+  const spy = mockNativeInvoke(async (command) => {
+    if (command === "declarative_plugins_rescan") { scanned = true; return 1; }
+    return scanned ? owner : null;
+  });
+  try {
+    expect(await resolveEditorLspSupport(path)).toBe(false);
+    expect(changes).toHaveLength(0);
+    await rescanDeclarativePlugins();
+    expect(changes).toHaveLength(1);
+    expect(await resolveEditorLspSupport(path)).toBe(true);
+  } finally { unsubscribe(); spy.mockRestore(); }
+});
+
+test("an ownership answer from before rescan cannot replace the new catalog hint", async () => {
+  setPluginActive(pluginId, true);
+  const stale = deferred<typeof owner>();
+  const entered = deferred<void>();
+  const path = "C:/fixture/rescanned.admission";
+  let calls = 0;
+  const spy = mockNativeInvoke(async (command) => {
+    if (command === "declarative_plugins_rescan") return 1;
+    if (++calls === 1) { entered.resolve(); return stale.promise; }
+    return { ...owner, languageId: "new-catalog" };
+  });
+  const old = resolveEditorLspSupport(path);
+  try {
+    await entered.promise;
+    await rescanDeclarativePlugins();
+    expect(await resolveEditorLspSupport(path)).toBe(true);
+    stale.resolve(owner);
+    expect(await old).toBe(false);
+    expect(languageIdForEditorFile(path)).toBe("new-catalog");
+  } finally { stale.resolve(owner); await old; spy.mockRestore(); }
+});
 
 test("a Worker run owner suppresses contract execution discovery without changing LSP priority", async () => {
   const worker = spyOn(extensionRegistry, "getExtensionForFilePath").mockReturnValue({
