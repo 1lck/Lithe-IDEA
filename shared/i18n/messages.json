@@ -97729,6 +97729,124 @@
         "key": "Could not check the pull request checkout. Check the repository and try again.",
         "arguments": []
       }
+    },
+    {
+      "id": "git.fetch.behavior.reachable",
+      "description": "Effective Git Fetch tag behavior",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "git.fetch.behavior.remoteDependent",
+      "description": "Effective Git Fetch tag behavior",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "git.fetch.behavior.custom",
+      "description": "Effective Git Fetch tag behavior",
+      "platforms": [
+        "windows",
+        "macos"
+      ],
+      "macos": {
+        "key": "Uses a custom tag refspec",
+        "arguments": []
+      }
+    },
+    {
+      "id": "git.fetch.behavior.noRemotes",
+      "description": "Effective Git Fetch tag behavior",
+      "platforms": [
+        "windows",
+        "macos"
+      ],
+      "macos": {
+        "key": "No remote is available for Fetch",
+        "arguments": []
+      }
+    },
+    {
+      "id": "git.fetch.behavior.unavailable",
+      "description": "Effective Git Fetch tag behavior",
+      "platforms": [
+        "windows",
+        "macos"
+      ],
+      "macos": {
+        "key": "Cannot determine; check Git configuration",
+        "arguments": []
+      }
+    },
+    {
+      "id": "git.fetch.behavior.source.local",
+      "description": "Effective Git Fetch tag behavior",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "git.fetch.behavior.source.global",
+      "description": "Effective Git Fetch tag behavior",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "git.fetch.behavior.source.system",
+      "description": "Effective Git Fetch tag behavior",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "git.fetch.behavior.source.worktree",
+      "description": "Effective Git Fetch tag behavior",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "git.fetch.behavior.source.command",
+      "description": "Effective Git Fetch tag behavior",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "git.fetch.behavior.source.unknown",
+      "description": "Effective Git Fetch tag behavior",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "git.fetch.behavior.source.git",
+      "description": "Effective Git Fetch tag behavior",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "git.fetch.behavior.source.lithe",
+      "description": "Effective Git Fetch tag behavior",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "git.fetch.behavior.source.multiple",
+      "description": "Effective Git Fetch behavior comes from more than one source",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Multiple sources",
+        "arguments": []
+      }
     }
   ]
 }

@@ -10121,7 +10121,21 @@
     "github.prCheckoutConfirmTitle": "Check out pull request?",
     "github.prCheckoutConfirmDescription": "Fetch the pull request and create a local branch. Existing branches will not be reset.",
     "github.prCheckoutBranchLabel": "Local branch: ",
-    "github.prCheckoutInspectFailed": "Could not check the pull request checkout. Check the repository and try again."
+    "github.prCheckoutInspectFailed": "Could not check the pull request checkout. Check the repository and try again.",
+    "git.fetch.behavior.reachable": "Fetch tags that point to fetched commits",
+    "git.fetch.behavior.remoteDependent": "Follows each remote's tag setting",
+    "git.fetch.behavior.custom": "Uses a custom tag refspec",
+    "git.fetch.behavior.noRemotes": "No remote is available for Fetch",
+    "git.fetch.behavior.unavailable": "Cannot determine; check Git configuration",
+    "git.fetch.behavior.source.local": "Repository Git configuration",
+    "git.fetch.behavior.source.global": "Global Git configuration",
+    "git.fetch.behavior.source.system": "System Git configuration",
+    "git.fetch.behavior.source.worktree": "Worktree Git configuration",
+    "git.fetch.behavior.source.command": "Git command configuration",
+    "git.fetch.behavior.source.unknown": "Git configuration",
+    "git.fetch.behavior.source.git": "Git default",
+    "git.fetch.behavior.source.lithe": "Lithe default",
+    "git.fetch.behavior.source.multiple": "Multiple sources"
   },
   "overrides": {
     "windows": {

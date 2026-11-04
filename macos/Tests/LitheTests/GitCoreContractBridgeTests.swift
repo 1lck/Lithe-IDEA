@@ -12,6 +12,42 @@ struct GitCoreContractBridgeTests {
     private let core = RustCoreBridge()
 
     @Test(.enabled(if: RustCoreBridge().isAvailable, "Requires the linked Rust Core integration library"))
+    func fetchSettingsShowCoreResolvedTagBehavior() async throws {
+        struct Request: Encodable { let root: String; let scope = "local" }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-fetch-settings-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        func git(_ arguments: [String]) async throws {
+            let result = try await TestProcess.run(executableURL: URL(fileURLWithPath: "/usr/bin/git"),
+                                                   arguments: arguments, currentDirectoryURL: root)
+            try #require(result.terminationStatus == 0, "git \(arguments) failed")
+        }
+        try await git(["init", "--template=", "-q"])
+        try await git(["remote", "add", "origin", "https://example.invalid/fixture.git"])
+        try await git(["config", "lithe.fetch.tags", "none"])
+        try await git(["config", "lithe.fetch.prune", "false"])
+        try await git(["config", "fetch.pruneTags", "true"])
+        let request = Request(root: root.path)
+        let snapshot: GitExecutionSettingsSnapshot = try core.executeResult(command: "git.executionInspect", payload: request).get()
+        let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let data = try Data(contentsOf: repo.appendingPathComponent("shared/fixtures/git/fetch-behavior-v1.json"))
+        let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let cases = try #require(fixture["cases"] as? [[String: Any]])
+        let expectedCase = try #require(cases.first { $0["name"] as? String == "no-tags does not override prune-tags" })
+        let expected = try #require((expectedCase["expected"] as? [String: Any])?["tags"] as? [String: Any])
+        let expectedValue = try #require(expected["value"] as? String)
+        #expect(snapshot.resolvedFetchBehavior?.tags.value == expectedValue)
+        #expect(snapshot.resolvedFetchBehavior?.tags.source?.scope == "local")
+
+        try await git(["config", "remote.origin.pruneTags", "invalid"])
+        let invalid: GitExecutionSettingsSnapshot = try core.executeResult(command: "git.executionInspect", payload: request).get()
+        #expect(invalid.resolvedFetchBehavior?.tags.value == "unavailable")
+        #expect(invalid.resolvedFetchBehavior?.tags.reasonCode == "invalidConfiguration")
+        #expect(invalid.entries.contains { $0.key == "remote.origin.prunetags" && $0.value == "invalid" })
+    }
+
+    @Test(.enabled(if: RustCoreBridge().isAvailable, "Requires the linked Rust Core integration library"))
     func worktreeComparisonDecodesUntrackedIdentityFromCore() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-comparison-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

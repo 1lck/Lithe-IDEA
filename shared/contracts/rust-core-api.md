@@ -1707,7 +1707,7 @@ it is not console output. See `shared/fixtures/git/remote-url-v1.json`.
 
 `git.executionInspect` takes `{ root, scope?: "local" | "global" }`, default local.
 It returns `{ executable, version, scope, entries, fields, temporaryConfig,
-fetchOptions, fetchError, fetchSources, credentialHelperEnabled,
+fetchOptions, fetchError, fetchSources, resolvedFetchBehavior, credentialHelperEnabled,
 interactiveAuthentication }`. Entries are `{ key, value, scope, origin, effective }`
 in Git precedence order, limited to relevant configuration and redacted. Effective
 `fetch.prunetags` and `remote.<name>.prunetags` entry values use Git's boolean
@@ -1718,6 +1718,17 @@ the selected file without expanding includes. `configuredValues` retain the raw
 values for optimistic edit checks, even when an effective entry is normalized.
 Fetch source values are `{ scope, origin }` per preference; application sources have null origins. Invalid repository
 preferences return null `fetchOptions` and a structured `fetchError`.
+`resolvedFetchBehavior.tags` is `{ value, source, basis, reasonCode }`, or the
+whole `resolvedFetchBehavior` is null when Fetch options cannot be resolved.
+The value is `reachable`, `all`, `none`, `prune`, `custom`, `remoteDependent`,
+or `unavailable`. `source` is an optional `{ scope, origin }`, `basis` is `git`
+`lithe`, or `multiple` when no single source explains all remotes; `reasonCode` distinguishes `noRemotes` from
+`invalidConfiguration`. Repeated `remote.<name>.fetch` entries remain additive.
+Git's explicit tag refspec and `pruneTags` may fetch tags even with `--no-tags`;
+partial or negative tag refspecs are reported as `custom` rather than guessed.
+All occurrences of relevant boolean settings are checked with Git's parser so
+an invalid shadowed value is not silently interpreted as valid. Inputs and
+outputs are illustrated by `shared/fixtures/git/fetch-behavior-v1.json`.
 
 `git.executionConfigure` adds `{ key, value: string | null, expectedValues:
 string[] }` to the same request. It permits `fetch.prune`, `fetch.prunetags`,
