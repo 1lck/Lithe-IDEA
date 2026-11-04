@@ -206,6 +206,17 @@ done
       abort "plan case #{item.fetch("name")} uses an undocumented code" unless documented.include?(expected.fetch("code"))
     end
   end
+  resolution = JSON.parse(File.read(File.join(root, "fixtures", "language-server-launch-resolution.json")))
+  abort "language server launch resolution fixture schema must be 1" unless resolution.fetch("schemaVersion") == 1
+  resolution.fetch("cases").each do |item|
+    abort "launch resolution case #{item.fetch("name")} uses an unknown operation" unless %w[languageServerLaunchPlan decodeLaunch].include?(item.fetch("operation"))
+    abort "launch resolution case #{item.fetch("name")} needs a result" if item.fetch("operation") == "decodeLaunch" && !item.key?("result")
+    abort "launch resolution case #{item.fetch("name")} uses an unknown plugin" if item.key?("plugin") && !fixture_names.include?(item.fetch("plugin"))
+    expected = item.fetch("expected")
+    if expected.fetch("status") == "rejected"
+      abort "launch resolution case #{item.fetch("name")} uses an undocumented code" unless documented.include?(expected.fetch("code"))
+    end
+  end
   build_operations = %w[
     invocationPlan checkToolVersion resolveOptions modelPlan taskPlan testPlan dependencyPlan
     decodeModel decodeTestResults decodeDiagnostics decodeDependencies syncFingerprint
