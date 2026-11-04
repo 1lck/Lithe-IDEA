@@ -130,10 +130,12 @@ fn remove_untracked_metadata(workspace_root: &Path) -> Vec<String> {
             });
         }
     }
+    // Summarize cleanup at the launch boundary; retained settings are normal.
+    let mut cleanup = crate::diagnostics::core_events::StorageCleanup::default();
     for settings in emptied_settings {
-        // Fails, as intended, while the directory still holds other files.
-        let _ = fs::remove_dir(settings);
+        cleanup.empty_directory(&settings);
     }
+    cleanup.finish("jdt-settings");
     removed.sort();
     removed
 }

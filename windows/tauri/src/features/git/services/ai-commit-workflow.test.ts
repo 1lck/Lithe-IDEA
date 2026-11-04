@@ -7,7 +7,8 @@ function scenario(message = "") {
   const controller = new AbortController();
   const applied: string[] = [];
   const deps = {
-    readFiles: async () => files,
+    readContext: async () => ({ files, token: "state", repositories: [] }),
+    isCurrent: async () => true,
     generate: async () => "Generated",
     current: () => state,
     confirmReplace: async () => true,
@@ -54,9 +55,7 @@ describe("AI commit draft workflow", () => {
   });
   test("rejects changed patch even when selected filenames stay the same", async () => {
     const s = scenario();
-    let reads = 0;
-    s.deps.readFiles = async () =>
-      ++reads === 1 ? files : [{ ...files[0], diff: "+new content" }];
+    s.deps.isCurrent = async () => false;
     await expect(generateCommitDraft(s.deps)).rejects.toThrow("AI_COMMIT_STALE");
     expect(s.applied).toEqual([]);
   });

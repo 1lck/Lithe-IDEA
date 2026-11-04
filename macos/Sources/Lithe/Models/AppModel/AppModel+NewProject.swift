@@ -59,7 +59,7 @@ extension AppModel {
             )
         }
         if let warning = project.gitWarning {
-            showNotification(String(format: L10n.string("The project was created, but Git could not be set up: %@"), warning))
+            showNotification(String(format: L10n.string("The project was created, but Git could not be set up: %@"), warning), logReference: notificationRejection(operation: "project_creation", reason: "git_setup_failed"))
         }
         openProject(project.url)
     }

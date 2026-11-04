@@ -21,6 +21,7 @@ const DiffHunkHeader = memo(
     hunk,
     stats,
     hasInvisibleChanges,
+    hasDecodingLoss,
     hiddenLineCount,
     isCollapsed,
     onToggleCollapse,
@@ -81,7 +82,7 @@ const DiffHunkHeader = memo(
 
     const headerInfo = parseDiffHunkRange(hunk.header.content);
 
-    const canStage = !isInMultiFileView && rootFolderPath && filePath;
+    const canStage = !hasDecodingLoss && !isInMultiFileView && rootFolderPath && filePath;
     const isUnchangedGap = typeof hiddenLineCount === "number";
     const hiddenLabel = isUnchangedGap
       ? `${hiddenLineCount} unchanged line${hiddenLineCount === 1 ? "" : "s"}`

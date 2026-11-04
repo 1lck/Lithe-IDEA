@@ -1,4 +1,6 @@
+import { MONACO_HIGHLIGHT_LANGUAGE_IDS } from "@lithe/editor/language";
 import { StandardKeyboardEvent } from "monaco-editor/esm/vs/base/browser/keyboardEvent.js";
+import { configureBasicTextMateResources, ensureMonacoLanguageTokenizer } from "@lithe/editor/language-contributions";
 import { ContentHoverController } from "monaco-editor/esm/vs/editor/contrib/hover/browser/contentHoverController.js";
 import { encodeMonacoSemanticTokens, MONACO_SEMANTIC_TOKEN_MODIFIERS } from "@lithe/editor/semantic-tokens";
 import { deepClone } from "monaco-editor/esm/vs/base/common/objects.js";
@@ -27,6 +29,8 @@ import { installPluginGrammar } from "@lithe/editor/plugin-grammar-tokenizer";
 import { attachPluginEditorActions } from "@lithe/editor/plugin-editor-actions";
 import httpGrammarSource from "../../../shared/contracts/plugins/v1/fixtures/grammars/http.monarch.json" with { type: "text" };
 import { imeInputCases } from "./ime-input.integration";
+import basicHighlighting from "../../../shared/fixtures/editor/basic-file-highlighting-v1.json";
+import { toMonacoLanguageId } from "@lithe/editor/language";
 
 // Real WebKit integration, using the exact workbench bundle and the existing
 // bounded native probe host. No DOM-based imitation of Monaco input.
@@ -57,6 +61,174 @@ async function verify() {
     await operation();
     cases.push({ name, durationMs: performance.now() - started });
   }
+  await check("withdrawing a first-open same-ID plugin restores bundled syntax in the existing model", async () => {
+    const previous = initialEditor.getModel();
+    const text = "# comment\nall:";
+    try {
+      await window.lithe.setPluginLanguages({ languages: [{ id: "makefile", fileExtensions: ["mk"],
+        grammar: { kind: "monarch", source: '{"tokenizer":{"root":[[".*","string"]]}}' } }] });
+      await send({ type: "open", id: "plugin-first-make", text });
+      await window.lithe.activate({ id: "plugin-first-make", filename: "rules.mk", text, revision: 0, readonly: false });
+      const model = initialEditor.getModel()!;
+      await window.lithe.setPluginLanguages({ languages: [] });
+      assert(initialEditor.getModel() === model && model.getLanguageId() === "makefile", "withdrawal replaced the existing model");
+      (model as any).tokenization.forceTokenization(1);
+      assert((model as any).tokenization.getLineTokens(1).getStandardTokenType(0) === 1,
+        "withdrawal did not restore bundled Makefile comments");
+      assert(model.getValue() === text, "withdrawal changed source");
+    } finally {
+      await window.lithe.setPluginLanguages({ languages: [] });
+      await window.lithe.retain([]);
+      await send({ type: "closeFixtureDocument", documentID: "plugin-first-make" });
+      initialEditor.setModel(previous);
+    }
+  });
+  await check("a plugin enabled during worker startup wins and cancels the pending builtin", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const review = mountDiffReview(container);
+    const source = await (await fetch("textmate-worker.js")).text();
+    const workerURL = URL.createObjectURL(new Blob([source], { type: "text/javascript" }));
+    let reached!: () => void;
+    const ready = new Promise<void>(resolve => { reached = resolve; });
+    let held: unknown, released = false, terminations = 0, worker: Worker | undefined;
+    class ObservedWorker extends Worker {
+      terminate() { terminations++; super.terminate(); }
+    }
+    configureBasicTextMateResources(async language => ({ grammarURL: `${language}.tmLanguage.json`, createWorker: () => {
+      worker = new ObservedWorker(workerURL);
+      worker.addEventListener("message", event => {
+        if (event.data.type === "ready" && !released) {
+          event.stopImmediatePropagation(); held = event.data; reached();
+        }
+      }, { capture: true });
+      return worker;
+    } }));
+    const pending = review.update({ language: "groovy", rows: [{ id: "comment", oldLine: 1, newLine: 1,
+      left: "// before", right: "// after", kind: "changed" }] });
+    const release = () => {
+      released = true;
+      if (held) { worker!.dispatchEvent(new MessageEvent("message", { data: held })); held = undefined; }
+    };
+    try {
+      await withDeadline(ready, "real TextMate worker did not reach its ready event");
+      await window.lithe.setPluginLanguages({ languages: [{ id: "groovy", fileExtensions: ["groovy"],
+        grammar: { kind: "monarch", source: '{"tokenizer":{"root":[[".*","string"]]}}' } }] });
+      release();
+      await withDeadline(pending, "superseded diff initialization did not finish");
+      assert(terminations === 1, "superseded builtin worker was retained");
+      // Plugin tokenization is asynchronous; its foreground fallback remains plain.
+      // A late builtin registration would synchronously report a comment here.
+      assert(!monacoEditor.tokenize("// comment", "groovy")[0][0].type.startsWith("comment"),
+        "pending builtin replaced the enabled plugin grammar");
+      const model = review.editor.getModifiedEditor().getModel()!;
+      let listener: { dispose(): void } | undefined;
+      try {
+        const colored = new Promise<void>(resolve => {
+          const check = () => {
+            if ((model as any).tokenization.getLineTokens(1).getStandardTokenType(0) === 2) resolve();
+          };
+          listener = model.onDidChangeTokens(check); check();
+        });
+        await withDeadline(colored, "enabled plugin did not publish its string tokens into the diff model");
+      } finally { listener?.dispose(); }
+      await window.lithe.setPluginLanguages({ languages: [] });
+      configureBasicTextMateResources(undefined);
+      await ensureMonacoLanguageTokenizer("groovy");
+      assert(monacoEditor.tokenize("// comment", "groovy")[0][0].type.startsWith("comment"),
+        "cancelled installation poisoned subsequent builtin loading");
+    } finally {
+      release();
+      await withDeadline(pending, "pending diff did not clean up").catch(() => undefined);
+      configureBasicTextMateResources(undefined);
+      await window.lithe.setPluginLanguages({ languages: [] });
+      review.dispose(); container.remove(); worker?.terminate(); URL.revokeObjectURL(workerURL);
+    }
+  });
+  await check("a first-open diff uses the host's bundled grammar resources", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const review = mountDiffReview(container);
+    let requested = "";
+    configureBasicTextMateResources(async language => {
+      requested = language;
+      return { grammarURL: `${language}.tmLanguage.json` };
+    });
+    try {
+      await withDeadline(review.update({ language: "cmake", rows: [{ id: "comment", oldLine: 1, newLine: 1,
+        left: "# before", right: "# after", kind: "changed" }] }), "diff tokenizer did not load");
+      assert(requested === "cmake", "diff bypassed the host's grammar URL provider");
+      assert(monacoEditor.tokenize("# comment", "cmake")[0][0].type.startsWith("comment"), "diff opened without CMake syntax");
+    } finally {
+      configureBasicTextMateResources(undefined);
+      review.dispose(); container.remove();
+    }
+  });
+  await check("basic build and script files select bundled syntax without plugins", async () => {
+    const previous = initialEditor.getModel();
+    try {
+      for (const { filename, language } of basicHighlighting.associations) {
+        await send({ type: "open", id: "basic-syntax", text: "" });
+        await window.lithe.activate({ id: "basic-syntax", filename, text: "", revision: 0, readonly: false });
+        assert(initialEditor.getModel()!.getLanguageId() === toMonacoLanguageId(language), `wrong syntax: ${filename}`);
+      }
+      for (const example of basicHighlighting.syntax) {
+        const id = toMonacoLanguageId(example.language);
+        await ensureMonacoLanguageTokenizer(id);
+        await window.lithe.retain([]);
+        await send({ type: "open", id: "basic-syntax", text: example.text });
+        await window.lithe.activate({ id: "basic-syntax", filename: example.filename, text: example.text, revision: 0, readonly: false });
+        assert(initialEditor.getModel()!.getLanguageId() === id, `wrong model language: ${example.filename}`);
+        const lines = monacoEditor.tokenize(example.text, id);
+        for (const token of example.tokens) {
+          const column = example.text.split("\n")[token.line - 1].indexOf(token.text);
+          const actual = [...lines[token.line - 1]].reverse().find(value => value.offset <= column)?.type ?? "";
+          assert(actual.startsWith(token.role), `${example.filename}: ${token.text} has ${actual}, expected ${token.role}`);
+        }
+        const model = initialEditor.getModel()!;
+        model.pushStackElement();
+        initialEditor.executeEdits("basic-syntax", [{ range: new Range(1, 1, 1, 1), text: "# editable" }]);
+        model.pushStackElement();
+        assert(model.getValue().includes("editable"), "syntax activation prevented editing");
+        await model.undo();
+        assert(model.getValue() === example.text, "syntax activation corrupted undo");
+      }
+    } finally {
+      await window.lithe.retain([]);
+      await send({ type: "closeFixtureDocument", documentID: "basic-syntax" });
+      initialEditor.setModel(previous);
+    }
+  });
+  await check("bundled TextMate workers publish multiline comments after edits", async () => {
+    const previous = initialEditor.getModel();
+    try {
+      for (const [filename, source, edited] of [
+        ["rules.mk", "NAME = value\nall:", "# 中文 😀\nall:"],
+        ["toolchain.cmake", "set(NAME value)\nproject(Example)", "#[[ 中文 😀\ncomment\n]]"],
+        ["build.gradle", "def name = 'value'\nplugins {}", "/* 中文 😀\ncomment\n*/"],
+      ]) {
+        await window.lithe.retain([]);
+        await send({ type: "open", id: "basic-worker", text: source });
+        await window.lithe.activate({ id: "basic-worker", filename, text: source, revision: 0, readonly: false });
+        const model = initialEditor.getModel()!;
+        let listener: { dispose(): void } | undefined;
+        try {
+          const colored = new Promise<void>(resolve => {
+            listener = model.onDidChangeTokens(() => {
+              const token = (model as any).tokenization.getLineTokens(filename === "rules.mk" ? 1 : 2);
+              if (model.getValue() === edited && token.getStandardTokenType(0) === 1) resolve();
+            });
+          });
+          initialEditor.executeEdits("basic-worker", [{ range: model.getFullModelRange(), text: edited }]);
+          await withDeadline(colored, `worker did not publish comment state: ${filename}`);
+        } finally { listener?.dispose(); }
+      }
+    } finally {
+      await window.lithe.retain([]);
+      await send({ type: "closeFixtureDocument", documentID: "basic-worker" });
+      initialEditor.setModel(previous);
+    }
+  });
   await check("ordinary plugin grammar runs in a worker and preserves Monaco editing", async () => {
     if (!languages.getLanguages().some(language => language.id === "fixture-http")) languages.register({ id: "fixture-http" });
     const installation = installPluginGrammar("fixture-http", JSON.stringify({ tokenizer: { root: [["#.*$", "comment"]] } }));
@@ -1169,6 +1341,261 @@ async function verify() {
       await window.lithe.retain([]);
     }
   });
+  await check("IDEA YAML distinguishes keys, plain scalars and quoted scalars in both appearances", async () => {
+    await withDeadline(ensureMonacoLanguageTokenizer("yaml"), "YAML tokenizer did not load");
+    const text = 'name: lithe-database-validation\nservices:\n  restart: unless-stopped\n  ports: ["3306", plain, 30, true]\n  options: {key: plain, quoted: "green"}\n  script: |\n    echo hello\n  quoted: "green"\n  number: 1.5\n  # comment\n  alias: &db value';
+    const model = monacoEditor.createModel(text, "yaml");
+    const service = StandaloneServices.get(IStandaloneThemeService);
+    const previous = service.getColorTheme().themeName;
+    try {
+      for (const dark of [true, false]) {
+        window.lithe.configure({ fontFamily: "monospace", fontSize: 15, wrap: false, minimap: false,
+          theme: { id: `yaml-${dark}`, dark, syntaxScheme: "idea" } });
+        (model as any).tokenization.forceTokenization(model.getLineCount());
+        const colorAt = (lineNumber: number, word: string) => {
+          const line = (model as any).tokenization.getLineTokens(lineNumber);
+          const offset = model.getLineContent(lineNumber).lastIndexOf(word);
+          assert(offset >= 0, `missing YAML sample ${word}`);
+          const rgba = service.getColorTheme().tokenTheme.getColorMap()[line.getForeground(line.findTokenIndexAtOffset(offset))].rgba;
+          return [rgba.r, rgba.g, rgba.b].map(value => value.toString(16).padStart(2, "0")).join("").toUpperCase();
+        };
+        const foreground = dark ? "BCBEC4" : "080808", keyword = dark ? "CF8E6D" : "0033B3", string = dark ? "6AAB73" : "067D17";
+        for (const [line, word] of [[1, "name"], [2, "services"], [5, "key"], [5, "quoted"]] as const)
+          assert(colorAt(line, word) === keyword, `${dark}: YAML key ${word} is not IDEA keyword color`);
+        for (const [line, word] of [[1, "lithe"], [3, "unless"], [4, "plain"], [4, "30"], [4, "true"], [5, "plain"], [7, "echo"], [9, "1.5"]] as const)
+          assert(colorAt(line, word) === foreground, `${dark}: YAML plain scalar ${word} is not IDEA text color`);
+        assert(colorAt(11, "&db") === (dark ? foreground : "0000E6"), "YAML anchor ignored scheme override");
+        for (const [line, word] of [[4, "3306"], [5, "green"], [8, "green"]] as const)
+          assert(colorAt(line, word) === string, `${dark}: YAML quoted scalar ${word} lost string color`);
+      }
+      for (const dark of [true, false]) {
+        for (const syntaxScheme of ["lithe", "github", "one", "vscode"]) {
+          window.lithe.configure({ fontFamily: "monospace", fontSize: 15, wrap: false, minimap: false,
+            theme: { id: `yaml-regression-${syntaxScheme}-${dark}`, dark, syntaxScheme } });
+          const theme = service.getColorTheme().tokenTheme;
+          assert(theme.match(0, "string.yaml.plain") === theme.match(0, "string.yaml"),
+            `${syntaxScheme}: refining YAML tokens changed the existing scalar style`);
+        }
+      }
+    } finally {
+      model.dispose();
+      monacoEditor.setTheme(previous);
+    }
+  });
+  await check("IDEA SQL overrides inherited colors and keeps keyword operators distinct from symbols", async () => {
+    await withDeadline(ensureMonacoLanguageTokenizer("sql"), "SQL tokenizer did not load");
+    const text = "CREATE TABLE IF NOT EXISTS records (title VARCHAR(120) NOT NULL);\nALTER DATABASE sample COLLATE utf8mb4_unicode_ci;\nINSERT INTO records VALUES ('中文 🚀', 'don''t', 1234.50, NULL, TRUE);\nSELECT COUNT(id) FROM records WHERE id = 1 + 2;\n-- comment";
+    const model = monacoEditor.createModel(text, "sql");
+    const service = StandaloneServices.get(IStandaloneThemeService);
+    const previous = service.getColorTheme().themeName;
+    try {
+      for (const dark of [true, false]) {
+        window.lithe.configure({ fontFamily: "monospace", fontSize: 15, wrap: false, minimap: false,
+          appearance: { bracketPairColorization: { enabled: true } },
+          theme: { id: `sql-${dark}`, dark, syntaxScheme: "idea" } });
+        assert(!editor.getOption(monacoEditor.EditorOption.bracketPairColorization).enabled,
+          "IDEA scheme accepted a stale bracket-color preference");
+        (model as any).tokenization.forceTokenization(model.getLineCount());
+        const colorAt = (lineNumber: number, word: string) => {
+          const line = (model as any).tokenization.getLineTokens(lineNumber);
+          const offset = model.getLineContent(lineNumber).indexOf(word);
+          assert(offset >= 0, `missing SQL sample ${word}`);
+          const rgba = service.getColorTheme().tokenTheme.getColorMap()[line.getForeground(line.findTokenIndexAtOffset(offset))].rgba;
+          return [rgba.r, rgba.g, rgba.b].map(value => value.toString(16).padStart(2, "0")).join("").toUpperCase();
+        };
+        for (const [line, word] of [[1, "CREATE"], [1, "NOT"], [1, "EXISTS"], [1, "NULL"], [2, "COLLATE"]] as const)
+          assert(colorAt(line, word) === (dark ? "CF8E6D" : "0033B3"), `${word}: SQL keyword color mismatch`);
+        for (const word of ["中文", "don", "''", "🚀"])
+          assert(colorAt(3, word) === (dark ? "6AAB73" : "067D17"), "SQL string inherited Monaco red");
+        for (const [line, word] of [[1, "("], [4, "="], [4, "+"], [4, "COUNT"]] as const)
+          assert(colorAt(line, word) === (dark ? "BCBEC4" : "080808"), `${word}: SQL symbol/builtin color mismatch`);
+        assert(colorAt(3, "1234.50") === (dark ? "2AACB8" : "1750EB"), "SQL numeric color mismatch");
+      }
+      for (const dark of [true, false]) for (const syntaxScheme of ["lithe", "github", "one", "vscode"]) {
+        window.lithe.configure({ fontFamily: "monospace", fontSize: 15, wrap: false, minimap: false,
+          theme: { id: `sql-regression-${syntaxScheme}-${dark}`, dark, syntaxScheme } });
+        const theme = service.getColorTheme().tokenTheme;
+        assert(theme.match(0, "operator.sql.word") === theme.match(0, "operator.sql")
+          && theme.match(0, "predefined.sql.keyword") === theme.match(0, "predefined.sql"),
+          "SQL refinement changed another scheme");
+      }
+    } finally { model.dispose(); monacoEditor.setTheme(previous); }
+  });
+  await check("every mapped source language retains string highlighting under IDEA dark and light", async () => {
+    const samples: Record<string, string> = Object.fromEntries([
+      "c", "cpp", "csharp", "dart", "elixir", "elisp", "elm", "go", "hcl", "java", "javascript", "kotlin",
+      "lua", "nix", "objective-c", "ocaml", "python", "r", "ruby", "rust", "scala", "scheme", "sol", "swift", "typescript", "zig",
+    ].map(language => [language, '"hello"']));
+    Object.assign(samples, {
+      css: 'a { content: "hello"; }', less: 'a { content: "hello"; }', scss: 'a { content: "hello"; }',
+      html: '<a title="hello">a</a>', xml: '<a title="hello"/>',
+      ini: 'name="hello"', toml: 'name="hello"', dotenv: 'NAME="hello"', shell: 'echo "hello"',
+      dockerfile: 'ENV NAME="hello"', graphql: 'query { field(arg: "hello") }',
+      proto: 'syntax = "hello";', sql: "SELECT 'hello';", yaml: 'name: "hello"',
+      json: '{"name":"hello"}', php: '<?php echo "hello";',
+      diff: '+hello', gitignore: 'hello', gitattributes: 'hello text', lockfile: 'name: "hello"',
+      markdown: '<a title="hello">a</a>',
+      makefile: 'NAME = $(subst a,b,hello)', cmake: 'set(NAME "hello")', groovy: 'def name = "hello"',
+      powershell: 'Write-Host "hello"', bat: 'echo "hello"',
+    });
+    assert(Object.keys(samples).length === MONACO_HIGHLIGHT_LANGUAGE_IDS.size
+      && [...MONACO_HIGHLIGHT_LANGUAGE_IDS].every(id => id in samples), "language inventory changed without a highlighting sample");
+    const service = StandaloneServices.get(IStandaloneThemeService);
+    const previous = service.getColorTheme().themeName;
+    try {
+      for (const [language, text] of Object.entries(samples)) {
+        await withDeadline(ensureMonacoLanguageTokenizer(language), `${language} tokenizer did not load`);
+        const model = monacoEditor.createModel(text, language);
+        try {
+          assert(model.getLanguageId() === language, `${language} was silently treated as plaintext`);
+          for (const dark of [true, false]) {
+            window.lithe.configure({ fontFamily: "monospace", fontSize: 15, wrap: false,
+              theme: { id: `inventory-${language}-${dark}`, dark, syntaxScheme: "idea" } });
+            (model as any).tokenization.forceTokenization(1);
+            const line = (model as any).tokenization.getLineTokens(1);
+            const rgba = service.getColorTheme().tokenTheme.getColorMap()[line.getForeground(line.findTokenIndexAtOffset(text.indexOf("hello")))].rgba;
+            const actual = [rgba.r, rgba.g, rgba.b].map(v => v.toString(16).padStart(2, "0")).join("").toUpperCase();
+            assert(actual === (dark ? "6AAB73" : "067D17"), `${language}/${dark}: string color ${actual}`);
+          }
+        } finally { model.dispose(); }
+      }
+    } finally { monacoEditor.setTheme(previous); }
+  });
+  await check("IDEA language colors override VS defaults and retain language roles in both appearances", async () => {
+    const samples: [string, string, [string, string, string][]][] = [
+      ["xml", '<root name="value">&amp;</root>', [["root", "D5B778", "0033B3"], ["<", "D5B778", "080808"], ["name", "BCBEC4", "174AD4"], ["value", "6AAB73", "067D17"]]],
+      ["html", '<div title="value">text</div>', [["div", "D5B778", "0033B3"], ["title", "BABABA", "174AD4"], ["value", "6AAB73", "067D17"], ["text", "BCBEC4", "080808"]]],
+      ["json", '{"name": "value", "enabled": true, "n": 12}', [["name", "C77DBB", "871094"], ["value", "6AAB73", "067D17"], ["true", "CF8E6D", "0033B3"], ["12", "2AACB8", "1750EB"]]],
+      ["css", 'p { color: #ffffff; width: 12px; }', [["12", "2AACB8", "1750EB"], ["px", "2AACB8", "1750EB"]]],
+      ["scss", '@if $enabled { a { width: 12px; } }', [["@if", "CF8E6D", "0033B3"], ["12", "2AACB8", "1750EB"]]],
+      ["swift", 'if ready { let value = "hello" }', [["if", "CF8E6D", "0033B3"], ["=", "BCBEC4", "080808"], ["hello", "6AAB73", "067D17"]]],
+      ["python", '@decorator\nx = "hello\\n"', [["@decorator", "B3AE60", "9E880D"], ['"', "6AAB73", "067D17"], ["hello", "6AAB73", "067D17"], ["\\n", "CF8E6D", "0037A6"]]],
+      ["markdown", '# Heading\n`code`\n[link](target)', [["#", "CF8E6D", "0033B3"], ["Heading", "C77DBB", "871094"], ["code", "BCBEC4", "067D17"], ["link", "56A8F5", "0000FF"]]],
+      ["toml", '[server]\nport = 12\nactive = true', [["server", "CF8E6D", "0033B3"], ["port", "CF8E6D", "0033B3"], ["12", "2AACB8", "1750EB"], ["true", "BCBEC4", "080808"]]],
+    ];
+    const service = StandaloneServices.get(IStandaloneThemeService);
+    const previous = service.getColorTheme().themeName;
+    try {
+      for (const [language, text, expectations] of samples) {
+        await withDeadline(ensureMonacoLanguageTokenizer(language), `${language} tokenizer did not load`);
+        const model = monacoEditor.createModel(text, language);
+        try {
+          for (const dark of [true, false]) {
+            window.lithe.configure({ fontFamily: "monospace", fontSize: 15, wrap: false,
+              theme: { id: `language-${language}-${dark}`, dark, syntaxScheme: "idea" } });
+            (model as any).tokenization.forceTokenization(model.getLineCount());
+            for (const [word, darkColor, lightColor] of expectations) {
+              const position = model.getPositionAt(text.indexOf(word));
+              const line = (model as any).tokenization.getLineTokens(position.lineNumber);
+              const rgba = service.getColorTheme().tokenTheme.getColorMap()[line.getForeground(line.findTokenIndexAtOffset(position.column - 1))].rgba;
+              const actual = [rgba.r, rgba.g, rgba.b].map(v => v.toString(16).padStart(2, "0")).join("").toUpperCase();
+              assert(actual === (dark ? darkColor : lightColor), `${language}/${dark}/${word}: ${actual}, expected ${dark ? darkColor : lightColor}`);
+            }
+          }
+        } finally { model.dispose(); }
+      }
+      for (const dark of [true, false]) for (const syntaxScheme of ["lithe", "github", "one", "vscode"]) {
+        window.lithe.configure({ fontFamily: "monospace", fontSize: 15, wrap: false,
+          theme: { id: `language-preservation-${syntaxScheme}-${dark}`, dark, syntaxScheme } });
+        const theme = service.getColorTheme().tokenTheme;
+        for (const [refined, parent] of [["keyword.md.heading", "keyword.md"], ["md.link", ""], ["string.python.escape", "string.python"], ["key.toml", "key"]])
+          assert(theme.match(0, refined) === theme.match(0, parent), `${syntaxScheme}: ${refined} changed its original color`);
+      }
+    } finally { monacoEditor.setTheme(previous); }
+  });
+  await check("imported IDEA theme colors real Java comments and survives live splits until removed", async () => {
+    const text = "// purple\n/* green */\n/** orange */\nclass Example {}";
+    await send({ type: "open", text });
+    await window.lithe.activate({ id: "import-colors", text, revision: 0, language: "java", readonly: false });
+    const model = editor.getModel()!;
+    const custom = { name: "Purple", dark: true, colors: { background: "#202030", foreground: "#BBDDFF", cursor: "#AA44CC" }, tokens: {
+      "comment.line": { foreground: "#AA44CC", fontStyle: "italic" },
+      "comment.block": { foreground: "#00FF00", fontStyle: "" },
+      "comment.documentation": { foreground: "#FF8800", fontStyle: "bold" },
+      "method.declaration": { foreground: "#CC88FF", fontStyle: "bold" },
+    } };
+    const configure = (value: string) => window.lithe.configure({ fontFamily: "monospace", fontSize: 13, wrap: false, minimap: false,
+      appearance: { customTheme: value }, theme: { id: "import-colors", dark: true, syntaxScheme: "idea", colors: { background: "#191A1C" } } });
+    const service = StandaloneServices.get(IStandaloneThemeService);
+    const color = (token: string) => {
+      const theme = service.getColorTheme().tokenTheme;
+      const rgba = theme.getColorMap()[TokenMetadata.getForeground(theme.match(0, token))].rgba;
+      return [rgba.r, rgba.g, rgba.b].map(n => n.toString(16).padStart(2, "0")).join("").toUpperCase();
+    };
+    try {
+      configure(JSON.stringify({ ...custom, tokens: { "comment.line": custom.tokens["comment.line"] } }));
+      const isolated = monacoEditor.tokenize(text, "java").slice(0, 3).map(line => line[0].type);
+      assert(color(isolated[0]) === "AA44CC" && color(isolated[1]) !== "AA44CC" && color(isolated[2]) !== "AA44CC",
+        "line-comment customization leaked into block or documentation comments");
+      configure(JSON.stringify(custom));
+      const roles = monacoEditor.tokenize(text, "java").slice(0, 3).map(line => line[0].type);
+      assert(roles.every(role => role.startsWith("comment")), "Java comments lost their lexical classification");
+      assert(color(roles[0]) === "AA44CC" && color(roles[1]) === "00FF00" && color(roles[2]) === "FF8800",
+        "custom line/block/documentation comments were not applied to real tokenizer output");
+      assert(color("method.declaration") === "CC88FF" && color("method.readonly.deprecated.declaration") === "CC88FF", "custom semantic method declaration color was lost");
+      assert(color("") === "BBDDFF", "custom default text color was lost");
+      assert(TokenMetadata.getFontStyle(service.getColorTheme().tokenTheme.match(0, "method.readonly.deprecated.declaration")) & 8, "custom font style erased deprecation");
+      assert(TokenMetadata.getFontStyle(service.getColorTheme().tokenTheme.match(0, roles[0])) & 1, "imported comment italic was lost");
+      await window.lithe.showSecondary({ id: "import-colors", readonly: false });
+      assert(model.getValue() === text && monacoEditor.getEditors().some(view => view !== editor && view.getModel() === model), "custom theme replaced split model");
+      custom.tokens["comment.line"].foreground = "#BB55DD";
+      configure(JSON.stringify(custom));
+      assert(color(roles[0]) === "BB55DD", "same-name theme update retained stale colors");
+      custom.dark = false;
+      configure(JSON.stringify({ ...custom, colors: {} }));
+      assert(service.getColorTheme().getColor("editor.background")?.toString() !== "#191a1c", "light imported scheme retained dark native background");
+      configure("");
+      assert(color(roles[0]) !== "BB55DD", "removing custom theme did not restore built-in colors");
+    } finally {
+      configure("");
+      await window.lithe.hideSecondary();
+      await window.lithe.retain([]);
+    }
+  });
+
+  await check("imported indentation updates existing and new models without changing text or undo", async () => {
+    const text = "if (true) {\n  one();\n  two();\n}\n";
+    await send({ type: "open", text });
+    await window.lithe.activate({ id: "import-indent", text, revision: 0, language: "javascript", readonly: false });
+    const model = editor.getModel()!;
+    const previous = editor.getRawOptions();
+    const configure = (tabSize: number, insertSpaces: boolean, detectIndentation: boolean) => window.lithe.configure({
+      fontSize: previous.fontSize, fontFamily: previous.fontFamily, wrap: false, minimap: false,
+      appearance: { tabSize, insertSpaces, detectIndentation },
+    });
+    try {
+      editor.pushUndoStop();
+      editor.executeEdits("indent-test", [{ range: new Range(2, 3, 2, 6), text: "first" }]);
+      editor.pushUndoStop();
+      const edited = model.getValue();
+      configure(8, false, false);
+      assert(model.getOptions().tabSize === 8 && !model.getOptions().insertSpaces, "existing model ignored explicit indentation");
+      let reports = await send({ type: "indentationReports" });
+      assert(reports["import-indent"].tabSize === 8 && reports["import-indent"].insertSpaces === false,
+        "host status did not receive explicit Tab indentation");
+      assert(model.getValue() === edited, "indentation import rewrote content");
+      await window.lithe.showSecondary({ id: "import-indent", readonly: false });
+      const secondary = monacoEditor.getEditors().find(view => view !== editor)!;
+      assert(secondary.getModel()!.getOptions().tabSize === 8, "split did not use imported indentation");
+      configure(4, true, true);
+      assert(model.getOptions().tabSize === 2 && model.getOptions().indentSize === 2 && model.getOptions().insertSpaces, "automatic indentation ignored document content");
+      await window.lithe.activate({ id: "import-indent-new", text: "", revision: 0, language: "javascript", readonly: false });
+      assert(editor.getModel()!.getOptions().tabSize === 4, "new model ignored fallback indentation");
+      reports = await send({ type: "indentationReports" });
+      assert(reports["import-indent"].tabSize === 2 && reports["import-indent"].insertSpaces === true,
+        "host status received global fallback instead of detected indentation");
+      assert(reports["import-indent-new"].tabSize === 4,
+        "new document status reused the other split's indentation");
+      await window.lithe.activate({ id: "import-indent", text: edited, revision: 1, language: "javascript", readonly: false });
+      editor.trigger("indent-test", "undo", null);
+      assert(model.getValue() === text, "indentation import damaged undo history");
+    } finally {
+      await window.lithe.hideSecondary();
+      configure(4, true, true);
+      await window.lithe.retain([]);
+    }
+  });
+
   await check("global appearance updates live and future splits without replacing documents or undo", async () => {
     const text = "const sample = 1;\n  // comment\n";
     await send({ type: "open", text });
@@ -3151,7 +3578,7 @@ async function verify() {
     }
   });
   await check("Java comment delimiters use the same color as their comment text", async () => {
-    const id = "comment-colors", text = '// text\n/* text */\n/** text */\nint value = 4 / 2;';
+    const id = "comment-colors", text = '// text\n/* text */\n/** text */\nint value = 4 / 2;\nString s = "hello\\n";\n@Override';
     await send({ type: "open", id, text });
     await window.lithe.activate({ id, text, revision: 0, language: "java", readonly: false });
     try {
@@ -3168,6 +3595,15 @@ async function verify() {
             assert(tokens.getForeground(delimiter) === tokens.getForeground(body), "comment delimiter has a different foreground");
             assert(tokens.getStandardTokenType(delimiter) === 1, "comment delimiter was classified as ordinary punctuation");
           }
+        }
+        window.lithe.configure({ fontFamily: "monospace", fontSize: 13, wrap: false,
+          theme: { id: `java-role-${dark}`, dark, syntaxScheme: "idea" } });
+        await withDeadline(window.lithe.tokenizationReady(), "IDEA Java token refresh did not complete");
+        const theme = StandaloneServices.get(IStandaloneThemeService).getColorTheme().tokenTheme;
+        for (const [lineNumber, offset, role] of [[3, 0, "comment.documentation"], [5, 17, "string.escape"], [6, 1, "annotation"]] as const) {
+          const tokens = (model as any).tokenization.getLineTokens(lineNumber);
+          assert(tokens.getForeground(tokens.findTokenIndexAtOffset(offset)) === TokenMetadata.getForeground(theme.match(0, role)),
+            `Java ${role} lost its TextMate scope`);
         }
         const code = (model as any).tokenization.getLineTokens(4);
         assert(code.getStandardTokenType(code.findTokenIndexAtOffset(model.getLineContent(4).indexOf("/"))) === 0,

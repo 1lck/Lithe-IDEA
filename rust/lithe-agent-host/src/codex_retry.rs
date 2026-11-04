@@ -74,9 +74,11 @@ impl Relay {
 
 impl Drop for Relay {
     fn drop(&mut self) {
-        if std::fs::remove_dir_all(&self.0).is_err() {
-            eprintln!("Could not remove the temporary Codex retry launcher");
-        }
+        crate::failure_log::cleanup(
+            "agent.retry.cleanup_failed",
+            "launcher",
+            std::fs::remove_dir_all(&self.0),
+        );
     }
 }
 

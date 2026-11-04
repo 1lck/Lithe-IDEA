@@ -71,8 +71,9 @@ extension AppModel {
                       self.workbenchFeature.isCurrentDisplayRequest(displayRequest, for: window),
                       self.services.moduleRuntime.availableContributions()[owner]?.contains(contribution) == true else { return }
                 self.workbenchFeature.setVisibility(window, isVisible: true)
+                self.workbenchUIRegistry.didShow(contribution, model: self)
             } catch {
-                if !error.isCancellation { self.showNotification(error.localizedDescription) }
+                if !error.isCancellation { self.showNotification(error.localizedDescription, logReference: self.notificationFailure(error, operation: "ui_contributions")) }
             }
         }
         scheduleObjectWillChangeRelay(affectsSettings: false)

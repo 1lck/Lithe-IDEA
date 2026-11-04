@@ -137,6 +137,7 @@ public struct LanguageServerRuntimeVersionCheck: Equatable, Sendable {
 
 /// Host directories substituted into a server's launch templates.
 public struct DeclarativeLanguageServerLaunchRequest: Equatable, Sendable {
+    public let logDirectory: URL?
     public let pluginDirectory: URL
     public let stateDirectory: URL
     /// Nil for a process bound to no workspace, such as a plugin backend;
@@ -157,8 +158,10 @@ public struct DeclarativeLanguageServerLaunchRequest: Equatable, Sendable {
         workspaceStateDirectory: URL?,
         architecture: String,
         settings: [String: ToolingJSONValue] = [:],
-        projectSettings: [String: ToolingJSONValue] = [:]
+        projectSettings: [String: ToolingJSONValue] = [:],
+        logDirectory: URL? = nil
     ) {
+        self.logDirectory = logDirectory
         self.pluginDirectory = pluginDirectory
         self.stateDirectory = stateDirectory
         self.workspaceStateDirectory = workspaceStateDirectory
@@ -399,6 +402,7 @@ public extension PluginSettingsStoring {
 /// joins text; the host creates the directories and checks the package paths.
 public struct DeclarativeLanguageServerLaunchPlan: Equatable, Sendable {
     public enum RequiredDirectory: String, Sendable {
+        case log
         case state
         case workspaceState
     }
@@ -825,6 +829,15 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
         if decoded.backend != nil && decoded.ui == nil {
             modules.append(PluginModuleDeclaration(manifest: ModuleManifest(
                 id: .backendExtension(decoded.id), displayName: decoded.displayName,
+                scope: .application, defaultState: enabledByDefault ? .enabled : .disabled,
+                activationPolicy: .onDemand
+            )))
+        }
+        if decoded.hasToolDefinitions && modules.isEmpty {
+            // Definitions are valid on their own. Give them an enablement owner
+            // so plugin management can expose them to the settings loader.
+            modules.append(PluginModuleDeclaration(manifest: ModuleManifest(
+                id: .toolchainsExtension(decoded.id), displayName: decoded.displayName,
                 scope: .application, defaultState: enabledByDefault ? .enabled : .disabled,
                 activationPolicy: .onDemand
             )))
@@ -1400,6 +1413,8 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
         /// Launch fields stay with Rust Core; the host only needs to know
         /// a backend exists.
         let backend: ToolingJSONValue?
+        /// Core owns definition semantics; this bit only supplies an enablement module.
+        let hasToolDefinitions: Bool
 
         /// What plugin management lists. Fields and steps stay with Rust Core,
         /// which evaluates the New Project form and plans every step.
@@ -1429,12 +1444,13 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             settingActions = try values.decodeIfPresent([SettingAction].self, forKey: .settingActions) ?? []
             projectGenerators = try values.decodeIfPresent([ProjectGenerator].self, forKey: .projectGenerators) ?? []
             backend = try values.decodeIfPresent(ToolingJSONValue.self, forKey: .backend)
+            hasToolDefinitions = !(try values.decodeIfPresent([ToolingJSONValue].self, forKey: .toolDefinitions) ?? []).isEmpty
         }
 
         private enum CodingKeys: String, CodingKey {
             case id, displayName, version, pluginAPIVersion, vendor, permissions, activationEvents
             case languages, languageServers, executionProviders, buildSystems, vcsProviders, ui, settings, settingActions
-            case projectGenerators, backend, debugAdapters
+            case projectGenerators, backend, debugAdapters, toolDefinitions
         }
     }
 }

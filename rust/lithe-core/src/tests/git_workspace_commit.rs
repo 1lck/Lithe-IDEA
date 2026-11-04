@@ -936,3 +936,49 @@ fn git_workspace_commit_retry_asks_again_when_the_upstream_moved() {
     );
     assert_eq!(remote_head(&remote.0, "main"), main_before);
 }
+
+#[test]
+fn git_workspace_changelist_guard_checks_newly_staged_directory_members_and_overrides() {
+    let repo = repository("workspace-changelist-directory-rules");
+    fs::write(repo.0.join("base.txt"), "base").unwrap();
+    git(&repo.0, &["add", "."]);
+    git(&repo.0, &["commit", "-qm", "base"]);
+    let root = repo.0.to_str().unwrap();
+    let metadata = json!({"lists":[{"id":"default","name":""},{"id":"local","name":"Local"}],
+        "activeId":"default","assignments":{root:{"dir/":"local","dir/allowed.txt":"default"}}});
+    let projection = request(
+        &repo.0,
+        "git.changelists",
+        json!({"state":metadata,"files":[],"repositories":[{"id":".","root":root}]}),
+    );
+    assert_eq!(projection["ok"], true, "{projection}");
+    let scope = projection["data"]["scope"].clone();
+    fs::create_dir_all(repo.0.join("dir")).unwrap();
+    fs::write(repo.0.join("dir/new.txt"), "not visible when projected").unwrap();
+    fs::write(repo.0.join("dir/allowed.txt"), "explicit default").unwrap();
+    git(&repo.0, &["add", "dir/new.txt", "dir/allowed.txt"]);
+    let before = state(&repo.0);
+    let payload = json!({"repositories":[{"id":".","root":root}],"message":"review","includeParentReferences":false,"pathScope":scope});
+    let rejected = request(&repo.0, "git.workspaceCommitPrepare", payload.clone());
+    assert_eq!(rejected["ok"], false, "{rejected}");
+    assert_eq!(state(&repo.0), before);
+    git(&repo.0, &["restore", "--staged", "dir/new.txt"]);
+    let accepted = request(&repo.0, "git.workspaceCommitPrepare", payload);
+    assert_eq!(accepted["ok"], true, "{accepted}");
+    assert_eq!(
+        accepted["data"]["session"]["plan"]["pathScope"]["membership"]["assignments"]["."]["dir/"],
+        "local"
+    );
+    let committed = request(
+        &repo.0,
+        "git.workspaceCommitStep",
+        json!({"session":accepted["data"]["session"]}),
+    );
+    assert_eq!(committed["ok"], true, "{committed}");
+    assert_eq!(committed["data"]["succeeded"], true, "{committed}");
+    assert_eq!(
+        git(&repo.0, &["show", "HEAD:dir/allowed.txt"]),
+        "explicit default"
+    );
+    assert!(repo.0.join("dir/new.txt").exists());
+}

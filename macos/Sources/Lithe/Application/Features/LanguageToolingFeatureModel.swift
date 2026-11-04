@@ -15,7 +15,6 @@ final class LanguageToolingFeatureModel: ObservableObject {
     @Published private(set) var projectPreparation: ProjectPreparationSnapshot?
     @Published private(set) var serverRuntimeSnapshot = LanguageServerRuntimeSnapshot()
     let projectUsage = LSPProjectUsageModel()
-    let logs = LanguageServerLogsModel()
     private var preparationObservation: AnyCancellable?
     private var statusObservation: AnyCancellable?
     private(set) var startupFailures: [String: String] = [:]
@@ -27,6 +26,8 @@ final class LanguageToolingFeatureModel: ObservableObject {
     private var documentsProvider: (@MainActor () -> [EditorDocument])?
     private var activateDocument: (@MainActor (EditorDocument) -> Bool)?
     private var notify: (@MainActor (String) -> Void)?
+    var notifyLog: ((String, LogRecordReference?) -> Void)?
+    var logSink: (any LogSink)?
     private var preparationCancellations: [String: @MainActor () -> Void] = [:]
     private var activationEpoch = UUID()
     private var activationGenerations: [String: UUID] = [:]
@@ -83,7 +84,6 @@ final class LanguageToolingFeatureModel: ObservableObject {
     }
 
     func bindProjectPreparation(_ sessions: LanguageToolingSessionManager) {
-        logs.bind(sessions)
         statusObservation = Publishers.CombineLatest(sessions.$languageServerStates, sessions.$languageServerInfos)
             .map { LanguageServerRuntimeSnapshot(states: $0, infos: $1) }
             .removeDuplicates().sink { [weak self] in self?.serverRuntimeSnapshot = $0 }
@@ -97,7 +97,6 @@ final class LanguageToolingFeatureModel: ObservableObject {
         restartTasks.removeAll()
         activationEpoch = UUID()
         activationGenerations.removeAll()
-        logs.reset()
         serverRuntimeSnapshot = LanguageServerRuntimeSnapshot()
         projectPreparation = nil
         startupFailures.removeAll()
@@ -173,12 +172,6 @@ final class LanguageToolingFeatureModel: ObservableObject {
             synchronizeOpenDocuments(providerID: providerID)
         } else {
             prepareToStop(providerID: providerID)
-            sessionsProvider()?.recordLanguageServerLog(
-                providerID: providerID,
-                level: .warning,
-                message: L10n.string("Language server disabled in this workspace"),
-                detail: L10n.string("Manual stop")
-            )
             sessionsProvider()?.stopLanguageServer(providerID: providerID)
         }
     }
@@ -187,12 +180,6 @@ final class LanguageToolingFeatureModel: ObservableObject {
         prepareToStop(providerID: providerID)
         startupFailures[providerID] = nil
         sessionsProvider()?.stopLanguageServer(providerID: providerID)
-        sessionsProvider()?.recordLanguageServerLog(
-            providerID: providerID,
-            level: .info,
-            message: L10n.string("Language server tool configuration changed"),
-            detail: L10n.string("Workspace language server preference preserved")
-        )
     }
 
     /// Session-only controls leave the workspace's persistent enablement alone.
@@ -218,7 +205,11 @@ final class LanguageToolingFeatureModel: ObservableObject {
                   self.sessionsProvider() === sessions else { return }
             defer { self.restartTasks[providerID] = nil }
             guard ended else {
-                self.notify?(L10n.string("The language server is still stopping. Try again after it has stopped."))
+                let event = AppNotificationOperationRejected(operation: "language_restart", reason: "still_stopping")
+                self.logSink?.emit(event)
+                let message = L10n.string("The language server is still stopping. Try again after it has stopped.")
+                if let notifyLog = self.notifyLog { notifyLog(message, event.reference) }
+                else { self.notify?(message) }
                 return
             }
             let documents = (self.documentsProvider?() ?? []).filter { self.catalog.provider(for: $0.url)?.id == providerID }
@@ -244,13 +235,10 @@ final class LanguageToolingFeatureModel: ObservableObject {
         let message = error.localizedDescription
         guard startupFailures[providerID] != message else { return }
         startupFailures[providerID] = message
-        sessionsProvider()?.recordLanguageServerLog(
-            providerID: providerID,
-            level: .error,
-            message: L10n.string("Language server activation failed"),
-            detail: message
-        )
-        notify?("Could not start \(descriptor.displayName) language server: \(message)")
+        let reference = sessionsProvider()?.recordHostFailure(providerID: providerID, stage: "activation", error: error)
+        let notification = "Could not start \(descriptor.displayName) language server: \(message)"
+        if let notifyLog { notifyLog(notification, reference) }
+        else { notify?(notification) }
     }
 
     func shouldRetryCandidate(providerID: String) -> Bool {

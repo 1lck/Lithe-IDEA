@@ -111,7 +111,7 @@ struct CommitMessageTests {
         }
         let transport = MockAIHTTPTransport(response: AIHTTPResponse(statusCode: 200,
             body: Data(#"{"content":[{"type":"text","text":"feat: update checker"}]}"#.utf8)))
-        let service = CommitMessageGenerationService(transport: transport,
+        let service = CommitMessageGenerationService(core: RustCoreBridge(), transport: transport,
             credentialResolver: InMemoryAIProviderCredentialResolver(
                 values: [provider.apiKeyIdentifier: "fixture-secret"]))
         let input = CommitMessageInput(path: "Sources/UpdateChecker.swift", changeKind: .modified,
@@ -158,6 +158,7 @@ struct CommitMessageTests {
             values: ["claude-key": "claude-secret"]
         )
         let service = CommitMessageGenerationService(
+            core: RustCoreBridge(),
             transport: transport,
             credentialResolver: credentialResolver
         )
@@ -179,7 +180,7 @@ struct CommitMessageTests {
         let body = try #require(request?.body)
         let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
         #expect(json["model"] as? String == "claude-sonnet-custom")
-        #expect(json["max_tokens"] as? Int == 256)
+        #expect(json["max_tokens"] as? Int == 4_096)
         #expect(json["system"] as? String != nil)
         #expect(json["messages"] as? [[String: Any]] != nil)
     }
@@ -202,6 +203,7 @@ struct CommitMessageTests {
             response: AIHTTPResponse(statusCode: 200, body: Data(#"{"choices":[{"message":{"content":"feat: update checker"}}]}"#.utf8))
         )
         let service = CommitMessageGenerationService(
+            core: RustCoreBridge(),
             transport: transport,
             credentialResolver: InMemoryAIProviderCredentialResolver(values: ["http-key": "secret"])
         )
@@ -237,6 +239,7 @@ struct CommitMessageTests {
             response: AIHTTPResponse(statusCode: 200, body: Data(#"{"choices":[{"message":{"content":"feat: update checker"}}]}"#.utf8))
         )
         let service = CommitMessageGenerationService(
+            core: RustCoreBridge(),
             transport: transport,
             credentialResolver: InMemoryAIProviderCredentialResolver(values: ["http-key": "secret"])
         )
@@ -270,6 +273,7 @@ struct CommitMessageTests {
             values: ["test-key": "test-secret"]
         )
         let service = CommitMessageGenerationService(
+            core: RustCoreBridge(),
             transport: transport,
             credentialResolver: credentialResolver
         )
@@ -287,6 +291,7 @@ struct CommitMessageTests {
         #expect(request?.headers["Authorization"] == "Bearer test-secret")
 
         let body = try #require(request?.body)
+        #expect(!String(decoding: body, as: UTF8.self).contains("test-secret"))
         let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
         #expect(json["model"] as? String == "fast-model")
         let reasoning = try #require(json["reasoning"] as? [String: Any])
@@ -315,6 +320,7 @@ struct CommitMessageTests {
             )
         )
         let service = CommitMessageGenerationService(
+            core: RustCoreBridge(),
             transport: transport,
             credentialResolver: InMemoryAIProviderCredentialResolver(
                 values: ["test-key": "test-secret"]
@@ -339,14 +345,147 @@ struct CommitMessageTests {
         let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
         let messages = try #require(json["messages"] as? [[String: Any]])
         let userPrompt = try #require(messages[1]["content"] as? String)
-        #expect(userPrompt.contains("path: README.md"))
-        #expect(userPrompt.contains("path: README.zh-CN.md"))
-        #expect(userPrompt.components(separatedBy: "--- BEGIN STAGED FILE ---").count == 3)
-        #expect(userPrompt.components(separatedBy: "--- END STAGED FILE ---").count == 3)
+        #expect(userPrompt.contains("path: \"README.md\""))
+        #expect(userPrompt.contains("path: \"README.zh-CN.md\""))
+        #expect(userPrompt.components(separatedBy: "--- BEGIN FILE ---").count == 3)
+        #expect(userPrompt.components(separatedBy: "--- END FILE ---").count == 3)
 
         let systemPrompt = try #require(messages[0]["content"] as? String)
-        #expect(systemPrompt.contains("complete set of staged changes"))
-        #expect(systemPrompt.contains("Do not infer a feature from a filename alone"))
+        #expect(systemPrompt.contains("complete selected changes"))
+        #expect(systemPrompt.contains("do not infer behavior from filenames"))
+    }
+
+    @Test
+    func sharedCommitFixtureMatchesActualCoreBridgeForEveryProtocol() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let data = try Data(contentsOf: root.appendingPathComponent("shared/fixtures/ai/commit-generation-v1.json"))
+        let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let files = try #require(fixture["files"] as? [[String: String]])
+        let input = CommitMessageInput(files: try files.map { file in
+            let kind = try #require(file["changeKind"])
+            return CommitMessageFileInput(path: try #require(file["path"]),
+                changeKind: try #require(CommitMessageChangeKind(rawValue: kind)),
+                diff: try #require(file["diff"]))
+        })
+        let cases = try #require(fixture["responses"] as? [[String: Any]])
+        let expected = try #require(fixture["expectedMessage"] as? String)
+        var settings = CommitMessageAISettings.default
+        settings.includeBody = false
+        settings.language = .simplifiedChinese
+        let core = RustCoreBridge()
+        for item in cases {
+            let protocolValue = try #require(item["protocol"] as? String)
+            let protocolName = try #require(CommitMessageAPIProtocol(rawValue: protocolValue))
+            let provider = AIProviderProfile(name: "Example", endpoint: "https://api.example.com/v1",
+                model: "example-model", apiProtocol: protocolName, requiresAPIKey: false)
+            let plan = try core.planCommit(input: input, settings: settings, provider: provider)
+            let body = try #require(JSONSerialization.jsonObject(with: plan.body) as? [String: Any])
+            let tokenField = try #require(item["tokenField"] as? String)
+            #expect(body[tokenField] as? Int == 4_096)
+            let response = try JSONSerialization.data(withJSONObject: try #require(item["body"]))
+            #expect(try core.decodeCommitResponse(protocolName: protocolName, response: response, includeBody: false) == expected)
+        }
+    }
+
+    @Test
+    func legacyChatCompletionsProfilesKeepTheirOriginalTokenField() throws {
+        let original = AIProviderProfile(name: "Legacy", endpoint: "https://example.test/v1", model: "fixture",
+            apiProtocol: .chatCompletions, requiresAPIKey: false)
+        let encoded = try JSONEncoder().encode(original)
+        var object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        object.removeValue(forKey: "chatTokenLimitField")
+        let legacy = try JSONDecoder().decode(AIProviderProfile.self, from: JSONSerialization.data(withJSONObject: object))
+        #expect(legacy.chatTokenLimitField == .maxTokens)
+        #expect(original.chatTokenLimitField == .maxCompletionTokens)
+        let roundTrip = try JSONDecoder().decode(AIProviderProfile.self, from: JSONEncoder().encode(legacy))
+        #expect(roundTrip.chatTokenLimitField == .maxTokens)
+        let plan = try RustCoreBridge().planCommit(input: testCommitMessageInput, settings: .default, provider: legacy)
+        let body = try #require(JSONSerialization.jsonObject(with: plan.body) as? [String: Any])
+        #expect(body["max_tokens"] as? Int == 4_096)
+        #expect(body["max_completion_tokens"] == nil)
+        let modern = try RustCoreBridge().planCommit(input: testCommitMessageInput, settings: .default, provider: original)
+        let modernBody = try #require(JSONSerialization.jsonObject(with: modern.body) as? [String: Any])
+        #expect(modernBody["max_completion_tokens"] as? Int == 4_096)
+        #expect(modernBody["max_tokens"] == nil)
+    }
+
+    @Test
+    func largeDiffsCrossTheCoreBoundaryOnlyWithinTheSharedBudget() throws {
+        let provider = AIProviderProfile(name: "Example", endpoint: "https://example.test/v1", model: "fixture",
+            apiProtocol: .responses, requiresAPIKey: false)
+        var settings = CommitMessageAISettings.default
+        settings.maximumDiffCharacters = 8_000
+        let input = CommitMessageInput(files: [
+            CommitMessageFileInput(path: "large.txt", changeKind: .modified, diff: String(repeating: "😀", count: 250_000)),
+            CommitMessageFileInput(path: "small.txt", changeKind: .modified, diff: "+small")
+        ])
+        let plan = try RustCoreBridge().planCommit(input: input, settings: settings, provider: provider)
+        #expect(plan.body.count < 50_000)
+        let body = String(decoding: plan.body, as: UTF8.self)
+        #expect(body.contains("Diff truncated"))
+        #expect(body.contains("small.txt"))
+        #expect(body.contains("+small"))
+    }
+
+    @Test
+    func coreBoundedCommitEvidenceKeepsItsOriginalTruncationWarning() throws {
+        let provider = AIProviderProfile(name: "Example", endpoint: "https://example.test/v1", model: "fixture",
+            apiProtocol: .responses, requiresAPIKey: false)
+        var settings = CommitMessageAISettings.default
+        settings.maximumDiffCharacters = 8_000
+        let input = CommitMessageInput(files: [CommitMessageFileInput(path: "large.txt", changeKind: .modified,
+            diff: String(repeating: "界", count: 8_000), originalCharacters: 12_000)])
+        let plan = try RustCoreBridge().planCommit(input: input, settings: settings, provider: provider)
+        #expect(String(decoding: plan.body, as: UTF8.self).contains("Diff truncated"))
+    }
+
+    @Test
+    func cancelledCommitGenerationDoesNotSendAnHTTPRequest() async throws {
+        let profile = AIProviderProfile(name: "Example", endpoint: "https://example.test/v1", model: "fixture",
+            apiProtocol: .responses, requiresAPIKey: false)
+        var settings = CommitMessageAISettings.default
+        settings.providers = [profile]
+        settings.activeProviderID = profile.id
+        let transport = MockAIHTTPTransport(response: AIHTTPResponse(statusCode: 200, body: Data(#"{"output_text":"unused"}"#.utf8)))
+        let service = CommitMessageGenerationService(core: RustCoreBridge(), transport: transport,
+            credentialResolver: InMemoryAIProviderCredentialResolver(values: [:]))
+        let task = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await service.generate(input: testCommitMessageInput, settings: settings)
+        }
+        await #expect(throws: CancellationError.self) { try await task.value }
+        #expect(await transport.lastRequest == nil)
+    }
+
+    @Test
+    func coreRejectsSensitiveFilesBeforeTransport() async throws {
+        let profile = AIProviderProfile(name: "Example", endpoint: "https://example.test/v1", model: "fixture",
+            apiProtocol: .responses, requiresAPIKey: false)
+        var settings = CommitMessageAISettings.default
+        settings.providers = [profile]
+        settings.activeProviderID = profile.id
+        let transport = MockAIHTTPTransport(response: AIHTTPResponse(statusCode: 200, body: Data(#"{"output_text":"unused"}"#.utf8)))
+        let service = CommitMessageGenerationService(core: RustCoreBridge(), transport: transport,
+            credentialResolver: InMemoryAIProviderCredentialResolver(values: [:]))
+        let input = CommitMessageInput(path: "config/auth.json", changeKind: .modified, diff: "+sensitive")
+        do {
+            _ = try await service.generate(input: input, settings: settings)
+            Issue.record("Sensitive credentials must not be sent")
+        } catch CommitMessageGenerationError.sensitiveFileExcluded { }
+        #expect(await transport.lastRequest == nil)
+    }
+
+    @Test
+    func coreRejectsTruncatedOutputAndKeepsOnlySubjectWhenRequested() async throws {
+        let core = RustCoreBridge()
+        let partial = Data(#"{"output_text":"partial","incomplete_details":{"reason":"max_output_tokens"}}"#.utf8)
+        do {
+            _ = try core.decodeCommitResponse(protocolName: .responses, response: partial, includeBody: false)
+            Issue.record("A truncated provider response must not become a commit draft")
+        } catch CommitMessageGenerationError.outputLimit { }
+        let complete = Data(#"{"output_text":"fix: summary\n\nbody"}"#.utf8)
+        #expect(try core.decodeCommitResponse(protocolName: .responses, response: complete, includeBody: false) == "fix: summary")
     }
 
     @Test
@@ -376,6 +515,7 @@ struct CommitMessageTests {
             response: AIHTTPResponse(statusCode: 200, body: responseBody)
         )
         let service = CommitMessageGenerationService(
+            core: RustCoreBridge(),
             transport: transport,
             credentialResolver: InMemoryAIProviderCredentialResolver(
                 values: ["test-key": "test-secret"]
@@ -423,6 +563,19 @@ private let testCommitMessageInput = CommitMessageInput(
 @Suite("Commit message settings")
 @MainActor
 struct CommitMessageSettingsTests {
+    @Test
+    func outputTokenFieldPersistsWithItsProvider() throws {
+        let store = InMemoryKeyValueStore()
+        let settings = AppSettings(store: store)
+        let id = settings.addAIProvider()
+        settings.updateAIProvider(id) { provider in
+            provider.apiProtocol = .chatCompletions
+            provider.chatTokenLimitField = .maxTokens
+        }
+        let reloaded = AppSettings(store: store)
+        #expect(reloaded.commitMessageAI.providers.first { $0.id == id }?.chatTokenLimitField == .maxTokens)
+    }
+
     @Test
     func linkedAgentModelsRefreshWithoutChangingOtherProviderSettings() throws {
         let store = InMemoryKeyValueStore()
@@ -609,6 +762,7 @@ struct CommitMessageSettingsTests {
             endpoint: snapshot.endpoint,
             model: snapshot.model,
             apiProtocol: snapshot.apiProtocol,
+            chatTokenLimitField: .maxTokens,
             allowsInsecureHTTP: true,
             apiKeyIdentifier: "lithe.codex.imported.apiKey",
             credentialSource: .codex
@@ -624,6 +778,7 @@ struct CommitMessageSettingsTests {
         #expect(settings.activeCommitMessageProvider?.model == "fast-model")
         #expect(provider.credentialSource == .codex)
         #expect(provider.allowsInsecureHTTP == true)
+        #expect(provider.chatTokenLimitField == .maxTokens)
         let persisted = try #require(store.data(forKey: "settings.commitMessageAI"))
         let persistedText = String(decoding: persisted, as: UTF8.self)
         #expect(!persistedText.contains("test-secret"))

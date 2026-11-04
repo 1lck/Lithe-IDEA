@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "cases": [
+    {"name":"preserve partially staged selection and exclude other index entry", "selected":[{"path":"selected.txt","status":"MM"}], "changes":[{"path":"selected.txt","status":"MM"},{"path":"excluded.txt","status":"M "}], "unstage":["excluded.txt"], "stage":[]},
+    {"name":"stage a new selection", "selected":[{"path":"selected.txt","status":" M"}], "changes":[{"path":"selected.txt","status":" M"}], "unstage":[], "stage":["selected.txt"]},
+    {"name":"excluded copy does not unstage selected source", "selected":[{"path":"source.txt","status":"M "}], "changes":[{"path":"source.txt","status":"M "},{"path":"copy.txt","originalPath":"source.txt","status":"C "}], "unstage":["copy.txt"], "stage":[]},
+    {"name":"excluded rename includes both paths", "selected":[{"path":"selected.txt","status":" M"}], "changes":[{"path":"selected.txt","status":" M"},{"path":"new.txt","originalPath":"old.txt","status":"R "}], "unstage":["new.txt","old.txt"], "stage":["selected.txt"]}
+  ]
+}

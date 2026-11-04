@@ -4,7 +4,7 @@ import LitheModuleAPI
 
 extension AppModel {
     func makeCommitFileDeletion() -> CommitFileDeletionFeatureModel {
-        CommitFileDeletionFeatureModel(
+        let feature = CommitFileDeletionFeatureModel(
             files: services.fileOperations,
             hasUnsavedEdits: { [weak self] url in
                 self?.openDocuments.contains { document in
@@ -30,6 +30,10 @@ extension AppModel {
                     try Task.checkCancellation()
                 }
             }, notify: { [weak self] in self?.showNotification($0) })
+        feature.notifyFailure = { [weak self] message, error in
+            self?.showNotification(message, logReference: self?.notificationFailure(error, operation: "commit_file_delete"))
+        }
+        return feature
     }
 
     func showGitDirectoryDiff(for directoryURL: URL) async {
@@ -150,7 +154,7 @@ extension AppModel {
                 if let providers = self.vcsProvidersFeature {
                     guard await providers.confirmRootsAreCurrent(), isCurrent(), isEligible() else {
                         if isCurrent() {
-                            self.showNotification(L10n.string("Some selected files belong to another version control root. Refresh and select them again."))
+                            self.showNotification(L10n.string("Some selected files belong to another version control root. Refresh and select them again."), logReference: self.notificationRejection(operation: "vcs_selection", reason: "stale_roots"))
                         }
                         return false
                     }

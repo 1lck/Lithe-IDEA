@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 import LitheCoreContracts
 
@@ -5,13 +6,14 @@ import LitheCoreContracts
 /// -gc columns and combines them with CPU time for the exact launched process.
 struct MacDebugPerformanceSampler: DebugPerformanceSampling {
     let processRegistry: ManagedProcessRegistry?
+    var logSink: (any LogSink)? = nil
 
     func samples(for target: DebugPerformanceTarget) -> AsyncThrowingStream<DebugPerformanceSample, Error> {
         if target.javaExecutable == nil {
             return MacProcessTreePerformanceSampler.samples(processID: target.processID)
         }
         return AsyncThrowingStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
-            let session = MacDebugPerformanceSession(target: target, registry: processRegistry, continuation: continuation)
+            let session = MacDebugPerformanceSession(target: target, registry: processRegistry, logSink: logSink, continuation: continuation)
             continuation.onTermination = { _ in session.stop() }
             session.start()
         }
@@ -67,10 +69,10 @@ private final class MacDebugPerformanceSession: @unchecked Sendable {
     private var diagnostic = ""
     private var watchdog: DispatchSourceTimer?
 
-    init(target: DebugPerformanceTarget, registry: ManagedProcessRegistry?,
+    init(target: DebugPerformanceTarget, registry: ManagedProcessRegistry?, logSink: (any LogSink)?,
          continuation: AsyncThrowingStream<DebugPerformanceSample, Error>.Continuation) {
         self.target = target
-        process = MacStreamingProcess(processRegistry: registry, moduleID: .debug)
+        process = MacStreamingProcess(processRegistry: registry, moduleID: .debug, logSink: logSink)
         self.continuation = continuation
     }
 

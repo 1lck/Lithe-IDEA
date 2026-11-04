@@ -127,7 +127,11 @@ struct LocalHistoryIgnoreRulesTests {
         #expect(record("build/out.txt") == nil)
         #expect(record("src/App.swift") != nil)
         #expect(try #require(operations.usage(at: storage, limitBytes: nil)).usedBytes > 0)
-        #expect(operations.usage(at: storage, limitBytes: 500 * 1024 * 1024)?.limitBytes == 500 * 1024 * 1024)
+        // Keep both operands Int64: Swift Testing can erase heterogeneous
+        // optional/literal-expression comparisons to AnyHashable equality.
+        let requestedLimit: Int64 = 500 * 1024 * 1024
+        let usage = try #require(operations.usage(at: storage, limitBytes: requestedLimit))
+        #expect(usage.limitBytes == requestedLimit)
 
         #expect(operations.clear(at: storage))
         #expect(operations.usage(at: storage, limitBytes: nil) == LocalHistoryUsage(usedBytes: 0, limitBytes: 100 * 1024 * 1024))

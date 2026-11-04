@@ -167,7 +167,10 @@ enum WorkbenchModuleUIComposition {
     private static let terminalRegistration = WorkbenchModuleUIRegistry.Registration(
         contributions: TerminalModule.moduleContributions,
         actions: [
-            .init(id: "terminal.toggle", perform: { $0.toggleTerminal() }, activateOwner: { await $0.activateTerminalModule() })
+            .init(id: "terminal.toggle", perform: { $0.toggleTerminal() }, activateOwner: { await $0.activateTerminalModule() },
+                  didShow: { model in
+                      if model.activeToolTerminalSession == nil { _ = model.createTerminalSession() }
+                  })
         ],
         renderers: [
             .init(

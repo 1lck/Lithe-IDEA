@@ -1,9 +1,11 @@
+import LitheModuleAPI
 import Foundation
 import LitheCoreContracts
 
 /// Keeps build orchestration and decoders intact, selecting process I/O from
 /// the command's working directory rather than the currently displayed project.
 struct MacRemoteBuildCommandRunner: BuildCommandRunning {
+    var logSink: (any LogSink)? = nil
     let local: any BuildCommandRunning
     let registry: RemoteWorkspaceRegistry
     let host: any RemoteProcessRunning
@@ -32,6 +34,7 @@ struct MacRemoteBuildCommandRunner: BuildCommandRunning {
             let status = result.exitCode ?? (128 + (result.signal ?? 1))
             return BuildCommandResult(termination: .exited(status), standardOutput: capture.standardOutput)
         } catch let failure as RemoteProbeFailure where failure.code == "timed_out" {
+            logSink?.emit(RemoteSessionDiagnosticsFailed(error: LogFailure(domain: "remote.process", code: failure.code), stage: "build-timeout"))
             return BuildCommandResult(termination: .timedOut, standardOutput: capture.standardOutput)
         }
     }

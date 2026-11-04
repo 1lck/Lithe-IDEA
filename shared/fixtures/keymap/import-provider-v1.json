@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "Different sources supply the same normalized action and keys",
+      "request": {
+        "commandIDs": ["find-next", "toggle-breakpoint"],
+        "reply": {"bindings": [
+          {"commandID": "toggle-breakpoint", "keys": [{"key": "b", "modifiers": ["meta", "alt"]}]},
+          {"commandID": "find-next", "keys": [{"key": "f3", "modifiers": []}]}
+        ]}
+      },
+      "expected": {"bindings": [
+        {"commandID": "find-next", "keys": [{"key": "f3", "modifiers": []}]},
+        {"commandID": "toggle-breakpoint", "keys": [{"key": "b", "modifiers": ["alt", "meta"]}]}
+      ]}
+    },
+    {
+      "name": "An explicit empty binding is retained",
+      "request": {"commandIDs": ["find-next"], "reply": {"bindings": [{"commandID": "find-next", "keys": []}]}},
+      "expected": {"bindings": [{"commandID": "find-next", "keys": []}]}
+    },
+    {
+      "name": "Space with an action modifier remains assignable",
+      "request": {"commandIDs": ["find-next"], "reply": {"bindings": [{"commandID": "find-next", "keys": [{"key": "space", "modifiers": ["control"]}]}]}},
+      "expected": {"bindings": [{"commandID": "find-next", "keys": [{"key": "space", "modifiers": ["control"]}]}]}
+    },
+    {
+      "name": "Portable key names include common Windows navigation keys",
+      "request": {"commandIDs": ["navigation"], "reply": {"bindings": [{"commandID": "navigation", "keys": [
+        {"key": "f24", "modifiers": []}, {"key": "pageup", "modifiers": ["control"]},
+        {"key": "backspace", "modifiers": ["alt"]}
+      ]}]}},
+      "expected": {"bindings": [{"commandID": "navigation", "keys": [
+        {"key": "f24", "modifiers": []}, {"key": "pageup", "modifiers": ["control"]},
+        {"key": "backspace", "modifiers": ["alt"]}
+      ]}]}
+    },
+    {
+      "name": "Primary order and cross-action conflicts remain available to the host",
+      "request": {"commandIDs": ["one", "two"], "reply": {"bindings": [
+        {"commandID": "one", "keys": [{"key": "f9", "modifiers": []}, {"key": "f3", "modifiers": []}]},
+        {"commandID": "two", "keys": [{"key": "f9", "modifiers": []}]}
+      ]}},
+      "expected": {"bindings": [
+        {"commandID": "one", "keys": [{"key": "f9", "modifiers": []}, {"key": "f3", "modifiers": []}]},
+        {"commandID": "two", "keys": [{"key": "f9", "modifiers": []}]}
+      ]}
+    },
+    {
+      "name": "A provider cannot inject an unknown action",
+      "request": {"commandIDs": ["find-next"], "reply": {"bindings": [{"commandID": "other", "keys": [{"key": "f3", "modifiers": []}]}]}}
+    },
+    {
+      "name": "Duplicate action entries cannot silently overwrite each other",
+      "request": {"commandIDs": ["find-next"], "reply": {"bindings": [{"commandID": "find-next", "keys": []}, {"commandID": "find-next", "keys": []}]}}
+    },
+    {
+      "name": "Unmodified text input cannot become a global shortcut",
+      "request": {"commandIDs": ["find-next"], "reply": {"bindings": [{"commandID": "find-next", "keys": [{"key": "a", "modifiers": []}]}]}}
+    },
+    {
+      "name": "Named space is text input even when combined with shift",
+      "request": {"commandIDs": ["find-next"], "reply": {"bindings": [{"commandID": "find-next", "keys": [{"key": "space", "modifiers": ["shift"]}]}]}}
+    },
+    {
+      "name": "Repeated modifiers are invalid",
+      "request": {"commandIDs": ["find-next"], "reply": {"bindings": [{"commandID": "find-next", "keys": [{"key": "g", "modifiers": ["meta", "meta"]}]}]}}
+    },
+    {
+      "name": "Modifier order cannot disguise a duplicate shortcut",
+      "request": {"commandIDs": ["find-next"], "reply": {"bindings": [{"commandID": "find-next", "keys": [
+        {"key": "g", "modifiers": ["meta", "alt"]},
+        {"key": "g", "modifiers": ["alt", "meta"]}
+      ]}]}}
+    },
+    {
+      "name": "Conditions cannot be silently discarded",
+      "request": {"commandIDs": ["find-next"], "reply": {"bindings": [{"commandID": "find-next", "keys": [{"key": "g", "modifiers": ["meta"], "when": "editorFocus"}]}]}}
+    },
+    {
+      "name": "Multi-stroke keys cannot be silently truncated",
+      "request": {"commandIDs": ["find-next"], "reply": {"bindings": [{"commandID": "find-next", "keys": [{"key": "g g", "modifiers": ["meta"]}]}]}}
+    }
+  ]
+}

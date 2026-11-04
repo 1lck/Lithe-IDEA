@@ -1228,7 +1228,7 @@ pub(crate) fn maven_root(
 pub fn diagnostics(
     request: MavenDiagnosticsRequest,
 ) -> Result<MavenDiagnosticsResponse, CoreError> {
-    let _ = existing_root(&request.root)?;
+    existing_root(&request.root)?;
     let expression = Regex::new(r"\[(ERROR|WARNING)]\s+(.*?):\[(\d+)(?:,(\d+))?]\s+(.*)")
         .expect("static Maven diagnostic expression is valid");
     let mut seen = HashSet::new();

@@ -577,7 +577,10 @@ impl RemoteSession {
     /// Asks the server to stop. A `--stdio` server ends; a persistent
     /// session ends together with everything it runs.
     pub fn shutdown(self, timeout: Duration) {
-        let _ = self.request_value(methods::SERVER_SHUTDOWN, Value::Null, timeout);
+        crate::failure_log::client(
+            "server_shutdown",
+            self.request_value(methods::SERVER_SHUTDOWN, Value::Null, timeout),
+        );
         // Drop closes the stream and reaps the transport process.
     }
 
@@ -619,8 +622,16 @@ impl Drop for RemoteSession {
         self.outgoing.close();
         if !self.wait_for_transport_exit(SHUTDOWN_GRACE) {
             if let Some(child) = lock(&self.child).as_mut() {
-                let _ = child.kill();
-                let _ = child.wait();
+                crate::failure_log::kill(
+                    "remote.client.operation_failed",
+                    "process_kill",
+                    child.kill(),
+                );
+                crate::failure_log::io(
+                    "remote.client.operation_failed",
+                    "process_wait",
+                    child.wait(),
+                );
             }
         }
     }
@@ -651,10 +662,12 @@ fn read_loop(
     } = context;
     let mut reader = BufReader::new(reader);
     if let Err(error) = skip_preamble(&mut reader, PREAMBLE_NOISE_LIMIT) {
+        // log-exempt: 用户取消：连接调用方已结束握手，放弃等待 preamble 失败应答。
         let _ = ready.send(Err(error));
         close(&pending);
         return;
     }
+    // log-exempt: 用户取消：连接调用方已结束握手，放弃等待 ready 通知。
     let _ = ready.send(Ok(()));
     let mut acknowledged = 0;
     while let Ok(Some(frame)) = read_frame(&mut reader) {
@@ -666,6 +679,7 @@ fn read_loop(
                         (_, Some(error)) => Err(ClientError::Remote(error)),
                         (result, None) => Ok(result.unwrap_or(Value::Null)),
                     };
+                    // log-exempt: 用户取消：远程请求调用方已超时或取消，放弃等待该 response。
                     let _ = waiter.send(reply);
                 }
             }
@@ -746,6 +760,7 @@ fn close(pending: &Mutex<Pending>) {
     let mut pending = lock(pending);
     pending.closed = true;
     for (_, waiter) in pending.waiting.drain() {
+        // log-exempt: 用户取消：远程请求调用方已结束请求，放弃等待断连应答。
         let _ = waiter.send(Err(ClientError::Disconnected {
             diagnostics: String::new(),
         }));

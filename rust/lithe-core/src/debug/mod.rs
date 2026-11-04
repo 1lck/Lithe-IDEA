@@ -8,6 +8,7 @@ mod engine;
 mod java_test;
 mod projection_v2;
 mod protocol;
+mod shortcut;
 mod transport_lifecycle;
 mod types;
 
@@ -15,6 +16,7 @@ pub(crate) use breakpoint_relocation::*;
 pub(crate) use endpoint::*;
 pub(crate) use engine::*;
 pub(crate) use java_test::*;
+pub(crate) use shortcut::*;
 pub(crate) use transport_lifecycle::*;
 pub(crate) use types::*;
 

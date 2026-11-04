@@ -131,6 +131,10 @@ struct WindowLayoutFullScreenTransitionTests {
         defer { window.close() }
 
         let coordinator = LitheWindowCoordinator(projectSessions: Sessions())
+        coordinator.attach(to: window, layout: .settingsImport, title: "Import")
+        let importSize = window.contentRect(forFrameRect: window.frame).size
+        #expect(abs(importSize.width - 640) < 1)
+        #expect(abs(importSize.height - 467) < 1)
         coordinator.attach(to: window, layout: .welcome, title: "Welcome")
         let welcomeWidth = window.frame.width
         #expect(abs(welcomeWidth - LitheWindowLayout.welcomeContentSize.width) < 1)

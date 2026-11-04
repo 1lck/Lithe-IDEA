@@ -3,6 +3,7 @@ import LitheCoreContracts
 import LitheGitModule
 import LitheLocalHistoryModule
 import LitheSearchModule
+import LitheModuleAPI
 
 extension AppModel {
     var workspaceSnapshotID: UUID? { workspaceFeature.appliedSnapshot?.id }
@@ -63,7 +64,7 @@ extension AppModel {
 
     func revealInProjectTree(_ url: URL, isDirectory: Bool = false) {
         guard let treeURL = projectTreeURL(for: url) else {
-            showNotification("This file is not in the current workspace")
+            showNotification("This file is not in the current workspace", logReference: notificationRejection(operation: "feature_state", reason: "unavailable_0"))
             return
         }
         selectedSidebar = .project
@@ -313,8 +314,16 @@ extension AppModel {
     var isLoadingWorkspace: Bool { workspaceFeature.isLoadingWorkspace }
     var isRefreshingWorkspace: Bool { workspaceFeature.isRefreshingWorkspace }
     var workspaceLoadErrorMessage: String? { workspaceFeature.loadErrorMessage }
-    func searchEverywhereActionMatches(query: String) -> [LitheAction] {
-        LitheActionRegistry.actions(for: self).filter { $0.matches(query) }
+    func searchEverywhereActionMatches(query: String,
+                                      localize: (String) -> String = { L10n.string(key: $0) }) -> [LitheAction] {
+        let actions = LitheActionRegistry.actions(for: self)
+        do {
+            let indices = try RustCoreBridge().searchActions(query: query, texts: actions.map { $0.searchTexts(localize: localize) })
+            return indices.map { actions[$0] }
+        } catch {
+            services.logSink?.emit(AppActionSearchFailed(error: error))
+            return []
+        }
     }
 
     var localHistoryRequest: LocalHistoryRequest? {
@@ -371,8 +380,8 @@ extension AppModel {
             supportsLanguageServerFeature(.implementation)
         case "debug-resume", "debug-step-over", "debug-step-into", "debug-step-out":
             genericDebugFeatureIfActive?.state == .paused
-        case "close-project", "search-everywhere", "search-in-project",
-             "replace-in-project", "project-local-history", "run", "debug",
+        case "close-project", "search-everywhere", "find-action", "search-in-project",
+             "replace-in-project", "project-local-history", "run", "debug", "debug-start-or-continue",
              "stop-run", "stop-debug", "toggle-terminal", "toggle-problems",
              "toggle-git-log", "toggle-run", "toggle-tests",
              "toggle-debug", "view-breakpoints", "spring-endpoints", "rebuild-java-index":

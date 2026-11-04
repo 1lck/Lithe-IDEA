@@ -1,3 +1,5 @@
+import type { LspClientDiagnostic } from "@/core/lsp-diagnostic";
+
 export interface Diagnostic {
   severity: "error" | "warning" | "info";
   filePath: string;
@@ -9,6 +11,8 @@ export interface Diagnostic {
   source?: string;
   code?: string;
   owner?: string;
+  /** Original Core diagnostic; display fields must never be sent back as LSP data. */
+  lspDiagnostic?: LspClientDiagnostic;
 }
 
 export interface DiagnosticCodeAction {

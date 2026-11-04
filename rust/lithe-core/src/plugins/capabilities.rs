@@ -69,6 +69,8 @@ pub(crate) const DEBUG_ADAPTERS_API_VERSION: u32 = 4;
 
 /// Shared executable candidate order and strict explicit selection.
 pub(crate) const EXECUTABLE_RESOLUTION: &str = "executableResolution";
+/// Independent providers that translate external shortcut settings.
+pub(crate) const KEYMAP_IMPORT_PROVIDERS: &str = "keymapImportProviders";
 /// Plugin-owned tool identities, discovery policy and executable candidates.
 pub(crate) const TOOL_DEFINITIONS: &str = "toolDefinitions";
 /// Backend facts that can influence the executable selected for a defined tool.
@@ -84,6 +86,7 @@ pub const SUPPORTED_CAPABILITIES: &[(&str, &[u32])] = &[
     (DEBUG_ADAPTERS, &[1, 2]),
     (EXECUTION_PROVIDERS, &[1]),
     (EXECUTABLE_RESOLUTION, &[1, 2]),
+    (KEYMAP_IMPORT_PROVIDERS, &[1]),
     (LANGUAGE_SERVERS, &[1, 2]),
     (LANGUAGES, &[1, 2]),
     (PACKAGE_TRUST, &[1]),

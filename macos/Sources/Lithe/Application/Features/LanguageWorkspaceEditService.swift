@@ -8,9 +8,11 @@ import LitheCoreContracts
 /// rename or code action cannot leave the workspace half-edited.
 @MainActor
 final class LanguageWorkspaceEditService {
+    private let logSink: (any LogSink)?
     private let notify: @MainActor (String) -> Void
 
-    init(notify: @escaping @MainActor (String) -> Void) {
+    init(notify: @escaping @MainActor (String) -> Void, logSink: (any LogSink)? = nil) {
+        self.logSink = logSink
         self.notify = notify
     }
 
@@ -76,9 +78,13 @@ final class LanguageWorkspaceEditService {
                     try fileOperations.writeText(replacement, to: url)
                 }
             } catch {
+                var count: Int64 = 0
+                var lastError: (any Error)?
                 for (url, original) in originals {
-                    try? fileOperations.writeText(original, to: url)
+                    do { try fileOperations.writeText(original, to: url) }
+                    catch { count += 1; lastError = error }
                 }
+                if let lastError { logSink?.emit(EditorWorkspaceEditRollbackFailed(count: count, error: lastError)) }
                 throw error
             }
             for (url, replacement) in replacements {

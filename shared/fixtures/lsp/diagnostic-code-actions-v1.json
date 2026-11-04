@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "uri": "file:///C:/work/Main.java",
+  "diagnostic": {
+    "range": {
+      "start": { "line": 2, "utf16Column": 4 },
+      "end": { "line": 2, "utf16Column": 9 }
+    },
+    "severity": 2,
+    "message": "Unused declaration",
+    "source": "fixture-lsp",
+    "code": "unused",
+    "tags": [1, 2, 99],
+    "relatedInformation": [
+      {
+        "location": {
+          "uri": "file:///C:/work/Other.java",
+          "range": {
+            "start": { "line": 7, "utf16Column": 3 },
+            "end": { "line": 8, "utf16Column": 6 }
+          }
+        },
+        "message": "Related declaration"
+      }
+    ]
+  },
+  "severityCases": [
+    { "name": "error", "severity": 1, "displaySeverity": "error" },
+    { "name": "warning", "severity": 2, "displaySeverity": "warning" },
+    { "name": "information", "severity": 3, "displaySeverity": "info" },
+    { "name": "hint", "severity": 4, "displaySeverity": "info" },
+    { "name": "unspecified", "severity": null, "displaySeverity": "info" }
+  ]
+}

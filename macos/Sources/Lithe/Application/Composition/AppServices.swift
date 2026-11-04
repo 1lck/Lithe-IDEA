@@ -10,6 +10,22 @@ import LitheLanguageIntelligenceModule
 /// Platform composition roots construct this graph with their own adapters.
 @MainActor
 final class AppServices {
+    var logWindowCoordinator: LogWindowCoordinator?
+    var logWindowLogging: (any LogWindowLogging)?
+    /// Process log sink supplied by the composition root; modules receive the same instance.
+    var logSink: (any LogSink)?
+    var editorSettingsImportScan: ((URL?) async throws -> [EditorSettingsImportSource])?
+    var editorSettingsImportKeymapPlan: (([KeymapImportCurrent], [KeymapImportBinding]) throws -> KeymapImportBindingPlan)?
+    var editorSettingsImportLoadKeymapOnSelection = false
+    var debugStartOrContinue: ((Bool, Bool, Bool) throws -> DebugStartOrContinueAction)?
+    func makeEditorSettingsImport(settings: AppSettings) -> EditorSettingsImportFeatureModel {
+        EditorSettingsImportFeatureModel(settings: settings, chooseDirectory: { [platformUI] in
+            platformUI.chooseDirectory(title: settings.language.localizedString("Choose IDE configuration directory"),
+                                       prompt: settings.language.localizedString("Choose"))
+        }, scan: editorSettingsImportScan, planKeymap: editorSettingsImportKeymapPlan,
+        loadKeymapOnSelection: editorSettingsImportLoadKeymapOnSelection, logSink: logSink)
+    }
+
     var ideCapabilityRegistry: IdeCapabilityRegistry?
     var ideHostTransport: (any IdeHostTransport)?
     /// Codex and Claude Code MCP configuration files. `nil` before platform

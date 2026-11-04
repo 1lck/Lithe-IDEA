@@ -4,6 +4,9 @@ use super::client::{
     client_apply_server_message_for_plugin, client_initialize_for_plugin, json_rpc_error_with_code,
     json_rpc_error_with_data, json_rpc_notification, json_rpc_result,
 };
+use super::engine_logging::{
+    EngineLog, EngineLogInput, SessionLogIdentity, SessionRole, StderrFact, StderrLines,
+};
 use super::process::{LspProcessHandle, LspProcessLauncher, LspProcessSpec, SystemProcessLauncher};
 use super::{
     client_change_document, client_close_document, client_feature_request_canonical,
@@ -70,7 +73,11 @@ const MAX_BUILD_PROVIDER_TIMEOUT_MS: u64 = 60 * 60_000;
 const MAX_VCS_PROVIDER_TIMEOUT_MS: u64 = 60 * 60_000;
 /// Longest toolchain query a host may ask for; queries only read manager state.
 const MAX_TOOLCHAIN_QUERY_TIMEOUT_MS: u64 = 60_000;
+/// Bounds one provider request; the host can cancel sooner when a snapshot expires.
+const MAX_KEYMAP_IMPORT_TIMEOUT_MS: u64 = 60_000;
 const MONITOR_INTERVAL_MS: u64 = 10;
+/// Shared plugin diagnostic budget per process session and monotonic minute.
+const MAX_PLUGIN_DIAGNOSTICS_PER_MINUTE: u16 = 600;
 /// JSON-RPC method carrying Java Debug Server build commands.
 const JAVA_BUILD_METHOD: &str = "workspace/executeCommand";
 
@@ -101,6 +108,12 @@ pub enum LspLifecycleState {
 /// Validated process, workspace, initialization, and timeout settings for a server.
 pub struct StartServerRequest {
     pub provider_id: String,
+    /// Process role supplied by the host; old hosts retain language-server routing.
+    #[serde(default)]
+    pub role: SessionRole,
+    /// Stable VCS identity supplied explicitly by the provider catalog, never parsed from providerID.
+    #[serde(default)]
+    pub log_subject: Option<String>,
     /// Plugin that owns the process, for plugin-provided servers and build
     /// providers. Only such a session can serve that plugin's functions;
     /// host-owned servers leave it out.
@@ -116,6 +129,9 @@ pub struct StartServerRequest {
     /// session with some is offered `litheToolchains`.
     #[serde(default)]
     pub toolchain_providers: Vec<String>,
+    /// Shortcut import providers declared by this plugin's verified manifest.
+    #[serde(default)]
+    pub keymap_import_providers: Vec<String>,
     pub executable_path: String,
     #[serde(default)]
     pub arguments: Vec<String>,
@@ -215,6 +231,8 @@ pub struct JavaRuntimeCandidate {
 #[serde(rename_all = "camelCase")]
 /// Identity and initial lifecycle state of a newly created session.
 pub struct StartServerResponse {
+    /// Catalog-derived channel for host diagnostic I/O; never derived from provider ID by hosts.
+    pub channel: String,
     pub session_id: String,
     pub state: LspLifecycleState,
     pub process_id: Option<u32>,
@@ -460,6 +478,26 @@ pub struct ToolchainProviderRequest {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// One shortcut import operation against an opaque, host-owned snapshot.
+pub struct KeymapImportProviderRequest {
+    /// Plugin-owned session which negotiated the provider.
+    pub session_id: String,
+    /// Optional correlation identity for cancellation and completion events.
+    #[serde(default)]
+    pub operation_id: Option<String>,
+    /// Plugin-local identity of the selected provider.
+    #[serde(rename = "providerID")]
+    pub provider_id: String,
+    /// Host-owned snapshot reference, scoped to this import operation.
+    #[serde(rename = "snapshotID")]
+    pub snapshot_id: String,
+    /// Requested deadline in milliseconds, bounded by the runtime.
+    #[serde(default)]
+    pub timeout_milliseconds: Option<u64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 /// One VCS-provider request. Core plans the method and params from the
 /// operation and its arguments, so the host never writes a raw method. The
 /// result arrives as a `requestCompleted` event whose `result.value` is the
@@ -619,6 +657,24 @@ pub struct LspRuntimeEvent {
     /// Event discriminator such as `stateChanged`, `requestCompleted`, or `diagnostics`.
     #[serde(rename = "type")]
     pub kind: String,
+    /// Core-derived catalog channel, present for structured log facts.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub channel: Option<String>,
+    /// Plugin that owns this process; omitted for host-owned sessions.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plugin_id: Option<String>,
+    /// Explicit process role, independent of the provider's opaque ID.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role: Option<SessionRole>,
+    /// Stable catalog identity; existing v1 fields remain available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub event: Option<String>,
+    /// Catalog disk fields, validated and redacted by Core.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fields: Option<BTreeMap<String, Value>>,
+    /// Canonical catalog severity for v2; independent of the preserved v1 level.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub catalog_level: Option<crate::diagnostics::record::LogLevel>,
     pub sequence: u64,
     pub provider_id: String,
     pub session_id: String,
@@ -835,6 +891,15 @@ struct SessionState {
     /// the opaque ID the host sees, with the backend's own JSON-RPC ID.
     host_requests: BTreeMap<String, Value>,
     next_host_request_id: u64,
+    /// Trace is opt-in and serialized with protocol writes through outbound_order.
+    detailed_diagnostics: bool,
+    /// Desired trace setting retained until the initialize handshake permits notifications.
+    requested_diagnostics: bool,
+    /// Malformed plugin diagnostics are summarized once per process session.
+    rejected_plugin_diagnostics: bool,
+    /// Sender-side ingress budget uses the existing process clock, never a timer.
+    plugin_diagnostics_window: Instant,
+    plugin_diagnostics_count: u16,
 }
 
 struct RuntimeSession {
@@ -842,6 +907,7 @@ struct RuntimeSession {
     provider_id: String,
     /// Plugin that owns the process, if any; see `StartServerRequest::plugin_id`.
     plugin_id: Option<String>,
+    log_identity: SessionLogIdentity,
     /// Fixed workspace host, inherited by protocol workers; never a global selection.
     workspace_host: Option<crate::remote::workspace::Host>,
     /// Maven import settings JDT LS currently holds. Replaced as a whole when
@@ -1354,8 +1420,11 @@ impl RuntimeSession {
         drop(outbound_order);
 
         for detail in warnings {
-            self.log(
+            self.log_issue(
                 "warn",
+                "mavenSettings",
+                "mavenSettingsUnchanged",
+                EngineLog::MavenSettingsForwarded,
                 "Maven settings were passed to the Java language service unchanged",
                 Some(detail),
             );
@@ -1367,6 +1436,7 @@ impl RuntimeSession {
         };
         self.log(
             "info",
+            EngineLog::MavenConfigurationUpdated.with_fields(json!(response)),
             "Java language service received the updated Maven configuration",
             Some(json!(response).to_string()),
         );
@@ -1582,6 +1652,20 @@ pub fn toolchain_provider_request(
     Ok(OperationResponse { operation_id })
 }
 
+/// Sends a shortcut import request only to a negotiated plugin provider.
+pub fn keymap_import_provider_request(
+    request: KeymapImportProviderRequest,
+) -> Result<OperationResponse, CoreError> {
+    let operation_id = request
+        .operation_id
+        .clone()
+        .unwrap_or_else(|| engine().next_operation_id());
+    engine()
+        .session(&request.session_id)?
+        .keymap_import_request(request, operation_id.clone())?;
+    Ok(OperationResponse { operation_id })
+}
+
 /// Sends one VCS-provider request to a session that negotiated the protocol.
 pub fn vcs_provider_request(request: VcsProviderRequest) -> Result<OperationResponse, CoreError> {
     let operation_id = request
@@ -1631,6 +1715,23 @@ pub fn cancel_operation(request: CancelOperationRequest) -> Result<(), CoreError
     engine()
         .session(&request.session_id)?
         .cancel_operation(&request.operation_id)
+}
+
+/// Host-owned toggle for one session's upstream trace diagnostics.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SetDetailedDiagnosticsRequest {
+    /// Opaque session returned by startServer.
+    pub session_id: String,
+    /// True sends verbose tracing, false sends off; default sessions start disabled.
+    pub enabled: bool,
+}
+
+/// Updates the trace gate only after the corresponding ordered write succeeds.
+pub fn set_detailed_diagnostics(request: SetDetailedDiagnosticsRequest) -> Result<(), CoreError> {
+    engine()
+        .session(&request.session_id)?
+        .set_detailed_diagnostics(request.enabled)
 }
 
 /// Drains all currently queued events in deterministic sequence order.
@@ -1946,6 +2047,11 @@ impl LspEngine {
                     } else {
                         Default::default()
                     },
+                    offered_keymap_import_providers: if request.plugin_id.is_some() {
+                        request.keymap_import_providers.iter().cloned().collect()
+                    } else {
+                        Default::default()
+                    },
                     ..LspClientState::default()
                 },
                 root_uri: request.root_uri.clone(),
@@ -1983,6 +2089,12 @@ impl LspEngine {
             .map(JavaPreparationDiagnostics::startup_detail);
         let session = Arc::new(RuntimeSession {
             id: session_id.clone(),
+            log_identity: SessionLogIdentity::new(
+                request.role,
+                &request.provider_id,
+                request.plugin_id.as_deref(),
+                request.log_subject.as_deref(),
+            ),
             provider_id: request.provider_id,
             plugin_id: request.plugin_id,
             workspace_host: crate::remote::workspace::current(),
@@ -2052,6 +2164,11 @@ impl LspEngine {
                 maintenance_write_deadline: None,
                 host_requests: BTreeMap::new(),
                 next_host_request_id: 1,
+                detailed_diagnostics: false,
+                requested_diagnostics: false,
+                rejected_plugin_diagnostics: false,
+                plugin_diagnostics_window: Instant::now(),
+                plugin_diagnostics_count: 0,
             }),
             event_signal: Condvar::new(),
             process: process.handle,
@@ -2060,11 +2177,12 @@ impl LspEngine {
         session.transition(LspLifecycleState::Created, None)?;
         session.transition(LspLifecycleState::ProcessStarting, None)?;
         session.transition(LspLifecycleState::Initializing, None)?;
-        if let Some(detail) = java_startup_detail {
+        {
             session.log(
                 "info",
+                EngineLog::ProcessStarted,
                 "Java language service process started",
-                Some(detail),
+                java_startup_detail,
             );
         }
         if let Some(cleanup) = legacy_metadata_cleanup {
@@ -2072,6 +2190,7 @@ impl LspEngine {
             // ones and why the following import starts from scratch.
             session.log(
                 "info",
+                EngineLog::LegacyRemoved.with_fields(json!({"removedFiles": cleanup.removed_files, "stateReset": cleanup.state_reset})),
                 "Removed Java project files that earlier versions left in the workspace",
                 Some(
                     json!({
@@ -2083,8 +2202,11 @@ impl LspEngine {
             );
         }
         for detail in maven_settings_warnings {
-            session.log(
+            session.log_issue(
                 "warn",
+                "mavenSettings",
+                "mavenSettingsUnchanged",
+                EngineLog::MavenSettingsForwarded,
                 "Maven settings were passed to the Java language service unchanged",
                 Some(detail),
             );
@@ -2093,13 +2215,18 @@ impl LspEngine {
             if !area.removed_keys.is_empty() {
                 session.log(
                     "info",
+                    EngineLog::ConfigurationCleaned
+                        .with_fields(json!({"removedKeys": area.removed_keys})),
                     "Removed unused Java language-server configuration areas",
                     Some(json!({ "removedKeys": area.removed_keys }).to_string()),
                 );
             }
             if let Some(failure) = area.cleanup_failure {
-                session.log(
+                session.log_issue(
                     "warn",
+                    "configurationCleanup",
+                    "configurationCleanupFailed",
+                    EngineLog::ConfigurationCleanupFailed,
                     "Unused Java language-server configuration areas could not be removed",
                     Some(failure),
                 );
@@ -2140,6 +2267,7 @@ impl LspEngine {
         }
 
         Ok(StartServerResponse {
+            channel: session.log_identity.channel(),
             session_id,
             state: LspLifecycleState::Initializing,
             process_id,
@@ -2439,6 +2567,7 @@ impl RuntimeSession {
             self,
             &mut state,
             "debug",
+            EngineLog::NavigationCacheHit.with_fields(json!({"operationId": operation_id, "document": uri, "document_version": document_version, "markers": markers.len()})),
             "Java navigation markers served from cache",
             Some(format!(
                 "operationId={operation_id}, uri={uri}, documentVersion={document_version}, markers={}",
@@ -2808,6 +2937,91 @@ impl RuntimeSession {
                     kind: PendingKind::Feature,
                     operation_id: Some(operation_id.clone()),
                     method: request.method,
+                    document_uri: None,
+                    document_version: None,
+                    created_at: now,
+                    deadline: now + timeout,
+                },
+            );
+            state
+                .request_by_operation
+                .insert(operation_id, request_id.clone());
+            (response.messages, request_id)
+        };
+        self.send_request_or_fail(&outbound_order, messages, &request_id)
+    }
+
+    fn keymap_import_request(
+        &self,
+        request: KeymapImportProviderRequest,
+        operation_id: String,
+    ) -> Result<(), CoreError> {
+        // A snapshot reference is an opaque token, never a filesystem path.
+        // The future host service must separately enforce its session ownership.
+        if request.snapshot_id.is_empty()
+            || request.snapshot_id.len() > 128
+            || !request
+                .snapshot_id
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+        {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Invalid import snapshot reference.",
+            ));
+        }
+        let outbound_order = self.lock_outbound_order()?;
+        let (messages, request_id) = {
+            let mut state = self.lock_state()?;
+            if state.lifecycle != LspLifecycleState::Ready || !state.client.initialized {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Plugin backend is not ready.",
+                ));
+            }
+            if state.request_by_operation.contains_key(&operation_id)
+                || state.java_builds.contains(&operation_id)
+            {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "The operation ID is already pending.",
+                ));
+            }
+            if !state
+                .client
+                .keymap_import_providers
+                .contains(&request.provider_id)
+            {
+                return Err(CoreError::new(
+                    ErrorCode::NotSupported,
+                    "The plugin did not negotiate this import provider.",
+                )
+                .with_details("plugin.keymapImport.providerUnavailable"));
+            }
+            let timeout = request
+                .timeout_milliseconds
+                .map(|milliseconds| {
+                    Duration::from_millis(milliseconds.clamp(1, MAX_KEYMAP_IMPORT_TIMEOUT_MS))
+                })
+                .unwrap_or(
+                    state
+                        .request_timeout
+                        .min(Duration::from_millis(MAX_KEYMAP_IMPORT_TIMEOUT_MS)),
+                );
+            let response = allocate_raw_request(
+                state.client.clone(),
+                super::keymap_provider::IMPORT_METHOD,
+                json!({"providerID": request.provider_id, "snapshotID": request.snapshot_id}),
+            )?;
+            let request_id = (response.state.next_request_id - 1).to_string();
+            let now = Instant::now();
+            state.client = response.state;
+            state.pending.insert(
+                request_id.clone(),
+                PendingRequest {
+                    kind: PendingKind::Feature,
+                    operation_id: Some(operation_id.clone()),
+                    method: super::keymap_provider::IMPORT_METHOD.to_string(),
                     document_uri: None,
                     document_version: None,
                     created_at: now,
@@ -3636,6 +3850,7 @@ impl RuntimeSession {
                     self,
                     &mut state,
                     "info",
+                    EngineLog::MavenCancelled,
                     "Maven profile application cancelled with the session",
                     None,
                 );
@@ -3824,18 +4039,39 @@ impl RuntimeSession {
 
         let error_session = self.clone();
         thread::spawn(move || {
-            let mut chunk = vec![0_u8; 4 * 1024];
+            let mut chunk = [0_u8; 4096];
+            let mut lines = StderrLines::default();
+            let started = Instant::now();
+            let emit = |fact| match fact {
+                StderrFact::Line {
+                    diagnostic,
+                    truncated,
+                } => error_session.log(
+                    "debug",
+                    EngineLog::StderrReceived
+                        .with_fields(json!({"diagnostic": diagnostic, "truncated": truncated})),
+                    "Language-server stderr",
+                    Some(diagnostic),
+                ),
+                StderrFact::Dropped(count) => error_session.log(
+                    "warning",
+                    EngineLog::Dropped.with_fields(json!({"count": count})),
+                    "Engine stderr lines dropped",
+                    Some(format!("count={count}")),
+                ),
+            };
             while error_session.active.load(Ordering::Acquire) {
                 match stderr.read(&mut chunk) {
                     Ok(0) => break,
-                    Ok(count) => error_session.log(
-                        "warning",
-                        "Language-server stderr",
-                        Some(String::from_utf8_lossy(&chunk[..count]).trim().to_string()),
-                    ),
+                    Ok(count) => {
+                        lines.feed(&chunk[..count], started.elapsed().as_millis() as u64, emit)
+                    }
                     Err(error) => {
-                        error_session.log(
+                        error_session.log_issue(
                             "warning",
+                            "stderr",
+                            "stderrReadFailed",
+                            EngineLog::StderrReadFailed,
                             "Could not read language-server stderr",
                             Some(error.to_string()),
                         );
@@ -3843,6 +4079,7 @@ impl RuntimeSession {
                     }
                 }
             }
+            lines.finish(started.elapsed().as_millis() as u64, emit);
         });
     }
 
@@ -3900,6 +4137,7 @@ impl RuntimeSession {
         if response_id.is_some() && !known_pending {
             self.log(
                 "info",
+                EngineLog::ResponseSkipped.with_fields(json!(response_id)),
                 "Ignored a late language-server response",
                 response_id,
             );
@@ -4021,6 +4259,7 @@ impl RuntimeSession {
                                     self,
                                     &mut state,
                                     "info",
+                                    EngineLog::ProtocolInitialized,
                                     "Java language service protocol initialized",
                                     Some(detail),
                                 );
@@ -4115,6 +4354,48 @@ impl RuntimeSession {
                                         None,
                                     )),
                                 ),
+                            };
+                            push_request_event(
+                                self,
+                                &mut state,
+                                operation_id,
+                                &pending.method,
+                                result,
+                                error,
+                            );
+                        }
+                    }
+                }
+                Some(PendingKind::Feature)
+                    if pending_before.as_ref().is_some_and(|pending| {
+                        pending.method == super::keymap_provider::IMPORT_METHOD
+                    }) =>
+                {
+                    if let Some(pending) = pending_before.as_ref() {
+                        if let Some(operation_id) = &pending.operation_id {
+                            let (result, error) = if value.to_string().len()
+                                > super::keymap_provider::MAX_REPLY_BYTES
+                            {
+                                (
+                                    None,
+                                    Some(runtime_error(
+                                        self,
+                                        "plugin.keymapImport.replyTooLarge",
+                                        "request",
+                                        Some(&pending.method),
+                                        None,
+                                        "The shortcut import provider reply is too large.",
+                                        None,
+                                        None,
+                                    )),
+                                )
+                            } else {
+                                (
+                                    Some(
+                                        json!({"value": {"id": value.get("id"), "response": value}}),
+                                    ),
+                                    None,
+                                )
                             };
                             push_request_event(
                                 self,
@@ -4233,10 +4514,13 @@ impl RuntimeSession {
                                     .java_navigation_marker_batches
                                     .insert(operation_id.clone(), batch);
                                 if total_tasks > MAX_JAVA_NAVIGATION_TASKS {
-                                    push_log_event(
+                                    push_issue_log_event(
                                         self,
                                         &mut state,
                                         "warning",
+                                        "navigation",
+                                        "navigationLimited",
+                                        EngineLog::NavigationLimited.with_fields(json!({"operationId": operation_id, "document": pending.document_uri, "tasks": total_tasks, "limit": MAX_JAVA_NAVIGATION_TASKS})),
                                         "Java navigation marker batch was limited",
                                         Some(format!(
                                             "operationId={operation_id}, uri={}, documentVersion={}, tasks={total_tasks}, limit={MAX_JAVA_NAVIGATION_TASKS}",
@@ -4272,10 +4556,13 @@ impl RuntimeSession {
                                     batch.record_active_result(value.get("result"));
                                 }
                             } else {
-                                push_log_event(
+                                push_issue_log_event(
                                     self,
                                     &mut state,
                                     "warning",
+                                    "navigation",
+                                    "navigationMarkerFailed",
+                                    EngineLog::NavigationMarkerFailed.with_fields(json!({"operationId": operation_id, "document": pending.document_uri, "document_version": pending.document_version, "failureCode": "server_error"})),
                                     "JDT LS could not verify one Java navigation marker",
                                     Some(format!(
                                         "operationId={operation_id}, uri={}, documentVersion={}, error={}",
@@ -4376,18 +4663,32 @@ impl RuntimeSession {
                             "status": status,
                             "errorDetails": error_details,
                         }))
-                        .ok();
-                        push_log_event(
-                            self,
-                            &mut state,
-                            if status == MavenProfileTaskStatus::Failed {
-                                "error"
-                            } else {
-                                "info"
-                            },
-                            "Maven profile project update completed",
-                            detail,
-                        );
+                        .expect("JSON values serialize without fallible map keys");
+                        if status == MavenProfileTaskStatus::Failed {
+                            push_issue_log_event(
+                                self,
+                                &mut state,
+                                "error",
+                                "mavenProfile",
+                                "mavenProfileUpdateFailed",
+                                EngineLog::MavenProjectFinished.with_fields(
+                                    json!({"projectUri": project_uri, "status": status}),
+                                ),
+                                "Maven profile project update completed",
+                                Some(detail),
+                            );
+                        } else {
+                            push_log_event(
+                                self,
+                                &mut state,
+                                "info",
+                                EngineLog::MavenProjectFinished.with_fields(
+                                    json!({"projectUri": project_uri, "status": status}),
+                                ),
+                                "Maven profile project update completed",
+                                Some(detail),
+                            );
+                        }
                     }
                     if let Some(result) = completed_result {
                         push_maven_profile_project_event(self, &mut state, result);
@@ -4484,10 +4785,17 @@ impl RuntimeSession {
                             } else {
                                 "Java language service partially applied Maven profiles"
                             };
+                        let identity =
+                            if state.maven_profile_status == MavenProfileTaskStatus::Succeeded {
+                                EngineLog::MavenApplied
+                            } else {
+                                EngineLog::MavenPartiallyApplied
+                            };
                         push_log_event(
                             self,
                             &mut state,
                             profile_log_level,
+                            identity,
                             profile_log_message,
                             None,
                         );
@@ -4727,10 +5035,16 @@ impl RuntimeSession {
                         diagnostics.record_progress(progress, Instant::now())
                     });
                     if let Some(detail) = detail {
+                        let fields = state
+                            .java_preparation
+                            .as_ref()
+                            .map(|d| d.log_progress(Instant::now()))
+                            .unwrap_or(Value::Null);
                         push_log_event(
                             self,
                             &mut state,
                             "info",
+                            EngineLog::WorkspaceProgressReceived.with_fields(fields),
                             "Java workspace import progress",
                             Some(detail),
                         );
@@ -4780,10 +5094,18 @@ impl RuntimeSession {
                 } else if event.kind == super::vcs_provider::NEGOTIATED_EVENT {
                     push_vcs_provider_event(self, &mut state, event.result.unwrap_or_default());
                 } else if event.kind == super::toolchain_provider::NEGOTIATED_EVENT {
-                    push_toolchain_provider_event(
+                    push_negotiated_provider_event(
                         self,
                         &mut state,
                         event.result.unwrap_or_default(),
+                        "toolchainProviders",
+                    );
+                } else if event.kind == super::keymap_provider::NEGOTIATED_EVENT {
+                    push_negotiated_provider_event(
+                        self,
+                        &mut state,
+                        event.result.unwrap_or_default(),
+                        "keymapImportProviders",
                     );
                 } else if event.kind == "diagnostics" {
                     if let Some(uri) = event.uri.as_deref() {
@@ -4795,6 +5117,10 @@ impl RuntimeSession {
                             event.diagnostics.unwrap_or_default(),
                         );
                     }
+                } else if event.kind == "notification"
+                    && event.method.as_deref() == Some(super::plugin_logging::METHOD)
+                {
+                    receive_plugin_diagnostic(self, &mut state, event.result.as_ref());
                 } else if event.kind == "notification"
                     && self.plugin_id.is_some()
                     && event.method.as_deref() == Some("$/cancelRequest")
@@ -4813,16 +5139,19 @@ impl RuntimeSession {
                             event.method.as_deref(),
                         ))
                 {
-                    push_log_event(
-                        self,
-                        &mut state,
-                        "info",
-                        event
-                            .method
-                            .as_deref()
-                            .unwrap_or("Language-server notification"),
-                        event.result.map(|value| value.to_string()),
-                    );
+                    let method = event.method.as_deref().unwrap_or("unknown");
+                    let params = event.result.as_ref().unwrap_or(&Value::Null);
+                    if method != "$/logTrace" || state.detailed_diagnostics {
+                        let (identity, fields) = EngineLog::notification(method, params);
+                        push_log_event(
+                            self,
+                            &mut state,
+                            "info",
+                            identity.with_fields(fields),
+                            method,
+                            event.result.map(|value| value.to_string()),
+                        );
+                    }
                 }
             }
             if state.client.server_capabilities != old_capabilities
@@ -4884,16 +5213,34 @@ impl RuntimeSession {
             if !waits_for_service_ready(&self.provider_id) {
                 outbound.extend(self.flush_queued_documents()?);
             }
+            let diagnostics_enabled = self.lock_state()?.requested_diagnostics;
+            if diagnostics_enabled {
+                // LSP forbids setTrace before the initialize response. This batch
+                // already starts with initialized, under the same outbound lock.
+                outbound.push(trace_notification(true));
+            }
             self.send_messages_or_fail(&outbound_order, outbound, "serverResponse")?;
             let mut state = self.lock_state()?;
+            state.detailed_diagnostics = diagnostics_enabled;
             if let Some(info) = ready_server_info {
                 push_server_info_event(self, &mut state, info);
+            }
+            if !waits_for_service_ready(&self.provider_id) {
+                push_log_event(
+                    self,
+                    &mut state,
+                    "info",
+                    EngineLog::ProtocolInitialized,
+                    "Language service protocol initialized",
+                    None,
+                );
             }
             if waits_for_service_ready(&self.provider_id) {
                 push_log_event(
                     self,
                     &mut state,
                     "info",
+                    EngineLog::WorkspaceWaiting,
                     "Waiting for the Java language service to finish project import",
                     None,
                 );
@@ -4933,6 +5280,7 @@ impl RuntimeSession {
                     self,
                     &mut state,
                     "info",
+                    EngineLog::MavenApplicationStarted,
                     "Java language service applying Maven profiles",
                     None,
                 );
@@ -4946,6 +5294,11 @@ impl RuntimeSession {
             self.send_messages_or_fail(&outbound_order, queued_messages, "serviceReady")?;
             {
                 let mut state = self.lock_state()?;
+                let ready_fields = state
+                    .java_preparation
+                    .as_ref()
+                    .map(|d| d.log_import(Instant::now()))
+                    .unwrap_or(Value::Null);
                 let ready_detail = state
                     .java_preparation
                     .as_mut()
@@ -4957,6 +5310,7 @@ impl RuntimeSession {
                     self,
                     &mut state,
                     "info",
+                    EngineLog::WorkspaceImportFinished.with_fields(ready_fields),
                     "Java language service finished project import",
                     ready_detail,
                 );
@@ -5125,6 +5479,7 @@ impl RuntimeSession {
             self,
             &mut state,
             "info",
+            EngineLog::MavenApplicationStarted.with_fields(json!({"projectCount": project_count})),
             "Applying Maven profiles to Java projects",
             Some(format!("projectCount={project_count}")),
         );
@@ -5306,6 +5661,7 @@ impl RuntimeSession {
                         self,
                         state,
                         "info",
+                        EngineLog::BuildWaiting.with_fields(json!({"reason": block.as_str()})),
                         "Java project build is waiting",
                         Some(json!({ "reason": block.as_str() }).to_string()),
                     );
@@ -5339,6 +5695,7 @@ impl RuntimeSession {
                     self,
                     state,
                     "info",
+                    EngineLog::BuildExecution.with_fields(json!({"waiterCount": waiter_count, "waitedMilliseconds": waited.as_millis() as u64})),
                     "Java project build started",
                     Some(
                         json!({
@@ -5415,6 +5772,7 @@ impl RuntimeSession {
             self,
             state,
             if error.is_none() { "info" } else { "warning" },
+            EngineLog::BuildExecution.with_fields(json!({"outcome": format!("{outcome:?}"), "errorCode": error.as_ref().map(|e| &e.code), "elapsedMilliseconds": completed.elapsed.as_millis() as u64, "waiterCount": completed.operation_ids.len(), "markerScope": report.marker_scope, "builderFailedEarlier": report.builder_failed_earlier, "recovery": report.recovery})),
             "Java project build finished",
             Some(
                 json!({
@@ -5481,8 +5839,11 @@ impl RuntimeSession {
             match self.maven_profile_requests() {
                 Ok((messages, _)) => messages,
                 Err(error) => {
-                    self.log(
+                    self.log_issue(
                         "warn",
+                        "mavenProfileStart",
+                        "mavenProfileStartFailed",
+                        EngineLog::MavenStartFailed,
                         "Could not start the pending Maven profile update",
                         Some(error.message),
                     );
@@ -5517,6 +5878,7 @@ impl RuntimeSession {
         state.maintenance_write_deadline = Some(Instant::now() + state.request_timeout);
         drop(state);
         // Process termination by the monitor releases a blocked native stdin write.
+        // log-exempt: Same failure already recorded: send_messages_or_fail transitions the session and emits its transport failure.
         let _ = self.send_messages_or_fail(&outbound_order, messages, "outboundMaintenance");
         if let Ok(mut state) = self.lock_state() {
             state.maintenance_write_deadline = None;
@@ -5567,10 +5929,18 @@ impl RuntimeSession {
                         .as_mut()
                         .and_then(|diagnostics| diagnostics.take_idle_warning(now));
                     if let Some(detail) = warning {
-                        push_log_event(
+                        let fields = state
+                            .java_preparation
+                            .as_ref()
+                            .map(|d| d.log_progress(now))
+                            .unwrap_or(Value::Null);
+                        push_issue_log_event(
                             self,
                             &mut state,
                             "warning",
+                            "workspaceImport",
+                            "workspaceImportStalled",
+                            EngineLog::WorkspaceStalled.with_fields(fields),
                             "Java workspace import has not reported progress; still waiting for ServiceReady",
                             Some(detail),
                         );
@@ -5719,13 +6089,16 @@ impl RuntimeSession {
                         "status": MavenProfileTaskStatus::TimedOut,
                         "errorDetails": error_details,
                     }))
-                    .ok();
-                    push_log_event(
+                    .expect("JSON values serialize without fallible map keys");
+                    push_issue_log_event(
                         self,
                         &mut state,
                         "error",
+                        "mavenProfile",
+                        "mavenProfileUpdateFailed",
+                        EngineLog::MavenProjectFinished.with_fields(json!({"projectUri": redacted_project_uri(&project_uri), "status": MavenProfileTaskStatus::TimedOut})),
                         "Maven profile project update completed",
-                        detail,
+                        Some(detail),
                     );
                     push_maven_profile_project_event(
                         self,
@@ -5770,10 +6143,13 @@ impl RuntimeSession {
             {
                 state.shutdown_deadline = None;
                 shutdown_timeout = true;
-                push_log_event(
+                push_issue_log_event(
                     self,
                     &mut state,
                     "warning",
+                    "shutdown",
+                    "shutdownTimeout",
+                    EngineLog::ShutdownTimedOut,
                     "Language-server shutdown timed out; forcing termination",
                     None,
                 );
@@ -5810,10 +6186,13 @@ impl RuntimeSession {
             self.kill_process();
         } else if maven_context_timeout {
             if let Ok(mut state) = self.lock_state() {
-                push_log_event(
+                push_issue_log_event(
                     self,
                     &mut state,
                     "error",
+                    "mavenProfile",
+                    "mavenProfileTimeout",
+                    EngineLog::MavenTimedOut,
                     "JDT LS Maven profile application timed out; session remains available",
                     None,
                 );
@@ -5955,9 +6334,56 @@ impl RuntimeSession {
         Ok(())
     }
 
-    fn log(&self, level: &str, message: &str, detail: Option<String>) {
+    fn set_detailed_diagnostics(&self, enabled: bool) -> Result<(), CoreError> {
+        let order = self.lock_outbound_order()?;
+        let mut state = self.lock_state()?;
+        let lifecycle = state.lifecycle;
+        if matches!(
+            lifecycle,
+            LspLifecycleState::Stopped | LspLifecycleState::Failed | LspLifecycleState::Stopping
+        ) {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "The session is no longer running.",
+            ));
+        }
+        if !state.client.initialized {
+            state.requested_diagnostics = enabled;
+            return Ok(());
+        }
+        drop(state);
+        self.send_messages_or_fail(&order, vec![trace_notification(enabled)], "setTrace")?;
+        let mut state = self.lock_state()?;
+        state.requested_diagnostics = enabled;
+        state.detailed_diagnostics = enabled;
+        Ok(())
+    }
+
+    fn log(
+        &self,
+        level: &str,
+        identity: impl Into<EngineLogInput>,
+        message: &str,
+        detail: Option<String>,
+    ) {
         if let Ok(mut state) = self.lock_state() {
-            push_log_event(self, &mut state, level, message, detail);
+            push_log_event(self, &mut state, level, identity, message, detail);
+        }
+    }
+
+    fn log_issue(
+        &self,
+        level: &str,
+        stage: &str,
+        code: &str,
+        identity: impl Into<EngineLogInput>,
+        message: &str,
+        detail: Option<String>,
+    ) {
+        if let Ok(mut state) = self.lock_state() {
+            push_issue_log_event(
+                self, &mut state, level, stage, code, identity, message, detail,
+            );
         }
     }
 
@@ -6002,6 +6428,31 @@ impl RuntimeSession {
 
     fn kill_process(&self) {
         self.process.terminate();
+        if let Some(error) = self.process.take_termination_failure() {
+            // The session owns process recovery; WARN reports cleanup degradation.
+            // Reuse the role routing and runtime envelope without adding a v1 log row.
+            if let Ok(mut state) = self.lock_state() {
+                let category = format!("{:?}", error.kind());
+                let error = runtime_error(
+                    self,
+                    "processCleanupFailed",
+                    "cleanup",
+                    None,
+                    None,
+                    "Engine process cleanup failed",
+                    None,
+                    None,
+                );
+                let input = EngineLog::ProcessCleanupFailed.with_fields(json!({}));
+                let (id, mut fields) =
+                    input
+                        .identity
+                        .fact(&self.log_identity, &input.fields, Some(&error));
+                fields.insert("error_code".into(), json!(category));
+                fields.insert("error_domain".into(), json!("io"));
+                push_cleanup_fact(self, &mut state, id, fields, error);
+            }
+        }
     }
 
     fn lock_outbound_order(&self) -> Result<MutexGuard<'_, ()>, CoreError> {
@@ -6027,6 +6478,10 @@ impl RuntimeSession {
             )
         })
     }
+}
+
+fn trace_notification(enabled: bool) -> String {
+    json!({"jsonrpc":"2.0", "method":"$/setTrace", "params":{"value": if enabled { "verbose" } else { "off" }}}).to_string()
 }
 
 fn validate_start_request(request: &StartServerRequest) -> Result<(), CoreError> {
@@ -6397,6 +6852,7 @@ fn finish_java_navigation_marker_batch(
         session,
         state,
         "debug",
+        EngineLog::NavigationResolved.with_fields(json!({"operationId": operation_id, "document": pending.document_uri, "document_version": pending.document_version, "duration_ms": elapsed.as_millis() as u64, "tasks": total_tasks, "code_lenses": resolved_lens_count, "markers": markers.len()})),
         "Java navigation markers resolved",
         Some(format!(
             "operationId={operation_id}, uri={}, documentVersion={}, durationMilliseconds={}, tasks={}, codeLenses={}, markers={}",
@@ -6473,8 +6929,55 @@ fn parse_server_info(message: &Value) -> Option<LspServerInfo> {
 fn enqueue_runtime_event(
     session: &RuntimeSession,
     state: &mut SessionState,
-    event: LspRuntimeEvent,
+    mut event: LspRuntimeEvent,
 ) {
+    if event.event.is_some()
+        || event.maven_profile_project.is_some()
+        || event.maven_profile_task.is_some()
+    {
+        let (id, fields) = if let Some(result) = &event.maven_profile_project {
+            EngineLog::maven_project_fact(&session.log_identity, result)
+        } else if let Some(status) = event.maven_profile_task {
+            let input = json!({"state": status});
+            EngineLog::MavenTaskUpdated.fact(&session.log_identity, &input, None)
+        } else {
+            (
+                event.event.take().expect("source catalog identity"),
+                event.fields.take().expect("source catalog fields"),
+            )
+        };
+        let level = if id == "log.dropped" {
+            Some(crate::diagnostics::record::LogLevel::Warn)
+        } else {
+            crate::diagnostics::catalog::event_by_id(&id).map(|entry| entry.level)
+        };
+        // In-memory v1 detail is retained for old hosts. The v2 fields always pass
+        // the same normalization and catalog routing boundary as persisted facts.
+        // A fact that fails that boundary keeps only its v1 fields; the runtime
+        // event itself is never dropped and Core never panics on source data.
+        if let Some(level) = level {
+            let mut fact = crate::diagnostics::record::StructuredLogEvent {
+                ts: String::new(),
+                level,
+                seq: 0,
+                event: id.clone(),
+                op: None,
+                msg: String::new(),
+                fields,
+            };
+            if let Ok(channel) = crate::diagnostics::record::prepare_catalog_event(
+                &mut fact,
+                &json!({"channel": session.log_identity.channel()}),
+            ) {
+                event.channel = Some(channel);
+                event.plugin_id = session.plugin_id.clone();
+                event.role = Some(session.log_identity.role);
+                event.event = Some(id);
+                event.fields = Some(fact.fields);
+                event.catalog_level = Some(fact.level);
+            }
+        }
+    }
     state.events.push_back(event);
     refresh_project_preparation(session, state);
     session.event_signal.notify_all();
@@ -6509,6 +7012,12 @@ fn refresh_project_preparation(session: &RuntimeSession, state: &mut SessionStat
     let sequence = take_sequence(state);
     state.events.push_back(LspRuntimeEvent {
         kind: "projectPreparation".to_string(),
+        channel: None,
+        plugin_id: None,
+        role: None,
+        event: None,
+        fields: None,
+        catalog_level: None,
         sequence,
         provider_id: session.provider_id.clone(),
         session_id: session.id.clone(),
@@ -6531,6 +7040,49 @@ fn refresh_project_preparation(session: &RuntimeSession, state: &mut SessionStat
     session.event_signal.notify_all();
 }
 
+// Cleanup failure is a log row, never a state change: hosts take the latest
+// `stateChanged` as the session state, so a stateless one would erase `failed`.
+fn push_cleanup_fact(
+    session: &RuntimeSession,
+    state: &mut SessionState,
+    id: String,
+    fields: std::collections::BTreeMap<String, Value>,
+    error: LspRuntimeError,
+) {
+    let sequence = take_sequence(state);
+    enqueue_runtime_event(
+        session,
+        state,
+        LspRuntimeEvent {
+            kind: "log".to_string(),
+            channel: None,
+            plugin_id: None,
+            role: None,
+            event: Some(id),
+            fields: Some(fields),
+            catalog_level: None,
+            sequence,
+            provider_id: session.provider_id.clone(),
+            session_id: session.id.clone(),
+            state: None,
+            operation_id: None,
+            method: None,
+            uri: None,
+            version: None,
+            diagnostics: None,
+            result: None,
+            error: Some(error),
+            capabilities: None,
+            server_info: None,
+            level: Some("warning".to_string()),
+            message: Some("Engine process cleanup failed".to_string()),
+            detail: None,
+            maven_profile_project: None,
+            maven_profile_task: None,
+        },
+    );
+}
+
 fn transition_locked(
     session: &RuntimeSession,
     state: &mut SessionState,
@@ -6538,12 +7090,23 @@ fn transition_locked(
     error: Option<LspRuntimeError>,
 ) {
     state.lifecycle = lifecycle;
+    let (id, fields) = EngineLog::SessionUpdated.fact(
+        &session.log_identity,
+        &json!({"state": lifecycle}),
+        error.as_ref(),
+    );
     let sequence = take_sequence(state);
     enqueue_runtime_event(
         session,
         state,
         LspRuntimeEvent {
             kind: "stateChanged".to_string(),
+            channel: None,
+            plugin_id: None,
+            role: None,
+            event: Some(id),
+            fields: Some(fields),
+            catalog_level: None,
             sequence,
             provider_id: session.provider_id.clone(),
             session_id: session.id.clone(),
@@ -6661,6 +7224,12 @@ fn push_request_event(
         state,
         LspRuntimeEvent {
             kind: "requestCompleted".to_string(),
+            channel: None,
+            plugin_id: None,
+            role: None,
+            event: None,
+            fields: None,
+            catalog_level: None,
             sequence,
             provider_id: session.provider_id.clone(),
             session_id: session.id.clone(),
@@ -6788,6 +7357,12 @@ fn push_build_progress_locked(
         state,
         LspRuntimeEvent {
             kind: "requestProgress".to_string(),
+            channel: None,
+            plugin_id: None,
+            role: None,
+            event: None,
+            fields: None,
+            catalog_level: None,
             sequence,
             provider_id: session.provider_id.clone(),
             session_id: session.id.clone(),
@@ -6842,6 +7417,12 @@ fn push_function_progress_locked(
         state,
         LspRuntimeEvent {
             kind: "requestProgress".to_string(),
+            channel: None,
+            plugin_id: None,
+            role: None,
+            event: None,
+            fields: None,
+            catalog_level: None,
             sequence,
             provider_id: session.provider_id.clone(),
             session_id: session.id.clone(),
@@ -6873,6 +7454,12 @@ fn push_vcs_provider_event(session: &RuntimeSession, state: &mut SessionState, r
         state,
         LspRuntimeEvent {
             kind: "vcsProvider".to_string(),
+            channel: None,
+            plugin_id: None,
+            role: None,
+            event: None,
+            fields: None,
+            catalog_level: None,
             sequence,
             provider_id: session.provider_id.clone(),
             session_id: session.id.clone(),
@@ -6896,17 +7483,24 @@ fn push_vcs_provider_event(session: &RuntimeSession, state: &mut SessionState, r
 }
 
 /// Publishes the providers a backend selected, so the host queries only those.
-fn push_toolchain_provider_event(
+fn push_negotiated_provider_event(
     session: &RuntimeSession,
     state: &mut SessionState,
     result: Value,
+    kind: &str,
 ) {
     let sequence = take_sequence(state);
     enqueue_runtime_event(
         session,
         state,
         LspRuntimeEvent {
-            kind: "toolchainProviders".to_string(),
+            kind: kind.to_string(),
+            channel: None,
+            plugin_id: None,
+            role: None,
+            event: None,
+            fields: None,
+            catalog_level: None,
             sequence,
             provider_id: session.provider_id.clone(),
             session_id: session.id.clone(),
@@ -6972,6 +7566,12 @@ fn cancel_host_request_locked(
         state,
         LspRuntimeEvent {
             kind: "hostRequestCancelled".to_string(),
+            channel: None,
+            plugin_id: None,
+            role: None,
+            event: None,
+            fields: None,
+            catalog_level: None,
             sequence,
             provider_id: session.provider_id.clone(),
             session_id: session.id.clone(),
@@ -7031,6 +7631,12 @@ fn forward_host_request_locked(
         state,
         LspRuntimeEvent {
             kind: "hostRequest".to_string(),
+            channel: None,
+            plugin_id: None,
+            role: None,
+            event: None,
+            fields: None,
+            catalog_level: None,
             sequence,
             provider_id: session.provider_id.clone(),
             session_id: session.id.clone(),
@@ -7065,6 +7671,12 @@ fn push_functions_event(session: &RuntimeSession, state: &mut SessionState, resu
         state,
         LspRuntimeEvent {
             kind: "functionsChanged".to_string(),
+            channel: None,
+            plugin_id: None,
+            role: None,
+            event: None,
+            fields: None,
+            catalog_level: None,
             sequence,
             provider_id: session.provider_id.clone(),
             session_id: session.id.clone(),
@@ -7233,6 +7845,12 @@ fn push_diagnostics_event(
         state,
         LspRuntimeEvent {
             kind: "diagnostics".to_string(),
+            channel: None,
+            plugin_id: None,
+            role: None,
+            event: None,
+            fields: None,
+            catalog_level: None,
             sequence,
             provider_id: session.provider_id.clone(),
             session_id: session.id.clone(),
@@ -7262,6 +7880,12 @@ fn push_semantic_tokens_refresh_event(session: &RuntimeSession, state: &mut Sess
         state,
         LspRuntimeEvent {
             kind: "semanticTokensRefresh".to_string(),
+            channel: None,
+            plugin_id: None,
+            role: None,
+            event: None,
+            fields: None,
+            catalog_level: None,
             sequence,
             provider_id: session.provider_id.clone(),
             session_id: session.id.clone(),
@@ -7295,6 +7919,12 @@ fn push_features_event(
         state,
         LspRuntimeEvent {
             kind: "featuresChanged".to_string(),
+            channel: None,
+            plugin_id: None,
+            role: None,
+            event: None,
+            fields: None,
+            catalog_level: None,
             sequence,
             provider_id: session.provider_id.clone(),
             session_id: session.id.clone(),
@@ -7324,6 +7954,12 @@ fn push_server_info_event(session: &RuntimeSession, state: &mut SessionState, in
         state,
         LspRuntimeEvent {
             kind: "serverInfoChanged".to_string(),
+            channel: None,
+            plugin_id: None,
+            role: None,
+            event: None,
+            fields: None,
+            catalog_level: None,
             sequence,
             provider_id: session.provider_id.clone(),
             session_id: session.id.clone(),
@@ -7346,19 +7982,135 @@ fn push_server_info_event(session: &RuntimeSession, state: &mut SessionState, in
     );
 }
 
+/// Accepts only negotiated scalar plugin facts. Persistence and overload accounting
+/// reuse the bounded Core handoff instead of copying protocol params into v1 detail.
+fn receive_plugin_diagnostic(
+    session: &RuntimeSession,
+    state: &mut SessionState,
+    params: Option<&Value>,
+) {
+    let Some(plugin) = session.plugin_id.as_deref() else {
+        return;
+    };
+    let plugin_identity = SessionLogIdentity::new(
+        SessionRole::Backend,
+        &session.provider_id,
+        Some(plugin),
+        None,
+    );
+    let plugin = plugin_identity.segment();
+    let valid = state
+        .client
+        .server_capabilities
+        .iter()
+        .any(|name| name == super::plugin_logging::FEATURE)
+        .then(|| {
+            super::plugin_logging::decode(
+                plugin,
+                &state.client.plugin_functions,
+                params.unwrap_or(&Value::Null),
+            )
+        })
+        .flatten();
+    let Some(fact) = valid else {
+        if !state.rejected_plugin_diagnostics {
+            state.rejected_plugin_diagnostics = true;
+            if crate::diagnostics::core_events::record(
+                "plugins.diagnostics.rejected",
+                BTreeMap::from([
+                    ("plugin".into(), json!(plugin)),
+                    ("code".into(), json!("invalid_diagnostic")),
+                ]),
+                None,
+            )
+            .is_err()
+            {
+                crate::diagnostics::core_events::note_dropped();
+            }
+        }
+        return;
+    };
+    if state.plugin_diagnostics_window.elapsed() >= Duration::from_secs(60) {
+        state.plugin_diagnostics_window = Instant::now();
+        state.plugin_diagnostics_count = 0;
+    }
+    if state.plugin_diagnostics_count >= MAX_PLUGIN_DIAGNOSTICS_PER_MINUTE {
+        crate::diagnostics::core_events::note_dropped();
+        return;
+    }
+    state.plugin_diagnostics_count += 1;
+    // SDK contexts carry wire request IDs, not reusable UI operation IDs. Only
+    // a live request owned by this session may extend the host's correlation.
+    let operation = fact.wire_operation.as_deref().and_then(|wire| {
+        state
+            .pending
+            .get(wire)
+            .and_then(|pending| pending.operation_id.clone())
+    });
+    if crate::diagnostics::core_events::record(fact.event, fact.fields, operation).is_err() {
+        crate::diagnostics::core_events::note_dropped();
+    }
+}
+
 fn push_log_event(
     session: &RuntimeSession,
     state: &mut SessionState,
     level: &str,
+    identity: impl Into<EngineLogInput>,
     message: &str,
     detail: Option<String>,
 ) {
+    push_classified_log_event(session, state, level, identity, message, detail, None);
+}
+
+fn push_issue_log_event(
+    session: &RuntimeSession,
+    state: &mut SessionState,
+    level: &str,
+    stage: &str,
+    code: &str,
+    identity: impl Into<EngineLogInput>,
+    message: &str,
+    detail: Option<String>,
+) {
+    let error = runtime_error(session, code, stage, None, None, message, None, None);
+    push_classified_log_event(
+        session,
+        state,
+        level,
+        identity,
+        message,
+        detail,
+        Some(error),
+    );
+}
+
+fn push_classified_log_event(
+    session: &RuntimeSession,
+    state: &mut SessionState,
+    level: &str,
+    identity: impl Into<EngineLogInput>,
+    message: &str,
+    detail: Option<String>,
+    error: Option<LspRuntimeError>,
+) {
+    let input = identity.into();
+    let (event_id, fields) =
+        input
+            .identity
+            .fact(&session.log_identity, &input.fields, error.as_ref());
     let sequence = take_sequence(state);
     enqueue_runtime_event(
         session,
         state,
         LspRuntimeEvent {
             kind: "log".to_string(),
+            channel: None,
+            plugin_id: None,
+            role: None,
+            event: Some(event_id),
+            fields: Some(fields),
+            catalog_level: None,
             sequence,
             provider_id: session.provider_id.clone(),
             session_id: session.id.clone(),
@@ -7369,7 +8121,7 @@ fn push_log_event(
             version: None,
             diagnostics: None,
             result: None,
-            error: None,
+            error,
             capabilities: None,
             server_info: None,
             level: Some(level.to_string()),
@@ -7395,6 +8147,12 @@ fn push_maven_profile_project_event(
         state,
         LspRuntimeEvent {
             kind: "log".to_string(),
+            channel: None,
+            plugin_id: None,
+            role: None,
+            event: None,
+            fields: None,
+            catalog_level: None,
             sequence,
             provider_id: session.provider_id.clone(),
             session_id: session.id.clone(),
@@ -7444,6 +8202,12 @@ fn push_maven_profile_task_event(
         state,
         LspRuntimeEvent {
             kind: "log".to_string(),
+            channel: None,
+            plugin_id: None,
+            role: None,
+            event: None,
+            fields: None,
+            catalog_level: None,
             sequence,
             provider_id: session.provider_id.clone(),
             session_id: session.id.clone(),
@@ -7664,6 +8428,7 @@ fn clear_runtime_state(session: &RuntimeSession, state: &mut SessionState) {
     clear_function_registry(session, state);
     state.client.vcs_provider = None;
     state.client.toolchain_providers.clear();
+    state.client.keymap_import_providers.clear();
     state.linked_document_paths = LinkedDocumentPaths::default();
     state.java_navigation_marker_batches.clear();
     state.java_navigation_marker_cache.clear();
@@ -7790,9 +8555,12 @@ mod tests {
             // A non-Java provider keeps JDT argument adaptation out of the way;
             // `adapt_start` is covered by its own tests.
             provider_id: "gopls".to_string(),
+            role: SessionRole::LanguageServer,
+            log_subject: None,
             plugin_id: None,
             host_services: Vec::new(),
             toolchain_providers: Vec::new(),
+            keymap_import_providers: Vec::new(),
             executable_path: "/usr/bin/scripted-server".to_string(),
             arguments: vec!["--stdio".to_string()],
             environment: BTreeMap::new(),
@@ -8429,6 +9197,28 @@ mod tests {
             "a duplicate readiness notification must not enqueue duplicate profile updates"
         );
         assert_eq!(harness.snapshot().state, LspLifecycleState::Ready);
+        let started_log = harness
+            .events
+            .iter()
+            .find(|event| {
+                event.message.as_deref() == Some("Applying Maven profiles to Java projects")
+            })
+            .unwrap();
+        assert_eq!(started_log.detail.as_deref(), Some("projectCount=3"));
+        assert_eq!(started_log.fields.as_ref().unwrap()["projects"], 3);
+        let completed_logs: Vec<_> = harness
+            .events
+            .iter()
+            .filter(|event| {
+                event.kind == "log"
+                    && event.maven_profile_project.is_none()
+                    && event.message.as_deref() == Some("Maven profile project update completed")
+            })
+            .collect();
+        assert_eq!(completed_logs.len(), 2);
+        assert!(completed_logs
+            .iter()
+            .all(|event| { event.level.as_deref() == Some("info") && event.error.is_none() }));
 
         harness.server.send(json!({
             "jsonrpc": "2.0",
@@ -8477,6 +9267,14 @@ mod tests {
             .map(|result| result.project_uri.as_str())
             .unwrap_or_default();
         assert!(!project_uri.contains("/Users/") && !project_uri.contains("\\Users\\"));
+        assert!(project_event.error.is_none());
+        assert!(harness.events.iter().any(|event| {
+            event.kind == "log"
+                && event.level.as_deref() == Some("error")
+                && event.error.as_ref().is_some_and(|error| {
+                    error.stage == "mavenProfile" && error.code == "mavenProfileUpdateFailed"
+                })
+        }));
         harness.await_state(LspLifecycleState::Ready);
         assert_eq!(harness.snapshot().state, LspLifecycleState::Ready);
     }
@@ -8887,6 +9685,448 @@ mod tests {
     }
 
     #[test]
+    fn structured_logging_warnings_keep_source_stage_and_code() {
+        let harness = Harness::ready();
+        let session = harness.session();
+        session.log_issue(
+            "warn",
+            "configurationCleanup",
+            "configurationCleanupFailed",
+            EngineLog::ConfigurationCleanupFailed,
+            "Cleanup failed",
+            None,
+        );
+        let event = session
+            .poll_events()
+            .unwrap()
+            .into_iter()
+            .find(|event| event.kind == "log")
+            .unwrap();
+        assert_eq!(event.level.as_deref(), Some("warn"));
+        let error = event.error.unwrap();
+        assert_eq!(error.code, "configurationCleanupFailed");
+        assert_eq!(error.stage, "configurationCleanup");
+        assert!(error.underlying_message.is_none());
+        for (stage, code) in [
+            ("stderr", "upstreamStderr"),
+            ("stderr", "stderrReadFailed"),
+            ("shutdown", "shutdownTimeout"),
+        ] {
+            session.log_issue(
+                "warning",
+                stage,
+                code,
+                if code == "upstreamStderr" {
+                    EngineLog::StderrReceived
+                } else if code == "stderrReadFailed" {
+                    EngineLog::StderrReadFailed
+                } else {
+                    EngineLog::ShutdownTimedOut
+                },
+                "Updated diagnostic wording",
+                None,
+            );
+            let event = session
+                .poll_events()
+                .unwrap()
+                .into_iter()
+                .find(|event| event.kind == "log")
+                .unwrap();
+            assert_eq!(event.level.as_deref(), Some("warning"));
+            let error = event.error.unwrap();
+            assert_eq!(error.stage, stage);
+            assert_eq!(error.code, code);
+        }
+        // Ordinary logs must remain unclassified even when their wording matches an issue.
+        session.log(
+            "warning",
+            EngineLog::StderrReceived,
+            "Language-server stderr",
+            None,
+        );
+        let event = session
+            .poll_events()
+            .unwrap()
+            .into_iter()
+            .find(|event| event.kind == "log")
+            .unwrap();
+        assert!(event.error.is_none());
+    }
+
+    #[test]
+    fn lifecycle_catalog_identity_preserves_v1_event_without_extra_log() {
+        for role in [
+            SessionRole::LanguageServer,
+            SessionRole::Vcs,
+            SessionRole::Build,
+            SessionRole::Toolchain,
+            SessionRole::Backend,
+        ] {
+            let harness = Harness::start(|request| {
+                request.role = role;
+                request.provider_id = "c++".into();
+                request.log_subject = Some("git".into());
+                request.plugin_id = Some("io.example.tools".into());
+            });
+            let session = harness.session();
+            session.active.store(false, Ordering::Release);
+            session.kill_process();
+            let mut state = session.state.lock().unwrap();
+            state.events.clear();
+            let sequence = state.next_sequence;
+            transition_locked(&session, &mut state, LspLifecycleState::Stopped, None);
+            assert!(!state.events.iter().any(|e| e.kind == "log"));
+            let event = state.events.front().unwrap();
+            let (id, fields) = EngineLog::SessionUpdated.fact(
+                &session.log_identity,
+                &json!({"state": "stopped"}),
+                None,
+            );
+            assert_eq!(event.event.as_deref(), Some(id.as_str()));
+            assert_eq!(event.fields.as_ref(), Some(&fields));
+            assert_eq!(
+                event.channel.as_deref(),
+                Some(session.log_identity.channel().as_str())
+            );
+            assert_eq!(event.role, Some(role));
+            assert_eq!(event.plugin_id.as_deref(), Some("io.example.tools"));
+            assert_eq!(
+                event.catalog_level,
+                Some(crate::diagnostics::record::LogLevel::Debug)
+            );
+            let mut legacy = serde_json::to_value(event).unwrap();
+            for key in [
+                "channel",
+                "pluginId",
+                "role",
+                "event",
+                "fields",
+                "catalogLevel",
+            ] {
+                legacy.as_object_mut().unwrap().remove(key);
+            }
+            assert_eq!(
+                legacy,
+                json!({"type": "stateChanged", "sequence": sequence,
+                "providerId": "c++", "sessionId": session.id, "state": "stopped"})
+            );
+            state.events.clear();
+            let error = runtime_error(
+                &session,
+                "processCleanupFailed",
+                "cleanup",
+                None,
+                None,
+                "Engine process cleanup failed",
+                None,
+                None,
+            );
+            let (id, fields) = EngineLog::ProcessCleanupFailed.fact(
+                &session.log_identity,
+                &Value::Null,
+                Some(&error),
+            );
+            push_cleanup_fact(&session, &mut state, id, fields, error);
+            let event = state.events.front().unwrap();
+            assert_eq!(
+                event.channel.as_deref(),
+                Some(session.log_identity.channel().as_str())
+            );
+            assert_eq!(
+                event.catalog_level,
+                Some(crate::diagnostics::record::LogLevel::Warn)
+            );
+            assert_eq!(event.kind, "log");
+            assert_eq!(event.level.as_deref(), Some("warning"));
+            assert_eq!(
+                event.message.as_deref(),
+                Some("Engine process cleanup failed")
+            );
+            assert!(event.detail.is_none() && event.state.is_none());
+            assert_eq!(
+                event.error.as_ref().map(|error| error.code.as_str()),
+                Some("processCleanupFailed")
+            );
+        }
+    }
+
+    #[test]
+    fn v1_detail_is_independent_of_catalog_fields() {
+        let harness = Harness::start(|_| {});
+        let session = harness.session();
+        struct Cleanup(Arc<RuntimeSession>);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                self.0.active.store(false, Ordering::Release);
+                self.0.kill_process();
+            }
+        }
+        let _cleanup = Cleanup(session.clone());
+        session.poll_events().unwrap();
+        let line = "  upstream diagnostic  ";
+        session.log_issue(
+            "warning",
+            "stderr",
+            "upstreamStderr",
+            EngineLog::StderrReceived.with_fields(json!({"diagnostic": line, "truncated": false})),
+            "Language-server stderr",
+            Some(line.into()),
+        );
+        let event = session
+            .poll_events()
+            .unwrap()
+            .into_iter()
+            .find(|e| e.event.as_deref() == Some("lsp.stderr.received"))
+            .unwrap();
+        assert_eq!(event.level.as_deref(), Some("warning"));
+        assert_eq!(event.message.as_deref(), Some("Language-server stderr"));
+        assert_eq!(event.detail.as_deref(), Some(line));
+        assert_eq!(event.fields.as_ref().unwrap()["diagnostic"], line);
+        assert_eq!(event.fields.as_ref().unwrap()["truncated"], false);
+        // A JSON-looking v1 detail cannot supply or overwrite a catalog fact.
+        session.log(
+            "info",
+            EngineLog::MavenApplicationStarted.with_fields(json!({"projectCount": 2})),
+            "Applying Maven profiles to Java projects",
+            Some("{\"projectCount\":999}".into()),
+        );
+        let event = session.poll_events().unwrap().into_iter().next().unwrap();
+        assert_eq!(event.fields.unwrap()["projects"], 2);
+    }
+
+    #[test]
+    fn engine_logging_wire_fixture_preserves_defaults_and_routes_new_commands() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../../../shared/fixtures/diagnostics/engine-logging-v2.json"
+        ))
+        .unwrap();
+        let request: StartServerRequest = serde_json::from_value(fixture["start"].clone()).unwrap();
+        assert_eq!(request.role, SessionRole::Vcs);
+        assert_eq!(
+            SessionLogIdentity::new(
+                request.role,
+                &request.provider_id,
+                request.plugin_id.as_deref(),
+                request.log_subject.as_deref()
+            )
+            .channel(),
+            "vcs/git"
+        );
+        let mut legacy = fixture["start"].clone();
+        legacy.as_object_mut().unwrap().remove("role");
+        legacy.as_object_mut().unwrap().remove("logSubject");
+        assert_eq!(
+            serde_json::from_value::<StartServerRequest>(legacy)
+                .unwrap()
+                .role,
+            SessionRole::LanguageServer
+        );
+        for name in ["trace", "drain", "resolveSubject"] {
+            assert!(crate::protocol::CoreCommand::parse(
+                fixture[name]["command"].as_str().unwrap()
+            )
+            .is_some());
+        }
+        let response: Value = serde_json::from_str(&crate::runtime::execute_json(
+            &fixture["resolveSubject"].to_string(),
+        ))
+        .unwrap();
+        assert_eq!(response["data"], fixture["resolveSubject"]["result"]);
+        let request: SetDetailedDiagnosticsRequest =
+            serde_json::from_value(fixture["trace"]["payload"].clone()).unwrap();
+        assert!(request.enabled);
+        let response: Value =
+            serde_json::from_str(&crate::runtime::execute_json(&fixture["drain"].to_string()))
+                .unwrap();
+        assert_eq!(response["ok"], true);
+        assert!(response["data"]["events"].is_array());
+        assert!(response["data"]["dropped"].as_u64().is_some());
+    }
+
+    #[test]
+    fn detailed_diagnostics_waits_for_initialized_and_keeps_the_latest_request() {
+        for enabled in [true, false] {
+            let harness = Harness::start(|_| {});
+            let session = harness.session();
+            struct Cleanup(Arc<RuntimeSession>);
+            impl Drop for Cleanup {
+                fn drop(&mut self) {
+                    self.0.active.store(false, Ordering::Release);
+                    self.0.kill_process();
+                }
+            }
+            let _cleanup = Cleanup(session.clone());
+            session.set_detailed_diagnostics(true).unwrap();
+            if !enabled {
+                session.set_detailed_diagnostics(false).unwrap();
+            }
+            assert!(!harness
+                .server
+                .messages()
+                .iter()
+                .any(|m| m["method"] == "$/setTrace"));
+            assert!(!session.lock_state().unwrap().detailed_diagnostics);
+
+            // Drive the real handshake handler synchronously; no reader timing
+            // or sleep is needed to establish the notification ordering.
+            let initialize = harness.server.await_request("initialize").unwrap();
+            session
+                .handle_server_message(
+                    json!({
+                        "jsonrpc":"2.0", "id":initialize,
+                        "result":{"capabilities":ready_capabilities()}
+                    })
+                    .to_string(),
+                )
+                .unwrap();
+            let methods: Vec<_> = harness
+                .server
+                .messages()
+                .into_iter()
+                .filter_map(|m| m["method"].as_str().map(str::to_owned))
+                .collect();
+            if enabled {
+                let initialized = methods.iter().position(|m| m == "initialized").unwrap();
+                let trace = methods.iter().position(|m| m == "$/setTrace").unwrap();
+                assert!(trace > initialized);
+            } else {
+                assert!(!methods.iter().any(|m| m == "$/setTrace"));
+            }
+            assert_eq!(session.lock_state().unwrap().detailed_diagnostics, enabled);
+            session.set_detailed_diagnostics(false).unwrap();
+            assert_eq!(
+                harness.server.messages().last().unwrap()["params"],
+                json!({"value":"off"})
+            );
+        }
+    }
+
+    #[test]
+    fn upstream_catalog_messages_trace_toggle_and_v1_fields_coexist() {
+        let harness = Harness::start(|request| {
+            request.role = SessionRole::Vcs;
+            request.log_subject = Some("git".into());
+            request.plugin_id = Some("io.example.git".into());
+            request.provider_id = "opaque:provider:git".into();
+        });
+        let session = harness.session();
+        struct Cleanup(Arc<RuntimeSession>);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                self.0.active.store(false, Ordering::Release);
+                self.0.kill_process();
+            }
+        }
+        let _cleanup = Cleanup(session.clone());
+        let initialize = harness.server.await_request("initialize").unwrap();
+        session
+            .handle_server_message(
+                json!({
+                    "jsonrpc":"2.0", "id":initialize, "result":{"capabilities":{}}
+                })
+                .to_string(),
+            )
+            .unwrap();
+        session.poll_events().unwrap();
+        session.log(
+            "warning",
+            EngineLog::Dropped.with_fields(json!({"count": 7})),
+            "Engine stderr lines dropped",
+            Some("count=7".into()),
+        );
+        let dropped = session
+            .poll_events()
+            .unwrap()
+            .into_iter()
+            .find(|event| event.event.as_deref() == Some("log.dropped"))
+            .unwrap();
+        assert_eq!(dropped.channel.as_deref(), Some("vcs/git"));
+        assert_eq!(dropped.fields.unwrap()["count"], 7);
+        for (method, expected) in [
+            ("window/logMessage", "vcs.message.warning.logged"),
+            ("window/showMessage", "vcs.message.warning.shown"),
+        ] {
+            session.handle_server_message(json!({"jsonrpc":"2.0", "method":method, "params":{"type":2,"message":"warning token=private-value"}}).to_string()).unwrap();
+            let events = session.poll_events().unwrap();
+            let event = events
+                .iter()
+                .find(|e| e.event.as_deref() == Some(expected))
+                .expect("upstream catalog event");
+            assert_eq!(event.channel.as_deref(), Some("vcs/git"));
+            assert_eq!(event.plugin_id.as_deref(), Some("io.example.git"));
+            assert_eq!(event.role, Some(SessionRole::Vcs));
+            assert_eq!(
+                event.catalog_level,
+                Some(crate::diagnostics::record::LogLevel::Warn)
+            );
+            assert_eq!(event.message.as_deref(), Some(method));
+            assert!(event.level.is_some() && event.detail.is_some());
+            let fields = event.fields.as_ref().unwrap();
+            assert_eq!(fields["severity"], "warning");
+            assert!(!fields["diagnostic"]
+                .as_str()
+                .unwrap()
+                .contains("private-value"));
+        }
+        let trace = json!({"jsonrpc":"2.0", "method":"$/logTrace", "params":{
+            "message":"trace token=fixture-secret", "verbose":json!({
+                "textDocument":{"text":"private_source_marker"}
+            }).to_string()
+        }})
+        .to_string();
+        session.handle_server_message(trace.clone()).unwrap();
+        assert!(!session
+            .poll_events()
+            .unwrap()
+            .iter()
+            .any(|e| e.event.as_deref() == Some("vcs.trace.received")));
+        session.set_detailed_diagnostics(true).unwrap();
+        assert_eq!(
+            harness.server.messages().last().unwrap()["params"],
+            json!({"value":"verbose"})
+        );
+        session.handle_server_message(trace.clone()).unwrap();
+        let event = session
+            .poll_events()
+            .unwrap()
+            .into_iter()
+            .find(|e| e.event.as_deref() == Some("vcs.trace.received"))
+            .unwrap();
+        assert_eq!(
+            event.catalog_level,
+            Some(crate::diagnostics::record::LogLevel::Debug)
+        );
+        assert_eq!(event.level.as_deref(), Some("info"));
+        let fields = event.fields.unwrap();
+        assert_eq!(fields["diagnostic"], "trace token=<redacted>");
+        let encoded = crate::diagnostics::record::encode_log_batch(
+            serde_json::from_value(json!({"validateCatalog":true,"events":[{
+                "ts":"2026-11-03T00:00:00.000Z", "seq":1, "level":"DEBUG",
+                "event":"vcs.trace.received", "msg":"", "fields":fields
+            }]}))
+            .unwrap(),
+        );
+        let line = encoded.results[0].line.as_ref().unwrap();
+        assert!(!line.contains("private_source_marker"));
+        assert!(!line.contains("fixture-secret"));
+        session.set_detailed_diagnostics(false).unwrap();
+        assert_eq!(
+            harness.server.messages().last().unwrap()["params"],
+            json!({"value":"off"})
+        );
+        session.handle_server_message(trace).unwrap();
+        assert!(!session
+            .poll_events()
+            .unwrap()
+            .iter()
+            .any(|e| e.event.as_deref() == Some("vcs.trace.received")));
+        assert!(
+            serde_json::from_value::<SetDetailedDiagnosticsRequest>(json!({"sessionId":"s"}))
+                .is_err()
+        );
+    }
+
+    #[test]
     fn maven_profile_log_redacts_absolute_project_paths() {
         let redacted = redacted_project_uri("file:///Users/alice/workspace/module-a/");
         assert!(redacted.starts_with("file:///module-a-"));
@@ -8943,6 +10183,7 @@ mod tests {
                 .unwrap();
             assert_eq!(event.level.as_deref(), Some(level));
             assert_eq!(event.message.as_deref(), Some(message));
+            assert!(event.error.is_none());
             assert_eq!(event.maven_profile_project.unwrap().status, status);
         }
     }
@@ -9071,18 +10312,23 @@ mod tests {
         // A quiet m2e batch is not a heartbeat failure. Advance only the deadline
         // clock so the test needs neither a real project nor a 46-second sleep.
         session.expire_deadlines_at(Instant::now() + Duration::from_secs(46));
-        harness.await_event(|event| {
-            event.message.as_deref() == Some(
-            "Java workspace import has not reported progress; still waiting for ServiceReady",
-        )
+        let warning = harness.await_event(|event| {
+            event.error.as_ref().is_some_and(|error| {
+                error.stage == "workspaceImport" && error.code == "workspaceImportStalled"
+            })
         });
+        assert_eq!(warning.kind, "log");
+        assert_eq!(warning.level.as_deref(), Some("warning"));
         assert_eq!(harness.snapshot().state, LspLifecycleState::Initializing);
         harness.server.send(json!({
             "jsonrpc": "2.0", "method": "language/status",
             "params": { "type": "ServiceReady" }
         }));
         harness.await_state(LspLifecycleState::Ready);
-        assert!(!harness.events.iter().any(|event| event.error.is_some()));
+        assert!(!harness
+            .events
+            .iter()
+            .any(|event| event.kind != "log" && event.error.is_some()));
     }
 
     #[test]
@@ -10646,10 +11892,9 @@ mod tests {
         silent.await_state(LspLifecycleState::Stopped);
         silent.await_event(|event| {
             event.kind == "log"
-                && event
-                    .message
-                    .as_deref()
-                    .is_some_and(|message| message.contains("shutdown timed out"))
+                && event.error.as_ref().is_some_and(|error| {
+                    error.stage == "shutdown" && error.code == "shutdownTimeout"
+                })
         });
     }
 
@@ -12496,9 +13741,12 @@ public class Main {
         let started = engine
             .start_server(StartServerRequest {
                 provider_id: "java".to_string(),
+                role: SessionRole::LanguageServer,
+                log_subject: None,
                 plugin_id: None,
                 host_services: Vec::new(),
                 toolchain_providers: Vec::new(),
+                keymap_import_providers: Vec::new(),
                 executable_path,
                 arguments: Vec::new(),
                 environment: BTreeMap::from([(
@@ -12756,6 +14004,15 @@ public class Main {
             .session()
             .complete_cached_java_navigation_markers(&cached_operation_id, uri, Some(version))
             .expect("the completed marker result should be cached"));
+        let logs = harness.session().poll_events().unwrap();
+        let log = logs
+            .iter()
+            .find(|event| event.event.as_deref() == Some("lsp.navigation.cache_hit"))
+            .unwrap();
+        assert_eq!(log.detail.as_deref(), Some(format!("operationId={cached_operation_id}, uri={uri}, documentVersion={version}, markers=0").as_str()));
+        assert_eq!(log.fields.as_ref().unwrap()["document_version"], version);
+        assert_eq!(log.fields.as_ref().unwrap()["markers"], 0);
+        harness.events.extend(logs);
         let cached_event = harness.await_event(|event| {
             event.operation_id.as_deref() == Some(cached_operation_id.as_str())
                 && event.kind == "requestCompleted"
@@ -13063,6 +14320,12 @@ public class Main {
                 .map(Vec::len),
             Some(1)
         );
+        assert!(harness.events.iter().any(|event| {
+            event.kind == "log"
+                && event.error.as_ref().is_some_and(|error| {
+                    error.stage == "navigation" && error.code == "navigationMarkerFailed"
+                })
+        }));
     }
 
     #[test]
@@ -13151,7 +14414,9 @@ public class Main {
         );
         assert!(harness.events.iter().any(|event| {
             event.kind == "log"
-                && event.message.as_deref() == Some("Java navigation marker batch was limited")
+                && event.error.as_ref().is_some_and(|error| {
+                    error.stage == "navigation" && error.code == "navigationLimited"
+                })
         }));
     }
 
@@ -13239,9 +14504,12 @@ public class Main {
     fn start_contract_rejects_missing_runtime_identity() {
         let request = StartServerRequest {
             provider_id: String::new(),
+            role: SessionRole::LanguageServer,
+            log_subject: None,
             plugin_id: None,
             host_services: Vec::new(),
             toolchain_providers: Vec::new(),
+            keymap_import_providers: Vec::new(),
             executable_path: "/bin/server".to_string(),
             arguments: Vec::new(),
             environment: BTreeMap::new(),
@@ -14335,6 +15603,189 @@ public class Main {
         assert!(harness.server.await_notification("$/cancelRequest"));
     }
 
+    #[test]
+    fn keymap_import_negotiation_is_available_only_to_plugin_owned_sessions() {
+        for plugin_owned in [false, true] {
+            let mut harness = Harness::start(|request| {
+                request.keymap_import_providers = vec!["fixture".to_string()];
+                if plugin_owned {
+                    request.plugin_id = Some("dev.lithe.fixture.import".to_string());
+                }
+            });
+            harness.server.complete_initialize(json!({"experimental": {
+                "litheKeymapImport": {"version": 1, "providers": ["fixture"]}
+            }}));
+            harness.await_state(LspLifecycleState::Ready);
+            let initialize = harness
+                .server
+                .messages()
+                .into_iter()
+                .find(|message| message["method"] == "initialize")
+                .unwrap();
+            let offer =
+                initialize["params"]["capabilities"]["experimental"].get("litheKeymapImport");
+            assert_eq!(offer.is_some(), plugin_owned);
+            if plugin_owned {
+                assert_eq!(
+                    offer,
+                    Some(&json!({"versions": [1], "providers": ["fixture"]}))
+                );
+            }
+            let event = harness
+                .events
+                .iter()
+                .find(|event| event.kind == "keymapImportProviders");
+            assert_eq!(event.is_some(), plugin_owned);
+            if let Some(event) = event {
+                assert_eq!(event.result, Some(json!({"providers": ["fixture"]})));
+            }
+        }
+    }
+
+    #[test]
+    fn keymap_import_provider_cannot_select_an_undeclared_identity() {
+        let mut harness = Harness::start(|request| {
+            request.plugin_id = Some("dev.lithe.fixture.import".to_string());
+            request.keymap_import_providers = vec!["fixture".to_string()];
+        });
+        harness.server.complete_initialize(json!({"experimental": {
+            "litheKeymapImport": {"version": 1, "providers": ["fixture", "other"]}
+        }}));
+        harness.await_state(LspLifecycleState::Ready);
+        assert!(harness
+            .events
+            .iter()
+            .all(|event| event.kind != "keymapImportProviders"));
+    }
+
+    #[test]
+    fn keymap_import_request_only_reaches_its_negotiated_provider() {
+        let mut harness = Harness::start(|request| {
+            request.plugin_id = Some("dev.lithe.fixture.import".to_string());
+            request.keymap_import_providers = vec!["fixture".to_string()];
+        });
+        harness.server.complete_initialize(json!({"experimental": {
+            "litheKeymapImport": {"version": 1, "providers": ["fixture"]}
+        }}));
+        harness.await_state(LspLifecycleState::Ready);
+        let request = |provider: &str| KeymapImportProviderRequest {
+            session_id: harness.session_id.clone(),
+            operation_id: None,
+            provider_id: provider.to_string(),
+            snapshot_id: "snapshot-1".to_string(),
+            timeout_milliseconds: Some(1_000),
+        };
+        assert!(harness
+            .session()
+            .keymap_import_request(request("other"), "refused".to_string())
+            .is_err());
+        assert!(harness
+            .server
+            .messages()
+            .iter()
+            .all(|message| message["method"] != "lithe/keymap/import"));
+        harness
+            .session()
+            .keymap_import_request(request("fixture"), "import-1".to_string())
+            .unwrap();
+        let id = harness.server.await_request("lithe/keymap/import").unwrap();
+        let wire_id: u64 = id.parse().unwrap();
+        let sent = harness.written_request(&id);
+        assert_eq!(
+            sent["params"],
+            json!({"providerID": "fixture", "snapshotID": "snapshot-1"})
+        );
+        let response = json!({"jsonrpc": "2.0", "id": wire_id, "result": {"bindings": []}});
+        harness.server.send(response.clone());
+        let event = harness.await_event(|event| {
+            event.kind == "requestCompleted" && event.operation_id.as_deref() == Some("import-1")
+        });
+        assert_eq!(
+            event.result,
+            Some(json!({"value": {"id": wire_id, "response": response}}))
+        );
+    }
+
+    #[test]
+    fn keymap_import_request_rejects_paths_and_can_be_cancelled() {
+        let mut harness = Harness::start(|request| {
+            request.plugin_id = Some("dev.lithe.fixture.import".to_string());
+            request.keymap_import_providers = vec!["fixture".to_string()];
+        });
+        harness.server.complete_initialize(json!({"experimental": {
+            "litheKeymapImport": {"version": 1, "providers": ["fixture"]}
+        }}));
+        harness.await_state(LspLifecycleState::Ready);
+        let mut request = KeymapImportProviderRequest {
+            session_id: harness.session_id.clone(),
+            operation_id: None,
+            provider_id: "fixture".to_string(),
+            snapshot_id: "../private".to_string(),
+            timeout_milliseconds: None,
+        };
+        assert!(harness
+            .session()
+            .keymap_import_request(request.clone(), "invalid".to_string())
+            .is_err());
+        assert!(harness
+            .server
+            .messages()
+            .iter()
+            .all(|message| message["method"] != "lithe/keymap/import"));
+        request.snapshot_id = "snapshot-1".to_string();
+        harness
+            .session()
+            .keymap_import_request(request, "import-2".to_string())
+            .unwrap();
+        harness.server.await_request("lithe/keymap/import").unwrap();
+        harness.session().cancel_operation("import-2").unwrap();
+        assert!(harness.server.await_notification("$/cancelRequest"));
+        let event = harness.await_event(|event| {
+            event.kind == "requestCompleted" && event.operation_id.as_deref() == Some("import-2")
+        });
+        assert_eq!(
+            event.error.as_ref().map(|error| error.code.as_str()),
+            Some("requestCancelled")
+        );
+        assert!(event.result.is_none());
+    }
+
+    #[test]
+    fn keymap_import_request_rejects_oversized_provider_replies() {
+        let mut harness = Harness::start(|request| {
+            request.plugin_id = Some("dev.lithe.fixture.import".to_string());
+            request.keymap_import_providers = vec!["fixture".to_string()];
+        });
+        harness.server.complete_initialize(json!({"experimental": {
+            "litheKeymapImport": {"version": 1, "providers": ["fixture"]}
+        }}));
+        harness.await_state(LspLifecycleState::Ready);
+        let request = KeymapImportProviderRequest {
+            session_id: harness.session_id.clone(),
+            operation_id: None,
+            provider_id: "fixture".to_string(),
+            snapshot_id: "snapshot-1".to_string(),
+            timeout_milliseconds: Some(5_000),
+        };
+        harness
+            .session()
+            .keymap_import_request(request, "import-3".to_string())
+            .unwrap();
+        let id = harness.server.await_request("lithe/keymap/import").unwrap();
+        harness
+            .server
+            .send(json!({"jsonrpc": "2.0", "id": id.parse::<u64>().unwrap(),
+            "result": {"data": "x".repeat(super::super::keymap_provider::MAX_REPLY_BYTES)}}));
+        let event = harness.await_event(|event| {
+            event.kind == "requestCompleted" && event.operation_id.as_deref() == Some("import-3")
+        });
+        assert_eq!(
+            event.error.as_ref().map(|error| error.code.as_str()),
+            Some("plugin.keymapImport.replyTooLarge")
+        );
+        assert!(event.result.is_none());
+    }
+
     // Toolchain providers against a scripted backend. Only a plugin-owned
     // session launched with declared providers is offered `litheToolchains`,
     // and only a provider its process selected receives `toolchains/query`.
@@ -14879,6 +16330,7 @@ public class Main {
             json!({
                 "litheBuild": { "versions": [11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1] },
                 "litheFunctions": { "versions": [1, 2, 3] },
+                "litheLogging": { "versions": [1] },
                 "litheVcs": { "versions": [1] }
             })
         );

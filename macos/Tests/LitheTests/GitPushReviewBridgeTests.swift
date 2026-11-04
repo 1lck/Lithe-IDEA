@@ -15,6 +15,7 @@ struct GitPushReviewBridgeTests {
         let fixture = try await GitPushReviewFixture()
         let operations = RustGitOperations(core: core)
         let topic = GitReference(fullName: "refs/heads/topic", shortName: "topic", kind: .local,
+                                 peelsToCommit: true,
                                  isCurrent: true, upstreamShortName: "origin/main")
 
         let divergent = try operations.pushPreview(topic, pushTarget: nil, at: fixture.repository).get()
@@ -44,6 +45,7 @@ struct GitPushReviewBridgeTests {
         let fixture = try await GitPushReviewFixture()
         let operations = RustGitOperations(core: core)
         let topic = GitReference(fullName: "refs/heads/topic", shortName: "topic", kind: .local,
+                                 peelsToCommit: true,
                                  isCurrent: true, upstreamShortName: "origin/main")
 
         let preview = try operations.pushPreview(topic, pushTarget: .upstream, at: fixture.repository).get()
@@ -62,6 +64,7 @@ struct GitPushReviewBridgeTests {
         let fixture = try await GitPushReviewFixture()
         let operations = RustGitOperations(core: core)
         let topic = GitReference(fullName: "refs/heads/topic", shortName: "topic", kind: .local,
+                                 peelsToCommit: true,
                                  isCurrent: true, upstreamShortName: "origin/main")
         let reviewed = try operations.pushPreview(topic, pushTarget: .publish, at: fixture.repository).get()
 

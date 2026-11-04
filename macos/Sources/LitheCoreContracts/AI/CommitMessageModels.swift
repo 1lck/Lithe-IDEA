@@ -30,6 +30,13 @@ public enum CommitMessageAPIProtocol: String, CaseIterable, Codable, Identifiabl
     }
 }
 
+/// Lithe's explicit Chat Completions token field for gateway compatibility.
+public enum AIChatTokenLimitField: String, CaseIterable, Codable, Identifiable, Sendable {
+    case maxCompletionTokens = "max_completion_tokens"
+    case maxTokens = "max_tokens"
+    public var id: String { rawValue }
+}
+
 public enum AIProviderAuthentication: String, Codable, Sendable {
     case bearer
     case apiKey
@@ -248,6 +255,7 @@ public struct AIProviderProfile: Codable, Equatable, Identifiable, Sendable {
     public var endpoint: String
     public var model: String
     public var apiProtocol: CommitMessageAPIProtocol
+    public var chatTokenLimitField: AIChatTokenLimitField
     public var authentication: AIProviderAuthentication
     public var allowsInsecureHTTP: Bool
     public var apiKeyIdentifier: String
@@ -260,6 +268,7 @@ public struct AIProviderProfile: Codable, Equatable, Identifiable, Sendable {
         case endpoint
         case model
         case apiProtocol
+        case chatTokenLimitField
         case authentication
         case allowsInsecureHTTP
         case apiKeyIdentifier
@@ -273,6 +282,7 @@ public struct AIProviderProfile: Codable, Equatable, Identifiable, Sendable {
         endpoint: String,
         model: String,
         apiProtocol: CommitMessageAPIProtocol,
+        chatTokenLimitField: AIChatTokenLimitField = .maxCompletionTokens,
         authentication: AIProviderAuthentication? = nil,
         allowsInsecureHTTP: Bool = false,
         apiKeyIdentifier: String? = nil,
@@ -284,6 +294,7 @@ public struct AIProviderProfile: Codable, Equatable, Identifiable, Sendable {
         self.endpoint = endpoint
         self.model = model
         self.apiProtocol = apiProtocol
+        self.chatTokenLimitField = chatTokenLimitField
         self.authentication = authentication
             ?? (apiProtocol == .anthropicMessages ? .apiKey : .bearer)
         self.allowsInsecureHTTP = allowsInsecureHTTP
@@ -299,6 +310,7 @@ public struct AIProviderProfile: Codable, Equatable, Identifiable, Sendable {
         endpoint = try container.decode(String.self, forKey: .endpoint)
         model = try container.decode(String.self, forKey: .model)
         apiProtocol = try container.decode(CommitMessageAPIProtocol.self, forKey: .apiProtocol)
+        chatTokenLimitField = try container.decodeIfPresent(AIChatTokenLimitField.self, forKey: .chatTokenLimitField) ?? .maxTokens
         authentication = try container.decodeIfPresent(
             AIProviderAuthentication.self,
             forKey: .authentication
@@ -322,6 +334,7 @@ public struct AIProviderProfile: Codable, Equatable, Identifiable, Sendable {
         try container.encode(endpoint, forKey: .endpoint)
         try container.encode(model, forKey: .model)
         try container.encode(apiProtocol, forKey: .apiProtocol)
+        try container.encode(chatTokenLimitField, forKey: .chatTokenLimitField)
         try container.encode(authentication, forKey: .authentication)
         try container.encode(allowsInsecureHTTP, forKey: .allowsInsecureHTTP)
         try container.encode(apiKeyIdentifier, forKey: .apiKeyIdentifier)

@@ -137,11 +137,13 @@ enum MacPluginWebContent {
 
 /// Answers one page's `lithe-plugin:` requests from its own package only.
 final class MacPluginWebSchemeHandler: NSObject, WKURLSchemeHandler {
+    private let logSink: (any LogSink)?
     private let pluginID: String
     private let packageURL: URL
     private let policy: String
 
-    init(pluginID: String, packageURL: URL) {
+    init(pluginID: String, packageURL: URL, logSink: (any LogSink)? = nil) {
+        self.logSink = logSink
         self.pluginID = pluginID
         self.packageURL = packageURL
         policy = MacPluginWebContent.contentSecurityPolicy(pluginID: pluginID)
@@ -153,7 +155,7 @@ final class MacPluginWebSchemeHandler: NSObject, WKURLSchemeHandler {
             return
         }
         let response = Self.response(
-            for: url, method: task.request.httpMethod ?? "GET", pluginID: pluginID, packageURL: packageURL, policy: policy
+            for: url, method: task.request.httpMethod ?? "GET", pluginID: pluginID, packageURL: packageURL, policy: policy, logSink: logSink
         )
         task.didReceive(response.head)
         if !response.body.isEmpty { task.didReceive(response.body) }
@@ -165,7 +167,7 @@ final class MacPluginWebSchemeHandler: NSObject, WKURLSchemeHandler {
     /// The response to one request; refusals are HTTP statuses so a page's
     /// `fetch` sees them like any missing file.
     static func response(
-        for url: URL, method: String, pluginID: String, packageURL: URL, policy: String
+        for url: URL, method: String, pluginID: String, packageURL: URL, policy: String, logSink: (any LogSink)? = nil
     ) -> (head: HTTPURLResponse, body: Data) {
         var headers = [
             "Content-Security-Policy": policy,
@@ -186,13 +188,15 @@ final class MacPluginWebSchemeHandler: NSObject, WKURLSchemeHandler {
         do {
             let path = URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedPath ?? ""
             file = try MacPluginWebContent.file(percentEncodedPath: path, in: packageURL)
+        // log-exempt: 预期的缺失：插件页面可请求不存在的可选资源，返回 HTTP 404
         } catch MacPluginWebContent.Refusal.missing {
             return reply(404)
         } catch {
+            logSink?.emit(PluginsResourcesMaintenanceFailed(error: error, stage: "web-resource-refused"))
             return reply(403)
         }
         guard let handle = try? FileHandle(forReadingFrom: file) else { return reply(404) }
-        defer { try? handle.close() }
+        defer { do { try handle.close() } catch { logSink?.emit(PluginsResourcesMaintenanceFailed(error: error, stage: "web-resource-close")) } }
         guard let data = try? handle.read(upToCount: MacPluginWebContent.fileLimit + 1) ?? Data(),
               data.count <= MacPluginWebContent.fileLimit else { return reply(403) }
         headers["Content-Type"] = MacPluginWebContent.mimeType(forExtension: file.pathExtension)

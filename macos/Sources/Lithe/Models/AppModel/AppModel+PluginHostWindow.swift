@@ -100,7 +100,7 @@ extension AppModel: PluginHostWindowPort {
     }
 
     func hostNoteMessageLimit(pluginName: String) {
-        showNotification("%@ sent messages too quickly, so some were not shown.", arguments: [pluginName])
+        showNotification("%@ sent messages too quickly, so some were not shown.", arguments: [pluginName], logReference: notificationRejection(operation: "plugin_messages", reason: "rate_limited"))
     }
 
     /// Ends the plugin messages of this window, for a closing window or a replaced workspace.

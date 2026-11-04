@@ -127,7 +127,7 @@ struct SettingsView: View {
                 .ignoresSafeArea()
         }
         .onAppear {
-            SettingsPageLatencyTrace.installIfEnabled()
+            SettingsPageLatencyTrace.installIfEnabled(logSink: model.services.logSink)
             expandGroup(containing: viewState.selection)
             syncVisibilityDrafts()
             model.refreshAIConfigurations()
@@ -271,7 +271,7 @@ struct SettingsView: View {
 
     private func categoryNode(_ category: SettingsCategory, nested: Bool = false) -> LitheTreeListNode {
         LitheTreeListNode(id: "page:" + category.id, onSelect: {
-            SettingsPageLatencyTrace.selected(category.id)
+            SettingsPageLatencyTrace.selected(category.id, logSink: model.services.logSink)
             isSearchFocused = false; viewState.contributedPageID = nil; viewState.selection = category
         }) {
             HStack(spacing: 8) {
@@ -453,7 +453,6 @@ struct SettingsView: View {
                     case .updates: updatesSettings
                     case .network: NetworkSettingsView(settings: settings)
                     case .processTermination: ProcessTerminationSettingsView(settings: settings)
-                    case .diagnostics: diagnosticsSettings
                     case .plugins: EmptyView()
                     }
                 }
@@ -596,6 +595,7 @@ struct SettingsView: View {
 
     private var editorSettings: some View {
         VStack(alignment: .leading, spacing: 10) {
+            EditorSettingsImportControl(feature: model.editorSettingsImport)
             group("Display") {
                 row("Font") {
                     VStack(alignment: .leading, spacing: 4) {
@@ -650,6 +650,12 @@ struct SettingsView: View {
                     }
                 }
                 LitheSettingsCheckbox(isOn: $settings.editorAppearance.fontLigatures, title: "Font ligatures")
+                row("Tab size") {
+                    LitheSettingsStepper(value: $settings.editorAppearance.tabSize, in: 1...16, step: 1,
+                        width: 126, accessibilityLabel: "Tab size", title: { String($0) })
+                }
+                LitheSettingsCheckbox(isOn: $settings.editorAppearance.insertSpaces, title: "Insert spaces")
+                LitheSettingsCheckbox(isOn: $settings.editorAppearance.detectIndentation, title: "Detect indentation")
                 row("File tree row height") {
                     LitheSettingsStepper(
                         value: $settings.projectTreeRowHeight,
@@ -685,17 +691,7 @@ struct SettingsView: View {
                     )
                 }
             }
-            group("Indentation") {
-                row("Tab width") {
-                    LitheSettingsSelect(
-                        selection: $settings.tabWidth,
-                        options: [2, 4, 8],
-                        width: 130,
-                        accessibilityLabel: "Tab width",
-                        title: { "\($0) spaces" }
-                    )
-                }
-            }
+
         }
         .task {
             guard viewState.editorFontFamilies.isEmpty else { return }
@@ -710,6 +706,7 @@ struct SettingsView: View {
             fontPreviewResetTask?.cancel()
             withAnimation(fontPreviewAnimation) { previousEditorFontFamily = previous }
             fontPreviewResetTask = Task { @MainActor in
+                // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
                 try? await Task.sleep(nanoseconds: 2_500_000_000)
                 guard !Task.isCancelled else { return }
                 withAnimation(fontPreviewAnimation) { previousEditorFontFamily = nil }
@@ -768,6 +765,12 @@ struct SettingsView: View {
                         options: EditorAppearanceSettings.ColorScheme.allCases,
                         width: 190, accessibilityLabel: "Editor color scheme", title: \.title
                     )
+                }
+                if let imported = ImportedEditorTheme.decode(settings.editorAppearance.customTheme) {
+                    row("Imported editor theme", info: "Imported editor colors override the built-in palette. Remove the imported theme to use the built-in colors again.") {
+                        Text(verbatim: imported.name).lineLimit(1).truncationMode(.middle)
+                        Button("Remove") { settings.editorAppearance.customTheme = "" }
+                    }
                 }
                 LitheSettingsCheckbox(isOn: $settings.editorAppearance.italicComments, title: "Italic comments")
                 row("Colorize bracket pairs", info: "Bracket colors follow the selected editor color scheme.") {
@@ -874,7 +877,7 @@ struct SettingsView: View {
                 Button("Detect Installed Shells") {
                     model.terminalFeature?.refreshAvailableShells()
                     viewState.detectedTerminalShells = model.availableTerminalShells
-                    viewState.knownTerminalShells = MacTerminalShellDiscovery.knownShells()
+                    viewState.knownTerminalShells = MacTerminalShellDiscovery.knownShells(logSink: model.services.logSink)
                 }
                 .buttonStyle(LitheActionButtonStyle())
             }
@@ -894,7 +897,7 @@ struct SettingsView: View {
         .task {
             guard await model.activateTerminalModule() else { return }
             viewState.detectedTerminalShells = model.availableTerminalShells
-            viewState.knownTerminalShells = MacTerminalShellDiscovery.knownShells()
+            viewState.knownTerminalShells = MacTerminalShellDiscovery.knownShells(logSink: model.services.logSink)
         }
     }
 
@@ -995,6 +998,17 @@ struct SettingsView: View {
                             title: \CommitMessageAPIProtocol.title
                         )
                         .disabled(editingProviderIsConfigurationManaged)
+                    }
+                    if editingProvider?.apiProtocol == .chatCompletions {
+                        row("Output token field", info: "Lithe uses this field for commit requests. Choose max_tokens for older gateways.") {
+                            LitheSettingsSelect(
+                                selection: editingProviderTokenFieldBinding(),
+                                options: AIChatTokenLimitField.allCases,
+                                width: 240,
+                                accessibilityLabel: "Output token field",
+                                title: \AIChatTokenLimitField.rawValue
+                            )
+                        }
                     }
                     LitheTextField("API URL", text: editingProviderTextBinding(\.endpoint))
                         .disabled(editingProviderIsConfigurationManaged)
@@ -1511,90 +1525,6 @@ struct SettingsView: View {
         }
     }
 
-    private var diagnosticsSettings: some View {
-        ApplicationLogDiagnosticsPage(feature: model.diagnosticsFeature) {
-            logDirectoryControls
-        }
-    }
-
-    private var logDirectoryControls: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Log directory")
-                .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
-
-            HStack(spacing: 10) {
-                Text(settings.logDirectory.path)
-                    .font(LitheTheme.uiFont(size: 13, weight: .medium))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .textSelection(.enabled)
-                    .help(settings.logDirectory.path)
-
-                Spacer(minLength: 8)
-
-                Button {
-                    guard let directory = model.platformUI.chooseDirectory(
-                        title: "Choose Log Directory",
-                        prompt: "Choose"
-                    ) else { return }
-                    Task {
-                        if await model.diagnosticsFeature.changeLogDirectory(to: directory) {
-                            settings.setCustomLogDirectory(directory)
-                        }
-                    }
-                } label: {
-                    Image(systemName: "folder")
-                        .font(LitheTheme.uiFont(size: 16, weight: .regular))
-                        .frame(width: 26, height: 26)
-                }
-                .buttonStyle(.litheNoPress)
-                .foregroundStyle(LitheTheme.secondaryText)
-                .contentShape(Rectangle())
-                .lithePointer()
-                .help("Choose Directory")
-                .disabled(model.diagnosticsFeature.isBusy)
-            }
-            .padding(.horizontal, 12)
-            .frame(maxWidth: .infinity, minHeight: 46, maxHeight: 46)
-            .litheSettingsControlChrome(background: LitheTheme.settingsTextFieldBackground)
-
-            HStack(spacing: 6) {
-                Text("Default directory")
-                    .foregroundStyle(LitheTheme.secondaryText)
-                Text(settings.defaultLogDirectory.path)
-                    .foregroundStyle(LitheTheme.tertiaryText)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .textSelection(.enabled)
-                    .help(settings.defaultLogDirectory.path)
-
-                Spacer(minLength: 8)
-
-                if settings.customLogDirectory != nil {
-                    Button {
-                        Task {
-                            if await model.diagnosticsFeature.changeLogDirectory(to: settings.defaultLogDirectory) {
-                                settings.setCustomLogDirectory(nil)
-                            }
-                        }
-                    } label: {
-                        Text("Restore Default")
-                    }
-                    .buttonStyle(.litheNoPress)
-                    .foregroundStyle(LitheTheme.accent)
-                    .lithePointer()
-                    .disabled(model.diagnosticsFeature.isBusy)
-                }
-            }
-            .font(LitheTheme.smallFont)
-            HStack(spacing: LitheTheme.ActionButton.spacing) {
-                Button("Open Log Directory") { model.platformUI.open(settings.logDirectory) }
-                Button("Copy Path") { model.platformUI.copyToClipboard(settings.logDirectory.path) }
-            }
-            .buttonStyle(LitheActionButtonStyle())
-        }
-    }
-
     @ViewBuilder
     private var updateStatusDescription: some View {
         switch updateChecker.status {
@@ -1712,6 +1642,16 @@ struct SettingsView: View {
             set: { value in
                 guard let id = editingProvider?.id else { return }
                 settings.updateAIProvider(id) { provider in provider.apiProtocol = value }
+            }
+        )
+    }
+
+    private func editingProviderTokenFieldBinding() -> Binding<AIChatTokenLimitField> {
+        Binding(
+            get: { editingProvider?.chatTokenLimitField ?? .maxCompletionTokens },
+            set: { value in
+                guard let id = editingProvider?.id else { return }
+                settings.updateAIProvider(id) { provider in provider.chatTokenLimitField = value }
             }
         )
     }

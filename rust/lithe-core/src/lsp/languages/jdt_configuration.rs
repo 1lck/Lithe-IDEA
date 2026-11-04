@@ -162,7 +162,10 @@ fn write_if_changed(path: &Path, contents: &[u8]) -> Result<(), CoreError> {
     ));
     let result = fs::write(&temporary, contents).and_then(|()| fs::rename(&temporary, path));
     if result.is_err() {
-        let _ = fs::remove_file(&temporary);
+        // This boundary keeps the primary result; WARN exposes leftover staging.
+        let mut cleanup = crate::diagnostics::core_events::StorageCleanup::default();
+        cleanup.observe(fs::remove_file(&temporary));
+        cleanup.finish("jdt-configuration");
     }
     result.map_err(|error| {
         start_failure("Could not write the Java language-server configuration.")

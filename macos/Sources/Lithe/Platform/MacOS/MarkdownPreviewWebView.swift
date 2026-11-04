@@ -178,11 +178,12 @@ struct MarkdownPreviewWebView: NSViewRepresentable {
         }
     }
 
+    @Environment(\.applicationLogSink) private var logSink
     let payload: Payload
     var scrollPosition: Binding<MarkdownScrollPosition>? = nil
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(scrollPosition: scrollPosition)
+        Coordinator(scrollPosition: scrollPosition, logSink: logSink)
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -217,6 +218,7 @@ struct MarkdownPreviewWebView: NSViewRepresentable {
             documentURL: payload.documentURL,
             workspaceURL: payload.workspaceURL
         )
+        context.coordinator.logSink = logSink
         context.coordinator.scrollPosition = scrollPosition
         context.coordinator.update(payload, in: webView)
         context.coordinator.updateScrollPosition(in: webView)
@@ -236,6 +238,7 @@ struct MarkdownPreviewWebView: NSViewRepresentable {
 
         let assetHandler = MarkdownPreviewAssetSchemeHandler()
         let plantuml = MarkdownPlantUMLRenderer()
+        var logSink: (any LogSink)?
         var scrollPosition: Binding<MarkdownScrollPosition>?
         private var isReady = false
         private var pendingPayload: Payload?
@@ -243,7 +246,8 @@ struct MarkdownPreviewWebView: NSViewRepresentable {
         private var pendingScrollPosition: MarkdownScrollPosition?
         private var lastObservedScrollRevision: UInt64?
 
-        init(scrollPosition: Binding<MarkdownScrollPosition>?) {
+        init(scrollPosition: Binding<MarkdownScrollPosition>?, logSink: (any LogSink)? = nil) {
+            self.logSink = logSink
             self.scrollPosition = scrollPosition
         }
 
@@ -346,23 +350,27 @@ struct MarkdownPreviewWebView: NSViewRepresentable {
 
         private func apply(_ payload: Payload, in webView: WKWebView) {
             Task { @MainActor in
-                _ = try? await webView.callAsyncJavaScript(
+                do { _ = try await webView.callAsyncJavaScript(
                     "return window.LithePreview.update(payload)",
                     arguments: ["payload": payload.javaScriptValue],
                     in: nil,
                     contentWorld: .page
-                )
+                ) } catch {
+                    logSink?.emit(EditorPreviewUpdateFailed(error: error, stage: "markdown-javascript"))
+                }
             }
         }
 
         private func apply(_ position: MarkdownScrollPosition, in webView: WKWebView) {
             Task { @MainActor in
-                _ = try? await webView.callAsyncJavaScript(
+                do { _ = try await webView.callAsyncJavaScript(
                     "return window.LithePreview.setScrollRatio(ratio)",
                     arguments: ["ratio": position.ratio],
                     in: nil,
                     contentWorld: .page
-                )
+                ) } catch {
+                    logSink?.emit(EditorPreviewUpdateFailed(error: error, stage: "markdown-javascript"))
+                }
             }
         }
     }

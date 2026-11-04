@@ -58,10 +58,14 @@ pub fn run(argv: &[String], stdin: Option<&[u8]>, timeout: Duration) -> io::Resu
     let writer = match (child.stdin.take(), stdin) {
         (Some(mut pipe), Some(bytes)) => {
             let bytes = bytes.to_vec();
-            // A remote that exits early closes the pipe; its exit status and
-            // standard error then explain why, so the write error is not used.
+            // A remote that exits early closes stdin; its status and stderr
+            // carry the command result. Only unexpected write categories log.
             Some(thread::spawn(move || {
-                let _ = pipe.write_all(&bytes);
+                crate::failure_log::teardown(
+                    "remote.client.operation_failed",
+                    "stdin_write",
+                    pipe.write_all(&bytes),
+                );
             }))
         }
         _ => None,
@@ -75,8 +79,16 @@ pub fn run(argv: &[String], stdin: Option<&[u8]>, timeout: Duration) -> io::Resu
             break status;
         }
         if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
+            crate::failure_log::kill(
+                "remote.client.operation_failed",
+                "process_kill",
+                child.kill(),
+            );
+            crate::failure_log::io(
+                "remote.client.operation_failed",
+                "process_wait",
+                child.wait(),
+            );
             return Err(io::Error::new(
                 io::ErrorKind::TimedOut,
                 format!(
@@ -107,9 +119,14 @@ impl Capture {
     /// Returns what was read once the pipe closed, or at `deadline` if a
     /// descendant still holds it open.
     fn collect(self, deadline: Instant) -> Vec<u8> {
-        let _ = self
-            .finished
-            .recv_timeout(deadline.saturating_duration_since(Instant::now()));
+        crate::failure_log::outcome(
+            "remote.client.operation_failed",
+            "capture_drain",
+            self.finished
+                .recv_timeout(deadline.saturating_duration_since(Instant::now())),
+            "completion_failed",
+            "task",
+        );
         let bytes = self
             .bytes
             .lock()
@@ -138,6 +155,7 @@ fn capture(pipe: Option<impl Read + Send + 'static>) -> Capture {
                 }
             }
         }
+        // log-exempt: 用户取消：命令调用方已结束输出收集，放弃等待 capture 完成通知。
         let _ = finished_sender.send(());
     });
     Capture { bytes, finished }

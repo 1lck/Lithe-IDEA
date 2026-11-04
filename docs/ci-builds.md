@@ -33,9 +33,9 @@ normally GitHub's test merge commit. Check **macOS CI gate** or **Windows CI
 gate** for the combined test result. The macOS **Swift tests** job builds the
 Swift tests once and runs the suites selected by the classifier;
 **Remote Workspace CI gate** checks the Linux remote workspace lane (`scripts/remote/verify-remote-workspace.sh`),
-which draft pull requests keep because it uses no macOS runner. **macOS Plugin CI**
-stays separate: it only reserves a macOS runner when the classifier selects the
-plugin lane, and otherwise **Plugin CI gate** passes on Linux in seconds.
+which draft pull requests keep because it uses no macOS runner. Selected plugin
+tests and package verification reuse the same Swift build. **macOS Plugin CI**
+remains available only through manual dispatch for focused diagnosis.
 A failed architecture still fails the macOS gate; `fail-fast: false` lets the
 other architecture finish and upload its package. To request a Windows installer
 for a branch, manually run **Release AutoBuild** and provide that branch as
@@ -45,12 +45,12 @@ for that caller.
 ### Reusing lane results within a pull request
 
 A new push to a pull request does not rerun every lane. In **macOS CI**,
-**macOS Plugin CI** and **Windows CI**, the classify job runs
+**Windows CI** (and the manually dispatched **macOS Plugin CI**), the classify job runs
 `scripts/ci/common/plan-ci-lane-reuse.mjs`, which decides per lane (Swift tests, Rust Core
 tests, packaging, plugin tests, Windows frontend, Windows Rust, real JDT):
 
 - It finds the latest earlier run of the same pull request that actually ran
-  the lane. If that job passed or is still running, and none of the pull
+  the lane. If that job completed successfully, and none of the pull
   request's **own** changes since then affect the lane (by the same classifier
   rules), the lane is reused instead of run. Changes that only arrived from the
   base branch, whether merged in or picked up by GitHub's merge commit, do not
@@ -73,14 +73,11 @@ tests, packaging, plugin tests, Windows frontend, Windows Rust, real JDT):
   raw (NUL-separated), so Chinese and other escaped file names are compared
   and classified correctly.
 - A failed or cancelled earlier result is never reused.
-- Pull request runs are no longer cancelled per branch. The planner cancels the
-  earlier runs that no lane reuses; an earlier run with a reused lane still in
-  progress keeps running, because GitHub cannot cancel a single job. Only runs
-  with a smaller run number than the current one are considered, so a planner
-  that starts late never cancels or reuses a run for a newer push.
-- The gate accepts a reused lane only after confirming that the earlier job
-  passed, waiting up to 90 minutes for one still running. It also fails if a
-  selected lane neither ran nor has a reused result.
+- New pushes cancel earlier PR runs immediately through `cancel-in-progress`.
+  Only completed successful jobs may be reused; the planner has read-only API
+  permissions. Windows Rust is a matrix and always reruns its selected shards.
+- The gate rereads every reused job and rejects failures, cancellation or missing
+  coverage. It never relies on a source job remaining active after a newer push.
 - Any planner error runs every selected lane. Pushes and manual runs never
   reuse results.
 
@@ -99,6 +96,22 @@ consumers. Swift Java adapters and tests are covered by the Swift lane; a
 macOS path containing `Java` alone does not select Windows real-JDT. Shared Core
 and contract changes still select the relevant cross-platform checks.
 
+Windows Core tests run on two machines with stable name-based sharding; Windows
+host tests and shared Git/Agent/IDE host adapters run independently. The gate verifies that the Core reports contain
+the same discovered inventory and execute every case exactly once. Real-JDT
+runs only its native integration prefix, keeping its JDKs and deadlines. The
+ordinary Core suite is covered by the shards instead of repeated in that job.
+
+Plugin-focused Swift tests and official plugin package verification share the
+main Swift compilation, selected independently by `plugins`. Plugin-only changes
+still require that lane. The standalone plugin workflow remains manually
+available but no longer competes for an additional runner on each PR.
+
+The required `macOS CI gate` still appears for documentation-only PRs. Its
+classifier skips native lanes and the independent Ubuntu tooling tests. Other
+native workflows filter documentation paths. Structured logging checks run on
+Ubuntu; i18n retains macOS's binary-plist packaging test and the other platforms.
+
 ### What runs after a pull request merges
 
 A pull request into `preview` carries the full verification, and merging it
@@ -110,17 +123,17 @@ not observe:
 | Pull request into `preview` | Every lane the classifier selects |
 | Push to `preview` (the merge) | **macOS CI** builds the universal package when the merge touched anything packaged; nothing else. The universal build is the only Intel (`x86_64`) compile and link, and it also compiles the merged combination of pull requests that each passed on their own. Light Linux checks (platform feature matrix, Agent Notes board deployment) still run. |
 | Pull request from `preview` into `main` | No lane. **macOS CI** checks that the same commit already passed **macOS CI** as a `preview` push; re-run the job once that push run has succeeded. |
-| Push to `main` | Nothing. |
+| Push to `main` | Full macOS, Windows, plugin and remote CI. Every run has a unique concurrency group, so neither running nor pending commits are replaced. |
 
 The classifier implements this through `LITHE_CI_SCOPE` (`pull_request`,
 `post_merge`, or `release_promotion`). Windows CI no longer runs on `preview`
-pushes, so its GitHub cache entries are refreshed only by pull requests; a
+pushes, so its GitHub cache entries are refreshed by pull requests and main pushes; a
 `Cargo.lock` change makes the next pull requests restore an older prefix match.
 
 ### macOS runners
 
-Every macOS lane (**Swift tests**, **Rust Core tests**, **Release package
-verification**, and **Plugin tests and package verification**) runs on the
+Every automatic macOS lane (**Swift tests**, including selected plugin tests,
+**Rust Core tests**, and **Release package verification**) runs on the
 GitHub-hosted `macos-26` runner, including pull requests from forks. Release
 workflows also use GitHub-hosted runners because they hold signing material.
 
@@ -353,7 +366,7 @@ LITHE_RUN_GIT_COMPOSITOR_TESTS=1 \
 Swift 文本文件策略直接调用 Rust Core，因此 `scripts/macos/test/test-macos.sh` 会先构建并链接
 当前工作树的 Core 静态库。它复用现有 `rust/target/macos` 构建路径；这是可变编译状态，
 不允许跨工作树复制或共享，也没有新增可复用资源目录。依赖下载仍按下文清单复用。
-Swift 单元和插件 CI 通道复用已有 Cargo 下载缓存。先通过
+Swift 单元和插件 CI 通道通过 Swatinem/rust-cache 复用裁剪后的 Rust 依赖编译输出。先通过
 `./scripts/macos/test/test-macos.sh list` 构建并发现测试，独立步骤上限为 40 分钟；随后计时工具
 传入 `--skip-build`，测试阶段保留 960 秒总时限及 17 分钟外层步骤时限，给超时清理
 与报告留出一分钟。构建失败时不生成合并报告，避免同一失败被重复计为“未生成测试
@@ -387,6 +400,27 @@ Windows Build 本机选项位于平台 app-data 的 `build-options/<canonical-wo
 可变状态，没有版本/平台/架构/工具链构建 identity stamp，归入 `build-project-preferences`
 拒绝路由。任何校验或复制阶段均不得跨 worktree 复用，不从安装目录推导写入目标；
 本机保存检查两层原始版本并回读，不改变插件包、代码签名或 Sparkle delta 基线。
+编辑器快捷键导入插件的源码和锁文件随 Git 获取；构建时从锁定的 SDK Git 提交及
+Cargo registry 获取依赖，按当前 rustc、平台和目标架构在本工作树的
+`.artifacts/editor-keymap-provider-target/` 重新编译。此目录登记为
+`editor-keymap-provider-build`，没有可跨工作树复用的封存身份，所有复用阶段均拒绝复制；
+直接运行插件 Cargo 测试生成的 `Plugins/mac/Official/EditorKeymapImport/target/` 也是
+工作树独占的可变状态。
+本地装配验证副本 `.artifacts/keymap-plugin-assembly/` 同样不复用，验证后由当前任务清理。
+构建使用本工作树的 `.artifacts/cargo-home/`；registry crate 下载缓存可按包含插件
+`Cargo.lock` 的既有 Cargo 校验路由复用，Git checkout 则不跨工作树复制，Cargo 从固定
+SDK 提交重新获取。构建阶段将可执行文件和许可证复制到插件包，
+再随 app 签名；运行时只读该包，来源快照留在进程内并读取用户选择的目录，不能影响
+代码签名或 Sparkle delta 基线。
+
+CI 的 `Swatinem/rust-cache` 只复用 Cargo 依赖编译输出，按 OS、架构、rustc、
+Cargo 清单/锁文件、编译环境和 target 布局区分；Swift/plugin 共享一份 macOS Rust
+缓存，Windows Core 分片只有一个写者，host 另用一份，JDT 只读 Core 缓存。
+这是 GitHub CI 专用缓存，不是本地跨工作树复用的身份凭证。注册表
+`ci-rust-compilation-state` 明确禁止复制 `rust/target/`、`rust/target/macos/`
+与 `windows/tauri/src-tauri/target/`；复用脚本在任何复制前拒绝它们。
+本地只复制经验证的 Cargo 下载归档，目标工作树自行生成编译状态。生命周期由
+工作树/Cargo 管理，不写入已安装包，不影响代码签名和 Sparkle delta。
 
 
 SwiftPM 的 `.build/`、资源 bundle 和 `.lithe-swift-toolchain` 标记登记为
@@ -404,6 +438,11 @@ SwiftPM 的 `.build/`、资源 bundle 和 `.lithe-swift-toolchain` 标记登记�
 `.artifacts/windows-perf/`，登记为 `windows-perf-state`，所有复用阶段均拒绝复制。这些内容
 跟随所在工作树的源码和机器，没有 identity stamp；工具在本工作树重新构建，不写 app bundle、
 安装目录或 Sparkle delta 基线。
+
+结构化日志目录位于 `shared/logging/`，Swift/Rust 生成源码随 Git 获取。在每个工作树运行
+`node scripts/logging/generate-log-events.mjs --check`；修改目录后本地重新生成再编译。
+`shared-logging` 登记为不可复用资源：没有封存的版本、平台、架构、工具链 identity stamp，
+校验和复制阶段均拒绝跨工作树搬运；没有下载物或缓存，也没有运行时写入，签名和 Sparkle delta 不受影响。
 
 共享翻译源文件位于 `shared/i18n/`。每个工作树通过 Git 获取源文件和已提交的
 macOS 字符串表、`AppLanguage.generated.swift`、Windows `shared.generated.ts`，
@@ -523,6 +562,7 @@ macOS 的 Application Support 临时快照 `.lithe-dev-profile-import-<transacti
 同一发行身份的多个源码工作树仍会使用同一用户域；本地测试应注入临时目录与独立偏好域。
 
 模块日志和诊断包暂存目录登记为 `application-log-state`，不允许跨工作树复用。
+PR3 macOS 的 `sessions/<session>/plugins/<id>/files/` 也属于该项：由当前日志会话通过 Core 路径规则创建，权限 0700，以描述符相对 no-follow 操作防符号链接越界，按日志保留规则结束生命周期；不属于下载或构建资源，没有任何可跨版本、平台、架构或工具链复用的身份，也没有允许复制的时机。v2 的 `sessions/<session>/` 通道文件和旧版
 日志根目录下的 `application`、`language`、`run`、`git`、`plugins`、`performance`
 子目录、旧版 `lithe.log`、macOS 缓存中的 `Lithe/diagnostics-export/<snapshot>/`
 以及导出目标旁的临时 ZIP（macOS 的 `.lithe-diagnostics-<snapshot>.zip`
@@ -760,6 +800,7 @@ Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono
   版本绑定，没有可靠构建身份 stamp；各工作树构建时一起生成 JS 并复制许可证，不在任何阶段
   跨树复制。运行时只读，不改变签名和 Sparkle delta。官方插件等尚未写入构建身份 stamp 的
   生成资源同样不得复用；
+- 内置 Make/CMake/Groovy 语法为 `frontend/editor/vendor/` 中 Git 固定输入，上游提交和许可证见 `NOTICE.txt`；Monaco 0.55.1、TextMate 9.3.2、Oniguruma 1.7.0 及当前 Bun 参与构建身份。macOS 构建复制语法/WASM/worker/许可证，Windows Vite 生成本地资源与许可证，两端签名前完成。没有下载入口、解压目录或可靠构建 stamp，不允许任何阶段跨 worktree 复用；`editor-theme-assets` 排除路由拒绝复制，运行时 worker/token 只在内存，不影响签名和 Sparkle delta。
 - 插件高亮沿用本工作树生成的 `textmate-worker.js`，不新增下载入口；解码语法、worker/token 状态和编辑器动作租约仅在进程内，属于 `editor-theme-assets` 排除路由，无 identity stamp，任何阶段不得跨工作树复制。源插件包只读，运行时不写安装目录或改变 Sparkle 基线。
 - `.build` 中的 SwiftPM 构建状态；
 - `rust/target/` 中与当前源码、编译器或构建参数绑定的构建输出；

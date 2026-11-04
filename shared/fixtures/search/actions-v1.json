@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "query": "切换终端",
+      "candidates": [
+        {"texts": ["Toggle Terminal", "切换终端", "显示或隐藏终端工具窗口", "Window", "窗口"]},
+        {"texts": ["Toggle Run", "切换运行"]}
+      ],
+      "indices": [0]
+    },
+    {
+      "query": " TOG term ",
+      "candidates": [{"texts": ["Toggle Terminal", "切换终端"]}],
+      "indices": [0]
+    },
+    {
+      "query": "显示终端",
+      "candidates": [{"texts": ["Toggle Terminal", "切换终端", "显示或隐藏终端工具窗口"]}],
+      "indices": [0]
+    },
+    {
+      "query": "RUN",
+      "candidates": [{"texts": ["Run"]}, {"texts": ["Rerun"]}, {"texts": ["Terminal"]}],
+      "indices": [0, 1]
+    },
+    {
+      "query": "  \t",
+      "candidates": [{"texts": ["Run"]}, {"texts": ["Terminal"]}],
+      "indices": [0, 1]
+    },
+    {
+      "query": "设置",
+      "candidates": [{"texts": ["Settings", "插件原文 Settings", "Window", "窗口"]}],
+      "indices": []
+    },
+    {
+      "query": "é🦀",
+      "candidates": [{"texts": ["É Rust 🦀"]}, {"texts": ["é Rust 🦀"]}],
+      "indices": [0, 1]
+    }
+  ]
+}

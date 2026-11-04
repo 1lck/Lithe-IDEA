@@ -24,6 +24,7 @@ final class MacPluginMarketplaceService: PluginMarketplaceServicing {
     private static let sourcesSchemaVersion = 1
 
     let platform: String
+    private let logSink: (any LogSink)?
     private let evaluator: any PluginMarketplaceEvaluating
     private let packageStore: MacPluginPackageStore
     private let downloader: any MacPluginPackageDownloading
@@ -37,6 +38,7 @@ final class MacPluginMarketplaceService: PluginMarketplaceServicing {
     private var preparedDirectories: [UUID: URL] = [:]
 
     init(
+        logSink: (any LogSink)? = nil,
         evaluator: any PluginMarketplaceEvaluating,
         packageStore: MacPluginPackageStore,
         downloader: any MacPluginPackageDownloading,
@@ -46,13 +48,14 @@ final class MacPluginMarketplaceService: PluginMarketplaceServicing {
         bundledOfficialIndexURL: URL?,
         platform: String = MacPluginMarketplaceService.currentPlatform,
         fileManager: FileManager = .default,
-        diskImporter: any MacPluginDiskPackageImporting = MacPluginDiskPackageImporter(),
+        diskImporter: (any MacPluginDiskPackageImporting)? = nil,
         allowsLocalDevelopmentPackages: Bool = MacOfficialPluginSignatureVerifier.allowsLocalDevelopmentPackagesByDefault
     ) {
+        self.logSink = logSink
         self.evaluator = evaluator
         self.packageStore = packageStore
         self.downloader = downloader
-        self.diskImporter = diskImporter
+        self.diskImporter = diskImporter ?? MacPluginDiskPackageImporter(logSink: logSink)
         self.allowsLocalDevelopmentPackages = allowsLocalDevelopmentPackages
         self.transport = transport
         sourcesURL = applicationSupportDirectory
@@ -178,7 +181,9 @@ final class MacPluginMarketplaceService: PluginMarketplaceServicing {
     }
 
     func removeCache(for source: PluginMarketplaceSource) {
-        try? fileManager.removeItem(at: indexCacheURL(for: source).deletingLastPathComponent())
+        do { try fileManager.removeItem(at: indexCacheURL(for: source).deletingLastPathComponent()) }
+            catch let error as CocoaError where error.code == .fileNoSuchFile { /* Owned resource is already absent. */ }
+            catch { logSink?.emit(PluginsResourcesMaintenanceFailed(error: error, stage: "remove")) }
     }
 
     private func indexCacheURL(for source: PluginMarketplaceSource) -> URL {
@@ -244,14 +249,18 @@ final class MacPluginMarketplaceService: PluginMarketplaceServicing {
             preparedDirectories[prepared.id] = downloaded.temporaryDirectory
             return prepared
         } catch {
-            try? fileManager.removeItem(at: downloaded.temporaryDirectory)
+            do { try fileManager.removeItem(at: downloaded.temporaryDirectory) }
+            catch let error as CocoaError where error.code == .fileNoSuchFile { /* Owned resource is already absent. */ }
+            catch { logSink?.emit(PluginsResourcesMaintenanceFailed(error: error, stage: "remove")) }
             throw error
         }
     }
 
     func discard(_ prepared: PreparedPluginPackage) {
         guard let directory = preparedDirectories.removeValue(forKey: prepared.id) else { return }
-        try? fileManager.removeItem(at: directory)
+        do { try fileManager.removeItem(at: directory) }
+            catch let error as CocoaError where error.code == .fileNoSuchFile { /* Owned resource is already absent. */ }
+            catch { logSink?.emit(PluginsResourcesMaintenanceFailed(error: error, stage: "remove")) }
     }
 
     func prepareDiskInstall(at url: URL) async throws -> PreparedDiskPluginPackage {
@@ -268,7 +277,9 @@ final class MacPluginMarketplaceService: PluginMarketplaceServicing {
             preparedDirectories[prepared.id] = imported.temporaryDirectory
             return prepared
         } catch {
-            try? fileManager.removeItem(at: imported.temporaryDirectory)
+            do { try fileManager.removeItem(at: imported.temporaryDirectory) }
+            catch let error as CocoaError where error.code == .fileNoSuchFile { /* Owned resource is already absent. */ }
+            catch { logSink?.emit(PluginsResourcesMaintenanceFailed(error: error, stage: "remove")) }
             throw error
         }
     }
@@ -360,7 +371,9 @@ final class MacPluginMarketplaceService: PluginMarketplaceServicing {
 
     func discard(_ prepared: PreparedDiskPluginPackage) {
         guard let directory = preparedDirectories.removeValue(forKey: prepared.id) else { return }
-        try? fileManager.removeItem(at: directory)
+        do { try fileManager.removeItem(at: directory) }
+            catch let error as CocoaError where error.code == .fileNoSuchFile { /* Owned resource is already absent. */ }
+            catch { logSink?.emit(PluginsResourcesMaintenanceFailed(error: error, stage: "remove")) }
     }
 
     /// Checks, in order, the declaration, the trust the source can grant, the

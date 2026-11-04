@@ -14,6 +14,7 @@ export interface ParsedHunk {
   header: GitDiffLine;
   lines: DiffLineWithIndex[];
   id: number;
+  rawPatch?: string;
 }
 
 export interface ImageContainerProps {
@@ -48,6 +49,7 @@ export interface DiffHunkHeaderProps {
   hunk: ParsedHunk;
   stats?: { additions: number; deletions: number };
   hasInvisibleChanges?: boolean;
+  hasDecodingLoss?: boolean;
   hiddenLineCount?: number | null;
   isCollapsed: boolean;
   onToggleCollapse: () => void;

@@ -6,6 +6,7 @@ import LitheModuleAPI
 
 @MainActor
 package final class RunService: ObservableObject, BuildRunLaunching {
+    private let logSink: (any LogSink)?
     @Published package private(set) var configurations: [RunConfiguration] = [.currentFile]
     package private(set) var defaultConfigurationID: String?
     @Published package var selectedConfigurationID = RunConfiguration.currentFileID {
@@ -379,6 +380,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
     }
 
     package init(
+        logSink: (any LogSink)? = nil,
         runtime: any RunRuntimePort,
         process: any StreamingProcess,
         processFactory: @escaping () -> any StreamingProcess,
@@ -394,6 +396,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         dependencyStore: (any WorkspaceDependencyStoring)? = nil,
         javaLaunchArgumentPreparer: (any JavaLaunchArgumentPreparing)? = nil
     ) {
+        self.logSink = logSink
         self.runtime = runtime
         self.process = process
         self.processFactory = processFactory
@@ -408,7 +411,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         dependencyDeclarations = Dictionary(uniqueKeysWithValues: languageSupports.compactMap { support in
             support.dependencies.map { (support.id, $0) }
         })
-        dependencyWriter = WorkspaceDependencyWriter(store: dependencyStore)
+        dependencyWriter = WorkspaceDependencyWriter(store: dependencyStore, logSink: logSink)
         self.executableResolver = executableResolver
     }
 
@@ -2784,7 +2787,9 @@ private struct WorkspaceDependencySnapshot: Sendable {
 private actor WorkspaceDependencyWriter {
     private let store: (any WorkspaceDependencyStoring)?
 
-    init(store: (any WorkspaceDependencyStoring)?) {
+    private let logSink: (any LogSink)?
+    init(store: (any WorkspaceDependencyStoring)?, logSink: (any LogSink)?) {
+        self.logSink = logSink
         self.store = store
     }
 
@@ -2798,6 +2803,7 @@ private actor WorkspaceDependencyWriter {
                 errorMessage: nil
             )
         } catch {
+            logSink?.emit(RunConfigurationOperationFailed(error: error, stage: "dependency-store"))
             return WorkspaceDependencySnapshot(
                 configuration: WorkspaceDependencyConfiguration(),
                 indexes: WorkspaceDependencyIndexes(),
@@ -2814,12 +2820,14 @@ private actor WorkspaceDependencyWriter {
             try store?.saveDependencyConfiguration(configuration, workspaceURL: workspaceURL)
             return nil
         } catch {
+            logSink?.emit(RunConfigurationWriteFailed(error: error))
             return error.localizedDescription
         }
     }
 
     func saveIndexes(_ indexes: WorkspaceDependencyIndexes, workspaceURL: URL) {
-        try? store?.saveDependencyIndexes(indexes, workspaceURL: workspaceURL)
+        do { try store?.saveDependencyIndexes(indexes, workspaceURL: workspaceURL) }
+        catch { logSink?.emit(RunConfigurationOperationFailed(error: error, stage: "dependency-indexes")) }
     }
 }
 

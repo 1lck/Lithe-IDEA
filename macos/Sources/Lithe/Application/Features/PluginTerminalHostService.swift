@@ -189,7 +189,11 @@ final class PluginTerminalHostService: PluginHostServiceHandling {
                 return .success(.object(["subscriptionID": .string(subscription)]))
             default: throw PluginHostArguments.invalid
             }
-        } catch { return .failure(PluginHostAPIValues.failure(error)) }
+        } catch {
+            var failure = PluginHostAPIValues.failure(error)
+            failure.logError = error
+            return .failure(failure)
+        }
     }
 
     private func create(_ call: PluginHostCall, scope: PluginHostAPIContext, args: PluginHostArguments) async throws -> ToolingJSONValue {

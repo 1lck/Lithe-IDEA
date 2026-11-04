@@ -1,5 +1,135 @@
 # Rust Core API
 
+## Normalized shortcut import validation
+
+`keymap.decodeImport` accepts `{commandIDs: string[], reply: {bindings:
+[{commandID: string, keys: [{key: string, modifiers: string[]}]}]}}` and
+returns `{bindings: [...]}`. The caller supplies its current action catalog;
+unknown or duplicate actions, duplicate keys or modifiers, unknown fields,
+unsupported keys and unmodified printable keys fail with `invalid_request` and
+no partial result. Modifiers are `control`, `alt`, `shift` and `meta`, in
+that canonical order. Keys are lowercase single ASCII graphic characters,
+`f1` through `f24`, or `up`, `down`, `left`, `right`, `return`, `tab`,
+`space`, `backspace`, `delete`, `escape`, `pageup`, `pagedown`, `home`, `end`
+and `insert`. This is the portable vocabulary; each host must still reject keys
+its native input and shortcut model cannot represent. A printable character or `space` requires `control`, `alt` or
+`meta`. Empty key lists represent an explicit unbinding. Actions are returned
+in ID order; each action's key order is retained because the first is its
+primary binding. A shortcut used by different actions is retained for the
+host's final conflict check. Requests are limited to 1 MiB, 4096 catalog IDs,
+4096 actions, eight keys per action and 128 UTF-8 bytes per ID. The shared
+[fixtures](../fixtures/keymap/import-provider-v1.json) cover this contract.
+
+This validates normalized results only. It neither parses an IDE's private
+format nor discovers or starts a provider; an unimplemented provider API must
+not be inferred from the existence of this Core command. Conditional rules and
+multi-stroke keys cannot be represented and must not be silently made global.
+
+`debug.startOrContinue` accepts `{active, paused, requestPending}` booleans and returns
+`{action: "start" | "continue" | "none"}`. An in-flight request or an active,
+non-paused session returns `none`; an inactive session starts, and an active
+paused session continues. The platform executes the result against its current
+session and must still guard against state changes.
+
+`keymap.planImportBindings` accepts `{current: [{commandID, customized, keys}],
+incoming: {bindings}}` and returns `{displaced, conflicts}`. Current entries
+are the host's complete action catalog and effective key-press bindings;
+non-key-press bindings remain in the host and are never displaced. Incoming
+bindings use the same validation as `keymap.decodeImport`. Each displacement
+names an unchanged default action and only the keys to remove. A customized
+owner or two imported actions claiming the same key produces a conflict naming
+`commandID`, `ownerID` and `key`; a conflict clears all displacements so a
+caller cannot apply a partial plan. Actions included in the import replace
+their old bindings, permitting swaps. Results are deterministic. Requests are
+bounded to 1 MiB, 4096 actions, eight keys per action, 4096 conflicts and
+131072 ownership comparisons. Hosts must recheck the source and settings
+revisions at apply time. See [plan fixtures](../fixtures/keymap/import-plan-v1.json).
+
+`keymap.planImportSources` accepts `{manifest, providerID}` and returns
+`{inputs, recognition, limits}` for exactly that declared provider after validating the entire
+manifest; an unknown provider or invalid manifest returns `invalid_request`.
+The payload is bounded to 1 MiB. It performs no filesystem I/O and does not
+establish package trust: callers must supply the enabled, previously accepted
+plugin manifest. Selectors and native read limits are defined by the
+[plugin contract](plugins/v1/README.md#shortcut-import-providers-core-foundation).
+The returned limits bound selectors, recognition probes, files, bytes per file and per snapshot,
+bytes per chunk, directory entries scanned and matching entries per directory;
+native adapters apply these values to their I/O.
+See [source plan fixtures](../fixtures/keymap/source-plans-v1.json).
+
+For the provider foundation, `lsp.startServer` optionally accepts
+`keymapImportProviders`, an array of at most eight declared plugin-local IDs.
+Only a plugin-owned session with valid IDs offers
+`experimental.litheKeymapImport: {versions: [1], providers}`. A backend may
+select a non-empty, duplicate-free subset using `{version: 1, providers}`;
+Core emits `keymapImportProviders` with `result: {providers}` only for a valid
+selection. Invalid IDs, unknown selections and unsupported versions enable no
+providers. This negotiation alone does not implement the product workflow. See the
+[negotiation fixtures](../fixtures/keymap/provider-negotiation-v1.json).
+
+`lsp.keymapImportRequest` accepts `{sessionId, operationId?, providerID,
+snapshotID, timeoutMilliseconds?}` and returns `{operationId}`. The requested
+provider must have been selected in that exact session. `snapshotID` is an
+opaque 1–128 byte ASCII alphanumeric, hyphen or underscore token, never a
+filesystem path; the native snapshot service must separately enforce ownership,
+expiry and read permissions before supplying any source data. The method sends
+`lithe/keymap/import` with only `{providerID, snapshotID}` and caps the request
+deadline at 60 seconds. Completion returns the untrusted JSON-RPC reply as
+`result.value: {id, response}`; callers must validate successful reply data via
+`keymap.decodeImport` before applying it. Replies larger than 1 MiB fail with
+`plugin.keymapImport.replyTooLarge`; no partial result is returned. Normal
+session cancellation and teardown apply. Backend attempts to call
+`lithe/keymap/*` are refused as recursive domain calls. The macOS host has a
+scoped snapshot service, but native provider discovery and a product consumer
+are not implemented yet.
+
+## Shortcut context compilation
+
+`keymap.parseContext` accepts `{expression: string}` and returns
+`{parsed: {keys: string[], values: boolean[]} | null, error: {code: string, byteOffset: number} | null}`.
+Exactly one of `parsed` and `error` is non-null. Diagnostics use zero-based UTF-8
+byte offsets in the original expression, not editor UTF-16 positions.
+
+The grammar supports boolean context identifiers (`[A-Za-z0-9_.]+`, with
+`true`/`false` reserved), quoted strings, parentheses, unary `!`, strict typed
+`==`/`!=`, `&&`, and `||`, in that descending precedence order (unary precedes
+equality, which precedes AND and OR). Comparisons are not chainable; use explicit
+boolean operators. Strings support escaped quotes, backslash, `n`, `r`, and `t`.
+Missing context keys are false; non-empty strings are truthy. Whitespace-only
+source is an unconditional match. This is Lithe's boolean context grammar,
+not the full VS Code context-key language.
+
+Source is limited to 4096 UTF-8 bytes, 128 tokens, 32 nested parentheses/unary
+operations, and 12 distinct context identifiers. Full consumption is required.
+Syntax diagnostic codes are `invalid_character`, `invalid_escape`,
+`unclosed_string`, `expected_operand`, `expected_closing_paren`,
+`trailing_token`, `too_long`, and `too_complex`. Syntax diagnostics are
+successful protocol responses with no partial plan; malformed request shapes
+use the existing `invalid_request` envelope.
+
+Core computes the entire truth table. `keys` are sorted by ASCII order and
+`values` has exactly `2 ** keys.length` entries; key zero supplies the least
+significant bit of the index. A native boolean snapshot can synchronously
+project its key values to that index and look up the Core-produced result.
+Hosts must not tokenize source, interpret an AST, or recompute expression
+semantics. This preserves synchronous keyboard default prevention without
+an IPC round trip per key event. The maximum table has 4096 outcomes.
+
+`keymap.evaluateContext` accepts `{parsed, context: {[key: string]: boolean}}`
+and returns `{matches: boolean}`. It evaluates the same precompiled table,
+rejecting oversized, noncanonical, duplicate-key or incorrectly sized plans
+with `invalid_request`; it never reparses source. Parsed tables are portable
+data, not authorization tokens. Neither command retains global state.
+
+Windows validates imports before changing the preset/store and validates
+additions/updates before persistence. Hydrated/default/extension bindings stay
+inactive until their Core table is ready; invalid conditions stay inactive.
+Compilation is refreshed on binding/preset changes, and the keyboard owner
+releases preparations on teardown. Expression caching is limited to 256 entries
+and native compilation to 16 outstanding requests. Cache limits, teardown and
+stale-store guards belong to the window adapter. macOS has no free-form
+`when` parser and is unchanged. See `shared/fixtures/keymap/context-v1.json`.
+
 The Rust core is the shared application runtime for macOS SwiftUI and Windows
 React/Tauri. macOS calls the stable C ABI while the Tauri host links the Rust
 crate directly. The C ABI remains:
@@ -12,6 +142,8 @@ int32_t lithe_core_git_askpass(const char *prompt);
 char *lithe_core_lsp_provider_catalog_json(const char *workspace_root);
 int32_t lithe_core_cancel(const char *operation_id);
 void lithe_core_free_string(char *value);
+void lithe_core_install_log_waker(void (*callback)(void *), void *context);
+int32_t lithe_core_remove_log_waker(void *context);
 void *lithe_agent_open_json(const char *configuration, void (*callback)(const char *, void *), void *context);
 int32_t lithe_agent_send_json(void *handle, const char *command);
 void lithe_agent_close(void *handle);
@@ -57,6 +189,18 @@ Rust native adapters may call `execution::java_version_from_release` to read the
 full JDK version from bounded host-read `release` metadata, then reuse Core's
 runtime candidate ordering. Passive Build discovery never falls back to running
 Java when that metadata is missing or invalid; explicit tool execution owns probes.
+### Localized action search
+
+`search.actions` accepts `{query, candidates: [{texts: [string]}]}` and returns
+`{indices: [integer]}`. Native hosts supply the original title, subtitle and group
+alongside their current interface translations. Plugin-owned titles stay verbatim.
+Core performs case-insensitive, NFC-normalized Unicode subsequence matching after removing query
+whitespace, preserving input order and returning zero-based candidate offsets.
+It retains no catalog, performs no workspace I/O, and never executes actions.
+The request is limited to 4096 candidates, 16 fields per candidate, 2 MiB of text
+and a 4096-byte query; excess input returns `invalid_request`.
+[Action search fixtures](../fixtures/search/actions-v1.json) cover both languages,
+English aliases, ordered results, Unicode and literal plugin titles.
 
 ### Remote workspace path identity
 
@@ -614,9 +758,10 @@ context must remain valid until close returns. This API is owned by
 ## Envelope
 
 The typed `lithe_core::ai` API provides credential-free commit request planning,
-configuration parsing, and response decoding. Its [AI commit contract](ai-commit.md)
-documents the Windows adapter and current macOS migration boundary. It does not
-add a JSON command or change the C ABI.
+configuration parsing, and response decoding. macOS uses `ai.commitInputBudget`,
+`ai.planCommit`, and `ai.decodeCommitMessage` over the existing JSON C ABI; Windows
+uses the typed API. The [AI commit contract](ai-commit.md) defines the bounded diff
+prefixes, payloads, errors and platform-owned I/O.
 
 Every request has this shape:
 
@@ -1073,6 +1218,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `lsp.hostResponse` | Answer one host-service request a plugin backend sent |
 | `lsp.hostNotify` | Send one host notification to a plugin backend that negotiated it |
 | `lsp.toolchainRequest` | Send one `toolchains/query` to a plugin backend that negotiated the provider |
+| `lsp.keymapImportRequest` | Send one shortcut import request to a negotiated plugin provider |
 | `lsp.vcsRequest` | Send one VCS operation, planned by Core, to a session that negotiated the VCS-provider protocol |
 | `java.prepareLaunch` | Prepare a saved Java source through shared entry selection, serialized build and runtime path resolution |
 | `java.navigationMarkers` | Resolve versioned Java gutter markers from bounded JDT LS semantic requests |
@@ -1104,6 +1250,12 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `git.initialize` | Initialize a directory outside existing repositories without staging or committing |
 | `git.configureIdentity` | Save or clear one local/global `user.name` or `user.email` override |
 | `git.status` | Resolve the repository, current branch, and working-tree changes |
+| `git.rollbackPlan` | Plan whole-file rollback from explicit Git status identities without reading or changing a repository |
+| `git.rollbackPrepare` | Recheck selected identities against the repository and return rollback steps |
+| `git.prepareCommitSelection` | Prepare and verify the real indexes for explicitly selected changes |
+| `git.reconcileDeletedSelection` | Clear missing selected staged additions after filesystem deletion |
+| `git.changelists` | Reduce local ChangeList metadata and project membership and commit scope |
+| `git.commitMessageContext` | Capture bounded AI commit evidence and recheck its Git state |
 | `git.untrackedDirectory` | List one level of a summarized untracked directory: its files and subdirectory summaries |
 | `git.commitState` | Read exact HEAD, symbolic branch and index preconditions for a workspace commit |
 | `git.watchContext` | Resolve the repository and absolute Git metadata roots needed by native file watchers |
@@ -1125,15 +1277,18 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `remote.disconnect` | Close an open connection and its OpenSSH process tree |
 | `remote.closeAll` | Close every open connection; the host calls it at application exit |
 | `git.historyRewritePreview` | Review undo, message edit, squash, or drop with complete messages, eligibility, and an immutable checkout expectation |
+| `git.historyActionCapabilities` | Read history menu hints from actual HEAD and the bounded first-parent chain |
 | `git.rebasePreview` | Resolve the complete local linear range strictly after a selected unchanged base |
 | `git.rebaseStart` | Start a reviewed native interactive rebase with persisted messages and recovery identity |
 | `git.rebaseSession` | Read the latest owned rebase session and distinguish edit/conflict pauses from completion |
 | `git.rebaseControl` | Continue, skip, or abort an identified session, optionally amending an edit pause |
-| `git.diff` | Produce a structured working-tree, index, reference, or commit patch |
+| `git.diff` | Produce a structured working-tree, index, reference, commit, or stash patch |
+| `git.parsePatch` | Parse a complete saved patch into Core-owned per-file documents |
 | `git.apply` | Apply or check a patch in `stage`, `unstage`, `discard`, or Shelf restore mode |
 | `git.history` | Return the legacy combined reference snapshot and first bounded commit page |
 | `git.references` | Return deterministic refs, recent local branches, ahead/behind state, and effective Git identity without scanning commit history |
-| `git.historyPage` | Return one bounded commit page, parent hashes, decorations, author dates with their UTC offset (`dateUtcOffsetMinutes`, east positive, `null` when unknown), and an opaque continuation cursor |
+| `git.historyPage` | Return one bounded commit page, author date, UTC offset, optional Unix timestamp, and an opaque continuation cursor |
+| `git.historyQuery` | Compare bounded commit date identities with explicit absolute time bounds |
 | `git.historyCursorClose` | Release an unfinished incremental history cursor and its Git process |
 | `git.pushPreview` | Resolve a local branch push destination and the bounded commits not present on that remote base |
 | `git.commit` | Return one structured commit by revision with its full message body |
@@ -1152,6 +1307,15 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `github.normalizeResponse` | Normalize raw GitHub JSON and HTTP status into deterministic data or a stable error |
 | `diagnostics.prepareLogEvent` | Normalize a bounded application event and recursively redact structured fields |
 | `diagnostics.queryLogs` | Merge and filter bounded host-collected module log tails |
+| `diagnostics.encodeLogBatch` | Encode independent structured v2 log events with per-item errors |
+| `diagnostics.parseLogFilter` | Parse bounded filter expressions and UTF-16 diagnostic ranges |
+| `diagnostics.composeLogFilter` | Compose a filter predicate preserving unrelated terms |
+| `diagnostics.formatLogRecords` | Validate and format canonical redacted records for copying |
+| `diagnostics.queryLogsV2` | Query structured v2 and legacy v1 native log tails |
+| `diagnostics.planLogCollection` | Plan bounded native log-tail reads from raw file metadata |
+| `diagnostics.planLogRetention` | Plan log cleanup from host-owned file inventories |
+| `diagnostics.resolveEngineLogSubject` | Resolve the same routing segment and channel used by engine startup, without I/O |
+| `diagnostics.resolveLogChannel` | Validate channels and resolve safe session-relative destinations |
 | `diagnostics.redactText` | Redact credentials, tokens, and home-directory paths from diagnostic-bundle text |
 | `diagnostics.buildManifest` | Shape a deterministic diagnostic bundle manifest from host-gathered environment and file facts |
 | `plugins.declarative.validate` | Validate and normalize a declarative plugin manifest (plugin contract v1) |
@@ -1591,6 +1755,52 @@ invocation. Limits produce an omission record without suppressing completion.
 Raw parser capture has an independent 32 MiB per-stream bound and fails on
 overflow. See `shared/fixtures/git/execution-events-v1.json`.
 
+`git.rollbackPlan` accepts `changes` (up to 10,000 entries, each containing a
+repository-relative `path`, optional `originalPath`, and the two-character Git
+`status`) and optional `deleteAddedFiles` (default false). It returns ordered
+`steps` containing `operation` and literal `paths`. Added and copied destinations
+are unstaged while their disk contents remain by default; renames restore both
+paths. Adjacent compatible operations are batched. Unsafe, overlapping or
+ambiguous identities are rejected. `git.rollbackPrepare` also accepts `root`,
+checks selected identities using bounded literal-path Git status queries, and
+fails with `GIT_ROLLBACK_STALE_SELECTION` if any selected identity changed.
+Untracked directories are expanded to the untracked files observed at prepare
+time; a file created later is not included in the resulting deletion steps.
+The 10,000-entry limit applies to the input selection, not the number of files
+inside a selected directory. Callers should prepare after confirmation and
+execute steps in order, stopping on failure and refreshing after any attempted
+write. This status check cannot detect content changes that preserve the same
+status or lock out external Git clients between preparation and writes; it is
+not a content snapshot or an atomic transaction.
+
+`git.reconcileDeletedSelection` accepts a repository `root` and the selected
+pre-delete `changes` (`path`, two-character `status`). Under the repository
+write lease, Core re-reads the selected literal paths and unstages only staged
+additions or copy destinations that are now missing. Retained paths, tracked
+deletions, unselected paths, and copy sources are not unstaged. Filesystem
+operations may partially fail and external Git clients do not share this lease;
+hosts must refresh after success or failure, and concurrent external modifications
+are not an atomic snapshot. Up to 10,000 selected identities are accepted.
+
+`git.prepareCommitSelection` accepts `repositories`, a nonempty list of up to
+128 distinct repository roots and each root's selected identities (`path`,
+optional `originalPath`, and two-character Git `status`). At least one selected
+identity is required across all roots and the selection is limited to 10,000
+identities. Hosts supply every repository whose index should be prepared,
+including those with an empty selection, and check their own ChangeList ownership
+before and after the call. Core checks every repository and selected identity
+before writing, rechecks HEAD and index under the existing repository lease,
+unstages other paths, stages selected paths only when not already staged, and
+verifies the exact staged path set and previously staged selected object IDs
+afterward. Selected untracked directories are expanded into observed files;
+untracked embedded repositories and overlapping directory selections are
+rejected, while tracked submodule gitlinks remain selectable. Paths are literal, including for ordinary `git.write`
+staging. The call prepares indexes; it does not create a commit or replace the
+subsequent workspace commit review. On cancellation or failure earlier writes
+may already have succeeded, so hosts must refresh affected repositories. Git
+clients outside Lithe do not share the lease; content changes that preserve the
+same status and races after the last check are not an atomic snapshot guarantee.
+
 `git.write` accepts a typed mutation request. Its required `operation` values are
 `stage`, `unstage`, `discard`, `discardAll`, `stageAll`, `commit`, `ignore`, `exclude`, `cherryPick`, `revert`,
 `reset`, `undoCommit`, `editCommitMessage`, `deleteCommit`, `squashCommits`, `createBranch`, `publishBranch`,
@@ -1807,6 +2017,19 @@ because it moves a ref without reconstructing or modifying that commit object.
 Native interactive rebases use the dedicated preview/start/session/control
 contract in [git-rebase-session.md](git-rebase-session.md). The base selected
 for “Rebase from Here” remains unchanged; only its successors are rewritten.
+
+`git.historyActionCapabilities` accepts `{root, revisions}` with at most 1,000
+full SHA-1 or SHA-256 commit identities and returns `head`, `canCherryPick`,
+`canUndo`, and `canSquash`. It resolves actual checkout HEAD rather than a
+visible or paginated row. Undo requires a checked-out branch and a HEAD with
+exactly one parent; squash requires a distinct contiguous selection on that
+branch's first-parent history within the latest 1,000 commits. Cherry-pick is
+only offered for a different existing commit. These are structural menu hints,
+not permission to mutate: `git.historyRewritePreview` still checks worktree,
+operation state, unsupported commits, published history, and the reviewed
+snapshot. Clients cancel and discard stale results when the menu closes,
+selection or repository changes, or the history is refreshed. See
+`shared/fixtures/git/history-action-capabilities-v1.json`.
 
 `git.historyRewritePreview` accepts `{ "root": string, "operation": string,
 "revisions": string[] }` for those four operations. It returns `operation`,
@@ -2189,6 +2412,15 @@ has an LSP range with zero-based `line` and UTF-16 `utf16Column` fields plus
 `newText`. Ranges are validated and overlapping edits return
 `invalid_request` with details `overlappingEdits`; invalid positions return
 details `invalidRange`. Successful responses return `{ "text": string }`.
+
+Windows workspace edits and formatting use this command instead of calculating
+text offsets locally. The cross-platform cases in
+`shared/fixtures/lsp/text-edits-v1.json` use LSP wire `character` fields; the
+Windows adapter maps those fields to Core `utf16Column` without changing their
+zero-based values. Core retains its existing normalization: columns beyond a
+line clamp before its line ending, and positions inside a UTF-16 surrogate pair
+resolve to the character start. Missing/negative lines, negative columns,
+reversed ranges and overlapping replacements are rejected.
 
 `lsp.plainSnippet` accepts `{ "value": string }` and returns `{ "text": string }`
 after removing LSP tab stops and replacing simple placeholder defaults such as
@@ -3063,6 +3295,13 @@ completion and resolve, hover, definition/declaration/type-definition, reference
 implementation, rename, formatting, code actions and resolve, execute command,
 inlay hints, full-document semantic tokens, folding ranges, code lens, provider
 virtual documents, `javaEntrypoints`, `javaTestItems`, and `javaMainMethods`.
+For code actions, `diagnostics` contains the original `LspClientDiagnostic`
+objects returned by Core: nullable integer `severity`, `tags`, and
+`relatedInformation` remain intact, and every range uses zero-based `line` /
+`utf16Column` positions. A platform's display severity or marker projection is
+not a diagnostic request model. Non-LSP markers may request actions with a range
+and an empty diagnostic context. The round-trip fixture is
+`shared/fixtures/lsp/diagnostic-code-actions-v1.json`.
 `javaEntrypoints` invokes Java Debug Server's
 `vscode.java.resolveMainClass` for the session workspace and returns schema
 version 1 with deterministic workspace-relative `{ sourcePath, mainClass,
@@ -3912,6 +4151,325 @@ collection truncation and Core query truncation, including files omitted by the 
 Time comparisons use parsed RFC3339 instants, so fractional precision and equivalent
 UTC offsets do not change ordering or inclusive boundaries. Missing filters include all.
 
+Structured logging v2 adds pure opt-in commands. The v1 APIs and commands above
+retain their behavior and public Rust signatures. Native adapters own writable
+log roots, I/O, clocks, queues, and file lifecycle operations. Core never resolves
+logs under installed application resources. Executable cases and numeric errors
+are in [`logging-v2.json`](../fixtures/diagnostics/logging-v2.json).
+
+All commands use the existing `{id?,command,payload}` Core request/response
+envelope. Malformed payload shapes return outer `invalid_request` without raw
+input. Channel, query, and retention domain results are the union
+`data:{result:...}` or `data:{error:{code,reason}}`; callers inspect that union even
+when outer `ok` is true. Batch encoding returns
+`data:{results:[{line}|{error:{code,reason}}]}` in input order. Reasons are safe
+parser diagnostics; hosts localize codes for presentation.
+
+- `diagnostics.resolveEngineLogSubject` accepts
+  `{role,providerId,pluginId?,logSubject?}` and returns direct
+  `data:{channel,segment}` (no nested domain result). `role` is required and is
+  `language_server|vcs|build|toolchain|backend`; `providerId` is a required string.
+  It calls the same `SessionLogIdentity::new` as engine startup, including the
+  stable `invalid-<first 32 lowercase SHA-256 hex digits>` fallback for unsafe or
+  absent routing identities. This pure command does no I/O and can run before
+  startup. Malformed shapes and unknown roles use outer `invalid_request`, with
+  no new numeric or domain code. macOS caches its result by provider ID for
+  host-owned stages, cache cleanup, degradation and issue facts; a resolution
+  failure skips only that structured host fact and preserves startup/v1 behavior.
+- `diagnostics.resolveLogChannel` accepts
+  `{channel,rotationIndex?:0,existingChannels?:[]}` and returns
+  `{result:{relativePath,category,pluginFilesPath?}}` or `{error}`. The category maps app/update/remote/agent
+  and overflow to application, editor/lsp to language, vcs to git, perf to performance,
+  run/debug/terminal to run, and plugins to plugins. The optional plugin files
+  path is returned only for `plugins/<id>/host` using `plugin_files_path`. Roots are `app`, `editor`, `perf`,
+  `lsp`, `vcs`, `run`, `debug`, `terminal`, `remote`, `agent`, `update`, `plugins`.
+  Channels are `root`, non-plugin `root/segment`, or `plugins/<id>/host`. Segments match
+  `[a-z0-9][a-z0-9._-]{0,63}`, excluding trailing dots and Windows device
+  basenames (`con`, `prn`, `aux`, `nul`, `com1`–`com9`, `lpt1`–`lpt9`,
+  including those followed by an extension). Paths are `app.log`, `vcs/git.log`, or
+  `plugins/<id>/host.log`; positive rotation indices produce `git~1.log` siblings. The `~` delimiter
+  cannot occur in a channel, so rotations never alias dotted channel IDs.
+  After 128 admitted channels a new identity maps to `_overflow.log`; existing
+  channels retain their paths. The overflow sink rotates as `_overflow~1.log`
+  and its header uses the channel `_overflow`. Rust `plugin_files_path` returns
+  `plugins/<id>/files/`. `session_directory_name`,
+  `parse_session_directory_name`, and `session_relative_path` convert explicit
+  RFC3339 start time/full UUID to `sessions/YYYY-MM-DDTHH-MM-SS_<8 lowercase
+  hex>`. Native adapters join these relative paths only to platform-owned
+  writable storage, never a bundle or installation directory.
+- `diagnostics.encodeLogBatch` accepts `{validateCatalog?:false,deduplicate?:false,previousEvent?:event,headers?:[],events:[{ts,level,seq,event,op?,msg,
+  fields?:{key:scalar}}]}`. `level` is `DEBUG|INFO|WARN|ERROR`, `seq` is `u64`,
+  and `ts` is RFC3339 normalized to UTC milliseconds. Scalars become text;
+  arrays and objects fail per item. Malformed event shapes also fail per item.
+  Disk order is timestamp, level, `seq`, `event`, optional `op`, `msg`, then
+  lexical context keys (the truncation marker is last). Keys match
+  `[a-z][a-z0-9_]{0,63}` and cannot repeat or reuse reserved keys
+  (`ts`, `level`, `seq`, `event`, `op`, `msg`). Event/op
+  identities are nonempty bare tokens. Shared redaction runs before escaping,
+  including prefixed credential-key fields such as `client_secret` and
+  `auth_token`; the same structured-field redactor runs on queried v1/v2
+  evidence. Bare values match `[A-Za-z0-9._:/@+-]+`;
+  other values use double quotes, escaping quote, backslash, newline, carriage
+  return, tab, and other controls as `\u{XX}`. Each result excludes a newline
+  and reserves one byte for it within 8192 bytes. Oversized lines shorten the
+  longest non-reserved context values first and append `truncated=1`.
+  If needed, the message is shortened next; mandatory identity/key overhead
+  that still cannot fit returns `-32046`. No context keys are silently dropped.
+  Rust `encode_header`/`decode_line` support
+  `#lithe-log v2 session=<uuid> pid=<u32> app=<bare version> channel=<channel> started=<UTC milliseconds>`.
+  `decode_line` returns a typed header or record and rejects invalid lines with
+  reasons. `repeated_event` and `dropped_event` create ordinary `log.repeated`
+  records with `count,first,last,of`, and `log.dropped` records with `count`.
+  With `deduplicate:true`, adjacent facts with equal event ID, fields, channel,
+  level, message and op merge within a batch into `log.repeated`; structural hashing
+  is followed by equality comparison. Results then correspond to retained records,
+  and the repeated record uses the last omitted event sequence. `previousEvent`
+  carries the prior batch’s last input for bounded cross-batch comparison; it is
+  validated again and never emitted by itself.
+  With `validateCatalog:true`, every ordinary event must exist in `catalog::EVENTS`;
+  required/unknown/invalid fields and a mismatched level fail before encoding.
+  Messages and channels are derived from the catalog, never trusted from input.
+  Before strict field validation, Core redacts declared error/text messages, removes
+  control characters, and truncates to at most 1024 bytes at a UTF-8 boundary.
+  `catalog::validate_fields` still rejects unnormalized strings, invalid types, unknown
+  keys, incomplete error components, and invalid code/domain tokens.
+  Path fields are redacted before template interpolation; unrecognized absolute
+  paths become `<PATH>`. Item results additionally contain `channel` on success.
+  Codes: `-32053` unknown event, `-32054` missing field, `-32055` invalid field,
+  `-32056` unknown field, `-32057` catalog level mismatch.
+  Catalog validation rejects `event:legacy` as an unknown event. macOS collects only v2
+  session files; its v1 files participate solely in age retention. The public v1
+  APIs, old commands and shared v1 query compatibility remain available to Windows.
+  `log.dropped` and `log.repeated` accept only their documented field shapes and
+  an optional validated `channel`. No other identity bypasses catalog validation.
+  Optional `headers:[{session,pid,app,channel,started}]` returns ordered `headers`
+  results and `sessionPath`, using the same Core header/session grammar. These
+  fields are additive; the default generic PR1 batch remains compatible.
+  Overflow rotation paths are `_overflow~1.log` and `_overflow~2.log`.
+- `diagnostics.queryLogsV2` accepts `{sources:[{relativePath,text,
+  startsMidLine?:false,firstLineNumber?:1}],channelPrefixes?:[],minimumLevel?,levels?:[],
+  since?,until?,search?,fields?:{key:value},op?,limit?,expression?,histogramBuckets?}`. The adapter marks a
+  tail beginning inside a line with `startsMidLine:true`; Core discards its
+  first fragment without counting it as invalid. Complete first lines stay.
+  Paths are session-relative v2 paths, `sessions/<name>/<path>`, or legacy
+  `<category>/lithe.*.log`. Channel prefixes match slash boundaries; severity
+  and parsed RFC3339 time bounds are inclusive; `levels` is an exact severity set
+  (intersected with `minimumLevel`; an empty array matches nothing); search is case-insensitive;
+  field/op filters match exactly, including reserved `ts` and `level` fields. Returns `{result:{records:[{channel,
+  relativePath,lineNumber,ts,level,seq,event,op?,msg,fields}],channelCounts:
+  {channel:{warn,error}},truncated,skippedInvalidLines}}` or `{error}`.
+  Counts reflect all filtered matches before the newest 1–10000 limit (default
+  2000). Records sort ascending by parsed timestamp, seq, file, line, then
+  source order. The aggregate native-tail byte budget is 10 MiB. Omitted bytes,
+  partial first lines, or output limits set `truncated`. Invalid physical lines
+  are skipped and counted. V1 records use `event:legacy`, preserve available
+  sequence/op/context, and map application→app, language→lsp, git→vcs,
+  performance→perf, run→run, plugins→plugins. Queries redact decoded evidence.
+  Each returned record also includes `line`, the canonical, redacted v2 line for
+  presentation and frozen export (without a newline).
+- `diagnostics.planLogCollection` accepts `{files:[{relativePath,sizeBytes,modifiedAt}],
+  currentSession,session,category?,recentSessions?,since?}`. Inventory is raw log-root-relative native
+  metadata; no contents are read before planning. `session` is `all|current|previous`,
+  and category is one of the existing six product categories. Returns
+  `{result:{reads:[{relativePath,offset,maxBytes}],truncated,estimatedBytes,sessions}}` or `{error}`.
+  Only validated v2 session log files are selected; plugin-owned `files/` and legacy
+  files remain retention inputs. Filters run before budgets. Order is newest session,
+  active before rotation 1 before rotation 2, descending native modification instant,
+  then lexical path. Session ties use descending basename. Previous means the newest
+  session other than current. Reads are capped at 200 files, 2 MiB per file and 10 MiB
+  aggregate. Any omitted eligible bytes/files set truncated. Duplicate paths or invalid
+  selections return -32058; invalid selected timestamps return -32035. Exact native
+  offsets and read sizes belong to Core; adapters validate containment and report I/O errors.
+- `diagnostics.planLogRetention` accepts `{sessions:[{name,files:[{
+  relativePath,sizeBytes,modifiedAt}]}],legacyFiles?:[same file shape],
+  currentSession,now,limits?:{maxAgeMs,totalBytes,perfBytes,pluginFilesBytes},
+  startupCleanup?:false}`. Timestamps are explicit RFC3339. Defaults are 30
+  days, 100 MiB combined, 20 MiB perf, 20 MiB per plugin files directory per
+  session. Returns `{result:{deletions:[{relativePath,directory,reason}],
+  warnings:[{session,pluginId,relativePath,sizeBytes,limitBytes}]}}` or `{error}`.
+  Paths are relative to the writable log root and sorted lexically. Whole
+  sessions expire first, combined pressure removes oldest whole sessions,
+  then perf files are removed from oldest surviving sessions and startup
+  cleanup removes oldest plugin files. Whole-session removal supersedes child
+  deletion. Reasons are `expired|totalBudget|perfBudget|pluginFilesBudget`.
+  The current session and all its files are always protected, even if budgets
+  cannot be satisfied. Runtime plugin overages emit warnings; startup may also
+  delete files in inactive sessions. Legacy files count toward the total but
+  only age can delete them. `should_rotate(size)` is true above 10 MiB;
+  `rotation_indices_to_delete` returns existing indices >=2 to remove before
+  shifting active→1 and 1→2, retaining three segments including active;
+  `rotation_paths_to_delete` resolves those indices to session-relative paths.
+  Unsafe paths, duplicate inventories, and negative age limits are rejected.
+
+#### Log-window pure APIs (PR4 stage A)
+
+These additions do not change any v1 public item or the bytes of v1
+`level/message/detail` evidence. All new request fields are optional. Standard
+Core envelopes remain `{ok:true,data:...}`; domain failures of compose, format,
+query and collection are `data:{error:{code,message}}`, and their successes are
+`data:{result:...}`. Parse succeeds directly as `data:{terms,errors}` because an
+incomplete draft is an expected editing state. Malformed JSON payload shapes use
+the existing outer InvalidRequest failure.
+
+`diagnostics.parseLogFilter` accepts `{expression}` (at most 1024 UTF-8 bytes).
+Returns `{terms:[{kind,key?,value,negate,start,end}],errors:[{start,end,code,message}]}`.
+Ranges are half-open **UTF-16 code-unit offsets**, including negation and quotes,
+for native text highlighting. For an over-budget expression, the sole
+`expressionTooLong` diagnostic has `[0,0)` to avoid scanning unbounded input.
+Kinds: `level_at_least|level|op|event|channel|regex|field|text`.
+All terms intersect; a leading `-` negates a term, while `-` alone is text.
+Whitespace separates terms except inside quotes or `/regex/`. Quoted values
+support `\\` and `\"` escapes; other quoted escapes fail. A quoted bare token
+always means text, including a leading hyphen or reserved-looking syntax.
+
+- `level>=debug|info|warn|error` is inclusive; `level:<value>` is exact.
+  Aliases `dbg/inf/wrn/err` and operator names are case-insensitive. Parsed level
+  values normalize to the full lowercase label. Unknown levels are errors.
+- `op:`, `event:`, `channel:` perform case-insensitive string prefix matching.
+  Expression channel prefixes intentionally do not require a slash boundary;
+  the existing `channelPrefixes` argument retains its boundary semantics.
+- `/pattern/` matches the message case-insensitively using the existing Rust regex
+  engine: at most 256 Unicode characters, 1 MiB compiled size and DFA cache limits.
+  Whitespace inside regex delimiters is allowed; escaped slashes remain regex text.
+- `key:value` / `key=value`, for `[A-Za-z0-9_.]+` keys other than reserved
+  operators above, match case-insensitive substrings in the field's string form.
+  Reserved record fields `ts/seq/msg` and context fields `server/plugin` are supported.
+  Keys compare case-insensitively. Reserved operators require `:`, not `=`.
+- Other bare words use the existing search scope: channel/event/op/message/context.
+  Empty values, malformed quotes, unsupported escapes and invalid regexes are errors.
+
+Diagnostic codes: `expressionTooLong`, `regexTooLong`, `invalidRegex`,
+`invalidLevel`, `emptyValue`, `unterminatedRegex`, `unterminatedQuote`,
+`invalidEscape`, `invalidOperator`, `invalidQuote`. Messages are fixed technical
+English; hosts localize by code. `queryLogsV2` rejects any erroneous expression
+with **-32060, "Invalid log filter expression"**; hosts retain the prior results
+and use parse diagnostics for the draft.
+
+`diagnostics.composeLogFilter` accepts `{expression,term:{kind,key?,value,negate?:false}}`
+and returns `{expression}` in `result`. Positive predicates replace all existing
+positive predicates of the same kind (field predicates additionally require the
+same key), placing the new token at the first replaced position. Negative
+predicates append unless an identical negative predicate exists. Non-regex values
+compare case-insensitively for deduplication; regex patterns compare exactly because
+inline flags can affect semantics. Other source tokens, whitespace and order remain
+unchanged. Values are quoted/escaped as needed; text is always quoted. Invalid drafts,
+invalid terms or a composed expression over 1024 bytes return -32060.
+
+`queryLogsV2` adds these fields in `result`:
+
+```json
+{
+  "records": [{"line":"...", "channel":"app", "relativePath":"app.log", "lineNumber":1,
+    "ts":"2026-11-03T00:00:00.000Z", "level":"WARN", "seq":1,
+    "event":"app.failed", "op":"one", "msg":"failed", "fields":{},
+    "foldKey":"c4d60ef213ff7102", "epochMs":1793664000000, "opOffsetMs":0}],
+  "foldMinimumRun":3,
+  "channels":{"app":{"total":1,"warn":1,"error":0}},
+  "channelCounts":{"app":{"warn":1,"error":0}},
+  "histogram":{"startEpochMs":1793664000000,"endEpochMs":1793664000001,
+    "bucketMs":1,"buckets":[{"debug":0,"info":0,"warn":1,"error":0}]},
+  "opSummary":{"op":"one","count":1,"firstEpochMs":1793664000000,
+    "lastEpochMs":1793664000000,"durationMs":0},
+  "truncated":false,"skippedInvalidLines":0
+}
+```
+
+`queryLogsV2` additionally accepts optional `filterSince` / `filterUntil` RFC3339
+bounds, intersected with `since` / `until`. Each pair must be ordered (-32052 otherwise);
+a disjoint intersection succeeds with zero records. This lets an export range and a
+window time selection share Core's exact instant comparison.
+
+Optional `afterSequences:{sessionBasename:u64}` excludes records at or below the
+specified session's sequence. Keys use the session directory grammar; the empty key
+represents session-relative sources without a `sessions/<name>/` prefix. Sequences
+from different sessions are never compared. The response's `sessionSequences` maps
+each supplied session to its highest decoded sequence, before filters and limits.
+Native live sources should carry their current session prefix so historical and
+live queries use the same identity. Missing fields preserve existing queries.
+
+`foldKey` is lowercase 16-digit FNV-1a 64 hex over channel, canonical uppercase
+level, event, message in that order; each UTF-8 value is preceded by its byte length
+as a little-endian u64. This encoding is stable across versions/architectures.
+Hosts group adjacent equal keys and collapse only runs of at least 3.
+`epochMs` parses the record timestamp; submillisecond ordering still uses the full
+instant. `channels` counts all decoded records before filters, within supplied input
+and its byte budget. Existing `channelCounts` retains filtered-before-limit semantics.
+
+`histogramBuckets` must be 1..240 (else -32061). Histogram uses every predicate
+**except since/until**, before output limiting. `histogram` is null when absent or
+empty. Exactly the requested number of buckets is returned, including empty trailing
+buckets; width is `ceil((maxEpochMs-minEpochMs+1)/count)`, at least 1 ms, and end is
+exclusive `start + width*count`. The maximum event is always included.
+`opSummary` and per-record `opOffsetMs` appear only with the existing explicit `op`
+argument. Summary includes all matches of all query predicates before limit;
+offset is relative to its earliest instant. An empty op result has count/instants/
+duration zero. Filtering op through expression alone does not add these fields.
+
+`diagnostics.formatLogRecords` accepts
+`{lines:[String],format:"json"|"markdown",environment?:{appVersion,osVersion,architecture,plugins:[String]}}`
+and returns `{text}` in `result`. Limits: 10000 lines and 4 MiB including one separator
+byte per line; environment strings total at most 64 KiB and at most 1000 plugin IDs.
+Budget violations use -32062. Each line is decoded again: decoder failures keep their
+precise codes, headers/noncanonical/nonredacted lines use -32063. JSON without an
+environment is one pretty object for one line, otherwise an array (including empty).
+With environment it is `{environment:{...},records:[...]}`. Markdown is
+`**Lithe**` plus optional version/OS/architecture JSON strings separated by ` · `,
+optional `Plugins: [JSON strings]`, a blank line and an `ndjson` fenced block of
+unchanged canonical lines followed by a newline. The fence grows if evidence contains
+backticks. The evidence grammar remains canonical v2 even though the technical fence
+label is `ndjson`. Keys/headings are fixed English report syntax, not UI copy.
+
+Collection inventory is bounded to 10000 entries. `recentSessions` must be 1..10,
+otherwise -32058. It includes current (even with no eligible files or a skewed clock), then selects
+the newest remaining sessions to fill N slots, **before** intersecting `session:all|current|previous`, category
+and since. `since` is
+inclusive RFC3339 (-32035 if invalid): a file qualifies if its session directory start
+**or** its modification instant reaches the cutoff. Previous still means the newest
+inventory session other than current, independent of category/time. Budgets apply last.
+`sessions` lists eligible session names before read budgets, newest first, excluding
+sessions with no eligible files; `estimatedBytes` sums selected `maxBytes` (already
+bounded by each file size), before compression. Crash collection remains host-owned
+and passes through `diagnostics.redactText`.
+
+Each v2 numeric domain code has one meaning. Existing outer Core string codes
+are unchanged:
+
+| Code | Meaning |
+| --- | --- |
+| -32031 | Unknown channel root |
+| -32032 | Unsupported channel shape |
+| -32033 | Invalid channel/plugin segment |
+| -32034 | Invalid full session UUID |
+| -32035 | Invalid timestamp |
+| -32036 | Invalid session directory basename |
+| -32037 | Invalid context field key |
+| -32038 | Reserved key reused as context |
+| -32039 | Duplicate context key |
+| -32040 | Invalid file header |
+| -32041 | Invalid line grammar |
+| -32042 | Invalid value escape |
+| -32043 | Missing or misordered reserved fields |
+| -32044 | Invalid unpadded u64 sequence |
+| -32045 | Invalid log level |
+| -32046 | Line cannot fit the byte budget |
+| -32047 | Non-scalar context value |
+| -32048 | Invalid event or operation identity |
+| -32049 | Invalid retention inventory or limits |
+| -32050 | Invalid query source path or line origin |
+| -32051 | Invalid structured event JSON shape |
+| -32052 | Reversed query time range |
+| -32053 | Unknown catalog event |
+| -32054 | Missing catalog field |
+| -32055 | Invalid catalog field |
+| -32056 | Unknown catalog field |
+| -32057 | Catalog level mismatch |
+| -32058 | Invalid collection inventory or selection |
+| -32059 | Core event owner mismatch |
+| -32060 | Invalid log filter expression |
+| -32061 | Invalid histogram bucket count |
+| -32062 | Log copy input exceeds budget |
+| -32063 | Expected canonical redacted log record |
+
 Diagnostic previews freeze the selected redacted bytes before confirmation.
 Windows returns a `snapshotId` from `preview_diagnostic_bundle`; export consumes
 that exact ID once. Discard releases it on cancel; at most four previews remain
@@ -3939,7 +4497,9 @@ health, rather than inferring them from the currently selected view filter.
 `files` sorted by `relativePath` so the listing shown to the user before they
 confirm a diagnostic export — and the zip's contents — are deterministic
 across runs and across platforms. Hosts gather the environment and file facts
-natively; this command only shapes and sorts them.
+natively; this command only shapes and sorts them. The additive top-level
+`redaction:"core-v2"` identifies the shared redaction boundary; schemaVersion remains 1.
+Windows consumes the original fields and may ignore this marker.
 
 ### Declarative plugins
 
@@ -4509,17 +5069,35 @@ separately, answers are stored in `plan.pushTargets`, and a retry restores and
 re-validates them from `previous` without the client forwarding them. Routine
 pushes (`tracking` or `publish` destinations) never produce a question.
 
-An optional `pathScope: { include, paths: { <repository-id>: [<relative-path>] } }`
-restricts local changelist commits. With `include: true`, only the listed literal
-paths are allowed; with `include: false`, the listed paths are excluded. Missing
-repository entries mean an empty set, not unrestricted access in inclusion mode.
-This is an exact-path guard, not a Git pathspec and not a second staging index.
-Core rejects any staged file or automatic parent-reference update outside the
-scope before executing mutations. It never silently unstages other lists. Scope
-changes invalidate a reviewed plan; retries inherit the original scope and may
-not replace it. Continuations retain the scope and validate it before writes,
-alongside the existing exact HEAD/index checks. Omitted scopes preserve existing
-clients' behavior. Shared examples: `shared/fixtures/git/local-changelist-scope-v1.json`.
+`git.changelists` is a pure reducer: the host owns persistence and supplies
+`state` (`lists`, `activeId`, and `assignments` grouped by repository root),
+`files` (root, path, optional original path, and `isCopy`), optional repository
+bindings, and an optional action (`create`, `rename`, `remove`, `activate`,
+`move`, or `rememberRenames`). The response contains the validated state, one
+membership per input file in order, and a commit `scope`. Deletion leaves an
+explicit Default assignment so a file under an assigned directory returns to
+Default. A rename inherits its source's membership, including directory or
+implicit Default membership; copies never inherit or modify their source.
+Ambiguous overlapping renames with different memberships fail closed. Inputs
+and assignment counts are bounded. Hosts must reject stale asynchronous results
+and protect persistence against concurrent windows. The shared fixture is
+`shared/fixtures/git/changelists-reducer-v1.json`.
+
+An optional `pathScope: { include, paths, membership? }` restricts local
+changelist commits. Legacy scopes use literal `paths` grouped by repository ID:
+`include: true` allows only listed paths, while `false` excludes listed paths.
+Core-generated scopes additionally include `membership: { activeId,
+assignments }`, where assignments are grouped by repository ID and may include
+explicit file or trailing-slash directory rules. Exact paths override the
+nearest assigned directory; missing paths belong to Default. Core uses these
+rules against the real staged paths and automatic parent-reference updates,
+including paths staged after the UI snapshot. They are literal identities, not
+Git pathspecs or a second staging index. Omitted `membership` retains legacy
+exact-path behavior. Scope changes invalidate a reviewed plan; retries inherit
+the original scope and may not replace it. Continuations retain the entire
+scope and validate it before writes, alongside exact HEAD/index checks.
+Omitted scopes preserve existing clients' behavior. Legacy examples:
+`shared/fixtures/git/local-changelist-scope-v1.json`.
 
 `git.workspaceCommitStep` accepts `{ session }` and returns the next session,
 executing at most one commit or push. Session fields are `plan`, last observed
@@ -4721,6 +5299,24 @@ HotSwap. Attach to independently launched JVMs does not change their options.
 The Windows host maps `redefineClasses` to this operation and `cancelOperation`
 to `debug.cancelOperation` with a `timedOut` reason for its bounded result wait.
 
+### Commit dates and history date queries
+
+`git.history`, `git.historyPage`, and `git.commit` return author `date` in Git's
+wall-clock form and `dateUtcOffsetMinutes` (east positive). When both describe a
+valid instant, `dateUnixSeconds` supplies the absolute Unix time. An unknown or
+invalid offset omits the timestamp; older clients can still display the original
+date. Hosts should use the timestamp for presentation and cache identity.
+
+`git.historyQuery` accepts up to 4,096 `entries` with unique, nonempty `id`
+(up to 256 UTF-8 bytes), `date` (up to 128 bytes), optional `utcOffsetMinutes`,
+and optional `fallbackUnixSeconds` for legacy dates without an offset. `afterUnixSeconds` is inclusive and `beforeUnixSeconds` is exclusive; an
+unresolvable date is excluded. The result's `matchingIds` preserves input order.
+Clients handling larger histories must batch requests and abandon stale results.
+Local calendar boundaries (including daylight-saving transitions) come from the
+host's system calendar, are converted to absolute seconds, and are passed to Core;
+Core does not infer an OS timezone or assume every calendar day is 24 hours. See
+`shared/fixtures/git/history-date-query-v1.json`.
+
 ### Saved changes: directional patches and immutable stashes
 
 `git.patchPreview` and `git.patchApply` accept optional `reverse` (default `false`).
@@ -4736,8 +5332,35 @@ See `shared/fixtures/git/patch-exchange-v1.json`.
 files. Stash write operations also accept the full object identity in `reference`;
 Core resolves its current stash position under the existing writer lease and rejects
 an identity that is no longer present. Legacy positional references remain accepted.
-See `shared/fixtures/git/saved-stash-v1.json`. Native Shelf persistence is platform-owned;
-raw patch bytes are kept separately for index and working-tree versions.
+With `includeFileSections: true`, `git.diff` returns `files` in Git order for
+working-tree, index, reference, commit, snapshot and stash reads. Stash reads
+still require the whole-repository pathspec `["."]`. Each file provides a
+validated `path`, optional `originalPath`, `status`, `isBinary`, additions and
+deletions, UTF-8 `patch`, unified `lines`, aligned `rows`, and complete per-hunk
+`hunks`. The flat `patch`, `rows`, and `hunks` are empty in this mode to avoid
+a second full-document transfer. `omitFilePatch: true` additionally omits each
+whole-file patch after validation while retaining exact per-hunk patches; hosts
+that need a complete saved patch must leave it false. The `hasLossyLineEndings` flag records whether
+display normalization omits CR or a missing-final-newline marker. Git's NUL
+statistics and patch are captured by the same invocation; standard prefixes,
+no color, and no text conversion are forced. Unsupported paths, mismatched
+sections and patches exceeding 32 MiB are rejected. Regular diff reads replace
+invalid UTF-8 for display and set `hasDecodingLoss`; their patches and hunks
+must never be used as write material. Rename hunks additionally provide a
+`contentPatch` against the destination path, so a partial stage or unstage does
+not itself apply or reverse the rename. If absent, such a hunk is not writable.
+Stash reads reject invalid UTF-8.
+Without the flag, `git.diff` retains its flat response shape.
+
+`git.parsePatch` accepts `{root, patch}` and returns the same per-file shape
+for a complete saved UTF-8 patch. Git validates file identity in one batch,
+with a reverse inspection when rename/copy identities require it. Empty patches
+return no files; invalid, unsafe or oversized inputs are rejected. Shelf retains
+separate staged and working-tree patches and parses each layer once. Hosts may
+render the unified and split rows, but must use only byte-faithful hunks for
+writes and honor the decoding-loss flag. See
+`shared/fixtures/git/saved-stash-v1.json` and
+`shared/fixtures/git/parsed-diff-v1.json`.
 
 ### Native plugin UI data
 
@@ -4968,3 +5591,261 @@ versions are rejected without numeric narrowing. The native adapter owns bounded
 read-only package boundaries, optimistic comparison, metadata-preserving atomic replacement and
 read-back. No editor command discovers or executes tools. Global defaults and complete one-time
 legacy migration remain incomplete; these APIs alone do not complete Stage D.
+
+### Windows source-breakpoint relocation
+
+Windows forwards the editor's exact source-preserving edits to
+`debug.relocateBreakpoints` and converts its zero-based store lines to/from Core's
+one-based lines. The context-expanded patches used to synchronize the editor's
+source mirror must not be used as anchor edits: unchanged neighboring code must
+not be treated as deleted. The existing cases in
+`shared/fixtures/debug/breakpoint-relocation-v1.json` cover both platforms.
+
+Each native multi-cursor event is sent as one batch of original-source edits;
+Core applies the edits before projecting anchors. Rapid events serialize or share
+one ordered request, split views share a mutation identity, and launch reads the
+current owner after all pending relocations complete.
+
+## Markdown rendering
+
+`markdown.render` accepts `{ "source": "<Markdown text>" }` and returns
+`{ "html": "<sanitized HTML fragment>" }`. The existing Comrak dialect and
+Ammonia sanitizer are shared by macOS and Windows; platforms must not parse
+Markdown again or fall back to another dialect. Closed leading `---` front
+matter is omitted, not rendered as a platform-specific property card.
+Code fences preserve whitespace and language classes, and rendered elements
+can contain `data-sourcepos` attributes. Platform syntax coloring must preserve
+these attributes and the original decoded code text.
+
+Raw formatting HTML can survive, but scripts, executable attributes, embeds,
+arbitrary inline styles and unsafe URL schemes are removed in Core before
+embedding. Windows asynchronously requests this existing command via its
+central dispatcher, discards obsolete responses and falls back to the sanitized
+fragment if syntax coloring fails. Render failures are shown as localized text;
+there is no frontend Markdown parser fallback. This does not promise Windows
+math or diagram rendering parity.
+
+Shared examples: `shared/fixtures/editor/markdown-render-v1.json`,
+`markdown-html-v1.json` and `markdown-rich-content-v1.json`.
+
+### Structured logging of recoverable LSP maintenance warnings
+
+`lsp.pollEvents` log observations may carry the existing `error` object even at
+WARN severity. Its code and stage describe a recoverable diagnostic; `type:log`
+does not transition session state. Codes have one meaning:
+
+| code | stage | meaning |
+| --- | --- | --- |
+| `mavenSettingsUnchanged` | `mavenSettings` | Maven settings could not be normalized and were forwarded unchanged |
+| `configurationCleanupFailed` | `configurationCleanup` | Unused language-server configuration areas could not be removed |
+| `mavenProfileStartFailed` | `mavenProfileStart` | The pending Maven profile update could not start |
+
+The existing Core log sources additionally classify `upstreamStderr` (stderr
+observation), `stderrReadFailed` (stderr I/O), `navigationLimited` (batch cap),
+`navigationMarkerFailed` (marker verification), `workspaceImportStalled`
+(no import progress), `mavenProfileUpdateFailed` (project update failure),
+`shutdownTimeout` (forced termination after shutdown deadline), and
+`mavenProfileTimeout` (profile application deadline). Each code names exactly
+that observation; arbitrary upstream messages retain `upstreamDiagnostic`.
+
+Hosts persist these controlled identities, never the raw detail, URL, output or argv.
+
+### Batched breakpoint relocation snapshots
+
+`debug.relocateBreakpoints` retains the single `edit` input and also accepts `edits`, an array of non-overlapping original-source UTF-16 replacements. Character anchors are retained until the complete batch finishes; only then are positions projected and duplicates merged. LF, CRLF and lone CR are line boundaries.
+
+Optional `editBatches` contains up to 127 additional editor mutations in order,
+with up to 4096 edits and 64 MiB of replacement text across those additional
+batches. Each batch uses UTF-16
+offsets in the text produced by the preceding mutation. Core projects and
+deduplicates breakpoints after each mutation, exactly as for separate calls, and
+keeps `originalIndices` relative to the request's original breakpoint list.
+
+The response's `originalIndices` array identifies the zero-based input breakpoint
+that survived for each entry in `breakpoints`, in the same order. It allows a host
+to preserve breakpoint identity after relocation and collision resolution.
+
+Optional `document: {id, version}` enables bounded process-local source reuse. Version 1 supplies `source`; each subsequent version increments by one and omits source. Missing or stale snapshots fail closed. The cache holds four sources of at most 16 MiB each, evicts least-recently-used entries, and never writes runtime resources. Hosts reset with a new identity when the exact source chain changes.
+
+### Engine logging v2 handoff (PR3)
+
+`lsp.startServer` adds optional `role` (`language_server`, `vcs`, `build`,
+`toolchain`, `backend`; default `language_server`) and optional `logSubject`.
+The host supplies the registered VCS ID as `logSubject` for `role:vcs`.
+The start response additionally returns `channel`, derived by Core from these
+identities, so hosts can register trace I/O without rebuilding routing rules.
+Core does not parse prefixes or colons in `providerId`. Routing is:
+
+| Role | Catalog channel | Identity field |
+| --- | --- | --- |
+| `language_server` | `lsp/{server}` | `providerId` |
+| `vcs` | `vcs/{provider}` | `logSubject` |
+| `build`, `toolchain`, `backend` | `plugins/{plugin}/host` | `pluginId` |
+
+Every dynamic segment passes `validate_segment`. Invalid or missing identities
+use `invalid-` followed by the first 32 lowercase SHA-256 hexadecimal digits of
+that identity (the opaque provider ID when the selected identity is absent).
+This deterministic fallback preserves evidence and startup compatibility for
+language IDs such as `c++`; it never exposes the original invalid text as a path.
+`pluginId` in the event remains the original ownership identity, independently
+of the validated catalog routing field. Hosts must use `fields` and `channel`
+from Core, never rebuild the route from `providerId` or `pluginId`.
+
+Log runtime events retain `type:"log"`, sequence, providerId, sessionId,
+level, message, detail, error, and Maven state fields. They add `channel`,
+`pluginId?`, `role`, `event` (catalog ID), `catalogLevel` (canonical uppercase v2 level), and `fields` (normalized scalar disk
+fields). `type` is the actual JSON discriminator; there is no `kind` wire key.
+Catalog metadata determines canonical v2 severity; the old `level` remains a v1
+compatibility value, including its historical `warning` spelling. To pass one
+fact to `diagnostics.encodeLogBatch`, the host supplies a timestamp and its own
+session sequence and uses `catalogLevel`, the catalog's uppercase severity. It sets
+`validateCatalog:true`; catalog-derived channel and message are authoritative.
+The special system event `log.dropped` uses the validated session channel.
+
+```json
+{"type":"log","sequence":17,"providerId":"opaque:git:provider","sessionId":"lsp-1","level":"info","message":"window/logMessage","detail":"{\"type\":2,\"message\":\"upstream warning\"}","channel":"vcs/git","pluginId":"io.example.git","role":"vcs","event":"vcs.message.logged","catalogLevel":"INFO","fields":{"provider":"git","diagnostic":"upstream warning","severity":"warning"}}
+```
+
+`window/logMessage` and `window/showMessage` produce `*.message.logged` and
+`*.message.shown`. The `severity` token is `error|warning|info|log|debug`.
+Upstream diagnostics pass through the shared text normalization/redaction
+boundary. Other notifications record only their method, never the payload.
+Existing v1 `detail`, `message`, and `level` remain byte-for-byte compatible,
+including `projectCount=N`, navigation format strings, and original notification
+JSON. V2 source inputs travel independently of detail; Core never parses v1
+detail to construct catalog fields. The one stderr framing change is explicit:
+v1 detail is now each complete line (without LF/trailing CR), including its
+spaces, rather than a trimmed arbitrary read chunk. The existing reader bounds
+and overflow rules below apply. New dropped facts use `count=N`, not JSON detail.
+Legacy detail is not a v2 persistence input. Trace catalog level is DEBUG while
+its historical v1 level remains info.
+Core lifecycle transitions attach `*.session.updated`, `channel`, `pluginId`,
+`role`, `fields:{server|provider|plugin,state}`, and `catalogLevel:DEBUG` to the
+existing `type:"stateChanged"` event. They pass through the same
+`prepare_catalog_event` boundary as log facts. They never add a v1 `type:"log"`
+row, and existing type/state/sequence/message/error fields remain unchanged.
+Hosts decode and forward optional structured identity independently of the event
+kind, once before event-specific handling; this also covers VCS, build, toolchain
+and backend sessions. Core owns these session lifecycle states and protocol
+initialization. macOS owns only `lsp.session.stage_changed` (DEBUG; closed
+requested|resolving|registered|stopping|cancelled) and `lsp.cache.cleaned` (DEBUG;
+removed entry count), emitted at the source rather than inferred from v1 text.
+Host ready/terminated callbacks retain v1 buffer lines without duplicate v2 facts.
+Stderr is framed by LF, removes a trailing CR, ignores empty lines, flushes the
+last partial line at EOF, and keeps at most 4096 bytes per line while discarding
+the remainder through LF. `truncated:true` marks the reader limit. Catalog text
+normalization then redacts and caps the diagnostic at 1024 UTF-8 bytes.
+The reader accepts at most 200 nonempty lines in each monotonic elapsed-second
+window. Suppressed counts produce `log.dropped` on the next reader observation
+in a later window or on reader completion, including read failure. No idle
+background timer is installed.
+
+`lsp.setDetailedDiagnostics` accepts `{sessionId,enabled}` and returns `{}`.
+It sends `$/setTrace` with `{"value":"verbose"}` when enabled and
+`{"value":"off"}` when disabled. Sessions start disabled; only enabled
+sessions emit `*.trace.received` (DEBUG). Only the summary `message` enters v2,
+limited to 1024 UTF-8 bytes before shared text redaction and control removal.
+The `verbose` field is excluded because it can contain raw RPC bodies and source
+text; the legacy in-memory detail remains compatible. The gate changes only
+after a successful ordered write. Before the initialize handshake completes, the command
+only stores the latest desired value; an enabled value is sent after `initialized`
+in the ordered handshake batch. Disabling it before that batch cancels the pending
+enable without sending any trace notification. Invalid payloads or terminal
+sessions fail through the existing Core error envelope; transport errors keep the existing session
+failure/cleanup behavior. This does not change showMessage handling.
+
+```json
+{"version":1,"command":"lsp.setDetailedDiagnostics","payload":{"sessionId":"lsp-1","enabled":true}}
+```
+
+```json
+{"id":null,"ok":true,"data":{}}
+```
+
+`diagnostics.drainCoreEvents` accepts `{}` and atomically returns
+`{events:[{ts,level,event,channel,op?,fields}],dropped}` in the ordinary Core
+success envelope. It drains a process-owned queue shared across workspaces,
+with at most 256 normalized entries. Overflow and exact duplicate pending
+facts increment a saturating `dropped` counter; draining resets the counter.
+The host converts `dropped` to `log.dropped` on its application channel.
+`record` accepts only catalog events whose owner is `lithe-core`: logging error
+`-32059` means Core event owner mismatch, exclusively; existing `-32053` through
+`-32058` retain their catalog and collection meanings.
+
+`lithe_core_install_log_waker(callback, context)` registers the host's single
+log writer for a pending-fact signal; a later install replaces the earlier one
+and a null callback is ignored. Core invokes the callback at most once per drain
+cycle: when the first fact or drop is queued after a drain, and immediately at
+install when facts are already pending. It runs synchronously on the recording
+or installing thread, must not unwind or call back into Core, and only schedules
+the writer's existing drain. `lithe_core_remove_log_waker(context)` returns 1 when
+`context` owned the registration and 0 otherwise; after it returns, Core never
+invokes the callback with `context`. The waker belongs to the existing queue:
+there is no second writer, file handle, background task, or poller. The queue
+observes UTC at the Core event boundary; host
+session sequences are assigned at drain ingestion. Project skips retain only
+workspace-relative paths and stable error categories; cleanup facts retain
+only categories, excluding remote addresses, output, and scratch names.
+
+```json
+{"version":1,"command":"diagnostics.drainCoreEvents","payload":{}}
+```
+
+```json
+{"id":null,"ok":true,"data":{"events":[{"ts":"2026-11-03T08:00:00.000Z","level":"WARN","event":"app.workspace.directory_skipped","channel":"app","fields":{"path":"src/inaccessible","error":"Directory traversal failed","error_code":"permission_denied","error_domain":"core"}}],"dropped":0}}
+```
+
+`plugins.declarative.languageServerLaunchPlan.request.logDirectory` is an
+optional absolute host-owned current-session plugin files directory for
+`${logDir}`. Language servers and plugin backends use the same expansion.
+Missing, unusable, or relative values fail with `plugin.launch.invalidRequest`
+when needed; `requiredDirectories` adds `log` when used. The host creates the
+provided writable directory before launch, outside all bundles and installation
+resources. Validation probes cannot reference `${logDir}`. See the synchronized
+[plugin contract](plugins/v1/README.md). Existing API 1 literal arguments remain
+literal. Wire examples are exercised by
+`shared/fixtures/diagnostics/engine-logging-v2.json` and Core tests.
+
+Plugin-owned sessions offer `litheLogging` 1 independently of other protocols.
+The negotiated `lithe/log` notification is validated in Core and enters the
+same bounded `diagnostics.drainCoreEvents` queue, with the installed plugin
+identity selecting `plugins/<id>/host`. It never copies notification JSON into
+legacy runtime detail. The four facts map to catalog INFO/ERROR/WARN/WARN,
+and a live wire request ID resolves to its original host `op`; no user content
+or backend-selected channel/level/message is accepted. See the
+[plugin logging contract](plugins/v1/README.md#structured-plugin-diagnostics-logging-protocol-1)
+and `plugins/v1/fixtures/plugin-logging.json`. Explicit upstream LSP message
+types retain their severity through separate catalog events; unclassified
+stderr is DEBUG and actual lifecycle failure is ERROR.
+
+macOS PR3 passes `CoreLogRecord` directly to the injected `LogSink`. Every
+MacLogStore drain, flush and finish calls `diagnostics.drainCoreEvents` once,
+retaining source `ts`/`op` and allocating session `seq`. Only the application
+writer installs the Core log waker; its callback schedules the same 100 ms
+one-shot drain that host events use, so Core and plugin facts recorded without
+host activity reach disk and live subscribers without an idle poller or second
+writer. Finishing the session removes the waker before the final drain.
+`channelCategory` maps lsp to language, vcs to git and
+plugin-host processes to plugins. The selected diagnostic category drives
+`lsp.setDetailedDiagnostics` for active sessions, newly registered sessions and
+a one-shot 15-minute expiry. A failed desired state is reported once with
+`app.logging.diagnostics_failed`; changing desired state permits another attempt.
+The 100-entry v1 message/detail memory buffer remains for LanguageServerLogsView
+until PR4; it does not create v1 files.
+
+`diagnostics.resolveLogChannel` additionally returns optional `pluginFilesPath`
+for a `plugins/<id>/host` channel using Core's `plugin_files_path` rule. macOS
+creates that directory under its current session with mode 0700 and descriptor
+relative no-follow traversal, and supplies `request.logDirectory` before local
+language/provider/backend launch. Missing log storage omits it; Core rejects a
+launch that actually uses `${logDir}`. Remote processes cannot write the macOS
+log directory, so remote requests omit it and reject `${logDir}` rather than
+writing into remote package/state directories. Package installation validation
+uses an uncreated placeholder only to validate expansion, never to launch.
+
+Core directory traversal and scratch cleanup reuse PR1's
+`app.search.directory_skipped`, `app.workspace.directory_skipped` and
+`app.workspace.scratch_cleanup_failed`. Error message/domain are fixed; code is a
+stable category without absolute paths, scratch names or remote addresses.
+Remote process/upload cleanup uses ClientError categories timeout, closed,
+transport, spawn, protocol, or remote_<protocol_code>; peer prose is excluded.

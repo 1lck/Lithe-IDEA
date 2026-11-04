@@ -49,8 +49,11 @@ extension AppModel {
         )
     }
 
+    /// Opens the editor-area "LSP Logs" tab on `providerID`. The status menu's
+    /// bottom entry passes the first listed server.
     func showLanguageServerLogs(providerID: String) {
-        languageToolingFeature.logs.providerID = providerID
+        guard let logs = languageServerLogsFeature else { return }
+        logs.open(providerID: providerID)
         if !editorTabOrderFeature.contains(.languageLogs) { editorTabOrderFeature.moveToEnd(.languageLogs) }
         selectLanguageServerLogsTab()
     }
@@ -69,6 +72,7 @@ extension AppModel {
         let order = editorTabOrderFeature
         let wasFocused = order.focusedItem == .languageLogs
         order.remove(.languageLogs)
+        languageServerLogsFeature?.stop()
         if wasFocused, let fallback = order.focusedItem ?? order.items.last { selectEditorTab(fallback) }
     }
 
@@ -86,12 +90,6 @@ extension AppModel {
         let workspaceURL = identity.url
         let activationToken = languageToolingFeature.activationToken(providerID: descriptor.id)
         guard !languageToolingFeature.isDisabled(descriptor.id) else {
-            languageToolingSessionsIfActive?.recordLanguageServerLog(
-                providerID: descriptor.id,
-                level: .info,
-                message: L10n.string("Language server activation skipped"),
-                detail: L10n.string("Disabled in this workspace")
-            )
             return false
         }
         if isModuleRuntimeShuttingDown {
@@ -224,7 +222,7 @@ extension AppModel {
                 // A successful sync is the plugin LSP's latest activity. The
                 // idle policy can stop it after the user leaves the document
                 // untouched, while subsequent edits refresh this timestamp.
-                try? services.moduleRuntime.markIdle(moduleID)
+                do { try services.moduleRuntime.markIdle(moduleID) } catch { services.logSink?.emit(AppModuleTransitionFailed(error: error, module: moduleID.rawValue, stage: "idle")) }
             }
             return languageToolingSessions.activeLanguageServerIDs.contains(descriptor.id)
         } catch {
@@ -327,13 +325,6 @@ extension AppModel {
     func cancelJavaLanguageServerPreparation() {
         cancelPendingJavaLaunchDecision()
         if case .preparing(let owner) = javaFeature.languageServerWorkspaceState {
-            languageToolingSessionsIfActive?.recordLanguageServerLog(
-                providerID: "java",
-                operationID: owner.operationID,
-                level: .warning,
-                message: L10n.string("Java workspace preparation cancelled"),
-                detail: nil
-            )
             javaFeature.cancelLanguageServerPreparation()
             return
         }
@@ -451,12 +442,12 @@ extension AppModel {
         )
         switch failure {
         case .timedOut:
-            showNotification("Java service preparation timed out")
+            showNotification("Java service preparation timed out", logReference: notificationRejection(operation: "language_server", reason: "timed_out"))
         case .failed(let message):
             if let message, !message.isEmpty {
-                showNotification("Java service failed to start: %@", arguments: [message])
+                showNotification("Java service failed to start: %@", arguments: [message], logReference: notificationRejection(operation: "language_server", reason: "startup_failed"))
             } else {
-                showNotification("Java service failed to start")
+                showNotification("Java service failed to start", logReference: notificationRejection(operation: "language_server", reason: "startup_failed"))
             }
         }
     }

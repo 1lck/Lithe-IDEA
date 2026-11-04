@@ -452,6 +452,7 @@ struct MacToolchainSettingsLoader: ToolchainSettingsLoading {
             data = captured
         }
         catch is CancellationError { throw CancellationError() }
+        // log-exempt: 预期的缺失：探测的可选文件或目录不存在，按未发现处理
         catch let error as CocoaError where error.code == .fileReadNoSuchFile || error.code == .fileNoSuchFile { return nil }
         catch { throw ToolchainSettingsLoadError.readFailed }
         guard data.count <= 1_048_576 else { throw ToolchainSettingsLoadError.invalidLocal }

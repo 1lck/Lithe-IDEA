@@ -3,6 +3,7 @@ import type { JavaRunLaunchPreparation } from "@/features/run/services/java-run-
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import type { CompletionList } from "vscode-languageserver-protocol";
+import diagnosticFixture from "../../../../shared/fixtures/lsp/diagnostic-code-actions-v1.json";
 
 const emit = mock(async () => undefined);
 const emitTo = mock(async () => undefined);
@@ -1363,13 +1364,36 @@ describe("Rust Core LSP adapter failures", () => {
       "lsp://diagnostics",
     ]);
     expect(forwarded[0][1]).toEqual({
-      publications: [{ uri: "file:///C:/work/Early.java", version: 1, diagnostics: [{ range: { start: { line: 0, character: 2 } }, message: "early" }] }],
+      publications: [{ uri: "file:///C:/work/Early.java", version: 1, diagnostics: [{ range: { start: { line: 0, utf16Column: 2 } }, message: "early" }] }],
     });
     expect(forwarded[2][1]).toEqual({
       publications: [
-        { uri: "file:///C:/work/Main.java", version: 2, diagnostics: [{ range: { start: { line: 0, character: 2 } }, message: "second" }] },
-        { uri: "file:///C:/work/Other.java", version: 1, diagnostics: [{ range: { start: { line: 0, character: 2 } }, message: "other" }] },
+        { uri: "file:///C:/work/Main.java", version: 2, diagnostics: [{ range: { start: { line: 0, utf16Column: 2 } }, message: "second" }] },
+        { uri: "file:///C:/work/Other.java", version: 1, diagnostics: [{ range: { start: { line: 0, utf16Column: 2 } }, message: "other" }] },
       ],
+    });
+  });
+
+  test.each(diagnosticFixture.severityCases)("round-trips a $name diagnostic through the Core boundary", async (entry) => {
+    scenario = "semantic-request";
+    const original = { ...diagnosticFixture.diagnostic, severity: entry.severity };
+    eventsAroundReady.after = [{
+      type: "diagnostics", sessionId: "java-session", uri: diagnosticFixture.uri,
+      diagnostics: [original],
+    }];
+    await invokeLsp("lsp_start_for_file", {
+      workspacePath: "C:/work", filePath: "C:/work/Main.java", languageId: "java", serverPath: "java-lsp",
+    });
+    const publication = (emit.mock.calls as unknown as [string, { publications?: { diagnostics: unknown[] }[] }][])
+      .find(([event]) => event === "lsp://diagnostics")?.[1].publications?.[0];
+    expect(publication?.diagnostics).toEqual([original]);
+    semanticRequestResult = { actions: [] };
+    await invokeLsp("lsp_get_code_actions", {
+      filePath: "C:/work/Main.java", range: original.range, diagnostics: publication!.diagnostics,
+    });
+    expect(requestPayload).toEqual({
+      sessionId: "java-session", operation: "codeActions", uri: diagnosticFixture.uri,
+      range: original.range, diagnostics: [original],
     });
   });
 

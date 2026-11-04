@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 
 // Portions derived from OpenIDEA `crates/ide-host/src/shell_env.rs`
@@ -36,9 +37,9 @@ final class MacLoginShellEnvironment: LoginShellEnvironmentInspecting, @unchecke
 
     private let lock = NSLock()
     private var overlay: [String: String] = [:]
-    private var logging: (any ApplicationLogging)?
+    private var logging: (any LogSink)?
     /// Outcomes from before the log writer exists; startup runs ahead of it.
-    private var pendingRecords: [(level: String, message: String, fields: [String: String])] = []
+    private var pendingRecords: [any LogEvent] = []
     /// Startup facts and the latest outcome, for the settings page; never variable values.
     private var launch = Launch()
     private var lastRead: (date: Date, duration: Duration, variables: Int?)?
@@ -70,27 +71,30 @@ final class MacLoginShellEnvironment: LoginShellEnvironmentInspecting, @unchecke
 
     /// Sends the startup outcome, and every later refresh, to the application log.
     /// Records carry the shell's name, timing and counts, never variable values.
-    func attach(logging: any ApplicationLogging) {
+    func attach(logging: any LogSink) {
         let pending = lock.withLock {
             self.logging = logging
             defer { pendingRecords.removeAll() }
             return pendingRecords
         }
         for record in pending {
-            logging.record(level: record.level, scope: "application", message: record.message, fields: record.fields)
+            logging.emit(record)
         }
     }
 
-    private func record(level: String, message: String, fields: [String: String]) {
+    private func record(_ event: any LogEvent) {
         let logging = lock.withLock {
-            if self.logging == nil { pendingRecords.append((level, message, fields)) }
+            if self.logging == nil {
+                if pendingRecords.count == 8 { pendingRecords.removeFirst() }
+                pendingRecords.append(event)
+            }
             return self.logging
         }
-        logging?.record(level: level, scope: "application", message: message, fields: fields)
+        logging?.emit(event)
     }
 
     private func recordRead(
-        _ environment: [String: String]?, shell: String, source: String, started: ContinuousClock.Instant
+        _ environment: [String: String]?, started: ContinuousClock.Instant, span: inout AppShellEnvironmentSpan
     ) {
         let duration = started.duration(to: .now)
         lock.withLock {
@@ -98,17 +102,14 @@ final class MacLoginShellEnvironment: LoginShellEnvironmentInspecting, @unchecke
             if let path = environment?["PATH"], !path.isEmpty { latestLoginPath = Self.entries(path) }
             completedReads += 1
         }
-        var fields = [
-            "shell": URL(fileURLWithPath: shell).lastPathComponent,
-            "source": source,
-            "duration": String(describing: duration)
-        ]
-        if let environment {
-            fields["variables"] = String(environment.count)
-            record(level: "info", message: "login shell environment read", fields: fields)
-        } else {
-            record(level: "warning", message: "login shell environment unavailable", fields: fields)
-        }
+        if let environment { span.finish(variables: Int64(environment.count)) }
+        else { span.fail(NSError(domain: "shell.environment", code: 1)) }
+    }
+
+    private func beginRead(shell: String, source: String) -> AppShellEnvironmentSpan {
+        let shellName = URL(fileURLWithPath: shell).lastPathComponent
+        let name = ["zsh", "bash", "fish", "sh", "dash", "ksh", "tcsh", "csh", "nu", "pwsh"].contains(shellName) ? shellName : "custom"
+        return AppShellEnvironmentSpan.begin(shell: name, source: source, emit: { [self] in record($0) })
     }
 
     private func replaceOverlay(_ environment: [String: String]) {
@@ -139,11 +140,12 @@ final class MacLoginShellEnvironment: LoginShellEnvironmentInspecting, @unchecke
         } else {
             // A slow rc file must not delay the first start indefinitely.
             let started = ContinuousClock.now
-            let login = read(shell: shell, timeout: shellTimeout ?? coldStartTimeout)
-            shared.recordRead(login, shell: shell, source: "startup", started: started)
+            var span = shared.beginRead(shell: shell, source: "startup")
+            let login = read(shell: shell, timeout: shellTimeout ?? coldStartTimeout, report: { shared.record($0) })
+            shared.recordRead(login, started: started, span: &span)
             guard let login, let path = login["PATH"], !path.isEmpty else { return nil }
             shared.replaceOverlay(login)
-            writeCache(path, to: cacheURL)
+            writeCache(path, to: cacheURL, report: { shared.record($0) })
             loginPath = path
         }
         let processPath = mergedPath(login: loginPath, inherited: environment["PATH"])
@@ -193,12 +195,13 @@ final class MacLoginShellEnvironment: LoginShellEnvironmentInspecting, @unchecke
             lock.withLock { isReading = true }
             defer { lock.withLock { isReading = false } }
             let started = ContinuousClock.now
-            let login = Self.read(shell: shell, timeout: timeout)
-            recordRead(login, shell: shell, source: source, started: started)
+            var span = beginRead(shell: shell, source: source)
+            let login = Self.read(shell: shell, timeout: timeout, report: { self.record($0) })
+            recordRead(login, started: started, span: &span)
             guard let login else { return }
             replaceOverlay(login)
             if let cacheURL, let path = login["PATH"], !path.isEmpty {
-                Self.writeCache(path, to: cacheURL)
+                Self.writeCache(path, to: cacheURL, report: { self.record($0) })
             }
         }
     }
@@ -249,7 +252,7 @@ final class MacLoginShellEnvironment: LoginShellEnvironmentInspecting, @unchecke
 
     /// The environment of `shell` started as an interactive login shell, or `nil`
     /// when it fails or does not finish within `timeout`.
-    static func read(shell: String, timeout: TimeInterval) -> [String: String]? {
+    static func read(shell: String, timeout: TimeInterval, report: (any LogEvent) -> Void = { _ in }) -> [String: String]? {
         // Keep this read from looping back into itself through a shell that starts Lithe.
         var environment = ProcessInfo.processInfo.environment
         environment[skipVariable] = "1"
@@ -277,12 +280,12 @@ final class MacLoginShellEnvironment: LoginShellEnvironmentInspecting, @unchecke
         do {
             try process.run()
         } catch {
-            try? output.fileHandleForWriting.close()
-            try? discardedErrors.close()
+            do { try output.fileHandleForWriting.close() } catch { report(AppStorageMaintenanceFailed(error: error, stage: "shell-pipe-close")) }
+            do { try discardedErrors.close() } catch { report(AppStorageMaintenanceFailed(error: error, stage: "shell-stderr-close")) }
             return nil
         }
-        try? output.fileHandleForWriting.close()
-        try? discardedErrors.close()
+        do { try output.fileHandleForWriting.close() } catch { report(AppStorageMaintenanceFailed(error: error, stage: "shell-pipe-close")) }
+        do { try discardedErrors.close() } catch { report(AppStorageMaintenanceFailed(error: error, stage: "shell-stderr-close")) }
         guard finished.wait(timeout: .now() + timeout) == .success else {
             // Ends the shell and every job its rc file left in the process group, so
             // nothing outlives the read and the pipe reaches end-of-file.
@@ -308,11 +311,11 @@ final class MacLoginShellEnvironment: LoginShellEnvironmentInspecting, @unchecke
         return result
     }
 
-    private static func writeCache(_ path: String, to url: URL) {
-        try? FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(), withIntermediateDirectories: true
-        )
-        try? path.write(to: url, atomically: true, encoding: .utf8)
+    private static func writeCache(_ path: String, to url: URL, report: (any LogEvent) -> Void) {
+        do {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try path.write(to: url, atomically: true, encoding: .utf8)
+        } catch { report(AppStorageMaintenanceFailed(error: error, stage: "shell-cache-write")) }
     }
 
     private final class OutputBox: @unchecked Sendable {

@@ -89,6 +89,7 @@ struct MacToolchainDiscovery: Sendable {
         return result.output
     }
     /// Asks a plugin's provider and returns `{ id, response }`; `nil` leaves providers unqueried.
+    var logSink: (any LogSink)? = nil
     var queryProvider: (@Sendable (_ pluginID: String, _ providerID: String, _ params: ToolingJSONValue,
                                    _ timeout: TimeInterval) async throws -> ToolingJSONValue)? = nil
     var workspaceContext: @Sendable (_ workspace: URL, _ pluginID: String) async -> WorkspaceContext? = { _, _ in nil }
@@ -186,7 +187,12 @@ struct MacToolchainDiscovery: Sendable {
             else { continue }
             jobs.append((pin.directory, input))
         }
-        let local = request.local.flatMap { try? JSONSerialization.jsonObject(with: $0) }
+        let local: Any?
+        do { local = try request.local.map { try JSONSerialization.jsonObject(with: $0) } }
+        catch {
+            logSink?.emit(AppStorageMaintenanceFailed(error: error, stage: "toolchain-local-decode"))
+            local = nil
+        }
         for (index, (directory, input)) in jobs.enumerated() {
             if Task.isCancelled { return result }
             let round = answers.rounds[directory]

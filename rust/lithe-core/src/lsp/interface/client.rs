@@ -130,7 +130,7 @@ pub(super) fn client_initialize_for_plugin(
                 "window": {
                     "workDoneProgress": true
                 },
-                "experimental": experimental_capabilities(plugin_owned, &state.offered_toolchain_providers)
+                "experimental": experimental_capabilities(plugin_owned, &state.offered_toolchain_providers, &state.offered_keymap_import_providers)
             },
             "initializationOptions": request.initialization_options
         }),
@@ -612,6 +612,15 @@ pub(super) fn client_apply_server_message_for_plugin(
                 state.server_capabilities = feature_names_from_capabilities(
                     result.get("capabilities").unwrap_or(&Value::Null),
                 );
+                if plugin_owned
+                    && super::plugin_logging::negotiated(
+                        result.get("capabilities").unwrap_or(&Value::Null),
+                    )
+                {
+                    state
+                        .server_capabilities
+                        .push(super::plugin_logging::FEATURE.into());
+                }
                 let functions = plugin_owned
                     .then(|| {
                         plugin_function::negotiate(
@@ -681,6 +690,27 @@ pub(super) fn client_apply_server_message_for_plugin(
                         version: None,
                         diagnostics: None,
                         result: Some(json!({ "providers": state.toolchain_providers })),
+                        error: None,
+                    });
+                }
+                state.keymap_import_providers = plugin_owned
+                    .then(|| {
+                        super::keymap_provider::negotiate(
+                            result.get("capabilities").unwrap_or(&Value::Null),
+                            &state.offered_keymap_import_providers,
+                        )
+                    })
+                    .flatten()
+                    .unwrap_or_default();
+                if !state.keymap_import_providers.is_empty() {
+                    events.push(LspClientEvent {
+                        kind: super::keymap_provider::NEGOTIATED_EVENT.to_string(),
+                        request_id: None,
+                        method: Some("initialize".to_string()),
+                        uri: None,
+                        version: None,
+                        diagnostics: None,
+                        result: Some(json!({ "providers": state.keymap_import_providers })),
                         error: None,
                     });
                 }
@@ -828,9 +858,11 @@ pub(super) fn json_rpc_result(id: &Value, result: Value) -> Result<String, CoreE
 fn experimental_capabilities(
     plugin_owned: bool,
     toolchain_providers: &std::collections::BTreeSet<String>,
+    keymap_import_providers: &std::collections::BTreeSet<String>,
 ) -> Value {
     let mut experimental = super::build_provider::client_experimental_capabilities();
     if plugin_owned {
+        experimental[super::plugin_logging::FEATURE] = json!({"versions": [1]});
         let (functions_key, functions_offer) = plugin_function::client_experimental_capabilities();
         experimental[functions_key] = functions_offer;
         let (vcs_key, vcs_offer) = super::vcs_provider::client_experimental_capabilities();
@@ -839,6 +871,11 @@ fn experimental_capabilities(
             super::toolchain_provider::client_experimental_capabilities(toolchain_providers)
         {
             experimental[toolchain_key] = toolchain_offer;
+        }
+        if let Some((key, offer)) =
+            super::keymap_provider::client_experimental_capabilities(keymap_import_providers)
+        {
+            experimental[key] = offer;
         }
     }
     experimental

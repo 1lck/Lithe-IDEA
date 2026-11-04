@@ -13,6 +13,7 @@ on:
       - "macos/Sources/Lithe/Models/Settings/AppLanguage.generated.swift"
       - "windows/tauri/src/i18n/**"
       - ".github/workflows/verify-i18n.yml"
+      - "!**/*.md"
   push:
     branches: [preview]
     paths:
@@ -25,14 +26,17 @@ on:
       - "macos/Sources/Lithe/Models/Settings/AppLanguage.generated.swift"
       - "windows/tauri/src/i18n/**"
       - ".github/workflows/verify-i18n.yml"
+      - "!**/*.md"
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# Every main commit gets its own group, including pending runs. PR pushes
+# cancel their predecessor immediately; only completed results may be reused.
 concurrency:
-  group: verify-shared-i18n-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_id || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   validate:
@@ -66,7 +70,7 @@ jobs:
             --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/i18n-node.junit.xml \
             scripts/i18n/test-i18n.mjs
       - name: Generate per-test timing report
-        if: always()
+        if: ${{ !cancelled() }}
         run: |
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
@@ -79,7 +83,7 @@ jobs:
           writeTestReportArtifacts(`${stem}.json`);
           NODE
       - name: Upload timing report
-        if: always()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: shared-i18n-${{ matrix.os }}

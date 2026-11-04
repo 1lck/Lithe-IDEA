@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 import Testing
-import LitheGitModule
+@testable import LitheGitModule
 @testable import Lithe
 
 @MainActor
@@ -152,6 +152,7 @@ struct GitWorktreeAppearanceTests {
         let actions = GitWorktreeActions(openProject: { _ in }, reveal: { _ in }, copyPath: { _ in },
             chooseParentDirectory: { nil }, showChange: { opened.append($0) })
         let scoped = feature.commitFeature(for: worktree)
+        await scoped.changelistProjectionTask?.value
         let draft = CommitDraftFeatureModel()
         draft.message = "Keep this checkout's draft"
         let workflow = CommitWorkflowCoordinator(draft: draft, activateGit: { scoped },

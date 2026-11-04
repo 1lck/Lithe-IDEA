@@ -48,6 +48,7 @@ enum KeyboardShortcutPreset: String, CaseIterable, Sendable {
         "toggle-breakpoint": shortcut("f8", [.control]),
         "view-breakpoints": shortcut("f8", [.control, .shift]),
         "search-everywhere": [.doubleTap(.shift)],
+        "find-action": [],
         "navigate-back": shortcut("left", [.control, .option]),
         "navigate-forward": shortcut("right", [.control, .option]),
         "find-in-file": shortcut("f", [.control]),
@@ -80,6 +81,7 @@ enum KeyboardShortcutPreset: String, CaseIterable, Sendable {
         "toggle-breakpoint": shortcut("f8", [.control]),
         "view-breakpoints": shortcut("f8", [.control, .shift]),
         "search-everywhere": [.doubleTap(.shift)],
+        "find-action": [],
         "navigate-back": shortcut("[", [.command]),
         "navigate-forward": shortcut("]", [.command]),
         "find-in-file": shortcut("f", [.command]),
@@ -137,6 +139,7 @@ enum LitheCommandCatalog {
 
         command("run", "Run", "Run selected configuration", .run, "r", [.control]),
         command("debug", "Debug", "Start debugging", .run, "d", [.control]),
+        command("debug-start-or-continue", "Debug: Start or Continue", "Start debugging or continue the paused session", .run),
         command("stop-run", "Stop Run", "Stop the current run", .run),
         command("stop-debug", "Stop Debug", "Stop the current debug session", .run),
         command("debug-resume", "Debug: Resume", "Resume the paused debug session", .run, "f9"),
@@ -156,6 +159,7 @@ enum LitheCommandCatalog {
                 .keyPress(key: "o", modifiers: [.shift, .command])
             ]
         ),
+        command("find-action", "Find Action", "Find and execute a command", .navigation, "a", [.shift, .command]),
         command("navigate-back", "Back", "Navigate to the previous editor location", .navigation, "[", [.command]),
         command("navigate-forward", "Forward", "Navigate to the next editor location", .navigation, "]", [.command]),
         command("find-in-file", "Find in File", "Search within the active editor", .navigation, "f", [.command]),
@@ -170,6 +174,7 @@ enum LitheCommandCatalog {
         command("replace-in-project", "Replace in Files", "Replace text across the workspace", .navigation, "r", [.shift, .command]),
         command("spring-endpoints", "Spring Endpoints", "Show indexed Spring MVC routes", .navigation),
 
+        command("show-logs", "Logs", "Open the application log window", .window, "l", [.shift, .command]),
         command("toggle-terminal", "Toggle Terminal", "Show or hide the Terminal tool window", .window),
         command("toggle-problems", "Toggle Problems", "Show or hide language diagnostics", .window),
         command("toggle-git-log", "Toggle Git Log", "Show or hide Git history", .window),
@@ -188,11 +193,11 @@ enum LitheCommandCatalog {
     static func moduleOwner(for id: String) -> ModuleID? {
         switch id {
         case "run", "stop-run", "toggle-run", "toggle-tests": .execution
-        case "debug", "stop-debug", "debug-resume", "debug-step-over", "debug-step-into", "debug-step-out",
+        case "debug", "debug-start-or-continue", "stop-debug", "debug-resume", "debug-step-over", "debug-step-into", "debug-step-out",
              "toggle-breakpoint", "view-breakpoints", "toggle-debug": .debug
         case "toggle-terminal": .terminal
         case "toggle-git-log": .git
-        case "search-everywhere", "search-in-project", "replace-in-project": .search
+        case "search-everywhere", "find-action", "search-in-project", "replace-in-project": .search
         case "toggle-problems", "spring-endpoints": .languageIntelligence
         case "local-history", "project-local-history": .localHistory
         default: nil

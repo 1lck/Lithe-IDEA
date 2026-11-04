@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Combine
 import Foundation
 import LitheCoreContracts
@@ -19,6 +20,7 @@ final class IdeCapabilitiesFeatureModel: ObservableObject {
             ? ["name": name, "arguments": ["javaHomePath", "mavenExecutablePath", "mavenJavaHomePath"]]
             : ["name": name]
     }
+    private let logSink: (any LogSink)?
     private weak var model: (any IdeCapabilityActions)?
     @Published private(set) var isEnabled = false
     @Published private(set) var configuration = ""
@@ -32,7 +34,10 @@ final class IdeCapabilitiesFeatureModel: ObservableObject {
     private var mutationInFlight = false
     private var transport: (any IdeHostTransport)? { model?.ideHostTransport }
 
-    init(model: any IdeCapabilityActions) { self.model = model }
+    init(model: any IdeCapabilityActions, logSink: (any LogSink)? = nil) {
+        self.logSink = logSink
+        self.model = model
+    }
 
     func enable() {
         disable()
@@ -54,6 +59,7 @@ final class IdeCapabilitiesFeatureModel: ObservableObject {
                 while !Task.isCancelled {
                     guard let self, self.isEnabled else { return }
                     self.poll()
+                    // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
                     do { try await Task.sleep(for: .milliseconds(200)) } catch { return }
                 }
             }
@@ -142,7 +148,7 @@ final class IdeCapabilitiesFeatureModel: ObservableObject {
                 return try transport.control("output", arguments: ["snapshot": result, "cursor": arguments["cursor"] ?? NSNull()])
             }
             return result
-        } catch { return failed("OPERATION_FAILED", error.localizedDescription) }
+        } catch { logSink?.emit(AppIdeRequestFailed(error: error, stage: "dispatch")); return failed("OPERATION_FAILED", error.localizedDescription) }
     }
 
     private func check(_ model: any IdeCapabilityActions, _ identity: WorkspaceIdentity, grant: String) throws {
@@ -336,7 +342,12 @@ final class IdeCapabilitiesFeatureModel: ObservableObject {
          "targets": entry.model?.targets.map { ["id": $0.id, "projectID": $0.projectID, "name": $0.name] } ?? [],
          "modelTasks": entry.model?.tasks.map { ["id": $0.id, "projectID": $0.projectID, "taskID": $0.template,
              "name": $0.displayName ?? $0.name] } ?? [],
-         "options": entry.options.compactMap { try? buildOptionJSON($0) },
+         "options": entry.options.compactMap { option -> [String: Any]? in
+             do { return try buildOptionJSON(option) } catch {
+                 // An option the Agent cannot see is lost data: record it, then keep the rest of the entry.
+                 logSink?.emit(AppIdeRequestFailed(error: error, stage: "build-option-encoding")); return nil
+             }
+         },
          "nativeConfiguration": entry.declaration.nativeConfiguration]
     }
 

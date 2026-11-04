@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import AppKit
 import Foundation
 import MetalKit
@@ -7,6 +8,7 @@ import LitheTerminalModule
 /// SwiftTerm's default link handler opens URLs in the system. Lithe needs the
 /// link event so workspace-relative paths can open in its own editor instead.
 final class LitheTerminalView: LocalProcessTerminalView {
+    var logSink: (any LogSink)?
     var hasRemoteProcess = false
     static let focusDidChange = Notification.Name("LitheTerminalView.focusDidChange")
     var onOpenLink: ((String, [String: String]) -> Void)?
@@ -53,10 +55,7 @@ final class LitheTerminalView: LocalProcessTerminalView {
             // A different window gets one fresh attempt because SwiftTerm's
             // CAMetalLayer must be rebound when the persistent terminal moves.
             metalActivationFailedWindow = currentWindow
-            NSLog(
-                "Lithe terminal Metal renderer could not be enabled; using Core Graphics: %@",
-                String(describing: error)
-            )
+            logSink?.emit(TerminalRendererFallbackSelected(error: error))
         }
     }
 
@@ -499,8 +498,8 @@ final class TerminalMetalFocusDelegate: NSObject, MTKViewDelegate {
 /// switching terminal tabs or hiding the tool window does not reset a TUI screen.
 @MainActor
 final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency LocalProcessTerminalViewDelegate {
-    static func availableShells(fileManager: FileManager = .default) -> [String] {
-        MacTerminalShellDiscovery.availableShells(fileManager: fileManager)
+    static func availableShells(fileManager: FileManager = .default, logSink: (any LogSink)? = nil) -> [String] {
+        MacTerminalShellDiscovery.availableShells(fileManager: fileManager, logSink: logSink)
     }
     let view: LitheTerminalView
 
@@ -544,10 +543,11 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
 
     private let scrollbackLines: Int
 
-    init(scrollbackLines: Int = 2_000, preferredAppearanceIsDark: (() -> Bool?)? = nil) {
+    init(logSink: (any LogSink)? = nil, scrollbackLines: Int = 2_000, preferredAppearanceIsDark: (() -> Bool?)? = nil) {
         self.scrollbackLines = scrollbackLines
         view = LitheTerminalView(frame: .zero)
         super.init()
+        view.logSink = logSink
 
         view.processDelegate = self
         view.onOpenLink = { [weak self] link, params in

@@ -11,6 +11,28 @@ import Testing
 @MainActor
 struct MacPluginBackendSessionsTests {
     @Test
+    func shortcutImportProviderIDsComeFromThePluginManifest() throws {
+        let fixture = DeclarativePluginTestSupport.repositoryRoot
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/keymap-import-provider.plugin.json")
+        let manifest = try Data(contentsOf: fixture)
+        #expect(MacPluginBackendSessions.keymapImportProviderIDs(ofManifest: manifest) == ["first", "second"])
+        #expect(MacPluginBackendSessions.isKeymapOnlyBackend(manifest: manifest))
+        let normalized = try RustDeclarativePluginOperations(core: RustCoreBridge()).validate(manifest: manifest).normalizedManifest
+        #expect(MacPluginBackendSessions.keymapImportProviderIDs(ofManifest: normalized) == ["first", "second"])
+        #expect(MacPluginBackendSessions.isKeymapOnlyBackend(manifest: normalized))
+        var object = try #require(JSONSerialization.jsonObject(with: manifest) as? [String: Any])
+        object["permissions"] = ["backend.launch", "keymaps.provide", "keymaps.readSelectedSources", "workspace.metadata"]
+        let shared = try JSONSerialization.data(withJSONObject: object)
+        #expect(!MacPluginBackendSessions.isKeymapOnlyBackend(manifest: shared))
+        object["permissions"] = ["backend.launch", "keymaps.provide", "keymaps.readSelectedSources"]
+        for contribution in ["settings", "settingActions", "toolDefinitions"] {
+            object[contribution] = [[:]]
+            #expect(!MacPluginBackendSessions.isKeymapOnlyBackend(manifest: try JSONSerialization.data(withJSONObject: object)))
+            object.removeValue(forKey: contribution)
+        }
+    }
+
+    @Test
     func anOlderNegotiatedProtocolSkipsNotificationsWithoutStoppingTheBackend() async throws {
         let fixture = try BackendFixture(backendVersion: 2)
         defer { fixture.remove() }
@@ -20,6 +42,8 @@ struct MacPluginBackendSessionsTests {
         try #require(await fixture.core.waitForNotifications(1))
         _ = try await fixture.sessions.pluginFunctions(ofPlugin: BackendFixture.pluginID)
         #expect(fixture.core.starts.count == 1)
+        #expect(fixture.core.loggingOwners.first?.0 == .backend)
+        #expect(fixture.core.loggingOwners.first?.2 == BackendFixture.pluginID)
         #expect(fixture.core.stops.isEmpty)
     }
 
@@ -347,6 +371,13 @@ private struct BackendFixture {
 /// Starts ready plugin backends, queues host requests on demand, and
 /// records how the host answered them.
 private final class ScriptedBackendCore: LanguageServerRuntimeCore, @unchecked Sendable {
+    private var logOwners: [(LanguageServerLogRole, String?, String?)] = []
+    var loggingOwners: [(LanguageServerLogRole, String?, String?)] { lock.withLock { logOwners } }
+    func loggingRuntime(role: LanguageServerLogRole, logSubject: String?, pluginID: String?) -> any LanguageServerRuntimeCore {
+        lock.withLock { logOwners.append((role, logSubject, pluginID)) }
+        return self
+    }
+
     struct Start {
         let pluginID: String
         let arguments: [String]

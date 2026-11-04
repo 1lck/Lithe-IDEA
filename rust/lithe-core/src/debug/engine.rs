@@ -12,6 +12,7 @@ use crate::protocol::{CoreError, ErrorCode};
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
 use serde_json::{json, Map, Value};
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::{Mutex, OnceLock};
 
@@ -21,6 +22,10 @@ static SESSIONS: OnceLock<Mutex<HashMap<String, DebugSession>>> = OnceLock::new(
 struct DebugSession {
     id: String,
     adapter_id: String,
+    /// Catalog-safe adapter identity; never derived from DAP payload or user output.
+    log_adapter: String,
+    /// A failing launch operation already owns the session failure record.
+    logged_terminal_failure: bool,
     root_path: String,
     state: DebugSessionState,
     next_request_sequence: i64,
@@ -139,6 +144,8 @@ pub(crate) fn create_session(
     }
     let mut session = DebugSession {
         id: request.session_id.clone(),
+        log_adapter: debug_log_adapter(&request.adapter_id),
+        logged_terminal_failure: false,
         adapter_id: request.adapter_id,
         root_path: request.root_path,
         state: DebugSessionState::Idle,
@@ -176,6 +183,11 @@ pub(crate) fn create_session(
         outbound_frames: Vec::new(),
         events: Vec::new(),
     };
+    session.log_fact(
+        "debug.process.started",
+        BTreeMap::new(),
+        Some(session.id.clone()),
+    );
     session.transition(DebugSessionState::Initializing);
     let mut initialize = json!({
         "clientID": "lithe",
@@ -848,12 +860,17 @@ pub(crate) fn receive(request: ReceiveRequest) -> Result<DebugSessionUpdate, Cor
         let messages = match parse_messages(&mut session.read_buffer, &bytes) {
             Ok(messages) => messages,
             Err(error) => {
+                session.log_session_failure("protocol");
                 session.transition(DebugSessionState::Failed);
                 return Err(error);
             }
         };
         for message in messages {
-            session.handle_message(message)?;
+            if let Err(error) = session.handle_message(message) {
+                session.log_session_failure("protocol");
+                session.transition(DebugSessionState::Failed);
+                return Err(error);
+            }
         }
         Ok(session.take_update())
     })
@@ -970,9 +987,10 @@ pub(crate) fn disconnect(request: SessionRequest) -> Result<DebugSessionUpdate, 
 /// each returned ID; the list is empty for a session without children.
 pub(crate) fn destroy_session(request: SessionRequest) -> Result<Vec<String>, CoreError> {
     let mut sessions = sessions_lock()?;
-    let Some(removed) = sessions.remove(&request.session_id) else {
+    let Some(mut removed) = sessions.remove(&request.session_id) else {
         return Err(session_not_found(&request.session_id));
     };
+    removed.transition(DebugSessionState::Terminated);
     if let Some(parent) = removed
         .parent_id
         .as_ref()
@@ -984,7 +1002,8 @@ pub(crate) fn destroy_session(request: SessionRequest) -> Result<Vec<String>, Co
     let mut descendants = Vec::new();
     let mut pending = removed.child_ids;
     while let Some(child_id) = pending.pop() {
-        if let Some(child) = sessions.remove(&child_id) {
+        if let Some(mut child) = sessions.remove(&child_id) {
+            child.transition(DebugSessionState::Terminated);
             pending.extend(child.child_ids);
             descendants.push(child_id);
         }
@@ -1791,6 +1810,25 @@ impl DebugSession {
             return;
         }
         self.state = state;
+        let event = match state {
+            DebugSessionState::Ready => "debug.session.initialized",
+            DebugSessionState::Terminated => "debug.session.finished",
+            DebugSessionState::Failed => {
+                self.log_session_failure("adapter_rejected");
+                self.emit(DebugEventBody::StateChanged { state });
+                return;
+            }
+            _ => "debug.session.state_changed",
+        };
+        let fields = if event == "debug.session.state_changed" {
+            BTreeMap::from([(
+                "state".into(),
+                serde_json::to_value(state).expect("DAP state encodes"),
+            )])
+        } else {
+            BTreeMap::new()
+        };
+        self.log_fact(event, fields, Some(self.id.clone()));
         self.emit(DebugEventBody::StateChanged { state });
     }
 
@@ -1844,7 +1882,52 @@ impl DebugSession {
         }
     }
 
+    fn log_fact(&self, event: &str, mut fields: BTreeMap<String, Value>, op: Option<String>) {
+        fields.insert("adapter".into(), json!(self.log_adapter));
+        if crate::diagnostics::core_events::record(event, fields, op).is_err() {
+            crate::diagnostics::core_events::note_dropped();
+        }
+    }
+
+    fn log_session_failure(&mut self, code: &str) {
+        if self.logged_terminal_failure {
+            return;
+        }
+        self.logged_terminal_failure = true;
+        self.log_fact(
+            "debug.session.failed",
+            BTreeMap::from([("failure_code".into(), json!(code))]),
+            Some(self.id.clone()),
+        );
+    }
+
     fn emit(&mut self, body: DebugEventBody) {
+        if let DebugEventBody::OperationFailed {
+            operation_id,
+            command,
+            code,
+            ..
+        } = &body
+        {
+            let (event, failure) = match code {
+                DebugOperationFailureCode::Cancelled => ("debug.operation.cancelled", "cancelled"),
+                DebugOperationFailureCode::StaleReference => {
+                    ("debug.operation.cancelled", "stale_reference")
+                }
+                DebugOperationFailureCode::TimedOut => ("debug.operation.failed", "timed_out"),
+                DebugOperationFailureCode::AdapterRejected => {
+                    ("debug.operation.failed", "adapter_rejected")
+                }
+            };
+            // A launch cancellation is an expected terminal too: the following
+            // Failed state must not turn it into a second product error.
+            self.logged_terminal_failure |= matches!(command.as_str(), "launch" | "attach");
+            self.log_fact(
+                event,
+                BTreeMap::from([("failure_code".into(), json!(failure))]),
+                Some(operation_id.clone()),
+            );
+        }
         let sequence = self.next_event_sequence;
         self.next_event_sequence += 1;
         self.events.push(DebugEvent { sequence, body });
@@ -1860,6 +1943,14 @@ impl DebugSession {
                 .collect(),
             events: std::mem::take(&mut self.events),
         }
+    }
+}
+
+fn debug_log_adapter(adapter: &str) -> String {
+    if crate::diagnostics::channel::validate_segment(adapter).is_ok() {
+        adapter.to_owned()
+    } else {
+        format!("invalid-{:x}", Sha256::digest(adapter.as_bytes()))[..40].to_owned()
     }
 }
 
@@ -3056,6 +3147,59 @@ mod tests {
             .unwrap()
             + 4;
         serde_json::from_slice(&bytes[body_start..]).unwrap()
+    }
+
+    #[test]
+    fn dap_logging_keeps_catalog_identity_and_cancellation_private() {
+        let adapter = "lldb+private-adapter";
+        let subject = debug_log_adapter(adapter);
+        assert!(subject.starts_with("invalid-"));
+        assert_eq!(subject, debug_log_adapter(adapter));
+        assert!(!subject.contains("private"));
+        let mut fact = crate::diagnostics::record::StructuredLogEvent {
+            ts: "2026-11-04T00:00:00.000Z".into(),
+            level: crate::diagnostics::record::LogLevel::Debug,
+            seq: 1,
+            event: "debug.operation.cancelled".into(),
+            op: Some("owned-operation".into()),
+            msg: String::new(),
+            fields: BTreeMap::from([
+                ("adapter".into(), json!(subject)),
+                ("failure_code".into(), json!("cancelled")),
+            ]),
+        };
+        let channel =
+            crate::diagnostics::record::prepare_catalog_event(&mut fact, &json!({})).unwrap();
+        assert_eq!(fact.level, crate::diagnostics::record::LogLevel::Debug);
+        assert_eq!(fact.op.as_deref(), Some("owned-operation"));
+        assert_eq!(fact.fields.len(), 2);
+        assert!(channel.starts_with("debug/invalid-"));
+        fact.fields
+            .insert("message".into(), json!("forbidden protocol payload"));
+        assert!(crate::diagnostics::record::prepare_catalog_event(&mut fact, &json!({})).is_err());
+    }
+
+    #[test]
+    fn dap_logging_failed_launch_owns_one_terminal_and_cancel_is_not_error() {
+        let session_id = "debug-log-owner";
+        create_session(child_request(session_id, None)).unwrap();
+        let result = with_session(session_id, |session| {
+            session.state = DebugSessionState::Launching;
+            session.emit(DebugEventBody::OperationFailed {
+                operation_id: "cancelled-launch".into(),
+                command: "launch".into(),
+                code: DebugOperationFailureCode::Cancelled,
+                message: "private adapter payload must never be logged".into(),
+            });
+            assert!(session.logged_terminal_failure);
+            session.transition(DebugSessionState::Failed);
+            Ok(())
+        });
+        destroy_session(SessionRequest {
+            session_id: session_id.into(),
+        })
+        .unwrap();
+        result.unwrap();
     }
 
     #[test]

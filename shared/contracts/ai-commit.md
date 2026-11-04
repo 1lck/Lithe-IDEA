@@ -2,10 +2,10 @@
 
 Version: 1. Behavioral fixture: `shared/fixtures/ai/commit-generation-v1.json`.
 
-Windows consumes the typed Rust API in `lithe_core::ai`. macOS remains the reference
-for settings and generation behavior and currently retains its Swift implementation;
-this change does not claim that macOS calls the new Rust API. The API has no filesystem,
-HTTP, operating-system credential, or UI dependencies.
+Windows consumes the typed Rust API in `lithe_core::ai`; macOS uses the same planner
+and decoder through the Core JSON commands `ai.planCommit` and
+`ai.decodeCommitMessage`. The API has no filesystem, HTTP, operating-system
+credential, or UI dependencies. macOS PR-description generation remains separate.
 
 ## Portable inputs
 
@@ -14,7 +14,10 @@ HTTP, operating-system credential, or UI dependencies.
 `claude`; authentication is `bearer` or `apiKey`.
 `chatTokenLimitField` defaults to `max_completion_tokens` when absent. Manual Chat
 Completions profiles may select `max_tokens` for legacy gateways; no model-name
-heuristic or silent request retry changes the selected protocol.
+heuristic or silent request retry changes the selected protocol. New macOS profiles
+use the modern field; macOS profiles saved before this setting retain their former
+`max_tokens` behavior until explicitly changed. This is a Lithe request setting,
+not an edit to an imported provider's native configuration.
 
 `CommitOptions`: `language` (`english`, `simplifiedChinese`), `format`
 (`conventional`, `concise`, `imperative`, `descriptive`, `releaseNote`, `custom`),
@@ -27,7 +30,9 @@ explicit provider value, not an instruction to omit the parameter.
 `CommitFile`: repository-relative `path`, `changeKind`, and `diff`.
 The caller must provide evidence matching its actual commit operation:
 macOS uses staged diffs, Windows uses the full working-tree snapshot of selected paths.
-Generation never stages, commits, or pushes.
+Generation never stages, commits, or pushes. Both hosts obtain this evidence through
+[`git.commitMessageContext`](git-commit-message-context.md), which captures
+fresh content, applies the shared budget and rechecks an opaque state token.
 
 ## Typed operations
 
@@ -48,7 +53,10 @@ Generation never stages, commits, or pushes.
   Serde serialization. Only metadata and `hasCredential` cross the UI boundary.
 - `plan_commit(provider, options, files)` returns a credential-free URL and JSON body.
   It validates protocol, URL and limits; distributes diff space across file boundaries;
-  and includes language, format, custom and subject/body instructions. Requests allow
+  and includes language, format, custom and subject/body instructions. When every file
+  supplies `originalCharacters`, the typed planner validates the Core-budgeted
+  prefixes and preserves truncation markers; older unbounded callers may omit it
+  for every file. Mixed or inconsistent inputs are rejected. Requests allow
   4,096 output tokens, including provider-internal reasoning, even for subject-only output.
   Chat Completions uses the provider's selected token-limit field; Responses and
   Anthropic retain their respective `max_output_tokens` and `max_tokens` fields.
@@ -56,6 +64,23 @@ Generation never stages, commits, or pushes.
   supported response envelopes, strips Markdown fences and rejects empty responses.
   Provider output-limit termination returns `AI_COMMIT_OUTPUT_LIMIT`; partial text
   from such a response is never applied to the draft.
+
+## Shared JSON commands
+
+`ai.commitInputBudget` accepts `{maximumDiffCharacters, fileLengths}` (Unicode
+scalar counts) and returns per-file `{characters, truncated}`. Hosts send only
+those diff prefixes across the native boundary, together with `originalCharacters`;
+Core validates each prefix and retains the truncation warning. `ai.planCommit`
+accepts `{provider, options, files}` and returns the credential-free `{url, body}`.
+`ai.decodeCommitMessage` accepts `{protocol, response, includeBody}`
+and returns `{message}`. Domain failures use the existing Core error envelope with
+an `AI_COMMIT_*` message; malformed payloads report `AI_COMMIT_INVALID_OPTIONS`
+without echoing diffs, responses or credentials. Credentials are never command inputs.
+macOS resolves its selected provider and credentials in the host, attaches HTTP
+headers locally and preserves its existing staged-diff scope and cancellation.
+The host rejects responses over 2 MiB before Core JSON decoding. Shared fixture
+`shared/fixtures/ai/commit-generation-v1.json` exercises the three protocols on
+both Core and the macOS bridge.
 
 ## Windows adapter surface
 
@@ -86,8 +111,9 @@ The frontend maps them to actionable localized messages and discards stale resul
 
 Only one generation per commit panel is active. Changing repository/branch/selection
 or unmounting cancels it. A successful response is a draft, never a Git mutation.
-Existing text requires replacement confirmation. Selection and patch fingerprints
-are rechecked before applying; edits made while confirming are preserved.
+Existing text requires replacement confirmation. Selection and the complete Git state token are rechecked before applying;
+macOS rechecks again when a replacement is confirmed, and both platforms preserve
+edits made while confirmation or the check is pending.
 
 Subject length is an instruction to the model, not a hard truncation guarantee.
 Anthropic Messages does not receive reasoning-effort fields. Filesystem location,

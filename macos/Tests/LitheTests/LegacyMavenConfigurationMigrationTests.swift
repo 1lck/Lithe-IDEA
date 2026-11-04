@@ -359,7 +359,12 @@ private struct MigrationFileStorage: FileStorage {
         if failRunPublication && url.lastPathComponent == "local.json" { throw CocoaError(.fileWriteNoPermission) }
         return try native.replaceData(data, at: url, expecting: expected)
     }
-    func replaceDataPreservingMetadata(_ data: Data, at url: URL, expecting expected: Data?) throws -> Bool { try native.replaceDataPreservingMetadata(data, at: url, expecting: expected) }
+    func replaceDataPreservingMetadata(_ data: Data, at url: URL, expecting expected: Data?) throws -> Bool {
+        // The run store publishes `local.json` through this metadata-preserving
+        // path; the injected failure has to cover it as well as `replaceData`.
+        if failRunPublication && url.lastPathComponent == "local.json" { throw CocoaError(.fileWriteNoPermission) }
+        return try native.replaceDataPreservingMetadata(data, at: url, expecting: expected)
+    }
     func removeData(at url: URL, expecting expected: Data) throws -> Bool {
         try beforeRemoval?(url)
         return try native.removeData(at: url, expecting: expected)

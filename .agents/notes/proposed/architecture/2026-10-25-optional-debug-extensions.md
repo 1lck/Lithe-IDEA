@@ -128,7 +128,6 @@ GDB、LLDB 可以调试 C、C++、Rust 和汇编，但二进制不一定有源�
 
 - `rust/lithe-core/src/debug/`
 - `shared/fixtures/debug/`
-- `shared/proposals/debug-adapters-1210/`
 - `macos/Sources/LitheCoreContracts/Debug/`
 - `macos/Sources/LitheDebugModule/`
 - `windows/tauri/src/features/debugger/`

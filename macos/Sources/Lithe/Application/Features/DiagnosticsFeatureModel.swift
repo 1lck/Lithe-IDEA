@@ -1,135 +1,116 @@
 import Combine
 import Foundation
+import LitheModuleAPI
 
-/// Owns the shared logs/diagnostics page state and immutable export confirmation.
+/// Log maintenance and the immutable export confirmation owned by the log window.
 @MainActor
 final class DiagnosticsFeatureModel: ObservableObject {
+    enum Range: String, CaseIterable { case current, recent, day }
     private let service: DiagnosticsExportService
+    private let now: () -> Date
+    private let sink: (any LogSink)?
     private var observation: AnyCancellable?
-
+    private var planning: Task<Void, Never>?
+    private var filter = LogWindowQuery()
+    private var environment: RustCoreBridge.LogEnvironment?
     @Published private(set) var state: DiagnosticsExportService.ExportState
     @Published var isPresented = false
-    private(set) var exportQuery = ApplicationLogQuery()
-    @Published var logCategory = "all" { didSet { invalidateLogQuery() } }
-    @Published var logSession = "current" { didSet { invalidateLogQuery() } }
-    @Published var logLevel = "info" { didSet { invalidateLogQuery() } }
-    @Published var logSearch = "" { didSet { invalidateLogQuery() } }
-    @Published var logSince = "" { didSet { invalidateLogQuery() } }
-    @Published var logUntil = "" { didSet { invalidateLogQuery() } }
-    @Published private(set) var logContent = ""
+    @Published var choosingDestination = false
+    @Published var range: Range = .current { didSet { replan() } }
+    @Published var currentFilterOnly = false { didSet { replan() } }
+    @Published var includeEnvironment = true { didSet { replan() } }
     @Published private(set) var logError: String?
-    @Published private(set) var logsCleared = false
-    @Published private(set) var logTruncated = false
-    @Published private(set) var droppedEvents = 0
-    @Published private(set) var writeFailures = 0
-    @Published private(set) var diagnosticEnabled = false
-    @Published private(set) var diagnosticCategory: String?
-    @Published private(set) var isLoadingLogs = false
+    @Published private(set) var diskBytes: UInt64 = 0
     @Published private(set) var isUpdatingLogs = false
-    private var queryGeneration = 0
-
+    var manifest: RustCoreBridge.DiagnosticsManifestPayload? { service.confirmedManifest }
+    func retry() { replan() }
+    var estimatedBytes: UInt64 { service.estimatedBytes }
+    var selectedChannels: [String] { filter.channelPrefixes }
     var isBusy: Bool {
-        if case .preparing = state { return true }
         if case .exporting = state { return true }
-        return isLoadingLogs || isUpdatingLogs
+        return isUpdatingLogs || choosingDestination
     }
-
-    var logQuery: ApplicationLogQuery {
-        ApplicationLogQuery(category: logCategory == "all" ? nil : logCategory,
-            minimumLevel: logLevel, session: logSession,
-            search: logSearch.isEmpty ? nil : logSearch,
-            since: logSince.isEmpty ? nil : logSince, until: logUntil.isEmpty ? nil : logUntil)
+    var isPlanning: Bool { if case .preparing = state { return true }; return false }
+    var exportQuery: ApplicationLogQuery {
+        var query = ApplicationLogQuery()
+        switch range {
+        case .current: query.session = "current"
+        case .recent: query.session = "all"; query.recentSessions = 3
+        case .day:
+            query.session = "all"
+            query.since = ISO8601DateFormatter().string(from: now().addingTimeInterval(-24 * 60 * 60))
+        }
+        if currentFilterOnly {
+            query.channelPrefixes = filter.channelPrefixes
+            query.levels = filter.levels
+            query.expression = filter.expression
+            query.filterSince = filter.since
+            query.filterUntil = filter.until
+        }
+        return query
     }
-
-    private func invalidateLogQuery() {
-        queryGeneration += 1
-        logContent = ""
-        logTruncated = false
-        logError = nil
-        logsCleared = false
+    init(service: DiagnosticsExportService, now: @escaping () -> Date = Date.init, sink: (any LogSink)? = nil) {
+        self.service = service; self.now = now; self.sink = sink
+        _state = Published(initialValue: service.state)
+        observation = service.$state.sink { [weak self] in self?.state = $0 }
     }
-
-    func refreshLogs() async {
-        guard !isLoadingLogs else { return }
-        let generation = queryGeneration
-        let query = logQuery
-        isLoadingLogs = true
-        // Filter changes invalidate only the result; this request still owns loading.
-        defer { isLoadingLogs = false }
+    deinit { planning?.cancel() }
+    func refreshStatus() async {
         do {
-            guard let collection = try await service.applicationLogging?.collect(query: query),
-                  generation == queryGeneration else { return }
-            let lines = collection.content.split(separator: "\n", omittingEmptySubsequences: false)
-            logContent = String(lines.suffix(2000).joined(separator: "\n").suffix(200_000))
-            logTruncated = collection.truncated || logContent.count < collection.content.count
-            diagnosticEnabled = collection.diagnosticEnabled
-            diagnosticCategory = collection.diagnosticCategory
-            droppedEvents = collection.droppedEvents
-            writeFailures = collection.writeFailures
+            let status = try await service.applicationLogging?.status()
+            diskBytes = status?.diskBytes ?? 0
             logError = nil
-        } catch { if generation == queryGeneration { logError = error.localizedDescription } }
-    }
-
-    func setDiagnosticEnabled(_ enabled: Bool) async {
-        guard !isBusy else { return }
-        isUpdatingLogs = true
-        await service.applicationLogging?.configureDiagnostic(
-            category: logCategory == "all" ? nil : logCategory, enabled: enabled)
-        isUpdatingLogs = false
-        await refreshLogs()
-    }
-
-    func clearLogs() async {
-        guard !isBusy else { return }
-        logsCleared = false
-        logError = nil
-        isUpdatingLogs = true
-        do {
-            try await service.applicationLogging?.clear()
-            isUpdatingLogs = false
-            await refreshLogs()
-            if logError == nil { logsCleared = true }
         } catch {
-            isUpdatingLogs = false
-            logError = error.localizedDescription
+            guard !error.isCancellation else { return }
+            sink?.emit(AppLoggingDiagnosticsFailed(error: error))
+            logError = L10n.string("Could not load logs. Try again.")
         }
     }
-
+    func clearLogs() async {
+        guard !isBusy else { return }
+        isUpdatingLogs = true
+        defer { isUpdatingLogs = false }
+        do {
+            try await service.applicationLogging?.clear()
+            logError = nil
+            await refreshStatus()
+        } catch {
+            sink?.emit(AppLoggingDiagnosticsFailed(error: error))
+            logError = L10n.string("Could not clear logs. Try again.")
+        }
+    }
     func changeLogDirectory(to directory: URL) async -> Bool {
         guard !isBusy, let logging = service.applicationLogging else { return false }
         isUpdatingLogs = true
+        defer { isUpdatingLogs = false }
         do {
             try await logging.changeDirectory(to: directory)
-            isUpdatingLogs = false
-            await refreshLogs()
-            return true
+            logError = nil; await refreshStatus(); return true
         } catch {
-            isUpdatingLogs = false
-            logError = error.localizedDescription
+            sink?.emit(AppLoggingDiagnosticsFailed(error: error))
+            logError = L10n.string("Could not change the log directory. Try again.")
             return false
         }
     }
-
-    init(service: DiagnosticsExportService) {
-        self.service = service
-        _state = Published(initialValue: service.state)
-        observation = service.$state.sink { [weak self] state in self?.state = state }
-    }
-
-    func presentExport() {
+    func presentExport(filter: LogWindowQuery, environment: RustCoreBridge.LogEnvironment? = nil) {
         guard !isBusy else { return }
-        let query = logQuery
-        exportQuery = query
-        isPresented = true
-        Task { await service.prepare(query: query) }
-    }
-
-    func dismiss() {
-        service.cancel()
+        self.filter = filter; self.environment = environment
         isPresented = false
+        range = .current; currentFilterOnly = false; includeEnvironment = true
+        isPresented = true
+        replan()
     }
-
-    func export(to destinationURL: URL) async {
-        await service.export(to: destinationURL)
+    private func replan() {
+        guard isPresented, !isBusy else { return }
+        planning?.cancel()
+        service.cancel()
+        let query = exportQuery, include = includeEnvironment, environment = environment, crashes = range != .current
+        planning = Task {
+            guard !Task.isCancelled else { return }
+            await service.prepare(query: query, includeEnvironment: include,
+                environment: environment, includeCrashes: crashes)
+        }
     }
+    func dismiss() { choosingDestination = false; planning?.cancel(); planning = nil; service.cancel(); isPresented = false }
+    func export(to destinationURL: URL) async { await service.export(to: destinationURL) }
 }

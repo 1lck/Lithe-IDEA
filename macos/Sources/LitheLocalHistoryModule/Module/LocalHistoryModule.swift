@@ -26,7 +26,7 @@ public final class HistoryModule: LitheModule {
 
     public func activate(context: ModuleContext) async throws {
         guard capability == nil else { return }
-        let feature = ProjectHistoryFeatureModel(workspaceAccess: workspaceAccess, storage: storage, localHistoryOperations: operations)
+        let feature = ProjectHistoryFeatureModel(workspaceAccess: workspaceAccess, logSink: context.logSink, storage: storage, localHistoryOperations: operations)
         context.resources.register(HistoryTaskResource(feature: feature))
         capability = HistoryModuleCapability(feature: feature)
     }

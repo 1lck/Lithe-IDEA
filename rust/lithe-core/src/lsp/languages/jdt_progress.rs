@@ -253,6 +253,16 @@ impl JavaPreparationDiagnostics {
         .to_string()
     }
 
+    /// Scalar observation for catalog logging, separate from v1 JSON presentation.
+    pub(crate) fn log_progress(&self, now: Instant) -> serde_json::Value {
+        json!({"progressPercent": self.progress_percentage, "idleMilliseconds": self.last_progress_at.map(|at| now.saturating_duration_since(at).as_millis() as u64).unwrap_or(0)})
+    }
+
+    /// Elapsed import time before ready_detail consumes the readiness state.
+    pub(crate) fn log_import(&self, now: Instant) -> serde_json::Value {
+        json!({"importMilliseconds": self.readiness_started_at.map(|at| now.saturating_duration_since(at).as_millis() as u64)})
+    }
+
     /// Finishes preparation and serializes one aggregate startup summary.
     pub(crate) fn ready_detail(&mut self, now: Instant) -> String {
         let import_elapsed = self

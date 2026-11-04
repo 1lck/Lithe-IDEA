@@ -204,7 +204,11 @@ async fn run(r: Request, cancelled: &dyn Fn() -> bool) -> Result<Value, Error> {
         if let Some(pid) = child.id() {
             crate::force_kill_tree(pid);
         }
-        let _ = tokio::time::timeout(Duration::from_secs(3), child.wait()).await;
+        crate::failure_log::process_wait(
+            "agent.host.operation_failed",
+            "process_wait",
+            tokio::time::timeout(Duration::from_secs(3), child.wait()).await,
+        );
     }
     result
 }
@@ -281,6 +285,12 @@ where
         _ = tokio::time::sleep_until(deadline) => Err(Error::Timeout),
         value = listing => value,
     };
-    let _ = tokio::time::timeout(Duration::from_secs(2), service.cancel()).await;
+    crate::failure_log::nested(
+        "agent.host.operation_failed",
+        "probe_cancel",
+        tokio::time::timeout(Duration::from_secs(2), service.cancel()).await,
+        "completion_failed",
+        "task",
+    );
     result
 }

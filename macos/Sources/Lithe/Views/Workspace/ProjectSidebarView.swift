@@ -101,7 +101,7 @@ struct ProjectSidebarView: View {
             guard !Task.isCancelled, expandAllRequestID == requestID, model.rootNode?.url == workspace else { return }
             expandAllRequestID = nil
             guard let paths, let root = model.rootNode else {
-                model.showNotification("Could not expand all project directories")
+                model.showNotification("Could not expand all project directories", logReference: model.notificationRejection(operation: "project_tree", reason: "expansion_failed"))
                 return
             }
             treeState.updateExpandedPaths(paths, in: root)
@@ -531,6 +531,11 @@ private final class ProjectTreeActions: @unchecked Sendable {
         AgentFileAttachmentMenu.items(model: model, urls: urls)
     }
 
+    @MainActor
+    func openWithMenuItems(_ url: URL) -> [LitheContextMenuItem] {
+        ProjectFileOpenWithMenu.items(model: model, url: url)
+    }
+
     /// "Show <VCS> Diff" for a file a plugin VCS lists as changed.
     @MainActor
     func vcsDiffMenuItem(_ url: URL) -> LitheContextMenuItem? {
@@ -627,7 +632,7 @@ private final class ProjectTreeActions: @unchecked Sendable {
         await WorkspaceFileIconResolver.resolve(
             for: url,
             suggested: suggested,
-            storage: model.services.fileStorage
+            storage: model.services.fileStorage, logSink: model.services.logSink
         )
     }
 }
@@ -1071,7 +1076,7 @@ private struct FileNodeRow: View {
             .action("Open") {
                 actions.openFile(node.url)
             }
-        ] + [.separator] + projectSearchMenuItems
+        ] + actions.openWithMenuItems(node.url) + [.separator] + projectSearchMenuItems
         let attachments = actions.agentAttachmentMenuItems([node.url])
         if !attachments.isEmpty { items += [.separator] + attachments }
 

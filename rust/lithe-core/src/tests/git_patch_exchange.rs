@@ -35,7 +35,7 @@ impl PatchRepository {
         payload["root"] = json!(self.0);
         let request = json!({
             "id": format!("{}-{command}", self.1.file_name().unwrap().to_string_lossy()),
-            "timeoutMilliseconds": if command.starts_with("git.patch") { 15000 } else { 5000 }, "command": command, "payload": payload,
+            "timeoutMilliseconds": if command == "git.commitMessageContext" { 30000 } else if command.starts_with("git.patch") { 15000 } else { 5000 }, "command": command, "payload": payload,
         });
         serde_json::from_str(&execute_json(&request.to_string())).unwrap()
     }
@@ -255,6 +255,287 @@ fn saved_stash_diff_and_drop_follow_immutable_identity_after_positions_change() 
     let remaining = repository.data("git.stashes", json!({}));
     assert_eq!(remaining["stashes"].as_array().unwrap().len(), 1);
     assert_eq!(remaining["stashes"][0]["message"], "newer");
+}
+
+#[test]
+fn saved_stash_diff_returns_file_sections_and_core_documents() {
+    let repository = PatchRepository::new("saved-stash-sections");
+    repository.git(&["config", "diff.noprefix", "true"]);
+    repository.git(&["config", "diff.mnemonicprefix", "true"]);
+    repository.write("text.txt", b"first\nbase\nthird\nfourth\n");
+    repository.git(&["add", "text.txt"]);
+    repository.git(&["commit", "-qm", "long base"]);
+    repository.git(&["mv", "text.txt", "改名 space.txt"]);
+    repository.write(
+        "改名 space.txt",
+        b"first\nbase\nthird\nfourth\ndiff --git is content\n",
+    );
+    repository.write("untracked.txt", b"saved untracked\n");
+    repository.write("binary.bin", &[0, 255, 128, 0]);
+    repository.git(&["stash", "push", "-u", "-m", "sections"]);
+    let entries = repository.data("git.stashes", json!({}));
+    let oid = entries["stashes"][0]["oid"].as_str().unwrap();
+    repository.write("text.txt", b"newer stash\n");
+    repository.git(&["stash", "push", "-m", "newer"]);
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/git/saved-stash-v1.json"
+    ))
+    .unwrap();
+    let mut request = fixture["sectionRequest"].clone();
+    request["stashReference"] = json!(oid);
+    let saved = repository.data("git.diff", request);
+    let ordinary = repository.data(
+        "git.diff",
+        json!({"pathspecs":["."], "includeFileSections":true}),
+    );
+    assert!(
+        ordinary["files"].is_array(),
+        "ordinary Git diffs also expose sections"
+    );
+    let narrowed = repository.call(
+        "git.diff",
+        json!({
+            "pathspecs":["text.txt"], "stashReference":oid, "includeFileSections":true
+        }),
+    );
+    assert_eq!(
+        narrowed["ok"], false,
+        "per-file mode must not ignore a narrower path selection"
+    );
+    let files = saved["files"]
+        .as_array()
+        .expect("Core should return file sections");
+    assert_eq!(files.len(), 3, "{saved}");
+    assert!(!saved.to_string().contains("newer stash"));
+    let rename = files
+        .iter()
+        .find(|file| file["path"] == "改名 space.txt")
+        .unwrap();
+    assert_eq!(rename["originalPath"], "text.txt");
+    assert_eq!(rename["status"], "R");
+    assert!(rename["patch"]
+        .as_str()
+        .unwrap()
+        .contains("+diff --git is content"));
+    assert!(rename["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|row| row["right"] == "diff --git is content"));
+    let binary = files
+        .iter()
+        .find(|file| file["path"] == "binary.bin")
+        .unwrap();
+    assert_eq!(binary["status"], "A");
+    assert!(binary["patch"]
+        .as_str()
+        .unwrap()
+        .contains("GIT binary patch"));
+    assert_eq!(
+        files
+            .iter()
+            .filter(|file| file["path"] == "untracked.txt")
+            .count(),
+        1
+    );
+    assert_eq!(
+        saved["patch"], "",
+        "Per-file mode must not duplicate the whole patch"
+    );
+}
+
+#[test]
+fn structured_patch_and_git_diff_preserve_file_identity_and_writable_hunks() {
+    let repository = PatchRepository::new("structured-patch");
+    repository.write("text.txt", b"first\r\nchanged");
+    repository.write("新 文件.txt", "untracked\n".as_bytes());
+    repository.write("binary.bin", &[0, 128, 255, 0]);
+    let patch = repository.export("workingTree")["patch"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/git/parsed-diff-v1.json"
+    ))
+    .unwrap();
+    let mut request = fixture["parseRequest"].clone();
+    request["patch"] = json!(patch);
+    let parsed = repository.data("git.parsePatch", request);
+    let files = parsed["files"].as_array().expect("parsed file sections");
+    assert_eq!(files.len(), 3, "{parsed}");
+    let text = files
+        .iter()
+        .find(|file| file["path"] == "text.txt")
+        .unwrap();
+    assert_eq!(text["hasLossyLineEndings"], true);
+    assert_eq!(text["lines"], fixture["expectedTextLines"]);
+    assert!(text["hunks"][0]["patch"]
+        .as_str()
+        .unwrap()
+        .contains("\\ No newline at end of file"));
+    assert!(text["hunks"][0]["patch"]
+        .as_str()
+        .unwrap()
+        .contains("+first\r\n"));
+    let binary = files
+        .iter()
+        .find(|file| file["path"] == "binary.bin")
+        .unwrap();
+    assert_eq!(binary["isBinary"], true);
+    assert_eq!(binary["status"], "A");
+    assert!(files.iter().any(|file| file["path"] == "新 文件.txt"));
+    repository.git(&["add", "--all"]);
+    let diff = repository.data("git.diff", fixture["sectionRequest"].clone());
+    assert_eq!(diff["files"].as_array().unwrap().len(), 3);
+    let compact = repository.data(
+        "git.diff",
+        json!({"pathspecs":["."], "staged":true, "includeFileSections":true, "omitFilePatch":true}),
+    );
+    assert_eq!(compact["files"][0]["patch"], "");
+    let text = compact["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|file| file["path"] == "text.txt")
+        .unwrap();
+    assert!(!text["hunks"][0]["patch"].as_str().unwrap().is_empty());
+    assert_eq!(
+        diff["patch"], "",
+        "structured mode must not duplicate the full patch"
+    );
+    assert_eq!(
+        repository.data("git.parsePatch", json!({"patch":""}))["files"],
+        json!([])
+    );
+}
+
+#[test]
+fn structured_git_diff_marks_invalid_utf8_without_unsafe_write_material() {
+    let repository = PatchRepository::new("structured-lossy");
+    repository.write(
+        "text.txt",
+        &[b'f', b'i', b'r', b's', b't', b'\n', 0xff, b'\n'],
+    );
+    let diff = repository.data(
+        "git.diff",
+        json!({"pathspecs":["text.txt"], "includeFileSections":true}),
+    );
+    assert_eq!(diff["hasDecodingLoss"], true, "{diff}");
+    assert_eq!(diff["files"][0]["hasLossyLineEndings"], true);
+    assert!(diff["files"][0]["patch"]
+        .as_str()
+        .unwrap()
+        .contains('\u{fffd}'));
+}
+
+#[test]
+fn structured_untracked_snapshot_and_exact_hunk_writes_use_real_git() {
+    let repository = PatchRepository::new("structured-untracked-hunk");
+    repository.git(&["config", "diff.noprefix", "true"]);
+    repository.write("new space.txt", b"new\r\nlast");
+    let untracked = repository.data(
+        "git.diff",
+        json!({"pathspecs":["new space.txt"], "untracked":true, "includeFileSections":true}),
+    );
+    assert_eq!(
+        untracked["files"][0]["path"], "new space.txt",
+        "{untracked}"
+    );
+    assert_eq!(untracked["files"][0]["status"], "A", "{untracked}");
+    repository.write("text.txt", b"first\r\nchanged");
+    let snapshot = repository.data(
+        "git.diff",
+        json!({"pathspecs":["."], "worktreeSnapshot":true, "includeFileSections":true}),
+    );
+    assert_eq!(snapshot["files"].as_array().unwrap().len(), 2, "{snapshot}");
+    let diff = repository.data(
+        "git.diff",
+        json!({"pathspecs":["text.txt"], "includeFileSections":true}),
+    );
+    let patch = diff["files"][0]["hunks"][0]["patch"].as_str().unwrap();
+    let applied = repository.data("git.apply", json!({"patch":patch, "mode":"stage"}));
+    assert_eq!(applied["exitCode"], 0, "{applied}");
+    assert_eq!(
+        repository.git(&["show", ":text.txt"]).as_bytes(),
+        b"first\r\nchanged"
+    );
+    let reverted = repository.data("git.apply", json!({"patch":patch, "mode":"unstage"}));
+    assert_eq!(reverted["exitCode"], 0, "{reverted}");
+    assert_eq!(
+        repository.git(&["show", ":text.txt"]).as_bytes(),
+        b"first\nbase\n"
+    );
+}
+
+#[test]
+fn structured_diff_keeps_git_rename_identity_and_visible_cr_changes() {
+    let repository = PatchRepository::new("structured-rename");
+    repository.git(&["mv", "text.txt", "改名.txt"]);
+    let renamed = repository.data(
+        "git.diff",
+        json!({"pathspecs":["."], "staged":true, "includeFileSections":true}),
+    );
+    assert_eq!(renamed["files"][0]["path"], "改名.txt", "{renamed}");
+    assert_eq!(renamed["files"][0]["originalPath"], "text.txt");
+    assert_eq!(renamed["files"][0]["status"], "R");
+    repository.git(&["commit", "-qm", "rename"]);
+    repository.write("改名.txt", b"first\r\nbase\n");
+    let modified = repository.data(
+        "git.diff",
+        json!({"pathspecs":["改名.txt"], "includeFileSections":true}),
+    );
+    let rows = modified["files"][0]["rows"].as_array().unwrap();
+    assert!(
+        rows.iter().any(|row| row["isInvisibleChange"] == true),
+        "{modified}"
+    );
+}
+
+#[test]
+fn rename_hunk_unstage_preserves_rename_and_other_staged_changes() {
+    assert_rename_hunk_unstage("new name 中文.txt");
+}
+
+// Windows filesystems do not allow control characters in a file name.
+#[cfg(not(windows))]
+#[test]
+fn rename_hunk_unstage_preserves_tab_in_file_name() {
+    assert_rename_hunk_unstage("new name\t中文.txt");
+}
+
+fn assert_rename_hunk_unstage(renamed: &str) {
+    let repository = PatchRepository::new("rename-content-hunks");
+    let original: Vec<String> = (0..100).map(|line| format!("line {line:03}\n")).collect();
+    repository.write("text.txt", original.concat().as_bytes());
+    repository.git(&["add", "text.txt"]);
+    repository.git(&["commit", "-qm", "long file"]);
+    repository.git(&["mv", "text.txt", renamed]);
+    let mut changed = original.clone();
+    changed[5] = "first changed\r\n".into();
+    changed[90] = "second changed\n".into();
+    repository.write(renamed, changed.concat().as_bytes());
+    repository.git(&["add", "--all"]);
+    let diff = repository.data(
+        "git.diff",
+        json!({"pathspecs":["."], "staged":true, "contextLines":3, "includeFileSections":true}),
+    );
+    let file = &diff["files"][0];
+    assert_eq!(file["status"], "R", "{diff}");
+    assert_eq!(file["hunks"].as_array().unwrap().len(), 2);
+    let patch = file["hunks"][0]["contentPatch"]
+        .as_str()
+        .expect("content-only patch");
+    let applied = repository.data("git.apply", json!({"patch":patch, "mode":"unstage"}));
+    assert_eq!(applied["exitCode"], 0, "{applied}");
+    let status = repository.git(&["diff", "--cached", "--name-status"]);
+    assert!(status.starts_with("R"), "{status}");
+    let staged = repository.git(&["show", &format!(":{renamed}")]);
+    assert!(staged.contains("line 005\n"));
+    assert!(staged.contains("second changed\n"));
+    assert_eq!(
+        fs::read(repository.0.join(renamed)).unwrap(),
+        changed.concat().as_bytes()
+    );
 }
 
 impl Drop for PatchRepository {
@@ -645,4 +926,470 @@ fn saved_patch_metadata_is_read_only_during_merge_and_never_authorizes_apply() {
         json!({"patch": patch, "target": "worktree"}),
     );
     assert_eq!(normal["ok"], false);
+}
+
+#[test]
+fn shelf_clean_keeps_new_edits_after_capture_and_retains_both_layers() {
+    let repository = PatchRepository::new("shelf-guard-new-edit");
+    repository.write("text.txt", b"first\nstaged\n");
+    repository.git(&["add", "text.txt"]);
+    repository.write("text.txt", b"first\nworking\n");
+    let snapshot = repository.data("git.shelf", json!({"action":"capture"}));
+    repository.write("text.txt", b"first\nnew edit after saving\n");
+    let clean = repository.call(
+        "git.shelf",
+        json!({"action":"clean", "layer":"working", "snapshot":snapshot}),
+    );
+    assert_eq!(clean["ok"], false, "{clean}");
+    assert_eq!(
+        fs::read(repository.0.join("text.txt")).unwrap(),
+        b"first\nnew edit after saving\n"
+    );
+    assert_eq!(repository.git(&["show", ":text.txt"]), "first\nstaged\n");
+}
+
+#[test]
+fn shelf_clean_and_retry_restore_preserve_staged_working_and_untracked() {
+    let repository = PatchRepository::new("shelf-step-roundtrip");
+    repository.write("text.txt", b"first\nstaged\n");
+    repository.git(&["add", "text.txt"]);
+    repository.write("text.txt", b"first\nworking\n");
+    repository.write("new.txt", b"new content\n");
+    let index_before_capture = fs::read(repository.0.join(".git/index")).unwrap();
+    let snapshot = repository.data("git.shelf", json!({"action":"capture"}));
+    assert_eq!(snapshot["paths"], json!(["new.txt", "text.txt"]));
+    assert_eq!(
+        fs::read(repository.0.join(".git/index")).unwrap(),
+        index_before_capture,
+        "capture must not refresh the real index"
+    );
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/git/shelf-v1.json"
+    ))
+    .unwrap();
+    assert_eq!(
+        repository.data("git.shelf", json!({"action":"plan", "phase":"clean"})),
+        fixture["cleanPlan"]
+    );
+    assert_eq!(
+        repository.data("git.shelf", json!({"action":"plan", "phase":"restore"})),
+        fixture["restorePlan"]
+    );
+    for layer in ["working", "staged"] {
+        let result = repository.call(
+            "git.shelf",
+            json!({"action":"clean", "layer":layer, "snapshot":snapshot}),
+        );
+        assert_eq!(result["ok"], true, "clean {layer}: {result}");
+        let before = fs::read(repository.0.join(".git/index")).unwrap();
+        repository.data("git.shelf", json!({"action":"capture"}));
+        assert_eq!(
+            fs::read(repository.0.join(".git/index")).unwrap(),
+            before,
+            "capture after {layer} changed index"
+        );
+    }
+    assert!(repository.git(&["status", "--porcelain"]).is_empty());
+    repository.data(
+        "git.shelf",
+        json!({"action":"restore", "layer":"staged", "snapshot":snapshot}),
+    );
+    // A retry must recognise the restored index and continue with the worktree layer.
+    repository.data(
+        "git.shelf",
+        json!({"action":"restore", "layer":"staged", "snapshot":snapshot}),
+    );
+    repository.data(
+        "git.shelf",
+        json!({"action":"restore", "layer":"working", "snapshot":snapshot}),
+    );
+    assert_eq!(repository.git(&["show", ":text.txt"]), "first\nstaged\n");
+    assert_eq!(
+        fs::read(repository.0.join("text.txt")).unwrap(),
+        b"first\nworking\n"
+    );
+    assert_eq!(
+        fs::read(repository.0.join("new.txt")).unwrap(),
+        b"new content\n"
+    );
+    // Retry after a storage deletion failure must also recognise both layers.
+    for layer in ["staged", "working"] {
+        repository.data(
+            "git.shelf",
+            json!({"action":"restore", "layer":layer, "snapshot":snapshot}),
+        );
+    }
+}
+
+#[test]
+fn shelf_staged_clean_refuses_new_worktree_edit_between_layers() {
+    let repository = PatchRepository::new("shelf-edit-between-layers");
+    repository.write("text.txt", b"first\nstaged\n");
+    repository.git(&["add", "text.txt"]);
+    repository.write("text.txt", b"first\nworking\n");
+    let snapshot = repository.data("git.shelf", json!({"action":"capture"}));
+    repository.data(
+        "git.shelf",
+        json!({"action":"clean", "layer":"working", "snapshot":snapshot}),
+    );
+    repository.write("late.txt", b"newly created\n");
+    let clean = repository.call(
+        "git.shelf",
+        json!({"action":"clean", "layer":"staged", "snapshot":snapshot}),
+    );
+    assert_eq!(clean["ok"], false, "{clean}");
+    assert_eq!(repository.git(&["show", ":text.txt"]), "first\nstaged\n");
+    assert_eq!(
+        fs::read(repository.0.join("late.txt")).unwrap(),
+        b"newly created\n"
+    );
+}
+
+#[test]
+fn shelf_restore_conflict_preserves_worktree_and_allows_retry_after_resolution() {
+    let repository = PatchRepository::new("shelf-retry-conflict");
+    repository.write("text.txt", b"first\nstaged\n");
+    repository.git(&["add", "text.txt"]);
+    repository.write("text.txt", b"first\nworking\n");
+    let snapshot = repository.data("git.shelf", json!({"action":"capture"}));
+    for layer in ["working", "staged"] {
+        repository.data(
+            "git.shelf",
+            json!({"action":"clean", "layer":layer, "snapshot":snapshot}),
+        );
+    }
+    repository.data(
+        "git.shelf",
+        json!({"action":"restore", "layer":"staged", "snapshot":snapshot}),
+    );
+    repository.write("text.txt", b"first\nconflicting edit\n");
+    let result = repository.call(
+        "git.shelf",
+        json!({"action":"restore", "layer":"working", "snapshot":snapshot}),
+    );
+    assert_eq!(result["ok"], false, "{result}");
+    assert_eq!(
+        fs::read(repository.0.join("text.txt")).unwrap(),
+        b"first\nconflicting edit\n"
+    );
+    assert_eq!(repository.git(&["show", ":text.txt"]), "first\nstaged\n");
+    repository.write("text.txt", b"first\nstaged\n");
+    for layer in ["staged", "working"] {
+        repository.data(
+            "git.shelf",
+            json!({"action":"restore", "layer":layer, "snapshot":snapshot}),
+        );
+    }
+    assert_eq!(
+        fs::read(repository.0.join("text.txt")).unwrap(),
+        b"first\nworking\n"
+    );
+}
+
+#[test]
+fn commit_message_context_rejects_new_index_content_at_the_same_path() {
+    let repository = PatchRepository::new("commit-message-stale-index");
+    repository.write("text.txt", b"first\nstaged one\n");
+    repository.git(&["add", "text.txt"]);
+    let selection =
+        json!([{ "root": repository.0, "files": [{"path":"text.txt", "changeKind":"modified"}] }]);
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/git/commit-message-context-v1.json"
+    ))
+    .unwrap();
+    let mut request = fixture["captureRequest"].clone();
+    request["repositories"] = selection.clone();
+    let captured = repository.data("git.commitMessageContext", request);
+    assert!(captured["files"][0]["diff"]
+        .as_str()
+        .unwrap()
+        .contains("staged one"));
+    repository.write("text.txt", b"first\nstaged two\n");
+    repository.git(&["add", "text.txt"]);
+    let checked = repository.data(
+        "git.commitMessageContext",
+        json!({
+            "action":"check", "mode":"staged", "repositories":selection, "token":captured["token"]
+        }),
+    );
+    assert_eq!(checked["isCurrent"], false);
+}
+
+#[test]
+fn commit_message_context_checks_uncached_worktree_without_changing_index() {
+    let repository = PatchRepository::new("commit-message-worktree");
+    repository.write("text.txt", b"first\nworking one\n");
+    let before = fs::read(repository.0.join(".git/index")).unwrap();
+    let selection =
+        json!([{ "root":repository.0, "files":[{"path":"text.txt", "changeKind":"modified"}]}]);
+    let captured = repository.data("git.commitMessageContext", json!({"action":"capture", "mode":"worktree", "repositories":selection, "maximumDiffCharacters":8000}));
+    assert!(captured["files"][0]["diff"]
+        .as_str()
+        .unwrap()
+        .contains("working one"));
+    assert_eq!(fs::read(repository.0.join(".git/index")).unwrap(), before);
+    let unchanged = repository.data("git.commitMessageContext", json!({"action":"check", "mode":"worktree", "repositories":selection, "token":captured["token"]}));
+    assert_eq!(unchanged["isCurrent"], true);
+    assert_eq!(fs::read(repository.0.join(".git/index")).unwrap(), before);
+    repository.write("text.txt", b"first\nworking two\n");
+    let checked = repository.data("git.commitMessageContext", json!({"action":"check", "mode":"worktree", "repositories":selection, "token":captured["token"]}));
+    assert_eq!(checked["isCurrent"], false);
+    assert_eq!(fs::read(repository.0.join(".git/index")).unwrap(), before);
+}
+
+#[test]
+fn commit_message_context_does_not_accept_partial_or_sensitive_evidence() {
+    let repository = PatchRepository::new("commit-message-incomplete");
+    repository.write("text.txt", b"first\nstaged\n");
+    repository.git(&["add", "text.txt"]);
+    let partial = repository.call("git.commitMessageContext", json!({"action":"capture", "mode":"staged", "maximumDiffCharacters":8000,
+        "repositories":[{"root":repository.0,"files":[{"path":"text.txt","changeKind":"modified"},{"path":"missing.txt","changeKind":"modified"}]}]}));
+    assert_eq!(partial["ok"], false, "{partial}");
+    let sensitive = repository.call("git.commitMessageContext", json!({"action":"capture", "mode":"staged", "maximumDiffCharacters":8000,
+        "repositories":[{"root":repository.0,"files":[{"path":"text.txt","originalPath":".env","changeKind":"renamed"}]}]}));
+    assert_eq!(sensitive["ok"], false, "{sensitive}");
+    assert_eq!(sensitive["error"]["message"], "AI_COMMIT_SENSITIVE_FILE");
+}
+
+#[test]
+fn commit_message_context_token_covers_content_beyond_the_prompt_budget() {
+    let repository = PatchRepository::new("commit-message-budget");
+    repository.write(
+        "text.txt",
+        format!("{}old tail\n", "界".repeat(10000)).as_bytes(),
+    );
+    repository.git(&["add", "text.txt"]);
+    let selection =
+        json!([{ "root":repository.0, "files":[{"path":"text.txt", "changeKind":"modified"}]}]);
+    let captured = repository.data("git.commitMessageContext", json!({"action":"capture", "mode":"staged", "repositories":selection, "maximumDiffCharacters":8000}));
+    let file = &captured["files"][0];
+    assert_eq!(file["truncated"], true);
+    assert_eq!(file["diff"].as_str().unwrap().chars().count(), 8000);
+    assert!(file["originalCharacters"].as_u64().unwrap() > 8000);
+    repository.write(
+        "text.txt",
+        format!("{}new tail\n", "界".repeat(10000)).as_bytes(),
+    );
+    repository.git(&["add", "text.txt"]);
+    let checked = repository.data("git.commitMessageContext", json!({"action":"check", "mode":"staged", "repositories":selection, "token":captured["token"]}));
+    assert_eq!(checked["isCurrent"], false);
+}
+
+#[test]
+fn commit_message_context_keeps_equal_names_from_different_repositories_distinct() {
+    let first = PatchRepository::new("commit-message-multi-a");
+    let second = PatchRepository::new("commit-message-multi-b");
+    first.write("text.txt", b"first\none\n");
+    first.git(&["add", "text.txt"]);
+    second.write("text.txt", b"first\ntwo\n");
+    second.git(&["add", "text.txt"]);
+    let selection = json!([
+        {"root":second.0, "files":[{"path":"text.txt","changeKind":"modified"}]},
+        {"root":first.0, "files":[{"path":"text.txt","changeKind":"modified"}]}
+    ]);
+    let captured = first.data("git.commitMessageContext", json!({"action":"capture", "mode":"staged", "repositories":selection, "maximumDiffCharacters":8000}));
+    assert_eq!(captured["files"].as_array().unwrap().len(), 2);
+    assert_eq!(captured["files"][0]["path"], "repository-1/text.txt");
+    assert_eq!(captured["files"][1]["path"], "repository-2/text.txt");
+    let checked = first.data("git.commitMessageContext", json!({"action":"check", "mode":"staged", "repositories":selection, "token":captured["token"]}));
+    assert_eq!(checked["isCurrent"], true);
+}
+
+#[test]
+fn commit_message_context_expands_untracked_directories_and_rejects_sensitive_children() {
+    let repository = PatchRepository::new("commit-message-directory");
+    fs::create_dir(repository.0.join("generated")).unwrap();
+    for index in 0..101 {
+        repository.write(&format!("generated/{index}.txt"), b"new file\n");
+    }
+    let selection =
+        json!([{ "root":repository.0, "files":[{"path":"generated/", "changeKind":"untracked"}]}]);
+    let captured = repository.data("git.commitMessageContext", json!({"action":"capture", "mode":"worktree", "repositories":selection, "maximumDiffCharacters":8000}));
+    assert_eq!(captured["files"].as_array().unwrap().len(), 101);
+    repository.write("generated/.env", b"secret\n");
+    let sensitive = repository.call("git.commitMessageContext", json!({"action":"capture", "mode":"worktree", "repositories":selection, "maximumDiffCharacters":8000}));
+    assert_eq!(sensitive["ok"], false, "{sensitive}");
+    assert_eq!(sensitive["error"]["message"], "AI_COMMIT_SENSITIVE_FILE");
+}
+
+#[test]
+fn commit_message_context_ignores_index_stat_refresh_without_content_change() {
+    let repository = PatchRepository::new("commit-message-index-stat");
+    repository.write("text.txt", b"first\nstaged\n");
+    repository.git(&["add", "text.txt"]);
+    let selection =
+        json!([{ "root":repository.0, "files":[{"path":"text.txt", "changeKind":"modified"}]}]);
+    let captured = repository.data("git.commitMessageContext", json!({"action":"capture", "mode":"staged", "repositories":selection, "maximumDiffCharacters":8000}));
+    repository.write("text.txt", b"first\nstaged\n");
+    repository.git(&["update-index", "--refresh"]);
+    let checked = repository.data("git.commitMessageContext", json!({"action":"check", "mode":"staged", "repositories":selection, "token":captured["token"]}));
+    assert_eq!(
+        checked["isCurrent"], true,
+        "index stat refresh must not invalidate unchanged evidence"
+    );
+}
+
+#[test]
+fn commit_message_context_detects_index_flag_changes() {
+    let repository = PatchRepository::new("commit-message-index-flags");
+    repository.write("text.txt", b"first\nstaged\n");
+    repository.git(&["add", "text.txt"]);
+    let selection =
+        json!([{ "root":repository.0, "files":[{"path":"text.txt", "changeKind":"modified"}]}]);
+    let captured = repository.data("git.commitMessageContext", json!({"action":"capture", "mode":"staged", "repositories":selection, "maximumDiffCharacters":8000}));
+    repository.git(&["update-index", "--assume-unchanged", "text.txt"]);
+    let checked = repository.data("git.commitMessageContext", json!({"action":"check", "mode":"staged", "repositories":selection, "token":captured["token"]}));
+    assert_eq!(
+        checked["isCurrent"], false,
+        "index flags belong to the reviewed state"
+    );
+}
+
+#[test]
+fn commit_message_context_handles_rename_and_binary_without_binary_payload() {
+    let repository = PatchRepository::new("commit-message-rename-binary");
+    repository.git(&["mv", "text.txt", "new 名称.txt"]);
+    repository.write("binary.bin", &[0, 255, 128, 0]);
+    repository.git(&["add", "binary.bin"]);
+    let selection = json!([{ "root":repository.0, "files":[
+        {"path":"new 名称.txt", "originalPath":"text.txt", "changeKind":"renamed"},
+        {"path":"binary.bin", "changeKind":"added"}
+    ]}]);
+    let captured = repository.data("git.commitMessageContext", json!({"action":"capture", "mode":"staged", "repositories":selection, "maximumDiffCharacters":8000}));
+    let files = captured["files"].as_array().unwrap();
+    let binary = files.iter().find(|f| f["path"] == "binary.bin").unwrap();
+    assert_eq!(binary["diff"], "[Binary file; content omitted.]");
+    let rename = files.iter().find(|f| f["path"] == "new 名称.txt").unwrap();
+    assert_eq!(rename["changeKind"], "renamed");
+    assert!(rename["diff"]
+        .as_str()
+        .unwrap()
+        .contains("rename from text.txt"));
+}
+
+#[test]
+fn commit_message_context_does_not_generate_from_binary_only_evidence() {
+    let repository = PatchRepository::new("commit-message-binary-only");
+    repository.write("binary.bin", &[0, 255, 128, 0]);
+    repository.git(&["add", "binary.bin"]);
+    let selection =
+        json!([{ "root":repository.0, "files":[{"path":"binary.bin", "changeKind":"added"}]}]);
+    let result = repository.call("git.commitMessageContext", json!({"action":"capture", "mode":"staged", "repositories":selection, "maximumDiffCharacters":8000}));
+    assert_eq!(result["ok"], false, "{result}");
+    assert_eq!(result["error"]["message"], "AI_COMMIT_EMPTY_DIFF");
+}
+
+#[test]
+fn commit_message_context_rejects_untracked_directory_above_file_limit() {
+    let repository = PatchRepository::new("commit-message-directory-limit");
+    fs::create_dir(repository.0.join("generated")).unwrap();
+    for index in 0..1001 {
+        repository.write(&format!("generated/{index}.txt"), b"x\n");
+    }
+    let selection =
+        json!([{ "root":repository.0, "files":[{"path":"generated/", "changeKind":"untracked"}]}]);
+    let result = repository.call("git.commitMessageContext", json!({"action":"capture", "mode":"worktree", "repositories":selection, "maximumDiffCharacters":8000}));
+    assert_eq!(result["ok"], false, "{result}");
+    assert_eq!(result["error"]["message"], "AI_COMMIT_TOO_MANY_FILES");
+}
+
+#[test]
+fn commit_message_context_preserves_selected_delete_and_add_detected_as_rename() {
+    let repository = PatchRepository::new("commit-message-detected-rename");
+    fs::rename(
+        repository.0.join("text.txt"),
+        repository.0.join("renamed.txt"),
+    )
+    .unwrap();
+    let selection = json!([{ "root":repository.0, "files":[
+        {"path":"text.txt", "changeKind":"deleted"},
+        {"path":"renamed.txt", "changeKind":"untracked"}
+    ]}]);
+    let captured = repository.data("git.commitMessageContext", json!({"action":"capture", "mode":"worktree", "repositories":selection, "maximumDiffCharacters":8000}));
+    let files = captured["files"].as_array().unwrap();
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0]["path"], "renamed.txt");
+    assert_eq!(files[0]["changeKind"], "renamed");
+    assert!(files[0]["diff"]
+        .as_str()
+        .unwrap()
+        .contains("rename from text.txt"));
+}
+
+#[test]
+fn commit_message_context_rejects_more_than_1000_selected_paths() {
+    let repository = PatchRepository::new("commit-message-selection-limit");
+    let files: Vec<Value> = (0..1001)
+        .map(|index| json!({"path":format!("f{index}.txt"), "changeKind":"modified"}))
+        .collect();
+    let response = repository.call("git.commitMessageContext", json!({"action":"capture", "mode":"staged", "repositories":[{"root":repository.0, "files":files}], "maximumDiffCharacters":8000}));
+    assert_eq!(response["error"]["message"], "AI_COMMIT_TOO_MANY_FILES");
+}
+
+#[test]
+fn commit_message_context_does_not_include_unselected_rename_source() {
+    let repository = PatchRepository::new("commit-message-unselected-rename-source");
+    fs::rename(
+        repository.0.join("text.txt"),
+        repository.0.join("renamed.txt"),
+    )
+    .unwrap();
+    let selection =
+        json!([{ "root":repository.0, "files":[{"path":"renamed.txt", "changeKind":"untracked"}]}]);
+    let captured = repository.data("git.commitMessageContext", json!({"action":"capture", "mode":"worktree", "repositories":selection, "maximumDiffCharacters":8000}));
+    let files = captured["files"].as_array().unwrap();
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0]["path"], "renamed.txt");
+    assert!(!files[0]["diff"]
+        .as_str()
+        .unwrap()
+        .contains("rename from text.txt"));
+    assert!(repository.0.join("renamed.txt").exists());
+}
+
+#[test]
+fn commit_message_context_invalidates_when_another_staged_file_changes() {
+    let repository = PatchRepository::new("commit-message-other-index-change");
+    repository.write("text.txt", b"first\nstaged\n");
+    repository.git(&["add", "text.txt"]);
+    let selection =
+        json!([{ "root":repository.0, "files":[{"path":"text.txt", "changeKind":"modified"}]}]);
+    let captured = repository.data("git.commitMessageContext", json!({"action":"capture", "mode":"staged", "repositories":selection, "maximumDiffCharacters":8000}));
+    repository.write("other.txt", b"other staged change\n");
+    repository.git(&["add", "other.txt"]);
+    let checked = repository.data("git.commitMessageContext", json!({"action":"check", "mode":"staged", "repositories":selection, "token":captured["token"]}));
+    assert_eq!(checked["isCurrent"], false);
+}
+
+#[test]
+fn commit_message_context_uses_staged_kind_when_worktree_status_differs() {
+    let repository = PatchRepository::new("commit-message-staged-kind");
+    repository.write("text.txt", b"first\nstaged modification\n");
+    repository.git(&["add", "text.txt"]);
+    fs::remove_file(repository.0.join("text.txt")).unwrap();
+    // The UI sees a worktree deletion, but the index contains a modification.
+    let selection =
+        json!([{ "root":repository.0, "files":[{"path":"text.txt", "changeKind":"deleted"}]}]);
+    let captured = repository.data("git.commitMessageContext", json!({"action":"capture", "mode":"staged", "repositories":selection, "maximumDiffCharacters":8000}));
+    assert_eq!(captured["files"][0]["changeKind"], "modified");
+    assert!(captured["files"][0]["diff"]
+        .as_str()
+        .unwrap()
+        .contains("staged modification"));
+}
+
+#[test]
+fn commit_message_context_staged_mode_ignores_unstaged_only_edits() {
+    let repository = PatchRepository::new("commit-message-unstaged-only");
+    repository.write("text.txt", b"first\nstaged\n");
+    repository.git(&["add", "text.txt"]);
+    let selection =
+        json!([{ "root":repository.0, "files":[{"path":"text.txt", "changeKind":"modified"}]}]);
+    let captured = repository.data("git.commitMessageContext", json!({"action":"capture", "mode":"staged", "repositories":selection, "maximumDiffCharacters":8000}));
+    repository.write("text.txt", b"first\nunstaged later\n");
+    let checked = repository.data("git.commitMessageContext", json!({"action":"check", "mode":"staged", "repositories":selection, "token":captured["token"]}));
+    assert_eq!(
+        checked["isCurrent"], true,
+        "unstaged bytes do not change a staged commit"
+    );
 }

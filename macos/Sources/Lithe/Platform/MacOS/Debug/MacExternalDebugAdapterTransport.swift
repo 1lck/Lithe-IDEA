@@ -19,6 +19,7 @@ enum MacExternalDebugAdapterTransport {
         validate: @MainActor (DebugAdapterEndpoint) throws -> ValidatedEndpoint,
         confirm: @MainActor (DebugAdapterEndpoint) -> Bool = confirmConnection,
         core: any DebugTransportLifecycleCore,
+        logSink: (any LogSink)? = nil,
         connectionProvider: (any DebugAdapterConnectionProviding)? = nil
     ) throws -> MacTCPDebugAdapterTransport {
         let checked = try validate(endpoint)
@@ -30,7 +31,7 @@ enum MacExternalDebugAdapterTransport {
         }
         return MacTCPDebugAdapterTransport(
             endpointResolver: { _ in destination },
-            core: core,
+            core: core, logSink: logSink,
             connectionProvider: connectionProvider
         )
     }

@@ -92,6 +92,8 @@ async function readRegistry() {
   // conditional replacements and private provider-written outputs/<operation-id>.json use the same explicit rejection route.
   // Plugin grammar workers use checkout-built editor assets; decoded grammars,
   // document tokens and editor action leases are memory-only, never reusable.
+  // Shared logging catalogs and generated API sources also use the refusal route:
+  // validate with generate-log-events.mjs in the target checkout; never copy.
   // Shared i18n source and generated tables take this same refusal route:
   // rebuild from the target checkout, never copy another worktree's translations.
   // AutoBuild publication checkpoints and baseline downloads are invocation-owned,
@@ -169,7 +171,7 @@ async function requiredFile(root, relativePath, resourceID) {
 async function validatorArguments(resource, cachePath, targetRoot) {
   if (resource.validator === "cargo") {
     const lockPaths = [];
-    for (const relativePath of ["rust/Cargo.lock", "windows/tauri/src-tauri/Cargo.lock"]) {
+    for (const relativePath of ["rust/Cargo.lock", "windows/tauri/src-tauri/Cargo.lock", "Plugins/mac/Official/EditorKeymapImport/Cargo.lock"]) {
       const candidate = path.join(targetRoot, relativePath);
       if (await pathExists(candidate)) lockPaths.push(candidate);
     }
@@ -397,11 +399,12 @@ async function main() {
     ? options.resources.map((identifier) => {
       // Generated matrix views, runtime snapshots, per-execution Java launch files, Sparkle baseline
       // and AutoBuild staging (including per-tag baselines and local/downloaded publication checkpoints), per-launch
-      // Codex relays and isolated plugin packages take this rejection route, never a content-hash validator.
+      // CI Rust compilation state, Codex relays and plugin packages take this rejection route, never a download validator.
       // Identical bytes do not establish transferable execution ownership.
       // SwiftPM scratch-local compiler stamps only invalidate local products;
       // swiftpm-build-state is not a sealed download cache and has no copy stage.
-      // Includes application-log-state: logs, confirmation snapshots and export ZIP
+      // Includes application-log-state: v2 sessions, plugin files (0700/no-follow),
+      // confirmation snapshots and export ZIP
       // staging belong to one runtime session; no validator or copy stage applies.
       // Includes test-jfr-recordings: worker-owned profiling output has no transferable build identity.
       // Localized logging probes also reject their temporary SwiftPM UI hosts;
@@ -449,6 +452,9 @@ async function main() {
       // the same plugin owner; neither their state nor query facts may be reused.
       // consumer-tool-preferences are user-owned Run data, including symbolic
       // inheritance. No validator or copy phase can turn them into build input.
+      // editor-theme-assets rebuild palettes, bundled Make/CMake/Groovy grammars and notices together.
+      // editor-keymap-provider-build is worktree-local Cargo state and a sealed plugin, never a reusable cache.
+      // Git-owned grammar inputs and memory-only tokenizer workers never enter a copy validator.
       if (excludedResources.some((resource) => resource.id === identifier)) {
         // Per-launch relays also own their provider admission route; they stay
         // excluded even when their embedded source matches another worktree.

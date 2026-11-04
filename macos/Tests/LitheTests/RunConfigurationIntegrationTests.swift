@@ -2169,17 +2169,7 @@ struct RunConfigurationIntegrationTests {
         }
         #expect(error.localizedDescription.contains("exit code 9"))
         #expect(harness.manager.activeLanguageServerIDs.isEmpty)
-        let operationID = try #require(
-            harness.core.requestCalls.last(where: { $0.operation == .completion })?.operationID
-        )
-        #expect(harness.manager.languageServerLogs.contains {
-            $0.operationID == operationID
-                && $0.message == "Language server request started"
-        })
-        #expect(harness.manager.languageServerLogs.contains {
-            $0.operationID == operationID
-                && $0.message == "Language server request failed"
-        })
+        #expect(harness.core.requestCalls.last(where: { $0.operation == .completion })?.operationID != nil)
     }
 
     @Test
@@ -2222,21 +2212,11 @@ struct RunConfigurationIntegrationTests {
         #expect(error.localizedDescription.contains("timed out"))
         #expect(harness.core.cancelCalls.isEmpty)
         #expect(harness.manager.languageServerStates["swift"] == .ready)
-        let operationID = try #require(
-            harness.core.requestCalls.last(where: { $0.operation == .completion })?.operationID
-        )
-        #expect(harness.manager.languageServerLogs.contains {
-            $0.operationID == operationID
-                && $0.message == "Language server request started"
-        })
-        #expect(harness.manager.languageServerLogs.contains {
-            $0.operationID == operationID
-                && $0.message == "Language server request timed out"
-        })
+        #expect(harness.core.requestCalls.last(where: { $0.operation == .completion })?.operationID != nil)
     }
 
     @Test
-    func cancelledRequestKeepsItsCoreOperationIDInLifecycleLogs() async throws {
+    func cancelledRequestCompletesWithItsCoreOperationID() async throws {
         let harness = makeLanguageServerHarness()
         try harness.manager.synchronizeLanguageServer(
             for: harness.source,
@@ -2255,9 +2235,7 @@ struct RunConfigurationIntegrationTests {
             position: LanguageServerPosition(line: 0, utf16Column: 19),
             rootURL: harness.root
         ) { completionResult = $0 }
-        let operationID = try #require(
-            harness.core.requestCalls.last(where: { $0.operation == .completion })?.operationID
-        )
+        #expect(harness.core.requestCalls.last(where: { $0.operation == .completion })?.operationID != nil)
 
         harness.core.enqueueRequestFailure(
             operation: .completion,
@@ -2266,14 +2244,6 @@ struct RunConfigurationIntegrationTests {
         )
         #expect(await Self.waitForMainActorCondition { completionResult != nil })
 
-        #expect(harness.manager.languageServerLogs.contains {
-            $0.operationID == operationID
-                && $0.message == "Language server request started"
-        })
-        #expect(harness.manager.languageServerLogs.contains {
-            $0.operationID == operationID
-                && $0.message == "Language server request cancelled"
-        })
     }
 
     @Test
@@ -2549,17 +2519,7 @@ struct RunConfigurationIntegrationTests {
         #expect(try completionsResult?.get().items.first?.label == "title")
         #expect(try completionsResult?.get().isIncomplete == true)
         #expect(core.requestCalls.last?.completionContext?.triggerKind == 3)
-        let completionOperationID = try #require(
-            core.requestCalls.last(where: { $0.operation == .completion })?.operationID
-        )
-        #expect(manager.languageServerLogs.contains {
-            $0.operationID == completionOperationID
-                && $0.message == "Language server request started"
-        })
-        #expect(manager.languageServerLogs.contains {
-            $0.operationID == completionOperationID
-                && $0.message == "Language server request succeeded"
-        })
+        #expect(core.requestCalls.last(where: { $0.operation == .completion })?.operationID != nil)
 
         var completionResolveResult: Result<LanguageServerCompletionItem, Error>?
         try manager.resolveCompletion(

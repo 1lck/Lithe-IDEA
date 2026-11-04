@@ -1,10 +1,32 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { installHappyDom } from "@/test-utils/happy-dom";
 import { highlightMarkdownCodeBlocks } from "./code-highlight";
 
 const block = (language: string, code: string) =>
   `<pre><code class="language-${language}">${code}</code></pre>`;
 
+let restoreDom: () => void;
+beforeEach(() => {
+  restoreDom = installHappyDom();
+});
+afterEach(() => restoreDom());
+
 describe("markdown code block highlighting", () => {
+  test("highlights Core source-position output and decodes code entities exactly once", async () => {
+    const opening = '<pre data-sourcepos="1:1-3:3"><code class="language-sql">';
+    const html = await highlightMarkdownCodeBlocks(
+      opening +
+        "select &quot;&amp;lt;&quot;, &#39;$&amp;&#39;, &lt;img src=x onerror=alert(1)&gt;\n</code></pre>",
+    );
+    const host = document.createElement("div");
+    host.innerHTML = html;
+    expect(html).toContain(opening);
+    expect(html).toContain('class="token-keyword"');
+    expect(host.querySelector("code")?.textContent).toBe(
+      "select \"&lt;\", '$&', <img src=x onerror=alert(1)>\n",
+    );
+    expect(host.querySelector("img")).toBeNull();
+  });
   test("keeps replacement patterns in code literally", async () => {
     // The parser hands over escaped HTML, so `$&` arrives as `$&amp;`.
     const code = "select '$&amp;' as a, '$1' as b, '$`' as c from t";
@@ -18,7 +40,12 @@ describe("markdown code block highlighting", () => {
   test("highlights every block in place and leaves unknown languages untouched", async () => {
     const plain = block("text", "just words");
     const html = await highlightMarkdownCodeBlocks(
-      [block("sql", "select 1"), plain, block("sql", "select 1"), block("sql", "delete from t")].join("\n"),
+      [
+        block("sql", "select 1"),
+        plain,
+        block("sql", "select 1"),
+        block("sql", "delete from t"),
+      ].join("\n"),
     );
 
     const blocks = html.split("\n");

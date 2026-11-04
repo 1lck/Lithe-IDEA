@@ -83,11 +83,12 @@ classify_path() {
         casks/*|scripts/release/macos/update-homebrew-cask.rb)
             metadata=true
             ;;
-        scripts/ci/common/classify-ci-changes.sh|scripts/ci/common/test-classify-ci-changes.sh|scripts/ci/common/plan-ci-lane-reuse.mjs|scripts/ci/common/plan-ci-lane-reuse.test.mjs|scripts/ci/common/verify-reused-ci-jobs.mjs|scripts/ci/common/verify-reused-ci-jobs.test.mjs)
+        scripts/ci/common/classify-ci-changes.sh|scripts/ci/common/test-classify-ci-changes.sh|scripts/ci/common/plan-ci-lane-reuse.mjs|scripts/ci/common/plan-ci-lane-reuse.test.mjs|scripts/ci/common/verify-reused-ci-jobs.mjs|scripts/ci/common/verify-reused-ci-jobs.test.mjs|scripts/ci/common/verify-rust-shards.mjs|scripts/ci/common/rust-shards.test.mjs)
             # A classifier change must exercise every lane that it can select.
             enable_all_validation
             ;;
         .github/workflows/ci-macos.yml)
+            plugins=true
             swift=true
             rust_core=true
             macos_release=true
@@ -325,6 +326,9 @@ classify_path() {
         scripts/plugins/verify-official-plugins.sh|scripts/plugins/build-official-plugins.sh)
             plugins=true
             ;;
+        scripts/logging/*)
+            # Catalog generation and usage checks run in verify-logging.yml.
+            ;;
         scripts/plugins/plugin-settings-schema.test.mjs)
             # Runs in the always-on Linux classification job, not a product lane.
             ;;
@@ -411,6 +415,12 @@ while IFS= read -r -d '' status; do
     fi
 done < <(git diff -z --name-status --find-renames "$BASE_REVISION" "$HEAD_REVISION")
 
+# Capture validation before drafts/post-merge scopes defer native lanes.
+validation=false
+for lane in "$swift" "$plugins" "$rust_core" "$rust_remote" "$macos_release" "$windows" "$windows_rust" "$java_jdt" "$rust_comments" "$metadata"; do
+    if [[ "$lane" == true ]]; then validation=true; fi
+done
+
 if [[ "${LITHE_CI_DRAFT_PULL_REQUEST:-false}" == "true" ]]; then
     # Draft pull requests keep the Linux-only lanes but defer every macOS and
     # Windows runner lane. The organization shares five macOS runners, so
@@ -483,3 +493,5 @@ printf 'rust_comments=%s\n' "$rust_comments"
 printf 'metadata=%s\n' "$metadata"
 printf 'git_validation=%s\n' "$git_validation"
 printf 'ci_scope=%s\n' "$ci_scope"
+
+printf 'validation=%s\n' "$validation"

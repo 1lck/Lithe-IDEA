@@ -43,6 +43,8 @@ pub struct BuildManifestRequest {
 #[serde(rename_all = "camelCase")]
 /// Deterministic manifest describing exactly what a diagnostic bundle contains.
 pub struct DiagnosticsManifest {
+    /// Additive technical provenance marker; v1 hosts may ignore it.
+    pub redaction: &'static str,
     pub schema_version: u32,
     pub generated_at_epoch_milliseconds: i64,
     pub environment: DiagnosticsEnvironmentInfo,
@@ -61,6 +63,7 @@ pub fn build_manifest(request: BuildManifestRequest) -> DiagnosticsManifest {
     files.sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
 
     DiagnosticsManifest {
+        redaction: "core-v2",
         schema_version: MANIFEST_SCHEMA_VERSION,
         generated_at_epoch_milliseconds: request.generated_at_epoch_milliseconds,
         environment: request.environment,

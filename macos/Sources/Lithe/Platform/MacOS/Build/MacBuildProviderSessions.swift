@@ -325,7 +325,7 @@ final class MacBuildProviderSessions: BuildProviderRequesting {
             core: owner?.core ?? core,
             processRegistry: processRegistry,
             moduleID: .buildSystemsExtension(target.pluginID),
-            pluginID: target.pluginID
+            pluginID: target.pluginID, role: .build
         )
         let endBackendProcesses = endBackendProcesses
         session.stuckSendGrace = stuckSendGrace

@@ -15,6 +15,7 @@ import "monaco-editor/esm/vs/editor/editor.all.js";
 import { language as javaLanguage } from "monaco-editor/esm/vs/basic-languages/java/java.js";
 import { ensureMonacoLanguageTokenizer } from "./language-contributions";
 import { toMonacoLanguageId } from "./language";
+import { basicLanguageForFilename } from "./basic-file-associations";
 import { SourceText } from "./source-text";
 import { toMonacoModelValue } from "./line-endings";
 import { acquireMonacoModel } from "./model-lifecycle";
@@ -51,6 +52,7 @@ export interface WorkbenchHost {
   javaRunIconsDark?: Partial<Record<RunMarkerIcon, string>>;
   /** Native IDEA order: line numbers, then action decorations. */
   lineNumbersFirst?: boolean;
+  reportIndentation?: boolean;
   /** Opt in only when the host handles setBlameVisibility for repository files. */
   gitBlameMenu?: boolean;
   foldingIcons?: Record<"expanded" | "collapsed", { light: string; dark: string }>;
@@ -63,6 +65,8 @@ function languageForFilename(filename: string | undefined): string {
   if (!filename) return "plaintext";
   const plugin = pluginLanguageForFilename(filename);
   if (plugin) return plugin;
+  const basic = basicLanguageForFilename(filename);
+  if (basic) return basic;
   const name = filename.toLowerCase();
   const registered = monaco.languages.getLanguages();
   const exact = registered.find(language => language.filenames?.some(file => file.toLowerCase() === name));
@@ -336,6 +340,16 @@ export function mountWorkbench(host: WorkbenchHost) {
     fail(event.reason);
   });
 
+  // Reuse Monaco's detection; never rewrite text or reset the model/undo stack.
+  function applyIndentation(model: monaco.editor.ITextModel) {
+    const size = displayOptions.tabSize;
+    if (typeof size !== "number" || !Number.isInteger(size) || size < 1 || size > 16) return;
+    const spaces = displayOptions.insertSpaces !== false;
+    if (displayOptions.detectIndentation !== false) model.detectIndentation(spaces, size);
+    else model.updateOptions({ tabSize: size, insertSpaces: spaces });
+    model.updateOptions({ indentSize: "tabSize" });
+  }
+
   async function prepareEntry(payload: any): Promise<Entry> {
     let entry = entries.get(payload.id);
     const languageID = payload.language || (entry && (payload.filename === undefined || payload.filename === entry.filename)
@@ -351,10 +365,19 @@ export function mountWorkbench(host: WorkbenchHost) {
     if (!entry) {
       const acquired = acquireMonacoModel(payload.text, language, monaco.Uri.parse(`lithe://document/${payload.id}`));
       const model = acquired.model;
+      applyIndentation(model);
       // Monaco owns normalized editing coordinates; the source mirror preserves disk newlines.
       model.setEOL(monaco.editor.EndOfLineSequence.LF);
       entry = { languageID, source: new SourceText(payload.text, model.getAlternativeVersionId()), model, release: acquired.release, revision: payload.revision, chain: Promise.resolve(), readonly: payload.readonly, frozen: false, pendingEdits: 0, state: null, filename: payload.filename, locationRevision: payload.locationRevision ?? 0, contextGeneration: 0 };
       entries.set(payload.id, entry);
+      const reportIndentation = () => {
+        const { tabSize, insertSpaces } = model.getOptions();
+        void send({ type: "indentation", id: payload.id, tabSize, insertSpaces }).catch(fail);
+      };
+      if (host.reportIndentation) {
+        model.onDidChangeOptions(reportIndentation);
+        reportIndentation();
+      }
       const owned = entry;
       model.onDidChangeContent(event => {
         scheduleNavigation(payload.id, owned);
@@ -1067,9 +1090,12 @@ export function mountWorkbench(host: WorkbenchHost) {
         for (const [id, entry] of entries) {
           if (entry.filename === undefined || entry.model.isDisposed()) continue;
           const languageID = languageForFilename(entry.filename), language = editorLanguageID(languageID);
-          if (language === entry.model.getLanguageId() && languageID === entry.languageID || !(pluginIDs.has(language) || pluginIDs.has(entry.model.getLanguageId()))) continue;
+          if (!(pluginIDs.has(language) || pluginIDs.has(entry.model.getLanguageId()))) continue;
+          // A same-ID grammar can disappear before its builtin ever loaded.
+          // Restore the provider even when no model language transition is needed.
           await ensureMonacoLanguageTokenizer(language);
           if (entries.get(id) !== entry || entry.model.isDisposed()) continue;
+          if (language === entry.model.getLanguageId() && languageID === entry.languageID) continue;
           entry.contextGeneration++;
           entry.languageID = languageID;
           monaco.editor.setModelLanguage(entry.model, language);
@@ -1335,12 +1361,19 @@ export function mountWorkbench(host: WorkbenchHost) {
       } finally { updating = false; }
     },
     configure(payload: any) {
-      const theme = payload.theme as WorkbenchThemeInput | undefined;
+      const theme = payload.theme ? { ...payload.theme } as WorkbenchThemeInput : undefined;
+      // Native settings validate and bound this canonical JSON before it crosses the bridge.
+      if (theme && payload.appearance?.customTheme) {
+        try { theme.custom = JSON.parse(payload.appearance.customTheme); } catch { /* Keep the existing native palette. */ }
+      }
       const name = theme ? defineWorkbenchTheme(theme, host.palette)
         : payload.dark ? "lithe-dark" : "lithe-light";
       javaKeywordNavigationFilter = payload.javaKeywordNavigationFilter !== false;
+      const indentationChanged = ["tabSize", "insertSpaces", "detectIndentation"].some(key =>
+        payload.appearance?.[key] !== undefined && payload.appearance[key] !== displayOptions[key]);
       Object.assign(displayOptions, {
         ...payload.appearance,
+        ...(theme?.syntaxScheme ? { bracketPairColorization: { enabled: theme.syntaxScheme !== "idea" } } : {}),
         // Standalone updateOptions and newly created split editors both apply
         // this construction theme globally, so it must track the host theme.
         theme: name,
@@ -1355,6 +1388,7 @@ export function mountWorkbench(host: WorkbenchHost) {
         navigationContexts.get(view)?.();
         gitContextUpdates.get(view)?.();
       }
+      if (indentationChanged) for (const entry of entries.values()) applyIndentation(entry.model);
       monaco.editor.setTheme(name);
     },
     async debugState(id: string, state: { breakpoints: { line: number; enabled: boolean; verified: boolean; logpoint: boolean; conditional?: boolean; message?: string }[]; muted: boolean; canToggleBreakpoints?: boolean; sessionActive?: boolean; paused?: boolean; canRunToCursor?: boolean; executionLine?: number; revision?: number; variables?: { name: string; value: string }[] }) {

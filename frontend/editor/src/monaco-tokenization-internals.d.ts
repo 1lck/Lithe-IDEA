@@ -130,3 +130,8 @@ declare module "monaco-editor/esm/vs/platform/contextview/browser/contextView.js
     }): void;
   }>;
 }
+
+// Monaco's clone preserves RegExp and function values used by Monarch grammars.
+declare module "monaco-editor/esm/vs/base/common/objects.js" {
+  export function deepClone<T>(value: T): T;
+}

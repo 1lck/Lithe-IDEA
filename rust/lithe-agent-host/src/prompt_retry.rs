@@ -384,8 +384,9 @@ pub(crate) async fn run(
             // An ACP failure settled the attempt, but its SDK stream may retain
             // a queued failed request. Clear it even after the final attempt so
             // an explicit next message cannot replay that pending work.
-            let _ =
-                connection.send_notification(CancelNotification::new(request.session_id.clone()));
+            crate::failure_log::cancel_notification(
+                connection.send_notification(CancelNotification::new(request.session_id.clone())),
+            );
         }
         if attempt == MAX_ATTEMPTS || !can_reconnect {
             return result;

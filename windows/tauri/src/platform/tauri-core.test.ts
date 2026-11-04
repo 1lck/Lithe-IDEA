@@ -119,6 +119,12 @@ test("pure console projection bypasses execution events and Git settings", async
   expect(tauriInvoke).toHaveBeenCalledWith("platform_invoke", { command: "git.consolePresentation", args }, undefined);
 });
 
+test("pure ChangeList projection bypasses Git events and execution settings", async () => {
+  const args = { state: { lists: [{ id: "default", name: "" }], activeId: "default", assignments: {} }, files: [], repositories: [] };
+  await invoke("git.changelists", args);
+  expect(tauriInvoke).toHaveBeenCalledWith("platform_invoke", { command: "git.changelists", args }, undefined);
+});
+
 test("explicit automatic provenance is forwarded separately from native invoke options", async () => {
   await invoke("git_status", { repoPath: "C:/fixture/project", operationId: "background-fixture" }, { gitExecutionSource: "background" });
   const calls = tauriInvoke.mock.calls as unknown as [string, { gitExecution?: { source?: string }; gitEvents?: unknown }, unknown][];
@@ -162,14 +168,18 @@ test("a raw Core result bypasses the compatibility adapter but keeps Git provena
   tauriInvoke.mockImplementationOnce((async () => core) as never);
   const raw = await invoke("git.diff", { root: "C:/fixture/project", pathspecs: ["a.txt"] }, { rawCoreResult: true });
   expect(raw).toBe(core);
-  const calls = tauriInvoke.mock.calls as unknown as [string, { gitEvents?: unknown }, unknown][];
+  const calls = tauriInvoke.mock.calls as unknown as [string, { gitEvents?: unknown; args: Record<string, unknown> }, unknown][];
   expect(calls[0]![1].gitEvents).toBeDefined();
+  expect(calls[0]![1].args.includeFileSections).toBeUndefined();
+  expect(calls[0]![1].args.omitFilePatch).toBeUndefined();
   // The option is local metadata, never forwarded as native invoke options.
   expect(calls[0]![2]).toBeUndefined();
 
   tauriInvoke.mockImplementationOnce((async () => core) as never);
   const adapted = await invoke<unknown>("git.diff", { root: "C:/fixture/project", pathspecs: ["a.txt"] });
   expect(Array.isArray(adapted)).toBe(true);
+  expect(calls[1]![1].args.includeFileSections).toBe(true);
+  expect(calls[1]![1].args.omitFilePatch).toBe(true);
 });
 
 test("native headers survive Git provenance forwarding", async () => {

@@ -172,7 +172,7 @@ extension AppModel {
                   self.workspaceURL == workspaceURL else { return }
             _ = await activateDebugModule()
         } catch {
-            showNotification(error.localizedDescription)
+            showNotification(error.localizedDescription, logReference: notificationFailure(error, operation: "execution_modules"))
         }
     }
 }

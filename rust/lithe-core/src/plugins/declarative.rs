@@ -54,6 +54,10 @@ const PERMISSION_PROJECT_GENERATE: &str = "project.generate";
 const PERMISSION_BACKEND: &str = "backend.launch";
 /// Supplying facts that can change the executable selected for a defined tool.
 const PERMISSION_TOOLCHAINS: &str = "toolchains.provide";
+/// Providing normalized shortcuts during an explicit import.
+const PERMISSION_KEYMAPS: &str = "keymaps.provide";
+/// Reading declared files from the explicitly selected import source.
+const PERMISSION_KEYMAP_SOURCES: &str = "keymaps.readSelectedSources";
 /// Letting the backend keep secrets in the host's credential store, private
 /// to the plugin. `backend` 1.
 const PERMISSION_CREDENTIALS: &str = "credentials.store";
@@ -71,6 +75,8 @@ const KNOWN_PERMISSIONS: &[&str] = &[
     PERMISSION_DEBUG_ATTACH,
     PERMISSION_DEBUG_LAUNCH,
     PERMISSION_LANGUAGE_SERVER,
+    PERMISSION_KEYMAPS,
+    PERMISSION_KEYMAP_SOURCES,
     PERMISSION_PROJECT_GENERATE,
     PERMISSION_RUN,
     PERMISSION_TEST,
@@ -216,6 +222,9 @@ pub struct DeclarativePluginManifest {
     /// Fact providers served by the plugin's existing backend process.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     toolchain_providers: Vec<Value>,
+    /// Independent shortcut importers implemented by this plugin's backend.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    keymap_import_providers: Vec<super::keymap_import::ProviderDeclaration>,
 }
 
 /// UI supplied by plugins. The host owns every window shell: docking, title,
@@ -704,6 +713,8 @@ enum LaunchVariable {
     StateDir,
     /// Writable directory for this server's state of the current workspace.
     WorkspaceStateDir,
+    /// Absolute session plugin files directory supplied by the writable storage adapter.
+    LogDir,
     /// Host CPU architecture, one of `KNOWN_ARCHITECTURES`.
     Arch,
     /// Current value of the plugin setting with this ID.
@@ -716,6 +727,7 @@ impl LaunchVariable {
             "pluginDir" => Some(Self::PluginDir),
             "stateDir" => Some(Self::StateDir),
             "workspaceStateDir" => Some(Self::WorkspaceStateDir),
+            "logDir" => Some(Self::LogDir),
             "arch" => Some(Self::Arch),
             _ => name
                 .strip_prefix(SETTING_VARIABLE_PREFIX)
@@ -809,7 +821,11 @@ pub fn validate_manifest_value(value: Value) -> Validation<DeclarativePluginMani
         }
         capabilities::check_manifest_requires(&value, version)?;
     }
-    for (field, limit) in [("toolDefinitions", 32), ("toolchainProviders", 8)] {
+    for (field, limit) in [
+        ("toolDefinitions", 32),
+        ("toolchainProviders", 8),
+        ("keymapImportProviders", super::keymap_import::MAX_PROVIDERS),
+    ] {
         if value.get(field).is_some_and(|section| {
             !section
                 .as_array()
@@ -817,7 +833,7 @@ pub fn validate_manifest_value(value: Value) -> Validation<DeclarativePluginMani
         }) {
             return Err(invalid(
                 field,
-                "A declared toolchain section must be nonempty and bounded.",
+                "A declared provider section must be nonempty and bounded.",
             ));
         }
     }
@@ -881,6 +897,7 @@ impl DeclarativePluginManifest {
             && self.project_generators.is_empty()
             && self.tool_definitions.is_empty()
             && self.toolchain_providers.is_empty()
+            && self.keymap_import_providers.is_empty()
             // A backend 2 may be the whole plugin: it starts on a workspace.
             && self.backend.is_none()
         {
@@ -1030,6 +1047,7 @@ impl DeclarativePluginManifest {
             && self.project_generators.is_empty()
             && self.tool_definitions.is_empty()
             && self.toolchain_providers.is_empty()
+            && self.keymap_import_providers.is_empty()
             && self.backend.is_none()
             // A grammar alone is a complete highlighting plugin.
             && !self.languages.iter().any(LanguageDeclaration::uses_version_2)
@@ -1075,6 +1093,10 @@ impl DeclarativePluginManifest {
         )?;
         self.validate_debug_adapters(&declared_settings)?;
         self.validate_toolchains()?;
+        if !self.keymap_import_providers.is_empty() {
+            super::keymap_import::validate_declarations(&mut self.keymap_import_providers)?;
+            self.validate_packaged_provider_backend()?;
+        }
         if let Some(backend) = &self.backend {
             backend.validate(&super::backend::DeclarationContext {
                 plugin_api_version: self.plugin_api_version,
@@ -1089,7 +1111,8 @@ impl DeclarativePluginManifest {
                     .activation_events
                     .iter()
                     .any(|event| event == super::backend::ON_WORKSPACE_OPEN),
-                toolchain_query_trigger: !self.toolchain_providers.is_empty(),
+                provider_query_trigger: !self.toolchain_providers.is_empty()
+                    || !self.keymap_import_providers.is_empty(),
             })?;
         }
         self.validate_permissions()?;
@@ -1178,6 +1201,10 @@ impl DeclarativePluginManifest {
             (
                 capabilities::TOOLCHAIN_PROVIDERS,
                 !self.toolchain_providers.is_empty(),
+            ),
+            (
+                capabilities::KEYMAP_IMPORT_PROVIDERS,
+                !self.keymap_import_providers.is_empty(),
             ),
         ];
         sections
@@ -1293,30 +1320,34 @@ impl DeclarativePluginManifest {
             &self.toolchain_providers,
         )?;
         if !self.toolchain_providers.is_empty() {
-            if self.backend_version() != 2 {
-                return Err(invalid(
-                    "requires.backend",
-                    "Toolchain providers require backend 2.",
-                ));
-            }
-            let backend = self.backend.as_ref().ok_or_else(|| {
-                invalid(
-                    "backend",
-                    "A toolchain provider requires the plugin backend.",
-                )
-            })?;
-            let value = serde_json::to_value(backend)
-                .map_err(|_| invalid("backend", "The backend cannot be encoded."))?;
-            let launch = &value["launch"];
-            let packaged = launch["kind"] == "packaged"
-                || (launch["kind"] == "runtime" && launch["packagedRuntime"].as_str().is_some());
-            if !packaged
-                || value["runtimeDependencies"]
-                    .as_array()
-                    .is_some_and(|values| !values.is_empty())
-            {
-                return Err(invalid("backend.launch", "Provider backends must bootstrap from packaged executables or packaged runtimes without discovered dependencies."));
-            }
+            self.validate_packaged_provider_backend()?;
+        }
+        Ok(())
+    }
+
+    /// Host-queried providers must start without relying on the discovery they provide.
+    fn validate_packaged_provider_backend(&self) -> Validation<()> {
+        if self.plugin_api_version < CAPABILITIES_API_VERSION || self.backend_version() != 2 {
+            return Err(invalid(
+                "requires.backend",
+                "Providers require plugin API 3 and backend 2.",
+            ));
+        }
+        let backend = self
+            .backend
+            .as_ref()
+            .ok_or_else(|| invalid("backend", "A provider requires the plugin backend."))?;
+        let value = serde_json::to_value(backend)
+            .map_err(|_| invalid("backend", "The backend cannot be encoded."))?;
+        let launch = &value["launch"];
+        let packaged = launch["kind"] == "packaged"
+            || (launch["kind"] == "runtime" && launch["packagedRuntime"].as_str().is_some());
+        if !packaged
+            || value["runtimeDependencies"]
+                .as_array()
+                .is_some_and(|values| !values.is_empty())
+        {
+            return Err(invalid("backend.launch", "Provider backends must bootstrap from packaged executables or packaged runtimes without discovered dependencies."));
         }
         Ok(())
     }
@@ -1506,6 +1537,17 @@ impl DeclarativePluginManifest {
             return Err(invalid(
                 "permissions",
                 "toolchains.provide requires a toolchain provider.",
+            ));
+        }
+        if !self.keymap_import_providers.is_empty() {
+            required.insert(PERMISSION_KEYMAPS);
+            required.insert(PERMISSION_KEYMAP_SOURCES);
+        } else if self.permissions.iter().any(|permission| {
+            permission == PERMISSION_KEYMAPS || permission == PERMISSION_KEYMAP_SOURCES
+        }) {
+            return Err(invalid(
+                "permissions",
+                "Shortcut import permissions require a shortcut import provider.",
             ));
         }
         if !self.vcs_providers.is_empty() {
@@ -2755,7 +2797,9 @@ fn validate_launch_template(
                 }
             }
             TemplatePart::Variable(
-                LaunchVariable::StateDir | LaunchVariable::WorkspaceStateDir,
+                LaunchVariable::StateDir
+                | LaunchVariable::WorkspaceStateDir
+                | LaunchVariable::LogDir,
             ) if context == LaunchTemplateContext::ValidationProbe => {
                 return Err(template(
                     field.to_string(),
@@ -3169,6 +3213,10 @@ pub struct LanguageServerLaunchPlanRequest {
     /// omits it; a launch that names it then has no usable plan.
     #[serde(default)]
     workspace_state_directory: Option<String>,
+    /// Absolute current-session `plugins/<id>/files` directory. The host creates it
+    /// outside installed resources; Core never infers a writable path.
+    #[serde(default)]
+    log_directory: Option<String>,
     /// Host CPU architecture, one of `KNOWN_ARCHITECTURES`.
     architecture: String,
     /// Values the user stored for the plugin's settings, by setting ID. A
@@ -3195,6 +3243,7 @@ struct LaunchValues<'a> {
     plugin_directory: &'a str,
     state_directory: &'a str,
     workspace_state_directory: &'a str,
+    log_directory: &'a str,
     architecture: &'a str,
     /// Effective value of every declared setting.
     settings: &'a BTreeMap<String, Value>,
@@ -3207,6 +3256,7 @@ struct LaunchRequirements {
     package_paths: BTreeSet<String>,
     uses_state_directory: bool,
     uses_workspace_state_directory: bool,
+    uses_log_directory: bool,
 }
 
 fn language_server_launch_plan(
@@ -3565,6 +3615,32 @@ fn server_launch_plan(
             }
             None => "",
         },
+        log_directory: match request.log_directory.as_deref() {
+            Some(directory) => {
+                let directory = launch_directory(directory, "logDirectory")?;
+                // Recognize absolute native paths on both platforms without using
+                // the build machine's Path::is_absolute semantics for the other OS.
+                let absolute = directory.starts_with('/')
+                    || directory.starts_with("\\\\")
+                    || (directory.as_bytes().get(1) == Some(&b':')
+                        && directory
+                            .as_bytes()
+                            .first()
+                            .is_some_and(u8::is_ascii_alphabetic)
+                        && directory
+                            .as_bytes()
+                            .get(2)
+                            .is_some_and(|b| b"/\\".contains(b)));
+                if !absolute {
+                    return Err(PluginRejection::new(
+                        "plugin.launch.invalidRequest",
+                        "The launch request has no usable absolute logDirectory.",
+                    ));
+                }
+                directory
+            }
+            None => "",
+        },
         architecture: &request.architecture,
         settings: &effective_settings,
     };
@@ -3672,6 +3748,15 @@ fn server_launch_plan(
     if !effective_settings.is_empty() {
         plan["settings"] = json!(effective_settings);
     }
+    if requirements.uses_log_directory {
+        if values.log_directory.is_empty() {
+            return Err(PluginRejection::new(
+                "plugin.launch.invalidRequest",
+                "The launch request has no usable logDirectory.",
+            ));
+        }
+        directories.push("log");
+    }
     plan["requiredDirectories"] = json!(directories);
     plan["requiredPackagePaths"] = json!(requirements.package_paths);
     Ok(plan)
@@ -3749,6 +3834,10 @@ fn expand_launch_template(
             TemplatePart::Variable(LaunchVariable::WorkspaceStateDir) => {
                 requirements.uses_workspace_state_directory = true;
                 expanded.push_str(values.workspace_state_directory);
+            }
+            TemplatePart::Variable(LaunchVariable::LogDir) => {
+                requirements.uses_log_directory = true;
+                expanded.push_str(values.log_directory);
             }
             TemplatePart::Variable(LaunchVariable::Arch) => expanded.push_str(values.architecture),
             TemplatePart::Variable(LaunchVariable::Setting(id)) => {

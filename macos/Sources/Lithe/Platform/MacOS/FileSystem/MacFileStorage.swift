@@ -1,8 +1,10 @@
+import LitheModuleAPI
 import Darwin
 import Foundation
 
 struct MacFileStorage: FileStorage {
     let identity: MacAppIdentity
+    private let logSink: (any LogSink)?
 
 #if DEBUG
     /// Deterministic seams for tests that interleave another writer inside
@@ -13,7 +15,8 @@ struct MacFileStorage: FileStorage {
     var unsupportedExchangeForTesting = false
 #endif
 
-    init(identity: MacAppIdentity = MacAppIdentity()) {
+    init(identity: MacAppIdentity = MacAppIdentity(), logSink: (any LogSink)? = nil) {
+        self.logSink = logSink
         self.identity = identity
     }
 
@@ -40,7 +43,8 @@ struct MacFileStorage: FileStorage {
         // Consumers write individual files directly into this nonthrowing port.
         // If creation fails, their write reports the underlying filesystem error.
         if identity.isDevelopment {
-            try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            do { try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true) }
+            catch { logSink?.emit(AppStorageMaintenanceFailed(error: error, stage: "temporary-root")) }
         }
         return root
     }
@@ -89,7 +93,7 @@ struct MacFileStorage: FileStorage {
     func readPrefix(from url: URL, byteCount: Int) throws -> Data {
         precondition(byteCount >= 0)
         let handle = try FileHandle(forReadingFrom: url)
-        defer { try? handle.close() }
+        defer { do { try handle.close() } catch { logSink?.emit(AppStorageMaintenanceFailed(error: error, stage: "file-close")) } }
         return try handle.read(upToCount: byteCount) ?? Data()
     }
 
@@ -144,7 +148,9 @@ struct MacFileStorage: FileStorage {
         afterPreparingTemporaryForTesting?()
 #endif
         var removeTemporary = true
-        defer { if removeTemporary { try? FileManager.default.removeItem(at: temporary) } }
+        defer { if removeTemporary { do { try FileManager.default.removeItem(at: temporary) }
+            catch let error as CocoaError where error.code == .fileNoSuchFile { /* Already removed by publish. */ }
+            catch { logSink?.emit(AppStorageMaintenanceFailed(error: error, stage: "staging-remove")) } } }
 
         guard let expected else {
             // Publish without replacing a file another process just created.
@@ -289,7 +295,9 @@ struct MacFileStorage: FileStorage {
             throw CocoaError(.fileWriteUnknown)
         }
         var removeTemporary = true
-        defer { if removeTemporary { try? FileManager.default.removeItem(at: temporary) } }
+        defer { if removeTemporary { do { try FileManager.default.removeItem(at: temporary) }
+            catch let error as CocoaError where error.code == .fileNoSuchFile { /* Already removed by publish. */ }
+            catch { logSink?.emit(AppStorageMaintenanceFailed(error: error, stage: "staging-remove")) } } }
 
         let matches: Bool
         do {
@@ -345,15 +353,17 @@ struct MacFileStorage: FileStorage {
         }
         do {
             let handle = try FileHandle(forWritingTo: url)
-            defer { try? handle.close() }
+            defer { do { try handle.close() } catch { logSink?.emit(AppStorageMaintenanceFailed(error: error, stage: "file-close")) } }
             try handle.write(contentsOf: data)
         } catch {
-            try? FileManager.default.removeItem(at: url)
+            do { try FileManager.default.removeItem(at: url) }
+            catch let error as CocoaError where error.code == .fileNoSuchFile { /* No partial file remains. */ }
+            catch { logSink?.emit(AppStorageMaintenanceFailed(error: error, stage: "partial-remove")) }
             throw error
         }
-        try? FileManager.default.setAttributes(
+        do { try FileManager.default.setAttributes(
             [.posixPermissions: 0o600], ofItemAtPath: url.path
-        )
+        ) } catch { logSink?.emit(AppStorageMaintenanceFailed(error: error, stage: "permissions")) }
     }
 
     func createDirectory(at url: URL, withIntermediateDirectories: Bool) throws {

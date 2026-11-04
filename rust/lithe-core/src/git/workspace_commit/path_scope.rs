@@ -13,10 +13,28 @@ pub struct PathScope {
     pub include: bool,
     /// Repository identities map to literal repository-relative paths, never pathspecs.
     pub paths: BTreeMap<String, BTreeSet<String>>,
+    /// Optional Core-owned membership rules also cover paths staged after the UI snapshot.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub membership: Option<MembershipScope>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MembershipScope {
+    pub active_id: String,
+    pub assignments: BTreeMap<String, BTreeMap<String, String>>,
 }
 
 impl PathScope {
     fn permits(&self, repository: &str, path: &str) -> bool {
+        if let Some(membership) = &self.membership {
+            let member = membership
+                .assignments
+                .get(repository)
+                .and_then(|paths| super::super::changelists::path_member(paths, path))
+                .unwrap_or("default");
+            return member == membership.active_id;
+        }
         self.paths
             .get(repository)
             .is_some_and(|paths| paths.contains(path))
@@ -32,16 +50,38 @@ pub(super) fn validate(
     let Some(scope) = &plan.path_scope else {
         return Ok(());
     };
+    let repository_ids: BTreeSet<&str> = plan
+        .repositories
+        .iter()
+        .map(|repository| repository.id.as_str())
+        .collect();
     for (id, paths) in &scope.paths {
-        if !plan
-            .repositories
-            .iter()
-            .any(|repository| &repository.id == id)
-        {
+        if !repository_ids.contains(id.as_str()) {
             return Err(invalid("Commit scope references an unknown repository"));
         }
         if !paths.is_empty() {
             super::super::validate_paths(&paths.iter().cloned().collect::<Vec<_>>())?;
+        }
+    }
+    if let Some(membership) = &scope.membership {
+        if membership.active_id.is_empty()
+            || membership.assignments.len() > 100_000
+            || scope.include != (membership.active_id != "default")
+        {
+            return Err(invalid("Invalid ChangeList membership scope"));
+        }
+        let mut count = 0usize;
+        for (id, paths) in &membership.assignments {
+            count = count.saturating_add(paths.len());
+            if !repository_ids.contains(id.as_str())
+                || count > 100_000
+                || paths.values().any(String::is_empty)
+                || paths
+                    .keys()
+                    .any(|path| !super::super::changelists::safe_path(path))
+            {
+                return Err(invalid("Invalid ChangeList membership scope"));
+            }
         }
     }
     // Parent references are writes too, even when the parent index was clean.

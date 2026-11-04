@@ -46,22 +46,10 @@ struct LitheAction: Identifiable, @unchecked Sendable {
         self.perform = perform
     }
 
-    var searchText: String { "\(title) \(subtitle) \(group.rawValue)" }
-
-    func matches(_ query: String) -> Bool {
-        let normalizedQuery = query
-            .lowercased()
-            .filter { !$0.isWhitespace }
-        guard !normalizedQuery.isEmpty else { return true }
-        let candidates = searchText.lowercased()
-        var queryIndex = normalizedQuery.startIndex
-        for character in candidates {
-            guard queryIndex < normalizedQuery.endIndex else { break }
-            if character == normalizedQuery[queryIndex] {
-                queryIndex = normalizedQuery.index(after: queryIndex)
-            }
-        }
-        return queryIndex == normalizedQuery.endIndex
+    /// Mirrors the row's translation boundary: plugin titles stay verbatim.
+    func searchTexts(localize: (String) -> String) -> [String] {
+        [title, subtitle, group.rawValue,
+         localizesTitle ? localize(title) : title, localize(subtitle), localize(group.rawValue)]
     }
 }
 
@@ -71,6 +59,7 @@ enum LitheActionRegistry {
         [
             action("run", model: model) { model.runSelectedConfiguration() },
             action("debug", model: model) { model.startDebugging() },
+            action("debug-start-or-continue", model: model) { model.startOrContinueDebugging() },
             action("stop-run", model: model) { model.stopSelectedRun() },
             action("stop-debug", model: model) { model.stopDebugging() },
             action("debug-resume", model: model) { model.resumeDebugging() },
@@ -81,10 +70,12 @@ enum LitheActionRegistry {
             action("view-breakpoints", model: model) { model.showDebugBreakpointManager() },
             action("open-project", model: model) { model.chooseProject() },
             action("close-project", model: model) { model.closeProject() },
+            action("show-logs", model: model) { model.openLogs() },
             action("settings", model: model) { model.showSettings() },
             action("rebuild-java-index", model: model) { model.rebuildJavaIndex() },
             action("save", model: model) { model.saveActiveDocument() },
             action("search-everywhere", model: model) { model.toggleSearchEverywhere() },
+            action("find-action", model: model) { model.openFindAction() },
             action("navigate-back", model: model) { model.navigateBack() },
             action("navigate-forward", model: model) { model.navigateForward() },
             action("find-next", model: model) { model.navigateFind(offset: 1) },

@@ -70,6 +70,9 @@ struct LitheContextMenuItem: Identifiable {
     let systemImage: String?
     let iconKind: LitheIconKind?
     var icon: AnyView? = nil
+    var nativeImage: NSImage? = nil
+    /// System integrations may request AppKit's complete menu tracking and appearance.
+    var usesSystemMenu = false
     var isChecked = false
     var leadingCheckmark = false
     var isCenteredHeading = false
@@ -152,7 +155,7 @@ private final class LitheContextMenuSelection: ObservableObject {
     @Published var childID: UUID?
     var inSubmenu = false
     var usesKeyboardNavigation = false
-    let items: [LitheContextMenuItem]
+    @Published private(set) var items: [LitheContextMenuItem]
     let dismiss: () -> Void
     @Published var submenuOffset: CGFloat = 0
     private var rowFrames: [UUID: CGRect] = [:]
@@ -163,6 +166,17 @@ private final class LitheContextMenuSelection: ObservableObject {
         self.items = items
         self.dismiss = dismiss
         selectedID = items.first { $0.initiallySelected && $0.isEnabled }?.id
+    }
+
+    func refreshEnabledStates(from updated: [LitheContextMenuItem]) {
+        guard updated.count == items.count,
+              zip(items, updated).allSatisfy({ $0.title == $1.title }) else { return }
+        var replacement = items
+        for index in replacement.indices { replacement[index].isEnabled = updated[index].isEnabled }
+        items = replacement
+        if let selectedID, !items.contains(where: { $0.id == selectedID && $0.isEnabled }) {
+            self.selectedID = nil
+        }
     }
 
     var children: [LitheContextMenuItem]? {
@@ -585,6 +599,9 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
     static let shared = LitheContextMenuPresenter()
 
     private var panel: LitheContextMenuPanel?
+    private weak var actionMenuSelection: LitheContextMenuSelection?
+    private var actionMenuSession: UUID?
+    private var systemMenu: NSMenu?
     private var localEventMonitor: Any?
     private var globalEventMonitor: Any?
     private var parentKeyObserver: NSObjectProtocol?
@@ -626,10 +643,22 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
         adjacentTo row: NSRect? = nil,
         parentWindow: NSWindow? = nil,
         trigger: NSView? = nil,
-        onDismiss: (() -> Void)? = nil
+        onDismiss: (() -> Void)? = nil,
+        onPresented: ((UUID) -> Void)? = nil
     ) {
         dismiss()
         guard !items.isEmpty else { return }
+        if items.contains(where: \.usesSystemMenu) {
+            let menu = LitheSystemContextMenu.makeMenu(items: items)
+            menu.appearance = appearance
+            systemMenu = menu
+            contentDismissed = onDismiss
+            // AppKit runs a nested event loop here. A replacement menu may be
+            // presented before this call returns, so only clear our own session.
+            defer { if systemMenu === menu { dismiss() } }
+            menu.popUp(positioning: nil, at: screenPoint, in: nil)
+            return
+        }
 
         let menuWidth = Self.menuWidth(for: items, locale: locale)
         let visibleFrame = NSScreen.screens.first(where: { $0.frame.contains(screenPoint) })?.visibleFrame
@@ -666,6 +695,9 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
             && origin.x + menuWidth + submenuWidth + LitheDropdownMetrics.submenuSpacing > visibleFrame.maxX - 6
             && origin.x - submenuWidth - LitheDropdownMetrics.submenuSpacing >= visibleFrame.minX + 6
         let selection = LitheContextMenuSelection(items: items, dismiss: { [weak self] in self?.dismiss() })
+        let menuSession = UUID()
+        actionMenuSession = menuSession
+        actionMenuSelection = selection
         selection.layoutSubmenu = { [weak self, weak selection] offset in
             self?.resizeMenu(
                 offset: offset, rootFrame: NSRect(origin: origin, size: NSSize(width: menuWidth, height: menuHeight)),
@@ -674,6 +706,7 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
                 submenuOnLeft: submenuOnLeft
             ) ?? 0
         }
+        let owner = parentWindow ?? NSApp.currentEvent?.window ?? NSApp.keyWindow
         let content = LitheContextMenuContent(
             selection: selection, width: menuWidth, submenuWidth: submenuWidth,
             submenuOnLeft: submenuOnLeft, maximumHeight: maximumHeight
@@ -684,7 +717,6 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
         // Action menus need keyboard navigation, but no text editor. Keep the
         // originating window key so its native switches retain their on tint.
         // Searchable/custom dropdowns still take key focus in the other show path.
-        let owner = parentWindow ?? NSApp.currentEvent?.window ?? NSApp.keyWindow
         panel.retainsParentKey = owner?.isKeyWindow == true
         panel.handleKey = { selection.handle($0) }
         panel.acceptsMouseMovedEvents = true
@@ -694,7 +726,6 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
             // later SwiftUI hover callback after keyboard scrolling.
             selection.pointerMoved(to: content.convert(event.locationInWindow, from: nil))
         }
-
         // Installing the hosting controller can reset the initial content size.
         panel.setFrame(NSRect(origin: origin, size: NSSize(width: menuWidth, height: menuHeight)), display: true)
 
@@ -716,6 +747,18 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
         } else {
             panel.makeKey()
         }
+        if actionMenuSession == menuSession { onPresented?(menuSession) }
+    }
+
+    /// A late capability response may only update the menu that requested it.
+    func refreshEnabledStates(session: UUID, items: [LitheContextMenuItem]) {
+        guard actionMenuSession == session, panel != nil else { return }
+        actionMenuSelection?.refreshEnabledStates(from: items)
+    }
+
+    func dismissActionMenu(session: UUID) {
+        guard actionMenuSession == session else { return }
+        dismiss()
     }
 
     private func makePanel(contentController: NSViewController, appearance: NSAppearance?) -> LitheContextMenuPanel {
@@ -1012,6 +1055,11 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
     }
 
     func dismiss() {
+        actionMenuSession = nil
+        actionMenuSelection = nil
+        let trackingMenu = systemMenu
+        systemMenu = nil
+        trackingMenu?.cancelTrackingWithoutAnimation()
         contentAccepted = nil
         (customContentController as? LitheDropdownHostingController)?.sizeChanged = nil
         removeEventMonitors()
@@ -1145,6 +1193,8 @@ private struct LitheContextMenuTrigger: NSViewRepresentable {
     @Environment(\.locale) private var locale
     let items: () -> [LitheContextMenuItem]
     let onRightClick: () -> Void
+    let onPresented: (UUID) -> Void
+    let onDismiss: () -> Void
 
     func makeNSView(context: Context) -> LitheRightClickCaptureView {
         let view = LitheRightClickCaptureView()
@@ -1163,7 +1213,9 @@ private struct LitheContextMenuTrigger: NSViewRepresentable {
                 items: items(),
                 at: screenPoint,
                 appearance: appearance,
-                locale: locale
+                locale: locale,
+                onDismiss: onDismiss,
+                onPresented: onPresented
             )
         }
     }
@@ -1198,11 +1250,13 @@ private struct LitheContextMenuModifier: ViewModifier {
     @Environment(\.isLithePaneResizing) private var isResizing
     let items: () -> [LitheContextMenuItem]
     let onRightClick: () -> Void
+    let onPresented: (UUID) -> Void
+    let onDismiss: () -> Void
 
     func body(content: Content) -> some View {
         content.overlay {
             if !isResizing {
-                LitheContextMenuTrigger(items: items, onRightClick: onRightClick)
+                LitheContextMenuTrigger(items: items, onRightClick: onRightClick, onPresented: onPresented, onDismiss: onDismiss)
             }
         }
     }
@@ -1213,6 +1267,14 @@ extension View {
         items: @escaping () -> [LitheContextMenuItem],
         onRightClick: @escaping () -> Void = {}
     ) -> some View {
-        modifier(LitheContextMenuModifier(items: items, onRightClick: onRightClick))
+        modifier(LitheContextMenuModifier(items: items, onRightClick: onRightClick, onPresented: { _ in }, onDismiss: {}))
+    }
+
+    func litheUpdatingContextMenu(
+        items: @escaping () -> [LitheContextMenuItem],
+        onPresented: @escaping (UUID) -> Void,
+        onDismiss: @escaping () -> Void
+    ) -> some View {
+        modifier(LitheContextMenuModifier(items: items, onRightClick: {}, onPresented: onPresented, onDismiss: onDismiss))
     }
 }

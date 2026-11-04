@@ -2,6 +2,7 @@
 .build/
 rust/target/
 rust/*/target/
+Plugins/mac/Official/EditorKeymapImport/target/
 /.worktrees/
 .swiftpm/
 .idea/

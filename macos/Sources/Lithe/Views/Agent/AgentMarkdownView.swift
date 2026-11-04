@@ -481,6 +481,7 @@ struct AgentCopyButton: View {
         Button {
             AgentPasteboard.copy(text, html: html)
             didCopy = true
+            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
             Task { try? await Task.sleep(for: .seconds(1.5)); didCopy = false }
         } label: {
             Image(systemName: didCopy ? "checkmark" : "doc.on.doc")

@@ -2,7 +2,11 @@
 
 // The initial projection/routing IR is deliberately not command- or host-facing
 // until both native products can consume the same versioned contract.
+mod changelists;
+mod commit_message_context;
+mod commit_selection;
 mod commit_state;
+mod deleted_selection;
 pub(crate) mod workspace_commit;
 pub use commit_state::{inspect as commit_state, GitCommitGitlink, GitCommitState};
 
@@ -15,6 +19,7 @@ mod fetch_execution;
 #[allow(dead_code)]
 pub(crate) mod graph;
 mod history;
+mod history_query;
 mod mutations;
 mod patch_exchange;
 mod progress;
@@ -22,7 +27,9 @@ mod rebase_session;
 mod remote_history;
 mod remote_process;
 mod rewrite;
+mod rollback;
 mod setup;
+mod shelf;
 mod untracked_directories;
 
 pub use fetch::{plan as fetch_plan, GitFetchOptions, GitFetchPlanRequest};
@@ -37,10 +44,15 @@ pub use setup::{
     GitConfigureIdentityRequest, GitSetupRequest,
 };
 
+pub(crate) use changelists::changelists_command;
+pub(crate) use commit_message_context::commit_message_context_command;
+pub(crate) use commit_selection::prepare_commit_selection_command;
+pub(crate) use deleted_selection::reconcile_deleted_selection_command;
 pub use history::{
     close_history_cursor, history, history_page, references, GitHistoryCursorCloseRequest,
     GitHistoryPageRequest, GitHistoryRequest, GitReferencesRequest,
 };
+pub(crate) use history_query::query_command as history_query_command;
 pub use patch_exchange::{
     apply_reviewed as apply_patch_reviewed, export as export_patch, preview as preview_patch,
     PatchApplyRequest, PatchExportRequest, PatchPreviewRequest,
@@ -50,6 +62,10 @@ pub use rebase_session::{
     start as rebase_start, GitRebaseControlRequest, GitRebasePreviewRequest,
     GitRebaseSessionRequest, GitRebaseStartRequest,
 };
+pub(crate) use rollback::{rollback_plan_command, rollback_prepare_command};
+pub(crate) use shelf::shelf_command;
+
+pub(crate) use rewrite::history_action_capabilities_command;
 pub use rewrite::{
     history_rewrite_preview, GitHistoryRewriteExpectation, GitHistoryRewritePreviewRequest,
     GitHistoryRewriteResult,
@@ -59,13 +75,13 @@ use crate::protocol::{CoreError, ErrorCode};
 use crate::protocol::{
     GitBlameLineResponse, GitBlameResponse, GitChange, GitCheckoutPreflightResponse,
     GitCommitLookupResponse, GitCommitResponse, GitComparisonResponse, GitConflictMarkerResponse,
-    GitDiffHunkResponse, GitDiffResponse, GitDiffRowResponse, GitFileResponse, GitFilesResponse,
-    GitIntegrationPreflightResponse, GitLineHistoryCommit, GitLineHistoryRange,
-    GitLineHistoryResponse, GitLineHistoryUnmappedLine, GitOperationStateResponse,
-    GitPullPreflightResponse, GitPushPreviewResponse, GitPushTagResponse, GitPushTargetKind,
-    GitReferenceResponse, GitStashResponse, GitStashesResponse, GitStatusResponse,
-    GitWatchContextResponse, GitWorktreeResponse, GitWorktreesResponse,
-    WorkspaceRepositoriesResponse, WorkspaceRepositoryResponse,
+    GitDiffFileResponse, GitDiffHunkResponse, GitDiffResponse, GitDiffRowResponse,
+    GitDiffUnifiedLineResponse, GitFileResponse, GitFilesResponse, GitIntegrationPreflightResponse,
+    GitLineHistoryCommit, GitLineHistoryRange, GitLineHistoryResponse, GitLineHistoryUnmappedLine,
+    GitOperationStateResponse, GitPullPreflightResponse, GitPushPreviewResponse,
+    GitPushTagResponse, GitPushTargetKind, GitReferenceResponse, GitStashResponse,
+    GitStashesResponse, GitStatusResponse, GitWatchContextResponse, GitWorktreeResponse,
+    GitWorktreesResponse, WorkspaceRepositoriesResponse, WorkspaceRepositoryResponse,
 };
 use crate::remote::workspace_io as fs;
 use serde::{Deserialize, Serialize};
@@ -701,6 +717,12 @@ pub struct GitDiffRequest {
     /// Inspect a saved stash, including its untracked parent, independently of the worktree.
     #[serde(default)]
     pub stash_reference: Option<String>,
+    /// Return validated per-file sections instead of a flattened diff.
+    #[serde(default)]
+    pub include_file_sections: bool,
+    /// Omit the redundant whole-file patch when individual hunks suffice.
+    #[serde(default)]
+    pub omit_file_patch: bool,
     pub pathspecs: Vec<String>,
     #[serde(default)]
     pub reference: Option<String>,
@@ -1009,6 +1031,65 @@ pub fn discover_repository_root(
         .map(|path| path.to_string_lossy().replace('\\', "/")))
 }
 
+// Shared by ordinary staging and reviewed commit selection under its existing lease.
+fn stage_paths(root: &str, paths: &[String]) -> Result<GitCommandResponse, CoreError> {
+    let paths = validate_paths(paths)?;
+    let arguments = vec![
+        "add".into(),
+        "-A".into(),
+        "--pathspec-from-file=-".into(),
+        "--pathspec-file-nul".into(),
+    ];
+    let literal = [("GIT_LITERAL_PATHSPECS".to_string(), "1".to_string())];
+    execute_git_with_environment(
+        root,
+        &arguments,
+        Some(nul_pathspec_input(&paths)),
+        false,
+        &literal,
+    )
+}
+
+fn unstage_paths(root: &str, paths: &[String]) -> Result<GitCommandResponse, CoreError> {
+    let paths = validate_paths(paths)?;
+    let literal = [("GIT_LITERAL_PATHSPECS".to_string(), "1".to_string())];
+    let input = nul_pathspec_input(&paths);
+    let head = execute_git(
+        root,
+        &["rev-parse".into(), "--verify".into(), "HEAD".into()],
+        None,
+    )?;
+    if head.exit_code != 0 && commit_state::is_unborn(root)? {
+        let arguments = vec![
+            "rm".into(),
+            "--cached".into(),
+            "--force".into(),
+            "--ignore-unmatch".into(),
+            "--pathspec-from-file=-".into(),
+            "--pathspec-file-nul".into(),
+        ];
+        return execute_git_with_environment(root, &arguments, Some(input), false, &literal);
+    }
+    let restore = vec![
+        "restore".into(),
+        "--staged".into(),
+        "--pathspec-from-file=-".into(),
+        "--pathspec-file-nul".into(),
+    ];
+    let response =
+        execute_git_with_environment(root, &restore, Some(input.clone()), false, &literal)?;
+    if response.exit_code == 0 {
+        return Ok(response);
+    }
+    let reset = vec![
+        "reset".into(),
+        "HEAD".into(),
+        "--pathspec-from-file=-".into(),
+        "--pathspec-file-nul".into(),
+    ];
+    execute_git_with_environment(root, &reset, Some(input), false, &literal)
+}
+
 /// Executes one supported repository mutation without invoking a shell.
 pub fn write(request: GitWriteRequest) -> Result<GitCommandResponse, CoreError> {
     with_git_invocation_trace(|| write_with_trace(request))
@@ -1053,67 +1134,23 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
     let mut arguments: Vec<String>;
 
     match request.operation.as_str() {
-        "stage" => {
-            let paths = validate_paths(&request.paths)?;
-            arguments = vec![
-                "add".into(),
-                "-A".into(),
-                "--pathspec-from-file=-".into(),
-                "--pathspec-file-nul".into(),
-            ];
-            return execute_git(&root, &arguments, Some(nul_pathspec_input(&paths)));
-        }
-        "unstage" => {
-            let paths = validate_paths(&request.paths)?;
-            let pathspec_input = nul_pathspec_input(&paths);
-
-            // An unborn repository has no HEAD for `restore --staged` or
-            // `reset HEAD` to resolve. Its index can only contain newly added
-            // paths, so remove those entries from the index while preserving
-            // the working tree files.
-            let head = execute_git(
-                &root,
-                &["rev-parse".into(), "--verify".into(), "HEAD".into()],
-                None,
-            )?;
-            if head.exit_code != 0 && commit_state::is_unborn(&root)? {
-                arguments = vec![
-                    "rm".into(),
-                    "--cached".into(),
-                    "--force".into(),
-                    "--ignore-unmatch".into(),
-                    "--pathspec-from-file=-".into(),
-                    "--pathspec-file-nul".into(),
-                ];
-                return execute_git(&root, &arguments, Some(pathspec_input));
-            }
-
-            let restore_arguments = vec![
-                "restore".into(),
-                "--staged".into(),
-                "--pathspec-from-file=-".into(),
-                "--pathspec-file-nul".into(),
-            ];
-            let restore = execute_git(&root, &restore_arguments, Some(pathspec_input.clone()))?;
-            if restore.exit_code == 0 {
-                return Ok(restore);
-            }
-            arguments = vec![
-                "reset".into(),
-                "HEAD".into(),
-                "--pathspec-from-file=-".into(),
-                "--pathspec-file-nul".into(),
-            ];
-            return execute_git(&root, &arguments, Some(pathspec_input));
-        }
+        "stage" => return stage_paths(&root, &request.paths),
+        "unstage" => return unstage_paths(&root, &request.paths),
         "discard" => {
             let paths = validate_paths(&request.paths)?;
+            let literal_paths = [("GIT_LITERAL_PATHSPECS".to_string(), "1".to_string())];
             let restore_arguments = ["restore", "--worktree", "--"]
                 .into_iter()
                 .map(String::from)
                 .chain(paths.clone())
                 .collect::<Vec<_>>();
-            let restore = execute_git(&root, &restore_arguments, None)?;
+            let restore = execute_git_with_environment(
+                &root,
+                &restore_arguments,
+                None,
+                false,
+                &literal_paths,
+            )?;
             if restore.exit_code == 0 {
                 return Ok(restore);
             }
@@ -1123,7 +1160,8 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
                 "--".to_string(),
             ];
             status_arguments.extend(paths.clone());
-            let status = execute_git(&root, &status_arguments, None)?;
+            let status =
+                execute_git_with_environment(&root, &status_arguments, None, true, &literal_paths)?;
             let is_untracked = status.exit_code == 0
                 && status
                     .output
@@ -1137,6 +1175,7 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
                 .map(String::from)
                 .chain(paths)
                 .collect();
+            return execute_git_with_environment(&root, &arguments, None, false, &literal_paths);
         }
         "discardAll" => {
             let paths = validate_paths(&request.paths)?;
@@ -1958,6 +1997,19 @@ fn git_process_creation_flags() -> u32 {
 
 /// Builds a structured working-tree, staged, untracked, or commit diff.
 pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
+    let omit_file_patch = request.include_file_sections && request.omit_file_patch;
+    let mut response = diff_impl(request)?;
+    if omit_file_patch {
+        if let Some(files) = &mut response.files {
+            for file in files {
+                file.patch = String::new();
+            }
+        }
+    }
+    Ok(response)
+}
+
+fn diff_impl(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
     if request.pathspecs.is_empty() || request.pathspecs.iter().any(|path| !is_safe_pathspec(path))
     {
         return Err(CoreError::new(
@@ -1966,10 +2018,23 @@ pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
         ));
     }
 
+    if request.include_file_sections
+        && request.stash_reference.is_some()
+        && request.pathspecs != ["."]
+    {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Per-file stash output requires the whole repository",
+        ));
+    }
     let root = validate_root(&request.root)?;
     if let Some(reference) = request.stash_reference.as_deref() {
         let oid = resolve_commit_revision(&root, &validated_stash_reference(Some(reference))?)?;
-        let arguments = vec![
+        let mut arguments = vec![
+            "-c".into(),
+            "diff.noprefix=false".into(),
+            "-c".into(),
+            "diff.mnemonicprefix=false".into(),
             "stash".into(),
             "show".into(),
             "--include-untracked".into(),
@@ -1977,15 +2042,24 @@ pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
             "--binary".into(),
             "--full-index".into(),
             "--no-ext-diff".into(),
+            "--no-textconv".into(),
+            "--no-color".into(),
             format!("--unified={}", request.context_lines),
             oid,
         ];
+        if request.include_file_sections {
+            // Stash already has the safe prefix configuration at the front.
+            arguments.splice(6..6, ["--numstat".into(), "-z".into(), "--patch".into()]);
+        }
         let output = capture_git_with_options(&root, &arguments, None, true)?;
         if output.exit_code != 0 {
             return Err(
                 CoreError::new(ErrorCode::ProcessFailed, "Could not inspect saved stash")
                     .with_details(String::from_utf8_lossy(&output.stderr).to_string()),
             );
+        }
+        if request.include_file_sections {
+            return structured_numstat_output(output, true);
         }
         return Ok(structured_diff_from_output(output));
     }
@@ -2090,6 +2164,9 @@ pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
     }
     arguments.extend(request.pathspecs.clone());
 
+    if request.include_file_sections {
+        configure_structured_diff(&mut arguments);
+    }
     let root = validate_root(&request.root)?;
     let mut output = if expands_untracked_directories {
         GitProcessOutput {
@@ -2100,6 +2177,22 @@ pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
     } else {
         capture_git_with_options(&root, &arguments, None, true)?
     };
+    let mut sections = if request.include_file_sections {
+        Some(structured_numstat_output(
+            std::mem::replace(
+                &mut output,
+                GitProcessOutput {
+                    stdout: Vec::new(),
+                    stderr: Vec::new(),
+                    exit_code: 0,
+                },
+            ),
+            false,
+        )?)
+    } else {
+        None
+    };
+    let mut section_bytes = sections.as_ref().map(structured_file_bytes).unwrap_or(0);
     if lists_untracked_paths {
         let untracked_paths = readonly_command(GitCommandRequest {
             root: root.clone(),
@@ -2150,12 +2243,27 @@ pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
                 untracked_arguments.push("--ignore-all-space".into());
             }
             untracked_arguments.extend(["--".into(), null_device().into(), path.into()]);
+            if request.include_file_sections {
+                configure_structured_diff(&mut untracked_arguments);
+            }
             let untracked = capture_git_with_options(&root, &untracked_arguments, None, true)?;
-            output.stdout.extend(untracked.stdout);
-            output.stderr.extend(untracked.stderr);
+            if let Some(ref mut combined) = sections {
+                append_structured_files(
+                    combined,
+                    structured_numstat_output(untracked, false)?,
+                    &mut section_bytes,
+                )?;
+            } else {
+                output.stdout.extend(untracked.stdout);
+                output.stderr.extend(untracked.stderr);
+            }
         }
     }
-    Ok(structured_diff_from_output(output))
+    if let Some(sections) = sections {
+        Ok(sections)
+    } else {
+        Ok(structured_diff_from_output(output))
+    }
 }
 
 fn worktree_snapshot_diff(
@@ -2213,6 +2321,9 @@ fn worktree_snapshot_diff(
     }
     arguments.push("--".to_string());
     arguments.extend(request.pathspecs.clone());
+    if request.include_file_sections {
+        configure_structured_diff(&mut arguments);
+    }
     let mut output = capture_git_with_environment(root, &arguments, None, true, &environment)?;
     if output.exit_code != 0 {
         return Err(
@@ -2221,6 +2332,22 @@ fn worktree_snapshot_diff(
         );
     }
 
+    let mut sections = if request.include_file_sections {
+        Some(structured_numstat_output(
+            std::mem::replace(
+                &mut output,
+                GitProcessOutput {
+                    stdout: Vec::new(),
+                    stderr: Vec::new(),
+                    exit_code: 0,
+                },
+            ),
+            false,
+        )?)
+    } else {
+        None
+    };
+    let mut section_bytes = sections.as_ref().map(structured_file_bytes).unwrap_or(0);
     let untracked_arguments = vec![
         "ls-files".into(),
         "--others".into(),
@@ -2260,12 +2387,79 @@ fn worktree_snapshot_diff(
             untracked_arguments.push("--ignore-all-space".into());
         }
         untracked_arguments.extend(["--".into(), null_device().into(), path]);
+        if request.include_file_sections {
+            configure_structured_diff(&mut untracked_arguments);
+        }
         let added =
             capture_git_with_environment(root, &untracked_arguments, None, true, &environment)?;
-        output.stdout.extend(added.stdout);
-        output.stderr.extend(added.stderr);
+        if let Some(ref mut combined) = sections {
+            append_structured_files(
+                combined,
+                structured_numstat_output(added, false)?,
+                &mut section_bytes,
+            )?;
+        } else {
+            output.stdout.extend(added.stdout);
+            output.stderr.extend(added.stderr);
+        }
     }
-    Ok(structured_diff_from_output(output))
+    if let Some(sections) = sections {
+        Ok(sections)
+    } else {
+        Ok(structured_diff_from_output(output))
+    }
+}
+
+// Request Git's NUL-delimited identities and its patch in the same process.
+fn configure_structured_diff(arguments: &mut Vec<String>) {
+    arguments.splice(
+        1..1,
+        [
+            "--numstat".into(),
+            "-z".into(),
+            "--patch".into(),
+            "--no-color".into(),
+            "--no-textconv".into(),
+        ],
+    );
+    arguments.splice(
+        0..0,
+        [
+            "-c".into(),
+            "diff.noprefix=false".into(),
+            "-c".into(),
+            "diff.mnemonicprefix=false".into(),
+        ],
+    );
+}
+
+fn structured_file_bytes(response: &GitDiffResponse) -> usize {
+    response
+        .files
+        .as_ref()
+        .map(|files| files.iter().map(|file| file.patch.len()).sum())
+        .unwrap_or(0)
+}
+
+fn append_structured_files(
+    target: &mut GitDiffResponse,
+    source: GitDiffResponse,
+    bytes: &mut usize,
+) -> Result<(), CoreError> {
+    *bytes = bytes
+        .checked_add(structured_file_bytes(&source))
+        .ok_or_else(|| CoreError::new(ErrorCode::InvalidRequest, "Git diff exceeds 32 MiB"))?;
+    if *bytes > patch_exchange::MAX_PATCH_BYTES {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Git diff exceeds 32 MiB",
+        ));
+    }
+    target.has_decoding_loss |= source.has_decoding_loss;
+    if let (Some(target), Some(source)) = (&mut target.files, source.files) {
+        target.extend(source);
+    }
+    Ok(())
 }
 
 fn structured_diff_from_output(output: GitProcessOutput) -> GitDiffResponse {
@@ -2282,7 +2476,177 @@ fn structured_diff_from_output(output: GitProcessOutput) -> GitDiffResponse {
         rows: document.0,
         hunks: document.1,
         has_decoding_loss,
+        files: None,
     }
+}
+
+// Git owns filename decoding. Pair its ordered NUL-delimited metadata with
+// byte-preserving section boundaries, then parse each document once.
+fn structured_patch_sections(
+    patch: &str,
+    identities: Vec<patch_exchange::PatchFile>,
+    has_decoding_loss: bool,
+) -> Result<GitDiffResponse, CoreError> {
+    let mut files = Vec::new();
+    if !patch.is_empty() {
+        let mut starts = Vec::new();
+        let mut offset = 0;
+        for line in patch.split_inclusive('\n') {
+            if line.starts_with("diff --git ") {
+                starts.push(offset);
+            }
+            offset += line.len();
+        }
+        if starts.first() != Some(&0) || starts.len() != identities.len() {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Patch sections do not match Git metadata",
+            ));
+        }
+        starts.push(patch.len());
+        for (identity, range) in identities.into_iter().zip(starts.windows(2)) {
+            let section = &patch[range[0]..range[1]];
+            let status = if section
+                .lines()
+                .any(|line| line.starts_with("new file mode "))
+            {
+                "A"
+            } else if section
+                .lines()
+                .any(|line| line.starts_with("deleted file mode "))
+            {
+                "D"
+            } else if identity.original_path.is_some() {
+                "R"
+            } else {
+                "M"
+            };
+            let is_binary = identity.additions.is_none() && identity.deletions.is_none();
+            let has_lossy_line_endings = has_decoding_loss
+                || section.split('\n').any(|line| {
+                    line.ends_with('\r') || line.starts_with("\\ No newline at end of file")
+                });
+            let (rows, mut hunks, lines) = parse_diff(section);
+            if status == "R" {
+                let target = section
+                    .lines()
+                    .take_while(|line| !line.starts_with("@@"))
+                    .find(|line| line.starts_with("+++ b/") || line.starts_with("+++ \"b/"));
+                if let Some(target) = target {
+                    let old = target
+                        .strip_prefix("+++ b/")
+                        .map(|path| format!("--- a/{path}"))
+                        .or_else(|| {
+                            target
+                                .strip_prefix("+++ \"b/")
+                                .map(|path| format!("--- \"a/{path}"))
+                        });
+                    if let Some(old) = old {
+                        for hunk in &mut hunks {
+                            let marker = format!("\n{}", hunk.header);
+                            if let Some(offset) = hunk.patch.find(&marker) {
+                                hunk.content_patch =
+                                    Some(format!("{old}\n{target}\n{}", &hunk.patch[offset + 1..]));
+                            }
+                        }
+                    }
+                }
+            }
+            files.push(GitDiffFileResponse {
+                path: identity.path,
+                original_path: identity.original_path,
+                status: status.into(),
+                patch: section.into(),
+                rows,
+                hunks,
+                lines,
+                is_binary,
+                has_lossy_line_endings,
+                additions: identity.additions,
+                deletions: identity.deletions,
+            });
+        }
+    } else if !identities.is_empty() {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Patch sections do not match Git metadata",
+        ));
+    }
+    Ok(GitDiffResponse {
+        patch: String::new(),
+        rows: Vec::new(),
+        hunks: Vec::new(),
+        has_decoding_loss,
+        files: Some(files),
+    })
+}
+
+// Git writes all `--numstat -z` records first, followed by one extra NUL and
+// the patch. NUL cannot occur inside a Git path, including quoted path names.
+fn structured_numstat_output(
+    output: GitProcessOutput,
+    require_utf8: bool,
+) -> Result<GitDiffResponse, CoreError> {
+    if output.stdout.is_empty() {
+        return structured_patch_sections("", Vec::new(), false);
+    }
+    let separator = output
+        .stdout
+        .windows(2)
+        .position(|bytes| bytes == [0, 0])
+        .ok_or_else(|| {
+            CoreError::new(ErrorCode::InvalidRequest, "Git diff metadata is incomplete")
+        })?;
+    let identities = patch_exchange::parse_diff_statistics_in_order(&output.stdout[..=separator])?;
+    let bytes = &output.stdout[separator + 2..];
+    if bytes.len() > patch_exchange::MAX_PATCH_BYTES {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Saved patch exceeds 32 MiB",
+        ));
+    }
+    let decoded = String::from_utf8_lossy(bytes);
+    let has_decoding_loss = matches!(decoded, std::borrow::Cow::Owned(_));
+    if require_utf8 && has_decoding_loss {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Saved patch must contain valid UTF-8",
+        ));
+    }
+    structured_patch_sections(&decoded, identities, has_decoding_loss)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ParsePatchRequest {
+    root: String,
+    patch: String,
+}
+
+pub(crate) fn parse_patch_command(
+    payload: serde_json::Value,
+) -> Result<serde_json::Value, CoreError> {
+    let request: ParsePatchRequest = serde_json::from_value(payload).map_err(|_| {
+        CoreError::new(ErrorCode::InvalidRequest, "Invalid Git patch parse request")
+    })?;
+    let root = validate_root(&request.root)?;
+    if request.patch.len() > patch_exchange::MAX_PATCH_BYTES {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Saved patch exceeds 32 MiB",
+        ));
+    }
+    let identities = if request.patch.is_empty() {
+        Vec::new()
+    } else {
+        patch_exchange::ordered_patch_files(&root, &request.patch)?
+    };
+    serde_json::to_value(structured_patch_sections(
+        &request.patch,
+        identities,
+        false,
+    )?)
+    .map_err(|_| CoreError::new(ErrorCode::Unknown, "Could not encode parsed Git patch"))
 }
 
 /// Applies a validated patch using the requested index or working-tree mode.
@@ -2824,7 +3188,14 @@ fn commit_selected_paths(
         &environment,
     )?;
     if committed_head.exit_code != 0 {
-        let _ = temporary_context.cleanup_reference(root);
+        if let Err(error) = temporary_context.cleanup_reference(root) {
+            // Preserve the commit result; WARN reports a separate leaked reference.
+            crate::diagnostics::core_events::core_failed(
+                "vcs.commit.cleanup_failed",
+                "reference",
+                &error,
+            );
+        }
         return Ok(committed_head);
     }
     let committed_head = committed_head.stdout.trim().to_string();
@@ -2834,7 +3205,14 @@ fn commit_selected_paths(
         .cloned()
         .collect::<Vec<_>>();
     if !unexpected_paths.is_empty() {
-        let _ = temporary_context.cleanup_reference(root);
+        if let Err(error) = temporary_context.cleanup_reference(root) {
+            // Preserve the commit result; WARN reports a separate leaked reference.
+            crate::diagnostics::core_events::core_failed(
+                "vcs.commit.cleanup_failed",
+                "reference",
+                &error,
+            );
+        }
         return Err(CoreError::new(
             ErrorCode::InvalidRequest,
             "A Git hook added files outside the selected commit",
@@ -2863,7 +3241,14 @@ fn commit_selected_paths(
         None,
     )?;
     if updated.exit_code != 0 {
-        let _ = temporary_context.cleanup_reference(root);
+        if let Err(error) = temporary_context.cleanup_reference(root) {
+            // Preserve the commit result; WARN reports a separate leaked reference.
+            crate::diagnostics::core_events::core_failed(
+                "vcs.commit.cleanup_failed",
+                "reference",
+                &error,
+            );
+        }
         return Ok(updated);
     }
 
@@ -7360,6 +7745,7 @@ fn parse_commit(line: &str) -> Option<GitCommitResponse> {
         author_email: columns[4].to_string(),
         date: date.to_string(),
         date_utc_offset_minutes,
+        date_unix_seconds: history_query::commit_timestamp(date, date_utc_offset_minutes),
         subject: columns[6].to_string(),
         decorations: columns[7].to_string(),
     })
@@ -7381,6 +7767,9 @@ fn split_commit_date_offset(value: &str) -> (&str, Option<i32>) {
     }
     let hours: i32 = zone[1..3].parse().unwrap_or(0);
     let minutes: i32 = zone[3..5].parse().unwrap_or(0);
+    if hours > 23 || minutes > 59 {
+        return (value, None);
+    }
     let sign = if bytes[0] == b'-' { -1 } else { 1 };
     (date, Some(sign * (hours * 60 + minutes)))
 }
@@ -7624,6 +8013,10 @@ fn pair_diff_entries(
     pairs
 }
 
+fn without_one_trailing_cr(value: &str) -> &str {
+    value.strip_suffix('\r').unwrap_or(value)
+}
+
 fn flush_diff_changes(
     rows: &mut Vec<GitDiffRowResponse>,
     removed: &mut Vec<DiffEntry>,
@@ -7646,6 +8039,10 @@ fn flush_diff_changes(
             right: right.map(|entry| entry.text.clone()),
             kind: kind.to_string(),
             hunk_id: hunk_id.map(String::from),
+            is_invisible_change: left.zip(right).and_then(|(left, right)| {
+                (without_one_trailing_cr(&left.text) == without_one_trailing_cr(&right.text))
+                    .then_some(true)
+            }),
         });
     }
     removed.clear();
@@ -7664,17 +8061,18 @@ fn parse_hunk_header(header: &str) -> Option<(usize, usize)> {
     Some((old_line, new_line))
 }
 
-fn parse_diff(patch: &str) -> (Vec<GitDiffRowResponse>, Vec<GitDiffHunkResponse>) {
+fn parse_diff(
+    patch: &str,
+) -> (
+    Vec<GitDiffRowResponse>,
+    Vec<GitDiffHunkResponse>,
+    Vec<GitDiffUnifiedLineResponse>,
+) {
     let has_trailing_newline = patch.ends_with('\n');
-    let lines = patch.split('\n').enumerate().filter_map(|(index, line)| {
-        if has_trailing_newline && index == patch.split('\n').count() - 1 {
-            None
-        } else {
-            Some(line)
-        }
-    });
+    let lines = patch.strip_suffix('\n').unwrap_or(patch).split('\n');
 
     let mut rows = Vec::new();
+    let mut unified = Vec::new();
     let mut old_line = 0;
     let mut new_line = 0;
     let mut removed = Vec::new();
@@ -7707,6 +8105,12 @@ fn parse_diff(patch: &str) -> (Vec<GitDiffRowResponse>, Vec<GitDiffHunkResponse>
                 old_line = old;
                 new_line = new;
             }
+            unified.push(GitDiffUnifiedLineResponse {
+                line_type: "header".into(),
+                content: without_one_trailing_cr(line).into(),
+                old_line: None,
+                new_line: None,
+            });
             rows.push(GitDiffRowResponse {
                 old_line: None,
                 new_line: None,
@@ -7714,6 +8118,7 @@ fn parse_diff(patch: &str) -> (Vec<GitDiffRowResponse>, Vec<GitDiffHunkResponse>
                 right: None,
                 kind: "information".to_string(),
                 hunk_id: Some(hunk_id),
+                is_invisible_change: None,
             });
         } else if line.starts_with("diff --git") && current_hunk_id.is_some() {
             let hunk_id = current_hunk_id.take().expect("hunk should exist");
@@ -7727,6 +8132,12 @@ fn parse_diff(patch: &str) -> (Vec<GitDiffRowResponse>, Vec<GitDiffHunkResponse>
         } else if current_hunk_id.is_none() {
             file_header_lines.push(line.to_string());
         } else if line.starts_with('-') {
+            unified.push(GitDiffUnifiedLineResponse {
+                line_type: "removed".into(),
+                content: without_one_trailing_cr(&line[1..]).into(),
+                old_line: Some(old_line),
+                new_line: None,
+            });
             current_hunk_lines.push(line.to_string());
             removed.push(DiffEntry {
                 number: old_line,
@@ -7734,6 +8145,12 @@ fn parse_diff(patch: &str) -> (Vec<GitDiffRowResponse>, Vec<GitDiffHunkResponse>
             });
             old_line += 1;
         } else if line.starts_with('+') {
+            unified.push(GitDiffUnifiedLineResponse {
+                line_type: "added".into(),
+                content: without_one_trailing_cr(&line[1..]).into(),
+                old_line: None,
+                new_line: Some(new_line),
+            });
             current_hunk_lines.push(line.to_string());
             added.push(DiffEntry {
                 number: new_line,
@@ -7741,6 +8158,12 @@ fn parse_diff(patch: &str) -> (Vec<GitDiffRowResponse>, Vec<GitDiffHunkResponse>
             });
             new_line += 1;
         } else if line.starts_with(' ') {
+            unified.push(GitDiffUnifiedLineResponse {
+                line_type: "context".into(),
+                content: without_one_trailing_cr(&line[1..]).into(),
+                old_line: Some(old_line),
+                new_line: Some(new_line),
+            });
             let hunk_id = current_hunk_id.as_deref();
             flush_diff_changes(&mut rows, &mut removed, &mut added, hunk_id);
             current_hunk_lines.push(line.to_string());
@@ -7751,6 +8174,7 @@ fn parse_diff(patch: &str) -> (Vec<GitDiffRowResponse>, Vec<GitDiffHunkResponse>
                 right: None,
                 kind: "context".to_string(),
                 hunk_id: current_hunk_id.clone(),
+                is_invisible_change: None,
             });
             old_line += 1;
             new_line += 1;
@@ -7778,10 +8202,11 @@ fn parse_diff(patch: &str) -> (Vec<GitDiffRowResponse>, Vec<GitDiffHunkResponse>
                 id: record.id,
                 header: record.header,
                 patch,
+                content_patch: None,
             }
         })
         .collect();
-    (rows, hunks)
+    (rows, hunks, unified)
 }
 
 /// Resolves the Git administrative paths and references a watcher must observe.
@@ -8289,6 +8714,35 @@ mod tests {
     };
     use serde_json::Value;
     use std::path::PathBuf;
+
+    #[test]
+    fn saved_stash_sections_reject_lossy_or_oversized_patch_before_git() {
+        let output = |stdout| super::GitProcessOutput {
+            stdout,
+            stderr: Vec::new(),
+            exit_code: 0,
+        };
+        let invalid = super::structured_numstat_output(
+            output(vec![b'1', b'\t', b'0', b'\t', b'a', 0, 0, 0xff]),
+            true,
+        )
+        .unwrap_err();
+        assert_eq!(invalid.message, "Saved patch must contain valid UTF-8");
+        let oversized = super::structured_numstat_output(
+            output(
+                [
+                    b"1\t0\ta\0\0".as_slice(),
+                    &vec![b'x'; super::patch_exchange::MAX_PATCH_BYTES + 1],
+                ]
+                .concat(),
+            ),
+            true,
+        )
+        .unwrap_err();
+        assert_eq!(oversized.message, "Saved patch exceeds 32 MiB");
+        let empty = super::structured_numstat_output(output(Vec::new()), true).unwrap();
+        assert!(empty.files.unwrap().is_empty());
+    }
 
     #[test]
     fn temporary_git_context_is_private_and_cleans_up_under_a_public_parent() {
@@ -8807,6 +9261,7 @@ mod tests {
         let east = parse_commit(&line("2026/09/30 21:05 +0800")).expect("commit should parse");
         assert_eq!(east.date, "2026/09/30 21:05");
         assert_eq!(east.date_utc_offset_minutes, Some(480));
+        assert_eq!(east.date_unix_seconds, Some(1790773500));
 
         let west = parse_commit(&line("2026/09/30 08:05 -0330")).expect("commit should parse");
         assert_eq!(west.date, "2026/09/30 08:05");
@@ -8814,6 +9269,11 @@ mod tests {
 
         // Output without a recognizable zone stays visible unchanged instead of being trimmed.
         let legacy = parse_commit(&line("2026/09/30 08:05")).expect("commit should parse");
+        let invalid = parse_commit(&line("2026/09/30 08:05 +1260")).expect("commit should parse");
+        assert_eq!(invalid.date, "2026/09/30 08:05 +1260");
+        assert_eq!(invalid.date_utc_offset_minutes, None);
+        assert_eq!(invalid.date_unix_seconds, None);
+
         assert_eq!(legacy.date, "2026/09/30 08:05");
         assert_eq!(legacy.date_utc_offset_minutes, None);
     }
@@ -8856,6 +9316,7 @@ mod tests {
                 author_email: "test@example.invalid".into(),
                 date: "2026/08/30 12:00".into(),
                 date_utc_offset_minutes: Some(480),
+                date_unix_seconds: None,
                 subject: "Initial commit".into(),
                 decorations: "HEAD -> feature/recent".into(),
             }],
@@ -8926,6 +9387,7 @@ mod tests {
                 author_email: "test@example.invalid".into(),
                 date: "2026/08/30 12:00".into(),
                 date_utc_offset_minutes: Some(480),
+                date_unix_seconds: None,
                 subject: "Initial commit".into(),
                 decorations: "HEAD -> feature/recent".into(),
             }],
@@ -8956,6 +9418,7 @@ mod tests {
                 author_email: "test@example.invalid".into(),
                 date: "2026/08/30 12:00".into(),
                 date_utc_offset_minutes: Some(480),
+                date_unix_seconds: None,
                 subject: "Fix commit details".into(),
                 decorations: "HEAD -> feature/recent".into(),
             },
@@ -9016,6 +9479,7 @@ mod tests {
                 author_email: "developer@lithe.local".into(),
                 date: "2026/08/31 10:30".into(),
                 date_utc_offset_minutes: Some(-300),
+                date_unix_seconds: None,
                 subject: "Add push preview".into(),
                 decorations: "HEAD -> feature/core".into(),
             }],
@@ -9087,7 +9551,7 @@ mod tests {
         let patch = fixture["patch"]
             .as_str()
             .expect("fixture patch should be text");
-        let (rows, hunks) = parse_diff(patch);
+        let (rows, hunks, _) = parse_diff(patch);
         let expected = &fixture["expected"];
         let kinds = rows.iter().map(|row| row.kind.as_str()).collect::<Vec<_>>();
         let old_lines = rows

@@ -1,3 +1,4 @@
+import { flushBreakpointRelocations } from "./breakpoint-relocation";
 import { invoke } from "@/platform/tauri-core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
@@ -48,7 +49,7 @@ export async function markDebugSessionReady(sessionId: string): Promise<void> {
 
 export async function startDebugLaunchSession(
   config: DebugLaunchConfig,
-  breakpoints: DebugBreakpoint[],
+  breakpoints: DebugBreakpoint[] | (() => DebugBreakpoint[]),
   workspacePath?: string,
   onSessionStarted?: (session: DebugAdapterSessionInfo) => void,
 ): Promise<DebugAdapterSessionInfo> {
@@ -56,6 +57,7 @@ export async function startDebugLaunchSession(
     throw new Error("Debug configuration is missing adapterCommand");
   }
 
+  await flushBreakpointRelocations();
   const effectiveCwd = config.cwd ?? workspacePath;
   const session = await startDebugAdapterSession({
     command: config.adapterCommand,
@@ -70,10 +72,11 @@ export async function startDebugLaunchSession(
 export async function startConnectedDebugLaunchSession(
   config: DebugLaunchConfig,
   adapterPort: number,
-  breakpoints: DebugBreakpoint[],
+  breakpoints: DebugBreakpoint[] | (() => DebugBreakpoint[]),
   workspacePath?: string,
   onSessionStarted?: (session: DebugAdapterSessionInfo) => void,
 ): Promise<DebugAdapterSessionInfo> {
+  await flushBreakpointRelocations();
   const effectiveCwd = config.cwd ?? workspacePath;
   const session = await connectDebugAdapterSession({ port: adapterPort, workspacePath });
   return initializeDebugLaunchSession(session, config, breakpoints, effectiveCwd, onSessionStarted);
@@ -107,15 +110,18 @@ export async function startRegisteredConnectionDebugSession(
 async function initializeDebugLaunchSession(
   session: DebugAdapterSessionInfo,
   config: DebugLaunchConfig,
-  breakpoints: DebugBreakpoint[],
+  breakpoints: DebugBreakpoint[] | (() => DebugBreakpoint[]),
   effectiveCwd: string | undefined,
   onSessionStarted?: (session: DebugAdapterSessionInfo) => void,
 ): Promise<DebugAdapterSessionInfo> {
   try {
+    // Adapter creation/connection also yields: edits can arrive during that wait.
+    await flushBreakpointRelocations();
+    const currentBreakpoints = typeof breakpoints === "function" ? breakpoints() : breakpoints;
     onSessionStarted?.(session);
     // Queue breakpoints before launch/attach can emit initialized and Core sends
     // configurationDone. Otherwise a fast JVM can pass its first breakpoint.
-    await syncDebugBreakpoints(session.id, breakpoints);
+    await syncDebugBreakpoints(session.id, currentBreakpoints);
     // Rust Core owns initialization and configurationDone, not the frontend.
     await sendDebugAdapterRequest(session.id, config.request ?? "launch", {
       ...config.launchArguments,

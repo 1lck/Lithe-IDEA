@@ -15,6 +15,7 @@ import LitheCoreContracts
 final class MacBuildToolResolver: BuildToolResolving {
     private static let probeTimeoutMilliseconds = 15_000
 
+    private let logSink: (any LogSink)?
     private let runtime: ProjectRuntimeService
     private let processRunner: any ProcessRunner
     private let fileStorage: any FileStorage
@@ -29,7 +30,8 @@ final class MacBuildToolResolver: BuildToolResolving {
 
     init(runtime: ProjectRuntimeService, processRunner: any ProcessRunner, fileStorage: any FileStorage,
          toolchains: RunToolchainRegistry? = nil, registry: RemoteWorkspaceRegistry? = nil, remoteFiles: (any RemoteBuildFileProbing)? = nil,
-         remoteProcesses: (any RemoteProcessRunning)? = nil, definedTools: (any DefinedToolchainResolving)? = nil) {
+         remoteProcesses: (any RemoteProcessRunning)? = nil, definedTools: (any DefinedToolchainResolving)? = nil, logSink: (any LogSink)? = nil) {
+        self.logSink = logSink
         self.runtime = runtime
         self.processRunner = processRunner
         self.fileStorage = fileStorage
@@ -237,6 +239,7 @@ final class MacBuildToolResolver: BuildToolResolving {
                     let projectCode = paths.contains { path in roots.contains { path.path == $0.path || path.path.hasPrefix($0.path + "/") } }
                     return .resolved([ResolvedExecutableCandidate(url: tool.executableURL,
                         executesProjectCode: projectCode, terminal: true, environment: tool.environment)])
+                    // log-exempt: 同一次失败已经记录过：错误原样转为 terminalFailure 抛给调用方，由 BuildSystemService 的准备边界记录 run.preparation.failed
                 } catch { return .terminalFailure(error.localizedDescription) }
             })
     }
@@ -332,7 +335,7 @@ final class MacBuildToolResolver: BuildToolResolving {
     private func probe(_ url: URL, arguments: [String], environment: [String: String], workspaceURL: URL) async throws -> String {
         if let registry, registry.contains(workspaceURL) {
             guard let remoteProcesses else { throw CocoaError(.featureUnsupported) }
-            let runner = MacRemoteBuildCommandRunner(local: MacBuildCommandRunner(), registry: registry, host: remoteProcesses)
+            let runner = MacRemoteBuildCommandRunner(logSink: logSink, local: MacBuildCommandRunner(logSink: logSink), registry: registry, host: remoteProcesses)
             let captured = RemoteBuildProbeOutput()
             let result = try await runner.run(BuildCommandRequest(executableURL: url, arguments: arguments,
                 workingDirectory: workspaceURL, environment: environment, timeout: .milliseconds(Self.probeTimeoutMilliseconds))) {
@@ -400,6 +403,7 @@ private final class RemoteBuildProbeOutput: @unchecked Sendable {
 struct MacBuildSystemStateLocator: BuildSystemStateLocating {
     let directories: MacPluginStateDirectories
     let fileStorage: any FileStorage
+    var logSink: (any LogSink)? = nil
 
     func workspaceStateDirectory(pluginID: String, buildSystemID: String, workspaceURL: URL) throws -> URL {
         let url = directories.buildSystemWorkspaceStateDirectory(
@@ -418,6 +422,8 @@ struct MacBuildSystemStateLocator: BuildSystemStateLocating {
     }
 
     func removeOutputFile(_ url: URL) {
-        try? fileStorage.removeItem(at: url)
+        do { try fileStorage.removeItem(at: url) }
+        catch let error as CocoaError where error.code == .fileNoSuchFile { /* No output was produced. */ }
+        catch { logSink?.emit(RunBuildScratchCleanupFailed(error: error, stage: "provider-output")) }
     }
 }

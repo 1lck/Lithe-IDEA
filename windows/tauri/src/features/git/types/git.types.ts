@@ -40,6 +40,8 @@ export interface GitCommit {
   date: string;
   /** Author's UTC offset in minutes (east positive) for `date`, when Core reports one. */
   dateUtcOffsetMinutes?: number;
+  /** Core-resolved author instant in Unix seconds, when the offset is known. */
+  dateUnixSeconds?: number;
   decorations: string;
 }
 
@@ -160,6 +162,8 @@ export interface GitDiff {
   writePatch?: string;
   /** Display normalization lost EOF/CRLF bytes; only whole-file writes are safe. */
   has_lossy_line_endings?: boolean;
+  has_decoding_loss?: boolean;
+  core_hunks?: { id: string; header: string; patch: string }[];
   additions?: number;
   deletions?: number;
   is_truncated?: boolean;

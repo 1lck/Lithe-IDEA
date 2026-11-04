@@ -41,6 +41,7 @@ extension RustRemoteConnectionOperations: RemoteRuntimeProbing, RemoteShellProbi
                 throw RustCoreBridge.CoreCallError(code: "parse_failed", message: "Invalid registered shells snapshot", details: nil)
             }
             return text
+        // log-exempt: 预期的缺失：远端可选探测文件或路径不存在时返回空结果，其他错误继续抛出
         } catch let error as RustCoreBridge.CoreCallError where error.code == "workspace_not_found" {
             return ""
         }
@@ -62,6 +63,7 @@ extension RustRemoteConnectionOperations: RemoteRuntimeProbing, RemoteShellProbi
                 throw RustCoreBridge.CoreCallError(code: "parse_failed", message: "Invalid toolchain requirements snapshot", details: nil)
             }
             return try JSONDecoder().decode(ToolingJSONValue.self, from: data)
+        // log-exempt: 预期的缺失：远端可选探测文件或路径不存在时返回空结果，其他错误继续抛出
         } catch let error as RustCoreBridge.CoreCallError where error.code == "workspace_not_found" {
             return .object(["version": .integer(1), "toolchains": .object([:])])
         }
@@ -92,6 +94,7 @@ extension RustRemoteConnectionOperations: RemoteRuntimeProbing, RemoteShellProbi
             let resolved = try runtimeRealPath(path, session: session)
             let value: Metadata = try runtimeRequest("fs.stat", params: ["path": resolved], session: session)
             return RemoteBuildFileMetadata(isExecutable: value.kind == "file" && value.mode & 0o111 != 0)
+        // log-exempt: 预期的缺失：远端可选探测文件或路径不存在时返回空结果，其他错误继续抛出
         } catch let error as RustCoreBridge.CoreCallError where error.code == "workspace_not_found" {
             return nil
         }
@@ -119,6 +122,7 @@ extension RustRemoteConnectionOperations: RemoteRuntimeProbing, RemoteShellProbi
     func removeBuildOutputFile(_ path: String, session: String) throws {
         do {
             let _: ToolingJSONValue = try runtimeRequest("fs.remove", params: ["path": ToolingJSONValue.string(path), "recursive": .bool(false)], session: session)
+        // log-exempt: 预期的缺失：远端可选探测文件或路径不存在时返回空结果，其他错误继续抛出
         } catch let error as RustCoreBridge.CoreCallError where error.code == "workspace_not_found" {
             // A command may finish without writing its optional output file.
         }

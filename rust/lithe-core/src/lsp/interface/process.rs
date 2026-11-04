@@ -56,6 +56,11 @@ pub trait LspProcessHandle: Send + Sync {
 
     /// Ends the process without waiting for it to agree.
     fn terminate(&self);
+
+    /// Transfers a native cleanup failure to the engine that owns role routing.
+    fn take_termination_failure(&self) -> Option<std::io::Error> {
+        None
+    }
 }
 
 /// A launched process and the two streams the engine reads on its own threads.
@@ -115,6 +120,7 @@ impl LspProcessLauncher for SystemProcessLauncher {
             handle: Arc::new(SystemProcess {
                 input: Mutex::new(Some(stdin)),
                 child: Mutex::new(child),
+                termination_failure: Mutex::new(None),
                 #[cfg(target_os = "windows")]
                 tree,
             }),
@@ -205,6 +211,8 @@ fn windows_batch_env_value(value: &str) -> String {
 struct SystemProcess {
     input: Mutex<Option<ChildStdin>>,
     child: Mutex<Child>,
+    /// At most one pending cleanup category, transferred to the owning engine.
+    termination_failure: Mutex<Option<std::io::Error>>,
     /// The server and its descendants; dropping the handle ends all of them.
     #[cfg(target_os = "windows")]
     tree: lithe_git_host::ProcessTree,
@@ -256,11 +264,40 @@ impl LspProcessHandle for SystemProcess {
     }
 
     fn terminate(&self) {
-        #[cfg(target_os = "windows")]
-        let _ = self.tree.kill();
-        if let Ok(mut child) = self.child.lock() {
-            let _ = child.kill();
+        // Native I/O returns only a category; the engine decides WARN and role routing.
+        let result = self.terminate_native();
+        if let Err(error) = result {
+            *self
+                .termination_failure
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = Some(error);
         }
+    }
+
+    fn take_termination_failure(&self) -> Option<std::io::Error> {
+        self.termination_failure
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+    }
+}
+
+impl SystemProcess {
+    fn terminate_native(&self) -> std::io::Result<()> {
+        #[cfg(target_os = "windows")]
+        let tree_result = self.tree.kill();
+        let child_result = match self.child.lock() {
+            Ok(mut child) => match child.kill() {
+                Ok(()) => Ok(()),
+                // A process that exited before termination is expected absence.
+                Err(_) if matches!(child.try_wait(), Ok(Some(_))) => Ok(()),
+                Err(error) => Err(error),
+            },
+            Err(_) => Err(std::io::Error::other("Process lock poisoned")),
+        };
+        #[cfg(target_os = "windows")]
+        tree_result?;
+        child_result
     }
 }
 
@@ -272,7 +309,8 @@ fn missing_stream(stream: &str) -> CoreError {
     .with_details(stream)
 }
 
-#[cfg(all(test, target_os = "windows"))]
+#[cfg(test)]
+#[cfg(target_os = "windows")]
 mod tests {
     use super::{
         language_server_command, windows_batch_command_line, LspProcessLauncher, LspProcessSpec,

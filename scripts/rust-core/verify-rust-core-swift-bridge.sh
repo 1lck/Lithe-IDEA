@@ -60,8 +60,9 @@ fi
 
 # Exercise the same linked app's early AskPass mode as well as the C ABI and
 # isolated local Git/HTTP flows. This lane never contacts an external remote.
-cargo build --manifest-path rust/Cargo.toml -p lithe-core
-python3 scripts/rust-core/test-git-execution.py --application "$BINARY"
+# Cargo also emits the dylib next to this exact archive. Reuse it instead of
+# recompiling Core without --target into a second Cargo output directory.
+python3 scripts/rust-core/test-git-execution.py --application "$BINARY" --core-library-dir "${RUST_LIBRARY:h}"
 node --input-type=module -e 'import { writeTestReportArtifacts } from "./.agents/skills/write-stable-tests/scripts/generate-test-report.mjs"; writeTestReportArtifacts(".artifacts/test-stability/git-execution-integration.json");'
 
 # Exercise the macOS journal through a real non-Git-feature entry point, and

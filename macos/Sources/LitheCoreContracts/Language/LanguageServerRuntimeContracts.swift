@@ -283,6 +283,10 @@ package enum JavaLaunchPreparation: Equatable, Sendable {
 }
 
 package struct LanguageServerRuntimeEvent: Equatable, Sendable {
+    /// Optional structured fact on any runtime event, including stateChanged; independent of type.
+    package let coreLog: CoreLogRecord?
+    package let pluginID: String?
+    package let role: String?
     package let mavenProfileTask: String?
     package let mavenProfileProject: MavenProfileProjectResult?
     package let type: String
@@ -315,8 +319,10 @@ package struct LanguageServerRuntimeEvent: Equatable, Sendable {
         detail: String? = nil,
         mavenProfileTask: String? = nil,
         mavenProfileProject: MavenProfileProjectResult? = nil,
-        method: String? = nil
+        method: String? = nil,
+        coreLog: CoreLogRecord? = nil, pluginID: String? = nil, role: String? = nil
     ) {
+        self.coreLog = coreLog; self.pluginID = pluginID; self.role = role
         self.method = method
         self.mavenProfileTask = mavenProfileTask
         self.mavenProfileProject = mavenProfileProject
@@ -359,7 +365,13 @@ package struct JavaLanguageImportConfiguration: Equatable, Sendable {
     }
 }
 
+/// Explicit process ownership supplied by each launcher, never inferred from IDs.
+package enum LanguageServerLogRole: String, Sendable { case languageServer = "language_server", vcs, build, toolchain, backend }
+
 package protocol LanguageServerRuntimeCore: Sendable {
+    func loggingRuntime(role: LanguageServerLogRole, logSubject: String?, pluginID: String?) -> any LanguageServerRuntimeCore
+    func emitCoreLog(_ record: CoreLogRecord)
+
     /// Network-backed startup must run off the main actor. This is resolved
     /// from the workspace owner, before any process is created.
     func requiresBackgroundLanguageServerStart(rootURL: URL) -> Bool
@@ -497,6 +509,29 @@ package protocol LanguageServerRuntimeCore: Sendable {
         params: ToolingJSONValue,
         timeout: TimeInterval
     ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure>
+    /// Sends an import request with an opaque snapshot token to a negotiated provider.
+    func requestKeymapImportProvider(
+        sessionID: String,
+        providerID: String,
+        snapshotID: String,
+        timeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure>
+    /// Starts a plugin backend offering its shortcut and optional toolchain providers.
+    func startPluginKeymapImportBackend(
+        pluginID: String,
+        providerID: String,
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String],
+        rootURL: URL,
+        initializationOptions: ToolingJSONValue?,
+        hostServices: [String],
+        toolchainProviders: [String],
+        keymapImportProviders: [String],
+        initializeTimeout: TimeInterval,
+        requestTimeout: TimeInterval,
+        shutdownTimeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure>
     /// Starts a plugin backend and offers it the manifest's toolchain providers.
     func startPluginToolchainBackend(
         pluginID: String,
@@ -611,6 +646,9 @@ package protocol LanguageServerRuntimeCore: Sendable {
 }
 
 package extension LanguageServerRuntimeCore {
+    func loggingRuntime(role: LanguageServerLogRole, logSubject: String?, pluginID: String?) -> any LanguageServerRuntimeCore { self }
+    func emitCoreLog(_ record: CoreLogRecord) {}
+
     func saveLanguageServerDocument(sessionID _: String, fileURL _: URL, text _: String) -> Result<Bool, LanguageServerRuntimeFailure> {
         .success(false)
     }
@@ -762,6 +800,25 @@ package extension LanguageServerRuntimeCore {
             code: "not_supported",
             message: "Toolchain-provider requests are not supported by this runtime."
         ))
+    }
+
+    func requestKeymapImportProvider(
+        sessionID _: String, providerID _: String, snapshotID _: String, timeout _: TimeInterval
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
+        .failure(LanguageServerRuntimeFailure(code: "not_supported", message: L10n.string(
+            "Shortcut import is unavailable. Update Lithe and the editor import plugin, then try again."
+        )))
+    }
+
+    func startPluginKeymapImportBackend(
+        pluginID _: String, providerID _: String, executableURL _: URL, arguments _: [String],
+        environment _: [String: String], rootURL _: URL, initializationOptions _: ToolingJSONValue?,
+        hostServices _: [String], toolchainProviders _: [String], keymapImportProviders _: [String],
+        initializeTimeout _: TimeInterval, requestTimeout _: TimeInterval, shutdownTimeout _: TimeInterval
+    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> {
+        .failure(LanguageServerRuntimeFailure(code: "not_supported", message: L10n.string(
+            "Shortcut import is unavailable. Update Lithe and the editor import plugin, then try again."
+        )))
     }
 
     /// Runtimes without the protocol start the backend without the offer, so

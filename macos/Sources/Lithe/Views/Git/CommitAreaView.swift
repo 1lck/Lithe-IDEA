@@ -128,7 +128,7 @@ struct CommitAreaView: View {
             "Replace current commit message?",
             isPresented: Binding(
                 get: { draft.pendingGeneratedMessage != nil },
-                set: { if !$0 { draft.discardGeneratedMessage() } }
+                set: { if !$0 { commitWorkflow.discardGeneratedMessage() } }
             ),
             titleVisibility: .visible
         ) {
@@ -137,7 +137,7 @@ struct CommitAreaView: View {
             }
             .lithePointer()
             Button("Keep Current", role: .cancel) {
-                draft.discardGeneratedMessage()
+                commitWorkflow.discardGeneratedMessage()
             }
             .lithePointer()
         } message: {

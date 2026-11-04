@@ -34,6 +34,7 @@ public final class TerminalModule: LitheModule {
     public func activate(context: ModuleContext) async throws {
         guard capability == nil else { return }
         let feature = TerminalFeatureModel(
+            logSink: context.logSink,
             terminalFactory: terminalFactory,
             workspaceTerminalFactory: workspaceTerminalFactory,
             shellDiscovery: shellDiscovery,

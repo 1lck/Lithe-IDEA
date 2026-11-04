@@ -5,6 +5,7 @@ import LitheModuleAPI
 struct PluginStartupIssue: Equatable {
     let pluginID: PluginID?
     let message: String
+    var logRecorded = false
 }
 
 @MainActor
@@ -61,15 +62,18 @@ final class MacPluginStartupLoader {
     /// composition root supplies the check instead of this adapter importing it.
     typealias UIValidator = @MainActor (ValidatedPluginCatalog) throws -> Void
 
+    private let logSink: (any LogSink)?
     private let packageStore: MacPluginPackageStore
     private let hostVersion: PluginVersion
     private let validateUI: UIValidator
 
     init(
         packageStore: MacPluginPackageStore,
+        logSink: (any LogSink)? = nil,
         hostVersion: PluginVersion = BuiltInPluginCatalog.hostVersion,
         validateUI: @escaping UIValidator
     ) {
+        self.logSink = logSink
         self.packageStore = packageStore
         self.hostVersion = hostVersion
         self.validateUI = validateUI
@@ -82,6 +86,7 @@ final class MacPluginStartupLoader {
             try packageStore.prepareForLaunch()
             scan = try packageStore.scanInstalledPlugins()
         } catch {
+            logSink?.emit(PluginsScanFailed(error: error))
             return MacPluginStartupResult(
                 installedPlugins: [],
                 registeredPlugins: [],
@@ -91,11 +96,11 @@ final class MacPluginStartupLoader {
         }
 
         var issues = scan.issues.map {
-            PluginStartupIssue(pluginID: $0.pluginID, message: $0.message)
+            PluginStartupIssue(pluginID: $0.pluginID, message: $0.message, logRecorded: $0.logRecorded)
         }
         let acceptance = accept(scan.packages, alongside: [])
         issues += acceptance.issues
-        Self.log(issues)
+        Self.log(issues, sink: logSink)
         let live = acceptance.accepted.filter { $0.descriptor.canActivateWithoutRestart }
         return MacPluginStartupResult(
             installedPlugins: scan.packages,
@@ -134,7 +139,7 @@ final class MacPluginStartupLoader {
                 // Validate renderer/action bindings before any workspace can
                 // construct its UI; a rejected package remains inspectable.
                 try validateUI(catalog)
-                let icons = try MacPluginUIIconLoader.load(installed.descriptor, at: installed.packageURL)
+                let icons = try MacPluginUIIconLoader.load(installed.descriptor, at: installed.packageURL, logSink: logSink)
                 result.iconResources.merge(icons) { _, new in new }
                 result.accepted.append(installed)
             } catch {
@@ -162,13 +167,12 @@ final class MacPluginStartupLoader {
 
     /// Rejected or failed plugins are otherwise only visible in Plugin
     /// Management, so record them in the unified log for diagnosis.
-    static func log(_ issues: [PluginStartupIssue]) {
-        for issue in issues {
-            NSLog(
-                "Lithe plugin startup issue [%@]: %@",
-                issue.pluginID?.rawValue ?? "-",
-                issue.message
-            )
+    static func log(_ issues: [PluginStartupIssue], sink: (any LogSink)?) {
+        for issue in issues where !issue.logRecorded {
+            let error = NSError(domain: "plugins.startup", code: 1, userInfo: [NSLocalizedDescriptionKey: issue.message])
+            if let raw = issue.pluginID?.rawValue, let plugin = LogSegment(raw) {
+                sink?.emit(PluginsStartupRejected(error: error, plugin: plugin))
+            } else { sink?.emit(PluginsCatalogRejected(error: error)) }
         }
     }
 

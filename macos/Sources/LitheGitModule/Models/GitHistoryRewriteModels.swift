@@ -10,6 +10,25 @@ public enum GitHistoryRewriteOperation: String, Codable, Sendable, CaseIterable 
     package var editsMessage: Bool { self == .editCommitMessage || self == .squashCommits }
 }
 
+package struct GitHistoryActionFailure: Error, Sendable {
+    package init() {}
+}
+
+/// Core-owned menu hints; rewrite preview remains the final write authority.
+package struct GitHistoryActionCapabilities: Decodable, Equatable, Sendable {
+    package let head: String?
+    package let canCherryPick: Bool
+    package let canUndo: Bool
+    package let canSquash: Bool
+
+    package init(head: String?, canCherryPick: Bool, canUndo: Bool, canSquash: Bool) {
+        self.head = head
+        self.canCherryPick = canCherryPick
+        self.canUndo = canUndo
+        self.canSquash = canSquash
+    }
+}
+
 package struct GitHistoryRewriteCommit: Decodable, Equatable, Sendable, Identifiable {
     package let hash: String
     package let parents: [String]

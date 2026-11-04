@@ -14,7 +14,7 @@ enum SearchWorkflowComposition {
                 return feature
             },
             workspace: { [weak model] in model?.workspaceURL },
-            notify: { [weak model] in model?.showNotification($0) },
+            notify: { [weak model] in model?.showNotification($0, logReference: model?.notificationRejection(operation: "search", reason: "activation_failed")) },
             markIdle: { [weak model] in try? model?.services.moduleRuntime.markIdle(.search) }
         )
     }

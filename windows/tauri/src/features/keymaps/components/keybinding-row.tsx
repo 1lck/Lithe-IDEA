@@ -13,6 +13,8 @@ import { useKeymapStore } from "../stores/keymaps.store";
 import type { Command, Keybinding } from "../types/keymaps.types";
 import { localizeKeymapCommand } from "../utils/command-localization";
 import { KeybindingInput } from "./keybinding-input";
+import { useToast } from "@/features/layout/contexts/toast-context";
+import { KeymapContextError } from "../utils/context";
 
 export const keybindingTableMinWidth = cva("min-w-175");
 
@@ -23,6 +25,7 @@ interface KeybindingRowProps {
 
 export function KeybindingRow({ command, keybinding }: KeybindingRowProps) {
   const { t } = useTranslation();
+  const { showToast } = useToast();
   const [isEditing, setIsEditing] = useState(false);
   const { addKeybinding, updateKeybinding, removeKeybinding } = useKeymapStore.use.actions();
   const { hasConflict, conflictingCommands } = useKeybindingConflicts(
@@ -31,23 +34,29 @@ export function KeybindingRow({ command, keybinding }: KeybindingRowProps) {
     keybinding?.when,
   );
 
-  const handleSave = (newKey: string) => {
-    if (keybinding?.source === "user") {
-      // Update existing user keybinding
-      updateKeybinding(command.id, { key: newKey });
-    } else {
-      // Remove any existing user override first, then add new one
-      // This handles both "no keybinding" and "default/extension keybinding" cases
-      removeKeybinding(command.id);
-      addKeybinding({
-        key: newKey,
-        command: command.id,
-        source: "user",
-        enabled: true,
-        when: keybinding?.when,
+  const handleSave = async (newKey: string) => {
+    try {
+      if (keybinding?.source === "user") {
+        await updateKeybinding(command.id, { key: newKey });
+      } else {
+        await addKeybinding({
+          key: newKey,
+          command: command.id,
+          source: "user",
+          enabled: true,
+          when: keybinding?.when,
+        });
+      }
+      setIsEditing(false);
+    } catch (error) {
+      showToast({
+        message:
+          error instanceof KeymapContextError
+            ? t("keybindings.invalidWhen")
+            : t("keybindings.saveFailed", { error: String(error) }),
+        type: "error",
       });
     }
-    setIsEditing(false);
   };
 
   const handleRemove = () => {
@@ -75,7 +84,9 @@ export function KeybindingRow({ command, keybinding }: KeybindingRowProps) {
     <>
       <TableRow className={cn(hasConflict && "bg-destructive/5 hover:bg-destructive/10")}>
         <TableCell className="min-w-0">
-          <div className="font-sans ui-text-sm truncate text-foreground">{localizedCommand.title}</div>
+          <div className="font-sans ui-text-sm truncate text-foreground">
+            {localizedCommand.title}
+          </div>
           <div className="font-sans ui-text-sm mt-0.5 truncate text-subtle-foreground">
             {localizedCommand.category} • {command.id}
           </div>

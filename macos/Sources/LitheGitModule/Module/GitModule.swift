@@ -43,8 +43,8 @@ public final class GitModule: LitheModule {
     public func activate(context: ModuleContext) async throws {
         guard capability == nil else { return }
         let feature = GitFeatureModel(
-            service: GitService(operations: operations, performanceLogger: performanceLogger),
-            shelveService: ShelveService(storage: shelfStorage),
+            service: GitService(operations: operations, performanceLogger: performanceLogger, executionJournal: executionJournal),
+            shelveService: ShelveService(storage: shelfStorage, logSink: context.logSink),
             executionJournal: executionJournal,
             changelistStorage: changelistStorage
         )

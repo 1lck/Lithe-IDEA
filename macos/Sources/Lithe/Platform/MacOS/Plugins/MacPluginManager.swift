@@ -308,7 +308,7 @@ final class MacPluginManager: PluginManaging {
                 throw PluginManagerError.unknownPlugin(pluginID)
             }
             beforePackageReplacement(pluginID)
-            if OfficialPluginCatalog.entry(for: pluginID)?.bundledSignatureRequirement == .sameTeamAsHost {
+            if OfficialPluginCatalog.trustPolicy(for: pluginID)?.bundledSignatureRequirement == .sameTeamAsHost {
                 try packageStore.setBundledPluginRemoved(pluginID, removed: true)
             }
             try packageStore.stageInvalidPackageUninstall(pluginID)

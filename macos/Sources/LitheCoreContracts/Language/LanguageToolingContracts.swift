@@ -778,34 +778,6 @@ package struct LanguageServerInfo: Equatable, Sendable {
     }
 }
 
-package struct LanguageServerLogEntry: Identifiable, Equatable, Sendable {
-    package let id: UUID
-    package let timestamp: Date
-    package let providerID: String
-    package let operationID: String?
-    package let level: LanguageServerLogLevel
-    package let message: String
-    package let detail: String?
-
-    package init(
-        id: UUID = UUID(),
-        timestamp: Date = Date(),
-        providerID: String,
-        operationID: String? = nil,
-        level: LanguageServerLogLevel,
-        message: String,
-        detail: String? = nil
-    ) {
-        self.id = id
-        self.timestamp = timestamp
-        self.providerID = providerID
-        self.operationID = operationID
-        self.level = level
-        self.message = message
-        self.detail = detail
-    }
-}
-
 package struct MavenProfileProjectResult: Equatable, Sendable {
     package let projectURI: URL
     package let status: String
@@ -878,7 +850,11 @@ package protocol LanguageServerSession: AnyObject {
     /// Packaged Java Test runner, if this JDT LS session was launched with one.
     var javaTestRunnerURL: URL? { get }
     var onDiagnostics: ((URL, [LanguageServerDiagnostic]) -> Void)? { get set }
+    var onCoreLog: ((CoreLogRecord) -> Void)? { get set }
     var onLog: ((LanguageServerLogLevel, String, String?, String?) -> Void)? { get set }
+    /// Controlled issue facts: isWarning, source stage, stable code, exit status, operation ID.
+    /// No message/detail payload crosses this persistence callback.
+    var onLogIssue: ((Bool, String, String, Int?, String?) -> Void)? { get set }
     var onStateChange: ((LanguageServerSessionState) -> Void)? { get set }
     var features: LanguageServerFeatureSet { get }
     var onFeaturesChange: ((LanguageServerFeatureSet) -> Void)? { get set }
@@ -1035,6 +1011,7 @@ package extension LanguageServerSession {
         let deadline = ContinuousClock.now.advanced(by: .seconds(5))
         while isRunning, ContinuousClock.now < deadline {
             do { try await Task.sleep(for: .milliseconds(10)) }
+            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
             catch { return false }
         }
         return !isRunning
@@ -1167,7 +1144,15 @@ package extension LanguageServerSession {
         get { nil }
         set {}
     }
+    var onCoreLog: ((CoreLogRecord) -> Void)? {
+        get { nil }
+        set { }
+    }
     var onLog: ((LanguageServerLogLevel, String, String?, String?) -> Void)? {
+        get { nil }
+        set {}
+    }
+    var onLogIssue: ((Bool, String, String, Int?, String?) -> Void)? {
         get { nil }
         set {}
     }

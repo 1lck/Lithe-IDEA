@@ -762,7 +762,7 @@ struct RunView: View {
             let data = try JSONSerialization.data(withJSONObject: selections, options: [.sortedKeys])
             selectedConfigurationTokens = String(decoding: data, as: UTF8.self)
         } catch {
-            model.showNotification("Could not save service selection")
+            model.showNotification("Could not save service selection", logReference: model.notificationFailure(error, operation: "service_selection"))
         }
     }
 

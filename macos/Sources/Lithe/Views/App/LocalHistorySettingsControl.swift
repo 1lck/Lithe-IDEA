@@ -73,6 +73,7 @@ struct LocalHistorySettingsControl: View {
         .task(id: previewKey) {
             let input = previewKey
             // Debounce typing; a newer draft cancels this task.
+            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
             try? await Task.sleep(nanoseconds: 200_000_000)
             guard !Task.isCancelled else { return }
             let result = await model.localHistoryIgnorePreview(

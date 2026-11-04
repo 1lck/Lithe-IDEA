@@ -129,7 +129,7 @@ extension AppModel {
                 languageProviderCatalog.provider(for: $0)?.id == "java"
             }
         guard let sourceURL else {
-            showNotification("Open a Java project before connecting the debugger")
+            showNotification("Open a Java project before connecting the debugger", logReference: notificationRejection(operation: "debugging", reason: "unavailable_0"))
             return
         }
         let configuration: DebugLaunchConfiguration
@@ -139,7 +139,7 @@ extension AppModel {
                 port: port
             )
         } catch {
-            showNotification(error.localizedDescription)
+            showNotification(error.localizedDescription, logReference: notificationFailure(error, operation: "debugging"))
             return
         }
         guard let genericDebugFeature = genericDebugFeatureIfActive,
@@ -149,7 +149,8 @@ extension AppModel {
                   configuration: configuration
               ) else {
             showNotification(
-                genericDebugFeatureIfActive?.errorMessage ?? "Could not connect to the JVM"
+                genericDebugFeatureIfActive?.errorMessage ?? "Could not connect to the JVM",
+                logReference: notificationRejection(operation: "debug_attach", reason: "attach_failed")
             )
             showToolWindow(.debug)
             return
@@ -189,7 +190,7 @@ extension AppModel {
             if case .needsGeneration = configurationReadiness {
                 runFeature.requestRunConfigurationGeneration(intent: .debug)
             } else {
-                showNotification("Choose a Run configuration before starting Debug")
+                showNotification("Choose a Run configuration before starting Debug", logReference: notificationRejection(operation: "debugging", reason: "unavailable_1"))
             }
             return
         }
@@ -206,7 +207,7 @@ extension AppModel {
                                                      workspaceURL: identity.url, title: selectedConfiguration.name)
             }
             if started != nil { showToolWindow(.buildOutput) }
-            else { showNotification("The build provider's debug program or adapter is unavailable. Build it again and check that the plugin is enabled.") }
+            else { showNotification("The build provider's debug program or adapter is unavailable. Build it again and check that the plugin is enabled.", logReference: notificationRejection(operation: "debugging", reason: "unavailable_2")) }
             return
         }
         let activeDocumentIsLaunchable = selectedConfiguration.usesCurrentEditorFile
@@ -235,13 +236,13 @@ extension AppModel {
         case .resolved(let resolved):
             sourceURL = resolved
         case .currentFileUnavailable:
-                showNotification("Open a source file or choose a project Run configuration")
+                showNotification("Open a source file or choose a project Run configuration", logReference: notificationRejection(operation: "debugging", reason: "unavailable_3"))
             return
         case .javaSourceUnavailable(let name):
-            showNotification("Could not find the Java source for %@", arguments: [name])
+            showNotification("Could not find the Java source for %@", arguments: [name], logReference: notificationRejection(operation: "debugging", reason: "unavailable_4"))
             return
         case .unsupported(let name):
-            showNotification("%@ does not support Debug yet", arguments: [name])
+            showNotification("%@ does not support Debug yet", arguments: [name], logReference: notificationRejection(operation: "debugging", reason: "unavailable_5"))
             return
         }
 
@@ -252,7 +253,7 @@ extension AppModel {
         )
         guard case .ready = providerReadiness else {
             if case .unsupported(let fileName) = providerReadiness {
-                showNotification("Debug support is not available for %@", arguments: [fileName])
+                showNotification("Debug support is not available for %@", arguments: [fileName], logReference: notificationRejection(operation: "debugging", reason: "unavailable_6"))
             }
             showToolWindow(.debug)
             return
@@ -318,8 +319,7 @@ extension AppModel {
         guard workspaceFeature.fileExists(at: normalizedURL) else {
             showNotification(
                 "The stopped source file is no longer available: %@",
-                arguments: [url.lastPathComponent]
-            )
+                arguments: [url.lastPathComponent], logReference: notificationRejection(operation: "debugging", reason: "unavailable_7"))
             return
         }
         navigate(
@@ -339,7 +339,7 @@ extension AppModel {
         guard let document = focusedEditorDocument,
               let caret = editorCaret,
               caret.url.standardizedFileURL == document.url.standardizedFileURL else {
-            showNotification("Place the caret in a source file to set a breakpoint")
+            showNotification("Place the caret in a source file to set a breakpoint", logReference: notificationRejection(operation: "debugging", reason: "unavailable_8"))
             return
         }
         toggleDebugBreakpoint(fileURL: document.url, line: caret.line + 1)
@@ -357,7 +357,7 @@ extension AppModel {
                 feature.toggleBreakpoint(fileURL: fileURL, line: line)
             }
         } else {
-            showNotification("Debugging is not supported for this file type")
+            showNotification("Debugging is not supported for this file type", logReference: notificationRejection(operation: "debugging", reason: "unavailable_9"))
         }
     }
 
@@ -424,7 +424,7 @@ extension AppModel {
         guard let feature = genericDebugFeatureIfActive,
               feature.state == .paused,
               feature.capabilities.supportsGotoTargetsRequest else {
-            showNotification("Run to Cursor is unavailable for the active debug session")
+            showNotification("Run to Cursor is unavailable for the active debug session", logReference: notificationRejection(operation: "debugging", reason: "unavailable_10"))
             return
         }
         feature.requestRunToCursor(
@@ -437,12 +437,12 @@ extension AppModel {
                 guard let target = targets.min(by: {
                     abs(($0.column ?? column) - column) < abs(($1.column ?? column) - column)
                 }) else {
-                    self?.showNotification("No executable location was found at the cursor")
+                    self?.showNotification("No executable location was found at the cursor", logReference: self?.notificationRejection(operation: "run_to_cursor", reason: "target_missing"))
                     return
                 }
                 feature?.runToCursor(target)
             case .failure(let error):
-                self?.showNotification(error.localizedDescription)
+                self?.showNotification(error.localizedDescription, logReference: self?.notificationFailure(error, operation: "debugging"))
             }
         }
     }
@@ -475,7 +475,7 @@ extension AppModel {
               let provider = languageProviderCatalog.provider(for: fileURL),
               let runFeature = await activateExecutionModule()?.runFeature,
               let genericDebugFeature = await activateDebugModule()?.genericFeature else {
-            showNotification("No language provider is available for this file")
+            showNotification("No language provider is available for this file", logReference: notificationRejection(operation: "debugging", reason: "unavailable_11"))
             return
         }
         guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
@@ -529,11 +529,12 @@ extension AppModel {
                     return prepared
                 }
             )
+        // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
         } catch is CancellationError {
             return
         } catch {
             guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
-            showNotification(error.localizedDescription)
+            showNotification(error.localizedDescription, logReference: notificationFailure(error, operation: "debugging"))
             return
         }
         guard isCurrentWorkspace(identity), !Task.isCancelled,

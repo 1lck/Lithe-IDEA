@@ -79,7 +79,7 @@ struct JavaLaunchDecisionDialog: View {
 
         Button(settings.language.localizedString("native.inline.openLogs")) {
             model.completeJavaLaunchDecision(.cancel, requestID: request.id)
-            model.showSettings(category: .diagnostics)
+            model.openLogs()
         }
         .accessibilityIdentifier("java-build-open-logs")
         Button(settings.language.localizedString("native.inline.cancel"), role: .cancel) {

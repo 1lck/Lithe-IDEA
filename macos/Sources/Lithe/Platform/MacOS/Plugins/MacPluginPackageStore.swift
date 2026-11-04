@@ -99,6 +99,7 @@ struct InstalledPluginPackage: Equatable, Sendable {
 struct PluginPackageScanIssue: Equatable {
     let pluginID: PluginID?
     let message: String
+    var logRecorded = false
 }
 
 struct PluginPackageScanResult: Equatable {
@@ -115,6 +116,7 @@ final class MacPluginPackageStore {
     private static let retiredPluginIDs: Set<PluginID> = [
         PluginID("dev.lithe.plugin.linux-do-support")
     ]
+    private let logSink: (any LogSink)?
     private let rootURL: URL
     private let bundledRootURL: URL?
     /// Generic native editors must keep every installed package read-only,
@@ -137,6 +139,7 @@ final class MacPluginPackageStore {
     private let decoder = JSONDecoder()
 
     init(
+        logSink: (any LogSink)? = nil,
         rootURL: URL,
         bundledRootURL: URL? = nil,
         stateDirectories: MacPluginStateDirectories? = nil,
@@ -148,6 +151,7 @@ final class MacPluginPackageStore {
         verifier: any PluginPackageSignatureVerifying = MacOfficialPluginSignatureVerifier(),
         fileManager: FileManager = .default
     ) {
+        self.logSink = logSink
         self.rootURL = rootURL.standardizedFileURL
         self.bundledRootURL = bundledRootURL?.standardizedFileURL
         self.stateDirectories = stateDirectories
@@ -163,11 +167,13 @@ final class MacPluginPackageStore {
     }
 
     convenience init(
+        logSink: (any LogSink)? = nil,
         fileStorage: any FileStorage,
         validator: any DeclarativePluginManifestValidating,
         credentials: (any PluginCredentialStoring)? = nil
     ) {
         self.init(
+            logSink: logSink,
             rootURL: fileStorage.applicationSupportDirectory()
                 .appendingPathComponent("Lithe/Plugins", isDirectory: true),
             bundledRootURL: Bundle.main.resourceURL?
@@ -304,9 +310,10 @@ final class MacPluginPackageStore {
         do {
             directories = try pluginDirectories(at: bundledRootURL)
         } catch {
+            logSink?.emit(PluginsScanFailed(error: error))
             return PluginPackageScanResult(
                 packages: [],
-                issues: [PluginPackageScanIssue(pluginID: nil, message: error.localizedDescription)]
+                issues: [PluginPackageScanIssue(pluginID: nil, message: error.localizedDescription, logRecorded: logSink != nil)]
             )
         }
 
@@ -362,6 +369,7 @@ final class MacPluginPackageStore {
     /// A preparation worker owns its decoder and never reads or writes installed
     /// records. Immutable validation policy is shared with the installation store.
     func makePreparationStoreFactory(architecture: String? = nil) -> @Sendable () -> MacPluginPackageStore {
+        let logSink = logSink
         let rootURL = rootURL
         let hostVersion = hostVersion
         let validator = validator
@@ -370,6 +378,7 @@ final class MacPluginPackageStore {
         let architecture = architecture ?? self.architecture
         return {
             MacPluginPackageStore(
+                logSink: logSink,
                 rootURL: rootURL,
                 hostVersion: hostVersion,
                 validator: validator,
@@ -385,6 +394,7 @@ final class MacPluginPackageStore {
     /// plugins as this store, but owns its decoder and file manager and never
     /// writes: it has no state directories or credentials to clean up.
     func makeScanStoreFactory() -> @Sendable () -> MacPluginPackageStore {
+        let logSink = logSink
         let rootURL = rootURL
         let bundledRootURL = bundledRootURL
         let hostVersion = hostVersion
@@ -392,6 +402,7 @@ final class MacPluginPackageStore {
         let verifier = verifier
         return {
             MacPluginPackageStore(
+                logSink: logSink,
                 rootURL: rootURL,
                 bundledRootURL: bundledRootURL,
                 hostVersion: hostVersion,
@@ -447,7 +458,9 @@ final class MacPluginPackageStore {
         let stagedURL = stagingRoot.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try fileManager.copyItem(at: sourceURL, to: stagedURL)
         var shouldRemoveStaging = true
-        defer { if shouldRemoveStaging { try? fileManager.removeItem(at: stagedURL) } }
+        defer { if shouldRemoveStaging { do { try fileManager.removeItem(at: stagedURL) }
+            catch let error as CocoaError where error.code == .fileNoSuchFile { /* Owned resource is already absent. */ }
+            catch { logSink?.emit(PluginsResourcesMaintenanceFailed(error: error, stage: "remove")) } } }
 
         // Revalidate the copy: the source directory could change after the
         // first read, and only the staged bytes are installed.
@@ -494,7 +507,8 @@ final class MacPluginPackageStore {
             shouldRemoveStaging = false
         } catch {
             if let backupURL {
-                try? fileManager.moveItem(at: backupURL, to: destination)
+                do { try fileManager.moveItem(at: backupURL, to: destination) }
+                catch { logSink?.emit(PluginsResourcesMaintenanceFailed(error: error, stage: "rollback")) }
             }
             throw error
         }
@@ -522,7 +536,9 @@ final class MacPluginPackageStore {
             )
             try write(record, to: pluginDirectory.appendingPathComponent("installation.json"))
             if let backupURL {
-                try? fileManager.removeItem(at: backupURL)
+                do { try fileManager.removeItem(at: backupURL) }
+            catch let error as CocoaError where error.code == .fileNoSuchFile { /* Owned resource is already absent. */ }
+            catch { logSink?.emit(PluginsResourcesMaintenanceFailed(error: error, stage: "remove")) }
             }
             return InstalledPluginPackage(
                 descriptor: descriptor,
@@ -530,9 +546,12 @@ final class MacPluginPackageStore {
                 packageURL: destination
             )
         } catch {
-            try? fileManager.removeItem(at: destination)
+            do { try fileManager.removeItem(at: destination) }
+            catch let error as CocoaError where error.code == .fileNoSuchFile { /* Owned resource is already absent. */ }
+            catch { logSink?.emit(PluginsResourcesMaintenanceFailed(error: error, stage: "remove")) }
             if let backupURL {
-                try? fileManager.moveItem(at: backupURL, to: destination)
+                do { try fileManager.moveItem(at: backupURL, to: destination) }
+                catch { logSink?.emit(PluginsResourcesMaintenanceFailed(error: error, stage: "rollback")) }
             }
             throw error
         }
@@ -666,9 +685,12 @@ final class MacPluginPackageStore {
     /// with it; disabling or updating the plugin keeps both.
     private func removeState(of pluginID: PluginID) {
         guard (try? validatePathComponent(pluginID.rawValue)) != nil else { return }
-        try? credentials?.deleteAll(pluginID: pluginID.rawValue)
+        do { try credentials?.deleteAll(pluginID: pluginID.rawValue) }
+        catch { logSink?.emit(PluginsResourcesMaintenanceFailed(error: error, stage: "credentials-remove")) }
         guard let stateDirectories else { return }
-        try? fileManager.removeItem(at: stateDirectories.pluginDirectory(pluginID: pluginID.rawValue))
+        do { try fileManager.removeItem(at: stateDirectories.pluginDirectory(pluginID: pluginID.rawValue)) }
+            catch let error as CocoaError where error.code == .fileNoSuchFile { /* Owned resource is already absent. */ }
+            catch { logSink?.emit(PluginsResourcesMaintenanceFailed(error: error, stage: "remove")) }
     }
 
     func stageUninstall(_ pluginID: PluginID) throws {
@@ -715,7 +737,7 @@ final class MacPluginPackageStore {
             try validateCommunityContent(descriptor.id, at: packageURL, marketplace: marketplace, disk: disk)
         }
         try validateLaunchResources(descriptor, at: packageURL)
-        _ = try MacPluginUIIconLoader.load(descriptor, at: packageURL)
+        _ = try MacPluginUIIconLoader.load(descriptor, at: packageURL, logSink: logSink)
         try MacPluginWebContent.validateEntries(descriptor, at: packageURL)
     }
 
@@ -794,7 +816,8 @@ final class MacPluginPackageStore {
                     stateDirectory: unused.appendingPathComponent("state", isDirectory: true),
                     workspaceStateDirectory: unused.appendingPathComponent("workspace", isDirectory: true),
                     architecture: MacPluginLanguageServerLaunchResolver.hostArchitecture,
-                    settings: [:]
+                    settings: [:],
+                    logDirectory: unused.appendingPathComponent("log", isDirectory: true)
                 )
             )
         } catch let rejection as DeclarativePluginRejection {
@@ -901,7 +924,7 @@ final class MacPluginPackageStore {
     }
 
     private func validateOfficialTrustPolicy(_ manifest: PluginManifest) throws {
-        guard let trusted = OfficialPluginCatalog.entry(for: manifest.id) else { return }
+        guard let trusted = OfficialPluginCatalog.trustPolicy(for: manifest.id) else { return }
         guard manifest.vendor.signatureRequirement == trusted.signatureRequirement,
               manifest.vendor.bundledSignatureRequirement == trusted.bundledSignatureRequirement else {
             throw PluginPackageStoreError.officialSignatureRequirementMismatch(manifest.id)
@@ -1001,7 +1024,7 @@ struct MacOfficialPluginSignatureVerifier: PluginPackageSignatureVerifying {
     /// The host's trust policy wins over the package's own declaration, so an
     /// official plugin cannot downgrade the signature it must carry.
     static func signatureRequirement(for manifest: PluginManifest) -> PluginSignatureRequirement {
-        OfficialPluginCatalog.entry(for: manifest.id)?.signatureRequirement
+        OfficialPluginCatalog.trustPolicy(for: manifest.id)?.signatureRequirement
             ?? manifest.vendor.signatureRequirement
     }
 
@@ -1030,7 +1053,7 @@ struct MacOfficialPluginSignatureVerifier: PluginPackageSignatureVerifying {
         if manifest.vendor.signatureRequirement == .unsigned || origin == .community {
             guard manifest.vendor.signatureRequirement == .unsigned,
                   origin == .community,
-                  OfficialPluginCatalog.entry(for: manifest.id) == nil else {
+                  OfficialPluginCatalog.trustPolicy(for: manifest.id) == nil else {
                 throw PluginPackageStoreError.unsignedPackageNotAllowed(manifest.id)
             }
             if Self.hasPackageSignature(at: packageURL) {
@@ -1055,7 +1078,7 @@ struct MacOfficialPluginSignatureVerifier: PluginPackageSignatureVerifying {
         let usesHostSeal = origin == .bundled
             && packagePath.hasPrefix(hostBundlePath)
             && manifest.vendor.bundledSignatureRequirement == .sameTeamAsHost
-            && OfficialPluginCatalog.entry(for: manifest.id)?.bundledSignatureRequirement == .sameTeamAsHost
+            && OfficialPluginCatalog.trustPolicy(for: manifest.id)?.bundledSignatureRequirement == .sameTeamAsHost
         if (signatureRequirement == .publisherPackage && !usesHostSeal) || Self.hasPackageSignature(at: packageURL) {
             try verifyPublisherPackageSignature(packageAt: packageURL, manifest: manifest)
         }

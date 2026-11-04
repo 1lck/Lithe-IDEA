@@ -3,6 +3,7 @@ import {
   buildGitIgnorePaths,
   collapseNestedGitStatusPaths,
   resolveGitFileMutationPaths,
+  refreshedCommitSelectionMatches,
   resolveGitFilesForStagedState,
   resolveGitStatusDeletionPaths,
   resolveGitStatusContextSelection,
@@ -10,8 +11,57 @@ import {
 } from "./git-status-selection";
 
 describe("Git status row selection", () => {
+  test("refreshed commit selection rejects other staged paths and accepts expanded directories", () => {
+    const selected = [
+      {
+        path: "A/partial.ts",
+        repositoryPath: "C:/workspace/A",
+        repositoryRelativePath: "partial.ts",
+        status: "modified" as const,
+        staged: true,
+      },
+      {
+        path: "B/dir/",
+        repositoryPath: "C:/workspace/B",
+        repositoryRelativePath: "dir/",
+        status: "untracked" as const,
+        staged: false,
+        untrackedFileCount: 101,
+      },
+    ];
+    const refreshed = [
+      selected[0]!,
+      {
+        path: "B/dir/file.ts",
+        repositoryPath: "C:/workspace/B",
+        repositoryRelativePath: "dir/file.ts",
+        status: "added" as const,
+        staged: true,
+      },
+    ];
+    expect(refreshedCommitSelectionMatches(selected, refreshed)).toBe(true);
+    expect(refreshedCommitSelectionMatches(selected, refreshed.slice(0, 1))).toBe(false);
+    expect(
+      refreshedCommitSelectionMatches(selected, [
+        ...refreshed,
+        { path: "extra.ts", repositoryPath: "C:/workspace/A", status: "modified", staged: true },
+      ]),
+    ).toBe(false);
+    expect(
+      refreshedCommitSelectionMatches(selected, [
+        ...refreshed,
+        { path: "partial.ts", repositoryPath: "C:/workspace/C", status: "modified", staged: true },
+      ]),
+    ).toBe(false);
+  });
+
   test("including a partially staged file includes its remaining worktree changes", () => {
-    const partial = { path: "partial.ts", status: "modified" as const, staged: true, worktree: true };
+    const partial = {
+      path: "partial.ts",
+      status: "modified" as const,
+      staged: true,
+      worktree: true,
+    };
     expect(resolveGitFilesForStagedState([partial], true)).toEqual([partial]);
     expect(resolveGitFilesForStagedState([partial], false)).toEqual([partial]);
   });

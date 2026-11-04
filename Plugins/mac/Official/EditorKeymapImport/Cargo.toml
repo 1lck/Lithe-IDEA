@@ -1,0 +1,15 @@
+[package]
+name = "lithe-editor-keymap-import"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[dependencies]
+lithe-plugin-sdk = { git = "https://github.com/Lithe-IDEA/lithe-plugin-docs.git", rev = "5041540ced80a57d6a2b0207a142fff1871eff2f" }
+serde_json = "1"
+jsonc-parser = { version = "0.34", features = ["serde"] }
+quick-xml = "0.37"
+
+[dev-dependencies]
+lithe-core = { path = "../../../../rust/lithe-core" }
+base64 = "0.22"

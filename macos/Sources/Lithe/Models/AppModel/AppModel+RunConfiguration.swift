@@ -266,11 +266,12 @@ extension AppModel {
                 for: configuration,
                 identity: identity
             )
+        // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
         } catch is CancellationError {
             return
         } catch {
             guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
-            showNotification(error.localizedDescription)
+            showNotification(error.localizedDescription, logReference: notificationFailure(error, operation: "run_configuration"))
             return
         }
         guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
@@ -331,11 +332,12 @@ extension AppModel {
                     for: configuration,
                     identity: identity
                 )
+            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
             } catch is CancellationError {
                 return
             } catch {
                 guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
-                showNotification(error.localizedDescription)
+                showNotification(error.localizedDescription, logReference: notificationFailure(error, operation: "run_configuration"))
                 return
             }
             guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
@@ -381,11 +383,12 @@ extension AppModel {
                     )
                     preparedConfigurations.append((configuration, target))
                 }
+            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
             } catch is CancellationError {
                 return
             } catch {
                 guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
-                showNotification(error.localizedDescription)
+                showNotification(error.localizedDescription, logReference: notificationFailure(error, operation: "run_configuration"))
                 return
             }
             for (configuration, javaLaunch) in preparedConfigurations {
@@ -422,11 +425,12 @@ extension AppModel {
         let javaLaunch: JavaDebugLaunchTarget?
         do {
             javaLaunch = try await prepareJavaRunLaunch(for: configuration, identity: identity)
+        // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
         } catch is CancellationError {
             return
         } catch {
             guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
-            showNotification(error.localizedDescription)
+            showNotification(error.localizedDescription, logReference: notificationFailure(error, operation: "run_configuration"))
             return
         }
         guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
@@ -477,11 +481,12 @@ extension AppModel {
                 )
                 guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
                 runFeature.startConfiguration(current, javaLaunch: javaLaunch)
+            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
             } catch is CancellationError {
                 return
             } catch {
                 guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
-                showNotification(error.localizedDescription)
+                showNotification(error.localizedDescription, logReference: notificationFailure(error, operation: "run_configuration"))
             }
         }
         showToolWindow(.run)
@@ -522,11 +527,12 @@ extension AppModel {
                     }
                     guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
                 }
+            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
             } catch is CancellationError {
                 return
             } catch {
                 guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
-                showNotification(error.localizedDescription)
+                showNotification(error.localizedDescription, logReference: notificationFailure(error, operation: "run_configuration"))
                 return
             }
             runFeature.runAllServices(javaLaunches: javaLaunches)

@@ -530,7 +530,7 @@ struct ChangesSidebarView: View {
         }
         items.append(.submenu("Move to ChangeList", items: feature.changelists.lists.map { list in
             .action(list.displayName, isEnabled: !feature.changelistEditingDisabled,
-                    action: { feature.moveChanges(targets, toChangelist: list.id) })
+                    action: { Task { await feature.moveChanges(targets, toChangelist: list.id) } })
         }))
         items.append(.separator)
         items.append(.action(

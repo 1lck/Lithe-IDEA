@@ -11,14 +11,21 @@ struct MacDittoArchiver: DiagnosticsArchiving {
 
     private let processRunner: any ProcessRunner
 
-    init(processRunner: any ProcessRunner) {
+    private let logSink: (any LogSink)?
+
+    init(processRunner: any ProcessRunner, logSink: (any LogSink)? = nil) {
+        self.logSink = logSink
         self.processRunner = processRunner
     }
 
     func archive(directoryURL: URL, toZipURL destinationURL: URL) throws {
         let temporaryURL = destinationURL.deletingLastPathComponent()
             .appendingPathComponent(".lithe-diagnostics-\(UUID().uuidString).zip")
-        defer { try? FileManager.default.removeItem(at: temporaryURL) }
+        defer {
+            do { try FileManager.default.removeItem(at: temporaryURL) }
+            catch let error as CocoaError where error.code == .fileNoSuchFile { /* Published or never created. */ }
+            catch { logSink?.emit(AppStorageMaintenanceFailed(error: error, stage: "archive-remove", operationID: "diagnostics.export.archive")) }
+        }
         let result = processRunner.run(ProcessRequest(
             operationID: "diagnostics.export.archive",
             executablePath: Self.executablePath,

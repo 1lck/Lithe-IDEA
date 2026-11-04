@@ -106,14 +106,14 @@ struct PluginSettingsTests {
 
         #expect(descriptor.settings.map(\.id) == ["heapMaxMB", "logLevel"])
         let heap = try #require(descriptor.settings.first { $0.id == "heapMaxMB" })
-        // The language server starts with a 2 GB heap and full logging. A smaller
-        // heap makes JDT LS import Maven modules in its constrained-memory mode,
-        // which fails the whole Java service for modules that share coordinates,
-        // so the plugin does not offer one.
+        // The language server starts with a 2 GB heap and logs warnings and
+        // errors only. A smaller heap makes JDT LS import Maven modules in its
+        // constrained-memory mode, which fails the whole Java service for modules
+        // that share coordinates, so the plugin does not offer one.
         #expect(heap.defaultValue == .integer(2048))
         #expect(heap.kind == .integer(minimum: 2048, maximum: 16384, unit: "MB"))
         let level = try #require(descriptor.settings.first { $0.id == "logLevel" })
-        #expect(level.defaultValue == .string("ALL"))
+        #expect(level.defaultValue == .string("WARNING"))
         #expect(level.accepts(.string("SEVERE")) && !level.accepts(.string("OFF")))
     }
 
@@ -135,7 +135,8 @@ struct PluginSettingsTests {
             stateDirectory: URL(fileURLWithPath: "/state"),
             workspaceStateDirectory: URL(fileURLWithPath: "/state/workspace"),
             architecture: MacPluginLanguageServerLaunchResolver.hostArchitecture,
-            settings: settings.values(forPlugin: descriptor.id.rawValue)
+            settings: settings.values(forPlugin: descriptor.id.rawValue),
+            logDirectory: URL(fileURLWithPath: "/logs")
         )
 
         let plan = try DeclarativePluginTestSupport.operations.languageServerLaunchPlan(
@@ -145,6 +146,8 @@ struct PluginSettingsTests {
         )
 
         #expect(plan.arguments.prefix(2) == ["-Xmx3072m", "-Dlog.level=WARNING"])
+        // JDT LS keeps its own log in Lithe's log directory, never in plugin state.
+        #expect(plan.arguments.contains("-Dosgi.logfile=/logs/jdt.log"))
     }
 
     // MARK: Settings v2: layers, pages, and buttons

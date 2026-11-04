@@ -1,5 +1,6 @@
 import Foundation
 import LitheCoreContracts
+import LitheGitModule
 
 /// The Git operations needed by the application-owned commit workflow.
 @MainActor
@@ -9,7 +10,8 @@ protocol CommitWorkflowGit: AnyObject {
     /// Staged changes in that list, across the workspace repositories.
     var stagedChangeIDs: Set<String> { get }
     var pendingCommitDraft: (message: String, amend: Bool)? { get }
-    func stagedCommitMessageInput() async -> CommitMessageInput?
+    func stagedCommitMessageContext() async throws -> GitCommitMessageContext
+    func isCommitMessageContextCurrent(_ context: GitCommitMessageContext) async -> Bool
     /// Commits each repository's staged changes independently while sharing the
     /// commit message. The Git feature owns repository grouping and failure
     /// reporting so the coordinator remains unaware of Git's storage model.
@@ -26,7 +28,18 @@ final class CommitWorkflowCoordinator {
     private let workspaceGeneration: () -> Int
     private let generate: (CommitMessageInput) async throws -> String
     private let notify: (String) -> Void
+    var notifyFailure: ((String) -> Void)?
     private var isSubmitting = false
+    private struct PendingProof {
+        let git: any CommitWorkflowGit
+        let context: GitCommitMessageContext
+        let workspace: Int
+        let selection: UUID
+        let stagedIDs: Set<String>
+    }
+    private var pendingProof: PendingProof?
+    private var generationID = UUID()
+
 
     init(
         draft: CommitDraftFeatureModel,
@@ -77,7 +90,12 @@ final class CommitWorkflowCoordinator {
     }
 
     func generateMessage() async {
+        guard !draft.isGenerating else { return }
         let generation = workspaceGeneration()
+        let operation = UUID()
+        generationID = operation
+        pendingProof = nil
+        var proof: PendingProof?
         do {
             let outcome = try await draft.generate {
                 guard let git = await activateGit(),
@@ -88,30 +106,69 @@ final class CommitWorkflowCoordinator {
                     notify("Stage at least one file first")
                     return nil
                 }
-                let input = await git.stagedCommitMessageInput()
-                guard generation == workspaceGeneration(), !Task.isCancelled else { return nil }
+                let context = try await git.stagedCommitMessageContext()
+                guard generation == workspaceGeneration(), generationID == operation, !Task.isCancelled else { return nil }
                 guard git.commitMessageSelectionID == selectionID, git.stagedChangeIDs == stagedIDs else {
-                    notify("Selected ChangeList or staged files changed before generation finished")
-                    return nil
+                    throw CommitMessageGenerationError.staleChanges
                 }
-                guard let input else { throw CommitMessageGenerationError.emptyDiff }
-                let message = try await generate(input)
-                guard generation == workspaceGeneration(), !Task.isCancelled else { return nil }
-                guard git.commitMessageSelectionID == selectionID, git.stagedChangeIDs == stagedIDs else {
-                    notify("Selected ChangeList or staged files changed before generation finished")
-                    return nil
+                let message = try await generate(context.input)
+                guard generation == workspaceGeneration(), generationID == operation, !Task.isCancelled else { return nil }
+                guard git.commitMessageSelectionID == selectionID, git.stagedChangeIDs == stagedIDs,
+                      await git.isCommitMessageContextCurrent(context),
+                      generation == workspaceGeneration(), generationID == operation, !Task.isCancelled,
+                      git.commitMessageSelectionID == selectionID, git.stagedChangeIDs == stagedIDs else {
+                    throw CommitMessageGenerationError.staleChanges
                 }
+                proof = PendingProof(git: git, context: context, workspace: generation,
+                    selection: selectionID, stagedIDs: stagedIDs)
+                pendingProof = proof
                 return message
             }
+            guard generationID == operation else { return }
+            if outcome != .awaitingConfirmation { pendingProof = nil }
             if outcome == .filledDraft { notify("Commit message generated") }
         } catch {
-            guard generation == workspaceGeneration(), !Task.isCancelled else { return }
-            notify(error.localizedDescription)
+            guard generation == workspaceGeneration(), generationID == operation, !Task.isCancelled else { return }
+            (notifyFailure ?? notify)(error.localizedDescription)
         }
     }
 
-    func applyGeneratedMessage() {
-        guard draft.applyGeneratedMessage() else { return }
-        notify("Commit message replaced")
+    func discardGeneratedMessage() {
+        pendingProof = nil
+        draft.discardGeneratedMessage()
     }
+
+    /// Capture the pending text synchronously before the confirmation dialog
+    /// dismisses, then recheck Git and the user's draft immediately before use.
+    @discardableResult
+    func applyGeneratedMessage() -> Task<Void, Never>? {
+        guard let message = draft.pendingGeneratedMessage, let proof = pendingProof else { return nil }
+        let previousDraft = draft.message
+        let operation = generationID
+        draft.discardGeneratedMessage()
+        pendingProof = nil
+        return Task { [weak self] in
+            guard let self, operation == self.generationID,
+                  proof.workspace == self.workspaceGeneration(),
+                  proof.git.commitMessageSelectionID == proof.selection,
+                  proof.git.stagedChangeIDs == proof.stagedIDs,
+                  await proof.git.isCommitMessageContextCurrent(proof.context),
+                  operation == self.generationID, !Task.isCancelled,
+                  proof.workspace == self.workspaceGeneration(),
+                  proof.git.commitMessageSelectionID == proof.selection,
+                  proof.git.stagedChangeIDs == proof.stagedIDs else {
+                if let self, operation == self.generationID, proof.workspace == self.workspaceGeneration() {
+                    (self.notifyFailure ?? self.notify)(CommitMessageGenerationError.staleChanges.localizedDescription)
+                }
+                return
+            }
+            guard self.draft.message == previousDraft else {
+                (self.notifyFailure ?? self.notify)(CommitMessageGenerationError.draftChanged.localizedDescription)
+                return
+            }
+            self.draft.message = message
+            self.notify("Commit message replaced")
+        }
+    }
+
 }

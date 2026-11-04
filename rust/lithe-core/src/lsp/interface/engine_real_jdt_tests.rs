@@ -343,9 +343,12 @@ fn real_start_request(
         .to_path_buf();
     StartServerRequest {
         provider_id: "java".to_string(),
+        role: SessionRole::LanguageServer,
+        log_subject: None,
         plugin_id: None,
         host_services: Vec::new(),
         toolchain_providers: Vec::new(),
+        keymap_import_providers: Vec::new(),
         executable_path: toolchain
             .root
             .join("bin")

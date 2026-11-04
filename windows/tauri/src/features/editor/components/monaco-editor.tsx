@@ -1,3 +1,4 @@
+import { queueBreakpointRelocation } from "@/features/debugger/services/breakpoint-relocation";
 import { useDebuggerStore } from "@/features/debugger/stores/debugger.store";
 import { bindMonacoDebugDecorations } from "@/features/debugger/services/monaco-debug-decorations";
 import { runEditorCommand, type EditorCommand } from "@lithe/editor/editor-commands";
@@ -1853,6 +1854,7 @@ export function MonacoEditor({
         if (applyingExternalChangeRef.current) return;
         const change = source.lastChange;
         if (!change || change.external) return;
+        queueBreakpointRelocation(filePath, change);
         const previousContent = change.previousContent;
         const nextContent = change.content;
         const contentChanges: EditorTextChange[] = change.changes.map(edit => ({

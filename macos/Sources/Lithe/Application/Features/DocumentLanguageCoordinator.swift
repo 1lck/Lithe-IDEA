@@ -61,6 +61,7 @@ final class DocumentLanguageCoordinator {
         let task = Task { @MainActor [weak self, weak document, delay] in
             if duration > .zero {
                 do { try await delay(duration) }
+                // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
                 catch { return }
             }
             guard !Task.isCancelled, let self, let document,

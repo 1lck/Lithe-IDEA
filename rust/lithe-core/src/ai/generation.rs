@@ -76,6 +76,9 @@ pub struct CommitFile {
     pub change_kind: String,
     /// Patch evidence; metadata alone is insufficient for generation.
     pub diff: String,
+    /// Full Unicode-scalar count when `diff` is a Core-budgeted prefix.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original_characters: Option<usize>,
 }
 
 /// Credential-free request plan. Native transports add authentication at send time.
@@ -91,6 +94,101 @@ pub fn plan_commit(
     provider: &Provider,
     options: &CommitOptions,
     files: &[CommitFile],
+) -> Result<CommitRequestPlan, &'static str> {
+    let lengths: Vec<usize> = files
+        .iter()
+        .filter_map(|file| file.original_characters)
+        .collect();
+    if lengths.is_empty() {
+        plan_commit_with_truncation(provider, options, files, &[])
+    } else if lengths.len() == files.len() {
+        plan_commit_bounded(provider, options, files, &lengths)
+    } else {
+        Err("AI_COMMIT_INVALID_OPTIONS")
+    }
+}
+
+/// Plans a request from Core-budgeted prefixes while retaining truncation evidence.
+pub(crate) fn plan_commit_bounded(
+    provider: &Provider,
+    options: &CommitOptions,
+    files: &[CommitFile],
+    original_characters: &[usize],
+) -> Result<CommitRequestPlan, &'static str> {
+    if files.len() != original_characters.len() {
+        return Err("AI_COMMIT_INVALID_OPTIONS");
+    }
+    let budgets = commit_input_budget(options.maximum_diff_characters, original_characters)?;
+    let mut truncated = Vec::with_capacity(budgets.len());
+    for (file, budget) in files.iter().zip(budgets) {
+        if file.diff.chars().count() != budget.characters {
+            return Err("AI_COMMIT_INVALID_OPTIONS");
+        }
+        truncated.push(budget.truncated);
+    }
+    plan_commit_with_truncation(provider, options, files, &truncated)
+}
+
+#[derive(Serialize)]
+pub(crate) struct InputBudget {
+    pub(crate) characters: usize,
+    pub(crate) truncated: bool,
+}
+
+// The JSON boundary and the typed planner use the same allocation state.
+struct DiffBudget {
+    remaining: usize,
+    files_remaining: usize,
+}
+
+impl DiffBudget {
+    fn new(maximum: usize, files: usize) -> Self {
+        Self {
+            remaining: maximum,
+            files_remaining: files,
+        }
+    }
+
+    fn available(&self) -> usize {
+        self.remaining / self.files_remaining
+    }
+
+    fn consume(&mut self, characters: usize) {
+        self.remaining -= characters;
+        self.files_remaining -= 1;
+    }
+}
+
+// Keep large editor-owned diffs on the host and pass only Core-selected prefixes.
+pub(crate) fn commit_input_budget(
+    maximum: usize,
+    lengths: &[usize],
+) -> Result<Vec<InputBudget>, &'static str> {
+    if !(8_000..=120_000).contains(&maximum) || lengths.len() > 1_000 {
+        return Err("AI_COMMIT_INVALID_OPTIONS");
+    }
+    if lengths.is_empty() {
+        return Err("AI_COMMIT_EMPTY_DIFF");
+    }
+    let mut budget = DiffBudget::new(maximum, lengths.len());
+    Ok(lengths
+        .iter()
+        .map(|length| {
+            let characters = (*length).min(budget.available());
+            budget.consume(characters);
+            InputBudget {
+                characters,
+                truncated: characters < *length,
+            }
+        })
+        .collect())
+}
+
+pub(crate) fn plan_commit_with_truncation(
+    provider: &Provider,
+    options: &CommitOptions,
+    files: &[CommitFile],
+    truncated_files: &[bool],
 ) -> Result<CommitRequestPlan, &'static str> {
     if provider.model.trim().is_empty() || provider.id.is_empty() || provider.model.len() > 512 {
         return Err("AI_COMMIT_INVALID_PROVIDER");
@@ -169,13 +267,14 @@ pub fn plan_commit(
          Do not invent features, fixes, tests, or motivation. Prefer chore or refactor when evidence is ambiguous. \
          Return only the message, without labels, quotes or Markdown fences. Write in {language}. {format} {body_rule} \
          Keep the subject at or below {} characters.", options.subject_maximum_length);
-    let mut remaining = options.maximum_diff_characters;
+    let mut budget = DiffBudget::new(options.maximum_diff_characters, files.len());
     let mut blocks = Vec::with_capacity(files.len());
     for (index, file) in files.iter().enumerate() {
-        let budget = remaining / (files.len() - index);
-        let diff: String = file.diff.chars().take(budget).collect();
-        remaining -= diff.chars().count();
-        let truncated = if diff.len() < file.diff.len() {
+        let diff: String = file.diff.chars().take(budget.available()).collect();
+        budget.consume(diff.chars().count());
+        let truncated = if diff.len() < file.diff.len()
+            || truncated_files.get(index).copied().unwrap_or(false)
+        {
             "\n[Diff truncated; do not infer omitted changes.]"
         } else {
             ""
@@ -219,7 +318,7 @@ pub fn plan_commit(
     })
 }
 
-fn sensitive_path(path: &str) -> bool {
+pub(crate) fn sensitive_path(path: &str) -> bool {
     let path = path.replace('\\', "/").to_lowercase();
     let name = path.rsplit('/').next().unwrap_or("");
     name == ".env"
