@@ -50,15 +50,7 @@ extension AppModel {
     }
 
     func showLanguageServerLogs(providerID: String) {
-        guard let logging = services.logWindowLogging else { return }
-        Task {
-            do {
-                let channel = try await logging.windowEngineChannel(providerID: providerID)
-                openLogs(.init(channelPrefixes: [channel]))
-            } catch {
-                services.logSink?.emit(AppLoggingDiagnosticsFailed(error: error))
-            }
-        }
+        services.languageServerLogsCoordinator?.open(providerID: providerID, servers: statusBarLanguageServers)
     }
 
     @discardableResult

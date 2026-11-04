@@ -60,7 +60,7 @@ enum LanguageServerStatusMenu {
             + servers.map { serverItem($0, viewLogs: viewLogs, restart: restart, stop: stop) }
             + [
                 .separator,
-                .action(L10n.string(key: "native.inline.viewLogs"), localizesTitle: false) { viewLogs(servers.first?.id ?? "") },
+                .action(L10n.string(key: "native.inline.viewLogs"), localizesTitle: false) { viewLogs("") },
                 .action("Restart All Servers", icon: restartIcon, isEnabled: !startedServers.isEmpty) {
                     for server in startedServers { restart(server.id) }
                 },

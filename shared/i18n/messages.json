@@ -96758,6 +96758,160 @@
         "key": "Enable diagnostics",
         "arguments": []
       }
+    },
+    {
+      "id": "logs.window.filterHelp",
+      "description": "Log filter syntax and intersection rules",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Spaces combine conditions with AND. level>=warn includes WARN and ERROR; level:info is exact. event:, channel: and op: match prefixes. server:jdtls and key:value match field substrings. /regex/ searches messages, ignoring case; - excludes a condition. Use double quotes around values containing spaces. Channel, level and time controls also intersect with the expression. Invalid expressions keep the last valid results.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.channelHelp",
+      "description": "Channel multi-selection instructions",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Click a channel to select it. Command-click adds or removes a channel; Shift-click selects a range. Selected channels are combined with OR, then intersected with level, time and text filters. All channels clears the channel restriction.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.traceHelp",
+      "description": "Operation trace timing explanation",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The call chain lists records sharing an operation ID in time order. +N ms is the offset from the first record, not its execution duration. The bar shows that offset across the operation span. Click a record to locate it in the log table.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.timeHelp",
+      "description": "Inclusive local second precision range explanation",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Choose the start and end dates, then edit hours, minutes and seconds. Times use your local time zone; Apply includes the entire final second. The range also applies to live logs and intersects with other filters. Dragging the histogram selects a range too; Clear time range removes it.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.followHelp",
+      "description": "Live follow and batching behavior",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Live follow appends logs in their recorded order and scrolls to the latest record. The writer delivers short batches; bursts reflect real activity. Scrolling up pauses automatic scrolling while collection continues. Resume to return to the latest logs.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.timeRange",
+      "description": "Time range control",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Time range",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.startTime",
+      "description": "Start date and time label",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Start time",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.endTime",
+      "description": "End date and time label",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "End time",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.window.reversedTime",
+      "description": "Invalid time range validation",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The end time must be after the start time.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.language.windowTitle",
+      "description": "Language server output window title",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Language Server Logs",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.language.allServers",
+      "description": "All server selection in the dedicated LSP log window",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "All language servers",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.language.outputHelp",
+      "description": "Explain dedicated upstream language server evidence",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Shows the selected language server's session events, stderr and server messages. Application logs are available separately in Logs and Diagnostics.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.language.outputTitle",
+      "description": "Heading for the dedicated language server log output",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Server Logs",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.language.empty",
+      "description": "Empty state when no language server records match",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No matching language server logs",
+        "arguments": []
+      }
     }
   ]
 }

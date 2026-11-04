@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 import SwiftUI
 import LitheModuleAPI
 
@@ -30,6 +31,7 @@ struct LogWindowTable: NSViewRepresentable {
             value.isHidden = model.preferences.hidden.contains(column)
             table.addTableColumn(value)
         }
+        table.preferredWidths = Dictionary(uniqueKeysWithValues: table.tableColumns.map { ($0.identifier, $0.width) })
         table.delegate = context.coordinator; table.dataSource = context.coordinator
         table.owner = context.coordinator
         let header = LogTableHeaderView()
@@ -73,6 +75,9 @@ struct LogWindowTable: NSViewRepresentable {
         private var scrollRevision = -1
         private var updating = false
         private var selectedRecord: RustCoreBridge.LogQueryRecord?
+        private var renderedTimeMode = -1
+        private var renderedReference: Int64?
+        private var renderedSignature = ""
         private let timeFormatter: DateFormatter = {
             let formatter = DateFormatter(); formatter.dateFormat = "HH:mm:ss.SSS"; return formatter
         }()
@@ -81,7 +86,8 @@ struct LogWindowTable: NSViewRepresentable {
         func update() {
             guard let table, let scroll else { return }
             selectedRecord = model.selected
-            if appearanceName != table.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) {
+            let appearanceChanged = appearanceName != table.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])
+            if appearanceChanged {
                 appearanceName = table.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]); prepared.removeAll(keepingCapacity: true)
             }
             table.backgroundColor = LogWindowPalette.bg
@@ -96,12 +102,43 @@ struct LogWindowTable: NSViewRepresentable {
                 let id = LogWindowModel.recordID(record)
                 if prepared[id] == nil { prepared[id] = prepare(record) }
             }
-            rows = model.displayRows
+            let nextRows = model.displayRows
+            let oldCount = rows.count
+            let reference = model.preferences.timeMode == 2 ? selectedRecord?.epochMs : nil
+            let presentationChanged = appearanceChanged || renderedTimeMode != model.preferences.timeMode || renderedReference != reference || renderedSignature != signature
+            let common = zip(rows, nextRows).prefix { $0 == $1 }.count
             updating = true
             for column in table.tableColumns { column.isHidden = model.preferences.hidden.contains(column.identifier.rawValue) }
-            table.reloadData()
+            table.fitColumnsToViewport()
+            rows = nextRows
+            // Live append and fold changes replace only the affected suffix. Native
+            // cells above it survive; selection and status updates do not repaint all rows.
+            if !presentationChanged, table.dataSource === self, table.numberOfRows == oldCount,
+               common >= max(0, oldCount - 1) {
+                table.beginUpdates()
+                if common < oldCount { table.removeRows(at: IndexSet(integersIn: common..<oldCount), withAnimation: []) }
+                if common < rows.count { table.insertRows(at: IndexSet(integersIn: common..<rows.count), withAnimation: []) }
+                table.endUpdates()
+            } else { table.reloadData() }
+            renderedTimeMode = model.preferences.timeMode; renderedReference = reference; renderedSignature = signature
+            table.enumerateAvailableRowViews { view, index in
+                guard let view = view as? LogRowView, self.rows.indices.contains(index),
+                      let record = self.prepared[self.rows[index].id]?.record else { return }
+                view.isOperation = record.op != nil && record.op == self.selectedRecord?.op
+                view.needsDisplay = true
+            }
             table.selectRowIndexes(IndexSet(rows.indices.filter { model.state.selection.contains(rows[$0].id) }), byExtendingSelection: false)
-            if model.state.follows, !rows.isEmpty { table.scrollRowToVisible(rows.count - 1) }
+            if model.state.follows, !rows.isEmpty {
+                if oldCount > 0, rows.count > oldCount, !presentationChanged {
+                    let point = NSPoint(x: scroll.contentView.bounds.minX,
+                        y: max(0, table.rect(ofRow: rows.count - 1).maxY - scroll.contentView.bounds.height))
+                    NSAnimationContext.runAnimationGroup { context in
+                        context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.1
+                        context.timingFunction = CAMediaTimingFunction(name: .linear)
+                        scroll.contentView.animator().setBoundsOrigin(point)
+                    }
+                } else { table.scrollRowToVisible(rows.count - 1) }
+            }
             else if scrollRevision != model.state.scrollRevision, let target = model.state.scrollTarget,
                     let row = rows.firstIndex(where: { $0.id == target }) { table.scrollRowToVisible(row) }
             else if let anchor, let row = rows.firstIndex(where: { $0.id == anchor }) {
@@ -206,9 +243,13 @@ struct LogWindowTable: NSViewRepresentable {
             guard !updating, let table else { return }
             model.select(Set(table.selectedRowIndexes.compactMap { rows.indices.contains($0) ? rows[$0].id : nil }))
         }
-        func tableViewColumnDidResize(_ notification: Notification) {
-            guard let column = notification.userInfo?["NSTableColumn"] as? NSTableColumn else { return }
-            model.setWidth(column.identifier.rawValue, width: column.width)
+        func commitColumnWidths(previous: [NSUserInterfaceItemIdentifier: CGFloat]) {
+            guard let table else { return }
+            for column in table.tableColumns where previous[column.identifier] != column.width {
+                table.preferredWidths[column.identifier] = column.width
+                model.setWidth(column.identifier.rawValue, width: column.width)
+            }
+            table.fitColumnsToViewport()
         }
         func copy(format: String, only: RustCoreBridge.LogQueryRecord? = nil) {
             let records = only.map { [$0] } ?? model.selectedRecords
@@ -331,6 +372,10 @@ private final class LogScrollView: NSScrollView {
     var onUp: (() -> Void)?
     private var lastY: CGFloat = 0
     private var boundsObserver: NSObjectProtocol?
+    override func tile() {
+        super.tile()
+        (documentView as? LogTableView)?.fitColumnsToViewport()
+    }
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if let boundsObserver { NotificationCenter.default.removeObserver(boundsObserver); self.boundsObserver = nil }
@@ -352,6 +397,30 @@ private final class LogScrollView: NSScrollView {
 }
 final class LogTableView: NSTableView {
     weak var owner: LogWindowTable.Coordinator?
+    var preferredWidths: [NSUserInterfaceItemIdentifier: CGFloat] = [:]
+    var isResizingColumns = false
+    private(set) var isFittingColumns = false
+
+    /// Widths are presentation state: resizing never reloads records or persists
+    /// the space added by the viewport. Narrow windows keep horizontal scrolling.
+    func fitColumnsToViewport() {
+        guard !isFittingColumns, !isResizingColumns, !preferredWidths.isEmpty, let scroll = enclosingScrollView else { return }
+        let visible = tableColumns.filter { !$0.isHidden }
+        guard !visible.isEmpty else { return }
+        let flexible = visible.filter { ["event", "message", "fields"].contains($0.identifier.rawValue) }
+        let expanding = flexible.isEmpty ? Array(visible.suffix(1)) : flexible
+        let baseline = visible.reduce(CGFloat.zero) { $0 + (preferredWidths[$1.identifier] ?? $1.width) + intercellSpacing.width }
+        let spare = max(0, scroll.contentSize.width - baseline)
+        let weight = expanding.reduce(CGFloat.zero) { $0 + (preferredWidths[$1.identifier] ?? $1.width) }
+        isFittingColumns = true
+        defer { isFittingColumns = false }
+        for column in visible {
+            let preferred = preferredWidths[column.identifier] ?? column.width
+            let extra = expanding.contains(column) ? spare * preferred / max(1, weight) : 0
+            let width = preferred + extra
+            if abs(column.width - width) > 0.1 { column.width = width }
+        }
+    }
     override func keyDown(with event: NSEvent) {
         if event.modifierFlags.contains(.command), event.charactersIgnoringModifiers == "c" { owner?.copy(format: "json"); return }
         if event.keyCode == 53 { owner?.model.select([]); return }
@@ -364,5 +433,12 @@ final class LogTableView: NSTableView {
 
 private final class LogTableHeaderView: NSTableHeaderView {
     weak var owner: LogWindowTable.Coordinator?
+    override func mouseDown(with event: NSEvent) {
+        let widths = Dictionary(uniqueKeysWithValues: (tableView?.tableColumns ?? []).map { ($0.identifier, $0.width) })
+        (tableView as? LogTableView)?.isResizingColumns = true
+        super.mouseDown(with: event)
+        (tableView as? LogTableView)?.isResizingColumns = false
+        owner?.commitColumnWidths(previous: widths)
+    }
     override func rightMouseDown(with event: NSEvent) { owner?.headerContext(event: event) }
 }

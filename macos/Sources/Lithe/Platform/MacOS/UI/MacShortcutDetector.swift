@@ -221,6 +221,8 @@ private final class MacShortcutDetector: ShortcutDetector, @unchecked Sendable {
             if MacShortcutInputPolicy.shouldDeferToMarkedText(event.window?.firstResponder) {
                 return event
             }
+            // Windows such as Logs own Find before the workspace keymap.
+            if MacWindowFindTarget.handle(event) { return nil }
             // A focused HTML preview page owns its find, zoom and print
             // chords; the keymap would otherwise take ⌘F before the page.
             // Note: 预览页面快捷键的归属见 .agents/notes/implemented/feature/2026-10-22-html-preview-embedded-browser.md

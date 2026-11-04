@@ -11,6 +11,7 @@ import LitheLanguageIntelligenceModule
 @MainActor
 final class AppServices {
     var logWindowCoordinator: LogWindowCoordinator?
+    var languageServerLogsCoordinator: LanguageServerLogsCoordinator?
     var logWindowLogging: (any LogWindowLogging)?
     /// Process log sink supplied by the composition root; modules receive the same instance.
     var logSink: (any LogSink)?
