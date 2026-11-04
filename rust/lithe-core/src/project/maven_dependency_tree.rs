@@ -39,7 +39,7 @@ const MAX_TREE_BYTES: u64 = ((MAX_NODES + 1) * MAX_LINE_BYTES) as u64;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-/// Dependency-tree file written by one `maven.dependencyPlan` invocation.
+/// Dependency-tree file written by one Maven dependency-plan invocation.
 pub struct MavenDependenciesRequest {
     /// Reactor-relative module the plan selected; `.` is the reactor root.
     pub module_path: String,
