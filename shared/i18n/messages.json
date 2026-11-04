@@ -18627,17 +18627,27 @@
     },
     {
       "id": "git.saved.changed",
-      "description": "Windows UI: git.saved.changed",
+      "description": "Saved changes operation",
       "platforms": [
-        "windows"
-      ]
+        "windows",
+        "macos"
+      ],
+      "macos": {
+        "key": "The repository changed. The shelf was retained; review the working tree before retrying.",
+        "arguments": []
+      }
     },
     {
       "id": "git.saved.conflicts",
-      "description": "Windows UI: git.saved.conflicts",
+      "description": "Saved changes operation",
       "platforms": [
-        "windows"
-      ]
+        "windows",
+        "macos"
+      ],
+      "macos": {
+        "key": "Resolve conflicts before shelving changes.",
+        "arguments": []
+      }
     },
     {
       "id": "git.saved.drop",
@@ -18655,17 +18665,27 @@
     },
     {
       "id": "git.saved.failed",
-      "description": "Windows UI: git.saved.failed",
+      "description": "Saved changes operation",
       "platforms": [
-        "windows"
-      ]
+        "windows",
+        "macos"
+      ],
+      "macos": {
+        "key": "Saved changes operation failed",
+        "arguments": []
+      }
     },
     {
       "id": "git.saved.noChanges",
-      "description": "Windows UI: git.saved.noChanges",
+      "description": "Saved changes operation",
       "platforms": [
-        "windows"
-      ]
+        "windows",
+        "macos"
+      ],
+      "macos": {
+        "key": "There are no changes to shelve",
+        "arguments": []
+      }
     },
     {
       "id": "git.saved.restore",

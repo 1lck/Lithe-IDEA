@@ -263,6 +263,7 @@ fn is_interactive_git(core_command: &str, command: &str) -> bool {
             | "git.commit"
             | "git.apply"
             | "git.patchApply"
+            | "git.shelf"
             | "git.rebaseStart"
             | "git.rebaseControl"
             | "git.executionConfigure"
