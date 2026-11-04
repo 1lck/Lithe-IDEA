@@ -665,6 +665,14 @@ pub enum CoreCommand {
     GitHubRequestPlan,
     /// Normalizes a GitHub HTTP response into the shared contract (`github.normalizeResponse`).
     GitHubNormalizeResponse,
+    /// Plans the next bounded GitHub device-authorization transition.
+    GitHubDeviceAuthorizationTransition,
+    /// Plans a safe local branch for a GitHub pull request.
+    GitHubPullRequestCheckoutPlan,
+    /// Previews a non-destructive GitHub pull-request checkout.
+    GitPullRequestCheckoutPreview,
+    /// Fetches and creates the reviewed pull-request branch without resetting refs.
+    GitPullRequestCheckout,
     /// Redacts credentials, tokens, and home-directory paths from diagnostic text (`diagnostics.redactText`).
     DiagnosticsRedactText,
     /// Normalizes a bounded, redacted application log event (`diagnostics.prepareLogEvent`).
@@ -1018,6 +1026,12 @@ impl CoreCommand {
             "github.parseRemote" => Some(Self::GitHubParseRemote),
             "github.requestPlan" => Some(Self::GitHubRequestPlan),
             "github.normalizeResponse" => Some(Self::GitHubNormalizeResponse),
+            "github.deviceAuthorizationTransition" => {
+                Some(Self::GitHubDeviceAuthorizationTransition)
+            }
+            "github.pullRequestCheckoutPlan" => Some(Self::GitHubPullRequestCheckoutPlan),
+            "git.pullRequestCheckoutPreview" => Some(Self::GitPullRequestCheckoutPreview),
+            "git.pullRequestCheckout" => Some(Self::GitPullRequestCheckout),
             "diagnostics.redactText" => Some(Self::DiagnosticsRedactText),
             "diagnostics.prepareLogEvent" => Some(Self::DiagnosticsPrepareLogEvent),
             "diagnostics.queryLogs" => Some(Self::DiagnosticsQueryLogs),

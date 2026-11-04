@@ -97652,6 +97652,83 @@
         "key": "No matching language server logs",
         "arguments": []
       }
+    },
+    {
+      "id": "github.prCheckoutChecking",
+      "description": "GitHub pull request checkout",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Checking pull request checkout…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "github.prCheckoutConflict",
+      "description": "GitHub pull request checkout",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The pull request branch already exists. Rename or remove it before retrying.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "github.prCheckoutChanged",
+      "description": "GitHub pull request checkout",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The checkout or origin remote changed. Review the pull request checkout again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "github.prCheckoutConfirmTitle",
+      "description": "GitHub pull request checkout",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Check out pull request?",
+        "arguments": []
+      }
+    },
+    {
+      "id": "github.prCheckoutConfirmDescription",
+      "description": "GitHub pull request checkout",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Fetch the pull request and create a local branch. Existing branches will not be reset.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "github.prCheckoutBranchLabel",
+      "description": "GitHub pull request checkout",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Local branch: ",
+        "arguments": []
+      }
+    },
+    {
+      "id": "github.prCheckoutInspectFailed",
+      "description": "GitHub pull request checkout",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not check the pull request checkout. Check the repository and try again.",
+        "arguments": []
+      }
     }
   ]
 }

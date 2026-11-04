@@ -23,6 +23,10 @@ pub enum ErrorCode {
     ProcessStartFailed,
     /// A child process started but failed while serving the operation.
     ProcessFailed,
+    /// A reviewed pull-request checkout would overwrite or conflict with a local ref.
+    GitBranchExists,
+    /// The reviewed checkout or its GitHub origin no longer matches the current repository.
+    GitCheckoutChanged,
     /// Input or tool output could not be decoded into the stable contract.
     ParseFailed,
     /// The caller cooperatively cancelled the operation.

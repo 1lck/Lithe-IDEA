@@ -614,6 +614,7 @@
 "Check failed." = "Check failed.";
 "Check for Updates" = "Check for Updates";
 "Check for Updates…" = "Check for Updates…";
+"Check out pull request?" = "Check out pull request?";
 "Check the Hook name, command, event, Agents and timeout (1–86400 seconds)." = "Check the Hook name, command, event, Agents and timeout (1–86400 seconds).";
 "Check the MCP command, URL and headers." = "Check the MCP command, URL and headers.";
 "Check the configuration format, API URL and model. Each configuration must be under 64 KiB." = "Check the configuration format, API URL and model. Each configuration must be under 64 KiB.";
@@ -628,6 +629,7 @@
 "Checking Node.js and npm…" = "Checking Node.js and npm…";
 "Checking for updates…" = "Checking for updates…";
 "Checking out pull request…" = "Checking out pull request…";
+"Checking pull request checkout…" = "Checking pull request checkout…";
 "Checking selected commits and repository state…" = "Checking selected commits and repository state…";
 "Checking the branch and affected commits…" = "Checking the branch and affected commits…";
 "Checking…" = "Checking…";
@@ -1048,6 +1050,7 @@
 "Could not change the log directory. Try again." = "Could not change the log directory. Try again.";
 "Could not check for updates" = "Could not check for updates";
 "Could not check for updates." = "Could not check for updates.";
+"Could not check the pull request checkout. Check the repository and try again." = "Could not check the pull request checkout. Check the repository and try again.";
 "Could not clear logs. Try again." = "Could not clear logs. Try again.";
 "Could not clear this project's local history. Check storage permissions and try again." = "Could not clear this project's local history. Check storage permissions and try again.";
 "Could not compare the local adapter with the verified version." = "Could not compare the local adapter with the verified version.";
@@ -1610,6 +1613,7 @@
 "Fetch submodules on demand" = "Fetch submodules on demand";
 "Fetch tags" = "Fetch tags";
 "Fetch tags that point to fetched commits" = "Fetch tags that point to fetched commits";
+"Fetch the pull request and create a local branch. Existing branches will not be reset." = "Fetch the pull request and create a local branch. Existing branches will not be reset.";
 "Fetch this Agent's local configuration in the panel settings." = "Fetch this Agent's local configuration in Settings > AI > Agents.";
 "Fetch web pages and convert their content to Markdown. Requires uv and Python 3.10 or later." = "Fetch web pages and convert their content to Markdown. Requires uv and Python 3.10 or later.";
 "Fetch when needed" = "Fetch when needed";
@@ -2266,6 +2270,7 @@
 "Local Package" = "Local Package";
 "Local Repository" = "Local Repository";
 "Local Variables" = "Local Variables";
+"Local branch: " = "Local branch: ";
 "Local changes" = "Local changes";
 "Local changes were restored with conflicts" = "Local changes were restored with conflicts";
 "Local changes would be overwritten" = "Local changes would be overwritten";
@@ -4230,6 +4235,7 @@
 "The bundled palette is an approximation; custom theme colors are not imported." = "The bundled palette is an approximation; custom theme colors are not imported.";
 "The call chain lists records sharing an operation ID in time order. +N ms is the offset from the first record, not its execution duration. The bar shows that offset across the operation span. Click a record to locate it in the log table." = "The call chain lists records sharing an operation ID in time order. +N ms is the offset from the first record, not its execution duration. The bar shows that offset across the operation span. Click a record to locate it in the log table.";
 "The checkout directory no longer exists. Repair moved worktree metadata or prune the stale Git record." = "The checkout directory no longer exists. Repair moved worktree metadata or prune the stale Git record.";
+"The checkout or origin remote changed. Review the pull request checkout again." = "The checkout or origin remote changed. Review the pull request checkout again.";
 "The checkout path does not exist" = "The checkout path does not exist";
 "The chosen file is missing or not executable." = "The chosen file is missing or not executable.";
 "The clipboard image could not be read" = "The clipboard image could not be read";
@@ -4397,6 +4403,7 @@
 "The proxy server's host name or IP address, for example 127.0.0.1." = "The proxy server's host name or IP address, for example 127.0.0.1.";
 "The proxy server's port, for example 7890." = "The proxy server's port, for example 7890.";
 "The published update manifest is invalid and cannot be trusted. Open the Release page and download the update manually." = "The published update manifest is invalid and cannot be trusted. Open the Release page and download the update manually.";
+"The pull request branch already exists. Rename or remove it before retrying." = "The pull request branch already exists. Rename or remove it before retrying.";
 "The pull request will return to the open list and can receive new reviews." = "The pull request will return to the open list and can receive new reviews.";
 "The rebase was aborted. Inspect the branch and working files before continuing your work." = "The rebase was aborted. Inspect the branch and working files before continuing your work.";
 "The remote plugin package changes approved commands or permissions. Install and approve that version first." = "The remote plugin package changes approved commands or permissions. Install and approve that version first.";
@@ -5190,6 +5197,13 @@
 "git.status.partialRefresh" = "Some repositories could not be refreshed. Displayed changes may be out of date.";
 "git.status.refreshFailed" = "Could not refresh Git status. Refresh to verify the changes.";
 "git.unifiedView" = "Unified view";
+"github.prCheckoutBranchLabel" = "Local branch: ";
+"github.prCheckoutChanged" = "The checkout or origin remote changed. Review the pull request checkout again.";
+"github.prCheckoutChecking" = "Checking pull request checkout…";
+"github.prCheckoutConfirmDescription" = "Fetch the pull request and create a local branch. Existing branches will not be reset.";
+"github.prCheckoutConfirmTitle" = "Check out pull request?";
+"github.prCheckoutConflict" = "The pull request branch already exists. Rename or remove it before retrying.";
+"github.prCheckoutInspectFailed" = "Could not check the pull request checkout. Check the repository and try again.";
 "history.clearFailed" = "Could not clear this project's local history. Check storage permissions and try again.";
 "https://github.com/owner/repository" = "https://github.com/owner/repository";
 "ide.build.busy" = "A build operation is already active";

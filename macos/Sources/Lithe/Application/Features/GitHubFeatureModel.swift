@@ -477,12 +477,35 @@ final class GitHubFeatureModel: ObservableObject {
         }
     }
 
-    func checkout(workspaceURL: URL?) async -> Bool {
-        guard let request = selectedPullRequest else { return false }
-        operationState = .running("Checking out pull request…")
+    func prepareCheckout(workspaceURL: URL?) async -> GitHubCheckoutIntent? {
+        guard let request = selectedPullRequest, let repository else { return nil }
+        operationState = .running(L10n.string("Checking pull request checkout…"))
         do {
-            try await service.checkout(request, at: workspaceURL)
-            operationState = .succeeded("Pull request checked out as a local branch")
+            let intent = try await service.checkoutPreview(request, repository: repository, at: workspaceURL)
+            guard selectedPullRequest?.number == request.number,
+                  selectedPullRequest?.headRef == request.headRef, self.repository == repository else {
+                operationState = .idle
+                return nil
+            }
+            operationState = .idle
+            return intent
+        } catch {
+            operationState = .failed(error.localizedDescription)
+            return nil
+        }
+    }
+
+    func checkout(_ intent: GitHubCheckoutIntent, workspaceURL: URL?) async -> Bool {
+        guard let request = selectedPullRequest else { return false }
+        guard request.number == intent.request.number, request.headRef == intent.request.headRef, repository == intent.repository,
+              workspaceURL?.standardizedFileURL == intent.workspaceURL.standardizedFileURL else {
+            operationState = .idle
+            return false
+        }
+        operationState = .running(L10n.string("Checking out pull request…"))
+        do {
+            try await service.checkout(intent)
+            operationState = .succeeded(L10n.string("Pull request checked out as a local branch"))
             return true
         } catch {
             operationState = .failed(error.localizedDescription)
