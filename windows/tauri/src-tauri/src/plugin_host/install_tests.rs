@@ -64,25 +64,6 @@ mod install_tests {
     }
 
     #[test]
-    fn invalid_publisher_signature_cannot_replace_an_installed_version() {
-        let root = unique_temp_root("signature-reinstall");
-        struct Cleanup(PathBuf);
-        impl Drop for Cleanup { fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); } }
-        let _cleanup = Cleanup(root.clone());
-        let previous = package_directory(&root, "1.0.0");
-        let manifest: serde_json::Value = serde_json::from_slice(&std::fs::read(previous.join("plugin.json")).unwrap()).unwrap();
-        let id = manifest["id"].as_str().unwrap();
-        let installed = root.join("installed");
-        staging_install(&installed, id, "1.0.0", &previous).unwrap();
-        let destination = installed.join(id).join("1.0.0/plugin.json");
-        let before = std::fs::read(&destination).unwrap();
-        std::fs::write(previous.join(lithe_project::plugin_signature::SIGNATURE_FILE), "{}").unwrap();
-        assert_eq!(staging_install(&installed, id, "1.0.0", &previous), Err(crate::plugin_host::trust::INVALID_SIGNATURE.into()));
-        assert_eq!(std::fs::read(destination).unwrap(), before);
-        assert!(!installed.join(id).join(".staging-1.0.0").exists());
-    }
-
-    #[test]
     fn directory_snapshot_rejects_oversized_file_and_removes_partial_copy() {
         let root = unique_temp_root("snapshot-budget");
         let package = package_directory(&root, "1.0.0");

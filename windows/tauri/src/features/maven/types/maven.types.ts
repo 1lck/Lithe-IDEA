@@ -45,7 +45,16 @@ export interface MavenProject {
   hasWrapper: boolean;
 }
 
-export type MavenLaunchContext = import("@/features/build/services/build-language-import").MavenLanguageImportContext & { skipTests: boolean };
+export interface MavenLaunchContext {
+  version: 1;
+  reactorPath: string;
+  profiles: string[];
+  settingsPath?: string | null;
+  localRepositoryPath?: string | null;
+  skipTests: boolean;
+  mavenExecutablePath?: string | null;
+  javaHomePath?: string | null;
+}
 
 export interface MavenLaunchPlan {
   version: 1;

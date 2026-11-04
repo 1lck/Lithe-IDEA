@@ -71,7 +71,6 @@ const TerminalHost = lazy(() =>
 );
 const BottomPane = lazy(() => import("./bottom-pane/bottom-pane"));
 const MavenPane = lazy(() => import("@/features/maven/components/maven-pane"));
-const BuildPane = lazy(() => import("@/features/build/components/build-pane"));
 const AgentPane = lazy(() =>
   import("@/features/agent/components/agent-panel").then((module) => ({
     default: module.AgentPanel,
@@ -101,8 +100,7 @@ export function MainLayout() {
   const isMavenVisible = isRightSidebarVisible && isMavenSelected;
   const isAgentSelected = activeRightSidebarView === "agent";
   const isAgentVisible = isRightSidebarVisible && isAgentSelected;
-  const isBuildSelected = activeRightSidebarView === "build";
-  const isRightToolWindowVisible = isNotificationsVisible || isMavenVisible || isAgentVisible || (isRightSidebarVisible && isBuildSelected);
+  const isRightToolWindowVisible = isNotificationsVisible || isMavenVisible || isAgentVisible;
   const vimRelativeLineNumbers = useSettingsStore((state) => state.settings.vimRelativeLineNumbers);
   const relativeLineNumbers = useVimStore.use.relativeLineNumbers();
   const { setRelativeLineNumbers } = useVimStore.use.actions();
@@ -313,7 +311,6 @@ export function MainLayout() {
                         <MavenPane onClose={closeMavenToolWindow} />
                       </Suspense>
                     ) : null}
-                    {isBuildSelected ? <Suspense fallback={null}><BuildPane /></Suspense> : null}
                     {isAgentSelected ? (
                       <Suspense fallback={null}>
                         <AgentPane onClose={closeAgentToolWindow} />

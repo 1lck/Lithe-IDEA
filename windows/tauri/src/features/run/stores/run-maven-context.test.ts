@@ -51,7 +51,6 @@ const configuration: RunConfiguration = {
 describe("Maven-backed Run context", () => {
   test("waits for the workspace Maven load before creating the launch plan", async () => {
     const pendingContext = deferred<MavenLaunchContext | null>();
-    const contextEntered = deferred<void>();
     const events: string[] = [];
     const createLaunchPlan = mock(
       async (...args: Parameters<RunStoreDependencies["createLaunchPlan"]>) => {
@@ -66,7 +65,6 @@ describe("Maven-backed Run context", () => {
     );
     const mavenLaunchContextForWorkspace = mock(async () => {
       events.push("context-started");
-      contextEntered.resolve();
       return pendingContext.promise;
     });
     const resolveRunLaunch = mock(async () => ({
@@ -100,7 +98,9 @@ describe("Maven-backed Run context", () => {
 
     const run = store.getState().actions.runConfiguration(configuration.id, undefined, 5005);
     try {
-      await contextEntered.promise;
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
       expect(events).toEqual(["files-saved", "context-started"]);
       expect(createLaunchPlan).not.toHaveBeenCalled();
     } finally {

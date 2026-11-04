@@ -129,10 +129,6 @@ pub struct DebugAdapterLaunch {
     pub env: HashMap<String, String>,
     #[serde(default)]
     pub workspace_path: Option<String>,
-    #[serde(default, rename = "adapterID")]
-    pub adapter_id: Option<String>,
-    #[serde(default)]
-    pub disabled_capabilities: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -141,10 +137,6 @@ pub struct DebugAdapterConnectionLaunch {
     pub port: u16,
     #[serde(default)]
     pub workspace_path: Option<String>,
-    #[serde(default, rename = "adapterID")]
-    pub adapter_id: Option<String>,
-    #[serde(default)]
-    pub disabled_capabilities: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -152,8 +144,6 @@ pub struct DebugAdapterConnectionLaunch {
 pub struct DebugPortWait {
     pub port: u16,
     pub timeout_milliseconds: u64,
-    #[serde(default)]
-    pub operation_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -258,8 +248,7 @@ async fn start_debug_adapter_session<S: DebugEventSink>(
         "debug.createSession".to_string(),
         json!({
             "sessionId": session_id,
-            "adapterId": launch.adapter_id.clone().unwrap_or_else(|| adapter_identifier(&command)),
-            "disabledCapabilities": launch.disabled_capabilities,
+            "adapterId": adapter_identifier(&command),
             "rootPath": root_path,
             "supportsRunInTerminalRequest": false,
         }),
@@ -348,8 +337,7 @@ async fn start_debug_adapter_session<S: DebugEventSink>(
     })
 }
 
-/// Connects Core to one loopback DAP server. Registered adapters supply their
-/// declared initialize identity; the default remains for existing Java callers.
+/// Connects Core's DAP session to the Java Debug Server exposed by JDT LS.
 #[tauri::command]
 pub async fn debug_connect_session(
     app: AppHandle,
@@ -368,17 +356,17 @@ async fn connect_debug_adapter_session<S: DebugEventSink>(
         TcpStream::connect_timeout(&address.into(), DEBUG_ADAPTER_CONNECT_TIMEOUT)
     })
     .await
-    .map_err(|error| format!("Debug adapter connection task failed: {error}"))?
-    .map_err(|error| format!("Could not connect to the debug adapter: {error}"))?;
-    stream
-        .set_nodelay(true)
-        .map_err(|error| format!("Could not configure the debug adapter connection: {error}"))?;
+    .map_err(|error| format!("Java Debug Server connection task failed: {error}"))?
+    .map_err(|error| format!("Could not connect to the Java Debug Server: {error}"))?;
+    stream.set_nodelay(true).map_err(|error| {
+        format!("Could not configure the Java Debug Server connection: {error}")
+    })?;
     let writer = stream
         .try_clone()
-        .map_err(|error| format!("Could not own the debug adapter connection: {error}"))?;
+        .map_err(|error| format!("Could not own the Java Debug Server connection: {error}"))?;
     let stdin = Arc::new(Mutex::new(AdapterInput::Tcp(writer)));
     let session_id = format!(
-        "windows-connected-debug-{}-{}",
+        "windows-java-debug-{}-{}",
         std::process::id(),
         SESSION_COUNTER.fetch_add(1, Ordering::Relaxed)
     );
@@ -402,8 +390,7 @@ async fn connect_debug_adapter_session<S: DebugEventSink>(
         "debug.createSession".to_string(),
         json!({
             "sessionId": session_id,
-            "adapterId": launch.adapter_id.clone().unwrap_or_else(|| "java".into()),
-            "disabledCapabilities": launch.disabled_capabilities,
+            "adapterId": "java",
             "rootPath": root_path,
             "supportsRunInTerminalRequest": false,
         }),
@@ -467,80 +454,47 @@ async fn connect_debug_adapter_session<S: DebugEventSink>(
     })
 }
 
-/// Chooses an ephemeral loopback port for one imminent connection-target launch.
+/// Chooses an ephemeral loopback port for one imminent JDWP launch.
 #[tauri::command]
 pub fn debug_allocate_loopback_port() -> Result<u16, String> {
     let listener = TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0))
-        .map_err(|error| format!("Could not allocate a target debug port: {error}"))?;
+        .map_err(|error| format!("Could not allocate a JVM debug port: {error}"))?;
     listener
         .local_addr()
         .map(|address| address.port())
-        .map_err(|error| format!("Could not read the allocated target debug port: {error}"))
+        .map_err(|error| format!("Could not read the allocated JVM debug port: {error}"))
 }
 
-/// Waits until the target owns a loopback port without consuming its debugger socket.
+/// Waits until the JVM owns a loopback port without consuming its debugger socket.
 #[tauri::command]
-pub async fn debug_wait_for_port(
-    app: AppHandle,
-    window: tauri::Window,
-    args: DebugPortWait,
-) -> Result<(), String> {
-    let operation = args
-        .operation_id
-        .as_ref()
-        .map(|id| crate::plugin_host::toolchain_preparation::claim(&app, &window, id))
-        .transpose()?;
-    if args.port == 0
-        || args.timeout_milliseconds == 0
+pub async fn debug_wait_for_port(args: DebugPortWait) -> Result<(), String> {
+    if args.timeout_milliseconds == 0
         || args.timeout_milliseconds > MAX_DEBUG_PORT_WAIT_MILLISECONDS
     {
         return Err(format!(
-            "The target debug-port timeout must be between 1 and {MAX_DEBUG_PORT_WAIT_MILLISECONDS} milliseconds."
+            "The JVM debug-port timeout must be between 1 and {MAX_DEBUG_PORT_WAIT_MILLISECONDS} milliseconds."
         ));
     }
     tauri::async_runtime::spawn_blocking(move || {
-        wait_for_bound_loopback_port_current(
-            args.port,
-            Duration::from_millis(args.timeout_milliseconds),
-            || {
-                if let Some(operation) = &operation {
-                    operation.current()?;
-                }
-                Ok(())
-            },
-        )
+        wait_for_bound_loopback_port(args.port, Duration::from_millis(args.timeout_milliseconds))
     })
     .await
-    .map_err(|error| format!("target debug-port wait task failed: {error}"))?
+    .map_err(|error| format!("JVM debug-port wait task failed: {error}"))?
 }
 
-#[cfg(test)]
 fn wait_for_bound_loopback_port(port: u16, timeout: Duration) -> Result<(), String> {
-    wait_for_bound_loopback_port_current(port, timeout, || Ok(()))
-}
-
-fn wait_for_bound_loopback_port_current(
-    port: u16,
-    timeout: Duration,
-    current: impl Fn() -> Result<(), String>,
-) -> Result<(), String> {
     let address = SocketAddrV4::new(Ipv4Addr::LOCALHOST, port);
     let deadline = Instant::now() + timeout;
     loop {
-        current()?;
         match TcpListener::bind(address) {
             Ok(listener) => drop(listener),
             Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => return Ok(()),
-            Err(error) => {
-                return Err(format!(
-                    "Could not inspect target debug port {port}: {error}"
-                ))
-            }
+            Err(error) => return Err(format!("Could not inspect JVM debug port {port}: {error}")),
         }
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
             return Err(format!(
-                "Timed out waiting for the target debug port {port} to start listening."
+                "Timed out waiting for the JVM debug port {port} to start listening."
             ));
         }
         thread::sleep(remaining.min(Duration::from_millis(50)));
@@ -1369,8 +1323,6 @@ mod tests {
                 cwd: None,
                 env: HashMap::new(),
                 workspace_path: None,
-                adapter_id: None,
-                disabled_capabilities: vec![],
             },
         ))
         .expect("host should start the fake adapter");
@@ -1500,17 +1452,6 @@ mod tests {
     }
 
     #[test]
-    fn a_revoked_listener_wait_stops_before_inspecting_or_waiting_on_a_port() {
-        let checked = std::cell::Cell::new(0);
-        let result = wait_for_bound_loopback_port_current(0, Duration::from_secs(1), || {
-            checked.set(checked.get() + 1);
-            Err("cancelled owner".into())
-        });
-        assert_eq!(result.unwrap_err(), "cancelled owner");
-        assert_eq!(checked.get(), 1);
-    }
-
-    #[test]
     fn connects_core_session_to_loopback_debug_server_and_stops_cleanly() {
         let listener = TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0))
             .expect("test should own a loopback adapter port");
@@ -1552,8 +1493,6 @@ mod tests {
             DebugAdapterConnectionLaunch {
                 port: address.port(),
                 workspace_path: Some("C:/work".to_string()),
-                adapter_id: Some("fixture.remote".into()),
-                disabled_capabilities: vec![],
             },
         ));
         let fallback = connection
@@ -1582,7 +1521,6 @@ mod tests {
             format!("tcp://127.0.0.1:{}", address.port())
         );
         assert!(String::from_utf8_lossy(&frame).contains("Content-Length:"));
-        assert!(String::from_utf8_lossy(&frame).contains("fixture.remote"));
         assert!(!is_current_session(&session.id, 0));
     }
 
@@ -1946,8 +1884,6 @@ mod tests {
             cwd: None,
             env: HashMap::new(),
             workspace_path: None,
-            adapter_id: None,
-            disabled_capabilities: vec![],
         };
         let session = tauri::async_runtime::block_on(start_debug_adapter_session(sink, launch))
             .expect("host should return session before reader receives rejection");
@@ -2004,8 +1940,6 @@ mod tests {
                 cwd: None,
                 env: HashMap::new(),
                 workspace_path: None,
-                adapter_id: None,
-                disabled_capabilities: vec![],
             },
         ))
         .expect("host should start the fake adapter");

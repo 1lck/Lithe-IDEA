@@ -20,8 +20,6 @@ import {
 } from "./declarative-plugin-launch";
 import { DeclarativePluginSettingsEditor } from "./declarative-plugin-settings-editor";
 import { useWorkspaceTabsStore } from "@/features/window/stores/workspace-tabs.store";
-import { useBuildWorkspace } from "@/features/build/hooks/use-build-workspace";
-import { BuildNativeConfigurationSettings, nativeConfigurationEntries } from "@/features/build/components/build-native-configuration-editor";
 
 /**
  * Management surface for contract v1 declarative plugins. This block is
@@ -271,9 +269,7 @@ function DeclarativePluginRow({
   const rejected = plugin.status === "rejected";
   const declaredSettings =
     !rejected && Array.isArray(plugin.declaredSettings) ? plugin.declaredSettings : [];
-  const { snapshot: build } = useBuildWorkspace();
-  const hasNativeConfiguration = nativeConfigurationEntries(build.entries, build.manifests, plugin.pluginId).length > 0;
-  const hasSettings = declaredSettings.length > 0 || hasNativeConfiguration;
+  const hasSettings = declaredSettings.length > 0;
 
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
@@ -300,7 +296,7 @@ function DeclarativePluginRow({
           </p>
           {rejected && plugin.rejection && (
             <p className="text-destructive ui-text-sm">
-              {plugin.rejection.code === "plugin.packageSignature.invalid" ? t("native.thePluginPackageSignatureIsInvalid") : `${plugin.rejection.code}: ${plugin.rejection.message}`}
+              {plugin.rejection.code}: {plugin.rejection.message}
             </p>
           )}
           {error && <p className="text-destructive ui-text-sm">{error}</p>}
@@ -345,15 +341,12 @@ function DeclarativePluginRow({
         )}
       </div>
       {!rejected && showSettings && hasSettings && (
-        <>
-          {declaredSettings.length > 0 ? <DeclarativePluginSettingsEditor
-            pluginId={plugin.pluginId}
-            settings={declaredSettings}
-            workspacePath={workspacePath}
-            languageId={plugin.primaryLanguageId}
-          /> : null}
-          {hasNativeConfiguration ? <BuildNativeConfigurationSettings pluginID={plugin.pluginId} /> : null}
-        </>
+        <DeclarativePluginSettingsEditor
+          pluginId={plugin.pluginId}
+          settings={declaredSettings}
+          workspacePath={workspacePath}
+          languageId={plugin.primaryLanguageId}
+        />
       )}
     </li>
   );

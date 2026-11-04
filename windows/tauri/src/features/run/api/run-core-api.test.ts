@@ -23,19 +23,6 @@ beforeEach(() => {
 });
 
 describe("saveRunConfigurationEditorChanges", () => {
-  test("portable choices are forwarded, omission preserves them and an empty snapshot clears them", async () => {
-    const options = { javaHomePath: "", mavenExecutablePath: "", mavenJavaHomePath: "", workingDirectoryPath: "", vmArguments: "", programArguments: "", environment: {} };
-    const choices = { runtimeArguments: ["", "two words", "雪"], entrypoint: "opaque/entry:1", options: { strict: false, features: [] } };
-    await saveRunConfigurationEditorChanges("D:/fixture/project", "imported:service", "local", { ...options, providerRunOptions: choices }, emptyToolchain);
-    expect(executeCore).toHaveBeenLastCalledWith(expect.objectContaining({ payload: expect.objectContaining({ providerRunOptions: choices }) }));
-    executeCore.mockClear();
-    await saveRunConfigurationEditorChanges("D:/fixture/project", "imported:service", "local", options, emptyToolchain);
-    expect(executeCore).toHaveBeenLastCalledWith(expect.objectContaining({ payload: expect.not.objectContaining({ providerRunOptions: expect.anything() }) }));
-    const cleared = { runtimeArguments: [], entrypoint: "", options: {} };
-    await saveRunConfigurationEditorChanges("D:/fixture/project", "imported:service", "local", { ...options, providerRunOptions: cleared }, emptyToolchain);
-    expect(executeCore).toHaveBeenLastCalledWith(expect.objectContaining({ payload: expect.objectContaining({ providerRunOptions: cleared }) }));
-  });
-
   test("forwards the shared Maven context when creating a launch plan", async () => {
     const mavenContext = {
       version: 1 as const,

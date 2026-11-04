@@ -15,7 +15,7 @@ export type JavaRunLaunchPreparation =
 export function usesJavaProjectPreparation(configuration: RunConfiguration): boolean {
   const isJavaProjectLaunch =
     configuration.provider === "java.main" || configuration.provider === "spring-boot.maven";
-  return isJavaProjectLaunch && Boolean(configuration.buildProject || configuration.mavenReactorPath);
+  return isJavaProjectLaunch && Boolean(configuration.mavenReactorPath);
 }
 
 /** Builds one Java project target and resolves the runtime paths owned by JDT LS. */

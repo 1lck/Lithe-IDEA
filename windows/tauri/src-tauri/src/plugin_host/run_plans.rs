@@ -10,7 +10,7 @@ use super::scan::core_execute;
 use serde::Serialize;
 use serde_json::Value;
 use std::path::Path;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 /// An expanded run or test plan ready for the shared run pipeline.
 #[derive(Debug, Serialize)]
@@ -35,7 +35,6 @@ pub async fn declarative_plugins_run_plan(
     user_arguments: Vec<String>,
 ) -> Result<DeclarativeRunPlan, String> {
     crate::blocking::run_blocking(move || {
-        let _lease = app.state::<super::lifecycle::LifecycleState>().acquire(&plugin_id)?;
         let package = super::launch::package_by_id(&app, &plugin_id)
             .ok_or_else(|| format!("{plugin_id} is not an accepted declarative plugin"))?;
         expand_plan(
@@ -63,7 +62,6 @@ pub async fn declarative_plugins_test_plan(
     workspace_path: String,
 ) -> Result<DeclarativeRunPlan, String> {
     crate::blocking::run_blocking(move || {
-        let _lease = app.state::<super::lifecycle::LifecycleState>().acquire(&plugin_id)?;
         let package = super::launch::package_by_id(&app, &plugin_id)
             .ok_or_else(|| format!("{plugin_id} is not an accepted declarative plugin"))?;
         let relative_project_file_paths =

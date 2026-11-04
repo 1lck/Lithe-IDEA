@@ -18,7 +18,6 @@ import type {
   RunSaveScope,
 } from "../types/run.types";
 import { EffectiveToolchain } from "./effective-toolchain";
-import { ProviderRunOptionsEditor } from "./provider-run-options-editor";
 import { useResolvedToolchains } from "../hooks/use-resolved-toolchains";
 import {
   launchToolchainSelection,
@@ -405,8 +404,7 @@ export function RunConfigurationEditor({
                 className="font-mono"
               />
             </Field>
-            {configuration.buildProvider ? <ProviderRunOptionsEditor value={draft.providerRunOptions}
-              onChange={providerRunOptions => setDraft(current => ({ ...current, providerRunOptions }))} /> : <Field>
+            <Field>
               <FieldLabel htmlFor="run-vm-args">{t("run.vmArguments")}</FieldLabel>
               <Input
                 id="run-vm-args"
@@ -414,7 +412,7 @@ export function RunConfigurationEditor({
                 onChange={(event) => setDraft({ ...draft, vmArguments: event.target.value })}
                 className="font-mono"
               />
-            </Field>}
+            </Field>
             <Field>
               <FieldLabel htmlFor="run-cwd">{t("run.workingDirectory")}</FieldLabel>
               <Input

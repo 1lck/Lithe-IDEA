@@ -51,6 +51,13 @@ debug 权限，Core 目录把两者都拒绝。两处都已按新结构修正夹
 `javaLanguageImportConfiguration` 的规则一致：没有可用构建插件时没有 Provider 模型需要刷新，跳过刷新，
 继续由 `validateProviderGeneration` 校验（无构建项目归属时直接放行）；有可用构建插件但功能未激活仍按取消处理。
 
+Windows 部分随后从本 PR 拆出，本 PR 只保留 macOS 与 Core：`windows/` 下全部改动、Windows CI
+工作流、Windows 测试稳定性脚本、Windows 声明式插件宿主笔记、功能矩阵各能力的 Windows 条目和
+只给 Windows 用的新增 i18n 词条已还原到 preview 基线，并在单独的 Windows PR 中原样恢复。
+新增能力的 Windows 条目记为未实现，证据只引用已存在的 Core、共享契约或宿主入口。还原后的
+Windows crate 仍在新 Core 上做编译检查；共享契约、fixture、资源复用清单与 `docs/ci-builds.md`
+同时描述两端运行状态，留在本 PR。
+
 工具默认迁移的退出条件经核对不能单独在阶段 D 完成：旧 `toolchain.java.homePath` 等字段的
 空值同时表示“继承根默认”和“自动”，由 Run、Debug 与 JDT 启动（`ProjectRuntimeService`、
 `RunToolchainProviders`、`MacJdtLaunchResources`）动态求值；展开成 pin 会冻结继承，改写为

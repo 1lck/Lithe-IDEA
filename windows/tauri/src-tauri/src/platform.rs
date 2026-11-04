@@ -1019,20 +1019,12 @@ fn take_text(payload: &mut Map<String, Value>, field: &str) -> Result<String, St
 
 #[cfg(test)]
 mod tests {
-    fn tool_exposure() -> serde_json::Value {
-        let fixture: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../../shared/fixtures/ide-api/host-tool-exposure.json"
-        ))
-        .unwrap();
-        fixture["windows"].clone()
-    }
-
     #[test]
     fn mcp_open_owner_passes_the_real_host_request_decoder() {
         let mut args = serde_json::json!({"action":"open","arguments":{
             "directory":"relative-fixture", "workspaceKey":"fixture",
             "helperPath":"relative-helper", "permissions":{"configure":false,"execute":false},
-            "ownerId":"untrusted-client", "toolExposure":tool_exposure()
+            "ownerId":"untrusted-client"
         }});
         assert!(super::bind_ide_host_owner(
             "ideHost.control",
@@ -1091,8 +1083,7 @@ mod tests {
         let opened = control(
             "open",
             json!({"directory":root.join("data"), "workspaceKey":"fixture", "helperPath":helper,
-            "permissions":{"configure":false,"execute":false}, "ownerId":"fixture-window",
-            "toolExposure":tool_exposure()}),
+            "permissions":{"configure":false,"execute":false}, "ownerId":"fixture-window"}),
         );
         assert_eq!(opened["ok"], true, "{opened}");
         fixture.host = opened["data"]["hostID"].as_str().unwrap().into();

@@ -41,7 +41,7 @@ const RUN_STOP_TIMEOUT: Duration = Duration::from_secs(10);
 const STOPPED_EXIT_CODE: i32 = 1;
 
 const MAX_JAVA_SOURCES: usize = 8_000;
-pub(crate) const LITHE_GITIGNORE_ENTRIES: &[&str] = &[
+const LITHE_GITIGNORE_ENTRIES: &[&str] = &[
     "run/local.json",
     "toolchains/local.json",
     // Pre-launch compile products for standalone Java (javac -d output); a
@@ -258,7 +258,7 @@ pub async fn run_stop_owned_processes(
     });
     let stopping = owned
         .iter()
-        .map(|(key, session)| (key.clone(), session.pid, session.execution_id.clone()))
+        .map(|(key, session)| (key.clone(), session.pid))
         .collect::<Vec<_>>();
     let result =
         tauri::async_runtime::spawn_blocking(move || stop_sessions(owned, RUN_STOP_TIMEOUT))
@@ -270,10 +270,10 @@ pub async fn run_stop_owned_processes(
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         stopping
             .iter()
-            .map(|(key, pid, _)| current.get(key).is_some_and(|session| session.pid == *pid))
+            .map(|(key, pid)| current.get(key).is_some_and(|session| session.pid == *pid))
             .collect::<Vec<_>>()
     };
-    for ((key, _, execution_id), running) in stopping.into_iter().zip(still_running) {
+    for ((key, _), running) in stopping.into_iter().zip(still_running) {
         // A session that did not stop went back into the table; its exit
         // waiter still reports it.
         if running {
@@ -282,7 +282,7 @@ pub async fn run_stop_owned_processes(
         let _ = app.emit_to(
             &key.window_label,
             "run-exit",
-            json!({ "sessionId": key.session_id, "executionId": execution_id, "exitCode": STOPPED_EXIT_CODE }),
+            json!({ "sessionId": key.session_id, "exitCode": STOPPED_EXIT_CODE }),
         );
     }
     result
@@ -662,93 +662,14 @@ pub async fn run_resolve_launch(args: ResolveLaunchArgs) -> Result<ResolvedLaunc
 }
 
 fn resolve_launch(args: ResolveLaunchArgs) -> Result<ResolvedLaunch, String> {
-    resolve_launch_with_java_probes(args, true)
-}
-
-/// Build discovery may inspect workspace launchers but must not execute them
-/// merely to decide which installed JDK matches the project requirements.
-pub(crate) fn resolve_build_launch(
-    args: ResolveLaunchArgs,
-) -> Result<(ResolvedLaunch, bool), String> {
     let root = existing_directory(&args.root)?;
     let working_directory = resolve_working_directory(&root, &args.working_directory)?;
-    let mut aliases: Vec<PathBuf> = args
-        .runtime_executable_paths
-        .values()
-        .map(PathBuf::from)
-        .collect();
-    for home in [&args.java_home_path, &args.maven_java_home_path] {
-        if home.trim().is_empty() {
-            continue;
-        }
-        let home = if Path::new(home).is_absolute() {
-            PathBuf::from(home)
-        } else {
-            root.join(home)
-        };
-        if let Some(java) = java_executable(&home) {
-            aliases.push(java);
-        }
-        // Keep the lexical directory as well: java_executable may normalize a
-        // junction before the build adapter can recognize project ownership.
-        aliases.push(home.join("bin/java.exe"));
-        aliases.push(home.join("bin/java"));
-    }
-    if args.executable.toolchain.as_deref() == Some("project-maven") {
-        let configured = Path::new(&args.maven_executable_path);
-        let configured = if configured.is_absolute() {
-            configured.to_path_buf()
-        } else {
-            root.join(configured)
-        };
-        if !args.maven_executable_path.trim().is_empty() {
-            aliases.extend(custom_maven_executable_candidates(&configured));
-        }
-        for directory in [&root, &working_directory] {
-            for name in ["mvnw.cmd", "mvnw.bat", "mvnw"] {
-                aliases.push(directory.join(name));
-            }
-        }
-    }
-    let resolved = resolve_launch_with_java_probes(args, false)?;
-    let selected = Path::new(&resolved.executable);
-    let project_code = selected.starts_with(&root)
-        || aliases.iter().any(|alias| {
-            alias.starts_with(&root) && alias.is_file() && normalize_path(alias) == selected
-        });
-    Ok((resolved, project_code))
-}
-
-fn resolve_launch_with_java_probes(
-    args: ResolveLaunchArgs,
-    allow_project_java_probes: bool,
-) -> Result<ResolvedLaunch, String> {
-    let root = existing_directory(&args.root)?;
-    let working_directory = resolve_working_directory(&root, &args.working_directory)?;
-    let java_home =
-        resolve_java_home_with_probes(&root, &args.java_home_path, allow_project_java_probes)?;
+    let java_home = resolve_java_home(&root, &args.java_home_path)?;
     let maven_java_home = if args.maven_java_home_path.trim().is_empty() {
         java_home.clone()
     } else {
-        resolve_java_home_with_probes(&root, &args.maven_java_home_path, allow_project_java_probes)?
+        resolve_java_home(&root, &args.maven_java_home_path)?
     };
-    if !allow_project_java_probes {
-        if let Some(id) = args.executable.toolchain.as_deref() {
-            // Generic Run discovery probes every tool. Build may only consume
-            // its saved runtime path here; other declared candidate kinds use
-            // their own filesystem discovery without running unrelated tools.
-            if !matches!(id, "project-jdk" | "project-maven")
-                && !args
-                    .runtime_executable_paths
-                    .get(id)
-                    .is_some_and(|path| !path.trim().is_empty())
-            {
-                return Err(format!(
-                    "Choose a local executable for toolchain {id} before Build discovery."
-                ));
-            }
-        }
-    }
     let executable = resolve_executable(
         &root,
         &working_directory,
@@ -1550,20 +1471,13 @@ fn select_project_java(
 }
 
 fn probe_java_homes(homes: Vec<PathBuf>) -> Vec<JavaRuntime> {
-    collect_java_homes(homes, probe_java_home)
-}
-
-fn collect_java_homes(
-    homes: Vec<PathBuf>,
-    inspect: impl Fn(&Path) -> Option<JavaRuntime>,
-) -> Vec<JavaRuntime> {
     let mut java = Vec::new();
     let mut seen_homes = std::collections::HashSet::new();
     for home in homes {
         if !seen_homes.insert(home.clone()) {
             continue;
         }
-        if let Some(runtime) = inspect(&home) {
+        if let Some(runtime) = probe_java_home(&home) {
             java.push(runtime);
         }
     }
@@ -1939,31 +1853,6 @@ pub(crate) fn probe_java_home(home: &Path) -> Option<JavaRuntime> {
     })
 }
 
-fn read_java_home(home: &Path) -> Option<JavaRuntime> {
-    java_executable(home)?;
-    let path = home.join("release");
-    let mut file = fs::File::open(&path).ok()?;
-    if file.metadata().ok()?.len() > 64 * 1024 {
-        return None;
-    }
-    let mut bytes = Vec::new();
-    std::io::Read::read_to_end(
-        &mut std::io::Read::take(&mut file, 64 * 1024 + 1),
-        &mut bytes,
-    )
-    .ok()?;
-    if bytes.len() > 64 * 1024 {
-        return None;
-    }
-    let contents = std::str::from_utf8(&bytes).ok()?;
-    let version = lithe_core::execution::java_version_from_release(contents)?.to_owned();
-    Some(JavaRuntime {
-        home_path: normalize_path(home).to_string_lossy().into_owned(),
-        version,
-        vendor: String::new(),
-    })
-}
-
 fn probe_maven(executable: &Path) -> Option<MavenRuntime> {
     if !executable.is_file() {
         return None;
@@ -2005,14 +1894,6 @@ pub(crate) fn resolve_java_home(
     root: &Path,
     override_path: &str,
 ) -> Result<Option<String>, String> {
-    resolve_java_home_with_probes(root, override_path, true)
-}
-
-fn resolve_java_home_with_probes(
-    root: &Path,
-    override_path: &str,
-    allow_project_probes: bool,
-) -> Result<Option<String>, String> {
     let configured = override_path.trim();
     if !configured.is_empty() {
         let path = if Path::new(configured).is_absolute() {
@@ -2028,23 +1909,8 @@ fn resolve_java_home_with_probes(
         ));
     }
     // Resolving a JDK must not also run Maven wrappers or Node probes.
-    let homes = java_home_candidates(Some(root))
-        .into_iter()
-        .filter(|home| allow_project_probes || !project_java_probe(home, root))
-        .collect();
-    let runtimes = if allow_project_probes {
-        probe_java_homes(homes)
-    } else {
-        collect_java_homes(homes, read_java_home)
-    };
-    select_project_java(Some(root), &runtimes).map(|selection| selection.id)
-}
-
-fn project_java_probe(home: &Path, root: &Path) -> bool {
-    home.starts_with(root)
-        || normalize_path(home).starts_with(root)
-        || java_executable(home)
-            .is_some_and(|executable| normalize_path(&executable).starts_with(root))
+    select_project_java(Some(root), &discover_java_runtimes(Some(root)))
+        .map(|selection| selection.id)
 }
 
 fn resolve_executable(
@@ -2362,7 +2228,7 @@ fn is_batch_file(executable: &str) -> bool {
         })
 }
 
-pub(crate) fn command_for_executable(executable: &str, arguments: &[String]) -> Command {
+fn command_for_executable(executable: &str, arguments: &[String]) -> Command {
     if is_batch_file(executable) {
         return batch_command(executable, arguments);
     }
@@ -2687,7 +2553,7 @@ fn spawn_output_dispatcher(
             let _ = app.emit_to(
                 &window_label,
                 "run-output",
-                json!({ "sessionId": session_id, "executionId": execution_id, "chunk": chunk }),
+                json!({ "sessionId": session_id, "chunk": chunk }),
             );
         }
     })
@@ -2734,16 +2600,15 @@ fn spawn_exit_waiter(
         // Preserve the console contract: the final output batch is observable
         // before the matching exit event marks the session as complete.
         let _ = output_dispatcher.join();
-        let (stale, execution_id) = match sessions().lock() {
+        let stale = match sessions().lock() {
             Ok(mut current) => match current.get(&session_key) {
                 Some(session) if session.pid == pid => {
-                    let execution_id = session.execution_id.clone();
                     current.remove(&session_key);
-                    (false, execution_id)
+                    false
                 }
-                _ => (true, None),
+                _ => true,
             },
-            Err(_) => (true, None),
+            Err(_) => true,
         };
         if stale {
             return;
@@ -2751,7 +2616,7 @@ fn spawn_exit_waiter(
         let _ = app.emit_to(
             &window_label,
             "run-exit",
-            json!({ "sessionId": session_id, "executionId": execution_id, "exitCode": exit_code }),
+            json!({ "sessionId": session_id, "exitCode": exit_code }),
         );
     });
 }
@@ -2804,43 +2669,6 @@ fn take_running_session(
 mod tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
-
-    #[test]
-    fn build_jdk_metadata_reads_the_full_version_without_executing_its_launcher() {
-        struct Fixture(PathBuf);
-        impl Drop for Fixture {
-            fn drop(&mut self) {
-                let _ = fs::remove_dir_all(&self.0);
-            }
-        }
-        let fixture = Fixture(temp_project());
-        fs::create_dir_all(fixture.0.join("bin")).unwrap();
-        for name in ["java.exe", "java"] {
-            fs::write(fixture.0.join("bin").join(name), "not an executable").unwrap();
-        }
-        let release = fixture.0.join("release");
-        fs::write(&release, "JAVA_VERSION=\"21.0.12+7\"\n").unwrap();
-        assert_eq!(read_java_home(&fixture.0).unwrap().version, "21.0.12+7");
-        fs::write(&release, "JAVA_VERSION=\"unknown\"\n").unwrap();
-        assert!(read_java_home(&fixture.0).is_none());
-        fs::write(&release, vec![b'x'; 64 * 1024 + 1]).unwrap();
-        assert!(read_java_home(&fixture.0).is_none());
-        fs::remove_file(&release).unwrap();
-        assert!(read_java_home(&fixture.0).is_none());
-    }
-
-    #[test]
-    fn build_java_discovery_excludes_project_homes_before_a_version_probe() {
-        let root = Path::new("C:/fixture/workspace");
-        assert!(project_java_probe(
-            &root.join(".lithe/toolchains/jdk"),
-            root
-        ));
-        assert!(!project_java_probe(
-            Path::new("C:/fixture/machine-jdk"),
-            root
-        ));
-    }
 
     fn reserve_test_launch(
         pending: &mut HashMap<RunSessionKey, PendingLaunch>,

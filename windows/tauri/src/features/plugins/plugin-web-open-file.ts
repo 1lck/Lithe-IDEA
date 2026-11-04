@@ -11,7 +11,6 @@ import { invokeLsp } from "@/platform/lsp-core-adapter";
 import { declarativePluginProcessOwner } from "./declarative-plugin-process-owner";
 import { resolvePluginWebFilePath } from "./plugin-web-path";
 import { initializePluginWebAppearanceSync } from "./plugin-web-appearance";
-import { windowsBuildWorkspaces } from "@/platform/build-workspaces";
 
 interface PluginWebOpenFilePayload {
   pluginId: string;
@@ -96,12 +95,8 @@ async function initializePluginLifecycleListener(): Promise<() => void> {
       setPluginActive(payload.pluginId, payload.active);
       if (!payload.active) removeDeclarativeUI(payload.pluginId);
       else await refreshDeclarativeUI();
-      if (!payload.operationId) {
-        if (payload.active) await windowsBuildWorkspaces.refresh();
-        return;
-      }
+      if (!payload.operationId) return;
       const outcomes = await Promise.allSettled([
-        windowsBuildWorkspaces.stopPlugin(payload.pluginId),
         declarativePluginProcessOwner.stop(undefined, payload.pluginId),
         invokeLsp("lsp_stop_for_provider", { providerId: payload.pluginId }),
       ]);

@@ -2945,19 +2945,14 @@ name = "lithe-project"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "base64 0.22.1",
  "encoding_rs",
  "lithe-core",
  "log",
  "notify",
  "notify-debouncer-full",
  "notify-debouncer-mini",
- "ring",
  "serde",
- "serde_json",
  "sha2",
- "unicode-normalization",
- "url",
  "windows 0.61.3",
  "windows-sys 0.61.2",
 ]

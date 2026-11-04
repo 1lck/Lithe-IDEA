@@ -147,8 +147,6 @@ fn main() {
             app.manage(run::RunProcessManager::default());
             app.manage(debug::DebugAdapterManager::default());
             app.manage(plugin_host::PluginHostState::default());
-            app.manage(plugin_host::build_configuration::NativeConfigurationWrites::default());
-            app.manage(plugin_host::toolchain_preparation::ToolPreparations::default());
             app.manage(plugin_host::web::WebPageHostState::default());
             app.manage(plugin_host::lifecycle::LifecycleState::default());
             run::cleanup_legacy_appdata(app.handle());
@@ -169,8 +167,6 @@ fn main() {
             if matches!(event, tauri::WindowEvent::Destroyed) {
                 plugin_host::web::forget_window_appearance(window.app_handle(), window.label());
                 plugin_host::lifecycle::window_destroyed(window.app_handle(), window.label());
-                plugin_host::build_configuration::close_window(window.app_handle(), window.label());
-                plugin_host::toolchain_preparation::close_window(window.app_handle(), window.label());
                 run::release_window_processes(window.label());
                 core::close_ide_hosts(window.label());
                 core::close_window_indexing(window.label());
@@ -231,8 +227,6 @@ fn main() {
                             core::ide_host_paths,
                             diagnostics::preview_diagnostic_bundle,
                             diagnostics::export_diagnostic_bundle,
-                            plugin_host::debug::declarative_plugins_debug_connection_plan,
-                            plugin_host::debug::declarative_plugins_debug_validate_connection,
                             debug::debug_start_session,
                             debug::debug_connect_session,
                             debug::debug_allocate_loopback_port,
@@ -330,24 +324,12 @@ fn main() {
                             run::run_stop_owned_processes,
                             plugin_host::lifecycle::declarative_plugins_lifecycle_ack,
                             plugin_host::declarative_plugins_rescan,
-                            plugin_host::declarative_plugins_host_capabilities,
                             plugin_host::declarative_plugins_state,
                             plugin_host::web::declarative_plugins_web_open_file_ack,
                             plugin_host::web::declarative_plugins_web_resolve_file,
                             plugin_host::web::declarative_plugins_web_update_appearance,
                             plugin_host::declarative_plugins_manifest,
                             plugin_host::launch::declarative_plugins_language_launch,
-                            plugin_host::build::declarative_plugins_build_launch,
-                            plugin_host::build::declarative_plugins_build_detect,
-                            plugin_host::build::declarative_plugins_build_save_option,
-                            plugin_host::build_tools::declarative_plugins_build_tool,
-                            plugin_host::toolchain_preparation::declarative_plugins_begin_tool_preparation,
-                            plugin_host::toolchain_preparation::declarative_plugins_cancel_tool_preparation,
-                            plugin_host::build_configuration::declarative_plugins_build_prepare_configuration,
-                            plugin_host::build_configuration::declarative_plugins_build_save_run,
-                            plugin_host::build_configuration::declarative_plugins_build_check_configuration,
-                            plugin_host::build_configuration::declarative_plugins_build_commit_configuration,
-                            plugin_host::build_configuration::declarative_plugins_build_cancel_configuration,
                             plugin_host::launch::declarative_plugins_language_owner,
                             plugin_host::install::declarative_plugins_prepare_disk_install,
                             plugin_host::install::declarative_plugins_confirm_disk_install,

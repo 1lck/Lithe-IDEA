@@ -25,16 +25,11 @@
   },
   "windows": {
     "evidence": [
-      "windows/tauri/src/features/maven/api/maven-core-api.ts",
-      "windows/tauri/src-tauri/src/plugin_host/debug.rs",
-      "windows/tauri/src/features/debugger/services/build-provider-debug.ts",
-      "windows/tauri/src/features/debugger/services/build-provider-debug.test.ts",
-      "windows/tauri/src/platform/build-provider-debug.ts",
-      "windows/tauri/src/platform/lsp-core-adapter.test.ts",
-      "windows/tauri/src/features/build/components/build-targets-list.tsx"
+      "shared/contracts/plugins/v1/fixtures/build-connection-debug-options.json",
+      "rust/lithe-core/src/tests/build_systems.rs"
     ],
-    "implementationStatus": "partial",
-    "verificationStatus": "pending"
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable"
   },
   "owner": "Build / Debug",
   "verification": "用当前 Maven 插件选择框架服务，配置 Profile、运行 JDK、JVM/应用参数和环境，启动调试，确认先暂停且可命中断点；覆盖编译失败、端口超时、Stop、替换、配置 ABA、插件更新/停用、工作区重开及非当前调试会话结束时的进程清理。协议与生命周期测试不能替代完整原生 UI 和发行组合验收。 Windows 增量：服务目标显式保存并调试，唯一当前 Registry 类型/身份、Core 连接绑定、stdio/同包语言服务器、完整参数/初始化身份/禁用能力；覆盖重复/缺失适配器、包和设置变化、注册 ABA、监听取消、迟到启动回执、Run 退出/替换、清理失败重试。原生能力准入仍关闭，正式 Windows 适配器与真实框架断点 UI 尚未验收。",

@@ -18,11 +18,7 @@
       "windows/tauri/src/features/run/components/run-output-text.tsx",
       "windows/tauri/src/features/run/utils/run-output-snapshot.ts",
       "windows/tauri/src/features/run/utils/run-output-snapshot.test.ts",
-      "windows/tauri/src/features/run/components/run-output-text.test.tsx",
-      "windows/tauri/src/features/run/hooks/use-run-process-events.ts",
-      "windows/tauri/src/features/run/hooks/use-run-process-events.test.ts",
-      "windows/tauri/src/features/run/services/build-provider-run-launch.ts",
-      "windows/tauri/src-tauri/src/run.rs"
+      "windows/tauri/src/features/run/components/run-output-text.test.tsx"
     ]
   },
   "owner": "Run",

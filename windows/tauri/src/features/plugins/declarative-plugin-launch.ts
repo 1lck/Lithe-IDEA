@@ -1,17 +1,8 @@
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { pluginPlanGuard } from "./declarative-plugin-lifecycle";
-import { invoke as nativeInvoke } from "@/platform/tauri-core";
-import { createTranslator } from "@/i18n/locale";
-import { useSettingsStore } from "@/features/settings/stores/settings.store";
-import { translatePluginHostFailure } from "./plugin-native-errors";
+import { invoke } from "@/platform/tauri-core";
 import { getPluginWebAppearance } from "./plugin-web-appearance";
-
-function invoke<T>(...args: Parameters<typeof nativeInvoke>): Promise<T> {
-  return nativeInvoke<T>(...args).catch(cause => {
-    throw translatePluginHostFailure(cause, createTranslator(useSettingsStore.getState().settings.displayLanguage));
-  });
-}
 
 /**
  * Host API for contract v1 declarative plugin packages. The Rust

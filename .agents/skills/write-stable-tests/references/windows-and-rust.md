@@ -36,16 +36,9 @@ compile the selected Cargo tests once, enumerate the produced test binaries,
 then run every test case individually with a process-level timeout and duration
 report. One suite deadline covers compilation, enumeration, every test process,
 and the clean cache retry; a timeout writes the completed records before the
-runner exits. The Windows entry point passes `--keep-going` so a failed case does not hide
-later cases of that same package. Every case retains its process watchdog and
-the suite retains the same deadline; any collected failure still rejects the lane.
-A completed test failure or timeout preserves the report and fails
+runner exits. A completed test failure or timeout preserves the report and fails
 without clearing/rebuilding cached binaries. Only failures before any test ran
 remain eligible for the existing one-time cache recovery. This isolation makes the exact hanging test visible.
-The `lithe-project` lane additionally sets an explicit `LITHE_TEST_NODE` for its
-real-Core toolchain backend integration, then restores the previous value even
-on failure. Without that opt-in, ordinary unit runs do not exercise or claim the
-external Node integration.
 
 SharedRust explicitly runs `lithe-agent-host`, `lithe-git-host`, and `lithe-core`, keeping the
 native Git process/AskPass tests in `git-host-rust.json` and Core tests in
