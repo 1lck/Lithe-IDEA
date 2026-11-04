@@ -803,3 +803,23 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
         }
     }
 }
+
+/// What the plugin run service needs from the backends: the installed package a run belongs
+/// to, and the one-way notice that a run ended.
+extension MacPluginBackendSessions: PluginRunBackendLink {
+    func manifest(ofPlugin pluginID: String) -> Data? {
+        packages[pluginID]?.manifest
+    }
+
+    func packageURL(ofPlugin pluginID: String) -> URL? {
+        packages[pluginID]?.packageURL
+    }
+
+    /// Only the session that saw the run begin hears that it ended: a backend that started
+    /// again since knows nothing of the run, and one without the `run.start` grant never asked.
+    func notifyRunDidExit(pluginID: String, sessionID: String, params: ToolingJSONValue) {
+        guard let entry = running[pluginID], entry.hostSessionID == sessionID,
+              entry.hostServices.contains("lithe/host/run/start") else { return }
+        notify(pluginID: pluginID, method: "lithe/host/run/didExit", params: params)
+    }
+}

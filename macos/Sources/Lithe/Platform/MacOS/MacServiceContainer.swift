@@ -470,6 +470,11 @@ final class MacServiceContainer {
             hostDispatcher.register(workspaceHost)
             hostDispatcher.register(PluginDocumentHostService(contexts: .shared))
             hostDispatcher.register(PluginTerminalHostService(contexts: .shared, metadata: workspaceHost))
+            let runHost = PluginRunHostService(
+                contexts: .shared, decoder: RustPluginRunOperations(core: rustCore), tools: definedToolchains,
+                fileStorage: fileStorage, baseEnvironment: { runtimeService.processEnvironment() }
+            )
+            hostDispatcher.register(runHost)
             let editorActions = PluginEditorActionHostService(contexts: .shared, decoder: declarativePluginOperations)
             hostDispatcher.register(editorActions)
             hostDispatcher.register(PluginFileHostService(contexts: .shared, metadata: workspaceHost,
@@ -505,6 +510,7 @@ final class MacServiceContainer {
                 hostDispatcher: hostDispatcher
             )
             sessions.editorActions = editorActions
+            runHost.backends = sessions
             sessions.onActivationFailure = { pluginID, error in
                 if let plugin = LogSegment(pluginID) { logSink?.emit(PluginsBackendActivationFailed(error: error, plugin: plugin)) }
             }
