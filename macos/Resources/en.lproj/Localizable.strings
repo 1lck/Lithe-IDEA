@@ -393,8 +393,10 @@
 "Apply Patch" = "Apply Patch";
 "Apply Patch…" = "Apply Patch…";
 "Apply code changes" = "Apply code changes";
+"Apply code changes to the running program" = "Apply code changes to the running program";
 "Apply code changes to this service" = "Apply code changes to this service";
 "Apply to" = "Apply to";
+"Applying code changes…" = "Applying code changes…";
 "Approval mode" = "Approval mode";
 "Approve" = "Approve";
 "Approve for me" = "Approve for me";
@@ -812,6 +814,7 @@
 "Closing the project stops these services and the processes they started." = "Closing the project stops these services and the processes they started.";
 "Closing the terminal ends these programs." = "Closing the terminal ends these programs.";
 "Closing this terminal will stop its shell and any running command." = "Closing this terminal will stop its shell and any running command.";
+"Code changes applied." = "Code changes applied.";
 "Code settings" = "Code settings";
 "Codex" = "Codex";
 "Codex Agents require the Responses API. Claude Agents require an Anthropic API key." = "Codex Agents require the Responses API. Claude Agents require an Anthropic API key.";
@@ -1046,6 +1049,7 @@
 "Copy session ID" = "Copy session ID";
 "Copy table" = "Copy table";
 "Copy worktree path" = "Copy worktree path";
+"Could not apply code changes: %@" = "Could not apply code changes: %@";
 "Could not apply project indexing exclusions. Try reopening the project." = "Could not apply project indexing exclusions. Try reopening the project.";
 "Could not be determined" = "Could not be determined";
 "Could not change the log directory. Try again." = "Could not change the log directory. Try again.";
@@ -2584,6 +2588,7 @@
 "No callable target at this location" = "No callable target at this location";
 "No changed files" = "No changed files";
 "No changes" = "No changes";
+"No code changes to apply." = "No code changes to apply.";
 "No command" = "No command";
 "No commit selected" = "No commit selected";
 "No commits" = "No commits";
@@ -2615,6 +2620,7 @@
 "No host yet" = "No host yet";
 "No implementations found" = "No implementations found";
 "No installed plugin supports %@ yet." = "No installed plugin supports %@ yet.";
+"No installed tool matches the one the plugin asked to run." = "No installed tool matches the one the plugin asked to run.";
 "No items" = "No items";
 "No language dependency sources registered" = "No language dependency sources registered";
 "No language provider handles .%@ files." = "No language provider handles .%@ files.";
@@ -2689,6 +2695,7 @@
 "No settings to import yet" = "No settings to import yet";
 "No shell was found at %@. Choose a detected shell or run detection again." = "No shell was found at %@. Choose a detected shell or run detection again.";
 "No shelves" = "No shelves";
+"No single debug adapter attaches to the “%@” configuration type." = "No single debug adapter attaches to the “%@” configuration type.";
 "No skills in this scope." = "No skills in this scope.";
 "No subagent output yet" = "No subagent output yet";
 "No subagents yet" = "No subagents yet";
@@ -3622,6 +3629,7 @@
 "Saved, not verified" = "Saved, not verified";
 "Saves, connects, and opens the remote folder in this window." = "Saves, connects, and opens the remote folder in this window.";
 "Saving build provider run configurations is unavailable." = "Saving build provider run configurations is unavailable.";
+"Saving code changes…" = "Saving code changes…";
 "Saving replaces the current GitHub metadata." = "Saving replaces the current GitHub metadata.";
 "Saving writes to" = "Saving writes to";
 "Scala Support" = "Scala Support";
@@ -4267,10 +4275,12 @@
 "The debug adapter connection is stopped." = "The debug adapter connection is stopped.";
 "The debug adapter connection timed out." = "The debug adapter connection timed out.";
 "The debug adapter connection was not approved." = "The debug adapter connection was not approved.";
+"The debug adapter could not start. Check that the plugin that provides it is enabled." = "The debug adapter could not start. Check that the plugin that provides it is enabled.";
 "The debug adapter did not accept outgoing data in time." = "The debug adapter did not accept outgoing data in time.";
 "The debug adapter did not provide a terminal executable." = "The debug adapter did not provide a terminal executable.";
 "The debug adapter outgoing buffer is full." = "The debug adapter outgoing buffer is full.";
 "The debug adapter provided an invalid terminal working directory." = "The debug adapter provided an invalid terminal working directory.";
+"The debug configuration is too large." = "The debug configuration is too large.";
 "The debugger did not return object fields in time." = "The debugger did not return object fields in time.";
 "The decoded contents contain non-text characters. Use a suitable file viewer." = "The decoded contents contain non-text characters. Use a suitable file viewer.";
 "The default ChangeList cannot be renamed." = "The default ChangeList cannot be renamed.";
@@ -4354,6 +4364,8 @@
 "The plugin backend failed to start." = "The plugin backend failed to start.";
 "The plugin backend is no longer running." = "The plugin backend is no longer running.";
 "The plugin backend stopped before it was ready." = "The plugin backend stopped before it was ready.";
+"The plugin could not find a file for this link." = "The plugin could not find a file for this link.";
+"The plugin declares no such debug adapter." = "The plugin declares no such debug adapter.";
 "The plugin does not provide the debug adapter %@." = "The plugin does not provide the debug adapter %@.";
 "The plugin download address is invalid." = "The plugin download address is invalid.";
 "The plugin host request could not be completed." = "The plugin host request could not be completed.";
@@ -4365,6 +4377,7 @@
 "The plugin package directory is invalid." = "The plugin package directory is invalid.";
 "The plugin package file list does not match its signature." = "The plugin package file list does not match its signature.";
 "The plugin package file was changed after signing: %@." = "The plugin package file was changed after signing: %@.";
+"The plugin package has no such executable file." = "The plugin package has no such executable file.";
 "The plugin package is missing %@. Reinstall the plugin." = "The plugin package is missing %@. Reinstall the plugin.";
 "The plugin package is signed by key %@, which this version of Lithe does not trust." = "The plugin package is signed by key %@, which this version of Lithe does not trust.";
 "The plugin package manifest is invalid." = "The plugin package manifest is invalid.";
@@ -4394,6 +4407,7 @@
 "The process does not have an open standard-input pipe." = "The process does not have an open standard-input pipe.";
 "The process is not running." = "The process is not running.";
 "The program chosen in the “%@” setting of %@ is missing or not executable: %@" = "The program chosen in the “%@” setting of %@ is missing or not executable: %@";
+"The program did not open its debug port before the deadline. Check the Run output." = "The program did not open its debug port before the deadline. Check the Run output.";
 "The project archive from %@ is too large." = "The project archive from %@ is too large.";
 "The project directory is unavailable." = "The project directory is unavailable.";
 "The project folder is unavailable. Restore it, then retry." = "The project folder is unavailable. Restore it, then retry.";
@@ -4622,6 +4636,7 @@
 "This version of Lithe cannot read update manifest schema %@. Open the Release page and update manually." = "This version of Lithe cannot read update manifest schema %@. Open the Release page and update manually.";
 "This will start %lld detected services." = "This will start %lld detected services.";
 "This window" = "This window";
+"This window cannot start runs for plugins." = "This window cannot start runs for plugins.";
 "This working copy format is not supported. Upgrade it with the command-line client." = "This working copy format is not supported. Upgrade it with the command-line client.";
 "This working copy is no longer available. Refresh and try again." = "This working copy is no longer available. Refresh and try again.";
 "This workspace is not open in a window, so only global versions were read." = "This workspace is not open in a window, so only global versions were read.";
@@ -5619,11 +5634,13 @@
 "native.appliesTheNextTimeTheLanguageServerStarts" = "Applies the next time the language server starts.";
 "native.applyAIGeneratedContent" = "Apply AI-generated content?";
 "native.applyCodeChanges" = "Apply code changes";
+"native.applyCodeChangesToTheRunningProgram" = "Apply code changes to the running program";
 "native.applyCodeChangesToThisService" = "Apply code changes to this service";
 "native.applyPatch" = "Apply Patch";
 "native.applyPatch.variant2" = "Apply Patch…";
 "native.applyTo" = "Apply to";
 "native.applyToTheCurrentBranch" = "Apply %1$@ to the current branch.";
+"native.applyingCodeChanges" = "Applying code changes…";
 "native.approvalMode" = "Approval mode";
 "native.approve" = "Approve";
 "native.approveForMe" = "Approve for me";
@@ -6014,6 +6031,7 @@
 "native.closingThisTerminalWillStopItsShellAndAnyRunningCommand" = "Closing this terminal will stop its shell and any running command.";
 "native.cmakeSupport" = "CMake Support";
 "native.code" = "code";
+"native.codeChangesApplied" = "Code changes applied.";
 "native.codex" = "Codex";
 "native.codexAgentsRequireTheResponsesAPIClaudeAgentsRequireAnAnthropicAPIKey" = "Codex Agents require the Responses API. Claude Agents require an Anthropic API key.";
 "native.codexArchivedHistoryCouldNotBeRead" = "Codex archived history could not be read.";
@@ -6229,6 +6247,7 @@
 "native.copyThreadName" = "Copy Thread Name";
 "native.copyValue" = "Copy Value";
 "native.copyWorktreePath" = "Copy worktree path";
+"native.couldNotApplyCodeChanges" = "Could not apply code changes: %1$@";
 "native.couldNotBeReachedCheckYourInternetProxyOrVPNConnectionAndTryAgain" = "%1$@ could not be reached. Check your internet, proxy, or VPN connection and try again.";
 "native.couldNotCheckForUpdates" = "Could not check for updates";
 "native.couldNotCheckForUpdates.variant2" = "Could not check for updates.";
@@ -7796,6 +7815,7 @@
 "native.noCallableTargetAtThisLocation" = "No callable target at this location";
 "native.noChangedFiles" = "No changed files";
 "native.noChanges" = "No changes";
+"native.noCodeChangesToApply" = "No code changes to apply.";
 "native.noCodexConfigurationWasFound" = "No Codex configuration was found";
 "native.noColumns" = "No Columns";
 "native.noCommand" = "No command";
@@ -7832,6 +7852,7 @@
 "native.noHostYet" = "No host yet";
 "native.noImplementationsFound" = "No implementations found";
 "native.noInstalledPluginSupportsYet" = "No installed plugin supports %1$@ yet.";
+"native.noInstalledToolMatchesTheOneThePluginAskedToRun" = "No installed tool matches the one the plugin asked to run.";
 "native.noItems" = "No items";
 "native.noJDKFoundSetJAVAHOMEInstallAJDKOrChooseAJDKDirectory" = "No JDK found. Set JAVA_HOME, install a JDK, or choose a JDK directory.";
 "native.noJDKIsConfiguredForThisProject" = "No JDK is configured for this project.";
@@ -7915,6 +7936,7 @@
 "native.noSelectableItems" = "No selectable items";
 "native.noShellWasFoundAtChooseADetectedShellOrRunDetectionAgain" = "No shell was found at %1$@. Choose a detected shell or run detection again.";
 "native.noShelves" = "No shelves";
+"native.noSingleDebugAdapterAttachesToTheConfigurationType" = "No single debug adapter attaches to the “%1$@” configuration type.";
 "native.noSkillsInThisScope" = "No skills in this scope.";
 "native.noSpringBootOrMavenModuleConfigurations" = "No Spring Boot or Maven Module configurations";
 "native.noSpringMvcEndpointsFound" = "No Spring MVC endpoints found";
@@ -8751,6 +8773,7 @@
 "native.savedStashInvalidUtf8" = "Saved changes contain text that is not UTF-8. Inspect the stash with Git.";
 "native.savedTo" = "Saved to %1$@";
 "native.savesConnectsAndOpensTheRemoteFolderInThisWindow" = "Saves, connects, and opens the remote folder in this window.";
+"native.savingCodeChanges" = "Saving code changes…";
 "native.savingReplacesTheCurrentGitHubMetadata" = "Saving replaces the current GitHub metadata.";
 "native.savingWritesTo" = "Saving writes to";
 "native.says" = "“%1$@” says";
@@ -9277,6 +9300,7 @@
 "native.theCurrentFileWillBeSavedToLocalHistoryBeforeItIsReplaced" = "The current file will be saved to Local History before it is replaced.";
 "native.theCurrentWorktreeCannotBeRemovedHere" = "The current worktree cannot be removed here.";
 "native.theDebugAdapterConnectionIsStopped" = "The debug adapter connection is stopped.";
+"native.theDebugAdapterCouldNotStartCheckThatThePluginThatProvidesItIsEnabled" = "The debug adapter could not start. Check that the plugin that provides it is enabled.";
 "native.theDebugAdapterDidNotProvideATerminal" = "The debug adapter did not provide a terminal executable.";
 "native.theDebugAdapterIsNotInstalledYet" = "The %1$@ Debug Adapter is not installed yet.";
 "native.theDebugAdapterIsNotReady" = "The Debug Adapter is not ready.";
@@ -9289,6 +9313,7 @@
 "native.theDebugAdapterReturnedAnInvalidResponse" = "The Debug Adapter returned an invalid %1$@ response.";
 "native.theDebugAdapterStopped" = "The Debug Adapter stopped.";
 "native.theDebugAdapterUsesTheTransportWhichLitheCannotStartYet" = "The debug adapter %1$@ uses the %2$@ transport, which Lithe cannot start yet. Only stdio and language server hosted adapters are supported.";
+"native.theDebugConfigurationIsTooLarge" = "The debug configuration is too large.";
 "native.theDebugProviderDoesNotSupport" = "The %1$@ debug provider does not support %2$@.";
 "native.theDebuggerDidNotReturnObjectFieldsIn" = "The debugger did not return object fields in time.";
 "native.theDefaultChangeListCannotBeRenamed" = "The default ChangeList cannot be renamed.";
@@ -9390,6 +9415,8 @@
 "native.thePluginBackendFailedToStart" = "The plugin backend failed to start.";
 "native.thePluginBackendIsNoLongerRunning" = "The plugin backend is no longer running.";
 "native.thePluginBackendStoppedBeforeItWasReady" = "The plugin backend stopped before it was ready.";
+"native.thePluginCouldNotFindAFileForThisLink" = "The plugin could not find a file for this link.";
+"native.thePluginDeclaresNoSuchDebugAdapter" = "The plugin declares no such debug adapter.";
 "native.thePluginDoesNotProvideTheDebugAdapter" = "The plugin does not provide the debug adapter %1$@.";
 "native.thePluginDownloadAddressIsInvalid" = "The plugin download address is invalid.";
 "native.thePluginIsNotAllowedToUseTheHostService" = "The plugin is not allowed to use the host service %1$@.";
@@ -9399,6 +9426,7 @@
 "native.thePluginPackageDirectoryIsInvalid" = "The plugin package directory is invalid.";
 "native.thePluginPackageFileListDoesNotMatch" = "The plugin package file list does not match its signature.";
 "native.thePluginPackageFileWasChangedAfterSigning" = "The plugin package file was changed after signing: %1$@.";
+"native.thePluginPackageHasNoSuchExecutableFile" = "The plugin package has no such executable file.";
 "native.thePluginPackageIsMissingReinstallThePlugin" = "The plugin package is missing %1$@. Reinstall the plugin.";
 "native.thePluginPackageIsSignedByKeyWhich" = "The plugin package is signed by key %1$@, which this version of Lithe does not trust.";
 "native.thePluginPackageManifestIsInvalid" = "The plugin package manifest is invalid.";
@@ -9422,6 +9450,7 @@
 "native.theProcessDoesNotHaveAnOpenStandard" = "The process does not have an open standard-input pipe.";
 "native.theProcessIsNotRunning" = "The process is not running.";
 "native.theProgramChosenInTheSettingOfIsMissingOrNotExecutable" = "The program chosen in the “%1$@” setting of %2$@ is missing or not executable: %3$@";
+"native.theProgramDidNotOpenItsDebugPortBeforeTheDeadlineCheckTheRunOutput" = "The program did not open its debug port before the deadline. Check the Run output.";
 "native.theProjectArchiveFromIsTooLarge" = "The project archive from %1$@ is too large.";
 "native.theProjectDirectoryIsUnavailable" = "The project directory is unavailable.";
 "native.theProjectFolderOnTheHostBrowseConnectsInstallsTheLitheServerOnTheHostIfNeededAndLetsYouPi" = "The project folder on the host. Browse connects, installs the Lithe server on the host if needed, and lets you pick a folder.";
@@ -9608,6 +9637,7 @@
 "native.thisWillStartLldDetectedServices" = "This will start %1$lld detected services.";
 "native.thisWindow" = "This Window";
 "native.thisWindow.variant2" = "This window";
+"native.thisWindowCannotStartRunsForPlugins" = "This window cannot start runs for plugins.";
 "native.thisWorkingCopyFormatIsNotSupportedUpgradeItWithTheCommandLineClient" = "This working copy format is not supported. Upgrade it with the command-line client.";
 "native.thisWorkingCopyIsNoLongerAvailableRefreshAndTryAgain" = "This working copy is no longer available. Refresh and try again.";
 "native.thisWorktreeHasADetachedHEADPublishItAsABranchBeforeCreatingAPullRequest" = "This worktree has a detached HEAD. Publish it as a branch before creating a pull request.";
