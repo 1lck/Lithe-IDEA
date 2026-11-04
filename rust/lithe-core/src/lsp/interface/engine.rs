@@ -1890,6 +1890,7 @@ impl LspEngine {
                     // Preserve the original startup error. Incomplete cleanup
                     // stays owned; an explicit startup retry reaps it before
                     // any replacement process can be launched.
+                    // log-exempt: Same failure already recorded: this cleanup follows the startup failure returned below and traced by this request's Core failure; residue stays in failed_starts and the next start reports ProcessFailed.
                     let _ = self.cleanup_failed_start();
                 }
             }

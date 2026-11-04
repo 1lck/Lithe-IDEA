@@ -309,20 +309,31 @@ impl LspProcessHandle for SystemProcess {
         })?;
         // A signalled child is reaped asynchronously, so an immediate status
         // read after termination can still report it running. Repeat the
-        // idempotent kill and poll until the bounded disposal deadline.
+        // idempotent kill and poll until the bounded disposal deadline. The
+        // last kill failure explains a root that outlives the deadline.
         #[cfg(not(target_os = "windows"))]
-        {
+        let kill_failure = {
+            let mut last = None;
             let deadline = std::time::Instant::now() + timeout;
             while self.exit_status().is_none() && std::time::Instant::now() < deadline {
-                let _ = self.terminate_native();
+                if let Err(error) = self.terminate_native() {
+                    last = Some(error);
+                }
                 std::thread::sleep(Duration::from_millis(DISPOSAL_POLL_MS));
             }
-        }
+            last
+        };
+        #[cfg(target_os = "windows")]
+        let kill_failure: Option<std::io::Error> = None;
         if self.exit_status().is_none() {
-            return Err(CoreError::new(
+            let error = CoreError::new(
                 ErrorCode::ProcessFailed,
                 "Language-server root did not exit.",
-            ));
+            );
+            return Err(match kill_failure {
+                Some(cause) => error.with_details(cause.to_string()),
+                None => error,
+            });
         }
         Ok(())
     }
