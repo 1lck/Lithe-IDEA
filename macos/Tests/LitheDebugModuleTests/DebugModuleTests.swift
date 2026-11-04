@@ -1007,6 +1007,49 @@ struct DebugModuleTests {
     }
 
     @Test
+    func coreProtocolSessionHandsTheDeclaredFeaturesAndDefaultsToCore() throws {
+        let declared = DebugAdapterDeclaredBehavior(
+            features: .init(
+                hotCodeReplace: .init(request: "reloadModules", changedField: "modules"),
+                stepFilters: .init(argument: "justMyCode")
+            ),
+            defaults: .init(stepFilters: .init(classNameFilters: ["vendor.*"], skipConstructors: true))
+        )
+        let core = RecordingDebugProtocolCore()
+        let session = CoreDebugAdapterProtocolSession(
+            adapterID: "example-dap",
+            declaredBehavior: declared,
+            transport: RecordingTransport(),
+            core: core,
+            sessionID: "declared-session",
+            deadlineScheduler: RecordingDebugDeadlineScheduler()
+        )
+        defer { session.stop() }
+
+        try session.start(rootURL: URL(fileURLWithPath: "/tmp/declared-core", isDirectory: true))
+
+        #expect(core.lastDeclaredBehavior == declared)
+        #expect(session.declaredBehavior.features?.hotCodeReplace?.request == "reloadModules")
+    }
+
+    @Test
+    func coreProtocolSessionDeclaresNothingUnlessThePluginDid() throws {
+        let core = RecordingDebugProtocolCore()
+        let session = CoreDebugAdapterProtocolSession(
+            adapterID: "example-dap",
+            transport: RecordingTransport(),
+            core: core,
+            sessionID: "undeclared-session",
+            deadlineScheduler: RecordingDebugDeadlineScheduler()
+        )
+        defer { session.stop() }
+
+        try session.start(rootURL: URL(fileURLWithPath: "/tmp/undeclared-core", isDirectory: true))
+
+        #expect(core.lastDeclaredBehavior == DebugAdapterDeclaredBehavior.none)
+    }
+
+    @Test
     func coreProtocolSessionProjectsRustUpdatesThroughInjectedTransport() throws {
         let transport = RecordingTransport()
         let core = RecordingDebugProtocolCore()
@@ -5695,6 +5738,7 @@ private final class RecordingDebugProtocolCore: DebugProtocolCore {
     private(set) var lastSupportsStartDebuggingRequest: Bool?
     private(set) var lastParentSessionID: String?
     private(set) var lastDisabledCapabilities: [String] = []
+    private(set) var lastDeclaredBehavior: DebugAdapterDeclaredBehavior?
     private(set) var startDebuggingResults: [(requestID: String, succeeded: Bool)] = []
     private(set) var runInTerminalCompletions: [RecordingRunInTerminalCompletion] = []
     let defaultSteppingFilters = DebugSteppingFilters(
@@ -5719,9 +5763,11 @@ private final class RecordingDebugProtocolCore: DebugProtocolCore {
         supportsRunInTerminalRequest: Bool,
         supportsStartDebuggingRequest: Bool,
         disabledCapabilities: [String],
-        parentSessionID: String?
+        parentSessionID: String?,
+        declared: DebugAdapterDeclaredBehavior
     ) throws -> DebugCoreUpdate {
         if refusesSessions { throw SessionRefused() }
+        lastDeclaredBehavior = declared
         lastDisabledCapabilities = disabledCapabilities
         lastParentSessionID = parentSessionID
         lastSupportsRunInTerminalRequest = supportsRunInTerminalRequest

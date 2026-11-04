@@ -713,7 +713,8 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 consoleCommands: $0.consoleCommands,
                 consoleCommandPrefix: $0.consoleCommandPrefix,
                 launchExecutableSettingID: $0.launchExecutableSettingID,
-                disabledCapabilities: $0.disabledCapabilities
+                disabledCapabilities: $0.disabledCapabilities,
+                declaredBehavior: DebugAdapterDeclaredBehavior(features: $0.features, defaults: $0.defaults)
             )
         }
         projectGenerators = decoded.projectGenerators.map {
@@ -1202,6 +1203,9 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             let capabilities: Capabilities?
             let console: Console?
             let configurations: Configurations?
+            /// `debugAdapters` 3: what the adapter does beyond standard DAP.
+            let features: DebugAdapterDeclaredBehavior.Features?
+            let defaults: DebugAdapterDeclaredBehavior.Defaults?
 
             /// Every language any selector names; it classifies the plugin as
             /// having a debugger for them.
@@ -1248,10 +1252,13 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 capabilities = try values.decodeIfPresent(Capabilities.self, forKey: .capabilities)
                 console = try values.decodeIfPresent(Console.self, forKey: .console)
                 configurations = try values.decodeIfPresent(Configurations.self, forKey: .configurations)
+                features = try values.decodeIfPresent(DebugAdapterDeclaredBehavior.Features.self, forKey: .features)
+                defaults = try values.decodeIfPresent(DebugAdapterDeclaredBehavior.Defaults.self, forKey: .defaults)
             }
 
             private enum CodingKeys: String, CodingKey {
                 case configurationTypes, id, displayName, adapterID, requests, selectors, capabilities, console, configurations
+                case features, defaults
             }
         }
 
@@ -1486,6 +1493,9 @@ public struct DeclarativeDebugAdapter: Equatable, Sendable {
     /// session reports them to Rust Core, which removes them from what the
     /// adapter advertises so the UI never offers a feature the plugin vetoed.
     public let disabledCapabilities: [String]
+    /// The `features` and `defaults` the manifest declares (`debugAdapters` 3). The session hands
+    /// them to Rust Core, whose debug engine follows them for this adapter.
+    public let declaredBehavior: DebugAdapterDeclaredBehavior
 
     public init(
         id: String,
@@ -1498,7 +1508,8 @@ public struct DeclarativeDebugAdapter: Equatable, Sendable {
         consoleCommands: [DebugConsoleCommand] = [],
         consoleCommandPrefix: String? = nil,
         launchExecutableSettingID: String? = nil,
-        disabledCapabilities: [String] = []
+        disabledCapabilities: [String] = [],
+        declaredBehavior: DebugAdapterDeclaredBehavior = .none
     ) {
         self.id = id
         self.displayName = displayName
@@ -1511,6 +1522,7 @@ public struct DeclarativeDebugAdapter: Equatable, Sendable {
         self.consoleCommandPrefix = consoleCommandPrefix
         self.launchExecutableSettingID = launchExecutableSettingID
         self.disabledCapabilities = disabledCapabilities
+        self.declaredBehavior = declaredBehavior
     }
 }
 

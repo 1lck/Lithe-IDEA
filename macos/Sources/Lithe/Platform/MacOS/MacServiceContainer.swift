@@ -789,6 +789,7 @@ final class MacServiceContainer {
                                 consoleCommands: entry.adapter.consoleCommands,
                                 consoleCommandPrefix: entry.adapter.consoleCommandPrefix,
                                 disabledCapabilities: entry.adapter.disabledCapabilities,
+                                declaredBehavior: entry.adapter.declaredBehavior,
                                 transport: MacPluginDebugAdapterTransport(
                                     adapterID: entry.adapter.id,
                                     resolve: { rootURL in
@@ -858,6 +859,7 @@ final class MacServiceContainer {
                             consoleCommands: entry?.adapter.consoleCommands ?? [],
                             consoleCommandPrefix: entry?.adapter.consoleCommandPrefix,
                             disabledCapabilities: entry?.adapter.disabledCapabilities ?? [],
+                            declaredBehavior: entry?.adapter.declaredBehavior ?? .none,
                             transport: try MacExternalDebugAdapterTransport.make(
                                 endpoint: endpoint,
                                 validate: { endpoint in

@@ -22,4 +22,35 @@ struct DeclarativeDebugAdapterConsoleTests {
         ])
         #expect(adapter.consoleCommandPrefix == "`")
     }
+
+    @Test
+    func hostReadsTheFeaturesAndDefaultsOfTheFeaturesFixtureForCore() throws {
+        let fixture = DeclarativePluginTestSupport.repositoryRoot
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/debug-adapter-features.plugin.json")
+        let descriptor = try DeclarativePluginTestSupport.operations.validate(
+            manifest: Data(contentsOf: fixture)
+        )
+
+        let declared = try #require(descriptor.debugAdapters.first).declaredBehavior
+
+        #expect(declared.features?.hotCodeReplace?.request == "script.reload")
+        #expect(declared.features?.hotCodeReplace?.event == "script.reloaded")
+        #expect(declared.features?.hotCodeReplace?.changedField == "modules")
+        #expect(declared.features?.hotCodeReplace?.errorField == "error")
+        #expect(declared.features?.stepFilters?.argument == "stepFilters")
+        #expect(declared.defaults?.stepFilters?.classNameFilters == ["_vendor.*"])
+        #expect(declared.defaults?.stepFilters?.skipSynthetics == true)
+        #expect(declared.defaults?.stepFilters?.skipConstructors == false)
+    }
+
+    @Test
+    func anAdapterThatDeclaresNothingKeepsNoDeclaredBehavior() throws {
+        let fixture = DeclarativePluginTestSupport.repositoryRoot
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/debug-adapter.plugin.json")
+        let descriptor = try DeclarativePluginTestSupport.operations.validate(
+            manifest: Data(contentsOf: fixture)
+        )
+
+        #expect(try #require(descriptor.debugAdapters.first).declaredBehavior == DebugAdapterDeclaredBehavior.none)
+    }
 }

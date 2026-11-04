@@ -124,7 +124,7 @@ struct PluginDebugAdapterTests {
         let id = "explicit-adapter-\(UUID().uuidString)"
         _ = try core.createDebugSession(sessionID: id, adapterID: "example-dap", rootPath: "/workspace/example",
             supportsRunInTerminalRequest: false, supportsStartDebuggingRequest: false,
-            disabledCapabilities: [], parentSessionID: nil)
+            disabledCapabilities: [], parentSessionID: nil, declared: .none)
         defer { core.destroyDebugSession(sessionID: id) }
         let body = Data(#"{"seq":1,"type":"response","request_seq":1,"command":"initialize","success":true,"body":{}}"#.utf8)
         var reply = Data("Content-Length: \(body.count)\r\n\r\n".utf8)
