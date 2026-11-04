@@ -573,7 +573,13 @@ struct RustGitOperations: GitOperations, Sendable {
     func repositoryColorAssignments(_ request: GitRepositoryColorPageRequest) -> GitRepositoryColorPage? {
         let result: Result<GitRepositoryColorPage?, RustCoreBridge.CoreCallError> = core.executeNullableResult(
             command: "git.repositoryColorAssignments", payload: request)
-        return try? result.get()
+        switch result {
+        case .success(let page):
+            return page
+        case .failure(let error):
+            core.coreLogSink?.emit(AppCoreFallbackSelected(error: LogFailure(domain: "RustCore", code: error.code), stage: "git.repositoryColorAssignments"))
+            return nil
+        }
     }
 
     func repositories(in workspaceURL: URL) -> [URL] {

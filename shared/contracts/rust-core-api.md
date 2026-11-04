@@ -1150,6 +1150,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `community.discourse.categories` | List normalized visible categories |
 | `community.discourse.search` | Search normalized topics and sanitized posts |
 | `editor.lineEdit` | Apply a deterministic line-level text transform and return the replacement plus selection to restore |
+| `editor.parseNavigationInput` | Parse a bounded line or line:column input into zero-based editor coordinates |
 | `editor.lineCommentToken` | Resolve the line comment token for a file extension or language id |
 | `workspace.releaseIndexing` | Retire a policy and clear index/cache data at project close; accepts `root`, optional `ownerId`, and that owner's last observed `revision`, returns `released`; an old close must not retire a new generation |
 | `workspace.refreshIndexing` | Refresh external Git decisions for a live `root`, `ownerId`, `revision` lease without changing preferences or release tokens; returns lazy `IndexingStatus` |
@@ -2593,6 +2594,16 @@ reversed ranges and overlapping replacements are rejected.
 after removing LSP tab stops and replacing simple placeholder defaults such as
 `${1:name}` with `name`.
 
+
+`editor.parseNavigationInput` accepts `{ text }` and returns `{ target }`.
+`target` is null for invalid input, otherwise `{ line, column, selectsWholeLine }`
+contains zero-based line and UTF-16 column. One-based positive decimal line and
+optional column may have surrounding horizontal whitespace; line terminators,
+extra characters, zero, negatives and values above JavaScript's maximum safe
+integer are invalid. Text over 128 UTF-8 bytes is invalid. A line-only input
+selects its content without the terminator; an explicit column places the caret.
+Hosts clamp against the current document, not an old snapshot. See
+`shared/fixtures/editor/navigation-input-v1.json`.
 
 `editor.lineEdit` applies one deterministic line-level transform. All offsets
 are UTF-16 code units so both hosts can feed the result straight into their

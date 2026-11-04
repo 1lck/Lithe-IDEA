@@ -438,6 +438,7 @@ private actor GitHistoryCache {
 /// process execution live behind the shared Rust operations port.
 package struct GitService: Sendable {
     private static let historyDateBatchSize = 4096
+    private static let repositoryColorPageSize = 128
     private let operations: any GitOperations
     private let historyCache = GitHistoryCache()
     private let performanceLogger: any GitPerformanceLogger
@@ -525,7 +526,7 @@ package struct GitService: Sendable {
     /// Build the presentation cache off the main actor, sending only bounded pages.
     package func repositoryColors(_ roots: [URL]) async -> GitRepositoryColors? {
         await read(priority: .utility) { operations in
-            let pageSize = 128
+            let pageSize = Self.repositoryColorPageSize
             var slots: [String: Int] = [:]
             var firstPage: GitRepositoryColorPage?
             var offset = 0

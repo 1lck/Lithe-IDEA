@@ -383,6 +383,8 @@ pub enum CoreCommand {
     /// Applies a deterministic line-level editing transform
     /// (`editor.lineEdit`).
     EditorLineEdit,
+    /// Parses a line or line:column navigation input (`editor.parseNavigationInput`).
+    EditorParseNavigationInput,
     /// Resolves the line comment token for a file extension
     /// (`editor.lineCommentToken`).
     EditorLineCommentToken,
@@ -887,6 +889,7 @@ impl CoreCommand {
             "debug.destroySession" => Some(Self::DebugDestroySession),
             "lsp.applyTextEdits" => Some(Self::LspApplyTextEdits),
             "editor.lineEdit" => Some(Self::EditorLineEdit),
+            "editor.parseNavigationInput" => Some(Self::EditorParseNavigationInput),
             "editor.lineCommentToken" => Some(Self::EditorLineCommentToken),
             "network.proxyPolicy" => Some(Self::NetworkProxyPolicy),
             "lsp.plainSnippet" => Some(Self::LspPlainSnippet),

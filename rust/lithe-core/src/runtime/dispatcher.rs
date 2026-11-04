@@ -1748,6 +1748,11 @@ fn execute_parsed(parsed: CoreRequest) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::EditorParseNavigationInput => plugin_response(
+            id,
+            parsed.payload,
+            crate::editor::navigation_input::parse_command,
+        ),
         CoreCommand::EditorLineEdit => {
             match serde_json::from_value::<crate::editor::LineEditRequest>(parsed.payload)
                 .map_err(|error| {
