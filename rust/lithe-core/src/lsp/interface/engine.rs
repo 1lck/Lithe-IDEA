@@ -16754,7 +16754,7 @@ public class Main {
             initialize["params"]["capabilities"]["experimental"],
             json!({
                 "litheBuild": { "versions": [11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1] },
-                "litheFunctions": { "versions": [1, 2, 3] },
+                "litheFunctions": { "versions": [1, 2, 3, 4] },
                 "litheLogging": { "versions": [1] },
                 "litheVcs": { "versions": [1] }
             })
