@@ -116,6 +116,83 @@ struct LogWindowTests {
         #expect(model.preferences.widths == preferences.widths)
     }
 
+    /// A header drag on an expanding column ends where the user released it: the
+    /// viewport fit after the drag, a narrower window and a reopened window all
+    /// agree, and only base widths are saved.
+    @Test func draggedColumnsKeepTheirReleasedWidth() async throws {
+        let directory = root()
+        let writer = MacLogStore(defaultDirectory: directory)
+        await writer.finishSession()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var saved = LogWindowPreferences()
+        var opened: [(LogWindowModel, NSWindow)] = []
+        defer { for (model, window) in opened { model.stop(); window.contentView = nil; window.close() } }
+        func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+        func open() throws -> (NSWindow, NSView, LogTableView) {
+            let model = LogWindowModel(logging: writer, preferences: saved, save: { saved = $0 })
+            let host = NSHostingView(rootView: LogWindowTable(model: model))
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1900, height: 600),
+                styleMask: [.borderless, .resizable], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = host
+            window.orderFront(nil)
+            opened.append((model, window))
+            host.layoutSubtreeIfNeeded()
+            return (window, host, try #require(descendants(host).compactMap { $0 as? LogTableView }.first))
+        }
+        func width(_ table: LogTableView, _ column: String) -> CGFloat {
+            table.tableColumn(withIdentifier: .init(column))?.width ?? 0
+        }
+        /// What a header drag does: AppKit resizes the column while the fit is
+        /// paused, then the header commits the widths it started from.
+        func drag(_ table: LogTableView, _ column: String, to released: CGFloat) throws {
+            let previous = Dictionary(uniqueKeysWithValues: table.tableColumns.map { ($0.identifier, $0.width) })
+            table.isResizingColumns = true
+            table.tableColumn(withIdentifier: .init(column))?.width = released
+            table.isResizingColumns = false
+            try #require(table.owner).commitColumnWidths(previous: previous)
+        }
+        func fillsViewport(_ table: LogTableView) throws -> Bool {
+            let scroll = try #require(table.enclosingScrollView)
+            let used = table.tableColumns.filter { !$0.isHidden }.reduce(0) { $0 + $1.width + table.intercellSpacing.width }
+            return abs(used - scroll.contentSize.width) <= 2
+        }
+
+        let (window, host, table) = try open()
+        let expanded = width(table, "event")
+        #expect(expanded > 300)
+        try drag(table, "event", to: expanded + 10)
+        host.layoutSubtreeIfNeeded()
+        #expect(abs(width(table, "event") - (expanded + 10)) <= 0.5)
+        #expect(try fillsViewport(table))
+        let base = try #require(saved.widths["event"])
+        #expect(base < expanded)
+        #expect(saved.widths.keys.sorted() == ["event"])
+
+        // A narrower window shows the base and scrolls; widening again restores
+        // the released width. Resizing the window saves nothing.
+        window.setContentSize(NSSize(width: 680, height: 600))
+        host.layoutSubtreeIfNeeded()
+        #expect(abs(width(table, "event") - base) <= 0.5)
+        window.setContentSize(NSSize(width: 1900, height: 600))
+        host.layoutSubtreeIfNeeded()
+        #expect(abs(width(table, "event") - (expanded + 10)) <= 0.5)
+        #expect(saved.widths == ["event": base])
+
+        let (_, _, reopened) = try open()
+        #expect(abs(width(reopened, "event") - (expanded + 10)) <= 0.5)
+
+        // Narrower than the minimum base allows: the other expanding columns take
+        // larger bases so the released width still holds after reopening.
+        try drag(reopened, "event", to: 60)
+        #expect(abs(width(reopened, "event") - 60) <= 0.5)
+        #expect(try fillsViewport(reopened))
+        #expect(saved.widths["event"] == 40)
+        let (_, _, again) = try open()
+        #expect(abs(width(again, "event") - 60) <= 0.5)
+        #expect(abs(width(again, "message") - width(reopened, "message")) <= 0.5)
+    }
+
     private func root() -> URL { FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString) }
     private func emit(_ writer: MacLogStore) { writer.emit(AppSessionStarted()) }
     private func ready(_ model: LogWindowModel) -> (TestGate, AnyCancellable) {
