@@ -6373,6 +6373,7 @@
     "native.thisBuildSystemAnswersThroughAProviderProcessWhichLitheForMacOSDoesNotRunYet": "此构建系统通过 provider 进程响应，macOS 版 Lithe 暂不支持运行 provider 进程。",
     "native.thisComputer": "本机",
     "native.thisComputerThisProject": "本机 · 此项目",
+    "native.thisContentSchemeAlreadyHasAProvider": "这个内容方案已经有提供者了。",
     "native.thisConversationIsNoLongerAvailableChooseAnotherConversation": "此会话已不可用，请选择其他会话。",
     "native.thisDiffHasTooManyLinesForComparisonShowingTheReportedBeforeAndAfterText": "差异行数过多，显示 Agent 上报的修改前后文本。",
     "native.thisDocumentIsReadOnly": "此文档为只读",

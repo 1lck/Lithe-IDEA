@@ -7,7 +7,7 @@ import LitheModuleAPI
 /// translates payloads and outcomes.
 struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, DeclarativeExecutionPlanning,
     DeclarativeLanguageServerLaunchPlanning, DeclarativePluginSettingsResolving, LanguageServerRuntimeVersionChecking,
-    DeclarativeEditorContributionDecoding, PluginEditorActionDecoding {
+    DeclarativeEditorContributionDecoding, PluginEditorActionDecoding, PluginContentDecoding {
     let core: RustCoreBridge
 
     func validateNativeNodes(ui: PluginNativeUI, data: ToolingJSONValue) throws -> [PluginNativeUI.Node] {
@@ -369,6 +369,16 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
         let result: ToolingJSONValue = try core.executeResult(
             command: "plugins.editorActions.decode", payload: Payload(kind: kind, value: value, text: text)).get()
         return result
+    }
+
+    func decodeContent(_ answer: ToolingJSONValue) throws -> String {
+        struct Payload: Encodable { let result: ToolingJSONValue }
+        struct Decoded: Decodable { let content: String }
+        // This command answers with its data only, without a status.
+        let decoded: Decoded = try core.executeResult(
+            command: "plugins.contentProviders.decode", payload: Payload(result: answer)
+        ).get()
+        return decoded.content
     }
 
     func resolveSettings(

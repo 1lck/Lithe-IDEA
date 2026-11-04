@@ -473,6 +473,8 @@ final class MacServiceContainer {
             hostDispatcher.register(PluginLanguageServerHostService(contexts: .shared))
             let editorActions = PluginEditorActionHostService(contexts: .shared, decoder: declarativePluginOperations)
             hostDispatcher.register(editorActions)
+            let contentProviders = PluginContentProviderHostService(contexts: .shared, decoder: declarativePluginOperations)
+            hostDispatcher.register(contentProviders)
             hostDispatcher.register(PluginFileHostService(contexts: .shared, metadata: workspaceHost,
                 files: MacPluginWorkspaceFileService(
                     searchOperations: RustWorkspaceOperations(core: rustCore),
@@ -506,6 +508,7 @@ final class MacServiceContainer {
                 hostDispatcher: hostDispatcher
             )
             sessions.editorActions = editorActions
+            sessions.contentProviders = contentProviders
             sessions.onActivationFailure = { pluginID, error in
                 if let plugin = LogSegment(pluginID) { logSink?.emit(PluginsBackendActivationFailed(error: error, plugin: plugin)) }
             }
@@ -1216,6 +1219,7 @@ final class MacServiceContainer {
             }
         }
         services.pluginEditorActions = pluginBackends.editorActions
+        services.pluginContentProviders = pluginBackends.contentProviders
         services.pluginEditorLanguages = MacPluginEditorLanguages(
             launchRegistered: pluginStartup.registeredPlugins,
             isModuleUsable: { [weak moduleRuntime] id in

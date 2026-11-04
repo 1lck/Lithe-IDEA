@@ -4559,6 +4559,7 @@
 "This configuration contains unsupported or invalid settings." = "This configuration contains unsupported or invalid settings.";
 "This configuration has no supported explicit editor settings to import." = "This configuration has no supported explicit editor settings to import.";
 "This configuration is larger than 1 MiB and is not edited by Lithe." = "This configuration is larger than 1 MiB and is not edited by Lithe.";
+"This content scheme already has a provider." = "This content scheme already has a provider.";
 "This conversation is no longer available. Choose another conversation." = "This conversation is no longer available. Choose another conversation.";
 "This debug session requires an external terminal, which is not supported." = "This debug session requires an external terminal, which is not supported.";
 "This debug session requires shell-interpreted terminal arguments." = "This debug session requires shell-interpreted terminal arguments.";
@@ -9551,6 +9552,7 @@
 "native.thisComputer" = "This computer";
 "native.thisComputerThisProject" = "This computer · This project";
 "native.thisConfigurationIsLargerThan1MibAnd" = "This configuration is larger than 1 MiB and is not edited by Lithe.";
+"native.thisContentSchemeAlreadyHasAProvider" = "This content scheme already has a provider.";
 "native.thisConversationIsNoLongerAvailableChooseAnotherConversation" = "This conversation is no longer available. Choose another conversation.";
 "native.thisDebugSessionRequiresAnExternalTerminalWhich" = "This debug session requires an external terminal, which is not supported.";
 "native.thisDebugSessionRequiresShellInterpretedTerminalArguments" = "This debug session requires shell-interpreted terminal arguments.";

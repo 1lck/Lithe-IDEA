@@ -6373,6 +6373,7 @@
     "native.thisBuildSystemAnswersThroughAProviderProcessWhichLitheForMacOSDoesNotRunYet": "This build system answers through a provider process, which Lithe for macOS does not run yet.",
     "native.thisComputer": "This computer",
     "native.thisComputerThisProject": "This computer · This project",
+    "native.thisContentSchemeAlreadyHasAProvider": "This content scheme already has a provider.",
     "native.thisConversationIsNoLongerAvailableChooseAnotherConversation": "This conversation is no longer available. Choose another conversation.",
     "native.thisDiffHasTooManyLinesForComparisonShowingTheReportedBeforeAndAfterText": "This diff has too many lines for comparison. Showing the reported before and after text.",
     "native.thisDocumentIsReadOnly": "This document is read-only",

@@ -60530,6 +60530,17 @@
       }
     },
     {
+      "id": "native.thisContentSchemeAlreadyHasAProvider",
+      "description": "Native UI: This content scheme already has a provider.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This content scheme already has a provider.",
+        "arguments": []
+      }
+    },
+    {
       "id": "native.thisConversationIsNoLongerAvailableChooseAnotherConversation",
       "description": "Native UI: This conversation is no longer available. Choose another conversation.",
       "platforms": [

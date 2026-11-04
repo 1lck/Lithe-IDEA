@@ -4559,6 +4559,7 @@
 "This configuration contains unsupported or invalid settings." = "此配置包含不支持或无效的设置。";
 "This configuration has no supported explicit editor settings to import." = "此配置中没有可导入的、受支持的显式编辑器设置。";
 "This configuration is larger than 1 MiB and is not edited by Lithe." = "此配置超过 1 MiB，Lithe 不会编辑它。";
+"This content scheme already has a provider." = "这个内容方案已经有提供者了。";
 "This conversation is no longer available. Choose another conversation." = "此会话已不可用，请选择其他会话。";
 "This debug session requires an external terminal, which is not supported." = "此调试会话需要外部终端，目前不支持。";
 "This debug session requires shell-interpreted terminal arguments." = "此调试会话需要由 Shell 解释的终端参数。";
@@ -9551,6 +9552,7 @@
 "native.thisComputer" = "本机";
 "native.thisComputerThisProject" = "本机 · 此项目";
 "native.thisConfigurationIsLargerThan1MibAnd" = "此配置超过 1 MiB，Lithe 不会编辑它。";
+"native.thisContentSchemeAlreadyHasAProvider" = "这个内容方案已经有提供者了。";
 "native.thisConversationIsNoLongerAvailableChooseAnotherConversation" = "此会话已不可用，请选择其他会话。";
 "native.thisDebugSessionRequiresAnExternalTerminalWhich" = "此调试会话需要外部终端，目前不支持。";
 "native.thisDebugSessionRequiresShellInterpretedTerminalArguments" = "此调试会话需要由 Shell 解释的终端参数。";

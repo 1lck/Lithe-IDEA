@@ -268,6 +268,9 @@ extension AppModel {
             return
         }
         let departure = recordsHistory ? currentEditorNavigationLocation() : nil
+        if openFromPluginContentProvider(
+            location, recordsHistory: recordsHistory, departure: departure, onFailure: onFailure
+        ) { return }
         let providerID = location.virtualProviderID
             ?? virtualDocumentProviderIDs[location.url]
             ?? services.pluginCatalog.languageSupport(forVirtualDocumentURL: location.url)?.declaration.id
