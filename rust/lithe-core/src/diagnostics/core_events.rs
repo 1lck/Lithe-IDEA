@@ -166,7 +166,7 @@ pub(crate) fn directory_skipped(event: &str, path: &str, code: &crate::protocol:
     }
 }
 
-pub(super) fn note_dropped() {
+pub(crate) fn note_dropped() {
     let mut queue = QUEUE
         .get_or_init(Mutex::default)
         .lock()

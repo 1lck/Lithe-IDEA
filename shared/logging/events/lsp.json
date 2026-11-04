@@ -645,7 +645,7 @@
     {
       "id": "lsp.stderr.received",
       "channel": "lsp/{server}",
-      "level": "warn",
+      "level": "debug",
       "message": "Language server stderr received for server {server}",
       "fields": {
         "server": {
@@ -656,7 +656,7 @@
         "diagnostic": {
           "type": "text",
           "required": true,
-          "description": "Original language server stderr diagnostic, redacted and capped at 1024 UTF-8 bytes",
+          "description": "Unclassified upstream stderr diagnostic; retained only for detailed diagnosis and never treated as an operation failure",
           "reason": "Language servers emit implementation-specific failure explanations only on stderr, so retain the original diagnostic wording for diagnosis after redaction and truncation rather than attempting an unstable parser."
         },
         "truncated": {
@@ -950,6 +950,186 @@
           "type": "error",
           "required": true,
           "description": "Stable native cleanup failure category; excludes process arguments and paths"
+        }
+      }
+    },
+    {
+      "id": "lsp.message.error.logged",
+      "channel": "lsp/{server}",
+      "level": "error",
+      "message": "Language server log message received for server {server} with severity {severity}",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Validated language server session id that sent window/logMessage"
+        },
+        "diagnostic": {
+          "type": "text",
+          "required": true,
+          "description": "Original message from the window/logMessage params, redacted and capped at 1024 UTF-8 bytes",
+          "reason": "The language server owns the unstructured window/logMessage explanation and exposes no stable error code for it, so preserve its original wording after redaction and truncation."
+        },
+        "severity": {
+          "type": "token",
+          "required": true,
+          "description": "LSP MessageType mapped to a controlled severity word, e.g. error, warn, info or log"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "lsp.message.warning.logged",
+      "channel": "lsp/{server}",
+      "level": "warn",
+      "message": "Language server log message received for server {server} with severity {severity}",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Validated language server session id that sent window/logMessage"
+        },
+        "diagnostic": {
+          "type": "text",
+          "required": true,
+          "description": "Original message from the window/logMessage params, redacted and capped at 1024 UTF-8 bytes",
+          "reason": "The language server owns the unstructured window/logMessage explanation and exposes no stable error code for it, so preserve its original wording after redaction and truncation."
+        },
+        "severity": {
+          "type": "token",
+          "required": true,
+          "description": "LSP MessageType mapped to a controlled severity word, e.g. error, warn, info or log"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "lsp.message.detail.logged",
+      "channel": "lsp/{server}",
+      "level": "debug",
+      "message": "Language server log message received for server {server} with severity {severity}",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Validated language server session id that sent window/logMessage"
+        },
+        "diagnostic": {
+          "type": "text",
+          "required": true,
+          "description": "Original message from the window/logMessage params, redacted and capped at 1024 UTF-8 bytes",
+          "reason": "The language server owns the unstructured window/logMessage explanation and exposes no stable error code for it, so preserve its original wording after redaction and truncation."
+        },
+        "severity": {
+          "type": "token",
+          "required": true,
+          "description": "LSP MessageType mapped to a controlled severity word, e.g. error, warn, info or log"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "lsp.message.error.shown",
+      "channel": "lsp/{server}",
+      "level": "error",
+      "message": "Language server show message received for server {server} with severity {severity}",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Validated language server session id that sent window/showMessage"
+        },
+        "diagnostic": {
+          "type": "text",
+          "required": true,
+          "description": "Original message from the window/showMessage params, redacted and capped at 1024 UTF-8 bytes",
+          "reason": "The language server owns the window/showMessage explanation shown to the user; retain its original wording after redaction and truncation to correlate a reported message with the server session."
+        },
+        "severity": {
+          "type": "token",
+          "required": true,
+          "description": "LSP MessageType mapped to a controlled severity word, e.g. error, warn, info or log"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "lsp.message.warning.shown",
+      "channel": "lsp/{server}",
+      "level": "warn",
+      "message": "Language server show message received for server {server} with severity {severity}",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Validated language server session id that sent window/showMessage"
+        },
+        "diagnostic": {
+          "type": "text",
+          "required": true,
+          "description": "Original message from the window/showMessage params, redacted and capped at 1024 UTF-8 bytes",
+          "reason": "The language server owns the window/showMessage explanation shown to the user; retain its original wording after redaction and truncation to correlate a reported message with the server session."
+        },
+        "severity": {
+          "type": "token",
+          "required": true,
+          "description": "LSP MessageType mapped to a controlled severity word, e.g. error, warn, info or log"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "lsp.message.detail.shown",
+      "channel": "lsp/{server}",
+      "level": "debug",
+      "message": "Language server show message received for server {server} with severity {severity}",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Validated language server session id that sent window/showMessage"
+        },
+        "diagnostic": {
+          "type": "text",
+          "required": true,
+          "description": "Original message from the window/showMessage params, redacted and capped at 1024 UTF-8 bytes",
+          "reason": "The language server owns the window/showMessage explanation shown to the user; retain its original wording after redaction and truncation to correlate a reported message with the server session."
+        },
+        "severity": {
+          "type": "token",
+          "required": true,
+          "description": "LSP MessageType mapped to a controlled severity word, e.g. error, warn, info or log"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "lsp.session.failed",
+      "channel": "lsp/{server}",
+      "level": "error",
+      "owner": "lithe-core",
+      "message": "Engine session failed",
+      "fields": {
+        "server": {
+          "type": "id",
+          "required": true,
+          "description": "Language provider identity from the registered host provider catalog."
+        },
+        "state": {
+          "type": "token",
+          "required": true,
+          "description": "Core session lifecycle state emitted by the managed engine (for example ready or stopped)."
+        },
+        "code": {
+          "type": "token",
+          "required": true,
+          "description": "Stable Core lifecycle failure category, such as serverExited or transportFailed, without protocol or process contents"
         }
       }
     }

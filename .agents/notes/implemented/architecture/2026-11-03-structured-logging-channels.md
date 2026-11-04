@@ -91,7 +91,15 @@ macOS 的宿主调用点、类型化写入与诊断收集已落地。PR4 的日�
 
 引擎在日志源头选择封闭的事实类型，既有英文 message/detail/error 留作 v1 兼容；v2 使用目录 ID 和标量字段，经过同一个 Core 目录规范化、脱敏与通道推导边界。stderr 的读取状态最多保留 4 KiB 半行，按 LF 切分、去末尾 CR、忽略空行并冲刷 EOF 残余；每单调秒接纳 200 行，后续读取跨窗或结束时汇总丢弃计数。测试直接传毫秒值，不装计时器、不等真实一秒。text 落盘前仍执行 1 KiB 规范化。
 
-`window/logMessage` 与 `window/showMessage` 复用结果词为过去时的 `*.message.logged/shown`；其他通知只记录方法，不把协议正文变成 text。trace 默认关闭，显式开关与发往上游的 `$/setTrace` 共用有序写锁，成功写入后才改变采集状态；只接纳限长并脱敏的 message 摘要，排除可能含 RPC 原始载荷和源码的 verbose。凭据脱敏和截断无法把源码转换为可落盘诊断；旧内存 detail 的兼容不代表允许把它写入 v2。macOS 已删除消息字符串匹配和重复 session 状态事实，按目录元数据取 v2 级别。带 Core 记录的 log 不再触发重复 onLogIssue，宿主自身启动/发现/请求失败仍走既有错误边界。
+`window/logMessage` 与 `window/showMessage` 的明确严重度选择独立目录事件：上游 error 为 ERROR、warning 为 WARN、info 为 INFO、详细或未知类型为 DEBUG。未分类 stderr 仅作为 DEBUG 排障证据，不能因为输出在标准错误流就标成警告；最终进程或协议失败在实际失败边界记录 ERROR。其他通知只记录方法，不把协议正文变成 text。trace 默认关闭，显式开关与发往上游的 `$/setTrace` 共用有序写锁，成功写入后才改变采集状态；只接纳限长并脱敏的 message 摘要，排除可能含 RPC 原始载荷和源码的 verbose。凭据脱敏和截断无法把源码转换为可落盘诊断；旧内存 detail 的兼容不代表允许把它写入 v2。macOS 已删除消息字符串匹配和重复 session 状态事实，按目录元数据取 v2 级别。带 Core 记录的 log 不再触发重复 onLogIssue，宿主自身启动/发现/请求失败仍走既有错误边界。
+
+### 官方插件通过新的类型化协议交付事实
+
+官方 Node、Java、Rust SDK 使用独立协商的 `litheLogging` 1，通过 `lithe/log` 把操作结果交给 Core。插件只提供注册过的操作、稳定类别、计数和单调耗时；Core 从已安装插件身份选通道和目录事件。成功终态为 INFO、实际失败为 ERROR、回退和真实恢复为 WARN。高频成功可在注册或当前调用上抑制，失败继续可见；取消不是失败。
+
+采用新协议是因为 stderr 无法可靠表达处理后的结果、原操作身份与字段边界。给自由消息加 `[ERROR]` 不能解决这个问题，还会把错误正文和用户内容带入日志。正确做法是 SDK 在结果边界发送一条类型化终态，处理函数只补它真正拥有的降级；不要先记录错误再返回同一次错误，或把 SQL、HTTP 正文、构建输出写进诊断。
+
+Core 只接纳协商成功且字段符合封闭契约的事实，每个进程会话最多每分钟 600 条，使用现有 256 条队列与单一宿主写入器。非法输入每会话只告警一次，不回显被拒内容；越限只计丢弃数。SDK 初始化阶段最多缓存八条类型化事实，capability 响应后排空；正常终态在 RPC 响应前发出，使 Core 能将 wire 请求编号映射到真实宿主 op。协议与 fixture 以共享插件契约为准，不再维护自由文本日志 API。
 
 详细诊断已开启时，新会话注册可能早于初始化响应。Core 此时只保存最新开关值，等握手完成后把 `$/setTrace` 排在 `initialized` 后；初始化前关闭会撤销待发送的启用。不要在注册时立即写通知，否则严格遵循 LSP 的服务器会丢弃它，宿主却以为已经开启。
 
@@ -137,6 +145,19 @@ agent-host、git-host、ide-host 和 lithe-remote 客户端被链接进 Core，�
 
 日志门禁随之扩展到这四个 crate。运行在远端主机上的 `lithe-remote-server`（`rust/lithe-remote/src/server/`、`src/bin/`）和 ide-host 的独立可执行文件不链接进本机 Core，没有可注入的 sink，暂时排除在门禁外；远端服务端日志回传和 Monaco 控制台转发在 Issue #1680 中跟踪。
 
+### DAP：记录状态与失败，保留程序内容边界
+
+调试适配器协议（DAP，调试器与宿主交换控制消息的协议）的共享状态由 Core 持有，
+因此会话开始、初始化完成、结束和操作失败都由 `debug/engine.rs` 在真实转换点记录。
+通道使用校验后的适配器身份；不适合路径的身份使用稳定 SHA-256 摘要，不能让项目路径或显示名称进入通道。
+生命周期关键里程碑为 INFO，暂停、运行等内部状态为 DEBUG，超时与适配器拒绝为 ERROR。
+取消和过期引用仅为 DEBUG，不把正常取消写成产品故障；已有失败操作记录时，随后会话 Failed 不重复记录。
+
+原生宿主只补自己拥有的启动失败、初始化超时和异常进程退出，以固定阶段与退出码传给生成事件。
+正确做法是 Core 根据 `OperationFailed.code` 记录稳定分类；不要把 adapter stderr、DAP 响应 message、
+调试变量、内存、源码或被调试程序输出塞入 text/error。原始 stderr 继续属于调试控制台，不代表持久化。
+共享 Core 队列复用宿主既有 drain，不创建第二个 writer、轮询或应用退出后仍持有的缓存。
+
 ## 考虑过的备选方案
 
 - JSON Lines：通用解析方便，但每行重复键名和身份信息、手工阅读噪声较多。采用有严格语法与 fixture 的单行文本，代价是维护专门编解码器。
@@ -173,6 +194,7 @@ fixture 覆盖往返、转义、非法输入、路径段、轮转与保留、共
 ## 适用范围
 
 - `rust/lithe-core/src/diagnostics/`
+- `rust/lithe-core/src/debug/engine.rs`
 - `rust/lithe-agent-host/src/failure_log.rs`
 - `rust/lithe-git-host/src/failure_log.rs`
 - `rust/lithe-ide-host/src/failure_log.rs`

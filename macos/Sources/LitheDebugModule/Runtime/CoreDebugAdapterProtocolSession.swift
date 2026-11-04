@@ -96,12 +96,17 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
         discardPendingRunInTerminalRequests()
         discardPendingStartDebuggingRequests()
         capabilities = .unknown
-        try transport.start(rootURL: rootURL.standardizedFileURL)
+        do { try transport.start(rootURL: rootURL.standardizedFileURL) }
+        catch {
+            logSink?.emit(DebugTransportFailed(stage: "process-start", operationID: sessionID))
+            throw error
+        }
         if let initializationTimeoutMilliseconds {
             let token = UUID()
             initializationToken = token
             initializationDeadline = deadlineScheduler.schedule(afterMilliseconds: initializationTimeoutMilliseconds) { [weak self] in
                 guard let self, self.initializationToken == token, self.ownsCoreSession else { return }
+                self.logSink?.emit(DebugTransportFailed(stage: "initialization-timeout", operationID: self.sessionID))
                 self.onEvent?(.output(category: "stderr", output: DebugAdapterProtocolError.timedOut("initialize").localizedDescription + "\n"))
                 guard self.initializationToken == token else { return }
                 self.failSession()
@@ -853,6 +858,9 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
 
     private func transportTerminated(exitCode: Int) {
         guard !isStopping else { return }
+        if exitCode != 0 && state != .failed {
+            logSink?.emit(DebugTransportFailed(exitCode: Int64(exitCode), stage: "transport-exit", operationID: sessionID))
+        }
         cancelInitializationDeadline()
         finishErrorOutput()
         discardPendingRunInTerminalRequests()

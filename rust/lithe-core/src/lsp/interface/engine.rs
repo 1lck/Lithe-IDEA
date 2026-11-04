@@ -76,6 +76,8 @@ const MAX_TOOLCHAIN_QUERY_TIMEOUT_MS: u64 = 60_000;
 /// Bounds one provider request; the host can cancel sooner when a snapshot expires.
 const MAX_KEYMAP_IMPORT_TIMEOUT_MS: u64 = 60_000;
 const MONITOR_INTERVAL_MS: u64 = 10;
+/// Shared plugin diagnostic budget per process session and monotonic minute.
+const MAX_PLUGIN_DIAGNOSTICS_PER_MINUTE: u16 = 600;
 /// JSON-RPC method carrying Java Debug Server build commands.
 const JAVA_BUILD_METHOD: &str = "workspace/executeCommand";
 
@@ -884,6 +886,11 @@ struct SessionState {
     detailed_diagnostics: bool,
     /// Desired trace setting retained until the initialize handshake permits notifications.
     requested_diagnostics: bool,
+    /// Malformed plugin diagnostics are summarized once per process session.
+    rejected_plugin_diagnostics: bool,
+    /// Sender-side ingress budget uses the existing process clock, never a timer.
+    plugin_diagnostics_window: Instant,
+    plugin_diagnostics_count: u16,
 }
 
 struct RuntimeSession {
@@ -2149,6 +2156,9 @@ impl LspEngine {
                 next_host_request_id: 1,
                 detailed_diagnostics: false,
                 requested_diagnostics: false,
+                rejected_plugin_diagnostics: false,
+                plugin_diagnostics_window: Instant::now(),
+                plugin_diagnostics_count: 0,
             }),
             event_signal: Condvar::new(),
             process: process.handle,
@@ -3842,10 +3852,8 @@ impl RuntimeSession {
                 StderrFact::Line {
                     diagnostic,
                     truncated,
-                } => error_session.log_issue(
-                    "warning",
-                    "stderr",
-                    "upstreamStderr",
+                } => error_session.log(
+                    "debug",
                     EngineLog::StderrReceived
                         .with_fields(json!({"diagnostic": diagnostic, "truncated": truncated})),
                     "Language-server stderr",
@@ -4911,6 +4919,10 @@ impl RuntimeSession {
                             event.diagnostics.unwrap_or_default(),
                         );
                     }
+                } else if event.kind == "notification"
+                    && event.method.as_deref() == Some(super::plugin_logging::METHOD)
+                {
+                    receive_plugin_diagnostic(self, &mut state, event.result.as_ref());
                 } else if event.kind == "notification"
                     && self.plugin_id.is_some()
                     && event.method.as_deref() == Some("$/cancelRequest")
@@ -6756,8 +6768,11 @@ fn transition_locked(
     error: Option<LspRuntimeError>,
 ) {
     state.lifecycle = lifecycle;
-    let (id, fields) =
-        EngineLog::SessionUpdated.fact(&session.log_identity, &json!({"state": lifecycle}), None);
+    let (id, fields) = EngineLog::SessionUpdated.fact(
+        &session.log_identity,
+        &json!({"state": lifecycle}),
+        error.as_ref(),
+    );
     let sequence = take_sequence(state);
     enqueue_runtime_event(
         session,
@@ -7643,6 +7658,76 @@ fn push_server_info_event(session: &RuntimeSession, state: &mut SessionState, in
             maven_profile_task: None,
         },
     );
+}
+
+/// Accepts only negotiated scalar plugin facts. Persistence and overload accounting
+/// reuse the bounded Core handoff instead of copying protocol params into v1 detail.
+fn receive_plugin_diagnostic(
+    session: &RuntimeSession,
+    state: &mut SessionState,
+    params: Option<&Value>,
+) {
+    let Some(plugin) = session.plugin_id.as_deref() else {
+        return;
+    };
+    let plugin_identity = SessionLogIdentity::new(
+        SessionRole::Backend,
+        &session.provider_id,
+        Some(plugin),
+        None,
+    );
+    let plugin = plugin_identity.segment();
+    let valid = state
+        .client
+        .server_capabilities
+        .iter()
+        .any(|name| name == super::plugin_logging::FEATURE)
+        .then(|| {
+            super::plugin_logging::decode(
+                plugin,
+                &state.client.plugin_functions,
+                params.unwrap_or(&Value::Null),
+            )
+        })
+        .flatten();
+    let Some(fact) = valid else {
+        if !state.rejected_plugin_diagnostics {
+            state.rejected_plugin_diagnostics = true;
+            if crate::diagnostics::core_events::record(
+                "plugins.diagnostics.rejected",
+                BTreeMap::from([
+                    ("plugin".into(), json!(plugin)),
+                    ("code".into(), json!("invalid_diagnostic")),
+                ]),
+                None,
+            )
+            .is_err()
+            {
+                crate::diagnostics::core_events::note_dropped();
+            }
+        }
+        return;
+    };
+    if state.plugin_diagnostics_window.elapsed() >= Duration::from_secs(60) {
+        state.plugin_diagnostics_window = Instant::now();
+        state.plugin_diagnostics_count = 0;
+    }
+    if state.plugin_diagnostics_count >= MAX_PLUGIN_DIAGNOSTICS_PER_MINUTE {
+        crate::diagnostics::core_events::note_dropped();
+        return;
+    }
+    state.plugin_diagnostics_count += 1;
+    // SDK contexts carry wire request IDs, not reusable UI operation IDs. Only
+    // a live request owned by this session may extend the host's correlation.
+    let operation = fact.wire_operation.as_deref().and_then(|wire| {
+        state
+            .pending
+            .get(wire)
+            .and_then(|pending| pending.operation_id.clone())
+    });
+    if crate::diagnostics::core_events::record(fact.event, fact.fields, operation).is_err() {
+        crate::diagnostics::core_events::note_dropped();
+    }
 }
 
 fn push_log_event(
@@ -9615,8 +9700,8 @@ mod tests {
         assert_eq!(dropped.channel.as_deref(), Some("vcs/git"));
         assert_eq!(dropped.fields.unwrap()["count"], 7);
         for (method, expected) in [
-            ("window/logMessage", "vcs.message.logged"),
-            ("window/showMessage", "vcs.message.shown"),
+            ("window/logMessage", "vcs.message.warning.logged"),
+            ("window/showMessage", "vcs.message.warning.shown"),
         ] {
             session.handle_server_message(json!({"jsonrpc":"2.0", "method":method, "params":{"type":2,"message":"warning token=private-value"}}).to_string()).unwrap();
             let events = session.poll_events().unwrap();
@@ -9629,7 +9714,7 @@ mod tests {
             assert_eq!(event.role, Some(SessionRole::Vcs));
             assert_eq!(
                 event.catalog_level,
-                Some(crate::diagnostics::record::LogLevel::Info)
+                Some(crate::diagnostics::record::LogLevel::Warn)
             );
             assert_eq!(event.message.as_deref(), Some(method));
             assert!(event.level.is_some() && event.detail.is_some());
@@ -15598,6 +15683,7 @@ public class Main {
             json!({
                 "litheBuild": { "versions": [6, 5, 4, 3, 2, 1] },
                 "litheFunctions": { "versions": [1, 2, 3] },
+                "litheLogging": { "versions": [1] },
                 "litheVcs": { "versions": [1] }
             })
         );

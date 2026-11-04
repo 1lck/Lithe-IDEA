@@ -5517,6 +5517,18 @@ resources. Validation probes cannot reference `${logDir}`. See the synchronized
 literal. Wire examples are exercised by
 `shared/fixtures/diagnostics/engine-logging-v2.json` and Core tests.
 
+Plugin-owned sessions offer `litheLogging` 1 independently of other protocols.
+The negotiated `lithe/log` notification is validated in Core and enters the
+same bounded `diagnostics.drainCoreEvents` queue, with the installed plugin
+identity selecting `plugins/<id>/host`. It never copies notification JSON into
+legacy runtime detail. The four facts map to catalog INFO/ERROR/WARN/WARN,
+and a live wire request ID resolves to its original host `op`; no user content
+or backend-selected channel/level/message is accepted. See the
+[plugin logging contract](plugins/v1/README.md#structured-plugin-diagnostics-logging-protocol-1)
+and `plugins/v1/fixtures/plugin-logging.json`. Explicit upstream LSP message
+types retain their severity through separate catalog events; unclassified
+stderr is DEBUG and actual lifecycle failure is ERROR.
+
 macOS PR3 passes `CoreLogRecord` directly to the injected `LogSink`. The existing
 MacLogStore drain/flush/finish cadence calls `diagnostics.drainCoreEvents` once per
 drain, retaining source `ts`/`op` and allocating session `seq`. It creates no idle

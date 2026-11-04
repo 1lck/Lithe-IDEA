@@ -89,6 +89,8 @@ CI 的 Draft PR 只跑 Linux，ready PR 和 preview push 跑三平台。输入�
 
 PR3 引擎采用按角色事件族：`lsp.*` 使用 `lsp/{server}`，`vcs.*` 使用 `vcs/{provider}`，`plugins.host.*` 使用 `plugins/{plugin}/host`。Core 从显式 role 与 catalog 身份字段选事件，目录模板仍是通道唯一来源；不允许任意输入 channel 改写普通事件。非法段使用稳定的 SHA-256 前缀身份，不丢弃日志或影响插件启动。stderr 的 reader 限制为每行 4 KiB、每秒 200 行，再走目录 text 的 1 KiB 脱敏规范化。trace 默认关闭，宿主通过 `lsp.setDetailedDiagnostics` 显式启用；`lsp.session.updated` 的 owner 已转交 Core，宿主不再重复发同一状态事实。
 
+上游明确严重度通过独立目录事件保留：`window/logMessage` 和 `window/showMessage` 的 type 1/2/3/4 分别为 ERROR/WARN/INFO/DEBUG，未知类型为 DEBUG。未分类 stderr 是 DEBUG 排障证据，流名称不表示警告；实际进程或协议失败由 `*.session.failed` 记录 ERROR，正常关闭仍是生命周期状态。插件自身使用独立协商的 `litheLogging` 1 与 `lithe/log`，由 Core 把四种受控事实映射到插件目录事件，不能再用 stderr 或任意自由消息代替。协议字段、op、限额与 fixture 以 [插件契约](../contracts/plugins/v1/README.md#structured-plugin-diagnostics-logging-protocol-1) 为准。
+
 详细诊断只接纳 `$/logTrace.message` 摘要；`verbose` 可能包含原始 RPC 载荷和文档源码，禁止进入 v2 text。凭据脱敏和 1 KiB 限长不代表源码可以落盘。初始化完成前的开关只保存目标状态，Core 在 `initialized` 之后发送通知。
 
 PR3 macOS 将 CoreLogRecord 原样交给统一 LogSink/MacLogStore，按现有 drain、flush 和退出节奏一次排空 Core 队列，保留 ts/op、分配 seq，并继续 validateCatalog:true；不新增空闲轮询或独立 writer。启动者显式声明 role、真实 pluginId 与 VCS logSubject；宿主不解析 providerID。详细诊断类别沿用 lsp→language、vcs→git、plugins→plugins，对活动和新会话发送 lsp.setDetailedDiagnostics，15 分钟单次到期关闭，失败以 app.logging.diagnostics_failed 记录一次。

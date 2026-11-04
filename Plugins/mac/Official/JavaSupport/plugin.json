@@ -39,7 +39,7 @@
       "type": "enum",
       "title": "Language server log level",
       "description": "How much the Java language server writes to its own log. Quieter levels reduce disk writes.",
-      "default": "ALL",
+      "default": "WARNING",
       "options": [
         { "value": "ALL", "title": "All messages" },
         { "value": "INFO", "title": "Information" },
@@ -60,7 +60,12 @@
         "packagedRuntime": "runtime/${arch}/bin/java",
         "runtimeArguments": [
           "-Xmx${setting:heapMaxMB}m",
-          "-Dlog.level=${setting:logLevel}"
+          "-Dlog.level=${setting:logLevel}",
+          "-Dosgi.logfile=${logDir}/jdt.log",
+          "-Declipse.log.include.commandline=false",
+          "-Declipse.log.size.max=1024",
+          "-Declipse.log.backup.max=2",
+          "-Declipse.log.level=WARNING"
         ],
         "entry": "language-server/plugins/org.eclipse.equinox.launcher_1.8.0.v20260804-1928.jar"
       },
