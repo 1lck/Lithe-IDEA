@@ -38,7 +38,7 @@
   "windows": {
     "evidence": [
       "windows/tauri/src/features/run",
-      "rust/lithe-core/src/project/maven.rs",
+      "windows/tauri/crates/lithe-legacy-java/src/maven/mod.rs",
       "rust/lithe-core/src/execution/detectors/maven.rs",
       "rust/lithe-core/src/languages/text.rs",
       "rust/lithe-core/src/languages/java.rs",

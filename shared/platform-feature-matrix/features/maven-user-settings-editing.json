@@ -18,7 +18,7 @@
       "windows/tauri/src/features/settings/components/tabs/maven-user-settings-group.tsx",
       "windows/tauri/src/features/settings/components/tabs/maven-settings-panel.tsx",
       "windows/tauri/src/features/maven/api/maven-host-api.ts",
-      "rust/lithe-core/src/project/maven.rs",
+      "windows/tauri/crates/lithe-legacy-java/src/maven/mod.rs",
       "windows/tauri/src/features/settings/components/tabs/maven-user-settings-group.test.tsx"
     ],
     "implementationStatus": "implemented",
