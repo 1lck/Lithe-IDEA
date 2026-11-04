@@ -248,7 +248,9 @@ struct LogWindowTests {
     }
     @Test func realtimeWatermarkCapPauseAndReference() async throws {
         let directory = root()
-        let writer = MacLogStore(defaultDirectory: directory)
+        // A fixed lease clock keeps the 10 s control deadline from depending on
+        // how fast this machine queries the three 10,000-record batches.
+        let writer = MacLogStore(defaultDirectory: directory, diagnosticNow: { 0 })
         let model = LogWindowModel(logging: writer)
         defer { model.stop(); try? FileManager.default.removeItem(at: directory) }
         let core = RustCoreBridge()

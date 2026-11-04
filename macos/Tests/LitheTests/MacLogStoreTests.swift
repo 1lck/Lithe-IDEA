@@ -591,7 +591,9 @@ extension MacLogStoreTests {
     @Test func collectionBudgetKeepsActiveChannelsBeforeOldRotations() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
-        let writer = MacLogStore(now: { Date(timeIntervalSince1970: 1_793_664_000) })
+        // A fixed lease clock keeps the 10 s control deadline from depending on
+        // how fast this machine reads and queries the 12 MB fixture.
+        let writer = MacLogStore(diagnosticNow: { 0 }, now: { Date(timeIntervalSince1970: 1_793_664_000) })
         try writer.redirect(to: root)
         let folder = root.appendingPathComponent("sessions/2026-11-03T00-00-00_abcdef12/lsp")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
