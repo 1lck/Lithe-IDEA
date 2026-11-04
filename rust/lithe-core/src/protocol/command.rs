@@ -469,6 +469,8 @@ pub enum CoreCommand {
     GitCommand,
     /// Resolves the containing repository root without acquiring a write lease (`git.repositoryRoot`).
     GitRepositoryRoot,
+    /// Resolves a file to its owning Git checkout (`git.resolveFileContext`).
+    GitResolveFileContext,
     /// Performs one supported Git mutation (`git.write`).
     GitWrite,
     /// Plans whole-file rollback from Git change identities (`git.rollbackPlan`).
@@ -854,6 +856,7 @@ impl CoreCommand {
             "git.pullRequestContext" => Some(Self::GitPullRequestContext),
             "git.command" => Some(Self::GitCommand),
             "git.repositoryRoot" => Some(Self::GitRepositoryRoot),
+            "git.resolveFileContext" => Some(Self::GitResolveFileContext),
             "git.write" => Some(Self::GitWrite),
             "git.rollbackPlan" => Some(Self::GitRollbackPlan),
             "git.rollbackPrepare" => Some(Self::GitRollbackPrepare),

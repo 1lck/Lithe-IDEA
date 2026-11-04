@@ -126,78 +126,45 @@ describe("normalizeRepositoryPath", () => {
 });
 
 describe("resolveRepositoryForFile", () => {
-  test("returns relative file paths for a repository at a drive root", async () => {
-    invoke.mockResolvedValue("X:/");
-    expect(await resolveRepositoryForFile("X:/", "src/main.ts")).toEqual({
-      repoPath: "X:/", filePath: "src/main.ts",
+  test("uses Core ownership for an absolute file in another checkout", async () => {
+    invoke.mockResolvedValue({ root: "D:/work/other", path: "src/main.ts", ownership: "git" });
+    expect(await resolveRepositoryForFile("D:/work/project", "D:/work/other/src/main.ts")).toEqual({
+      repoPath: "D:/work/other", filePath: "src/main.ts",
     });
-    expect(invoke).toHaveBeenCalledWith("git_discover_repo", { path: "X:/src" });
-  });
-
-  test("falls back to a drive-root repository for a removed directory", async () => {
-    invoke.mockRejectedValueOnce(new Error("Workspace does not exist"));
-    invoke.mockResolvedValue("X:/");
-    expect(await resolveRepositoryForFile("X:/", "removed/Deleted.java")).toEqual({
-      repoPath: "X:/", filePath: "removed/Deleted.java",
-    });
-    expect(invoke).toHaveBeenNthCalledWith(2, "git_discover_repo", { path: "X:/" });
-  });
-
-  test("discovers the repository from the file's directory", async () => {
-    invoke.mockResolvedValue("D:/work/project");
-
-    const result = await resolveRepositoryForFile("D:/work/project", "src/main.ts");
-
-    expect(invoke).toHaveBeenCalledWith("git_discover_repo", {
-      path: "D:/work/project/src",
-    });
-    expect(result).toEqual({
-      repoPath: "D:/work/project",
-      filePath: "src/main.ts",
+    expect(invoke).toHaveBeenCalledWith("git.resolveFileContext", {
+      root: "D:/work/project", path: "D:/work/other/src/main.ts",
     });
   });
-
-  test("keeps absolute file paths relative to the discovered repository", async () => {
-    invoke.mockResolvedValue("D:/work/project");
-
-    const result = await resolveRepositoryForFile(
-      "D:/work",
-      "D:\\work\\project\\src\\main.ts",
-    );
-
-    expect(invoke).toHaveBeenCalledWith("git_discover_repo", {
-      path: "D:/work/project/src",
+  test("keeps deleted paths resolved by Core without falling back to the active checkout", async () => {
+    invoke.mockResolvedValue({ root: "X:/nested", path: "removed/Deleted.java", ownership: "git" });
+    expect(await resolveRepositoryForFile("X:/", "nested/removed/Deleted.java")).toEqual({
+      repoPath: "X:/nested", filePath: "removed/Deleted.java",
     });
-    expect(result).toEqual({
-      repoPath: "D:/work/project",
-      filePath: "src/main.ts",
-    });
+    expect(invoke).toHaveBeenCalledTimes(1);
   });
-
-  test("falls back to the active repository when a deleted file's directory is gone", async () => {
-    invoke.mockImplementation(async (_command, args) => {
-      const path = (args as { path: string }).path;
-      if (path === "D:/work/project/removed/directory") {
-        throw new Error("Workspace does not exist");
-      }
-      return "D:/work/project";
-    });
-
-    const result = await resolveRepositoryForFile(
-      "D:/work/project",
-      "removed/directory/Deleted.java",
-    );
-
-    expect(invoke).toHaveBeenNthCalledWith(1, "git_discover_repo", {
-      path: "D:/work/project/removed/directory",
-    });
-    expect(invoke).toHaveBeenNthCalledWith(2, "git_discover_repo", {
-      path: "D:/work/project",
-    });
-    expect(result).toEqual({
-      repoPath: "D:/work/project",
-      filePath: "removed/directory/Deleted.java",
-    });
+  test("reports unowned paths and propagates discovery failures", async () => {
+    invoke.mockResolvedValueOnce(null).mockRejectedValueOnce(new Error("discovery failed"));
+    expect(await resolveRepositoryForFile("C:/repo", "file.ts")).toBeNull();
+    await expect(resolveRepositoryForFile("C:/repo", "file.ts")).rejects.toThrow("discovery failed");
+  });
+  test("shares only concurrent file lookups and rechecks later", async () => {
+    let complete!: (value: unknown) => void;
+    invoke.mockImplementationOnce(() => new Promise((resolve) => { complete = resolve; }));
+    const first = resolveRepositoryForFile("C:/repo", "file.ts");
+    const second = resolveRepositoryForFile("C:/repo", "file.ts");
+    try {
+      expect(invoke).toHaveBeenCalledTimes(1);
+    } finally {
+      complete({ root: "C:/repo", path: "file.ts", ownership: "git" });
+    }
+    expect(await first).toEqual(await second);
+    invoke.mockResolvedValue({ root: "C:/repo/nested", path: "file.ts", ownership: "git" });
+    expect(await resolveRepositoryForFile("C:/repo", "file.ts")).toEqual({ repoPath: "C:/repo/nested", filePath: "file.ts" });
+    expect(invoke).toHaveBeenCalledTimes(2);
+  });
+  test("rejects an invalid ownership response", async () => {
+    invoke.mockResolvedValue({ root: "C:/repo", path: "file.ts", ownership: "other" });
+    await expect(resolveRepositoryForFile("C:/repo", "file.ts")).rejects.toThrow("Invalid Git file context");
   });
 });
 
@@ -224,16 +191,17 @@ describe("Windows Git path identity", () => {
     ["wsl://Ubuntu/repo/src/main.ts", "wsl://Ubuntu/repo", "wsl://Ubuntu/repo/src"],
   ]) {
     test(`resolves an absolute file without prepending the active repository: ${input}`, async () => {
-      invoke.mockResolvedValue(root);
+      const remote = input!.startsWith("remote://") || input!.startsWith("wsl://");
+      invoke.mockResolvedValue(remote ? root : { root, path: "src/main.ts", ownership: "git" });
       expect(await resolveRepositoryForFile("D:/different-repository", input!)).toEqual({
         repoPath: root, filePath: "src/main.ts",
       });
-      expect(invoke).toHaveBeenCalledWith("git_discover_repo", { path: directory });
+      if (remote) expect(invoke).toHaveBeenCalledWith("git_discover_repo", { path: directory });
+      else expect(invoke).toHaveBeenCalledWith("git.resolveFileContext", { root: "D:/different-repository", path: normalizeRepositoryPath(input!) });
     });
   }
   test("does not hide an unsupported Core response with the deleted-directory fallback", async () => {
-    invoke.mockResolvedValueOnce(String.raw`\\?\C:\work\repo.`);
-    invoke.mockResolvedValue("C:/work/repo");
+    invoke.mockResolvedValueOnce({ root: String.raw`\\?\C:\work\repo.`, path: "src/main.ts", ownership: "git" });
     await expect(resolveRepositoryForFile("C:/work/repo", "src/main.ts")).rejects.toThrow("Git does not support Windows paths");
     expect(invoke).toHaveBeenCalledTimes(1);
   });

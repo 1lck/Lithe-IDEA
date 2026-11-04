@@ -31,6 +31,11 @@ const invoke = mock(
     }
     if (command === "git.write" && interceptWrite) return interceptWrite(args ?? {});
     if (command === "git_diff_file") return fileDiffResponse;
+    if (command === "git.resolveFileContext") {
+      const root = String(args?.root ?? "");
+      const path = String(args?.path ?? "");
+      return { root, path: path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path, ownership: "git" };
+    }
     if (command === "git_discover_repo") {
       const path = String(args?.path ?? "");
       return path.startsWith("C:/workspace/") ? path : "C:/repo";

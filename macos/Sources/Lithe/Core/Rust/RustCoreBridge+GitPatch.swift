@@ -2,6 +2,21 @@ import Foundation
 import LitheGitModule
 
 extension RustCoreBridge {
+    private struct GitFileContextRequest: Encodable {
+        let root: String
+        let path: String
+    }
+
+    func gitFileContext(fileURL: URL, relativeTo rootURL: URL) -> GitFileContext? {
+        let result: Result<GitFileContext, CoreCallError> = executeResult(
+            command: "git.resolveFileContext", payload: GitFileContextRequest(
+                root: rootURL.standardizedFileURL.path,
+                path: fileURL.standardizedFileURL.path
+            )
+        )
+        return try? result.get()
+    }
+
     private struct ShelfRequest: Encodable {
         let root: String
         let action: String

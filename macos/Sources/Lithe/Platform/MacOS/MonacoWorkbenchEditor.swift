@@ -822,7 +822,9 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
             gitFeatureIdentity = identity
             gitSubscription = nil
             if let feature {
-                gitSubscription = feature.$gitLineChangeMarkers.combineLatest(feature.$gitBlameLines).receive(on: DispatchQueue.main)
+                gitSubscription = feature.$gitLineChangeMarkers
+                    .combineLatest(feature.$gitBlameLines, feature.$availableRepositoryRoots, feature.$gitRepositoryRoot)
+                    .receive(on: DispatchQueue.main)
                 .sink { [weak self, weak model] _ in
                     guard let self, let model else { return }
                     self.refreshGitState(model: model)

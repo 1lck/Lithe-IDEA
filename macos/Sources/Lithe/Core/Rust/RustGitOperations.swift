@@ -812,6 +812,10 @@ struct RustGitOperations: GitOperations, Sendable {
         }
     }
 
+    func resolveFileContext(fileURL: URL, relativeTo rootURL: URL) -> GitFileContext? {
+        core.gitFileContext(fileURL: fileURL, relativeTo: rootURL)
+    }
+
     func blame(at rootURL: URL, relativePath: String) -> [GitBlameLine]? {
         core.gitBlame(at: rootURL, relativePath: relativePath)?.makeModels()
     }
