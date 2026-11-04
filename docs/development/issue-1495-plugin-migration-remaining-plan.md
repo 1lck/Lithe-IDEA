@@ -43,6 +43,14 @@ debug 权限，Core 目录把两者都拒绝。两处都已按新结构修正夹
 261 项与 62 项时不再复现，属于负载争用；契约、服务/Windows 边界、Notes、bundle 只读、i18n、
 功能矩阵、资源复用、Core 注释与日志事件 14 项静态检查通过。Windows 实机与正式发行仍未验收。
 
+仍然失败且在合并前的 `f0561be5d` 上同样失败的是 `RunEntryPointTests` 中 5 个“延后的 Run 在快照到达后
+重发”用例（`runWithExistingConfigurationLaunchesOnlyAfterTheSnapshotArrives` 等），每个在 31 秒左右超时。
+已定位的链路：重发的 Run 对 `javaMain` 配置走 `prepareCurrentProviderGeneration` →
+`prepareRunGenerationModels` → `BuildSystemService.prepareLanguageImport`，后者在检测未发布结果时等待 30 秒
+后以“language import preparation timed out”失败，Run 静默结束，测试等不到 launch plan。该套件使用顺序化的
+工作区替身，检测在其中不会完成；这是本分支把 `javaMain` 运行绑定到 Provider 生成事实后留下的夹具缺口，
+需要单独补齐（让替身发布检测结果，或在没有可用构建插件时跳过 Provider 生成准备），不属于合并回归。
+
 工具默认迁移的退出条件经核对不能单独在阶段 D 完成：旧 `toolchain.java.homePath` 等字段的
 空值同时表示“继承根默认”和“自动”，由 Run、Debug 与 JDT 启动（`ProjectRuntimeService`、
 `RunToolchainProviders`、`MacJdtLaunchResources`）动态求值；展开成 pin 会冻结继承，改写为
