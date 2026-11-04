@@ -6,6 +6,8 @@
 
 如果任务会创建、修改或审查测试代码、测试基础设施，开始前还要加载 `.agents/skills/write-stable-tests/SKILL.md`。该 Skill 规定 macOS 和 Windows 测试必须遵守的有界等待、确定性时间、资源清理和单测试计时规则。
 
+如果任务会创建新插件，或为已有插件新增语言服务器、后端、构建、VCS、调试等提供者，开始前还要加载 `.agents/skills/create-lithe-plugin/SKILL.md`。该 Skill 给出当前契约、SDK 和示例的参考地址，规定插件必须完成的日志接线和验收要求。
+
 如果任务会准备、验证或发布 Lithe 稳定版，修改发布说明、版本元数据、标签或发布工作流前，还要加载 `.agents/skills/release-lithe/SKILL.md`。
 
 如果任务会整理问题报告、提出功能建议、准备 Issue 草稿或提交 GitHub Issue，开始前还要加载 `.agents/skills/submit-lithe-issue/SKILL.md`。该 Skill 规定信息追问、诊断采集与脱敏、查重，以及严格遵循仓库 Issue 模板的提交流程；gh 不支持 YAML 表单时按表单字段逐项生成正文提交，不得提交空白或缺字段的正文，不得伪造表单来源标记。
