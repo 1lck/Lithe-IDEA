@@ -113,6 +113,17 @@ package final class RunFeatureModel: ObservableObject {
     package func isProviderDebugActive(_ operation: String) -> Bool { service.isProviderDebugActive(operation) }
     package func providerDebugProcessID(_ operation: String) -> Int32? { service.providerDebugProcessID(operation) }
     package func stopProviderDebug() { service.stopProviderDebug() }
+    package var hasPluginRun: Bool { service.hasPluginRun }
+    package var canRestartPluginRun: Bool { service.canRestartPluginRun }
+    package var pluginRunEnded: AnyPublisher<PluginRunEnd, Never> { service.pluginRunEnded.eraseToAnyPublisher() }
+    package func launchPluginRun(_ launch: PluginRunLaunch, rerun: (@MainActor () -> Void)?) throws {
+        try service.launchPluginRun(launch, rerun: rerun)
+    }
+    @discardableResult
+    package func restartPluginRun() -> Bool { service.restartPluginRun() }
+    package func isPluginRunActive(_ runID: String) -> Bool { service.isPluginRunActive(runID) }
+    package func pluginRunProcessID(_ runID: String) -> Int32? { service.pluginRunProcessID(runID) }
+    package func stopPluginRun(_ runID: String) { service.stopPluginRun(runID) }
     package var moduleSessions: [RunSession] { service.moduleSessions }
     package var portConflicts: [RunPortConflict] { service.portConflicts }
     package var configurationStatus: ProjectRunConfigurationStatus { service.configurationStatus }

@@ -30,7 +30,7 @@ struct RunView: View {
         VStack(spacing: 0) {
             toolWindowHeader
             if (feature.configurationStatus == .ready && hasRunnableConfigurations)
-                || feature.isRunning || feature.lastExitCode != nil {
+                || feature.isRunning || feature.lastExitCode != nil || feature.hasPluginRun {
                 runToolbar
             }
             if feature.serviceUpdateSessionID == selectedModuleSession?.id,
@@ -51,9 +51,9 @@ struct RunView: View {
                 configurationNoticeBanner(notice)
             }
 
-            if feature.configurationStatus != .ready && !feature.hasBuildProviderRun {
+            if feature.configurationStatus != .ready && !showsProviderRunOutput {
                 configurationSetupView
-            } else if !hasRunnableConfigurations || (feature.hasBuildProviderRun && selectedSessionID == nil) {
+            } else if !hasRunnableConfigurations || (showsProviderRunOutput && selectedSessionID == nil) {
                 OutputTextView(
                     output: feature.output,
                     searchRoots: feature.sourceSearchRoots,
@@ -421,7 +421,7 @@ struct RunView: View {
                 .padding(.horizontal, 2)
                 .help(selectedSessionHasRun ? "Restart run" : "Run configuration")
                 .accessibilityLabel(selectedSessionHasRun ? "Restart run" : "Run configuration")
-                .disabled(feature.isLoadingProject)
+                .disabled(feature.isLoadingProject || restartsNothing)
 
                 if feature.hasBuildProviderRun && primaryOutputSelected && primaryRunMatchesSelection {
                     Button(action: UserActionTrace.action("run.provider-configuration.save") {
@@ -551,9 +551,20 @@ struct RunView: View {
         selectedSessionID == nil || selectedRunnableConfiguration?.buildProvider != nil
     }
 
+    /// A build provider's run or a plugin's run owns the primary console even when
+    /// the workspace has no generated run configurations.
+    private var showsProviderRunOutput: Bool {
+        feature.hasBuildProviderRun || feature.hasPluginRun
+    }
+
+    /// A plugin run that gave no way to start it again has nothing for Restart to do.
+    private var restartsNothing: Bool {
+        primaryOutputSelected && feature.hasPluginRun && !feature.canRestartPluginRun
+    }
+
     private var selectedSessionHasRun: Bool {
         primaryOutputSelected
-            ? primaryRunMatchesSelection && (feature.isRunning || feature.lastExitCode != nil || feature.hasBuildProviderRun)
+            ? primaryRunMatchesSelection && (feature.isRunning || feature.lastExitCode != nil || showsProviderRunOutput)
             : selectedModuleSession != nil
     }
 
