@@ -387,7 +387,7 @@ process does not use `${workspaceStateDir}`; otherwise the request is
 | `requiredDirectories` | `state`, `workspaceState`, `log`, and/or `temporary`: the directories the host must create before starting the server. |
 | `requiredPackagePaths` | Sorted package-relative paths the launch points at. The host verifies each is inside the package and not a symbolic link before starting the server. |
 | `settings` | Effective value of every declared setting that produced this plan; absent when the plugin declares none. |
-| `resolveParams` | Present only for a backend-resolved launch: the params of the launch function, without the `context` and `tools` the host adds. |
+| `resolveParams` | Present only for a backend-resolved launch: the params of the launch function, without the `context` and the optional `tools` the host adds. |
 | `environment`, `writablePaths` | Present only in the plan `decodeLaunch` returns: the variables of the process, and the paths it writes. |
 | `sessionPolicy` | Present for a language server of `languageServers` 3: the [session policy](#plugin-owned-sessions-languageservers-3) the host passes to `lsp.startServer` unchanged. |
 | `buildProvider` | Present only for a `buildSystemID` selection: `{buildSystemID, executesProjectCode, mayUseNetwork, languageServer?}`. `languageServer` names the language whose server is the provider; the rest of the plan is then that server's plan, and the host reuses its running session instead of starting a second process. |
@@ -619,11 +619,13 @@ declaring one:
   without one is `plugin.launch.invalidRequest`.
 - The host creates the directories, starts the plugin backend if it is not
   running, and calls `function` through `lithe/function/invoke` with
-  `resolveParams` and the workspace `context`. When the plugin defines tools,
-  the host also sends `tools`, `{<toolID>: {executable, home, version}}`, the
-  resolution of each tool it could find; Core does not validate it. A failed or
-  timed-out call, or an answer for a context whose generation has changed,
-  ends this start without a process.
+  `resolveParams` and the workspace `context`. A host may also send `tools`,
+  `{<toolID>: {executable, home, version}}`, the resolution of each tool it
+  could find; Core does not validate it. The macOS host does not send `tools`
+  yet, so a function must not require it: it answers `{kind: "tool"}` and
+  lets the host resolve the tool. A failed or timed-out call, or an answer
+  for a context whose generation has changed, ends this start without a
+  process.
 - The host passes `{manifest, languageID, request, result}` to
   `plugins.languageServers.decodeLaunch`, which returns `{status: "ok", plan}`
   or a rejection. The plan is an ordinary launch plan (`launch` is `packaged`
@@ -660,6 +662,12 @@ directories, `plugin.launch.invalidRequest` for a request without a usable
 directory, `plugin.launch.unavailable` for a language without a server, and
 `plugin.launch.notBackend`. See `fixtures/language-server-backend-launch.plugin.json`
 and `fixtures/language-server-launch-resolution.json`.
+
+Host limits of the macOS host today: a `{kind: "tool"}` answer is resolved
+with the user's tool choice and discovery, and a program that lies inside the
+project is refused, because opening a project must not run it; a server whose
+launch the backend resolves does not start in a remote workspace; and the
+scratch `temporaryDirectory` is removed when the server process ends.
 
 #### Plugin-owned sessions (`languageServers` 3)
 
