@@ -1,6 +1,6 @@
 //! Drives the actual provider executable through Lithe Core, with bounded host replies.
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use lithe_core::execute_json;
+use lithe_core::{diagnostics::core_events, execute_json};
 use serde_json::{json, Value};
 use std::{
     fs,
@@ -20,6 +20,7 @@ fn core(command: &str, payload: Value) -> Value {
 }
 struct Session {
     id: String,
+    plugin: String,
     root: PathBuf,
     events: Vec<Value>,
 }
@@ -49,9 +50,12 @@ impl Session {
         ));
         fs::create_dir_all(&root).unwrap();
         let root = root.canonicalize().unwrap();
+        // Core's fact queue is process-wide; a per-provider identity keeps the
+        // parallel cases from satisfying each other's diagnostic assertion.
+        let plugin = format!("org.example.keymap.{provider}");
         let started = core(
             "lsp.startServer",
-            json!({"providerId":"pluginBackend:test", "pluginId":"org.example.keymap",
+            json!({"providerId":"pluginBackend:test", "pluginId":plugin,
             "executablePath":env!("CARGO_BIN_EXE_lithe-editor-keymap-import"), "arguments":[],
             "rootUri":format!("file://{}/",root.display()), "workingDirectory":root,
             "hostServices":["lithe/host/keymapImport/listInputs", "lithe/host/keymapImport/readChunk"],
@@ -59,6 +63,7 @@ impl Session {
         );
         let mut session = Self {
             id: started["sessionId"].as_str().unwrap().into(),
+            plugin,
             root,
             events: vec![],
         };
@@ -77,6 +82,33 @@ impl Session {
                 "timed out; events: {:?}",
                 self.events
             );
+            let batch = core(
+                "lsp.waitEvents",
+                json!({"sessionId":self.id, "timeoutMilliseconds":100}),
+            );
+            self.events
+                .extend(batch["events"].as_array().unwrap().iter().cloned());
+        }
+    }
+    /// Waits for Core to accept the SDK's `lithe/log` fact into the host writer's queue.
+    fn recorded_fact(&mut self, event: &str, operation: &str) -> core_events::CoreEvent {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut seen = Vec::new();
+        loop {
+            let drained = core_events::drain().events;
+            if let Some(fact) = drained.iter().find(|fact| {
+                fact.event == event
+                    && fact.fields.get("plugin") == Some(&json!(self.plugin))
+                    && fact.fields.get("operation") == Some(&json!(operation))
+            }) {
+                return fact.clone();
+            }
+            seen.extend(drained.into_iter().map(|fact| (fact.event, fact.fields)));
+            assert!(
+                Instant::now() < deadline,
+                "timed out waiting for {event} {operation}; drained: {seen:?}"
+            );
+            // The session's bounded event wait paces the poll without a sleep.
             let batch = core(
                 "lsp.waitEvents",
                 json!({"sessionId":self.id, "timeoutMilliseconds":100}),
@@ -161,6 +193,10 @@ fn vscode_source_runs_through_real_core_and_provider() {
     assert!(actions
         .iter()
         .any(|entry| entry["commandID"] == "find-next" && entry["keys"][0]["key"] == "n"));
+    // The SDK reports the import result through litheLogging 1; Core binds the
+    // plugin identity and routes it to that plugin's host channel.
+    let fact = session.recorded_fact("plugins.operation.finished", "lithe/keymap/import");
+    assert_eq!(fact.channel, "plugins/org.example.keymap.vscode/host");
 }
 
 #[test]
