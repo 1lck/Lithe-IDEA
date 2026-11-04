@@ -1392,14 +1392,36 @@ package final class GitFeatureModel: ObservableObject {
         return saveChangesPolicy?() ?? .stash
     }
 
+    /// Every user Git operation runs here. A panel control that started it without
+    /// an outer menu, command or shortcut trace logs as `vcs.git.<caller>`, the
+    /// model method that owns the operation.
     func withGitOperation<T: Sendable>(
         title: String? = nil, plannedArguments: [String]? = nil,
         afterOperation: (@MainActor () async -> Void)? = nil,
+        caller: String = #function,
+        _ operation: () async -> T
+    ) async -> T {
+        await UserActionTrace.run(Self.operationActionID(caller), surface: .button,
+            sink: UserActionTrace.applicationSink) {
+            await runGitOperation(title: title, plannedArguments: plannedArguments,
+                afterOperation: afterOperation, caller: caller, operation)
+        }
+    }
+
+    /// `#function` reads `pushReviewed(_:to:)`; the action id keeps the name only.
+    nonisolated static func operationActionID(_ caller: String) -> String {
+        "vcs.git." + (caller.split(separator: "(", maxSplits: 1).first.map(String.init) ?? caller)
+    }
+
+    private func runGitOperation<T: Sendable>(
+        title: String?, plannedArguments: [String]?,
+        afterOperation: (@MainActor () async -> Void)?,
+        caller: String,
         _ operation: () async -> T
     ) async -> T {
         if let worktreeOperationHost {
             return await worktreeOperationHost.withGitOperation(title: title, plannedArguments: plannedArguments,
-                afterOperation: afterOperation, operation)
+                afterOperation: afterOperation, caller: caller, operation)
         }
         if GitExecutionContext.current != nil {
             let result = await operation()
@@ -1493,7 +1515,7 @@ package final class GitFeatureModel: ObservableObject {
     /// wait for unrelated repositories, stashes, history or project services.
     private func withGitChangeOperation<T: Sendable>(
         _ changes: [GitChange], additionalRoots: [URL] = [], onWorktreeSettled: @escaping @MainActor () -> Void = {},
-        _ operation: () async -> T
+        caller: String = #function, _ operation: () async -> T
     ) async -> T {
         let generation = workspaceCommitGeneration
         let workspace = workspaceURLProvider?()?.standardizedFileURL
@@ -1511,7 +1533,7 @@ package final class GitFeatureModel: ObservableObject {
             self.invalidateChangeReads(completedRequests)
             self.worktreeOperationHost?.invalidateChangeReads(completedRequests)
             await self.refreshAfterChangeMutation(requests: completedRequests, onWorktreeSettled: onWorktreeSettled)
-        }, operation)
+        }, caller: caller, operation)
     }
 
     private func invalidateChangeReads(_ requests: [URL: UUID]) {
@@ -1527,9 +1549,9 @@ package final class GitFeatureModel: ObservableObject {
     }
 
     private func recordingGitCommand(
-        _ operation: () async -> GitService.CommandResult
+        caller: String = #function, _ operation: () async -> GitService.CommandResult
     ) async -> GitService.CommandResult {
-        await withGitOperation(operation)
+        await withGitOperation(caller: caller, operation)
     }
 
     private func trimGitConsole() {

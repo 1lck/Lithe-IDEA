@@ -130,7 +130,7 @@ struct WorkbenchContributionHostTests {
             #expect(model.workbenchUIRegistry.state(forActionID: "debug", model: model).isEnabled == false)
             #expect(LitheActionRegistry.actions(for: model).first { $0.id == "run" }?.isEnabled == false)
             #expect(!model.canPerformShortcutCommand(id: "run"))
-            model.workbenchUIRegistry.perform(run, model: model)
+            model.workbenchUIRegistry.perform(run, model: model, surface: nil)
             #expect(model.runFeatureIfActive == nil)
             #expect(container.services.moduleRuntime.snapshots()
                 .filter { [.execution, .debug].contains($0.manifest.id) }.allSatisfy { !$0.isInstantiated })
@@ -168,7 +168,7 @@ struct WorkbenchContributionHostTests {
             model.showContributionEntry(command)
             #expect(model.registeredContributions(at: placement).contains(command))
             #expect(invocations == 0)
-            model.workbenchUIRegistry.perform(command, model: model)
+            model.workbenchUIRegistry.perform(command, model: model, surface: nil)
             #expect(invocations == 1)
         }
     }
@@ -550,7 +550,7 @@ struct WorkbenchContributionHostTests {
             if !sameGroup { model.workbenchFeature.move(.project, to: .init(anchor: .left, group: .secondary)) }
             let contribution = declaration.contributions[0]
             if useShow { model.showContributionEntry(contribution) }
-            else { model.workbenchUIRegistry.perform(contribution, model: model) }
+            else { model.workbenchUIRegistry.perform(contribution, model: model, surface: nil) }
             let pending = model.contributionActivationTasks[window.rawValue]
             defer { pending?.cancel() }
             #expect(await started.waitUntilOpen(), "Restored window never started its module")
@@ -611,7 +611,7 @@ struct WorkbenchContributionHostTests {
             let first = commands[0], second = commands[3]
             let staleAction = LitheActionRegistry.actions(for: model).first { $0.id == first.actionID }
             #expect(staleAction != nil)
-            model.workbenchUIRegistry.perform(first, model: model)
+            model.workbenchUIRegistry.perform(first, model: model, surface: nil)
             let firstTask = model.contributionActivationTasks[windows[0].id]
             defer { firstTask?.cancel() }
             #expect(await started.waitUntilOpen(), "First module activation did not reach the gate")
@@ -625,7 +625,7 @@ struct WorkbenchContributionHostTests {
             model.searchSessionFeature.isSearchEverywhereVisible = true
             if let staleAction { model.performSearchEverywhereAction(staleAction) }
             #expect(model.isSearchEverywhereVisible)
-            model.workbenchUIRegistry.perform(second, model: model)
+            model.workbenchUIRegistry.perform(second, model: model, surface: nil)
             let secondTask = model.contributionActivationTasks[windows[1].id]
             defer { secondTask?.cancel() }
             #expect(await joined.waitUntilOpen(), "Second window did not join the first module activation")
@@ -637,7 +637,7 @@ struct WorkbenchContributionHostTests {
             } else {
                 // Cancelling one UI request must leave the shared construction owned
                 // by the runtime available to the second window.
-                model.workbenchUIRegistry.perform(windows[0], model: model)
+                model.workbenchUIRegistry.perform(windows[0], model: model, surface: nil)
                 release.open()
             }
             try await scope.run("window activation") { await firstTask?.value }
@@ -651,13 +651,13 @@ struct WorkbenchContributionHostTests {
                 #expect(container.services.moduleRuntime.contributions()[owner] == nil)
                 #expect(!model.registeredContributions(at: .menu).contains { $0.actionID == first.actionID })
                 staleAction?.perform()
-                model.workbenchUIRegistry.performAction(id: first.actionID!, model: model)
+                model.workbenchUIRegistry.performAction(id: first.actionID!, model: model, surface: nil)
                 #expect(model.contributionActivationTasks.isEmpty)
                 try await scope.run("module enablement") {
                     try await container.services.moduleRuntime.setEnabled(true, for: owner)
                 }
                 release.open()
-                model.workbenchUIRegistry.perform(first, model: model)
+                model.workbenchUIRegistry.perform(first, model: model, surface: nil)
                 try await scope.run("window activation") { await model.contributionActivationTasks[windows[0].id]?.value }
                 #expect(constructions == 2)
             } else {
@@ -746,7 +746,7 @@ struct WorkbenchContributionHostTests {
             let command = try #require(model.registeredContributions(at: .toolbar).first { $0.id.hasPrefix(installed.manifest.id.rawValue) })
             let window = try #require(declaration.contributions.first { $0.kind == .toolWindow })
             #expect(container.services.moduleRuntime.snapshots().first { $0.manifest.id == declaration.manifest.id }?.isInstantiated == false)
-            model.workbenchUIRegistry.perform(command, model: model)
+            model.workbenchUIRegistry.perform(command, model: model, surface: nil)
             try await scope.run("window activation") { await model.contributionActivationTasks[window.id]?.value }
             #expect(model.workbenchFeature.activeRightToolWindow?.rawValue == window.id)
             #expect(model.registeredContributions(at: .menu).contains { $0.actionID == command.actionID })
@@ -775,7 +775,7 @@ struct WorkbenchContributionHostTests {
             }
             #expect(model.workbenchFeature.activeLeftToolWindow == nil)
             #expect(!model.registeredContributions(at: .toolbar).contains { $0.actionID == command.actionID })
-            model.workbenchUIRegistry.perform(command, model: model)
+            model.workbenchUIRegistry.perform(command, model: model, surface: nil)
             #expect(model.contributionActivationTasks.isEmpty)
             try await scope.run("module enablement") {
                 try await container.services.moduleRuntime.setEnabled(true, for: declaration.manifest.id)

@@ -11,7 +11,7 @@ use crate::protocol::{
 };
 use serde::Deserialize;
 use std::io::{BufRead, BufReader, Read};
-use std::process::{Child, ExitStatus, Stdio};
+use std::process::{Child, ChildStderr, ChildStdout, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender};
 use std::sync::{Mutex, OnceLock};
@@ -486,6 +486,8 @@ struct HistorySession {
     emitted: usize,
     last_access: Instant,
     finished: bool,
+    /// Records the one `git log` process this cursor owns when it ends.
+    trace: Option<super::command_trace::Trace>,
 }
 
 #[derive(Default)]
@@ -552,7 +554,15 @@ impl HistorySession {
             GIT_COMMIT_DATE_ARGUMENT.to_string(),
             "--pretty=format:%H%x1f%h%x1f%P%x1f%an%x1f%ae%x1f%ad%x1f%s%x1f%D".to_string(),
         ]);
-        if let Some(remote) = super::remote_history::RemoteHistory::start(&root, &arguments)? {
+        let trace = super::command_trace::Trace::begin(&root, &arguments, false);
+        let remote = match super::remote_history::RemoteHistory::start(&root, &arguments) {
+            Ok(remote) => remote,
+            Err(error) => {
+                trace.finish(Some(&error));
+                return Err(error);
+            }
+        };
+        if let Some(remote) = remote {
             return Ok(Self {
                 cursor: format!(
                     "git-history-cursor-{}",
@@ -571,33 +581,16 @@ impl HistorySession {
                 emitted: 0,
                 last_access: Instant::now(),
                 finished: false,
+                trace: Some(trace),
             });
         }
-        let mut process = git_process();
-        let mut child = process
-            .args(&arguments)
-            .current_dir(&root)
-            .env("GIT_OPTIONAL_LOCKS", "0")
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|error| {
-                CoreError::new(ErrorCode::ProcessStartFailed, "Could not start Git history")
-                    .with_details(error.to_string())
-            })?;
-        let stdout = child.stdout.take().ok_or_else(|| {
-            CoreError::new(
-                ErrorCode::ProcessFailed,
-                "Git history stdout was unavailable",
-            )
-        })?;
-        let mut stderr = child.stderr.take().ok_or_else(|| {
-            CoreError::new(
-                ErrorCode::ProcessFailed,
-                "Git history stderr was unavailable",
-            )
-        })?;
+        let (child, stdout, mut stderr) = match spawn_history_process(&root, &arguments) {
+            Ok(process) => process,
+            Err(error) => {
+                trace.finish(Some(&error));
+                return Err(error);
+            }
+        };
         // A single-slot channel propagates backpressure to Git instead of buffering the
         // entire repository history between page requests.
         let (sender, receiver) = mpsc::sync_channel(1);
@@ -634,6 +627,7 @@ impl HistorySession {
             emitted: 0,
             last_access: Instant::now(),
             finished: false,
+            trace: Some(trace),
         })
     }
 
@@ -714,8 +708,21 @@ impl HistorySession {
             return Ok(());
         }
         self.finished = true;
-        self.remote.take();
         self.receiver.take();
+        let mut trace = self.trace.take();
+        if let Some(remote) = self.remote.take() {
+            if let Some(mut trace) = trace {
+                let error = match remote.exit() {
+                    Some((code, stderr)) => {
+                        trace.observe(code, stderr);
+                        (code != Some(0)).then(|| history_failure(stderr))
+                    }
+                    None => Some(closed_cursor()),
+                };
+                trace.finish(error.as_ref());
+            }
+            return Ok(());
+        }
         let status = if let Some(mut child) = self.child.take() {
             if terminate {
                 if let Err(error) = child.kill() {
@@ -730,13 +737,20 @@ impl HistorySession {
                     }
                 }
             }
-            child.wait().map_err(|error| {
-                CoreError::new(
-                    ErrorCode::ProcessFailed,
-                    "Could not read Git history status",
-                )
-                .with_details(error.to_string())
-            })?
+            match child.wait() {
+                Ok(status) => status,
+                Err(error) => {
+                    let error = CoreError::new(
+                        ErrorCode::ProcessFailed,
+                        "Could not read Git history status",
+                    )
+                    .with_details(error.to_string());
+                    if let Some(trace) = trace {
+                        trace.finish(Some(&error));
+                    }
+                    return Err(error);
+                }
+            }
         } else {
             return Ok(());
         };
@@ -766,7 +780,19 @@ impl HistorySession {
                 }
             })
             .unwrap_or_default();
-        validate_history_exit(status, stderr, terminate)
+        if let Some(mut trace) = trace.take() {
+            trace.observe(status.code(), &stderr);
+            // A signal after `terminate` is the kill above, not a Git failure.
+            let error = if status.success() {
+                None
+            } else if terminate && status.code().is_none() {
+                Some(closed_cursor())
+            } else {
+                Some(history_failure(&stderr))
+            };
+            trace.finish(error.as_ref());
+        }
+        validate_history_exit(status, &stderr, terminate)
     }
 
     fn stop(mut self) {
@@ -823,16 +849,56 @@ fn read_history_stream(stdout: impl Read, sender: SyncSender<HistoryStreamMessag
 
 fn validate_history_exit(
     status: ExitStatus,
-    stderr: Vec<u8>,
+    stderr: &[u8],
     terminated: bool,
 ) -> Result<(), CoreError> {
     if status.success() || terminated {
         return Ok(());
     }
-    Err(
-        CoreError::new(ErrorCode::ProcessFailed, "Git history failed")
-            .with_details(String::from_utf8_lossy(&stderr).trim().to_string()),
-    )
+    Err(history_failure(stderr))
+}
+
+/// The error a nonzero `git log` exit returns, local or remote.
+pub(super) fn history_failure(stderr: &[u8]) -> CoreError {
+    CoreError::new(ErrorCode::ProcessFailed, "Git history failed")
+        .with_details(String::from_utf8_lossy(stderr).trim().to_string())
+}
+
+/// A cursor closed before Git exited stopped the process on purpose.
+fn closed_cursor() -> CoreError {
+    CoreError::new(ErrorCode::Cancelled, "Git history cursor closed")
+}
+
+/// Starts the local `git log`; read-only, so optional index refreshes stay off.
+fn spawn_history_process(
+    root: &str,
+    arguments: &[String],
+) -> Result<(Child, ChildStdout, ChildStderr), CoreError> {
+    let mut child = git_process()
+        .args(arguments)
+        .current_dir(root)
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| {
+            CoreError::new(ErrorCode::ProcessStartFailed, "Could not start Git history")
+                .with_details(error.to_string())
+        })?;
+    let stdout = child.stdout.take().ok_or_else(|| {
+        CoreError::new(
+            ErrorCode::ProcessFailed,
+            "Git history stdout was unavailable",
+        )
+    })?;
+    let stderr = child.stderr.take().ok_or_else(|| {
+        CoreError::new(
+            ErrorCode::ProcessFailed,
+            "Git history stderr was unavailable",
+        )
+    })?;
+    Ok((child, stdout, stderr))
 }
 
 fn validate_reference(reference: Option<&str>) -> Result<(), CoreError> {
@@ -1235,6 +1301,7 @@ mod tests {
             emitted: 0,
             last_access,
             finished: true,
+            trace: None,
         }
     }
 

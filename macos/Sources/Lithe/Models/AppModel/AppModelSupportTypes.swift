@@ -178,6 +178,8 @@ enum LitheFeatureAvailability {
 struct WorkbenchNotification: Identifiable, Equatable {
     /// A button that takes the user to where they act on the notification.
     struct Action: Equatable {
+        /// Catalog token the user-action log records, never the localized title.
+        let id: String
         /// Localization key of the button title.
         let title: String
         let perform: @MainActor () -> Void

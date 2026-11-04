@@ -103,7 +103,7 @@ final class CommitFileDeletionFeatureModel: ObservableObject {
             for url in urls {
                 guard isCurrent(), !Task.isCancelled, contains(url, in: root), files.fileExists(at: url) else { return false }
                 guard !hasUnsavedEdits(url) else { reportUnsaved(); return false }
-                try await Task.detached(priority: .userInitiated) { try files.trashItem(at: url) }.value
+                try await UserActionContext.detached(priority: .userInitiated) { try files.trashItem(at: url) }.value
                 if isCurrent(), !hasUnsavedEdits(url) { closeCleanDocuments(url) }
             }
             return true

@@ -268,7 +268,7 @@ final class VcsProvidersFeatureModel: ObservableObject {
         let planner = planner
         let generation = generation
         detectionTask = Task { [weak self] in
-            let result = await Task.detached(priority: .userInitiated) {
+            let result = await UserActionContext.detached(priority: .userInitiated) {
                 Result {
                     try planner.detectRoots(
                         workspaceURL: workspaceURL, manifests: sources.map(\.manifest), mappings: mappings
@@ -685,7 +685,7 @@ final class VcsProvidersFeatureModel: ObservableObject {
         guard !sources.isEmpty else { return true }
         let mappings = mappingStore.mappings(workspaceURL: workspaceURL)
         let planner = planner, logSink = logSink, generation = generation
-        let detection = await Task.detached(priority: .userInitiated) { () -> VcsDetection? in
+        let detection = await UserActionContext.detached(priority: .userInitiated) { () -> VcsDetection? in
             do { return try planner.detectRoots(workspaceURL: workspaceURL, manifests: sources.map(\.manifest), mappings: mappings) }
                 catch {
                     logSink?.emit(VcsRootsFallbackSelected(error: error, stage: "detection"))
@@ -741,7 +741,7 @@ final class VcsProvidersFeatureModel: ObservableObject {
         guard paths.count == changes.count else { return false }
         let planner = planner, roots = allRootIDs, ambiguous = ambiguous.map(\.id), generation = generation
         do {
-            let owners = try await Task.detached(priority: .userInitiated) {
+            let owners = try await UserActionContext.detached(priority: .userInitiated) {
                 try planner.owners(roots: roots, ambiguous: ambiguous, paths: paths)
             }.value
             guard self.generation == generation, !Task.isCancelled,
@@ -846,7 +846,7 @@ final class VcsProvidersFeatureModel: ObservableObject {
         let rootIDs = allRootIDs
         let ambiguousIDs = ambiguous.map(\.id)
         let generation = generation
-        let owners = await Task.detached(priority: .userInitiated) { () -> [String?]? in
+        let owners = await UserActionContext.detached(priority: .userInitiated) { () -> [String?]? in
             do { return try planner.owners(roots: rootIDs, ambiguous: ambiguousIDs, paths: [sourcePath, destinationPath]) }
                 catch {
                     logSink?.emit(VcsRootsFallbackSelected(error: error, stage: "ownership"))
@@ -926,7 +926,7 @@ final class VcsProvidersFeatureModel: ObservableObject {
             roots[index].negotiation = reply.negotiation
         }
         let planner = planner
-        let value = try await Task.detached(priority: .userInitiated) {
+        let value = try await UserActionContext.detached(priority: .userInitiated) {
             try planner.decodeReply(
                 operation, capabilities: reply.negotiation.capabilities, reply: reply.value, as: Value.self
             )

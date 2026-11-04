@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import LitheModuleAPI
 import LitheSearchModule
 
 @MainActor
@@ -100,7 +101,7 @@ extension AppModel {
         let state = workbenchUIRegistry.state(forActionID: action.id, model: self)
         guard state.isVisible && state.isEnabled else { return }
         dismissSearchEverywhere()
-        action.perform()
+        UserActionTrace.run(action.id, surface: .palette, sink: services.logSink) { action.perform() }
     }
 
     func openSearchResult(_ result: FileSearchResult) {

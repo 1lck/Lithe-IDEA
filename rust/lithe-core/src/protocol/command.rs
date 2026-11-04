@@ -22,11 +22,27 @@ pub struct CoreRequest {
     /// Remote host selected by the native workspace registry; absent for local workspaces.
     #[serde(default)]
     pub(crate) remote_workspace: Option<crate::remote::workspace::Workspace>,
+    /// Host-reported provenance used only for diagnostics traces; never changes behavior.
+    #[serde(default)]
+    pub origin: Option<RequestOrigin>,
     /// Stable compatibility name resolved by [`CoreCommand::parse`].
     pub command: String,
     /// Command-specific JSON object; omitted payloads deserialize as JSON null.
     #[serde(default)]
     pub payload: Value,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+/// Why the host sent a request. Invalid tokens are dropped by the trace, not rejected,
+/// so a malformed diagnostics hint can never fail the operation it describes.
+pub struct RequestOrigin {
+    /// Whether a user action or an automatic refresh caused the request.
+    pub source: Option<crate::git::console::Source>,
+    /// Stable identifier of the UI action that caused the request.
+    pub trigger: Option<String>,
+    /// Correlation identifier shared by the action and every request it caused.
+    pub operation: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -611,6 +627,8 @@ pub enum CoreCommand {
     DiagnosticsEncodeLogBatch,
     /// Drains bounded process-owned Core log facts (`diagnostics.drainCoreEvents`).
     DiagnosticsDrainCoreEvents,
+    /// Selects which DEBUG Core facts the host will write (`diagnostics.configureCoreEvents`).
+    DiagnosticsConfigureCoreEvents,
     /// Merges structured and legacy log evidence (`diagnostics.queryLogsV2`).
     DiagnosticsQueryLogsV2,
     /// Parses filter terms and UTF-16 diagnostics (`diagnostics.parseLogFilter`).
@@ -926,6 +944,7 @@ impl CoreCommand {
             "diagnostics.prepareLogEvent" => Some(Self::DiagnosticsPrepareLogEvent),
             "diagnostics.queryLogs" => Some(Self::DiagnosticsQueryLogs),
             "diagnostics.drainCoreEvents" => Some(Self::DiagnosticsDrainCoreEvents),
+            "diagnostics.configureCoreEvents" => Some(Self::DiagnosticsConfigureCoreEvents),
             "diagnostics.encodeLogBatch" => Some(Self::DiagnosticsEncodeLogBatch),
             "diagnostics.parseLogFilter" => Some(Self::DiagnosticsParseLogFilter),
             "diagnostics.composeLogFilter" => Some(Self::DiagnosticsComposeLogFilter),

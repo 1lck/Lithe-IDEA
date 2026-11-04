@@ -120,7 +120,8 @@ struct OpenProjectPanel: View {
                 case .failed(let message):
                     Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(LitheTheme.warning)
                     Text(verbatim: message).multilineTextAlignment(.center).textSelection(.enabled)
-                    Button(LocalizedStringKey("Retry")) { feature.browseRemoteFolder() }
+                    Button(LocalizedStringKey("Retry"),
+                        action: UserActionTrace.action("workspace.remote.browse") { feature.browseRemoteFolder() })
                         .buttonStyle(LitheActionButtonStyle())
                 default:
                     ProgressView().controlSize(.small)
@@ -136,20 +137,20 @@ struct OpenProjectPanel: View {
 
     private var footer: some View {
         HStack(spacing: LitheTheme.ActionButton.spacing) {
-            Button(LocalizedStringKey("Remote Development")) {
+            Button(LocalizedStringKey("Remote Development"), action: UserActionTrace.action("workspace.remote.manage") {
                 // End this panel's connection before the management window opens.
                 feature.close()
                 dismiss()
-                DispatchQueue.main.async { model.showRemoteConnections() }
-            }
+                UserActionContext.mainAsync { model.showRemoteConnections() }
+            })
             .buttonStyle(LitheActionButtonStyle())
             Spacer()
             Button(LocalizedStringKey("Cancel")) { dismiss() }
                 .buttonStyle(LitheActionButtonStyle())
                 .keyboardShortcut(.cancelAction)
-            Button(LocalizedStringKey("Open")) {
+            Button(LocalizedStringKey("Open"), action: UserActionTrace.action("workspace.open") {
                 if feature.selection == nil { openLocalFolder() } else { feature.openBrowsedFolder() }
-            }
+            })
             .buttonStyle(LitheActionButtonStyle(isPrimary: true))
             .keyboardShortcut(.defaultAction)
             .disabled(feature.selection == nil ? localPath.isEmpty : (feature.browser?.isLoading ?? true))
@@ -186,6 +187,6 @@ struct OpenProjectPanel: View {
         let url = URL(fileURLWithPath: localPath, isDirectory: true)
         dismiss()
         // The sheet must be gone before the workspace replaces this window's content.
-        DispatchQueue.main.async { model.openProject(url) }
+        UserActionContext.mainAsync { model.openProject(url) }
     }
 }

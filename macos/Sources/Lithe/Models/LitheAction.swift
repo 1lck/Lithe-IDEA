@@ -121,7 +121,7 @@ enum LitheActionRegistry {
                         contributionID: contribution.id, isEnabled: state.isEnabled, isChecked: state.isChecked,
                         localizesTitle: definition != nil, perform: { [weak model] in
                 guard let model else { return }
-                model.workbenchUIRegistry.perform(contribution, model: model)
+                model.workbenchUIRegistry.perform(contribution, model: model, surface: nil)
             })
         }
     }
@@ -130,7 +130,7 @@ enum LitheActionRegistry {
         action(id, model: model) {
             guard let window = LitheCommandCatalog.toolWindow(for: id),
                   let contribution = model.workbenchContributions.first(where: { $0.kind == .toolWindow && $0.id == window.rawValue }) else { return }
-            model.workbenchUIRegistry.perform(contribution, model: model)
+            model.workbenchUIRegistry.perform(contribution, model: model, surface: nil)
         }
     }
 

@@ -468,8 +468,8 @@ extension MacLogStoreTests {
         try writer.redirect(to: root)
         writer.emit(EditorDocumentOpenFailed(error: NSError(domain: "fixture", code: 42,
             userInfo: [NSLocalizedDescriptionKey: "password=fixture-secret\n" + String(repeating: "界", count: 600)]), reason: "unavailable"))
-        var span = VcsGitRequestSpan.begin(command: "fetch", provider: LogSegment("git")!, emit: writer.emit)
-        span.fail(LogFailure(domain: "git.core", code: "cancelled"), failureCode: "cancelled")
+        var span = RunProcessExecutionSpan.begin(executable: URL(fileURLWithPath: "/usr/bin/true"), emit: writer.emit)
+        span.fail(LogFailure(domain: "run.core", code: "cancelled"))
         let snapshot = try await writer.collect(query: .init())
         #expect(snapshot.writeFailures == 0)
         #expect(snapshot.content.contains("error_code=42"))

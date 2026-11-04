@@ -1,4 +1,5 @@
 import AppKit
+import LitheModuleAPI
 import SwiftUI
 import LitheTerminalModule
 
@@ -52,9 +53,9 @@ struct TerminalView: View {
                             // IslandsTabPainter paints 4pt inside each tab's layout bounds.
                             .padding(.horizontal, 4)
                     }
-                    Button {
+                    Button(action: UserActionTrace.action("terminal.new") {
                         _ = model.createTerminalSession()
-                    } label: {
+                    }) {
                         LitheIDEAIcon(resourcePath: "expui/general/add.svg", size: 16,
                                       fallbackSystemImage: "plus", preservesOriginalColors: true)
                     }

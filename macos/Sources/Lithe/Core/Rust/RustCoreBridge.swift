@@ -35,6 +35,28 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let payload: Payload
         var gitExecution: GitExecutionOptions? = nil
         var remoteWorkspace: RemoteWorkspace? = nil
+        var origin: RequestOrigin? = nil
+    }
+
+    /// Who started a request. Core logs user requests at INFO under the action's
+    /// operation and keeps background or unattributed requests at DEBUG.
+    struct RequestOrigin: Encodable, Equatable {
+        var source: String?
+        var trigger: String?
+        var operation: String?
+
+        /// Long-lived descendants of an old action keep its correlation but no
+        /// longer claim to be user work; a background Git poller always wins.
+        static func resolve(action: UserAction?, gitSource: GitExecutionSource,
+            now: ContinuousClock.Instant = .now) -> RequestOrigin? {
+            if gitSource == .background { return RequestOrigin(source: GitExecutionSource.background.rawValue) }
+            if let action {
+                let fresh = action.startedAt.duration(to: now) < .seconds(60)
+                return RequestOrigin(source: fresh ? GitExecutionSource.user.rawValue : nil,
+                    trigger: action.id, operation: action.operationID)
+            }
+            return gitSource == .unknown ? nil : RequestOrigin(source: gitSource.rawValue)
+        }
     }
 
     private struct Envelope<Data: Decodable>: Decodable {
@@ -4629,6 +4651,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         var gitOptions = gitPreferences?.snapshot ?? GitExecutionOptions()
         gitOptions.interactive = execution != nil
         gitOptions.source = execution?.source ?? GitExecutionSource.current
+        let origin = RequestOrigin.resolve(action: execution?.action ?? UserActionContext.current, gitSource: gitOptions.source)
         let remoteWorkspace: RemoteWorkspace?
         switch Result(catching: { try self.remoteWorkspace(for: command, payload: payload) }) {
         case .success(let value): remoteWorkspace = value
@@ -4643,7 +4666,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 command: command,
                 payload: payload,
                 gitExecution: (observesGit || command == "workspace.searchEverywhere") ? gitOptions : nil,
-                remoteWorkspace: remoteWorkspace
+                remoteWorkspace: remoteWorkspace,
+                origin: origin
             )
         ),
         let request = String(data: requestData, encoding: .utf8),

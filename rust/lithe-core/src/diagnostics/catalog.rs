@@ -206,22 +206,23 @@ mod tests {
     fn catalog_lookup_and_span_contract() {
         assert!(EVENTS.windows(2).all(|pair| pair[0].id < pair[1].id));
         assert!(event_by_id("not.an.event").is_none());
-        let event = event_by_id("vcs.git.command.failed").unwrap();
-        assert_eq!(event.channel, "vcs/{provider}");
+        let event = event_by_id("lsp.build.execution.failed").unwrap();
+        assert_eq!(event.channel, "lsp/{server}");
         assert_eq!(event.span, Some(SpanPhase::Failed));
         let fields = BTreeMap::from([
-            ("provider".into(), json!("git")),
-            ("command".into(), json!("fetch")),
+            ("server".into(), json!("java")),
+            ("waiters".into(), json!(2)),
+            ("outcome".into(), json!("builder_failed")),
             ("duration_ms".into(), json!(311)),
-            ("error".into(), json!("fetch failed")),
+            ("error".into(), json!("build failed")),
             ("error_code".into(), json!(128)),
-            ("error_domain".into(), json!("git")),
+            ("error_domain".into(), json!("core")),
         ]);
         assert_eq!(validate_fields(event.id, &fields), Ok(()));
         for (key, value) in [
             ("duration_ms", json!(-1)),
-            ("provider", json!("../bad")),
-            ("command", json!("fetch --token secret")),
+            ("server", json!("../bad")),
+            ("outcome", json!("fetch --token secret")),
         ] {
             let mut invalid = fields.clone();
             invalid.insert(key.into(), value);

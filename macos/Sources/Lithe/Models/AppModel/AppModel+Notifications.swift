@@ -29,7 +29,8 @@ extension AppModel {
     func showNotificationLog(_ id: UUID) { notificationFeature.showLog(id) }
 
     func performNotificationAction(_ id: UUID) {
-        notificationFeature.perform(id)
+        guard let action = notificationFeature.notifications.first(where: { $0.id == id })?.action else { return }
+        UserActionTrace.run(action.id, surface: .notification, sink: services.logSink) { notificationFeature.perform(id) }
     }
 
     func setNotificationHovered(_ id: UUID, isHovered: Bool) {

@@ -440,7 +440,7 @@ final class DocumentFeatureModel: ObservableObject {
                     result = .failure(StandaloneFileOpenFailure(error: error))
                 }
             } else {
-                result = await Task.detached(priority: .userInitiated) {
+                result = await UserActionContext.detached(priority: .userInitiated) {
                     Self.readStandaloneFile(at: normalizedURL, using: fileStorage, logSink: self.logSink)
                         .map { DocumentReadDetails(text: $0, encoding: .utf8) }
                 }.value
@@ -605,7 +605,7 @@ final class DocumentFeatureModel: ObservableObject {
         var openFailure: StandaloneFileOpenFailure?
         if relativePath == nil, !fileOperations.supportsDocumentEncoding {
             let fileStorage = self.fileStorage
-            let result = await Task.detached(priority: .userInitiated) {
+            let result = await UserActionContext.detached(priority: .userInitiated) {
                 Self.readStandaloneFile(at: normalizedURL, using: fileStorage, logSink: self.logSink)
             }.value
             switch result {
@@ -645,7 +645,7 @@ final class DocumentFeatureModel: ObservableObject {
             // suffix alone must not hide an actual encoding error.
             let fileStorage = self.fileStorage
             let logSink = self.logSink
-            let header = await Task.detached(priority: .userInitiated) { () -> Data? in
+            let header = await UserActionContext.detached(priority: .userInitiated) { () -> Data? in
                 do {
                     return try fileStorage.readPrefix(from: normalizedURL, byteCount: BinaryFileViewerRegistry.headerByteCount)
                 } catch {

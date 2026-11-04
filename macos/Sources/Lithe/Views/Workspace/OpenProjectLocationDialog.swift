@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import SwiftUI
 
 struct OpenProjectLocationDialog: View {
@@ -29,14 +30,14 @@ struct OpenProjectLocationDialog: View {
                     .buttonStyle(LitheActionButtonStyle())
                     .keyboardShortcut(.cancelAction)
 
-                Button("New Window") {
+                Button("New Window", action: UserActionTrace.action("workspace.open.new-window") {
                     onResolve(.newWindow, doNotAskAgain)
-                }
+                })
                 .buttonStyle(LitheActionButtonStyle())
 
-                Button("This Window") {
+                Button("This Window", action: UserActionTrace.action("workspace.open.this-window") {
                     onResolve(.thisWindow, doNotAskAgain)
-                }
+                })
                 .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                 .keyboardShortcut(.defaultAction)
             }
