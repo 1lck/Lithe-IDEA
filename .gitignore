@@ -2,6 +2,8 @@
 .build/
 rust/target/
 rust/*/target/
+# Cargo state left in older checkouts by the shortcut import plugin, which moved
+# to Lithe-IDEA/lithe-plugin-keymap-import; the directory can be deleted locally.
 Plugins/mac/Official/EditorKeymapImport/target/
 /.worktrees/
 .swiftpm/

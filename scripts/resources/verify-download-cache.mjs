@@ -79,7 +79,6 @@ function parseArguments(argv) {
     options.cargoLocks.push(
       path.join(REPOSITORY_ROOT, "rust", "Cargo.lock"),
       path.join(REPOSITORY_ROOT, "windows", "tauri", "src-tauri", "Cargo.lock"),
-      path.join(REPOSITORY_ROOT, "Plugins", "mac", "Official", "EditorKeymapImport", "Cargo.lock"),
     );
   }
   return options;
