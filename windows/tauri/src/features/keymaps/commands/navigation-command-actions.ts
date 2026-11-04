@@ -750,23 +750,8 @@ export async function goToReferences(): Promise<void> {
     return;
   }
 
-  const otherReferences = references.filter((reference) => {
-    const filePath = filePathFromUri(reference.uri);
-    return !isCurrentNavigationTarget(
-      activeBuffer.path,
-      cursorPosition.line,
-      filePath,
-      reference.range.start.line,
-    );
-  });
-
-  if (otherReferences.length === 0) {
-    toast.info(getCurrentTranslator()("navigation.noOtherReferencesFound"));
-    return;
-  }
-
-  if (otherReferences.length === 1) {
-    const target = otherReferences[0];
+  if (references.length === 1) {
+    const target = references[0];
     await goToActiveLspLocation("reference", async () => [target], {
       requireLanguageServer: false,
     });
@@ -780,7 +765,7 @@ export async function goToReferences(): Promise<void> {
   const lineContextCache = new Map<string, Map<number, string>>();
   const referenceLinesByFile = new Map<string, Set<number>>();
 
-  for (const ref of otherReferences) {
+  for (const ref of references) {
     const filePath = filePathFromUri(ref.uri);
     const lineNumbers = referenceLinesByFile.get(filePath) ?? new Set<number>();
     lineNumbers.add(ref.range.start.line);
@@ -810,7 +795,7 @@ export async function goToReferences(): Promise<void> {
     lineContextCache.set(filePath, lines);
   }
 
-  const converted = otherReferences.map((ref) => {
+  const converted = references.map((ref) => {
     const filePath = filePathFromUri(ref.uri);
     const fileLines = lineContextCache.get(filePath);
     return {

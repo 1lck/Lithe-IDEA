@@ -15607,7 +15607,8 @@
       "id": "git.log.branchNameAlreadyExists",
       "description": "Windows UI: git.log.branchNameAlreadyExists",
       "platforms": [
-        "windows"
+        "windows",
+        "macos"
       ],
       "parameters": {
         "name": "string"
@@ -15617,18 +15618,20 @@
       "id": "git.log.branchNameClashesWithBranchPrefix",
       "description": "Windows UI: git.log.branchNameClashesWithBranchPrefix",
       "platforms": [
-        "windows"
+        "windows",
+        "macos"
       ],
       "parameters": {
-        "branch": "string",
-        "name": "string"
+        "name": "string",
+        "branch": "string"
       }
     },
     {
       "id": "git.log.branchNameClashesWithDirectory",
       "description": "Windows UI: git.log.branchNameClashesWithDirectory",
       "platforms": [
-        "windows"
+        "windows",
+        "macos"
       ],
       "parameters": {
         "name": "string"
@@ -15638,7 +15641,8 @@
       "id": "git.log.branchNameClashesWithRemote",
       "description": "Windows UI: git.log.branchNameClashesWithRemote",
       "platforms": [
-        "windows"
+        "windows",
+        "macos"
       ],
       "parameters": {
         "name": "string"
@@ -15648,14 +15652,16 @@
       "id": "git.log.branchNameEmpty",
       "description": "Windows UI: git.log.branchNameEmpty",
       "platforms": [
-        "windows"
+        "windows",
+        "macos"
       ]
     },
     {
       "id": "git.log.branchNameHead",
       "description": "Windows UI: git.log.branchNameHead",
       "platforms": [
-        "windows"
+        "windows",
+        "macos"
       ]
     },
     {
@@ -64628,13 +64634,6 @@
       ]
     },
     {
-      "id": "navigation.noOtherReferencesFound",
-      "description": "Windows UI: navigation.noOtherReferencesFound",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
       "id": "navigation.noReferencesFound",
       "description": "Windows UI: navigation.noReferencesFound",
       "platforms": [
@@ -97662,6 +97661,201 @@
       ],
       "macos": {
         "key": "No matching language server logs",
+        "arguments": []
+      }
+    },
+    {
+      "id": "github.prCheckoutChecking",
+      "description": "GitHub pull request checkout",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Checking pull request checkout…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "github.prCheckoutConflict",
+      "description": "GitHub pull request checkout",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The pull request branch already exists. Rename or remove it before retrying.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "github.prCheckoutChanged",
+      "description": "GitHub pull request checkout",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The checkout or origin remote changed. Review the pull request checkout again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "github.prCheckoutConfirmTitle",
+      "description": "GitHub pull request checkout",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Check out pull request?",
+        "arguments": []
+      }
+    },
+    {
+      "id": "github.prCheckoutConfirmDescription",
+      "description": "GitHub pull request checkout",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Fetch the pull request and create a local branch. Existing branches will not be reset.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "github.prCheckoutBranchLabel",
+      "description": "GitHub pull request checkout",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Local branch: ",
+        "arguments": []
+      }
+    },
+    {
+      "id": "github.prCheckoutInspectFailed",
+      "description": "GitHub pull request checkout",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not check the pull request checkout. Check the repository and try again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "git.fetch.behavior.reachable",
+      "description": "Effective Git Fetch tag behavior",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "git.fetch.behavior.remoteDependent",
+      "description": "Effective Git Fetch tag behavior",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "git.fetch.behavior.custom",
+      "description": "Effective Git Fetch tag behavior",
+      "platforms": [
+        "windows",
+        "macos"
+      ],
+      "macos": {
+        "key": "Uses a custom tag refspec",
+        "arguments": []
+      }
+    },
+    {
+      "id": "git.fetch.behavior.noRemotes",
+      "description": "Effective Git Fetch tag behavior",
+      "platforms": [
+        "windows",
+        "macos"
+      ],
+      "macos": {
+        "key": "No remote is available for Fetch",
+        "arguments": []
+      }
+    },
+    {
+      "id": "git.fetch.behavior.unavailable",
+      "description": "Effective Git Fetch tag behavior",
+      "platforms": [
+        "windows",
+        "macos"
+      ],
+      "macos": {
+        "key": "Cannot determine; check Git configuration",
+        "arguments": []
+      }
+    },
+    {
+      "id": "git.fetch.behavior.source.local",
+      "description": "Effective Git Fetch tag behavior",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "git.fetch.behavior.source.global",
+      "description": "Effective Git Fetch tag behavior",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "git.fetch.behavior.source.system",
+      "description": "Effective Git Fetch tag behavior",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "git.fetch.behavior.source.worktree",
+      "description": "Effective Git Fetch tag behavior",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "git.fetch.behavior.source.command",
+      "description": "Effective Git Fetch tag behavior",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "git.fetch.behavior.source.unknown",
+      "description": "Effective Git Fetch tag behavior",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "git.fetch.behavior.source.git",
+      "description": "Effective Git Fetch tag behavior",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "git.fetch.behavior.source.lithe",
+      "description": "Effective Git Fetch tag behavior",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "git.fetch.behavior.source.multiple",
+      "description": "Effective Git Fetch behavior comes from more than one source",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Multiple sources",
         "arguments": []
       }
     }

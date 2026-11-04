@@ -26,8 +26,12 @@ The preferred flow is GitHub OAuth Device Flow:
    public OAuth client ID and the `repo read:user` scope needed by the supported
    pull-request mutations.
 2. The UI displays `userCode` and opens `verificationURI`.
-3. `deviceToken` is polled at the returned `interval`. `slowDown` increases the
+3. `github.deviceAuthorizationTransition` decides when to poll based on elapsed
+   monotonic time and the normalized response. `slowDown` increases the
    interval by five seconds; `pending`, `expired`, and `denied` are explicit.
+   Waits stop at the local deadline, and the platform checks the deadline again
+   after waking before making another network request. An authorization already
+   accepted by the server remains authoritative if the response arrives late.
 4. The platform stores an authorized token in Keychain or Credential Manager.
 5. `currentUser` validates the token before connected state is published.
 
@@ -50,6 +54,35 @@ GitHub sign-in unavailable rather than asking the user for a personal token.
   JSON `body`, and `requiresAuthentication`.
 - `github.normalizeResponse` accepts `operation`, HTTP `status`, and raw UTF-8
   JSON `body`. It returns a normalized value or the standard Core error.
+- `github.deviceAuthorizationTransition` accepts `event`, `expiresIn`,
+  `interval`, `elapsedMilliseconds`, and optional `suggestedInterval`. It
+  returns `action`, `intervalSeconds`, and `waitMilliseconds`; it accepts no
+  device code, access token, or other credential. Events and responses are
+  specified by `shared/fixtures/github/device-authorization-transition-v1.json`.
+  Expiration is bounded to one day and intervals are bounded to that maximum
+  lifetime. The maximum cannot cause early polling: by the time it elapses,
+  the authorization has expired. This preserves the mandatory cumulative
+  `slow_down` delay even after the previous 60-second limit. See
+  [RFC 8628 §3.5](https://datatracker.ietf.org/doc/html/rfc8628#section-3.5)
+  and [GitHub's device-flow documentation](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps#device-flow).
+- `github.pullRequestCheckoutPlan` accepts a pull-request `number`, `headRef`,
+  and a `branchExists` fact. It returns the proposed branch, an explicit
+  conflict, and ordered actions; see `shared/fixtures/github/pr-checkout-plan-v1.json`.
+- `git.pullRequestCheckoutPreview` inspects the repository and returns that
+  plan with its current HEAD, symbolic branch, and a process-salted fingerprint
+  of the effective origin URL; the URL and its possible credentials are not
+  returned. A caller displaying a GitHub repository also provides
+  `expectedRepository` so Core verifies that the configured origin still names
+  that repository. A conflicting local ref returns `git_branch_exists` before
+  prompting. The client presents the
+  actions and branch to the user. `git.pullRequestCheckout` rechecks the
+  reviewed HEAD, branch, repository and origin fingerprint, plus target-ref conflicts, under the Git write
+  lease. It fetches from origin, rechecks after network I/O, and creates the
+  local branch without resetting an existing ref. A conflict or changed checkout
+  requires a new review, reported as `git_branch_exists` or
+  `git_checkout_changed` respectively. Errors after a subprocess may be carried
+  in the Git result's `operationError` rather than the outer envelope. External
+  Git can still operate outside Lithe's lease.
 
 Supported operations are `deviceCode`, `deviceToken`, `currentUser`,
 `listBranches`, `compareBranches`, `listPullRequests`, `getPullRequest`, `createPullRequest`, `updatePullRequest`,

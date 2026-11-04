@@ -28,9 +28,9 @@ extension AppModel {
         await githubFeature.disconnect()
     }
 
-    func checkoutSelectedPullRequest() async {
+    func checkoutSelectedPullRequest(_ intent: GitHubCheckoutIntent) async {
         guard LitheFeatureAvailability.githubPullRequests else { return }
-        if await githubFeature.checkout(workspaceURL: workspaceURL) {
+        if await githubFeature.checkout(intent, workspaceURL: workspaceURL) {
             await refreshGit()
             showNotification("Pull request branch checked out")
         }

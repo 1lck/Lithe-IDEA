@@ -1,4 +1,4 @@
-import { buildSearchRegex } from "@/features/editor/utils/search";
+import { executeCore } from "@/core/lithe-core-client";
 import { readFileContent } from "@/features/file-system/controllers/file-operations";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import type { FileEntry } from "@/features/file-system/types/app.types";
@@ -8,11 +8,12 @@ import type {
 } from "@/features/file-search/lib/file-search-api";
 import { shouldIgnoreInCommandPalette } from "../constants/ignored-patterns";
 import type { ContentSearchOptions } from "../types/global-search.types";
-import { buildFileSearchResult } from "../utils/content-search-results";
 import { createPathFilterPredicate } from "../utils/path-filters";
 
 const FILE_BATCH_LIMIT = 250;
 const READ_CONCURRENCY = 8;
+// Match the native Core content-search limit before transferring snapshots.
+const MAX_SEARCH_FILE_BYTES = 2 * 1024 * 1024;
 
 function flattenProviderSearchFiles(entries: FileEntry[]): FileEntry[] {
   const files: FileEntry[] = [];
@@ -64,22 +65,6 @@ export async function searchProviderFilesContent({
   excludeQuery: string;
   isCancelled: () => boolean;
 }): Promise<SearchFilesResponse | null> {
-  const searchRegex = buildSearchRegex(query, options);
-  if (!searchRegex) {
-    return {
-      results: [],
-      total_files: files.length,
-      searched_files: 0,
-      searchable_files: 0,
-      files_with_matches: 0,
-      next_file_offset: 0,
-      has_more: false,
-      is_indexing: false,
-      indexed_files: files.length,
-      regex_fallback_error: "Invalid regular expression",
-    };
-  }
-
   const matchesPathFilters = createPathFilterPredicate(rootFolderPath, includeQuery, excludeQuery);
   const searchableFiles = files.filter((file) => matchesPathFilters(file.path));
   const results: FileSearchResult[] = [];
@@ -112,6 +97,40 @@ export async function searchProviderFilesContent({
 
     if (isCancelled()) return null;
 
+    const searched = await executeCore<{
+      files: Array<{
+        path: string;
+        matches: Array<{
+          line: number;
+          lineText: string;
+          ranges: Array<{ start: number; length: number }>;
+          contextBefore: string[];
+          contextAfter: string[];
+        }>;
+      }>;
+    }>({
+      id: crypto.randomUUID(),
+      command: "workspace.searchTextBatch",
+      payload: {
+        query,
+        caseSensitive: options.caseSensitive,
+        wholeWords: options.wholeWord,
+        regularExpression: options.useRegex,
+        contextLines,
+        files: batch.flatMap((file, index) => {
+          const text = contents[index];
+          return file &&
+            text !== null &&
+            new TextEncoder().encode(text).byteLength <= MAX_SEARCH_FILE_BYTES
+            ? [{ path: file.path, text }]
+            : [];
+        }),
+      },
+    });
+    if (!searched.ok) throw new Error(searched.error.message);
+    if (isCancelled()) return null;
+    const byPath = new Map(searched.data.files.map((file) => [file.path, file]));
+
     for (let index = 0; index < batch.length; index++) {
       const file = batch[index];
       const content = contents[index];
@@ -119,10 +138,25 @@ export async function searchProviderFilesContent({
       nextFileOffset = batchStart + index + 1;
 
       if (file && content !== null) {
-        const result = buildFileSearchResult(file.path, content, searchRegex, contextLines);
-        if (result) {
-          results.push(result);
-          matchCount += result.total_matches;
+        const found = byPath.get(file.path);
+        if (found) {
+          const matches = found.matches.map((match) => {
+            const ranges = match.ranges.map((range) => ({
+              start: range.start,
+              end: range.start + range.length,
+            }));
+            return {
+              line_number: match.line,
+              line_content: match.lineText,
+              column_start: ranges[0]?.start ?? 0,
+              column_end: ranges[0]?.end ?? 0,
+              match_ranges: ranges,
+              context_before: match.contextBefore,
+              context_after: match.contextAfter,
+            };
+          });
+          results.push({ file_path: file.path, matches, total_matches: matches.length });
+          matchCount += matches.length;
         }
       }
 

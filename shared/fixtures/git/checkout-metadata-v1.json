@@ -1,0 +1,11 @@
+{
+  "cases": [
+    { "command": "git.parseCheckoutMetadata", "text": "ref: refs/heads/feature/search\n", "expected": { "branch": "feature/search" } },
+    { "command": "git.parseCheckoutMetadata", "text": "0123456789abcdef0123456789abcdef01234567\n", "expected": { "branch": "01234567" } },
+    { "command": "git.parseCheckoutMetadata", "text": "ref: refs/tags/v1\n", "expected": { "branch": null } },
+    { "command": "git.parseCheckoutMetadata", "text": "\n", "expected": { "branch": null } },
+    { "command": "git.parseGitdirPointer", "text": "gitdir: ../repository/.git/worktrees/checkout\n", "expected": { "path": "../repository/.git/worktrees/checkout" } },
+    { "command": "git.parseGitdirPointer", "text": "gitdir:  \n", "expected": { "path": null } }
+  ],
+  "expected": "Each case returns its expected object without accessing the filesystem."
+}

@@ -16,6 +16,26 @@ import { projectScopedPath } from "../utils/run-configuration";
 
 let requestSequence = 0;
 
+export interface ContextSelectionRequest {
+  sourcePath: string;
+  symbol: string;
+  preferredId: string | null;
+  caseInsensitivePaths: boolean;
+  candidates: Array<{
+    id: string;
+    sourcePath?: string;
+    symbol?: string;
+    generated: boolean;
+    disabled: boolean;
+  }>;
+}
+
+/** Selects an effective configuration using the provider's entry identity. */
+export async function selectContextConfiguration(request: ContextSelectionRequest) {
+  const result = await runCore<{ configurationId: string | null }>("runConfig.selectContextConfiguration", request);
+  return result.configurationId;
+}
+
 function nextRequestId(prefix: string): string {
   requestSequence += 1;
   return `${prefix}-${Date.now()}-${requestSequence}`;
@@ -106,6 +126,11 @@ export function resolveRunConfiguration(
   toolchainCandidates: Array<{ id: string; type: string; version: string; vendor: string }>,
 ) {
   return runCore<CoreResolveResult>("runConfig.resolve", { root, toolchainCandidates });
+}
+
+/** Formats exact argument vectors once for run configuration editors. */
+export function formatArgumentTexts(argumentLists: string[][]) {
+  return runCore<string[]>("runConfig.argumentText", { argumentLists });
 }
 
 export function createLaunchPlan(

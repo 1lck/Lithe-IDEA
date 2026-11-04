@@ -6,6 +6,7 @@ import { installHappyDom } from "@/test-utils/happy-dom";
 import * as historyApi from "../api/git-commits-api";
 import type {
   GitCommit,
+  GitHistoryLocateResult,
   GitHistoryPage,
   GitReference,
   GitReferenceSnapshot,
@@ -55,9 +56,23 @@ const defaultHistoryPage = async (
   hasMore: false,
 });
 const getGitHistoryPage = mock(defaultHistoryPage);
+const locateGitCommit = mock(
+  async (
+    ..._args: Parameters<typeof historyApi.locateGitCommit>
+  ): Promise<GitHistoryLocateResult | null> => null,
+);
 const cancelGitHistoryOperation = mock(async (_operationId: string) => {});
 const closeGitHistoryCursor = mock(async (_repoPath: string, _cursor: string) => {});
 const visiblePageCalls = () => getGitHistoryPage.mock.calls.filter((call) => call[2] !== 5_000);
+const historyCommit = (hash: string, message: string): GitCommit => ({
+  hash,
+  shortHash: hash.slice(0, 7),
+  parentHashes: [],
+  message,
+  author: "Lithe Test",
+  date: "2026/09/08 10:00",
+  decorations: "",
+});
 
 beforeEach(() => {
   getGitHistoryPage.mockReset();
@@ -69,6 +84,8 @@ beforeEach(() => {
   }));
   cancelGitHistoryOperation.mockClear();
   closeGitHistoryCursor.mockClear();
+  locateGitCommit.mockReset();
+  locateGitCommit.mockImplementation(async () => null);
   restoreDom = installHappyDom();
   originalCustomEvent = globalThis.CustomEvent;
   originalActEnvironment = actGlobal.IS_REACT_ACT_ENVIRONMENT;
@@ -83,6 +100,7 @@ beforeEach(() => {
     spyOn(historyApi, "closeGitHistoryCursor").mockImplementation(closeGitHistoryCursor),
     spyOn(historyApi, "getGitHistoryPage").mockImplementation(getGitHistoryPage),
     spyOn(historyApi, "getGitReferences").mockImplementation(getGitReferences),
+    spyOn(historyApi, "locateGitCommit").mockImplementation(locateGitCommit),
   );
 });
 
@@ -259,6 +277,184 @@ describe("Git Log controller repository lifecycle", () => {
         exhausted = await harness.read().loadMore();
       });
       expect(exhausted).toBe(false);
+    } finally {
+      await act(async () => {
+        harness.root.unmount();
+      });
+    }
+  });
+
+  test("locating a commit appends the pages read while searching and returns the hit", async () => {
+    const tip = commitFor("C:/repo-a");
+    const older = historyCommit("older", "older page");
+    const target = historyCommit("target", "located commit");
+    getGitHistoryPage.mockImplementation((...args) =>
+      args[2] === 5_000
+        ? Promise.resolve({ commits: [], hasMore: false })
+        : Promise.resolve({
+            commits: [tip],
+            hasMore: true,
+            nextCursor: "cursor-1",
+          }),
+    );
+    locateGitCommit.mockImplementation(async () => ({
+      found: true,
+      commits: [older, target],
+      nextCursor: "cursor-2",
+      hasMore: true,
+      pagesLoaded: 2,
+    }));
+    const harness = mountController();
+    try {
+      await harness.render("C:/repo-a");
+      const located: { value: GitCommit | null } = { value: null };
+      await act(async () => {
+        located.value = await harness.read().locateCommit(target.hash);
+      });
+      expect(located.value).toEqual(target);
+      expect(locateGitCommit.mock.calls).toEqual([
+        ["C:/repo-a", target.hash, "cursor-1", 50, expect.stringContaining("locate"), undefined],
+      ]);
+      expect(harness.read().history.commits.map((commit) => commit.hash)).toEqual([
+        tip.hash,
+        older.hash,
+        target.hash,
+      ]);
+      // The locate consumed the old cursor and published the new one; nothing leaked.
+      expect(closeGitHistoryCursor).not.toHaveBeenCalled();
+      // Normal pagination continues from where the bounded walk stopped.
+      getGitHistoryPage.mockClear();
+      await act(async () => {
+        await harness.read().loadMore();
+      });
+      expect(visiblePageCalls()[0]?.[1]).toBe("cursor-2");
+    } finally {
+      await act(async () => {
+        harness.root.unmount();
+      });
+    }
+  });
+
+  test("a locate that runs out of budget stops without inventing a hit", async () => {
+    const tip = commitFor("C:/repo-a");
+    getGitHistoryPage.mockImplementation((...args) =>
+      args[2] === 5_000
+        ? Promise.resolve({ commits: [], hasMore: false })
+        : Promise.resolve({ commits: [tip], hasMore: true, nextCursor: "cursor-1" }),
+    );
+    locateGitCommit.mockImplementation(async () => ({
+      found: false,
+      commits: [historyCommit("older", "older page")],
+      nextCursor: "cursor-20",
+      hasMore: true,
+      pagesLoaded: 20,
+    }));
+    const harness = mountController();
+    try {
+      await harness.render("C:/repo-a");
+      const located: { value: GitCommit | null } = { value: null };
+      await act(async () => {
+        located.value = await harness.read().locateCommit("missing");
+      });
+      expect(located.value).toBeNull();
+      expect(harness.read().history.commits.map((commit) => commit.hash)).toEqual([
+        tip.hash,
+        "older",
+      ]);
+      getGitHistoryPage.mockClear();
+      await act(async () => {
+        await harness.read().loadMore();
+      });
+      expect(visiblePageCalls()[0]?.[1]).toBe("cursor-20");
+    } finally {
+      await act(async () => {
+        harness.root.unmount();
+      });
+    }
+  });
+
+  test("a failed locate reports the read error instead of no hit", async () => {
+    getGitHistoryPage.mockImplementation((...args) =>
+      args[2] === 5_000
+        ? Promise.resolve({ commits: [], hasMore: false })
+        : Promise.resolve({
+            commits: [commitFor("C:/repo-a")],
+            hasMore: true,
+            nextCursor: "cursor-1",
+          }),
+    );
+    locateGitCommit.mockImplementation(async () => {
+      throw new Error("fatal: bad revision");
+    });
+    const harness = mountController();
+    try {
+      await harness.render("C:/repo-a");
+      const located: { value: GitCommit | null } = { value: null };
+      await act(async () => {
+        located.value = await harness.read().locateCommit("missing");
+      });
+      expect(located.value).toBeNull();
+      expect(harness.read().loadState).toBe("failed");
+      expect(harness.read().error).toBe("fatal: bad revision");
+    } finally {
+      await act(async () => {
+        harness.root.unmount();
+      });
+    }
+  });
+
+  test("locating in an exhausted window does not read history", async () => {
+    const harness = mountController();
+    try {
+      await harness.render("C:/repo-a");
+      const located: { value: GitCommit | null } = { value: null };
+      await act(async () => {
+        located.value = await harness.read().locateCommit("missing");
+      });
+      expect(located.value).toBeNull();
+      expect(locateGitCommit).not.toHaveBeenCalled();
+    } finally {
+      await act(async () => {
+        harness.root.unmount();
+      });
+    }
+  });
+
+  test("a locate that finishes after a repository switch releases its cursor", async () => {
+    getGitHistoryPage.mockImplementation((...args) => {
+      if (args[2] === 5_000) return Promise.resolve({ commits: [], hasMore: false });
+      return Promise.resolve(
+        args[0] === "C:/repo-a"
+          ? { commits: [commitFor("C:/repo-a")], hasMore: true, nextCursor: "cursor-a" }
+          : { commits: [commitFor("C:/repo-b")], hasMore: false },
+      );
+    });
+    let release: ((result: GitHistoryLocateResult) => void) | null = null;
+    locateGitCommit.mockImplementation(
+      () => new Promise<GitHistoryLocateResult>((resolve) => (release = resolve)),
+    );
+    const harness = mountController();
+    try {
+      await harness.render("C:/repo-a");
+      let pending: Promise<GitCommit | null> | null = null;
+      await act(async () => {
+        pending = harness.read().locateCommit("missing");
+      });
+      await harness.render("C:/repo-b");
+      await act(async () => {
+        release!({
+          found: true,
+          commits: [],
+          nextCursor: "late-cursor",
+          hasMore: false,
+          pagesLoaded: 1,
+        });
+        expect(await pending).toBeNull();
+      });
+      // The visible window belongs to the new repository; only the late cursor
+      // from the abandoned walk is released.
+      expect(closeGitHistoryCursor).toHaveBeenCalledWith("C:/repo-a", "late-cursor");
+      expect(harness.read().history.commits[0]?.message).toBe("C:/repo-b");
     } finally {
       await act(async () => {
         harness.root.unmount();

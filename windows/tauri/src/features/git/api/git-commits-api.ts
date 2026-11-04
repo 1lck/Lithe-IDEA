@@ -3,6 +3,7 @@ import { invoke as tauriInvoke } from "@/platform/tauri-core";
 import type {
   GitCommit,
   GitCommitFile,
+  GitHistoryLocateResult,
   GitHistoryPage,
   GitHistorySnapshot,
   GitOperationWarning,
@@ -214,6 +215,41 @@ export const getGitHistoryPage = async (
     }
     return null;
   }
+};
+
+/**
+ * Locates one commit in the paginated history with Core's bounded
+ * `git.historyLocate` walk. The request starts at the platform's next-page
+ * cursor and repeats the log's date-ordered traversal. Failures are thrown, not
+ * reported as "not found", so the caller can surface a read error.
+ */
+export const locateGitCommit = async (
+  repoPath: string,
+  target: string,
+  cursor: string | undefined,
+  limit: number,
+  operationId: string,
+  reference?: string,
+): Promise<GitHistoryLocateResult | null> => {
+  const resolvedRepoPath = await resolveRepositoryPath(repoPath);
+  if (!resolvedRepoPath) return null;
+  return await runGitRead(
+    resolvedRepoPath,
+    `locate:${reference ?? "all"}:${cursor ?? "first"}:${target}:${operationId}`,
+    () =>
+      tauriInvoke<GitHistoryLocateResult>("git.historyLocate", {
+        root: resolvedRepoPath,
+        target,
+        limit,
+        // A cursor is bound to its traversal order; the log pages by date.
+        order: "date",
+        operationId,
+        ...(cursor ? { cursor } : {}),
+        ...(reference ? { reference } : {}),
+      }),
+    // A cursor walk consumes server-side state and cannot safely replay.
+    { retryOnInvalidation: false },
+  );
 };
 
 export const closeGitHistoryCursor = async (

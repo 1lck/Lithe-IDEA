@@ -53,8 +53,20 @@ package struct GitExecutionSettingsSnapshot: Decodable, Sendable {
     package var fetchSources: [String: GitConfigurationSource]?
     package let fetchOptions: GitFetchOptions?
     package let fetchError: GitExecutionEvent.Failure?
+    package var resolvedFetchBehavior: GitResolvedFetchBehavior? = nil
     package let credentialHelperEnabled: Bool
     package let interactiveAuthentication: Bool
+}
+
+package struct GitResolvedFetchBehavior: Decodable, Sendable {
+    package let tags: GitResolvedTagBehavior
+}
+
+package struct GitResolvedTagBehavior: Decodable, Sendable {
+    package let value: String
+    package let source: GitConfigurationSource?
+    package let basis: String
+    package let reasonCode: String?
 }
 package struct GitConfigurationEdit: Encodable, Sendable {
     package let root: String

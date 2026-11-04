@@ -732,6 +732,20 @@ struct RustGitOperations: GitOperations, Sendable {
         core.gitReferences(at: rootURL, operationID: operationID)?.makeSnapshot()
     }
 
+    func branchNamePreview(
+        rawName: String,
+        requireName: Bool,
+        references: [GitReference],
+        reference: GitReference?
+    ) -> GitBranchNamePreview? {
+        core.gitBranchNamePreview(
+            rawName: rawName,
+            requireName: requireName,
+            references: references,
+            reference: reference
+        )?.makeModel()
+    }
+
     func historyPage(
         at rootURL: URL,
         reference: GitReference?,
@@ -747,6 +761,29 @@ struct RustGitOperations: GitOperations, Sendable {
             order: "date",
             operationID: operationID
         )?.makePage()
+    }
+
+    func historyLocate(
+        at rootURL: URL,
+        reference: GitReference?,
+        target: String,
+        cursor: String?,
+        limit: Int,
+        maxPages: Int,
+        operationID: String
+    ) -> GitHistoryLocateResult? {
+        core.gitHistoryLocate(
+            at: rootURL,
+            reference: reference?.fullName,
+            // A cursor is bound to the traversal order that produced it, and
+            // macOS pages visible history in IDEA's date order.
+            order: "date",
+            target: target,
+            cursor: cursor,
+            limit: limit,
+            maxPages: maxPages,
+            operationID: operationID
+        )?.makeResult()
     }
 
     func closeHistoryCursor(at rootURL: URL, cursor: String) -> Bool {
@@ -771,13 +808,13 @@ struct RustGitOperations: GitOperations, Sendable {
         for reference: GitReference,
         at rootURL: URL
     ) -> GitBranchComparison? {
-        guard let payload = core.gitComparison(at: rootURL, gitReference: reference) else {
+        guard let payload = core.gitComparison(at: rootURL, gitReference: reference, includeUntracked: true) else {
             return nil
         }
         return GitBranchComparison(
             reference: reference,
             files: payload.files.map { file in
-                GitBranchComparisonFile(status: file.status, path: file.path)
+                GitBranchComparisonFile(status: file.status, path: file.path, isUntracked: file.isUntracked ?? false)
             }
         )
     }

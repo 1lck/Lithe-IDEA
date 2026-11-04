@@ -280,6 +280,10 @@ pub enum CoreCommand {
     WorkspaceSearchEverywhere,
     /// Previews replacements without writing files (`workspace.replacePreview`).
     WorkspaceReplacePreview,
+    /// Computes replacement on a supplied snapshot without writing (`workspace.replaceText`).
+    WorkspaceReplaceText,
+    /// Searches provider-owned text snapshots in one request (`workspace.searchTextBatch`).
+    WorkspaceSearchTextBatch,
     /// Reads one workspace-relative UTF-8 file (`file.read`).
     FileRead,
     /// Replaces one workspace-relative UTF-8 file (`file.write`).
@@ -314,6 +318,8 @@ pub enum CoreCommand {
     ExecutionPlanLaunchCommand,
     /// Resolve environment precedence after platform tool discovery.
     ExecutionResolveEnvironment,
+    /// Resolves deterministic process search-path ordering (`execution.resolveSearchPath`).
+    ExecutionResolveSearchPath,
     /// Decides how each Lithe-owned process ends (`processLifecycle.resolve`).
     ProcessLifecycleResolve,
     /// Classifies a process snapshot into lifecycle items (`processLifecycle.inventory`).
@@ -463,8 +469,12 @@ pub enum CoreCommand {
     RunConfigSelectJava,
     /// Regenerates detected run configurations (`runConfig.generate`).
     RunConfigGenerate,
+    /// Formats argument vectors as reversible editor text (`runConfig.argumentText`).
+    RunConfigArgumentText,
     /// Merges configuration layers and toolchains (`runConfig.resolve`).
     RunConfigResolve,
+    /// Selects a configuration for a provider-supplied context identity.
+    RunConfigSelectContextConfiguration,
     /// Persists editable run options (`runConfig.updateOptions`).
     RunConfigUpdateOptions,
     /// Replaces generic local tool preferences while preserving existing Run data.
@@ -583,6 +593,14 @@ pub enum CoreCommand {
     GitConfigureIdentity,
     /// Reviews a local history mutation and its immutable checkout snapshot (`git.historyRewritePreview`).
     GitHistoryRewritePreview,
+    /// Lists configured fetch remotes.
+    GitRemotes,
+    /// Lists tags with object and target identities.
+    GitTags,
+    /// Parses a bounded HEAD snapshot without filesystem access.
+    GitParseCheckoutMetadata,
+    /// Parses a bounded gitdir pointer without filesystem access.
+    GitParseGitdirPointer,
     /// Resolves action eligibility against the actual checkout history.
     GitHistoryActionCapabilities,
     /// Preview a linear local range after an unchanged base commit.
@@ -615,6 +633,10 @@ pub enum CoreCommand {
     GitHistoryPage,
     /// Releases an incremental history cursor (`git.historyCursorClose`).
     GitHistoryCursorClose,
+    /// Locates one commit while appending bounded history pages (`git.historyLocate`).
+    GitHistoryLocate,
+    /// Cleans and validates a new branch name in loaded references (`git.branchNamePreview`).
+    GitBranchNamePreview,
     /// Resolves the destination and commits for a branch push (`git.pushPreview`).
     GitPushPreview,
     /// Resolves metadata for one commit (`git.commit`).
@@ -645,6 +667,14 @@ pub enum CoreCommand {
     GitHubRequestPlan,
     /// Normalizes a GitHub HTTP response into the shared contract (`github.normalizeResponse`).
     GitHubNormalizeResponse,
+    /// Plans the next bounded GitHub device-authorization transition.
+    GitHubDeviceAuthorizationTransition,
+    /// Plans a safe local branch for a GitHub pull request.
+    GitHubPullRequestCheckoutPlan,
+    /// Previews a non-destructive GitHub pull-request checkout.
+    GitPullRequestCheckoutPreview,
+    /// Fetches and creates the reviewed pull-request branch without resetting refs.
+    GitPullRequestCheckout,
     /// Redacts credentials, tokens, and home-directory paths from diagnostic text (`diagnostics.redactText`).
     DiagnosticsRedactText,
     /// Normalizes a bounded, redacted application log event (`diagnostics.prepareLogEvent`).
@@ -806,6 +836,8 @@ impl CoreCommand {
             "workspace.search" => Some(Self::WorkspaceSearch),
             "workspace.searchEverywhere" => Some(Self::WorkspaceSearchEverywhere),
             "workspace.replacePreview" => Some(Self::WorkspaceReplacePreview),
+            "workspace.replaceText" => Some(Self::WorkspaceReplaceText),
+            "workspace.searchTextBatch" => Some(Self::WorkspaceSearchTextBatch),
             "file.read" => Some(Self::FileRead),
             "file.write" => Some(Self::FileWrite),
             "document.lifecycle" => Some(Self::DocumentLifecycle),
@@ -822,6 +854,7 @@ impl CoreCommand {
             "maven.scan" => Some(Self::MavenScan),
             "maven.launchPlan" => Some(Self::MavenLaunchPlan),
             "execution.resolveEnvironment" => Some(Self::ExecutionResolveEnvironment),
+            "execution.resolveSearchPath" => Some(Self::ExecutionResolveSearchPath),
             "execution.planLaunchCommand" => Some(Self::ExecutionPlanLaunchCommand),
             "processLifecycle.resolve" => Some(Self::ProcessLifecycleResolve),
             "processLifecycle.inventory" => Some(Self::ProcessLifecycleInventory),
@@ -894,7 +927,11 @@ impl CoreCommand {
             "runConfig.projectToolchain" => Some(Self::RunConfigProjectToolchain),
             "runConfig.selectJava" => Some(Self::RunConfigSelectJava),
             "runConfig.generate" => Some(Self::RunConfigGenerate),
+            "runConfig.argumentText" => Some(Self::RunConfigArgumentText),
             "runConfig.resolve" => Some(Self::RunConfigResolve),
+            "runConfig.selectContextConfiguration" => {
+                Some(Self::RunConfigSelectContextConfiguration)
+            }
             "runConfig.updateOptions" => Some(Self::RunConfigUpdateOptions),
             "runConfig.updateToolPreferences" => Some(Self::RunConfigUpdateToolPreferences),
             "runConfig.saveEditorChanges" => Some(Self::RunConfigSaveEditorChanges),
@@ -952,6 +989,10 @@ impl CoreCommand {
             "remote.uploadFile" => Some(Self::RemoteUploadFile),
             "remote.hostInfo" => Some(Self::RemoteHostInfo),
             "git.historyRewritePreview" => Some(Self::GitHistoryRewritePreview),
+            "git.remotes" => Some(Self::GitRemotes),
+            "git.tags" => Some(Self::GitTags),
+            "git.parseCheckoutMetadata" => Some(Self::GitParseCheckoutMetadata),
+            "git.parseGitdirPointer" => Some(Self::GitParseGitdirPointer),
             "git.historyActionCapabilities" => Some(Self::GitHistoryActionCapabilities),
             "git.rebasePreview" => Some(Self::GitRebasePreview),
             "git.repositorySetup" => Some(Self::GitRepositorySetup),
@@ -971,6 +1012,8 @@ impl CoreCommand {
             "git.references" => Some(Self::GitReferences),
             "git.historyPage" => Some(Self::GitHistoryPage),
             "git.historyCursorClose" => Some(Self::GitHistoryCursorClose),
+            "git.historyLocate" => Some(Self::GitHistoryLocate),
+            "git.branchNamePreview" => Some(Self::GitBranchNamePreview),
             "git.pushPreview" => Some(Self::GitPushPreview),
             "git.commit" => Some(Self::GitCommit),
             "git.commitFiles" => Some(Self::GitCommitFiles),
@@ -986,6 +1029,12 @@ impl CoreCommand {
             "github.parseRemote" => Some(Self::GitHubParseRemote),
             "github.requestPlan" => Some(Self::GitHubRequestPlan),
             "github.normalizeResponse" => Some(Self::GitHubNormalizeResponse),
+            "github.deviceAuthorizationTransition" => {
+                Some(Self::GitHubDeviceAuthorizationTransition)
+            }
+            "github.pullRequestCheckoutPlan" => Some(Self::GitHubPullRequestCheckoutPlan),
+            "git.pullRequestCheckoutPreview" => Some(Self::GitPullRequestCheckoutPreview),
+            "git.pullRequestCheckout" => Some(Self::GitPullRequestCheckout),
             "diagnostics.redactText" => Some(Self::DiagnosticsRedactText),
             "diagnostics.prepareLogEvent" => Some(Self::DiagnosticsPrepareLogEvent),
             "diagnostics.queryLogs" => Some(Self::DiagnosticsQueryLogs),

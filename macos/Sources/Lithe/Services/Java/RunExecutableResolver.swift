@@ -88,12 +88,13 @@ final class RunExecutableResolver: RunExecutableResolving {
         )
         return ResolvedRunExecutable(
             executableURL: resolved.executableURL,
-            environment: RunLaunchEnvironment.augmenting(
+            environment: try RunLaunchEnvironment.augmenting(
                 environment,
                 executableURL: resolved.executableURL,
                 nodeCandidates: runtimeService.executableCandidates("node"),
                 projectURL: projectURL,
-                defaultSearchPath: runtimeService.defaultExecutableSearchPath()
+                defaultSearchPath: runtimeService.defaultExecutableSearchPath(),
+                resolver: environmentResolver
             )
         )
     }

@@ -13,9 +13,7 @@ import LitheCoreContracts
 /// interpreter directory on `PATH` even though the launcher itself is started
 /// by absolute path.
 ///
-/// Windows already prepends the selected runtime directories and the resolved
-/// executable's directory in `windows/tauri/src-tauri/src/run.rs`; this keeps
-/// both products' launch environments equivalent.
+/// Core orders discovered directories after the effective PATH on both platforms.
 enum RunLaunchEnvironment {
     /// Appends the discovered interpreter directory and the resolved
     /// executable's directory to the existing entries, which keep their
@@ -33,16 +31,17 @@ enum RunLaunchEnvironment {
         executableURL: URL,
         nodeCandidates: [RuntimeToolCandidate],
         projectURL: URL,
-        defaultSearchPath: String? = nil
-    ) -> [String: String] {
-        var resolvedDirectories: [String] = []
+        defaultSearchPath: String? = nil,
+        resolver: any RunLaunchEnvironmentResolving
+    ) throws -> [String: String] {
+        var resolvedDirectories: [RunSearchPathCandidate] = []
         if let node = nodeCandidates.first(where: {
             $0.source != .project && !isInsideProject($0.executableURL, projectURL: projectURL)
         }) {
-            resolvedDirectories.append(node.executableURL.deletingLastPathComponent().path)
+            resolvedDirectories.append(RunSearchPathCandidate(priority: 0, id: "node", path: node.executableURL.deletingLastPathComponent().path))
         }
         if !isInsideProject(executableURL, projectURL: projectURL) {
-            resolvedDirectories.append(executableURL.deletingLastPathComponent().path)
+            resolvedDirectories.append(RunSearchPathCandidate(priority: 1, id: "executable", path: executableURL.deletingLastPathComponent().path))
         }
         guard !resolvedDirectories.isEmpty else { return environment }
 
@@ -51,10 +50,7 @@ enum RunLaunchEnvironment {
             .split(separator: ":")
             .map(String.init)
             .filter { !$0.isEmpty }
-        var seen = Set<String>()
-        let directories = (existingDirectories + resolvedDirectories).filter {
-            seen.insert($0).inserted
-        }
+        let directories = try resolver.resolveSearchPath(existing: existingDirectories, candidates: resolvedDirectories)
 
         var result = environment
         result["PATH"] = directories.joined(separator: ":")

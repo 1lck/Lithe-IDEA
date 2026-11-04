@@ -1,5 +1,7 @@
+import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { createTranslator } from "@/i18n/locale";
 import { mavenLaunchContextForWorkspace } from "@/features/maven/stores/maven.store";
-import { resolveRunConfiguration } from "../api/run-core-api";
+import { formatArgumentTexts, resolveRunConfiguration } from "../api/run-core-api";
 import { discoverRunToolchains } from "../api/run-host-api";
 import {
   EMPTY_GLOBAL_TOOLCHAIN,
@@ -22,6 +24,7 @@ import {
 const defaultDependencies = {
   discoverRunToolchains,
   resolveRunConfiguration,
+  formatArgumentTexts,
   mavenLaunchContextForWorkspace,
 };
 
@@ -83,8 +86,21 @@ export async function resolveConfigurations(
   const resolved = hasSelectedToolchain
     ? await dependencies.resolveRunConfiguration(root, candidates)
     : preliminary;
+  const configurations = (resolved.configurations ?? []).map(mapCoreConfiguration);
+  const argumentLists = configurations.flatMap((configuration) => [
+    configuration.jvmArguments, configuration.programArguments,
+  ]);
+  const argumentTexts = argumentLists.length === 0
+    ? []
+    : await dependencies.formatArgumentTexts(argumentLists);
+  if (argumentTexts.length !== argumentLists.length) {
+    throw new Error(createTranslator(useSettingsStore.getState().settings.displayLanguage)("run.invalidTitle"));
+  }
+  configurations.forEach((configuration, index) => {
+    configuration.editorArgumentText = { vm: argumentTexts[index * 2], program: argumentTexts[index * 2 + 1] };
+  });
   return {
-    configurations: (resolved.configurations ?? []).map(mapCoreConfiguration),
+    configurations,
     diagnostics: mapDiagnostics(resolved.diagnostics),
     defaultConfigurationId: resolved.defaultRunConfiguration ?? null,
     discoveredJava: discovered.java,

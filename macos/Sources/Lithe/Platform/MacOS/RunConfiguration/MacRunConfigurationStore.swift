@@ -174,7 +174,21 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
         case .success(let value): payload = value
         case .failure(let error): throw RunConfigurationOperationFailure(message: error.userMessage)
         }
-        let configurations: [EffectiveRunConfiguration] = payload.configurations.map { value in
+        let argumentLists = payload.configurations.flatMap { value in
+            [value.maven?.jvmArguments ?? [], value.maven?.programArguments ?? value.args ?? []]
+        }
+        let argumentTexts: [String]
+        if argumentLists.isEmpty {
+            argumentTexts = []
+        } else {
+            argumentTexts = try core.executeResult(
+                command: "runConfig.argumentText", payload: ["argumentLists": argumentLists]
+            ).get()
+        }
+        guard argumentTexts.count == argumentLists.count else {
+            throw MacRunConfigurationStoreError.invalidConfiguration(L10n.string("Project run configuration is invalid"))
+        }
+        let configurations: [EffectiveRunConfiguration] = payload.configurations.enumerated().map { index, value in
             let kind = configurationKind(value.provider)
             let maven = value.maven
             let java = value.extensions?.java
@@ -196,8 +210,8 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
                 options: RunOptions(
                     javaHomePath: java?.homePath ?? "",
                     workingDirectoryPath: (value.cwd ?? ".") == "." ? "" : (value.cwd ?? "."),
-                    vmArguments: RunArgumentText.format(maven?.jvmArguments ?? []),
-                    programArguments: RunArgumentText.format(maven?.programArguments ?? value.args ?? []),
+                    vmArguments: argumentTexts[index * 2],
+                    programArguments: argumentTexts[index * 2 + 1],
                     activeProfiles: Set(maven?.profiles ?? []),
                     mavenSkipTests: maven?.skipTests,
                     mavenExecutablePath: java?.mavenExecutablePath ?? "",

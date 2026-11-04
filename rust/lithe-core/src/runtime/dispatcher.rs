@@ -7,9 +7,10 @@ use crate::community::{
 };
 use crate::diagnostics::{BuildManifestRequest, RedactTextRequest};
 use crate::git::{
-    self, GitApplyRequest, GitBlameRequest, GitCheckoutPreflightRequest, GitCommandRequest,
-    GitCommitFilesRequest, GitCommitRequest, GitComparisonRequest, GitConflictMarkerRequest,
-    GitDiffRequest, GitHistoryCursorCloseRequest, GitHistoryPageRequest, GitHistoryRequest,
+    self, GitApplyRequest, GitBlameRequest, GitBranchNamePreviewRequest,
+    GitCheckoutPreflightRequest, GitCommandRequest, GitCommitFilesRequest, GitCommitRequest,
+    GitComparisonRequest, GitConflictMarkerRequest, GitDiffRequest, GitHistoryCursorCloseRequest,
+    GitHistoryLocateRequest, GitHistoryPageRequest, GitHistoryRequest,
     GitHistoryRewritePreviewRequest, GitIntegrationPreflightRequest, GitLineHistoryRequest,
     GitOperationStateRequest, GitPullPreflightRequest, GitPullRequestContextRequest,
     GitPushPreviewRequest, GitRebaseControlRequest, GitRebasePreviewRequest,
@@ -895,6 +896,33 @@ fn execute_parsed(parsed: CoreRequest) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::WorkspaceReplaceText => {
+            match serde_json::from_value::<project::ReplacementTextRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid text replacement request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(project::replace_text)
+            {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::WorkspaceSearchTextBatch => {
+            match serde_json::from_value::<project::SearchTextBatchRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid text search request")
+                        .with_details(error.to_string())
+                })
+                .and_then(project::search_text_batch)
+            {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::FileRead => match serde_json::from_value::<FileReadRequest>(parsed.payload)
             .map_err(|error| {
                 CoreError::new(ErrorCode::InvalidRequest, "Invalid file read request")
@@ -1118,6 +1146,19 @@ fn execute_parsed(parsed: CoreRequest) -> CoreResponse {
                     serde_json::to_value(data).expect("Maven launch plan should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::ExecutionResolveSearchPath => {
+            match serde_json::from_value::<crate::execution::SearchPathRequest>(parsed.payload) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    serde_json::json!(crate::execution::resolve_search_path(request)),
+                ),
+                Err(error) => CoreResponse::failure(
+                    id,
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid search path request")
+                        .with_details(error.to_string()),
+                ),
             }
         }
         CoreCommand::ExecutionResolveEnvironment => {
@@ -2400,6 +2441,19 @@ fn execute_parsed(parsed: CoreRequest) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::RunConfigArgumentText => {
+            match serde_json::from_value::<crate::execution::ArgumentTextRequest>(parsed.payload) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    serde_json::json!(crate::execution::format_argument_text(request)),
+                ),
+                Err(error) => CoreResponse::failure(
+                    id,
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid argument text request")
+                        .with_details(error.to_string()),
+                ),
+            }
+        }
         CoreCommand::RunConfigResolve => {
             match serde_json::from_value::<crate::execution::ResolveRequest>(parsed.payload)
                 .map_err(|error| {
@@ -2413,6 +2467,24 @@ fn execute_parsed(parsed: CoreRequest) -> CoreResponse {
             {
                 Ok(data) => CoreResponse::success(id, data),
                 Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::RunConfigSelectContextConfiguration => {
+            match serde_json::from_value::<crate::execution::ContextSelectionRequest>(
+                parsed.payload,
+            ) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    serde_json::json!({"configurationId": crate::execution::select_context_configuration(request)}),
+                ),
+                Err(error) => CoreResponse::failure(
+                    id,
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid context configuration request",
+                    )
+                    .with_details(error.to_string()),
+                ),
             }
         }
         CoreCommand::RunConfigUpdateOptions => {
@@ -2823,6 +2895,22 @@ fn execute_parsed(parsed: CoreRequest) -> CoreResponse {
                     id,
                     serde_json::to_value(data).expect("Git file context should encode"),
                 ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitRemotes
+        | CoreCommand::GitTags
+        | CoreCommand::GitParseCheckoutMetadata
+        | CoreCommand::GitParseGitdirPointer => {
+            let operation = match command {
+                CoreCommand::GitRemotes => "remotes",
+                CoreCommand::GitTags => "tags",
+                CoreCommand::GitParseCheckoutMetadata => "checkout",
+                CoreCommand::GitParseGitdirPointer => "gitdir",
+                _ => unreachable!(),
+            };
+            match git::catalog::command(operation, parsed.payload) {
+                Ok(data) => CoreResponse::success(id, data),
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
@@ -3385,6 +3473,43 @@ fn execute_parsed(parsed: CoreRequest) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::GitHistoryLocate => {
+            match serde_json::from_value::<GitHistoryLocateRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Git history locate request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(git::history_locate)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Git history locate response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitBranchNamePreview => {
+            match serde_json::from_value::<GitBranchNamePreviewRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Git branch name preview request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(git::branch_name_preview)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data)
+                        .expect("Git branch name preview response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::GitPushPreview => {
             match serde_json::from_value::<GitPushPreviewRequest>(parsed.payload)
                 .map_err(|error| {
@@ -3613,6 +3738,80 @@ fn execute_parsed(parsed: CoreRequest) -> CoreResponse {
                 Ok(data) => CoreResponse::success(
                     id,
                     serde_json::to_value(data).expect("GitHub request plan should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitPullRequestCheckoutPreview => {
+            match serde_json::from_value::<git::PullRequestCheckoutPreviewRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid pull-request checkout preview",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(git::checkout_pull_request_preview)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data)
+                        .expect("Pull-request checkout preview should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitPullRequestCheckout => {
+            match serde_json::from_value::<git::PullRequestCheckoutRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid pull-request checkout")
+                        .with_details(error.to_string())
+                })
+                .and_then(git::checkout_pull_request)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Pull-request checkout should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitHubPullRequestCheckoutPlan => {
+            match serde_json::from_value::<crate::github::PullRequestCheckoutPlanRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid pull-request checkout plan",
+                )
+                .with_details(error.to_string())
+            })
+            .and_then(crate::github::pull_request_checkout_plan)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Pull-request checkout plan should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitHubDeviceAuthorizationTransition => {
+            match serde_json::from_value::<crate::github::DeviceAuthorizationTransitionRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid GitHub device transition",
+                )
+                .with_details(error.to_string())
+            })
+            .and_then(crate::github::device_authorization_transition)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Device transition should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }

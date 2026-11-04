@@ -6,7 +6,8 @@ import { LocaleProvider } from "@/i18n/locale-provider";
 import { installHappyDom } from "@/test-utils/happy-dom";
 import { useRepositoryStore } from "../../stores/git-repository.store";
 import { useGitLogPreferencesStore } from "../../stores/git-log-preferences.store";
-import type { GitReference } from "../../types/git.types";
+import { useGitLogRevealStore } from "../../stores/git-log-reveal.store";
+import type { GitCommit, GitReference } from "../../types/git.types";
 import { GitLogToolWindow } from "./git-log-tool-window";
 
 const dialogs = await import("@/ui/dialog");
@@ -93,8 +94,34 @@ let previousGitLogPreferences: ReturnType<typeof useGitLogPreferencesStore.getSt
 const globals = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
 let previousAct: boolean | undefined;
 const content = ({ children }: { children?: ReactNode }) => <div>{children}</div>;
+type GitLogControllerState = ReturnType<typeof controller.useGitLogController>;
+let controllerSpy: ReturnType<typeof spyOn<typeof controller, "useGitLogController">>;
+const controllerState = (
+  overrides: Partial<GitLogControllerState> = {},
+): GitLogControllerState => ({
+  history: {
+    references: [reference, trackingRemote],
+    recentReferences: [],
+    commits: [],
+    hasMore: false,
+  },
+  repositoryCommits: [],
+  loadState: "ready",
+  error: null,
+  selectedReference: reference,
+  isLoadingMore: false,
+  selectReference: () => {},
+  forgetReference: () => {},
+  refresh,
+  loadMore: async () => false,
+  locateCommit: async () => null,
+  ...overrides,
+});
 
 beforeEach(() => {
+  controllerSpy = spyOn(controller, "useGitLogController").mockImplementation(() =>
+    controllerState(),
+  );
   restoreDom = installHappyDom();
   previousAct = globals.IS_REACT_ACT_ENVIRONMENT;
   globals.IS_REACT_ACT_ENVIRONMENT = true;
@@ -113,26 +140,11 @@ beforeEach(() => {
   restoreDeleted.mockClear();
   setTracking.mockClear();
   notificationsShown.length = 0;
+  useGitLogRevealStore.setState({ pending: null });
   // Keep the real action owner; stub unrelated data loading and rendering, so
   // this test exercises checkout confirmation and update dispatch without Git or layout timers.
   spies.push(
-    spyOn(controller, "useGitLogController").mockImplementation(() => ({
-      history: {
-        references: [reference, trackingRemote],
-        recentReferences: [],
-        commits: [],
-        hasMore: false,
-      },
-      repositoryCommits: [],
-      loadState: "ready",
-      error: null,
-      selectedReference: reference,
-      isLoadingMore: false,
-      selectReference: () => {},
-      forgetReference: () => {},
-      refresh,
-      loadMore: async () => false,
-    })),
+    controllerSpy,
     spyOn(workspaceRefs, "useGitWorkspaceReferences").mockImplementation(() => ({
       referencesByRepository: new Map(),
       errorsByRepository: new Map(),
@@ -260,6 +272,43 @@ const button = (action: string) =>
 const flushPromises = async () => {
   for (let turn = 0; turn < 5; turn += 1) await Promise.resolve();
 };
+
+test("a blame reveal locates the commit through the controller and clears the request", async () => {
+  const revealed: GitCommit = {
+    hash: "d".repeat(40),
+    shortHash: "ddddddd",
+    parentHashes: [],
+    message: "revealed commit",
+    author: "Lithe Test",
+    date: "2026/09/08 10:00",
+    decorations: "",
+  };
+  const locate = mock(async (_target: string) => revealed);
+  controllerSpy.mockImplementation(() => controllerState({ locateCommit: locate }));
+  await render();
+  await act(async () => {
+    useGitLogRevealStore.getState().request("C:/repo-a", revealed.hash);
+  });
+  await act(async () => {
+    await flushPromises();
+  });
+  expect(locate.mock.calls).toEqual([[revealed.hash]]);
+  expect(useGitLogRevealStore.getState().pending).toBeNull();
+});
+
+test("a reveal that cannot be located ends instead of staying pending", async () => {
+  const locate = mock(async (_target: string) => null);
+  controllerSpy.mockImplementation(() => controllerState({ locateCommit: locate }));
+  await render();
+  await act(async () => {
+    useGitLogRevealStore.getState().request("C:/repo-a", "e".repeat(40));
+  });
+  await act(async () => {
+    await flushPromises();
+  });
+  expect(locate).toHaveBeenCalledTimes(1);
+  expect(useGitLogRevealStore.getState().pending).toBeNull();
+});
 
 test("Git Log Checkout starts directly without a second confirmation and refreshes afterwards", async () => {
   await render();

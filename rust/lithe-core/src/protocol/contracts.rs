@@ -134,6 +134,12 @@ pub struct SearchMatch {
     /// Matching fragments in the displayed name, measured in UTF-16 code units.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub name_match_ranges: Vec<SearchNameRange>,
+    /// Original content line, present only when requested by the host.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_line: Option<String>,
+    /// Content match ranges in UTF-16 units of `sourceLine`.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub content_match_ranges: Vec<SearchNameRange>,
     /// Name relevance computed before category truncation; absent for content search.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub matching_degree: Option<i32>,
@@ -822,6 +828,9 @@ pub struct GitFileResponse {
     /// Normalized name-status code such as `A`, `M`, `D`, or `R`.
     pub status: String,
     pub path: String,
+    /// True only for a worktree comparison entry absent from the index.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub is_untracked: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]

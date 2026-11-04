@@ -10,7 +10,6 @@ import { useCodeLens } from "@/features/editor/lsp/use-code-lens";
 import type { RunActionItem } from "../types/run-action.types";
 import {
   codeLensesToRunActions,
-  discoverProjectRunActions,
   javaTestActionsForFile,
 } from "../utils/run-action-discovery";
 
@@ -60,11 +59,7 @@ export function useRunActionDiscovery(
     setIsDiscovering(true);
     setDiscoveryError(null);
 
-    void Promise.all([
-      discoverProjectRunActions(workspacePath),
-      uiExtensionHost.discoverRunActions(workspacePath),
-    ])
-      .then((groups) => groups.flat())
+    void uiExtensionHost.discoverRunActions(workspacePath)
       .then((actions) => {
         if (!cancelled) setProjectActions(actions);
       })

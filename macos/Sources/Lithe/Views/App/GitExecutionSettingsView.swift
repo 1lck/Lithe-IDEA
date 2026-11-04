@@ -214,6 +214,23 @@ private struct GitSettingsLoadedPage: View {
         for field: GitConfigurationField,
         snapshot: GitExecutionSettingsSnapshot
     ) -> (value: String?, source: LocalizedStringKey) {
+        if field.key == "lithe.fetch.tags" {
+            guard let behavior = snapshot.resolvedFetchBehavior?.tags else {
+                return ("unavailable", "Git configuration")
+            }
+            let value = behavior.value == "unavailable" && behavior.reasonCode == "noRemotes"
+                ? "noRemotes" : behavior.value
+            let source: LocalizedStringKey = if let location = behavior.source {
+                LocalizedStringKey(GitConfigurationSource.title(location.scope))
+            } else if behavior.value == "unavailable" {
+                "Git configuration"
+            } else if behavior.basis == "multiple" {
+                "Multiple sources"
+            } else {
+                behavior.basis == "lithe" ? "Lithe default" : "Git default"
+            }
+            return (value, source)
+        }
         let entries = snapshot.entries
         let fetchOptions = snapshot.fetchOptions
         if let entry = entries.last(where: { $0.key == field.key && $0.effective }) {
@@ -236,12 +253,6 @@ private struct GitSettingsLoadedPage: View {
             return (gitEntry?.value ?? "false",
                     gitEntry.map { LocalizedStringKey(GitConfigurationSource.title($0.scope)) } ?? "Git default")
         }
-        if key == "lithe.fetch.tags", let fetchOptions {
-            let behavior = GitConfigurationFallback.inheritedTagBehavior(
-                remote: fetchOptions.remote, prune: fetchOptions.prune, entries: entries)
-            return (behavior.value,
-                    behavior.source.map { LocalizedStringKey(GitConfigurationSource.title($0.scope)) } ?? "Git default")
-        }
         return nil
     }
 
@@ -251,7 +262,7 @@ private struct GitSettingsLoadedPage: View {
         entries: [GitConfigurationEntry]
     ) -> LocalizedStringKey {
         if let override = inheritedOverride(key, fetchOptions: fetchOptions, entries: entries),
-           fetchOptions?.submodules == .inherit || key == "lithe.fetch.tags" {
+           fetchOptions?.submodules == .inherit {
             return override.source
         }
         return key.hasPrefix("lithe.") ? "Lithe default" : "Git default"
@@ -718,6 +729,9 @@ enum GitConfigurationText {
         case ("lithe.fetch.tags", "all"): "Fetch all"
         case ("lithe.fetch.tags", "none"): "Do not fetch"
         case ("lithe.fetch.tags", "prune"): "Sync and remove missing tags"
+        case ("lithe.fetch.tags", "custom"): "Uses a custom tag refspec"
+        case ("lithe.fetch.tags", "noRemotes"): "No remote is available for Fetch"
+        case ("lithe.fetch.tags", "unavailable"): "Cannot determine; check Git configuration"
         case ("push.default", "simple"): "Current branch with safety check"
         case ("push.default", "current"): "Current branch"
         case ("push.default", "upstream"): "Upstream branch"

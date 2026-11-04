@@ -40,6 +40,8 @@ JDK 8 不认识 argfile，Windows 普通 Run 改用 classpath JAR（只含 `META
    `-cp`、`-classpath`、`--class-path`、`-p`、`--module-path` 这些「路径列表」
    选项搬进 argfile，返回文件内容和缩短后的参数。宿主只负责选临时路径、写文件、
    进程退出后删除。
+   macOS 只读取可能的 JDK `release` 文件原文并按距离排序，版本解释由 Core 的同一个
+   启动计划完成；最近的版本字段无法解析时不得借用上层目录里的另一个 JDK 版本。
 2. **只搬路径列表。** JVM 选项、主类和程序参数留在命令行上；argfile 引用出现在
    原来第一个被搬走的选项位置。遇到主类、`-jar`、`-m` 或 `--module` 入口就停止
    搬运，后面的 `-p` 等参数属于应用程序，必须原样保留。非 Java 命令不使用此规则。

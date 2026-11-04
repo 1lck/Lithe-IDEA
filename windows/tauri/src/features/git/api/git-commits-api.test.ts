@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import * as gitEvents from "../events/git-events";
+import type { GitHistoryLocateResult } from "../types/git.types";
 
 let gitWriteResult = { output: "", exitCode: 0 };
 let gitWriteError: Error | null = null;
@@ -9,6 +10,9 @@ const emitGitChanged = spyOn(gitEvents, "emitGitChanged");
 
 let commitLookupResult: unknown = null;
 let commitLookupError: unknown = null;
+
+let historyLocateResult: GitHistoryLocateResult | null = null;
+let historyLocateError: unknown = null;
 
 const invoke = mock(async (command: string, _args?: unknown): Promise<unknown> => {
   if (command === "git_discover_repo") return "C:/repo";
@@ -19,6 +23,10 @@ const invoke = mock(async (command: string, _args?: unknown): Promise<unknown> =
   if (command === "git.write") {
     if (gitWriteError) throw gitWriteError;
     return gitWriteResult;
+  }
+  if (command === "git.historyLocate") {
+    if (historyLocateError) throw historyLocateError;
+    return historyLocateResult;
   }
   if ((command === "git_references" || command === "git_history_page") && gitReadError) {
     throw gitReadError;
@@ -36,6 +44,7 @@ const {
   getGitHistoryPage,
   getGitReferences,
   getGitReferencesAtRoot,
+  locateGitCommit,
   resetToCommit,
   revertCommit,
   withCommitDescription,
@@ -49,6 +58,8 @@ beforeEach(() => {
   gitReadError = null;
   commitLookupResult = null;
   commitLookupError = null;
+  historyLocateResult = null;
+  historyLocateError = null;
 });
 
 describe("Git commit message details", () => {
@@ -179,6 +190,58 @@ describe("Git commit history reads", () => {
     } finally {
       consoleError.mockRestore();
     }
+  });
+
+  test("locates a commit from the platform cursor with the log's date order", async () => {
+    historyLocateResult = {
+      found: true,
+      commits: [],
+      nextCursor: "cursor-after-hit",
+      hasMore: true,
+      pagesLoaded: 2,
+    };
+    const target = "b".repeat(40);
+
+    await expect(
+      locateGitCommit("C:/repo", target, "cursor-before", 50, "locate-1", "refs/heads/main"),
+    ).resolves.toEqual(historyLocateResult);
+
+    expect(invoke).toHaveBeenCalledWith("git.historyLocate", {
+      root: "C:/repo",
+      target,
+      limit: 50,
+      order: "date",
+      operationId: "locate-1",
+      cursor: "cursor-before",
+      reference: "refs/heads/main",
+    });
+  });
+
+  test("starts a locate at the first page when the visible window has no cursor", async () => {
+    historyLocateResult = {
+      found: false,
+      commits: [],
+      hasMore: false,
+      pagesLoaded: 20,
+    };
+
+    await locateGitCommit("C:/repo", "c".repeat(40), undefined, 50, "locate-2");
+
+    expect(invoke).toHaveBeenCalledWith("git.historyLocate", {
+      root: "C:/repo",
+      target: "c".repeat(40),
+      limit: 50,
+      order: "date",
+      operationId: "locate-2",
+    });
+  });
+
+  test("a failed locate propagates the read error instead of reporting no hit", async () => {
+    historyLocateError = new Error("fatal: bad revision");
+
+    await expect(
+      locateGitCommit("C:/repo", "d".repeat(40), "cursor-before", 50, "locate-3"),
+    ).rejects.toThrow("fatal: bad revision");
   });
 
   test("reads references from a known root without resolving the repository", async () => {
