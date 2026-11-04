@@ -3737,6 +3737,80 @@ fn execute_parsed(parsed: CoreRequest) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::GitPullRequestCheckoutPreview => {
+            match serde_json::from_value::<git::PullRequestCheckoutPreviewRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid pull-request checkout preview",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(git::checkout_pull_request_preview)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data)
+                        .expect("Pull-request checkout preview should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitPullRequestCheckout => {
+            match serde_json::from_value::<git::PullRequestCheckoutRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid pull-request checkout")
+                        .with_details(error.to_string())
+                })
+                .and_then(git::checkout_pull_request)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Pull-request checkout should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitHubPullRequestCheckoutPlan => {
+            match serde_json::from_value::<crate::github::PullRequestCheckoutPlanRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid pull-request checkout plan",
+                )
+                .with_details(error.to_string())
+            })
+            .and_then(crate::github::pull_request_checkout_plan)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Pull-request checkout plan should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitHubDeviceAuthorizationTransition => {
+            match serde_json::from_value::<crate::github::DeviceAuthorizationTransitionRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid GitHub device transition",
+                )
+                .with_details(error.to_string())
+            })
+            .and_then(crate::github::device_authorization_transition)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Device transition should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::GitHubNormalizeResponse => {
             match serde_json::from_value::<NormalizeResponseRequest>(parsed.payload)
                 .map_err(|error| {

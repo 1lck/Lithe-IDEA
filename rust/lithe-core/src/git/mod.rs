@@ -21,6 +21,7 @@ pub(crate) mod execution_policy;
 mod fetch;
 mod fetch_execution;
 pub(crate) mod file_context;
+mod github_checkout;
 #[allow(dead_code)]
 pub(crate) mod graph;
 mod history;
@@ -56,6 +57,10 @@ pub(crate) use changelists::changelists_command;
 pub(crate) use commit_message_context::commit_message_context_command;
 pub(crate) use commit_selection::prepare_commit_selection_command;
 pub(crate) use deleted_selection::reconcile_deleted_selection_command;
+pub use github_checkout::{
+    checkout as checkout_pull_request, preview as checkout_pull_request_preview,
+    PullRequestCheckoutPreviewRequest, PullRequestCheckoutRequest,
+};
 pub use history::{
     close_history_cursor, history, history_locate, history_page, references,
     GitHistoryCursorCloseRequest, GitHistoryLocateRequest, GitHistoryPageRequest,

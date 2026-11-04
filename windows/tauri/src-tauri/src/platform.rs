@@ -266,6 +266,7 @@ fn is_interactive_git(core_command: &str, command: &str) -> bool {
             | "git.shelf"
             | "git.rebaseStart"
             | "git.rebaseControl"
+            | "git.pullRequestCheckout"
             | "git.executionConfigure"
             | "git.initialize"
             | "git.configureIdentity"
@@ -1118,6 +1119,7 @@ mod tests {
             "git.patchApply",
             "git.rebaseStart",
             "git.rebaseControl",
+            "git.pullRequestCheckout",
             "git.initialize",
             "git.configureIdentity",
             "git.executionConfigure",
@@ -1229,7 +1231,7 @@ mod tests {
     }
 
     #[test]
-    fn workspace_commit_steps_use_interactive_authentication_and_write_timeout() {
+    fn shared_git_mutations_use_interactive_authentication_and_write_timeout() {
         assert!(super::is_interactive_git(
             "git.workspaceCommitStep",
             "git.workspaceCommitStep"
@@ -1237,6 +1239,10 @@ mod tests {
         assert!(super::is_interactive_git(
             "git.prepareCommitSelection",
             "git.prepareCommitSelection"
+        ));
+        assert!(super::is_interactive_git(
+            "git.pullRequestCheckout",
+            "git.pullRequestCheckout"
         ));
         assert!(!super::is_interactive_git(
             "git.workspaceCommitPrepare",

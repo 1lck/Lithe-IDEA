@@ -1281,6 +1281,8 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `git.watchContext` | Resolve the repository and absolute Git metadata roots needed by native file watchers |
 | `git.worktrees` | Return deterministic registered-worktree metadata without scanning each checkout |
 | `git.pullRequestContext` | Resolve worktree-aware PR branch defaults, publication state, and uncommitted-change state |
+| `git.pullRequestCheckoutPreview` | Inspect and review a non-destructive PR checkout plan |
+| `git.pullRequestCheckout` | Recheck and execute a reviewed PR checkout without resetting an existing branch |
 | `git.command` | Execute one argument-based Git operation and return its arguments, streams, exit code, and ordered subprocess invocations |
 | `git.repositoryRoot` | Resolve the repository root containing a workspace path without acquiring repository write coordination |
 | `git.resolveFileContext` | Resolve a file to its owning Git checkout and relative path |
@@ -1332,6 +1334,8 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `github.parseRemote` | Parse a canonical GitHub HTTPS or SSH remote into owner/name |
 | `github.requestPlan` | Validate one GitHub operation and produce a trusted platform HTTP request plan |
 | `github.normalizeResponse` | Normalize raw GitHub JSON and HTTP status into deterministic data or a stable error |
+| `github.deviceAuthorizationTransition` | Plan the next device-authorization action, polling interval, and deadline-bounded wait |
+| `github.pullRequestCheckoutPlan` | Plan a PR's safe local branch and report an existing-ref conflict |
 | `diagnostics.prepareLogEvent` | Normalize a bounded application event and recursively redact structured fields |
 | `diagnostics.queryLogs` | Merge and filter bounded host-collected module log tails |
 | `diagnostics.encodeLogBatch` | Encode independent structured v2 log events with per-item errors |

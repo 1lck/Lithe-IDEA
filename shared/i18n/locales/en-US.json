@@ -10114,7 +10114,14 @@
     "logs.language.outputHelp": "Shows the selected server's session events, stderr and server messages from the redacted diagnostic logs. Server Trace and RPC message capture are not available. Application logs are in Logs and Diagnostics.",
     "logs.language.clearHelp": "Clear only the selected server's visible logs. Collected diagnostic logs are kept.",
     "logs.language.outputTitle": "Server Logs",
-    "logs.language.empty": "No matching language server logs"
+    "logs.language.empty": "No matching language server logs",
+    "github.prCheckoutChecking": "Checking pull request checkout…",
+    "github.prCheckoutConflict": "The pull request branch already exists. Rename or remove it before retrying.",
+    "github.prCheckoutChanged": "The checkout or origin remote changed. Review the pull request checkout again.",
+    "github.prCheckoutConfirmTitle": "Check out pull request?",
+    "github.prCheckoutConfirmDescription": "Fetch the pull request and create a local branch. Existing branches will not be reset.",
+    "github.prCheckoutBranchLabel": "Local branch: ",
+    "github.prCheckoutInspectFailed": "Could not check the pull request checkout. Check the repository and try again."
   },
   "overrides": {
     "windows": {

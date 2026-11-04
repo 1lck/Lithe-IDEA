@@ -1,0 +1,9 @@
+{
+  "errorCodes": {"branchExists":"git_branch_exists","checkoutChanged":"git_checkout_changed"},
+  "cases": [
+    {"name":"ordinary branch", "request":{"number":42,"headRef":"feature/my-change","branchExists":false}, "expected":{"allowed":true,"branch":"pr/42-feature-my-change","conflict":null,"actions":["fetchPullRequest","createBranch"]}},
+    {"name":"existing local branch must not be reset", "request":{"number":42,"headRef":"feature/my-change","branchExists":true}, "expected":{"allowed":false,"branch":"pr/42-feature-my-change","conflict":"branchExists","actions":[]}},
+    {"name":"invalid branch characters are bounded", "request":{"number":7,"headRef":"..//  ","branchExists":false}, "expected":{"allowed":true,"branch":"pr/7-head","conflict":null,"actions":["fetchPullRequest","createBranch"]}},
+    {"name":"git lock suffix is not created", "request":{"number":2,"headRef":"topic.lock","branchExists":false}, "expected":{"allowed":true,"branch":"pr/2-topic.lock-head","conflict":null,"actions":["fetchPullRequest","createBranch"]}}
+  ]
+}
