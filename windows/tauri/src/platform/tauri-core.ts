@@ -122,7 +122,7 @@ export function invoke<T>(
     return tauriInvoke<T>(command, args, nativeOptions).catch(rejectAsError);
   }
 
-  if ((command.startsWith("git_") || command.startsWith("git.")) && command !== "git.consolePresentation" && command !== "git.changelists") {
+  if ((command.startsWith("git_") || command.startsWith("git.")) && command !== "git.consolePresentation" && command !== "git.changelists" && command !== "git.repositoryColorAssignments") {
     const payload = { ...(args as Record<string, unknown> ?? {}) };
     if (!rawCoreResult && ["git.diff", "git_diff_file", "git_commit_diff", "git_ref_diff",
       "git_working_tree_ref_diff", "git_reference_worktree_diff", "git_stash_diff", "git_status_diff_stats"].includes(command)) {

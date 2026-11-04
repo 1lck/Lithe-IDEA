@@ -32,6 +32,7 @@ mod progress;
 mod rebase_session;
 mod remote_history;
 mod remote_process;
+mod repository_colors;
 mod rewrite;
 mod rollback;
 mod setup;
@@ -76,6 +77,7 @@ pub use rebase_session::{
     start as rebase_start, GitRebaseControlRequest, GitRebasePreviewRequest,
     GitRebaseSessionRequest, GitRebaseStartRequest,
 };
+pub(crate) use repository_colors::assign_command as repository_color_assignments_command;
 pub(crate) use rollback::{rollback_plan_command, rollback_prepare_command};
 pub(crate) use shelf::shelf_command;
 

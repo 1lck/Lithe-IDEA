@@ -26,9 +26,8 @@ extension AppModel {
     /// returns to the departure position. Line-only jumps select the whole
     /// target line; an explicitly entered column places the caret at that
     /// column instead, so the entered position is never discarded.
-    func goToLine(_ text: String) {
-        guard let document = activeDocument,
-              let parsed = GoToLineInput.parse(text) else { return }
+    func goToLine(_ parsed: GoToLineInput) {
+        guard let document = activeDocument else { return }
         let target = GoToLineInput.clamped(
             line: parsed.line,
             column: parsed.column,

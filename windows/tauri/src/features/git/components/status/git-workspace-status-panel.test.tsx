@@ -12,6 +12,7 @@ import { createSingleFileWorkingTreeDiff } from "../../utils/working-tree-multi-
 import { createRoot, type Root } from "react-dom/client";
 import * as virtual from "@tanstack/react-virtual";
 import * as statusApi from "../../api/git-status-api";
+import * as core from "@/platform/tauri-core";
 import * as dialogs from "@/ui/dialog";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { installHappyDom } from "@/test-utils/happy-dom";
@@ -28,6 +29,7 @@ let restoreDom: () => void;
 let root: Root;
 let container: HTMLDivElement;
 let staging: ReturnType<typeof spyOn<typeof statusApi, "setFilesStaged">>;
+let colorInvoke: ReturnType<typeof spyOn<typeof core, "invoke">>;
 let virtualizer: ReturnType<typeof spyOn<typeof virtual, "useVirtualizer">>;
 const actGlobal = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
 let previousAct: boolean | undefined;
@@ -66,6 +68,12 @@ beforeEach(() => {
   useBufferStore.setState({ buffers: [], activeBufferId: null });
   scrollRequests = [];
   staging = spyOn(statusApi, "setFilesStaged").mockResolvedValue(true);
+  const originalInvoke = core.invoke;
+  colorInvoke = spyOn(core, "invoke").mockImplementation(((command, args, options) => {
+    if (command !== "git.repositoryColorAssignments") return originalInvoke(command, args, options);
+    const page = args as { offset: number; totalCount: number; repositoryIds: string[] };
+    return Promise.resolve({ assignments: page.repositoryIds.map((id, index) => ({ id, slot: (page.offset + index) % 8 })), fallbackSlot: 0, showColors: page.totalCount > 1 });
+  }) as typeof core.invoke);
   // Expose visible rows without relying on browser layout measurements in happy-dom.
   virtualizer = spyOn(virtual, "useVirtualizer").mockImplementation(((
     options: Parameters<typeof virtual.useVirtualizer>[0],
@@ -83,6 +91,7 @@ afterEach(async () => {
     await act(async () => root.unmount());
   } finally {
     staging.mockRestore();
+    colorInvoke.mockRestore();
     virtualizer.mockRestore();
     useBufferStore.setState(previousBuffers);
     useSettingsStore.setState((state) => ({
