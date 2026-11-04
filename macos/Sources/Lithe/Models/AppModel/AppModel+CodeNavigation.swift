@@ -69,13 +69,7 @@ extension AppModel {
         if !productNavigationLocations(for: document.url, line: line, utf16Column: utf16Column).isEmpty {
             completion(.success(true)); return
         }
-        // Plugin providers only supplement: they are asked when the language server found nothing.
-        let complete: (Result<Bool, Error>) -> Void = { [weak self] result in
-            guard case .success(false) = result,
-                  let pluginDefinitions = self?.pluginDefinitionQuery(for: document, line: line, utf16Column: utf16Column)
-            else { completion(result); return }
-            Task { @MainActor in completion(.success(!(await pluginDefinitions.value).isEmpty)) }
-        }
+        let complete = pluginSupplementedAvailability(for: document, line: line, utf16Column: utf16Column, completion: completion)
         guard let sessions = languageToolingSessionsIfActive, let workspaceURL,
               featureGraph.languageCapabilityPolicy.supports(
                 .definition, documentURL: document.url, sessions: sessions
@@ -133,23 +127,6 @@ extension AppModel {
             document: document,
             pluginDefinitions: pluginDefinitions
         )
-    }
-
-    /// A file with no language server answer still shows what its plugin
-    /// providers found, such as a key's entry in another file.
-    private func presentPluginDefinitions(
-        _ query: Task<[LanguageServerLocation], Never>, documentURL: URL, line: Int, utf16Column: Int
-    ) {
-        Task { @MainActor [weak self] in
-            let plugin = await query.value
-            // The caret moved on while the providers answered.
-            guard let self, !plugin.isEmpty, let caret = self.editorCaret,
-                  caret.url.standardizedFileURL == documentURL, caret.line == line, caret.utf16Column == utf16Column
-            else { return }
-            let locations = self.mergePluginDefinitions(
-                server: [], plugin: plugin, documentURL: documentURL, line: line, utf16Column: utf16Column)
-            self.presentGenericNavigationValues(locations, kind: .definitions, navigateToSingleResult: true, providerID: nil)
-        }
     }
 
     func findReferences() {
