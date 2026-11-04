@@ -3,6 +3,7 @@
 // The initial projection/routing IR is deliberately not command- or host-facing
 // until both native products can consume the same versioned contract.
 mod branch_names;
+pub(crate) mod catalog;
 mod changelists;
 mod command_trace;
 mod commit_message_context;

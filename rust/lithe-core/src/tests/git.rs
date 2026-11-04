@@ -7,6 +7,123 @@ use std::process::Command;
 use std::time::{Duration, UNIX_EPOCH};
 
 #[test]
+fn git_checkout_metadata_and_gitdir_pointer_match_shared_fixture() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/git/checkout-metadata-v1.json"
+    ))
+    .unwrap();
+    for case in fixture["cases"].as_array().unwrap() {
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": "metadata", "command": case["command"], "payload": {"text": case["text"]}
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(response["ok"], true, "{response}");
+        assert_eq!(response["data"], case["expected"]);
+    }
+}
+
+#[test]
+fn git_remote_and_tag_catalog_returns_unambiguous_typed_data() {
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let root = temporary_root("remote-tag-catalog");
+    let _cleanup = Cleanup(root.clone());
+    fs::create_dir_all(&root).unwrap();
+    let run = |arguments: &[&str]| {
+        let output = Command::new("git")
+            .args(arguments)
+            .current_dir(&root)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{arguments:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8_lossy(&output.stdout).trim().to_owned()
+    };
+    run(&["init", "--template=", "-q"]);
+    run(&["config", "user.name", "Lithe Test"]);
+    run(&["config", "user.email", "test@example.com"]);
+    run(&[
+        "-c",
+        "commit.gpgsign=false",
+        "commit",
+        "--allow-empty",
+        "-qm",
+        "initial",
+    ]);
+    run(&["branch", "shared"]);
+    run(&[
+        "-c",
+        "tag.gpgSign=false",
+        "tag",
+        "-a",
+        "shared",
+        "-m",
+        "annotated subject",
+    ]);
+    run(&[
+        "-c",
+        "tag.gpgSign=false",
+        "tag",
+        "-a",
+        "nested",
+        "refs/tags/shared",
+        "-m",
+        "nested subject",
+    ]);
+    let inner = run(&["rev-parse", "refs/tags/shared"]);
+    assert!(run(&["cat-file", "-p", "refs/tags/nested"]).starts_with(&format!("object {inner}\n")));
+    run(&["tag", "v-light"]);
+    run(&[
+        "remote",
+        "add",
+        "origin",
+        "https://example.invalid/team path",
+    ]);
+    let commit = run(&["rev-parse", "HEAD"]);
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/git/remote-tag-catalog-v1.json"
+    ))
+    .unwrap();
+    let call = |command: &str| -> Value {
+        serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": "catalog", "command": command, "payload": {"root": root}
+            })
+            .to_string(),
+        ))
+        .unwrap()
+    };
+    let remotes = call("git.remotes");
+    assert_eq!(remotes["ok"], true, "{remotes}");
+    assert_eq!(remotes["data"]["remotes"], fixture["expected"]["remotes"]);
+    let tags = call("git.tags");
+    assert_eq!(tags["ok"], true, "{tags}");
+    let tags = tags["data"]["tags"].as_array().unwrap();
+    for expected in fixture["expected"]["tags"].as_array().unwrap() {
+        let tag = tags
+            .iter()
+            .find(|tag| tag["name"] == expected["name"])
+            .unwrap();
+        assert_eq!(tag["isAnnotated"], expected["isAnnotated"]);
+        assert_eq!(tag["targetId"], commit);
+        assert!(tag["objectId"].as_str().is_some_and(|oid| !oid.is_empty()));
+        if expected.get("message").is_some() {
+            assert_eq!(tag["message"], expected["message"]);
+        }
+    }
+}
+
+#[test]
 fn git_comparison_can_include_untracked_worktree_files() {
     struct Cleanup(std::path::PathBuf);
     impl Drop for Cleanup {

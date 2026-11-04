@@ -688,10 +688,7 @@ fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
             );
             "git.write"
         }
-        "git_get_remotes" => {
-            payload.insert("arguments".into(), json!(["remote", "-v"]));
-            "git.command"
-        }
+        "git_get_remotes" => "git.remotes",
         "git_add_remote" => {
             let name = take_text(&mut payload, "name")?;
             let url = take_text(&mut payload, "url")?;
@@ -706,18 +703,7 @@ fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
             payload.insert("arguments".into(), json!(["remote", "remove", "--", name]));
             "git.command"
         }
-        "git_get_tags" => {
-            payload.insert(
-                "arguments".into(),
-                json!([
-                    "for-each-ref",
-                    "--sort=-creatordate",
-                    "--format=%(refname:short)%00%(objectname)%00%(contents:subject)%00%(creatordate:iso-strict)%00%(objecttype)",
-                    "refs/tags"
-                ]),
-            );
-            "git.command"
-        }
+        "git_get_tags" => "git.tags",
         "git_push_tag" => {
             let name = take_text(&mut payload, "name")?;
             let remote = take_text(&mut payload, "remote")?;
@@ -2001,15 +1987,16 @@ mod tests {
     }
 
     #[test]
-    fn translates_remote_listing_to_argument_based_git_command() {
+    fn translates_remote_listing_to_shared_catalog() {
         let (command, payload) =
             translate("git_get_remotes", json!({ "repoPath": "C:/work" })).unwrap();
 
-        assert_eq!(command, "git.command");
-        assert_eq!(
-            payload,
-            json!({ "root": "C:/work", "arguments": ["remote", "-v"] })
-        );
+        assert_eq!(command, "git.remotes");
+        assert_eq!(payload, json!({ "root": "C:/work" }));
+        let (command, payload) =
+            translate("git_get_tags", json!({ "repoPath": "C:/work" })).unwrap();
+        assert_eq!(command, "git.tags");
+        assert_eq!(payload, json!({ "root": "C:/work" }));
     }
 
     #[test]

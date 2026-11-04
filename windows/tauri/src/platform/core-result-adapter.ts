@@ -307,27 +307,19 @@ export function adaptCoreResult<T>(
       return adaptDiffStats(args, value) as T;
     case "git_discover_repo":
       return String(typeof value === "string" ? value : (data.output ?? "")).trim() as T;
-    case "git_get_remotes": {
-      const remotes = new Map<string, string>();
-      for (const line of String(data.output ?? "").split("\n")) {
-        const match = line.match(/^(\S+)\s+(\S+)\s+\(fetch\)$/);
-        if (match) remotes.set(match[1], match[2]);
-      }
-      return [...remotes].map(([name, url]) => ({ name, url })) as T;
-    }
+    case "git_get_remotes":
+      return (Array.isArray(data.remotes) ? data.remotes : []) as T;
     case "git_get_tags":
-      return String(data.output ?? "")
-        .split("\n")
-        .filter(Boolean)
-        .map((line) => {
-          const [name = "", commit = "", message = "", date = "", objectType = ""] =
-            line.split("\0");
+      return (Array.isArray(data.tags) ? data.tags : [])
+        .map((entry: unknown) => {
+          const tag = asRecord(entry);
           return {
-            name,
-            commit,
-            message: message || undefined,
-            date,
-            is_annotated: objectType === "tag",
+            name: tag.name,
+            commit: tag.targetId,
+            object_id: tag.objectId,
+            message: tag.message ?? undefined,
+            date: tag.date,
+            is_annotated: tag.isAnnotated,
           };
         }) as T;
     case "git_get_worktrees": {
