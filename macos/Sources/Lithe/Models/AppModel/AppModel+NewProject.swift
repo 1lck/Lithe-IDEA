@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import LitheCoreContracts
 import LitheModuleAPI
@@ -31,7 +32,9 @@ extension AppModel {
             },
             openMarketplace: { [weak self] query in self?.showPluginMarketplace(searching: query) },
             openProject: { [weak self] project in self?.openCreatedProject(project) },
-            store: services.store
+            store: services.store,
+            toolInstallations: { [weak self] tools in await self?.services.projectToolInstallations?(tools) ?? [:] },
+            pluginChanges: services.pluginRegistrationChanges ?? Empty<Void, Never>().eraseToAnyPublisher()
         ))
     }
 
@@ -60,6 +63,9 @@ extension AppModel {
         }
         if let warning = project.gitWarning {
             showNotification(String(format: L10n.string("The project was created, but Git could not be set up: %@"), warning), logReference: notificationRejection(operation: "project_creation", reason: "git_setup_failed"))
+        }
+        if let warning = project.toolPinWarning {
+            showNotification(String(format: L10n.string("The project was created, but the tool you chose could not be saved for it: %@"), warning), logReference: notificationRejection(operation: "project_creation", reason: "tool_pin_failed"))
         }
         openProject(project.url)
     }

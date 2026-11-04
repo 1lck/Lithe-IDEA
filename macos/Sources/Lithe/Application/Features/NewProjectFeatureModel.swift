@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import LitheCoreContracts
 import LitheModuleAPI
@@ -18,6 +19,13 @@ struct NewProjectEnvironment {
     let openMarketplace: @MainActor (String) -> Void
     let openProject: @MainActor (CreatedProject) -> Void
     let store: any KeyValueStore
+    /// Installations of the tools `tool` fields pick, by tool definition ID and
+    /// best first. A new project has no workspace yet, so this is the
+    /// machine-wide discovery; a tool nothing defines is simply absent.
+    var toolInstallations: @MainActor ([String]) async -> [String: [ProjectToolInstallation]] = { _ in [:] }
+    /// Fires after the installed plugins or their enablement changed, so the
+    /// entry list follows an install, update, or removal without reopening.
+    var pluginChanges: AnyPublisher<Void, Never> = Empty<Void, Never>().eraseToAnyPublisher()
 }
 
 /// State of the New Project window: the entry list, the host-owned name,
@@ -85,8 +93,16 @@ final class NewProjectFeatureModel: ObservableObject {
     @Published private(set) var progressOutput = ""
     @Published private(set) var errorMessage: String?
     @Published private(set) var enablingPluginID: PluginID?
+    /// True from the moment tool installations are requested until they arrive,
+    /// so an empty list reads as "none installed" rather than "still looking".
+    @Published private(set) var isListingTools = false
 
     private let environment: NewProjectEnvironment
+    /// Installations found per tool definition ID. A listing replaces the
+    /// entries it asked for; the others keep their last answer.
+    private var listedTools: [String: [ProjectToolInstallation]] = [:]
+    private var toolListing: Task<Void, Never>?
+    private var pluginChangeObservation: AnyCancellable?
     /// Inputs per generator, so switching entries keeps what the user typed.
     private var inputs: [String: ProjectGeneratorFormInput] = [:]
     private var creation: Task<Void, Never>?
@@ -99,6 +115,11 @@ final class NewProjectFeatureModel: ObservableObject {
         self.environment = environment
         location = environment.store.string(forKey: Self.locationKey) ?? Self.defaultLocation
         createGitRepository = environment.store.object(forKey: Self.createGitKey) as? Bool ?? false
+        pluginChangeObservation = environment.pluginChanges
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in
+                MainActor.assumeIsolated { self?.reloadCatalog() }
+            }
     }
 
     // MARK: Catalog
@@ -131,6 +152,9 @@ final class NewProjectFeatureModel: ObservableObject {
             selection = .empty
         }
         evaluate()
+        // A plugin change may add or remove the definition of a tool, so the
+        // installations are looked up again rather than trusted.
+        listToolInstallations()
     }
 
     var selectedEntry: ProjectGeneratorEntry? {
@@ -236,6 +260,11 @@ final class NewProjectFeatureModel: ObservableObject {
     private func input(for entry: ProjectGeneratorEntry) -> ProjectGeneratorFormInput {
         var input = inputs[entry.id] ?? ProjectGeneratorFormInput(projectName: projectName)
         input.projectName = projectName
+        // Core accepts only installations the host listed, so each tool field
+        // is sent what was found for its tool.
+        for field in entry.generator.fields where field.kind == .tool {
+            input.tools[field.id] = field.tool.flatMap { listedTools[$0] } ?? []
+        }
         // Every runtime field starts on the best JDK the generator accepts.
         for field in entry.generator.fields where field.kind == .runtime && input.runtimes[field.id] == nil {
             if let runtime = Self.preferredRuntime(javaRuntimes, minimum: field.minimumVersion) {
@@ -257,6 +286,10 @@ final class NewProjectFeatureModel: ObservableObject {
         errorMessage = nil
         showsAdvancedFields = false
         evaluate()
+        // Tools another generator already needed are not looked up again.
+        if toolIDs(of: selectedEntry).contains(where: { listedTools[$0] == nil }) {
+            listToolInstallations()
+        }
     }
 
     /// Asks Rust Core for the form after every change.
@@ -303,6 +336,59 @@ final class NewProjectFeatureModel: ObservableObject {
             manifest: source.manifest,
             packageURL: source.packageURL
         )
+    }
+
+    // MARK: Tool fields
+
+    /// The installations a tool field offers, with Core's verdict on each.
+    func toolChoices(for field: ProjectGeneratorField) -> [ProjectGeneratorFormState.ToolChoice] {
+        formState?.field(field.id)?.installations ?? []
+    }
+
+    /// What to offer when a tool field found no installation because no enabled
+    /// plugin defines its tool: enable the plugin that does, or look for one.
+    /// Nil while listing, when installations exist, and when the defining
+    /// plugin is already enabled (the tool is then just not installed).
+    func toolNoticeAction(for field: ProjectGeneratorField) -> RequirementNotice.Action? {
+        guard !isListingTools, toolChoices(for: field).isEmpty,
+              let tool = selectedEntry?.tools.first(where: { $0.fieldID == field.id }),
+              !tool.providers.contains(where: \.enabled) else { return nil }
+        if let provider = tool.providers.first {
+            return .enable(PluginID(provider.pluginID), name: provider.pluginName)
+        }
+        // A third-party definition is `<pluginID>:<id>`; the plugin is what the
+        // marketplace lists.
+        let query = tool.tool.split(separator: ":").first.map(String.init) ?? tool.tool
+        return .findInMarketplace(query)
+    }
+
+    /// The distinct tools the entry's tool fields pick, in declaration order.
+    private func toolIDs(of entry: ProjectGeneratorEntry?) -> [String] {
+        var seen = Set<String>()
+        return (entry?.generator.fields ?? [])
+            .filter { $0.kind == .tool }
+            .compactMap(\.tool)
+            .filter { seen.insert($0).inserted }
+    }
+
+    /// Looks up the installations of the selected generator's tools and
+    /// re-evaluates the form with them. A newer request replaces an older one.
+    private func listToolInstallations() {
+        toolListing?.cancel()
+        let tools = toolIDs(of: selectedEntry)
+        guard !tools.isEmpty else {
+            isListingTools = false
+            return
+        }
+        isListingTools = true
+        toolListing = Task { [weak self] in
+            guard let self else { return }
+            let found = await environment.toolInstallations(tools)
+            guard !Task.isCancelled else { return }
+            for tool in tools { listedTools[tool] = found[tool] ?? [] }
+            isListingTools = false
+            evaluate()
+        }
     }
 
     // MARK: Actions
