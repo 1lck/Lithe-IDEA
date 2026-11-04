@@ -2872,7 +2872,7 @@ calls the backend; the function must already be registered on the session.
   function through `lithe/function/invoke` with the workspace `context` and
   `{uri}`. The answer is a string, or `{content: string}`, of at most 1 MiB.
   The document opens read-only; any other answer, a failure, or a timeout
-  shows the user an error and opens nothing.
+  (the host waits 30 seconds) shows the user an error and opens nothing.
 - The provider is the only source of the text. The host keeps no copy once
   the document closes, and it asks again when the document is reopened.
   Ending the session or closing the context withdraws the provider.

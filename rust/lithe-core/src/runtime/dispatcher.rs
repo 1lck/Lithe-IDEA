@@ -266,6 +266,11 @@ fn execute_parsed(parsed: CoreRequest) -> CoreResponse {
             parsed.payload,
             crate::plugins::language_server_sessions::state_retention_command,
         ),
+        CoreCommand::PluginsContentProvidersDecode => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::content_providers::decode_content_command,
+        ),
         CoreCommand::DebugValidateAdapterEndpoint => {
             match crate::debug::validate_adapter_endpoint(parsed.payload) {
                 Ok(data) => CoreResponse::success(id, data),

@@ -113,6 +113,8 @@ pub enum CoreCommand {
     PluginsLanguageServersDecodeLaunch,
     /// Picks the stored language-server state the host may delete (`plugins.languageServers.stateRetention`).
     PluginsLanguageServersStateRetention,
+    /// Checks a plugin content provider's answer (`plugins.contentProviders.decode`).
+    PluginsContentProvidersDecode,
     /// Checks a debug start and returns the adapter's DAP arguments (`debug.adapters.startArguments`).
     DebugAdaptersStartArguments,
     /// Validates an IDE-to-DAP TCP endpoint, not an attach target.
@@ -760,6 +762,7 @@ impl CoreCommand {
             "plugins.languageServers.stateRetention" => {
                 Some(Self::PluginsLanguageServersStateRetention)
             }
+            "plugins.contentProviders.decode" => Some(Self::PluginsContentProvidersDecode),
             "debug.adapters.startArguments" => Some(Self::DebugAdaptersStartArguments),
             "debug.validateAdapterEndpoint" => Some(Self::DebugValidateAdapterEndpoint),
             "debug.adapters.executablePlan" => Some(Self::DebugAdaptersExecutablePlan),
@@ -1101,6 +1104,7 @@ mod tests {
             "lsp.pluginServerNotify",
             "plugins.languageServers.decodeLaunch",
             "plugins.languageServers.stateRetention",
+            "plugins.contentProviders.decode",
             "lsp.cancelOperation",
             "lsp.pollEvents",
             "lsp.waitEvents",

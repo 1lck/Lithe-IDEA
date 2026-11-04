@@ -1362,6 +1362,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `plugins.declarative.languageServerLaunchPlan` | Expand a declarative plugin's language-server, build-provider, VCS-provider, backend, or debug-adapter launch with host directories and architecture |
 | `plugins.languageServers.decodeLaunch` | Bound the answer of a plugin backend that resolved a language server's launch and return the plan the host starts |
 | `plugins.languageServers.stateRetention` | Choose which inactive per-workspace state directories of a plugin language server the host deletes |
+| `plugins.contentProviders.decode` | Bound the answer of a plugin content provider function and return the document text |
 | `debug.adapters.startArguments` | Check one debug start against a plugin's `debugAdapters[]` entry and return its DAP launch arguments |
 | `debug.adapters.executablePlan` | Say where to look for the program a launch debugs: the user's setting and the adapter's candidate paths |
 | `plugins.declarative.resolveSettings` | Merge a plugin's stored global and project setting layers into effective values with their source |
@@ -4846,6 +4847,13 @@ directories the host deletes. Directories used by a running session
 those older than `maxAgeDays` and those beyond the newest that fit are listed.
 The host lists and deletes only directories under its own state storage, never
 inside an app bundle or installation directory.
+
+`plugins.contentProviders.decode` accepts `{ result }`, the value a plugin
+function returned for a document of its content scheme, and returns
+`{ content }`. `result` is a string, or an object whose only member is
+`content: string`; anything else is `invalid_request`, and so is text of more
+than 1 MiB (1,048,576 UTF-8 bytes). The host opens `content` as a read-only
+document and never interprets it.
 
 A `debugAdapterID` selects a `debugAdapters[]` entry with a `serverProcess`
 or a `tcpLanguageServer` transport (naming it together with another selector is

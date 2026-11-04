@@ -2,6 +2,8 @@
 
 pub(crate) mod backend;
 pub mod capabilities;
+/// Read-only documents a plugin backend serves as a URI scheme.
+pub(crate) mod content_providers;
 pub mod declarative;
 /// Independent, host-rendered editor actions of ordinary tool plugins.
 pub mod editor_actions;
