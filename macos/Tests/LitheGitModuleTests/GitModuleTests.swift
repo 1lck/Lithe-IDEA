@@ -1642,7 +1642,8 @@ struct GitModuleTests {
         // A succeeds with a clean snapshot while B fails during an unconfirmed
         // staging request. Manual refresh must preserve B's commit protection.
         await feature.refreshGit()
-        #expect(feature.gitChanges.isEmpty)
+        #expect(feature.gitChanges == [changes[1]])
+        #expect(feature.failedStatusRepositoryRoots == [secondRoot])
         #expect(feature.isStagingChanges)
         #expect(feature.effectiveStagingState(for: changes[0]) == changes[0].isStaged)
         #expect(feature.effectiveStagingState(for: changes[1]) == staged)
@@ -1652,6 +1653,7 @@ struct GitModuleTests {
 
         // A later stale response from B still cannot confirm the request.
         await feature.refreshGit()
+        #expect(feature.failedStatusRepositoryRoots.isEmpty)
         #expect(feature.gitChanges == [changes[1]])
         #expect(feature.isStagingChanges)
         #expect(feature.effectiveStagingState(for: changes[1]) == staged)
@@ -1661,6 +1663,41 @@ struct GitModuleTests {
         #expect(feature.gitChanges.isEmpty)
         #expect(!feature.isStagingChanges)
         #expect(feature.beginToggleStaging(changes[1]) == staged)
+    }
+
+    @Test
+    func failedWorkspaceRefreshKeepsBothRepositoriesUntilEachSucceeds() async {
+        let first = URL(fileURLWithPath: "/workspace/A")
+        let second = URL(fileURLWithPath: "/workspace/B")
+        let changes = [first, second].map { root in
+            GitChange(repositoryRoot: root, path: "file.txt", originalPath: nil, indexStatus: " ", workTreeStatus: "M")
+        }
+        let snapshots = GitStatusSnapshotSequence(values: [
+            first: [GitSnapshot(repositoryRoot: first, branch: "first", changes: [changes[0]]), nil, nil],
+            second: [GitSnapshot(repositoryRoot: second, branch: "second", changes: [changes[1]]), nil,
+                     GitSnapshot(repositoryRoot: second, branch: "second-new", changes: [])]
+        ])
+        let stash = GitStash(reference: "stash@{0}", message: "kept", branch: "first", date: "")
+        let stashes = GitFailureStashes(stash: stash)
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations()),
+            snapshotProvider: { root in await snapshots.next(for: root) },
+            stashesProvider: { _ in await stashes.next() },
+            repositoryRootsProvider: { _ in [first, second] })
+        defer { feature.reset() }
+        feature.configure(workspaceURLProvider: { first.deletingLastPathComponent() },
+            isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
+        await feature.refreshGit()
+        await feature.refreshGit()
+        #expect(feature.gitChanges == changes)
+        #expect(feature.currentBranch == "first")
+        #expect(feature.failedStatusRepositoryRoots == [first, second])
+        #expect(feature.gitStashes == [stash])
+        #expect(await stashes.readCount == 1)
+        await feature.refreshGit()
+        #expect(feature.gitChanges == [changes[0]])
+        #expect(feature.failedStatusRepositoryRoots == [first])
+        #expect(feature.gitStashes == [stash])
+        #expect(await stashes.readCount == 1)
     }
 
     @Test(arguments: [Character("M"), Character("A")])
@@ -6388,6 +6425,16 @@ private final class GitReferencesLoadProbe: @unchecked Sendable {
     }
 }
 
+private actor GitFailureStashes {
+    let stash: GitStash
+    private(set) var readCount = 0
+    init(stash: GitStash) { self.stash = stash }
+    func next() -> [GitStash] {
+        readCount += 1
+        return readCount == 1 ? [stash] : []
+    }
+}
+
 private actor GitStatusSnapshotSequence {
     private var values: [URL: [GitSnapshot?]]
 
@@ -6502,6 +6549,13 @@ private final class WorktreeChangesProbe: @unchecked Sendable {
 }
 
 private struct TestGitOperations: GitOperations {
+    func workspaceStatusPlan(roots: [String], previousRoots: [String], outcomes: [GitWorkspaceStatusOutcome]) -> GitWorkspaceStatusPlan? {
+        let succeeded = Set(outcomes.filter(\.success).map(\.root))
+        let previous = Set(previousRoots)
+        return GitWorkspaceStatusPlan(entries: roots.map { root in
+            GitWorkspaceStatusPlan.Entry(root: root, source: succeeded.contains(root) ? "current" : (previous.contains(root) ? "previous" : "missing"))
+        }, confirmedRoots: roots.filter { succeeded.contains($0) }, failedRoots: roots.filter { !succeeded.contains($0) })
+    }
     func changelistProjection(_ request: GitChangelistCoreRequest) -> GitChangelistCoreProjection? {
         if let changelistProjectionHandler { return changelistProjectionHandler(request) }
         return GitChangelistCoreTestSupport.project(request)

@@ -2,7 +2,7 @@ import equal from "fast-deep-equal";
 import { createStore } from "zustand/vanilla";
 import { createWorkspaceScopedStore } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { getGitHistory } from "../api/git-commits-api";
-import { getRepositoryGitStatuses } from "../api/git-status-api";
+import { getWorkspaceStatusRefresh } from "../api/git-status-api";
 import {
   projectWorkspaceGitStatus,
   type GitRepositoryStatuses,
@@ -19,6 +19,7 @@ interface GitSourceControlSession {
 interface GitState {
   repositoryStatuses: GitRepositoryStatuses;
   statusRepoPaths: readonly string[];
+  failedStatusRoots: readonly string[];
   // Read-only projections, published atomically from repositoryStatuses.
   gitStatus: GitStatus | null;
   workspaceGitStatus: GitStatus | null;
@@ -50,6 +51,7 @@ interface GitState {
     }) => void;
     refreshGitData: (data: {
       repositoryStatuses: GitRepositoryStatuses;
+      failedStatusRoots?: readonly string[];
       workingTreeVersion?: number;
       branches?: string[];
       commits?: GitCommit[];
@@ -61,6 +63,7 @@ interface GitState {
       statuses: GitRepositoryStatuses,
       version?: number,
       repoPaths?: readonly string[],
+      failedStatusRoots?: readonly string[],
     ) => void;
     refreshRepositoryStatuses: (
       repoPaths: readonly string[],
@@ -117,6 +120,7 @@ export const createGitStore = () => {
     state: GitState,
     incoming: GitRepositoryStatuses,
     repoPaths = state.statusRepoPaths,
+    failedRoots = state.failedStatusRoots,
   ) => {
     const reused = Object.fromEntries(
       Object.entries(incoming).map(([path, status]) => [
@@ -124,8 +128,10 @@ export const createGitStore = () => {
         reuseSnapshot(state.repositoryStatuses[path] ?? null, status),
       ]),
     );
+    const allowed = new Set([...repoPaths, ...(state.currentWorkspaceRepoPath ? [state.currentWorkspaceRepoPath] : [])]);
+    const retained = Object.fromEntries(Object.entries(state.repositoryStatuses).filter(([root]) => allowed.has(root)));
     const repositoryStatuses = reuseSnapshot(state.repositoryStatuses, {
-      ...state.repositoryStatuses,
+      ...retained,
       ...reused,
     });
     const statusRepoPaths = reuseSnapshot(state.statusRepoPaths, repoPaths);
@@ -139,6 +145,7 @@ export const createGitStore = () => {
     return {
       repositoryStatuses,
       statusRepoPaths,
+      failedStatusRoots: reuseSnapshot(state.failedStatusRoots, failedRoots),
       gitStatus,
       workspaceGitStatus,
       workspaceGitStatusUpdatedAt:
@@ -151,6 +158,7 @@ export const createGitStore = () => {
   return createStore<GitState>()((set, get) => ({
     repositoryStatuses: {},
     statusRepoPaths: [],
+    failedStatusRoots: [],
     gitStatus: null,
     workspaceGitStatus: null,
     commits: [],
@@ -222,6 +230,7 @@ export const createGitStore = () => {
 
       refreshGitData: ({
         repositoryStatuses,
+        failedStatusRoots,
         workingTreeVersion,
         branches,
         commits,
@@ -237,7 +246,7 @@ export const createGitStore = () => {
             operationState !== undefined && acceptOperationState(version);
           const next = {
             ...(publishWorkingTree
-              ? statusProjection(state, repositoryStatuses, Object.keys(repositoryStatuses))
+              ? statusProjection(state, repositoryStatuses, Object.keys(repositoryStatuses), failedStatusRoots)
               : {}),
             operationState: publishOperationState
               ? reuseSnapshot(state.operationState, operationState)
@@ -251,7 +260,8 @@ export const createGitStore = () => {
           if (
             (!publishWorkingTree ||
               (next.repositoryStatuses === state.repositoryStatuses &&
-                next.statusRepoPaths === state.statusRepoPaths)) &&
+                next.statusRepoPaths === state.statusRepoPaths &&
+                next.failedStatusRoots === state.failedStatusRoots)) &&
             next.operationState === state.operationState &&
             next.branches === state.branches &&
             next.commits === state.commits &&
@@ -262,7 +272,7 @@ export const createGitStore = () => {
         });
       },
 
-      publishRepositoryStatuses: (statuses, version, repoPaths) => {
+      publishRepositoryStatuses: (statuses, version, repoPaths, failedRoots) => {
         if (!acceptWorkingTree(version ?? ++nextWorkingTreeVersion)) return;
         set((state) => {
           const next = statusProjection(
@@ -270,9 +280,11 @@ export const createGitStore = () => {
             statuses,
             repoPaths ??
               (state.statusRepoPaths.length ? state.statusRepoPaths : Object.keys(statuses)),
+            failedRoots,
           );
           return next.repositoryStatuses === state.repositoryStatuses &&
-            next.statusRepoPaths === state.statusRepoPaths
+            next.statusRepoPaths === state.statusRepoPaths &&
+            next.failedStatusRoots === state.failedStatusRoots
             ? state
             : next;
         });
@@ -280,8 +292,8 @@ export const createGitStore = () => {
 
       refreshRepositoryStatuses: async (repoPaths, requiredRepoPaths = repoPaths) => {
         const version = ++nextWorkingTreeVersion;
-        const statuses = await getRepositoryGitStatuses(repoPaths, "background", requiredRepoPaths);
-        get().actions.publishRepositoryStatuses(statuses, version, requiredRepoPaths);
+        const result = await getWorkspaceStatusRefresh(repoPaths, "background", requiredRepoPaths, get().repositoryStatuses);
+        get().actions.publishRepositoryStatuses(result.statuses, version, requiredRepoPaths, result.failedRoots);
       },
 
       loadMoreCommits: async (repoPath) => {
@@ -320,6 +332,7 @@ export const createGitStore = () => {
         set({
           repositoryStatuses: {},
           statusRepoPaths: [],
+          failedStatusRoots: [],
           gitStatus: null,
           workspaceGitStatus: null,
           currentWorkspaceRepoPath: repoPath,
@@ -353,6 +366,7 @@ export const createGitStore = () => {
         set({
           repositoryStatuses: {},
           statusRepoPaths: [],
+          failedStatusRoots: [],
           gitStatus: null,
           commits: [],
           branches: [],

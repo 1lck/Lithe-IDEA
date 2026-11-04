@@ -1,12 +1,10 @@
 import Combine
 import Foundation
-import LitheModuleAPI
 
 /// Window-owned history shared by Git feature workflows, GitHub actions and
 /// requests made before the Git feature activates.
 /// Native callbacks only update bounded storage; consumers coalesce publication.
 package final class GitExecutionJournal: @unchecked Sendable {
-    package var onLifecycleEvent: (@Sendable (GitExecutionEvent) -> LogRecordReference?)?
     package let changes = PassthroughSubject<Void, Never>()
     private let lock = NSLock()
     private var contexts: [String: GitExecutionContext] = [:]
@@ -18,10 +16,6 @@ package final class GitExecutionJournal: @unchecked Sendable {
     private var entryIDs: [String: Set<UUID>] = [:]
     private var hidden: Set<String> = []
     private var omittedHistory = false
-    private var failedReferences: [String: LogRecordReference] = [:]
-    package func takeFailureReference(operationID: String) -> LogRecordReference? {
-        lock.withLock { failedReferences.removeValue(forKey: operationID) }
-    }
 
     package init() {}
 
@@ -62,15 +56,6 @@ package final class GitExecutionJournal: @unchecked Sendable {
     }
 
     package func receive(_ event: GitExecutionEvent, at root: URL? = nil) {
-        if ["requestStarted", "requestFinished", "started", "finished"].contains(event.type) {
-            if let reference = onLifecycleEvent?(event) {
-                lock.withLock {
-                    if failedReferences.count >= 256 { failedReferences.removeAll(keepingCapacity: true) }
-                    failedReferences[event.operationId] = reference
-                }
-            }
-        }
-
         let changed = lock.withLock { receiveLocked(event, root: root) }
         if changed { changes.send() }
     }

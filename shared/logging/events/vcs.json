@@ -3,72 +3,6 @@
   "root": "vcs",
   "events": [
     {
-      "id": "vcs.git.command",
-      "channel": "vcs/{provider}",
-      "level": "info",
-      "message": "Git {command}",
-      "fields": {
-        "provider": {
-          "type": "id",
-          "required": true,
-          "description": "VCS provider id that owns the repository, e.g. git"
-        },
-        "command": {
-          "type": "token",
-          "required": true,
-          "description": "Git subcommand that ran, e.g. fetch or push"
-        },
-        "exit_code": {
-          "type": "int",
-          "required": false,
-          "description": "Exit status of the git process; absent when it could not start"
-        },
-        "failure_code": {
-          "type": "token",
-          "required": false,
-          "description": "Stable Core Git failure code, separate from the native process exit status."
-        }
-      },
-      "rate": 600,
-      "owner": "LitheGitModule",
-      "span": {
-        "failureLevel": "error"
-      }
-    },
-    {
-      "id": "vcs.git.request",
-      "channel": "vcs/{provider}",
-      "level": "info",
-      "message": "Git request {command}",
-      "fields": {
-        "provider": {
-          "type": "id",
-          "required": true,
-          "description": "VCS provider id that owns the repository, e.g. git"
-        },
-        "command": {
-          "type": "token",
-          "required": true,
-          "description": "Git service request being executed, e.g. fetch or history"
-        },
-        "exit_code": {
-          "type": "int",
-          "required": false,
-          "description": "Exit status reported for the request result; absent when no git process result is available"
-        },
-        "failure_code": {
-          "type": "token",
-          "required": false,
-          "description": "Stable Core Git failure code, separate from the native process exit status."
-        }
-      },
-      "rate": 600,
-      "owner": "LitheGitModule",
-      "span": {
-        "failureLevel": "error"
-      }
-    },
-    {
       "id": "vcs.roots.fallback_selected",
       "channel": "vcs",
       "level": "warn",
@@ -469,6 +403,177 @@
         }
       },
       "rate": 60,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "vcs.git.command.finished",
+      "channel": "vcs/git",
+      "level": "info",
+      "message": "Git {command} finished",
+      "fields": {
+        "command": {
+          "type": "token",
+          "required": true,
+          "description": "Git subcommand after global options, e.g. fetch, commit or rev-parse; unknown when absent"
+        },
+        "arguments": {
+          "type": "text",
+          "required": true,
+          "description": "Full Git argument list after git, joined by spaces and quoted where needed",
+          "reason": "Redacted by Core before recording: commit message values become <message>, credential-bearing -c values and URL userinfo are removed, and the text is capped at 1 KiB"
+        },
+        "repository": {
+          "type": "path",
+          "required": false,
+          "description": "Repository root or working directory the Git process ran in"
+        },
+        "source": {
+          "type": "token",
+          "required": true,
+          "description": "Effective Git execution source: user, background or unknown"
+        },
+        "remote": {
+          "type": "bool",
+          "required": false,
+          "description": "Present and true when the Git process ran on a remote workspace host"
+        },
+        "exit_code": {
+          "type": "int",
+          "required": false,
+          "description": "Native exit status of the Git process; absent when it never started or ended by signal"
+        },
+        "duration": {
+          "type": "duration",
+          "required": true,
+          "description": "Wall time from spawning the Git process until its exit status was collected"
+        },
+        "cancelled": {
+          "type": "bool",
+          "required": false,
+          "description": "Present and true when the Git process ended because its request was cancelled"
+        },
+        "stderr": {
+          "type": "text",
+          "required": false,
+          "description": "Last non-empty lines of Git standard error when the process exited nonzero or was cancelled",
+          "reason": "Git writes its failure reason only to stderr; Core keeps at most the last 8 lines, applies the same redaction as arguments, and never records stdout, stdin or environment"
+        }
+      },
+      "rate": 600,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "vcs.git.command.traced",
+      "channel": "vcs/git",
+      "level": "debug",
+      "message": "Git {command} traced",
+      "fields": {
+        "command": {
+          "type": "token",
+          "required": true,
+          "description": "Git subcommand after global options, e.g. fetch, commit or rev-parse; unknown when absent"
+        },
+        "arguments": {
+          "type": "text",
+          "required": true,
+          "description": "Full Git argument list after git, joined by spaces and quoted where needed",
+          "reason": "Redacted by Core before recording: commit message values become <message>, credential-bearing -c values and URL userinfo are removed, and the text is capped at 1 KiB"
+        },
+        "repository": {
+          "type": "path",
+          "required": false,
+          "description": "Repository root or working directory the Git process ran in"
+        },
+        "source": {
+          "type": "token",
+          "required": true,
+          "description": "Effective Git execution source: user, background or unknown"
+        },
+        "remote": {
+          "type": "bool",
+          "required": false,
+          "description": "Present and true when the Git process ran on a remote workspace host"
+        },
+        "exit_code": {
+          "type": "int",
+          "required": false,
+          "description": "Native exit status of the Git process; absent when it never started or ended by signal"
+        },
+        "duration": {
+          "type": "duration",
+          "required": true,
+          "description": "Wall time from spawning the Git process until its exit status was collected"
+        },
+        "cancelled": {
+          "type": "bool",
+          "required": false,
+          "description": "Present and true when the Git process ended because its request was cancelled"
+        },
+        "stderr": {
+          "type": "text",
+          "required": false,
+          "description": "Last non-empty lines of Git standard error when the process exited nonzero or was cancelled",
+          "reason": "Git writes its failure reason only to stderr; Core keeps at most the last 8 lines, applies the same redaction as arguments, and never records stdout, stdin or environment"
+        }
+      },
+      "rate": 600,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "vcs.git.command.failed",
+      "channel": "vcs/git",
+      "level": "warn",
+      "message": "Git {command} failed",
+      "fields": {
+        "command": {
+          "type": "token",
+          "required": true,
+          "description": "Git subcommand after global options, e.g. fetch, commit or rev-parse; unknown when absent"
+        },
+        "arguments": {
+          "type": "text",
+          "required": true,
+          "description": "Full Git argument list after git, joined by spaces and quoted where needed",
+          "reason": "Redacted by Core before recording: commit message values become <message>, credential-bearing -c values and URL userinfo are removed, and the text is capped at 1 KiB"
+        },
+        "repository": {
+          "type": "path",
+          "required": false,
+          "description": "Repository root or working directory the Git process ran in"
+        },
+        "source": {
+          "type": "token",
+          "required": true,
+          "description": "Effective Git execution source: user, background or unknown"
+        },
+        "remote": {
+          "type": "bool",
+          "required": false,
+          "description": "Present and true when the Git process ran on a remote workspace host"
+        },
+        "exit_code": {
+          "type": "int",
+          "required": false,
+          "description": "Native exit status of the Git process; absent when it never started or ended by signal"
+        },
+        "duration": {
+          "type": "duration",
+          "required": true,
+          "description": "Wall time from spawning the Git process until its exit status was collected"
+        },
+        "error": {
+          "type": "error",
+          "required": false,
+          "description": "Core runner error for process failures such as start, I/O, output limit or cleanup"
+        },
+        "stderr": {
+          "type": "text",
+          "required": false,
+          "description": "Last non-empty lines of Git standard error when the process exited nonzero or was cancelled",
+          "reason": "Git writes its failure reason only to stderr; Core keeps at most the last 8 lines, applies the same redaction as arguments, and never records stdout, stdin or environment"
+        }
+      },
+      "rate": 600,
       "owner": "lithe-core"
     },
     {

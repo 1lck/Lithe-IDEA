@@ -75,7 +75,9 @@ beforeEach(() => {
   timer = new ManualTimer();
   readStatuses.mockClear();
   spies.push(
-    spyOn(statusApi, "getRepositoryGitStatuses").mockImplementation(readStatuses),
+    spyOn(statusApi, "getWorkspaceStatusRefresh").mockImplementation(async () => ({
+      statuses: await readStatuses(), confirmedRoots: [repo], failedRoots: [],
+    })),
     spyOn(useRepositoryStore.getState().actions, "syncWorkspaceRepositories").mockResolvedValue(),
     spyOn(fileSystem, "useFileSystemStore").mockImplementation(((
       selector: (state: { rootFolderPath: string; workspaceFolders: typeof folders }) => unknown,

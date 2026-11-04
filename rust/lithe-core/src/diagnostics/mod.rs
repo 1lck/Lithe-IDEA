@@ -20,6 +20,7 @@ pub mod record;
 pub mod retention;
 
 pub(crate) mod helper_failures;
+pub(crate) mod request_trace;
 
 mod manifest;
 mod redaction;

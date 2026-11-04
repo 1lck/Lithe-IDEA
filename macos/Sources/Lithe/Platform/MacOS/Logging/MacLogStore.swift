@@ -42,6 +42,9 @@ final class MacLogStore: ApplicationLogging, LogWindowLogging, LogSink, @uncheck
     private var diagnosticExpiry: DispatchWorkItem?
     private var logSessions: [String: String] = [:]
     private var diagnosticAttempts: [String: Bool] = [:]
+    // Last DEBUG gate sent to Core (nil until the first attempt). A failed push
+    // is not retried until the desired state changes, like engine sessions.
+    private var coreGate: CoreGate?
     private var directory: URL?
     private var sequence: UInt64 = 0
     private var previousEvent: RustCoreBridge.LogInput?
@@ -173,8 +176,19 @@ final class MacLogStore: ApplicationLogging, LogWindowLogging, LogSink, @uncheck
     func releaseSession(_ id: String) {
         queue.async { [self] in logSessions.removeValue(forKey: id); diagnosticAttempts.removeValue(forKey: id) }
     }
+    private struct CoreGate: Equatable { let debug: Bool; let roots: [String]? }
+
     private func updateSessionDiagnostics() {
         let state = lock.withLock { (!stopped && diagnosticNow() < diagnosticUntil, diagnosticRoots) }
+        let gate = CoreGate(debug: state.0, roots: state.0 ? state.1.map { $0.sorted() } : nil)
+        if gate != coreGate {
+            coreGate = gate
+            do {
+                try core.configureCoreEvents(debug: gate.debug, roots: gate.roots)
+            } catch {
+                emit(AppLoggingDiagnosticsFailed(error: LogFailure(domain: "core", code: (error as? RustCoreBridge.CoreCallError)?.code ?? "trace_failed")))
+            }
+        }
         for (id, channel) in logSessions {
             // Core owns the root-to-category mapping (configureDiagnostic), so
             // engine sessions follow the same admission as persisted DEBUG facts.

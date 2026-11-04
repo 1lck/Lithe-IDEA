@@ -40,7 +40,7 @@ struct WorkbenchNotificationTests {
         defer { feature.clear(); clock.releaseAll() }
         var opened = 0
         feature.show("Database is now a plugin.", arguments: [],
-                     action: WorkbenchNotification.Action(title: "Open Marketplace") { opened += 1 })
+                     action: WorkbenchNotification.Action(id: "plugins.marketplace.open", title: "Open Marketplace") { opened += 1 })
         #expect(clock.pending.isEmpty)
         clock.advance(.seconds(100))
         let id = feature.activeNotifications[0].id
@@ -509,7 +509,7 @@ extension WorkbenchNotificationTests {
         var actionCount = 0
         var opened: LogWindowOpenRequest?
         feature.openLogs = { opened = $0 }
-        feature.show("fixture", action: .init(title: "Retry", perform: { actionCount += 1 }), logReference: reference)
+        feature.show("fixture", action: .init(id: "fixture.retry", title: "Retry", perform: { actionCount += 1 }), logReference: reference)
         feature.show("fixture")
         let notification = try #require(feature.notifications.first)
         #expect(notification.logReference == reference && notification.action != nil)

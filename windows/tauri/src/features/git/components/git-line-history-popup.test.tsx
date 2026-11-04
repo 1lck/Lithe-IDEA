@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { act } from "react";
 import { LocaleProvider } from "@/i18n/locale-provider";
 import { installHappyDom } from "@/test-utils/happy-dom";
@@ -11,6 +11,7 @@ afterAll(restoreDom);
 // file registers last must still serve every consumer.
 const invoke = mock(async (command: string, _args?: unknown): Promise<unknown> => {
   if (command === "git_discover_repo") return "C:/repo";
+  if (command === "git.resolveFileContext") return { root: "C:/repo", path: "src/main.ts", ownership: "git" };
   if (command === "git.lineHistory") {
     return { baseCommit: "b".repeat(40), unmappedLines: [], commits: [], truncated: false };
   }
@@ -50,7 +51,8 @@ const openBuffer = mock(
 const tauriCoreModule = await import("@/platform/tauri-core");
 mock.module("@/platform/tauri-core", () => ({ ...tauriCoreModule, invoke }));
 mock.module("@/core/lithe-core-client", () => ({ cancelCoreOperation }));
-mock.module("@/features/git/api/git-line-history-api", () => ({ getGitLineHistory }));
+const lineHistoryModule = await import("@/features/git/api/git-line-history-api");
+let lineHistorySpy: ReturnType<typeof spyOn<typeof lineHistoryModule, "getGitLineHistory">>;
 const bufferStoreModule = await import("@/features/editor/stores/buffer.store");
 mock.module("@/features/editor/stores/buffer.store", () => ({
   ...bufferStoreModule,
@@ -62,12 +64,15 @@ const { createRoot } = await import("react-dom/client");
 const { clearRepositoryDiscoveryCache } = await import("@/features/git/api/git-repo-api");
 
 beforeEach(() => {
+  lineHistorySpy = spyOn(lineHistoryModule, "getGitLineHistory").mockImplementation(getGitLineHistory as typeof lineHistoryModule.getGitLineHistory);
   invoke.mockClear();
   openBuffer.mockClear();
   // Discovery caching would leak one test's repository identity into the
   // next entry-open assertion.
   clearRepositoryDiscoveryCache();
 });
+
+afterEach(() => lineHistorySpy.mockRestore());
 
 const sampleHistory = {
   baseCommit: "b".repeat(40),

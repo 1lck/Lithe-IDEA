@@ -8,6 +8,52 @@ import Testing
 
 @Suite("Git status observation", .serialized)
 struct GitStatusObservationTests {
+    @Test
+    func blameMenuAcceptsAnyDiscoveredRepositoryButNotUntrackedOrPrefixNeighbors() {
+        let roots = [URL(fileURLWithPath: "/workspace/first"), URL(fileURLWithPath: "/workspace/second")]
+        #expect(gitBlameCanAnnotate(URL(fileURLWithPath: "/workspace/second/file"), repositoryRoots: roots, isUntracked: false))
+        #expect(!gitBlameCanAnnotate(URL(fileURLWithPath: "/workspace/second/file"), repositoryRoots: roots, isUntracked: true))
+        #expect(!gitBlameCanAnnotate(URL(fileURLWithPath: "/workspace/second-other/file"), repositoryRoots: roots, isUntracked: false))
+        #expect(!gitBlameCanAnnotate(URL(fileURLWithPath: "/workspace/second"), repositoryRoots: roots, isUntracked: false))
+    }
+
+    @Test @MainActor
+    func realCoreWorkspacePlanKeepsFailedRepositoryRows() async {
+        let first = URL(fileURLWithPath: "/workspace/A")
+        let second = URL(fileURLWithPath: "/workspace/B")
+        let changes = [first, second].map { root in
+            GitChange(repositoryRoot: root, path: "file.txt", originalPath: nil, indexStatus: " ", workTreeStatus: "M")
+        }
+        let snapshots = WorkspaceFailureSnapshots(first: first, second: second, changes: changes)
+        let feature = GitFeatureModel(service: GitService(operations: RustGitOperations(core: RustCoreBridge())),
+            snapshotProvider: { root in await snapshots.next(root) }, repositoryRootsProvider: { _ in [first, second] })
+        defer { feature.reset() }
+        feature.configure(workspaceURLProvider: { first.deletingLastPathComponent() },
+            isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
+        await feature.refreshGit()
+        await feature.refreshGit()
+        #expect(feature.gitChanges == [changes[1]])
+        #expect(feature.failedStatusRepositoryRoots == [second])
+    }
+
+    @Test @MainActor
+    func blameUsesTheEditedFilesRepositoryInsteadOfTheActiveCheckout() async throws {
+        let fixture = try GitObservationFixture(label: "blame-file-ownership")
+        let first = fixture.url.appendingPathComponent("first", isDirectory: true)
+        let second = fixture.url.appendingPathComponent("second", isDirectory: true)
+        try await fixture.initializeRepository(at: first)
+        try await fixture.initializeRepository(at: second)
+        let file = second.appendingPathComponent("tracked.txt")
+        try Data("second repository\n".utf8).write(to: file)
+        try await fixture.git(["add", "tracked.txt"], at: second)
+        try await fixture.git(["commit", "-q", "-m", "second repo change"], at: second)
+        let expected = try await fixture.git(["rev-parse", "HEAD"], at: second)
+        let service = GitService(operations: RustGitOperations(core: RustCoreBridge()))
+        let lines = await service.blame(fileURL: file, at: first)
+        #expect(lines.count == 1)
+        #expect(lines.first?.commitHash == expected)
+    }
+
     @Test @MainActor
     func coreHistoryDatesPreserveOffsetAndFilterEquivalentInstants() async throws {
         let fixture = try GitObservationFixture(label: "history-timezones")
@@ -1157,6 +1203,24 @@ private final class GitObservationFixture: Sendable {
         }
         return String(decoding: result.output, as: UTF8.self)
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+private actor WorkspaceFailureSnapshots {
+    let first: URL
+    let second: URL
+    let changes: [GitChange]
+    private var reads: [URL: Int] = [:]
+    init(first: URL, second: URL, changes: [GitChange]) {
+        self.first = first; self.second = second; self.changes = changes
+    }
+    func next(_ root: URL) -> GitSnapshot? {
+        let count = reads[root, default: 0]
+        reads[root] = count + 1
+        if root == first {
+            return GitSnapshot(repositoryRoot: first, branch: "main", changes: count == 0 ? [changes[0]] : [])
+        }
+        return count == 0 ? GitSnapshot(repositoryRoot: second, branch: "main", changes: [changes[1]]) : nil
     }
 }
 

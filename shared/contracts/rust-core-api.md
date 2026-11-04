@@ -766,6 +766,7 @@ Every request has this shape:
   "id": "request-id",
   "operationId": "operation-id",
   "timeoutMilliseconds": 30000,
+  "origin": { "source": "user", "trigger": "find-in-files", "operation": "op-7f3a" },
   "command": "workspace.search",
   "payload": {}
 }
@@ -777,6 +778,15 @@ cooperative deadline. `lithe_core_cancel` is thread-safe and returns `1` when
 the operation is active. Cancellation and deadlines are checked at command
 boundaries, workspace traversal points, and Git process waits. They return
 `cancelled` or `timed_out` in the standard error envelope.
+
+`origin` is optional diagnostics provenance:
+`{ source?: "user" | "background" | "unknown", trigger?: string, operation?: string }`.
+It never changes command behavior. `trigger` is the stable identifier of the UI
+action that caused the request, and `operation` is the correlation identifier
+shared by that action and every request it caused. A `trigger` must be 1–64
+bytes of ASCII letters, digits and `._:/-$`, and an `operation` 1–128 bytes of
+ASCII letters, digits and `._:/@+-`. A value outside its shape is omitted from
+the trace instead of failing the request. See [Execution traces](#execution-traces).
 
 Successful responses contain `ok: true` and `data`. Failed responses contain a
 stable error code and a user-facing message:
@@ -1244,6 +1254,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `git.initialize` | Initialize a directory outside existing repositories without staging or committing |
 | `git.configureIdentity` | Save or clear one local/global `user.name` or `user.email` override |
 | `git.status` | Resolve the repository, current branch, and working-tree changes |
+| `git.workspaceStatusMerge` | Plan publication of fresh, retained, and unavailable repository snapshots |
 | `git.rollbackPlan` | Plan whole-file rollback from explicit Git status identities without reading or changing a repository |
 | `git.rollbackPrepare` | Recheck selected identities against the repository and return rollback steps |
 | `git.prepareCommitSelection` | Prepare and verify the real indexes for explicitly selected changes |
@@ -1257,6 +1268,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `git.pullRequestContext` | Resolve worktree-aware PR branch defaults, publication state, and uncommitted-change state |
 | `git.command` | Execute one argument-based Git operation and return its arguments, streams, exit code, and ordered subprocess invocations |
 | `git.repositoryRoot` | Resolve the repository root containing a workspace path without acquiring repository write coordination |
+| `git.resolveFileContext` | Resolve a file to its owning Git checkout and relative path |
 | `git.write` | Validate and execute shared Git mutations such as stage, commit, branch, checkout, remote sync, clone, and stash |
 | `git.fetchPlan` | Validate Fetch choices; optionally inspect a repository to expand enabled per-remote commands |
 | `git.consolePresentation` | Pure IDEA-style configuration/progress folds, empty-output notices and search ranges over retained diagnostic snapshots |
@@ -1310,6 +1322,8 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `diagnostics.planLogRetention` | Plan log cleanup from host-owned file inventories |
 | `diagnostics.resolveEngineLogSubject` | Resolve the same routing segment and channel used by engine startup, without I/O |
 | `diagnostics.resolveLogChannel` | Validate channels and resolve safe session-relative destinations |
+| `diagnostics.drainCoreEvents` | Atomically take process-owned Core log facts and their dropped count |
+| `diagnostics.configureCoreEvents` | Set the DEBUG admission gate for Core log facts from host detailed-diagnostics state |
 | `diagnostics.redactText` | Redact credentials, tokens, and home-directory paths from diagnostic-bundle text |
 | `diagnostics.buildManifest` | Shape a deterministic diagnostic bundle manifest from host-gathered environment and file facts |
 | `plugins.declarative.validate` | Validate and normalize a declarative plugin manifest (plugin contract v1) |
@@ -1583,9 +1597,31 @@ validation or probe fails after at least one subprocess was recorded, the
 response retains the invocation trace and includes the failure as
 `operationError`.
 
+`git.workspaceStatusMerge` accepts ordered `roots`, `previousRoots`, and one
+`{ root, success }` outcome per root. It returns ordered entries with source
+`current`, `previous`, or `missing`, plus `confirmedRoots` and `failedRoots`.
+A failure is never a clean snapshot; a previous snapshot is retained only for a
+still-discovered root. Duplicate, foreign, or incomplete outcomes are rejected.
+Hosts keep the actual snapshots and publish the plan only if its request version
+and workspace identity remain current. Failed roots must not confirm pending Git
+mutations or erase their open diff; their displayed data is marked as potentially
+stale. No status data or credentials are persisted by the planner.
+
 `git.repositoryRoot` accepts `{ "root": string }` and returns the normalized
 absolute repository root or `null` when the path is not inside a repository. It
 is read-only and does not acquire the repository write lease.
+
+`git.resolveFileContext` accepts `{ "root": string, "path": string }` and returns
+`{ "root": string, "path": string, "ownership": "git" }` or `null` for a
+file outside Git. A relative path is anchored at the existing root; an absolute
+file may belong to a different checkout. Core discovers the deepest actual Git
+checkout, including nested repositories and linked worktrees. Missing parent
+directories are resolved from the nearest existing directory, while symlinked
+parents are resolved on the owning host and the final filename is not followed.
+Parent traversal components and unsupported Windows path identities are rejected.
+Errors are not treated as a reason to use the active repository. The command is
+read-only, observes the remote workspace IO boundary, and does not cache ownership.
+Windows `remote://` and `wsl://` URI adapters retain their existing host routing.
 
 `git.command` and typed Git writers share the repository's write lease, including
 linked worktrees. A competing request fails with `invalid_request` while a writer
@@ -5520,6 +5556,24 @@ only categories, excluding remote addresses, output, and scratch names.
 {"id":null,"ok":true,"data":{"events":[{"ts":"2026-11-03T08:00:00.000Z","level":"WARN","event":"app.workspace.directory_skipped","channel":"app","fields":{"path":"src/inaccessible","error":"Directory traversal failed","error_code":"permission_denied","error_domain":"core"}}],"dropped":0}}
 ```
 
+`diagnostics.configureCoreEvents` accepts `{debug:bool,roots?:[string]}` and
+returns `{}`. Unknown fields fail with `invalid_request`. It sets the process-wide
+admission gate for DEBUG Core facts: `debug:false` rejects every DEBUG fact,
+`debug:true` without `roots` admits DEBUG on every channel root, and
+`debug:true` with `roots` admits DEBUG only on the listed roots. The default is
+disabled. Rejected DEBUG facts return success to their producer, are never
+queued and never count as dropped, so background traces cannot fill the
+256-entry queue and displace later WARN or ERROR facts. INFO, WARN and ERROR
+are always admitted. Producers that build expensive fields check the gate first.
+
+```json
+{"version":1,"command":"diagnostics.configureCoreEvents","payload":{"debug":true,"roots":["app","vcs"]}}
+```
+
+```json
+{"id":null,"ok":true,"data":{}}
+```
+
 `plugins.declarative.languageServerLaunchPlan.request.logDirectory` is an
 optional absolute host-owned current-session plugin files directory for
 `${logDir}`. Language servers and plugin backends use the same expansion.
@@ -5550,13 +5604,15 @@ writer installs the Core log waker; its callback schedules the same 100 ms
 one-shot drain that host events use, so Core and plugin facts recorded without
 host activity reach disk and live subscribers without an idle poller or second
 writer. Finishing the session removes the waker before the final drain.
-`channelCategory` maps lsp to language, vcs to git and
-plugin-host processes to plugins. The selected diagnostic category drives
+MacLogStore sends `diagnostics.configureCoreEvents` only when the
+detailed-diagnostics state or its channel roots change. `channelCategory` maps
+lsp to language, vcs to git and plugin-host processes to plugins. The selected diagnostic category drives
 `lsp.setDetailedDiagnostics` for active sessions, newly registered sessions and
-a one-shot 15-minute expiry. A failed desired state is reported once with
+a one-shot 15-minute expiry. A failed desired state, including a failed
+`configureCoreEvents`, is reported once with
 `app.logging.diagnostics_failed`; changing desired state permits another attempt.
-The 100-entry v1 message/detail memory buffer remains for LanguageServerLogsView
-until PR4; it does not create v1 files.
+Language-server evidence has no in-memory v1 buffer on macOS; the log window reads
+only v2 session files.
 
 `diagnostics.resolveLogChannel` additionally returns optional `pluginFilesPath`
 for a `plugins/<id>/host` channel using Core's `plugin_files_path` rule. macOS
@@ -5574,3 +5630,66 @@ Core directory traversal and scratch cleanup reuse PR1's
 stable category without absolute paths, scratch names or remote addresses.
 Remote process/upload cleanup uses ClientError categories timeout, closed,
 transport, spawn, protocol, or remote_<protocol_code>; peer prose is excluded.
+
+### Execution traces
+
+Core records one terminal fact for each dispatched request and one for each Git
+process, and hands both to the host through `diagnostics.drainCoreEvents`. Event
+identities and field shapes are declared in `shared/logging/events/app.json` and
+`shared/logging/events/vcs.json`; this section defines when each is emitted.
+
+Request traces use channel `app/core`: `app.core.request.finished` (INFO),
+`app.core.request.traced` (DEBUG) and `app.core.request.failed` (WARN). The
+dispatcher resolves the trace `op` from the first of `origin.operation`,
+`operationId` and `id` that has the `operation` shape, and the source from `origin.source` unless it is absent or `unknown`, then
+`gitExecution.source`, then `unknown`. It installs `{op, source}` as thread-local context for the request's
+duration, so every Git process the request starts inherits both. An error
+response other than `cancelled` is `failed` and carries `error` with domain
+`core`. Any other response is `finished` when the source is `user` and `traced`
+otherwise; a cancelled response adds `cancelled:true`. Fields are `method`,
+`source`, `duration_ms`, the optional payload `operation` selector, `trigger`,
+the first absolute path among `root`, `workspaceRoot`, `repositoryRoot`, `projectRoot`,
+`rootPath`, `directory` and `path` in the payload, recorded as `path`, and `remote` for
+remote workspaces. No other payload content is recorded. `core.ping`, every
+`diagnostics.*` command and the per-keystroke, per-frame, polling and watcher
+methods listed in `request_trace::is_hot` record nothing.
+
+Git process traces use channel `vcs/git`: `vcs.git.command.finished` (INFO),
+`vcs.git.command.traced` (DEBUG) and `vcs.git.command.failed` (WARN). They are
+emitted at the single execution point shared by local and remote workspaces.
+A visible command runs through `execute_git` and is returned to the host as an
+invocation; an internal read runs through `capture_git` and Core parses its
+output. Outcomes are classified in this order:
+
+1. A `cancelled` runner error is a cancellation; any other runner error is a failure.
+2. Exit status 0 is a success.
+3. An exit status that the command documents as an answer (for example 1 from
+   `git diff --quiet` or `git config --get`) is a success.
+4. A nonzero exit of an internal read whose source is not `user` is a success at
+   this layer; the caller decides its meaning, and an error response it returns
+   is recorded by the request trace.
+5. Every other exit is a failure.
+
+A failure is `failed`. A success or cancellation is `finished` for a visible
+command whose source is `user` and `traced` otherwise. Fields are `command`,
+`arguments`, `source`, `duration_ms`, and optionally `repository`, `remote`,
+`exit_code` and `cancelled`. `arguments` is produced only by `format_arguments`:
+commit message values become `<message>`, values of `-c` keys that name
+credentials or personal identity become `<redacted>`, URL user information and
+the shared redaction patterns are rewritten, arguments are quoted where needed,
+and text beyond 1024 bytes is cut with a trailing `…`. A failure, a cancellation
+or a nonzero exit adds `stderr`: the last 8 nonempty lines of the final 16 KiB of standard
+error, each redacted and joined with ` | `, keeping the newest 1024 bytes with a
+leading `…`. A failure caused by a runner error adds `error`, `error_code` and
+`error_domain:"core"`;
+the process `exit_code` is never merged into `error_code`. Standard output,
+standard input and environment values are never recorded.
+
+Trace failures are always WARN because Core cannot know whether the host will
+retry, degrade or give up. A host that notifies the user about a failure whose
+facts are all in a same-`op` trace references that record instead of logging
+the failure again.
+
+```json
+{"ts":"2026-11-03T08:00:01.123Z","level":"WARN","event":"vcs.git.command.failed","channel":"vcs/git","op":"op-7f3a","fields":{"command":"fetch","arguments":"fetch --prune origin","repository":"<HOME>/src/app","source":"user","duration_ms":311,"exit_code":128,"stderr":"fatal: could not read from remote repository."}}
+```

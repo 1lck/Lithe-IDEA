@@ -275,16 +275,24 @@ struct WorkbenchModuleUIRegistry {
         return action.state(model)
     }
 
-    func performAction(id: String, model: AppModel) {
+    /// `surface` names the UI entry that invoked the action; `nil` marks host
+    /// restore or replay, which is not a user action and writes no action line.
+    func performAction(id: String, model: AppModel, surface: UserActionSurface?) {
         let state = state(forActionID: id, model: model)
-        guard state.isVisible && state.isEnabled else { return }
-        actions[id]?.perform(model)
+        guard state.isVisible && state.isEnabled, let action = actions[id] else { return }
+        trace(id, surface: surface, model: model) { action.perform(model) }
     }
 
-    func perform(_ contribution: ModuleContribution, model: AppModel) {
+    func perform(_ contribution: ModuleContribution, model: AppModel, surface: UserActionSurface?) {
         let state = state(for: contribution, model: model)
-        guard state.isVisible && state.isEnabled, let actionID = contribution.actionID else { return }
-        actions[actionID]?.perform(model)
+        guard state.isVisible && state.isEnabled, let actionID = contribution.actionID,
+              let action = actions[actionID] else { return }
+        trace(actionID, surface: surface, model: model) { action.perform(model) }
+    }
+
+    private func trace(_ id: String, surface: UserActionSurface?, model: AppModel, _ body: () -> Void) {
+        guard let surface else { return body() }
+        UserActionTrace.run(id, surface: surface, sink: model.services.logSink, body)
     }
 
     func selectedToolContent(

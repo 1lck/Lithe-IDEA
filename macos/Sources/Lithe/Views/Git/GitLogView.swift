@@ -156,7 +156,7 @@ struct GitLogView: View {
             let visibleHashes = visibleCommitHashes
             let options: GitGraphDisplayOptions = showLongGraphEdges ? .expanded : .compact
             let highlightsCurrentBranch = graphProjectionIdentity.highlightsCurrentBranch
-            let task = Task.detached(priority: .userInitiated) {
+            let task = UserActionContext.detached(priority: .userInitiated) {
                 let layout = GitGraphLayoutService.layout(commits: commits, references: references,
                     repositoryCommits: repositoryCommits, visibleHashes: visibleHashes, options: options)
                 let referenceIndex = GitGraphReferenceGroup.ReferenceIndex(references)

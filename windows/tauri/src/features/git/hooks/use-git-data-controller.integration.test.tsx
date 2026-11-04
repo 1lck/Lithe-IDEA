@@ -104,9 +104,10 @@ beforeEach(() => {
         selector({ settings: { autoRefreshGitStatus: false } })) as typeof settings.useSettingsStore,
     ),
     spyOn(repoApi, "clearRepositoryDiscoveryCache").mockImplementation(clearRepositoryDiscoveryCache),
-    spyOn(statusApi, "getRepositoryGitStatuses").mockImplementation(async (paths) => {
+    spyOn(statusApi, "getWorkspaceStatusRefresh").mockImplementation(async (paths, _source, _required, previous) => {
       const snapshot = await getWorkspaceGitStatus();
-      return Object.fromEntries(paths.map((path) => [path, snapshot]));
+      return { statuses: Object.fromEntries(paths.map((path) => [path, snapshot ?? previous[path] ?? null])),
+        confirmedRoots: snapshot ? [...paths] : [], failedRoots: snapshot ? [] : [...paths] };
     }),
     spyOn(historyApi, "getGitHistory").mockImplementation(getGitHistory),
     spyOn(branchesApi, "getBranches").mockImplementation(getBranches),

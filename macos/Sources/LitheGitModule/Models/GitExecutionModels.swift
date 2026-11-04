@@ -1,4 +1,5 @@
 import Foundation
+import LitheModuleAPI
 
 /// Versioned Core diagnostics. Absolute directories are native display context.
 package struct GitExecutionEvent: Decodable, Sendable {
@@ -51,6 +52,8 @@ package final class GitExecutionContext: @unchecked Sendable {
     @TaskLocal package static var current: GitExecutionContext?
     package let operationID: String
     package let source: GitExecutionSource
+    /// The user action that started this execution, kept across detached hops.
+    package let action: UserAction?
     private let lock = NSLock()
     private var cancelled = false
     private var records: [Record] = []
@@ -114,9 +117,17 @@ package final class GitExecutionContext: @unchecked Sendable {
         }
     }
 
-    package init(operationID: String = UUID().uuidString, source: GitExecutionSource = .unknown) {
+    package init(operationID: String = UUID().uuidString, source: GitExecutionSource = .unknown,
+        action: UserAction? = UserActionContext.current) {
         self.operationID = operationID
         self.source = source
+        self.action = action
+    }
+
+    /// The `op` Core gives this execution's request and Git process records:
+    /// the action's operation unless a background poller owns the request.
+    package var traceOperationID: String {
+        source == .background ? operationID : ((action ?? UserActionContext.current)?.operationID ?? operationID)
     }
 
     package func requestCancellation() { lock.withLock { cancelled = true } }

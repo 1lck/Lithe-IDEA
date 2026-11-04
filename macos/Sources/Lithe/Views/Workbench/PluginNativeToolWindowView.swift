@@ -115,7 +115,7 @@ struct PluginNativePanel: View {
                         if feature.state.expanded.contains(row.id) != expanded { feature.toggle(row.id) }
                     }, contextMenu: { row in
                         actions(feature.declaration.contextMenu).map { action in
-                            .action(action.title, localizesTitle: false, isEnabled: !feature.isBusy) {
+                            .action(action.title, localizesTitle: false, actionID: feature.actionID(action), isEnabled: !feature.isBusy) {
                                 feature.select(row.id)
                                 feature.perform(action)
                             }

@@ -88,6 +88,14 @@ fn agent_response<T: serde::de::DeserializeOwned>(
     }
 }
 
+/// Host detailed-diagnostics state; `roots: None` enables DEBUG for every root.
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CoreEventConfiguration {
+    debug: bool,
+    roots: Option<Vec<String>>,
+}
+
 // Domain failures retain their unique numeric logging codes inside the existing Core envelope.
 fn log_v2_result<T: serde::Serialize>(
     result: Result<T, crate::diagnostics::channel::LogError>,
@@ -109,6 +117,14 @@ fn execute(request: &str) -> CoreResponse {
             );
         }
     };
+    // The trace spans every scope below and records once, after the final response.
+    let trace = crate::diagnostics::request_trace::Request::begin(&parsed);
+    let response = execute_parsed(parsed);
+    trace.finish(&response);
+    response
+}
+
+fn execute_parsed(parsed: CoreRequest) -> CoreResponse {
     let id = parsed.id.clone();
     let response_id = id.clone();
     let operation_id = parsed.operation_id.clone().or_else(|| id.clone());
@@ -2675,6 +2691,24 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::GitWorkspaceStatusMerge => {
+            match serde_json::from_value::<git::workspace_status::Request>(parsed.payload)
+                .map_err(|error| CoreError::new(ErrorCode::InvalidRequest, "Invalid workspace Git status request").with_details(error.to_string()))
+                .and_then(git::workspace_status::plan)
+            {
+                Ok(data) => CoreResponse::success(id, serde_json::to_value(data).expect("Git workspace status plan should encode")),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitResolveFileContext => {
+            match serde_json::from_value::<git::file_context::Request>(parsed.payload)
+                .map_err(|error| CoreError::new(ErrorCode::InvalidRequest, "Invalid Git file context request").with_details(error.to_string()))
+                .and_then(git::file_context::resolve)
+            {
+                Ok(data) => CoreResponse::success(id, serde_json::to_value(data).expect("Git file context should encode")),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::GitRebasePreview => {
             match serde_json::from_value::<GitRebasePreviewRequest>(parsed.payload)
                 .map_err(|error| {
@@ -2854,7 +2888,11 @@ fn execute(request: &str) -> CoreResponse {
             crate::git::prepare_commit_selection_command,
         ),
         CoreCommand::GitShelf => plugin_response(id, parsed.payload, crate::git::shelf_command),
-        CoreCommand::GitCommitMessageContext => plugin_response(id, parsed.payload, crate::git::commit_message_context_command),
+        CoreCommand::GitCommitMessageContext => plugin_response(
+            id,
+            parsed.payload,
+            crate::git::commit_message_context_command,
+        ),
         CoreCommand::GitChangelists => {
             plugin_response(id, parsed.payload, crate::git::changelists_command)
         }
@@ -3509,6 +3547,25 @@ fn execute(request: &str) -> CoreResponse {
             serde_json::to_value(crate::diagnostics::core_events::drain())
                 .expect("Core logs encode"),
         ),
+        CoreCommand::DiagnosticsConfigureCoreEvents => {
+            match serde_json::from_value::<CoreEventConfiguration>(parsed.payload) {
+                Ok(configuration) => {
+                    crate::diagnostics::core_events::configure(
+                        configuration.debug,
+                        configuration.roots,
+                    );
+                    CoreResponse::success(id, json!({}))
+                }
+                Err(error) => CoreResponse::failure(
+                    id,
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Core event configuration",
+                    )
+                    .with_details(error.to_string()),
+                ),
+            }
+        }
         CoreCommand::DiagnosticsEncodeLogBatch => {
             match serde_json::from_value::<crate::diagnostics::record::EncodeLogBatchRequest>(
                 parsed.payload,
@@ -3699,6 +3756,32 @@ fn execute(request: &str) -> CoreResponse {
 mod tests {
     use super::execute_json;
     use serde_json::{json, Value};
+
+    #[test]
+    fn configure_core_events_sets_the_debug_gate_and_rejects_unknown_fields() {
+        use crate::diagnostics::core_events::{accepts, configure};
+        use crate::diagnostics::record::LogLevel;
+        let send = |payload: Value| -> Value {
+            serde_json::from_str(&execute_json(
+                &json!({"command": "diagnostics.configureCoreEvents", "payload": payload})
+                    .to_string(),
+            ))
+            .unwrap()
+        };
+        assert_eq!(send(json!({"debug": true, "roots": ["vcs"]}))["ok"], true);
+        let scoped = (
+            accepts(LogLevel::Debug, "vcs"),
+            accepts(LogLevel::Debug, "app"),
+        );
+        let rejected = send(json!({"debug": true, "level": "debug"}));
+        // Restore the process default before asserting so a failure cannot leak DEBUG.
+        configure(false, None);
+        assert_eq!(scoped, (true, false));
+        assert_eq!(rejected["ok"], false);
+        assert_eq!(rejected["error"]["code"], "invalid_request");
+        assert!(!accepts(LogLevel::Debug, "vcs"));
+        assert!(accepts(LogLevel::Warn, "vcs"));
+    }
 
     #[test]
     fn routes_semantic_lsp_runtime_commands() {
