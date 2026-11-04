@@ -10040,7 +10040,22 @@
     "logs.window.restoreDirectory": "Restore Default Directory",
     "logs.window.maintenance": "Log directory and cleanup",
     "logs.window.clearStorage": "Clear Logs (used {size})…",
-    "logs.window.enableDiagnostics": "Enable"
+    "logs.window.enableDiagnostics": "Enable",
+    "logs.window.filterHelp": "Spaces combine conditions with AND. level>=warn includes WARN and ERROR; level:info is exact. event:, channel: and op: match prefixes. server:jdtls and key:value match field substrings. /regex/ searches messages, ignoring case; - excludes a condition. Use double quotes around values containing spaces. Channel, level and time controls also intersect with the expression. Invalid expressions keep the last valid results.",
+    "logs.window.channelHelp": "Click a channel to select it. Command-click adds or removes a channel; Shift-click selects a range. Selected channels are combined with OR, then intersected with level, time and text filters. All channels clears the channel restriction.",
+    "logs.window.traceHelp": "The call chain lists records sharing an operation ID in time order. +N ms is the offset from the first record, not its execution duration. The bar shows that offset across the operation span. Click a record to locate it in the log table.",
+    "logs.window.timeHelp": "Choose the start and end dates, then edit hours, minutes and seconds. Times use your local time zone; Apply includes the entire final second. The range also applies to live logs and intersects with other filters. Dragging the histogram selects a range too; Clear time range removes it.",
+    "logs.window.followHelp": "Live follow appends logs in their recorded order and scrolls to the latest record. The writer delivers short batches; bursts reflect real activity. Scrolling up pauses automatic scrolling while collection continues. Resume to return to the latest logs.",
+    "logs.window.timeRange": "Time range",
+    "logs.window.startTime": "Start time",
+    "logs.window.endTime": "End time",
+    "logs.window.reversedTime": "The end time must be after the start time.",
+    "logs.language.tabTitle": "LSP Logs",
+    "logs.language.minimumLevel": "Minimum level",
+    "logs.language.outputHelp": "Shows the selected server's session events, stderr and server messages from the redacted diagnostic logs. Server Trace and RPC message capture are not available. Application logs are in Logs and Diagnostics.",
+    "logs.language.clearHelp": "Clear only the selected server's visible logs. Collected diagnostic logs are kept.",
+    "logs.language.outputTitle": "Server Logs",
+    "logs.language.empty": "No matching language server logs"
   },
   "overrides": {
     "windows": {

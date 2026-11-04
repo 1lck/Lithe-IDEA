@@ -228,6 +228,7 @@ struct DiagnosticsWorkflowTests {
             defer { confirmation.cancel(); feature.dismiss() }
             feature.presentExport(filter: model.query)
             try #require(await ready.waitUntilOpen(timeout: .seconds(5)), "Export manifest did not load")
+            feature.dismiss()
             let suite = "log-fidelity-\(UUID().uuidString)"
             let defaults = try #require(UserDefaults(suiteName: suite))
             defer { defaults.removePersistentDomain(forName: suite) }
@@ -242,12 +243,12 @@ struct DiagnosticsWorkflowTests {
             let mounted = TestGate()
             let host = NSHostingView(rootView: LogWindowView(model: model, coordinator: coordinator, exportFeature: feature)
                 .environmentObject(settings).environment(\.colorScheme, scheme)
-                .environment(\.locale, Locale(identifier: language)).frame(width: 1340, height: 786)
+                .environment(\.locale, Locale(identifier: language))
                 .task { mounted.open() })
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1340, height: 786), styleMask: [.borderless], backing: .buffered, defer: false)
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1340, height: 786), styleMask: [.titled, .resizable], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
             window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
-            window.contentView = host; window.orderFront(nil)
+            window.contentView = host; window.makeKeyAndOrderFront(nil)
             defer { window.contentView = nil; window.close() }
             try #require(await mounted.waitUntilOpen(), "Log view did not mount")
             host.layoutSubtreeIfNeeded()
@@ -256,6 +257,7 @@ struct DiagnosticsWorkflowTests {
             #expect(table.headerView?.frame.height == 26)
             #expect(table.numberOfRows > 100)
             #expect(host.bounds.size == NSSize(width: 1340, height: 786))
+            try await verifyLogWindowInteractions(host: host, window: window, table: table, model: model, record: record)
             if let directory = ProcessInfo.processInfo.environment["LITHE_LOGGING_SCREENSHOTS"] {
                 try #require(Bundle.main.localizations.contains(language), "Run the packaged probe for localized screenshots")
                 // Native accessibility is the observable boundary for the asynchronous JSON view.
@@ -275,6 +277,8 @@ struct DiagnosticsWorkflowTests {
                 }
                 let exportHost = NSHostingView(rootView: DiagnosticsExportSheet(feature: feature)
                     .environment(\.colorScheme, scheme).environment(\.locale, Locale(identifier: language)))
+                feature.presentExport(filter: model.query)
+                try #require(await ready.waitUntilOpen(timeout: .seconds(5)), "Export did not reopen")
                 window.contentView = exportHost
                 exportHost.frame = NSRect(origin: .zero, size: exportHost.fittingSize)
                 exportHost.layoutSubtreeIfNeeded()
@@ -287,6 +291,80 @@ struct DiagnosticsWorkflowTests {
             throw error
         }
         await writer.finishSession()
+    }
+
+    private func verifyLogWindowInteractions(host: NSView, window: NSWindow, table: LogTableView,
+                                            model: LogWindowModel, record: RustCoreBridge.LogQueryRecord) async throws {
+        let initialCell = table.view(atColumn: 0, row: 0, makeIfNecessary: true)
+        model.userScrolledUp()
+        host.layoutSubtreeIfNeeded()
+        #expect(table.view(atColumn: 0, row: 0, makeIfNecessary: true) === initialCell,
+            "Pausing follow must preserve existing native cells")
+        window.makeFirstResponder(table)
+        let find = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero,
+            modifierFlags: .command, timestamp: 0, windowNumber: window.windowNumber,
+            context: nil, characters: "f", charactersIgnoringModifiers: "f", isARepeat: false, keyCode: 3))
+        NSApp.sendEvent(find)
+        let focusDeadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while !(window.firstResponder is NSTextView), ContinuousClock.now < focusDeadline {
+            await Task.yield(); host.layoutSubtreeIfNeeded()
+        }
+        #expect(window.firstResponder is NSTextView, "Command-F must focus the log filter from the table")
+        func clickChannel(_ channel: String, flags: NSEvent.ModifierFlags = []) async throws {
+            let channels = try #require(renderDescendants(host).compactMap { $0 as? NSTableView }.first { !($0 is LogTableView) })
+            let row = try #require((0..<channels.numberOfRows).first { index in
+                channels.view(atColumn: 0, row: index, makeIfNecessary: true)?.accessibilityIdentifier() == "logs.channel." + channel
+            })
+            channels.scrollRowToVisible(row)
+            let rect = channels.rect(ofRow: row)
+            let point = channels.convert(NSPoint(x: rect.midX, y: rect.midY), to: nil)
+            let down = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: flags,
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+            let up = try #require(NSEvent.mouseEvent(with: .leftMouseUp, location: point, modifierFlags: flags,
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                context: nil, eventNumber: 2, clickCount: 1, pressure: 0))
+            window.sendEvent(down)
+            window.sendEvent(up)
+            host.layoutSubtreeIfNeeded()
+            await Task.yield()
+        }
+        try await clickChannel("app")
+        try await clickChannel("vcs/git", flags: .command)
+        #expect(Set(model.query.channelPrefixes) == ["app", "vcs/git"], "Command-click must preserve both channels")
+        try await clickChannel("")
+        #expect(model.query.channelPrefixes.isEmpty)
+        let restoreDeadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while model.state.records.count < 280, ContinuousClock.now < restoreDeadline { await Task.yield() }
+        model.select([LogWindowModel.recordID(record)])
+        try await verifyTimeRangePicker(host: host, window: window)
+        window.setContentSize(NSSize(width: 1900, height: 1000))
+        host.layoutSubtreeIfNeeded()
+        let usedWidth = table.tableColumns.filter { !$0.isHidden }.reduce(0) { $0 + $1.width + table.intercellSpacing.width }
+        #expect(abs(usedWidth - (table.enclosingScrollView?.contentSize.width ?? 0)) <= 2)
+    }
+
+    private func verifyTimeRangePicker(host: NSView, window: NSWindow) async throws {
+        let range = try #require(renderAccessibilityElements(host).first { $0.accessibilityIdentifier?() == "logs.time-range" })
+        try #require(range.accessibilityPerformPress?() == true)
+        host.layoutSubtreeIfNeeded()
+        let panelDeadline = ContinuousClock.now.advanced(by: .seconds(2))
+        var panel: NSWindow?
+        while panel == nil, ContinuousClock.now < panelDeadline {
+            await Task.yield()
+            panel = window.childWindows?.first { child in
+                child.contentView.map { renderDescendants($0).contains { $0 is NSDatePicker } } == true
+            }
+        }
+        let pickerPanel = try #require(panel)
+        let panelContent = try #require(pickerPanel.contentView)
+        let pickers = renderDescendants(panelContent).compactMap { $0 as? NSDatePicker }
+        #expect(pickers.count == 4)
+        #expect(pickers.filter { $0.datePickerElements.contains(.hourMinuteSecond) }.count == 2)
+        if let directory = ProcessInfo.processInfo.environment["LITHE_LOGGING_SCREENSHOTS"] {
+            try renderPNG(panelContent, directory: directory, name: "logwindow-time-range-\(window.effectiveAppearance.name.rawValue)-\(InterfaceLanguage.locale.identifier).png")
+        }
+        LitheContextMenuPresenter.shared.dismiss()
     }
 
     private func renderDescendants(_ view: NSView) -> [NSView] {

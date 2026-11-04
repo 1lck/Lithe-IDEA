@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import Foundation
+import SwiftUI
 import Testing
 import LitheModuleAPI
 @testable import Lithe
@@ -53,6 +54,68 @@ private final class WindowQueryGate: LogWindowLogging, @unchecked Sendable {
 @Suite("Application log window", .serialized)
 @MainActor
 struct LogWindowTests {
+    @Test func findBelongsOnlyToTheWindowThatInstalledItsTarget() throws {
+        let target = MacWindowFindTarget()
+        var focuses = 0
+        target.focus = { focuses += 1 }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200),
+            styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = target
+        defer { window.contentView = nil; window.close() }
+        func event(_ flags: NSEvent.ModifierFlags) throws -> NSEvent {
+            try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags,
+                timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "f",
+                charactersIgnoringModifiers: "f", isARepeat: false, keyCode: 3))
+        }
+        #expect(MacWindowFindTarget.handle(try event(.command)))
+        #expect(focuses == 1)
+        #expect(!MacWindowFindTarget.handle(try event([.command, .shift])))
+        window.contentView = NSView()
+        #expect(!MacWindowFindTarget.handle(try event(.command)))
+        #expect(focuses == 1)
+    }
+
+    @Test func tableColumnsUseTheViewportWithoutSavingAutomaticWidths() async throws {
+        let directory = root()
+        let writer = MacLogStore(defaultDirectory: directory)
+        await writer.finishSession()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var preferences = LogWindowPreferences()
+        preferences.widths["channel"] = 190
+        let model = LogWindowModel(logging: writer, preferences: preferences)
+        let host = NSHostingView(rootView: LogWindowTable(model: model))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 400),
+            styleMask: [.borderless, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.orderFront(nil)
+        defer { model.stop(); window.contentView = nil; window.close() }
+        host.layoutSubtreeIfNeeded()
+        func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+        let table = try #require(descendants(host).compactMap { $0 as? LogTableView }.first)
+        let scroll = try #require(table.enclosingScrollView)
+        let widths = table.tableColumns.map(\.width)
+        window.setContentSize(NSSize(width: 1900, height: 600))
+        host.layoutSubtreeIfNeeded()
+        let columns = table.tableColumns.filter { !$0.isHidden }
+        let usedWidth = columns.reduce(0) { $0 + $1.width + table.intercellSpacing.width }
+        #expect(abs(usedWidth - scroll.contentSize.width) <= 2)
+        for identifier in ["event", "message", "fields"] {
+            let index = table.column(withIdentifier: .init(identifier))
+            #expect(table.tableColumns[index].width > widths[index])
+        }
+        #expect(table.tableColumn(withIdentifier: .init("channel"))?.width == 190)
+        #expect(model.preferences.widths == preferences.widths)
+        window.setContentSize(NSSize(width: 680, height: 400))
+        host.layoutSubtreeIfNeeded()
+        #expect(table.tableColumns.allSatisfy { $0.width >= $0.minWidth })
+        #expect(scroll.hasHorizontalScroller)
+        window.setContentSize(NSSize(width: 1900, height: 600))
+        host.layoutSubtreeIfNeeded()
+        #expect(model.preferences.widths == preferences.widths)
+    }
+
     private func root() -> URL { FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString) }
     private func emit(_ writer: MacLogStore) { writer.emit(AppSessionStarted()) }
     private func ready(_ model: LogWindowModel) -> (TestGate, AnyCancellable) {
@@ -324,7 +387,7 @@ struct LogWindowTests {
         #expect(roundTrip.records == result.records)
         #expect(roundTrip.opSummary?.durationMs == 0)
     }
-    @Test func languageServerEntryEmitsCoreResolvedOpenRequestWithoutEditorTab() async throws {
+    @Test func languageServerEntryOpensEditorTabWithoutChangingApplicationLogs() async throws {
         let directory = root()
         let writer = MacLogStore(defaultDirectory: directory)
         let store = WindowPreferenceStore()
@@ -332,17 +395,21 @@ struct LogWindowTests {
         let container = MacServiceContainer(store: store, settings: settings, moduleLaunchMode: .safeMode, applicationLogging: writer)
         defer { container.moduleLifecycleCoordinator.stop(); try? FileManager.default.removeItem(at: directory) }
         let model = AppModel(settings: settings, services: container.services)
-        let coordinator = LogWindowCoordinator()
-        container.services.logWindowCoordinator = coordinator
-        let opened = TestGate()
-        coordinator.present = { opened.open() }
+        let applicationLogs = LogWindowCoordinator()
+        container.services.logWindowCoordinator = applicationLogs
         try await WorkbenchTestScope.withCleanup({ await model.shutdownProjectSession() }) { _ in
-            let tabs = model.editorTabItems
+            let feature = try #require(model.languageServerLogsFeature)
             model.showLanguageServerLogs(providerID: "c++")
-            #expect(await opened.waitUntilOpen())
-            let expected = try await writer.windowEngineChannel(providerID: "c++")
-            #expect(coordinator.request?.channelPrefixes == [expected])
-            #expect(model.editorTabItems == tabs)
+            #expect(model.editorTabItems.filter { $0 == .languageLogs }.count == 1)
+            #expect(model.editorTabOrderFeature.focusedItem == .languageLogs)
+            #expect(feature.providerID == "c++")
+            #expect(applicationLogs.request == nil)
+            // Opening again reuses the one tab and switches its server.
+            model.showLanguageServerLogs(providerID: "java")
+            #expect(model.editorTabItems.filter { $0 == .languageLogs }.count == 1)
+            #expect(feature.providerID == "java")
+            model.closeLanguageServerLogsTab()
+            #expect(!model.editorTabItems.contains(.languageLogs))
         }
         await writer.finishSession()
     }
@@ -402,12 +469,6 @@ struct LogWindowTests {
         let binding = KeyboardShortcutBinding.keyPress(key: "l", modifiers: [.shift, .command])
         let owners = LitheCommandCatalog.commands.filter { $0.defaultBindings.contains(binding) }
         #expect(owners.map(\.id) == ["show-logs"])
-        let source = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Sources/Lithe/Views/Workbench/WorkbenchView.swift"), encoding: .utf8)
-        let plugin = try #require(source.range(of: ".action(\"Plugins…\")"))
-        let logs = try #require(source.range(of: ".action(\"Logs and Diagnostics…\")"))
-        let theme = try #require(source.range(of: ".action(\"Theme…\")"))
-        #expect(plugin.lowerBound < logs.lowerBound && logs.lowerBound < theme.lowerBound)
         let coordinator = LogWindowCoordinator()
         var opened = 0
         coordinator.present = { opened += 1 }

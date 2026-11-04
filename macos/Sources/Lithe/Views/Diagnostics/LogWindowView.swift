@@ -14,9 +14,6 @@ struct LogWindowView: View {
     @State private var namingBookmark = false
     @State private var appliedRevision = -1
     @State private var confirmsClear = false
-    @State private var channelCursor: String?
-    @State private var channelAnchor: String?
-    @FocusState private var channelsFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -38,7 +35,8 @@ struct LogWindowView: View {
             HStack(spacing: 0) {
                 sidebar.frame(width: 212)
                 Rectangle().fill(Color(LogWindowPalette.line)).frame(width: 1)
-                LitheSplitPaneView(axis: .vertical, placement: .trailing, defaultSize: 196,
+                GeometryReader { viewport in
+                    LitheSplitPaneView(axis: .vertical, placement: .trailing, defaultSize: max(196, viewport.size.height * 0.28),
                     minimum: 130, maximum: 420, flexibleMinimum: 100, dividerColor: Color(LogWindowPalette.line),
                     sized: { details }, flexible: {
                         ZStack(alignment: .bottom) {
@@ -54,6 +52,7 @@ struct LogWindowView: View {
                             }
                         }
                     })
+                }
             }
             status
         }
@@ -90,7 +89,7 @@ struct LogWindowView: View {
             // A reference can select before the table is created; load its chain through the same path.
             if model.state.trace == nil, model.selected?.op != nil { model.select(model.state.selection) }
         }
-        .background(Button("") { filterFocused = true }.keyboardShortcut("f", modifiers: .command).hidden())
+        .background(MacWindowFindCommand { filterFocused = true })
         .confirmationDialog("Clear collected logs?", isPresented: $confirmsClear, titleVisibility: .visible) {
             Button("Clear Logs", role: .destructive) {
                 Task { await exportFeature.clearLogs(); model.refresh() }
@@ -122,24 +121,14 @@ struct LogWindowView: View {
     }
     private var toolbar: some View {
         LogToolbarLayout {
-            HStack(spacing: 6) {
-                Text(verbatim: "❯").foregroundStyle(Color(LogWindowPalette.pur))
-                if let since = model.query.since, let until = model.query.until {
-                    Button { model.changeQuery { $0.since = nil; $0.until = nil } } label: {
-                        Text(verbatim: String((since.split(separator: "T").last ?? "").prefix(8)) + "–" + String((until.split(separator: "T").last ?? "").prefix(8)) + " ✕")
-                    }.buttonStyle(.plain).font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
-                        .foregroundStyle(Color(LogWindowPalette.blu)).padding(.horizontal, 6)
-                        .background(Color(LogWindowPalette.hl), in: RoundedRectangle(cornerRadius: 4)).help("Clear time range")
-                }
-                TextField("Filter: server:jdtls  level>=warn  -event:lsp.trace.received  /regex/  op:c0ffee",
-                    text: Binding(get: { model.query.expression }, set: model.setExpression))
-                    .textFieldStyle(.plain).focused($filterFocused)
+            LitheSearchField("Filter: server:jdtls  level>=warn  -event:lsp.trace.received  /regex/  op:c0ffee",
+                text: Binding(get: { model.query.expression }, set: model.setExpression), focus: $filterFocused) {
+                LitheInfoTip("logs.window.filterHelp")
                 Text(verbatim: "⌘F").font(LitheTheme.uiFont(size: 11, design: .monospaced))
                     .foregroundStyle(Color(LogWindowPalette.tx2)).padding(.horizontal, 5)
                     .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color(LogWindowPalette.bd)))
-            }.padding(.horizontal, 8).frame(minWidth: 260, idealWidth: 260, maxWidth: .infinity).frame(height: 28)
-                .background(Color(LogWindowPalette.bg), in: RoundedRectangle(cornerRadius: 6))
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color(filterFocused ? LogWindowPalette.blu : LogWindowPalette.bd)))
+            }.frame(minWidth: 320, idealWidth: 320, maxWidth: .infinity)
+                .accessibilityIdentifier("logs.filter")
             ForEach(["ERROR", "WARN", "INFO", "DEBUG"], id: \.self) { level in
                 let enabled = model.query.levels.contains(level)
                 Button {
@@ -159,6 +148,7 @@ struct LogWindowView: View {
                     LitheContextMenuItem.action(sessionTitle(value), checked: model.query.session == value) { model.changeQuery { $0.session = value } }
                 }
             } label: { HStack(spacing: 6) { Text(LocalizedStringKey(sessionTitle(model.query.session))); Text(verbatim: "⌄") } }
+            LogTimeRangePicker(model: model)
             LitheMenu {
                 if model.preferences.bookmarks.isEmpty { LitheContextMenuItem.heading("No saved filters") }
                 for bookmark in model.preferences.bookmarks {
@@ -176,6 +166,7 @@ struct LogWindowView: View {
             Button { model.cycleTime() } label: { toolbarLabel("⏱", ["Absolute time", "Δ previous", "Δ selected"][model.preferences.timeMode]) }
             Button { model.toggleFollow() } label: { toolbarLabel(model.state.follows ? "●" : "❚❚", model.state.follows ? "Live follow" : "Paused") }
                 .buttonStyle(LogButtonStyle(recording: model.state.follows))
+            LitheInfoTip("logs.window.followHelp")
             Button { model.clearDisplay() } label: { toolbarLabel("⌫", "Clear view") }.help("Clear only the display; log files are kept")
             maintenanceMenu
         }.buttonStyle(LogButtonStyle()).padding(.horizontal, 10).padding(.vertical, 7)
@@ -237,30 +228,17 @@ struct LogWindowView: View {
     }
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(channelRows) { row in
-                        if let root = row.root {
-                            Text(verbatim: root).font(LitheTheme.uiFont(size: 10.5, design: .monospaced)).tracking(0.63)
-                                .foregroundStyle(Color(LogWindowPalette.tx3)).padding(.leading, 12).padding(.top, 10).padding(.bottom, 3)
-                        }
-                        LogChannelRow(row: row, selected: row.id.isEmpty ? model.query.channelPrefixes.isEmpty : model.query.channelPrefixes.contains(row.id),
-                            unread: model.state.unreadErrors.contains(row.id)) {
-                            channelsFocused = true
-                            selectChannel(row.id, flags: NSApp.currentEvent?.modifierFlags ?? [])
-                        }
-                    }
-                    Text("⌘-click to select several").font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
+            LitheTreeList(native: LogChannelList(rows: channelRows, unread: model.state.unreadErrors, selection: Binding(
+                get: { model.query.channelPrefixes.isEmpty ? [""] : Set(model.query.channelPrefixes) },
+                set: { selected in
+                    let clears = selected.contains("") && !model.query.channelPrefixes.isEmpty
+                    model.changeQuery { $0.channelPrefixes = clears ? [] : selected.subtracting([""]).sorted() }
+                }))).litheScrollViewChrome()
+            HStack(spacing: 4) {
+                Text("⌘-click to select several").font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                         .foregroundStyle(Color(LogWindowPalette.tx3)).padding(.horizontal, 12).padding(.vertical, 6)
-                }
-            }.litheScrollViewChrome().focusable().focused($channelsFocused).litheFocusEffectHidden()
-                .onMoveCommand { direction in
-                    guard direction == .up || direction == .down else { return }
-                    let rows = channelRows.map(\.id)
-                    let index = rows.firstIndex(of: channelCursor ?? model.query.channelPrefixes.first ?? "") ?? 0
-                    let next = min(rows.count - 1, max(0, index + (direction == .down ? 1 : -1)))
-                    selectChannel(rows[next], flags: NSApp.currentEvent?.modifierFlags ?? [])
-                }
+                LitheInfoTip("logs.window.channelHelp")
+            }
             if model.state.diagnosticRemaining > 0 {
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 5) { Text(verbatim: "●"); Text("Verbose diagnostics on") }.foregroundStyle(Color(LogWindowPalette.grn))
@@ -297,14 +275,6 @@ struct LogWindowView: View {
             }
         }.padding(.top, 8).background(Color(LogWindowPalette.bg2))
     }
-    private func selectChannel(_ id: String, flags: NSEvent.ModifierFlags) {
-        let selected = LitheTreeListSelection.select(id, in: channelRows.map(\.id),
-            selected: Set(model.query.channelPrefixes), anchor: channelAnchor ?? channelCursor,
-            extending: flags.contains(.shift), toggling: flags.contains(.command))
-        if !flags.contains(.shift) || channelAnchor == nil { channelAnchor = id }
-        channelCursor = id
-        model.changeQuery { $0.channelPrefixes = selected.contains("") ? [] : selected.sorted() }
-    }
     @State private var cardStarted = Date()
     struct ChannelRow: Identifiable { let id: String; let count: Int; var root: String? = nil }
     private var channelRows: [ChannelRow] {
@@ -316,11 +286,12 @@ struct LogWindowView: View {
             let ai = order.firstIndex(of: a) ?? order.count, bi = order.firstIndex(of: b) ?? order.count
             return ai == bi ? $0 < $1 : ai < bi
         }
-        return [.init(id: "", count: model.state.channels.values.reduce(0) { $0 + $1.total })] + channels.map { channel in
+        return [.init(id: "", count: model.state.channels.values.reduce(0) { $0 + $1.total })] + channels.flatMap { channel -> [ChannelRow] in
             let root = channel.split(separator: "/").first.map(String.init) ?? channel
             let heading = root == previous ? nil : root + "/"
             previous = root
-            return .init(id: channel, count: model.state.channels[channel]!.total, root: heading)
+            let row = ChannelRow(id: channel, count: model.state.channels[channel]!.total)
+            return heading.map { [.init(id: "heading:" + root, count: 0, root: $0), row] } ?? [row]
         }
     }
     private var details: some View {
@@ -329,10 +300,11 @@ struct LogWindowView: View {
                 HStack(spacing: 2) {
                     detailTab("Detail", index: 0)
                     detailTab("Call chain", index: 1, count: model.state.trace?.opSummary?.count)
+                    LitheInfoTip("logs.window.traceHelp")
                     Spacer(minLength: 0)
                 }.padding(.horizontal, 8).padding(.top, 4).overlay(alignment: .bottom) { rule }
                 if tab == 1 { trace } else { fieldDetails }
-            }
+            }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             Rectangle().fill(Color(LogWindowPalette.line)).frame(width: 1)
             ScrollView {
                 VStack(alignment: .leading, spacing: 5) {
@@ -346,7 +318,7 @@ struct LogWindowView: View {
                         .font(LitheTheme.uiFont(size: 10, design: .monospaced)).foregroundStyle(Color(LogWindowPalette.tx3)).fixedSize(horizontal: false, vertical: true)
                 }.buttonStyle(LogButtonStyle(height: 25, fullWidth: true)).padding(8).disabled(model.selected == nil)
             }.frame(width: 209).litheScrollViewChrome()
-        }.background(Color(LogWindowPalette.bg2)).overlay(alignment: .top) { rule }
+        }.clipped().background(Color(LogWindowPalette.bg2)).overlay(alignment: .top) { rule }
     }
     private func detailTab(_ title: String, index: Int, count: Int? = nil) -> some View {
         Button { tab = index } label: {
@@ -357,49 +329,53 @@ struct LogWindowView: View {
         }.buttonStyle(.plain).accessibilityIdentifier(index == 0 ? "logs.detail-tab" : "logs.trace-tab")
     }
     private var fieldDetails: some View {
-        ScrollView([.vertical, .horizontal]) {
-            VStack(alignment: .leading, spacing: 0) {
-                if let record = model.selected {
-                    Text(verbatim: "// " + record.relativePath.replacingOccurrences(of: model.state.currentSessionPath + "/", with: "") + "  ·  " + String(format: L10n.string("Line %lld"), Int64(record.lineNumber)))
-                        .foregroundStyle(Color(LogWindowPalette.tx3)).padding(.bottom, 2)
-                    Text(json).textSelection(.enabled)
-                        .environment(\.openURL, OpenURLAction { url in
-                            guard url.scheme == "log-field", let key = url.host, let value = record.fields[key] else { return .discarded }
-                            Task { await model.compose(kind: "field", key: key, value: value) }; return .handled
-                        })
-                }
-            }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 14).padding(.vertical, 8)
-        }.font(LitheTheme.uiFont(size: 12.5, design: .monospaced)).litheScrollViewChrome()
+        GeometryReader { viewport in
+            ScrollView([.vertical, .horizontal]) {
+                VStack(alignment: .leading, spacing: 0) {
+                    if let record = model.selected {
+                        Text(verbatim: "// " + record.relativePath.replacingOccurrences(of: model.state.currentSessionPath + "/", with: "") + "  ·  " + String(format: L10n.string("Line %lld"), Int64(record.lineNumber)))
+                            .foregroundStyle(Color(LogWindowPalette.tx3)).padding(.bottom, 2)
+                        Text(json).textSelection(.enabled)
+                            .environment(\.openURL, OpenURLAction { url in
+                                guard url.scheme == "log-field", let key = url.host, let value = record.fields[key] else { return .discarded }
+                                Task { await model.compose(kind: "field", key: key, value: value) }; return .handled
+                            })
+                    }
+                }.frame(minWidth: max(0, viewport.size.width - 28), alignment: .leading).padding(.horizontal, 14).padding(.vertical, 8)
+            }.font(LitheTheme.uiFont(size: 12.5, design: .monospaced)).litheScrollViewChrome()
+        }
     }
     private var trace: some View {
-        ScrollView([.vertical, .horizontal]) {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                if model.selected?.op == nil { Text("This record has no op id").foregroundStyle(Color(LogWindowPalette.tx3)) }
-                if let result = model.state.trace {
-                    if let summary = result.opSummary {
-                        Text(String(format: L10n.string("Op %@ · %lld records · %@"), summary.op, Int64(summary.count), "\(summary.durationMs) ms"))
-                            .foregroundStyle(Color(LogWindowPalette.tx3)).padding(.bottom, 4)
+        GeometryReader { viewport in
+            ScrollView([.vertical, .horizontal]) {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    if model.selected?.op == nil { Text("This record has no op id").foregroundStyle(Color(LogWindowPalette.tx3)) }
+                    if let result = model.state.trace {
+                        if let summary = result.opSummary {
+                            Text(String(format: L10n.string("Op %@ · %lld records · %@"), summary.op, Int64(summary.count), "\(summary.durationMs) ms"))
+                                .foregroundStyle(Color(LogWindowPalette.tx3)).padding(.bottom, 4)
+                        }
+                        ForEach(result.records, id: \.line) { record in
+                            HStack(spacing: 10) {
+                                Text(verbatim: "+\(record.opOffsetMs ?? 0) ms").foregroundStyle(Color(LogWindowPalette.tx3)).frame(width: 70, alignment: .leading)
+                                Text(verbatim: LogWindowPalette.symbol(record.level) + " " + record.level)
+                                    .foregroundStyle(Color(LogWindowPalette.level(record.level))).frame(width: 64, alignment: .leading)
+                                Text(verbatim: record.channel).padding(.horizontal, 5).foregroundStyle(Color(LogWindowPalette.channel(record.channel)))
+                                    .background(Color(LogWindowPalette.channel(record.channel)).opacity(0.15), in: RoundedRectangle(cornerRadius: 3)).frame(width: 150, alignment: .leading)
+                                Text(verbatim: record.event).foregroundStyle(Color(LogWindowPalette.pur)).frame(width: 210, alignment: .leading)
+                                Text(verbatim: record.msg).frame(minWidth: 180, maxWidth: .infinity, alignment: .leading)
+                                GeometryReader { geometry in
+                                    RoundedRectangle(cornerRadius: 3).fill(Color(record.level == "ERROR" ? LogWindowPalette.red : LogWindowPalette.pur).opacity(0.7))
+                                        .frame(width: max(3, geometry.size.width * CGFloat(record.opOffsetMs ?? 0) / CGFloat(max(1, result.opSummary?.durationMs ?? 1))), height: 6).frame(maxHeight: .infinity)
+                                }.frame(width: 160)
+                            }.font(LitheTheme.uiFont(size: 11.5, design: .monospaced)).lineLimit(1).frame(height: 22).padding(.horizontal, 4)
+                                .background(model.state.selection.contains(LogWindowModel.recordID(record)) ? Color(LogWindowPalette.hl) : .clear)
+                                .contentShape(Rectangle()).onTapGesture { model.jump(epochMs: record.epochMs) }
+                        }
                     }
-                    ForEach(result.records, id: \.line) { record in
-                        HStack(spacing: 10) {
-                            Text(verbatim: "+\(record.opOffsetMs ?? 0) ms").foregroundStyle(Color(LogWindowPalette.tx3)).frame(width: 70, alignment: .leading)
-                            Text(verbatim: LogWindowPalette.symbol(record.level) + " " + record.level)
-                                .foregroundStyle(Color(LogWindowPalette.level(record.level))).frame(width: 64, alignment: .leading)
-                            Text(verbatim: record.channel).padding(.horizontal, 5).foregroundStyle(Color(LogWindowPalette.channel(record.channel)))
-                                .background(Color(LogWindowPalette.channel(record.channel)).opacity(0.15), in: RoundedRectangle(cornerRadius: 3)).frame(width: 150, alignment: .leading)
-                            Text(verbatim: record.event).foregroundStyle(Color(LogWindowPalette.pur)).frame(width: 210, alignment: .leading)
-                            Text(verbatim: record.msg).frame(width: 180, alignment: .leading)
-                            GeometryReader { geometry in
-                                RoundedRectangle(cornerRadius: 3).fill(Color(record.level == "ERROR" ? LogWindowPalette.red : LogWindowPalette.pur).opacity(0.7))
-                                    .frame(width: max(3, geometry.size.width * CGFloat(record.opOffsetMs ?? 0) / CGFloat(max(1, result.opSummary?.durationMs ?? 1))), height: 6).frame(maxHeight: .infinity)
-                            }.frame(width: 160)
-                        }.font(LitheTheme.uiFont(size: 11.5, design: .monospaced)).lineLimit(1).frame(height: 22).padding(.horizontal, 4)
-                            .background(model.state.selection.contains(LogWindowModel.recordID(record)) ? Color(LogWindowPalette.hl) : .clear)
-                            .contentShape(Rectangle()).onTapGesture { model.jump(epochMs: record.epochMs) }
-                    }
-                }
-            }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 10).padding(.vertical, 6)
-        }.litheScrollViewChrome()
+                }.frame(minWidth: max(0, viewport.size.width - 20), alignment: .leading).padding(.horizontal, 10).padding(.vertical, 6)
+            }.litheScrollViewChrome()
+        }
     }
     private var status: some View {
         HStack(spacing: 16) {
@@ -451,36 +427,50 @@ private struct LogHistogramView: View {
             GeometryReader { geometry in
                 if let histogram = model.state.histogram {
                     let maximum = max(1, histogram.buckets.map { $0.debug + $0.info + $0.warn + $0.error }.max() ?? 1)
-                    HStack(alignment: .bottom, spacing: 1) {
-                        ForEach(histogram.buckets.indices, id: \.self) { index in
-                            let bucket = histogram.buckets[index]
-                            VStack(spacing: 0) {
-                                Spacer(minLength: 0)
-                                Rectangle().fill(Color(LogWindowPalette.red)).frame(height: CGFloat(bucket.error) / CGFloat(maximum) * 44)
-                                Rectangle().fill(Color(LogWindowPalette.yel)).frame(height: CGFloat(bucket.warn) / CGFloat(maximum) * 44)
-                                Rectangle().fill(Color(LogWindowPalette.blu).opacity(0.4)).frame(height: CGFloat(bucket.info + bucket.debug) / CGFloat(maximum) * 44)
-                            }.background {
-                                if let start = dragStart, let end = dragEnd, (min(start, end)...max(start, end)).contains(index) {
-                                    Color(LogWindowPalette.blu).opacity(0.16)
-                                }
-                            }.help(String(format: L10n.string("%@ · ERROR %lld · WARN %lld · other %lld"),
-                                Date(timeIntervalSince1970: Double(histogram.startEpochMs + Int64(index) * histogram.bucketMs) / 1000).formatted(),
-                                Int64(bucket.error), Int64(bucket.warn), Int64(bucket.debug + bucket.info)))
-                        }
-                    }.contentShape(Rectangle()).gesture(DragGesture(minimumDistance: 0).onChanged { value in
-                        if dragStart == nil { dragStart = bucket(value.startLocation.x, width: geometry.size.width, count: histogram.buckets.count) }
-                        dragEnd = bucket(value.location.x, width: geometry.size.width, count: histogram.buckets.count)
-                    }.onEnded { value in
-                        let end = bucket(value.location.x, width: geometry.size.width, count: histogram.buckets.count)
-                        let start = dragStart ?? end; dragStart = nil; dragEnd = nil
-                        if start == end { model.jump(epochMs: histogram.startEpochMs + Int64(end) * histogram.bucketMs) }
-                        else { model.setRange(since: histogram.startEpochMs + Int64(min(start, end)) * histogram.bucketMs,
-                            until: histogram.startEpochMs + Int64(max(start, end) + 1) * histogram.bucketMs - 1) }
-                    })
+                    VStack(spacing: 2) {
+                        HStack(alignment: .bottom, spacing: 1) {
+                            ForEach(histogram.buckets.indices, id: \.self) { index in
+                                let bucket = histogram.buckets[index]
+                                VStack(spacing: 0) {
+                                    Spacer(minLength: 0)
+                                    Rectangle().fill(Color(LogWindowPalette.red)).frame(height: CGFloat(bucket.error) / CGFloat(maximum) * 34)
+                                    Rectangle().fill(Color(LogWindowPalette.yel)).frame(height: CGFloat(bucket.warn) / CGFloat(maximum) * 34)
+                                    Rectangle().fill(Color(LogWindowPalette.blu).opacity(0.4)).frame(height: CGFloat(bucket.info + bucket.debug) / CGFloat(maximum) * 34)
+                                }.background {
+                                    if let start = dragStart, let end = dragEnd, (min(start, end)...max(start, end)).contains(index) {
+                                        Color(LogWindowPalette.blu).opacity(0.16)
+                                    }
+                                }.help(String(format: L10n.string("%@ · ERROR %lld · WARN %lld · other %lld"),
+                                    timestamp(histogram.startEpochMs + Int64(index) * histogram.bucketMs),
+                                    Int64(bucket.error), Int64(bucket.warn), Int64(bucket.debug + bucket.info)))
+                            }
+                        }.contentShape(Rectangle()).gesture(DragGesture(minimumDistance: 0).onChanged { value in
+                            if dragStart == nil { dragStart = bucket(value.startLocation.x, width: geometry.size.width, count: histogram.buckets.count) }
+                            dragEnd = bucket(value.location.x, width: geometry.size.width, count: histogram.buckets.count)
+                        }.onEnded { value in
+                            let end = bucket(value.location.x, width: geometry.size.width, count: histogram.buckets.count)
+                            let start = dragStart ?? end; dragStart = nil; dragEnd = nil
+                            if start == end { model.jump(epochMs: histogram.startEpochMs + Int64(end) * histogram.bucketMs) }
+                            else { model.setRange(since: histogram.startEpochMs + Int64(min(start, end)) * histogram.bucketMs,
+                                until: histogram.startEpochMs + Int64(max(start, end) + 1) * histogram.bucketMs - 1) }
+                        })
+                        HStack {
+                            Text(verbatim: timestamp(histogram.startEpochMs))
+                            Spacer(minLength: 0)
+                            Text(verbatim: timestamp(histogram.startEpochMs + (histogram.endEpochMs - histogram.startEpochMs) / 2))
+                            Spacer(minLength: 0)
+                            Text(verbatim: timestamp(histogram.endEpochMs))
+                        }.font(LitheTheme.uiFont(size: 10, design: .monospaced))
+                            .foregroundStyle(Color(LogWindowPalette.tx3)).lineLimit(1)
+                    }
                 }
             }.accessibilityLabel(Text("Events over time"))
-        }.padding(.horizontal, 10).padding(.top, 6).padding(.bottom, 4).frame(height: 58).background(Color(LogWindowPalette.bg2))
+        }.padding(.horizontal, 10).padding(.top, 6).padding(.bottom, 4).frame(height: 72).background(Color(LogWindowPalette.bg2))
             .overlay(alignment: .bottom) { Color(LogWindowPalette.line).frame(height: 1) }
+    }
+    private func timestamp(_ milliseconds: Int64) -> String {
+        Date(timeIntervalSince1970: Double(milliseconds) / 1000)
+            .formatted(.dateTime.month(.twoDigits).day(.twoDigits).hour(.twoDigits(amPM: .omitted)).minute(.twoDigits).second(.twoDigits))
     }
     private func bucket(_ x: CGFloat, width: CGFloat, count: Int) -> Int { min(max(0, Int(x / max(1, width) * CGFloat(count))), max(0, count - 1)) }
 }

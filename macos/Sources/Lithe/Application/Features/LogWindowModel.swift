@@ -354,6 +354,17 @@ final class LogWindowModel: ObservableObject {
         if liveFailed { retry() }
     }
     func toggleFollow() { if state.follows { state.follows = false; state.scrolledUp = false } else { resume() } }
+    /// Clear points per log session. A caller that shows several independent views
+    /// through one model (the LSP Logs tab keeps one per server) swaps them before
+    /// `changeQuery`; the next query then omits records at or below these points.
+    var displayWatermarks: [String: UInt64] {
+        get { watermarks }
+        set {
+            watermarks = newValue
+            activeQuery.afterSequences = newValue
+            state.cleared = !newValue.isEmpty
+        }
+    }
     func clearDisplay() {
         watermarks = latestSequences
         activeQuery.afterSequences = watermarks

@@ -1262,17 +1262,7 @@ struct WorkbenchView: View {
         .accessibilityLabel(Text(LocalizedStringKey("Settings")))
         .accessibilityIdentifier("workbench-settings-menu")
         .overlay {
-            LitheDropdownPopover(isPresented: $isSettingsMenuPresented, items: [
-                .action("Settings…", icon: AnyView(LitheIDEAIcon(resourcePath: "expui/general/settings.svg", size: 16)),
-                        initiallySelected: true, shortcut: model.keyboardShortcutFeature.displayText(for: "settings")) {
-                    model.showSettings()
-                },
-                .action("Plugins…") { model.showSettings(category: .plugins) },
-                .action("Logs and Diagnostics…") { model.openLogs() },
-                .separator,
-                .action("Theme…") { model.showSettings(category: .general) },
-                .action("Keymap…") { model.showSettings(category: .keymap) }
-            ]) { EmptyView() }
+            LitheDropdownPopover(isPresented: $isSettingsMenuPresented, items: WorkbenchSettingsMenu.items(model: model)) { EmptyView() }
         }
     }
 
