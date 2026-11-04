@@ -509,6 +509,29 @@ package protocol LanguageServerRuntimeCore: Sendable {
         params: ToolingJSONValue,
         timeout: TimeInterval
     ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure>
+    /// Sends an import request with an opaque snapshot token to a negotiated provider.
+    func requestKeymapImportProvider(
+        sessionID: String,
+        providerID: String,
+        snapshotID: String,
+        timeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure>
+    /// Starts a plugin backend offering its shortcut and optional toolchain providers.
+    func startPluginKeymapImportBackend(
+        pluginID: String,
+        providerID: String,
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String],
+        rootURL: URL,
+        initializationOptions: ToolingJSONValue?,
+        hostServices: [String],
+        toolchainProviders: [String],
+        keymapImportProviders: [String],
+        initializeTimeout: TimeInterval,
+        requestTimeout: TimeInterval,
+        shutdownTimeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure>
     /// Starts a plugin backend and offers it the manifest's toolchain providers.
     func startPluginToolchainBackend(
         pluginID: String,
@@ -777,6 +800,25 @@ package extension LanguageServerRuntimeCore {
             code: "not_supported",
             message: "Toolchain-provider requests are not supported by this runtime."
         ))
+    }
+
+    func requestKeymapImportProvider(
+        sessionID _: String, providerID _: String, snapshotID _: String, timeout _: TimeInterval
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
+        .failure(LanguageServerRuntimeFailure(code: "not_supported", message: L10n.string(
+            "Shortcut import is unavailable. Update Lithe and the editor import plugin, then try again."
+        )))
+    }
+
+    func startPluginKeymapImportBackend(
+        pluginID _: String, providerID _: String, executableURL _: URL, arguments _: [String],
+        environment _: [String: String], rootURL _: URL, initializationOptions _: ToolingJSONValue?,
+        hostServices _: [String], toolchainProviders _: [String], keymapImportProviders _: [String],
+        initializeTimeout _: TimeInterval, requestTimeout _: TimeInterval, shutdownTimeout _: TimeInterval
+    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> {
+        .failure(LanguageServerRuntimeFailure(code: "not_supported", message: L10n.string(
+            "Shortcut import is unavailable. Update Lithe and the editor import plugin, then try again."
+        )))
     }
 
     /// Runtimes without the protocol start the backend without the offer, so

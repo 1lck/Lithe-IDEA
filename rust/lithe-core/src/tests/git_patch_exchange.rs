@@ -493,16 +493,27 @@ fn structured_diff_keeps_git_rename_identity_and_visible_cr_changes() {
 
 #[test]
 fn rename_hunk_unstage_preserves_rename_and_other_staged_changes() {
+    assert_rename_hunk_unstage("new name 中文.txt");
+}
+
+// Windows filesystems do not allow control characters in a file name.
+#[cfg(not(windows))]
+#[test]
+fn rename_hunk_unstage_preserves_tab_in_file_name() {
+    assert_rename_hunk_unstage("new name\t中文.txt");
+}
+
+fn assert_rename_hunk_unstage(renamed: &str) {
     let repository = PatchRepository::new("rename-content-hunks");
     let original: Vec<String> = (0..100).map(|line| format!("line {line:03}\n")).collect();
     repository.write("text.txt", original.concat().as_bytes());
     repository.git(&["add", "text.txt"]);
     repository.git(&["commit", "-qm", "long file"]);
-    repository.git(&["mv", "text.txt", "new name\t中文.txt"]);
+    repository.git(&["mv", "text.txt", renamed]);
     let mut changed = original.clone();
     changed[5] = "first changed\r\n".into();
     changed[90] = "second changed\n".into();
-    repository.write("new name\t中文.txt", changed.concat().as_bytes());
+    repository.write(renamed, changed.concat().as_bytes());
     repository.git(&["add", "--all"]);
     let diff = repository.data(
         "git.diff",
@@ -518,11 +529,11 @@ fn rename_hunk_unstage_preserves_rename_and_other_staged_changes() {
     assert_eq!(applied["exitCode"], 0, "{applied}");
     let status = repository.git(&["diff", "--cached", "--name-status"]);
     assert!(status.starts_with("R"), "{status}");
-    let staged = repository.git(&["show", ":new name\t中文.txt"]);
+    let staged = repository.git(&["show", &format!(":{renamed}")]);
     assert!(staged.contains("line 005\n"));
     assert!(staged.contains("second changed\n"));
     assert_eq!(
-        fs::read(repository.0.join("new name\t中文.txt")).unwrap(),
+        fs::read(repository.0.join(renamed)).unwrap(),
         changed.concat().as_bytes()
     );
 }

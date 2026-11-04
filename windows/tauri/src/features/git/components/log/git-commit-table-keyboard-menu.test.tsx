@@ -6,6 +6,8 @@ import { LocaleProvider } from "@/i18n/locale-provider";
 import { installHappyDom } from "@/test-utils/happy-dom";
 import { useGitLogPreferencesStore } from "../../stores/git-log-preferences.store";
 import type { GitCommit } from "../../types/git.types";
+import * as historyApi from "../../api/git-history-rewrite-api";
+import * as commitsApi from "../../api/git-commits-api";
 const { GitCommitTable } = await import("./git-commit-table");
 const virtualization = await import("@tanstack/react-virtual");
 const dates = await import("./git-log-date-cell");
@@ -22,6 +24,8 @@ let previousPreferences: ReturnType<typeof useGitLogPreferencesStore.getState>;
 const spies: Array<{ mockRestore(): void }> = [];
 const onCreateTag = mock((_commit: GitCommit) => {});
 const onCherryPick = mock((_commit: GitCommit) => {});
+const onSquash = mock((_commits: GitCommit[]) => {});
+let capabilitySpy: ReturnType<typeof spyOn<typeof historyApi, "getGitHistoryActionCapabilities">>;
 const contextCommit = mock((_commit: GitCommit) => {});
 const emptyMenu = mock(() => {});
 const commits: GitCommit[] = ["a", "b"].map((letter) => ({
@@ -41,8 +45,15 @@ beforeEach(() => {
   useGitLogPreferencesStore.setState({ filterQuery: "", filterScope: "text" });
   onCreateTag.mockClear();
   onCherryPick.mockClear();
+  onSquash.mockClear();
   contextCommit.mockClear();
   emptyMenu.mockClear();
+  capabilitySpy = spyOn(historyApi, "getGitHistoryActionCapabilities").mockImplementation(async (_root, revisions) => ({
+    head: commits[1]!.hash, canCherryPick: revisions[0] !== commits[1]!.hash,
+    canUndo: revisions[0] === commits[1]!.hash, canSquash: false,
+  }));
+  spies.push(capabilitySpy);
+  spies.push(spyOn(commitsApi, "cancelGitHistoryOperation").mockResolvedValue(undefined));
   // Other tests can import Base UI before installing a DOM, choosing its SSR
   // no-op hook. Enable the real React client hook for this owned DOM fixture.
   spies.push(spyOn(baseLayoutEffects, "useIsoLayoutEffect").mockImplementation(useLayoutEffect));
@@ -82,7 +93,7 @@ afterEach(async () => {
     restoreDom();
   }
 });
-function Harness({ selected = true }: { selected?: boolean }) {
+function Harness({ selected = true, selectedHashes }: { selected?: boolean; selectedHashes?: Set<string> }) {
   const [commit, setCommit] = useState<GitCommit | null>(selected ? commits[0]! : null);
   return (
     <div
@@ -92,9 +103,10 @@ function Harness({ selected = true }: { selected?: boolean }) {
       }}
     >
       <GitCommitTable
+        repoPath="C:/repo"
         commits={commits}
         selectedCommit={commit}
-        selectedCommitHashes={new Set(commit ? [commit.hash] : [])}
+        selectedCommitHashes={selectedHashes ?? new Set(commit ? [commit.hash] : [])}
         isMutatingHistory={false}
         hasMore={false}
         isLoadingMore={false}
@@ -111,7 +123,7 @@ function Harness({ selected = true }: { selected?: boolean }) {
         onInteractiveRebase={() => {}}
         onExportPatch={() => {}}
         onDelete={() => {}}
-        onSquash={() => {}}
+        onSquash={onSquash}
         onReset={() => {}}
         onCherryPick={onCherryPick}
         onRevert={() => {}}
@@ -228,4 +240,19 @@ test("cherry-pick is disabled for actual HEAD even when it is not the first row"
   expect(item.getAttribute("aria-disabled")).toBe("true");
   await act(async () => item.click());
   expect(onCherryPick).not.toHaveBeenCalled();
+});
+
+
+test("squash uses Core eligibility even when the loaded graph lacks its parent chain", async () => {
+  capabilitySpy.mockResolvedValue({head: "other", canCherryPick: false, canUndo: false, canSquash: true});
+  await act(async () => root.render(<LocaleProvider language="en-US"><Harness selectedHashes={new Set(commits.map((commit) => commit.hash))} /></LocaleProvider>));
+  viewport().focus();
+  await key("ContextMenu");
+  const item = Array.from(openMenu()!.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(
+    (entry) => entry.textContent === "Squash Commits",
+  );
+  expect(item).toBeDefined();
+  expect(item!.getAttribute("aria-disabled")).not.toBe("true");
+  await act(async () => item!.click());
+  expect(onSquash.mock.calls[0]?.[0].map((commit) => commit.hash)).toEqual(commits.map((commit) => commit.hash));
 });

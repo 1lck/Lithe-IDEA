@@ -21,6 +21,7 @@ export interface WorkspaceCommitRelation {
 export interface WorkspaceCommitPathScope {
   include: boolean;
   paths: Record<string, string[]>;
+  membership?: { activeId: string; assignments: Record<string, Record<string, string>> };
 }
 /** A divergent destination the user confirmed for one repository. */
 export interface WorkspaceCommitPushTarget {

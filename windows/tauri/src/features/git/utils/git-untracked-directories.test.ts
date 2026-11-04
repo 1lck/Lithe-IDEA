@@ -6,8 +6,7 @@ import {
 import { countUniqueGitChanges } from "@/features/layout/utils/footer-status";
 import type { GitFile } from "../types/git.types";
 import {
-  assignChangelist,
-  changelistCommitScope,
+  changelistFileKey,
   DEFAULT_CHANGELIST,
   EMPTY_CHANGELISTS,
   fileChangelist,
@@ -110,44 +109,18 @@ describe("untracked directory summaries", () => {
   });
 });
 
-describe("changelists with untracked directory summaries", () => {
-  const repository = "C:/workspace/A";
-  const local: LocalChangelists = {
+test("directory rows consume the Core projection and unknown membership fails closed", () => {
+  const first = untracked("target/a.o", undefined, "A");
+  const unknown = untracked("target/new.o", undefined, "A");
+  const state: LocalChangelists = {
     ...EMPTY_CHANGELISTS,
     lists: [...EMPTY_CHANGELISTS.lists, { id: "local", name: "Local" }],
-  };
-  const moved = assignChangelist(local, [untracked("target/", 200, "A")], "local");
-  const staged = [
-    { ...untracked("target/a.o", undefined, "A"), status: "added" as const, staged: true },
-    { ...untracked("target/debug/b.o", undefined, "A"), status: "added" as const, staged: true },
-    {
-      ...modified("A/src/main.rs", true),
-      repositoryPath: repository,
-      repositoryRelativePath: "src/main.rs",
+    assignments: { '["C:/workspace/A","target/"]': "local" },
+    projection: {
+      members: new Map([[changelistFileKey(first)!, "local"]]),
+      scope: { include: false, paths: { A: ["target/", "target/a.o"] } },
     },
-  ];
-
-  test("files below an assigned summary follow its changelist", () => {
-    expect(fileChangelist(moved, staged[0]!)).toBe("local");
-    expect(fileChangelist(moved, untracked("target/debug/", 199, "A"))).toBe("local");
-    expect(fileChangelist(moved, untracked("targets/app", undefined, "A"))).toBe(
-      DEFAULT_CHANGELIST,
-    );
-    expect(fileChangelist(moved, staged[2]!)).toBe(DEFAULT_CHANGELIST);
-  });
-
-  test("the commit scope lists those files by path for Core's literal guard", () => {
-    // Without them the list's own commit is rejected, and the default list's
-    // commit slips them past the guard.
-    const bindings = [{ id: "A", root: repository }];
-    const expected = ["target/", "target/a.o", "target/debug/b.o"];
-    expect(changelistCommitScope(moved, bindings, staged)).toEqual({
-      include: false,
-      paths: { A: expected },
-    });
-    expect(changelistCommitScope({ ...moved, activeId: "local" }, bindings, staged)).toEqual({
-      include: true,
-      paths: { A: expected },
-    });
-  });
+  };
+  expect(fileChangelist(state, first)).toBe("local");
+  expect(fileChangelist(state, unknown)).not.toBe(DEFAULT_CHANGELIST);
 });

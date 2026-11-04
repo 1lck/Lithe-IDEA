@@ -143,6 +143,56 @@ struct RustGitOperations: GitOperations, Sendable {
         write(at: change.repositoryRoot, operation: "discardAll", paths: change.pathspecs)
     }
 
+    func prepareRollback(at root: URL, changes: [GitChange], deleteAddedFiles: Bool) -> Result<GitRollbackPlan, GitRollbackFailure> {
+        struct Change: Encodable {
+            let path: String
+            let originalPath: String?
+            let status: String
+        }
+        struct Request: Encodable {
+            let root: String
+            let changes: [Change]
+            let deleteAddedFiles: Bool
+        }
+        let request = Request(root: root.standardizedFileURL.path, changes: changes.map {
+            Change(path: $0.path, originalPath: $0.originalPath, status: String($0.indexStatus) + String($0.workTreeStatus))
+        }, deleteAddedFiles: deleteAddedFiles)
+        let result: Result<GitRollbackPlan, RustCoreBridge.CoreCallError> = core.executeResult(command: "git.rollbackPrepare", payload: request)
+        return result.mapError { GitRollbackFailure($0.userMessage) }
+    }
+
+    func executeRollbackStep(at root: URL, step: GitRollbackPlan.Step) -> GitProcessResult? {
+        write(at: root, operation: step.operation.rawValue, paths: step.paths)
+    }
+
+    func changelistProjection(_ request: GitChangelistCoreRequest) -> GitChangelistCoreProjection? {
+        let result: Result<GitChangelistCoreProjection, RustCoreBridge.CoreCallError> = core.executeResult(command: "git.changelists", payload: request)
+        return try? result.get()
+    }
+
+    func reconcileDeletedSelection(at root: URL, changes: [GitChange]) -> GitProcessResult? {
+        struct Change: Encodable { let path: String; let status: String }
+        struct Request: Encodable { let root: String; let changes: [Change] }
+        struct Response: Decodable { let unstaged: [String] }
+        let request = Request(root: root.standardizedFileURL.path, changes: changes.map {
+            Change(path: $0.path, status: String($0.indexStatus) + String($0.workTreeStatus))
+        })
+        let result: Result<Response, RustCoreBridge.CoreCallError> = core.executeResult(command: "git.reconcileDeletedSelection", payload: request)
+        switch result {
+        case .success: return GitProcessResult(output: "", exitCode: 0)
+        case .failure(let error): return GitProcessResult(output: error.userMessage, exitCode: 1)
+        }
+    }
+
+    func prepareCommitSelection(_ request: GitCommitSelectionRequest) -> GitProcessResult? {
+        struct Response: Decodable { let prepared: Bool }
+        let result: Result<Response, RustCoreBridge.CoreCallError> = core.executeResult(command: "git.prepareCommitSelection", payload: request)
+        switch result {
+        case .success(let response): return GitProcessResult(output: "", exitCode: response.prepared ? 0 : 1)
+        case .failure(let error): return GitProcessResult(output: error.userMessage, exitCode: 1)
+        }
+    }
+
     func prepareWorkspaceCommit(_ request: GitWorkspaceCommitRequest) -> Result<GitWorkspaceCommitPreparation, GitWorkspaceCommitFailure> {
         let result: Result<GitWorkspaceCommitPreparation, RustCoreBridge.CoreCallError> = core.executeResult(
             command: "git.workspaceCommitPrepare", payload: request)
@@ -170,6 +220,11 @@ struct RustGitOperations: GitOperations, Sendable {
 
     func resetCurrentBranch(to hash: String, mode: String, at rootURL: URL) -> GitProcessResult? {
         write(at: rootURL, operation: "reset", revision: hash, mode: mode)
+    }
+
+    func historyActionCapabilities(at rootURL: URL, revisions: [String], operationID: String) -> Result<GitHistoryActionCapabilities, GitHistoryActionFailure> {
+        core.gitHistoryActionCapabilities(at: rootURL, revisions: revisions, operationID: operationID)
+            .mapError { _ in GitHistoryActionFailure() }
     }
 
     func historyRewritePreview(at rootURL: URL, operation: GitHistoryRewriteOperation, revisions: [String]) -> GitHistoryRewritePreview? {

@@ -11,6 +11,28 @@ import Testing
 @MainActor
 struct MacPluginBackendSessionsTests {
     @Test
+    func shortcutImportProviderIDsComeFromThePluginManifest() throws {
+        let fixture = DeclarativePluginTestSupport.repositoryRoot
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/keymap-import-provider.plugin.json")
+        let manifest = try Data(contentsOf: fixture)
+        #expect(MacPluginBackendSessions.keymapImportProviderIDs(ofManifest: manifest) == ["first", "second"])
+        #expect(MacPluginBackendSessions.isKeymapOnlyBackend(manifest: manifest))
+        let normalized = try RustDeclarativePluginOperations(core: RustCoreBridge()).validate(manifest: manifest).normalizedManifest
+        #expect(MacPluginBackendSessions.keymapImportProviderIDs(ofManifest: normalized) == ["first", "second"])
+        #expect(MacPluginBackendSessions.isKeymapOnlyBackend(manifest: normalized))
+        var object = try #require(JSONSerialization.jsonObject(with: manifest) as? [String: Any])
+        object["permissions"] = ["backend.launch", "keymaps.provide", "keymaps.readSelectedSources", "workspace.metadata"]
+        let shared = try JSONSerialization.data(withJSONObject: object)
+        #expect(!MacPluginBackendSessions.isKeymapOnlyBackend(manifest: shared))
+        object["permissions"] = ["backend.launch", "keymaps.provide", "keymaps.readSelectedSources"]
+        for contribution in ["settings", "settingActions", "toolDefinitions"] {
+            object[contribution] = [[:]]
+            #expect(!MacPluginBackendSessions.isKeymapOnlyBackend(manifest: try JSONSerialization.data(withJSONObject: object)))
+            object.removeValue(forKey: contribution)
+        }
+    }
+
+    @Test
     func anOlderNegotiatedProtocolSkipsNotificationsWithoutStoppingTheBackend() async throws {
         let fixture = try BackendFixture(backendVersion: 2)
         defer { fixture.remove() }

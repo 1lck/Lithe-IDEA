@@ -13,6 +13,9 @@ package struct NullGitPerformanceLogger: GitPerformanceLogger {
 }
 
 package protocol GitOperations: Sendable {
+    func changelistProjection(_ request: GitChangelistCoreRequest) -> GitChangelistCoreProjection?
+    func reconcileDeletedSelection(at root: URL, changes: [GitChange]) -> GitProcessResult?
+    func prepareCommitSelection(_ request: GitCommitSelectionRequest) -> GitProcessResult?
     func prepareWorkspaceCommit(_ request: GitWorkspaceCommitRequest) -> Result<GitWorkspaceCommitPreparation, GitWorkspaceCommitFailure>
     func stepWorkspaceCommit(_ session: GitWorkspaceCommitSession) -> Result<GitWorkspaceCommitSession, GitWorkspaceCommitFailure>
 
@@ -116,10 +119,13 @@ package protocol GitOperations: Sendable {
     func unstage(_ change: GitChange) -> GitProcessResult?
     func discard(_ change: GitChange) -> GitProcessResult?
     func discardAll(_ change: GitChange) -> GitProcessResult?
+    func prepareRollback(at root: URL, changes: [GitChange], deleteAddedFiles: Bool) -> Result<GitRollbackPlan, GitRollbackFailure>
+    func executeRollbackStep(at root: URL, step: GitRollbackPlan.Step) -> GitProcessResult?
     func commit(at rootURL: URL, message: String, amend: Bool) -> GitProcessResult?
     func cherryPick(_ hash: String, at rootURL: URL) -> GitProcessResult?
     func revert(_ hash: String, at rootURL: URL) -> GitProcessResult?
     func resetCurrentBranch(to hash: String, mode: String, at rootURL: URL) -> GitProcessResult?
+    func historyActionCapabilities(at rootURL: URL, revisions: [String], operationID: String) -> Result<GitHistoryActionCapabilities, GitHistoryActionFailure>
     func historyRewritePreview(at rootURL: URL, operation: GitHistoryRewriteOperation, revisions: [String]) -> GitHistoryRewritePreview?
     func rewriteHistory(at rootURL: URL, expectedState: GitHistoryRewriteExpectedState, message: String?) -> GitProcessResult?
     func interactiveRebasePreview(at rootURL: URL, revision: String) -> Result<GitRebasePreview, GitRebaseFailure>
@@ -208,7 +214,14 @@ package protocol GitOperations: Sendable {
 }
 
 package extension GitOperations {
+    func changelistProjection(_ request: GitChangelistCoreRequest) -> GitChangelistCoreProjection? { nil }
     func historyDateMatches(_ query: GitHistoryDateQuery) -> [String]? { nil }
+    func reconcileDeletedSelection(at root: URL, changes: [GitChange]) -> GitProcessResult? { nil }
+    func prepareCommitSelection(_ request: GitCommitSelectionRequest) -> GitProcessResult? { nil }
+    func prepareRollback(at root: URL, changes: [GitChange], deleteAddedFiles: Bool) -> Result<GitRollbackPlan, GitRollbackFailure> {
+        .failure(GitRollbackFailure(L10n.string("Could not refresh Git status. Refresh to verify the changes.")))
+    }
+    func executeRollbackStep(at root: URL, step: GitRollbackPlan.Step) -> GitProcessResult? { nil }
     func savedStashFiles(at rootURL: URL, reference: String, base: String) -> Result<[GitSavedPatchFile], GitPatchFailure> {
         .failure(GitPatchFailure(L10n.string("Could not load saved changes")))
     }
@@ -290,6 +303,7 @@ package extension GitOperations {
         .failure(GitPatchFailure("Patch preview is unavailable."))
     }
     func applyExchangePatch(at rootURL: URL, patch: String, target: GitPatchTarget, expectedState: String) -> GitProcessResult? { nil }
+    func historyActionCapabilities(at rootURL: URL, revisions: [String], operationID: String) -> Result<GitHistoryActionCapabilities, GitHistoryActionFailure> { .failure(GitHistoryActionFailure()) }
     func historyRewritePreview(at rootURL: URL, operation: GitHistoryRewriteOperation, revisions: [String]) -> GitHistoryRewritePreview? { nil }
     func rewriteHistory(at rootURL: URL, expectedState: GitHistoryRewriteExpectedState, message: String?) -> GitProcessResult? { nil }
     func repositories(in workspaceURL: URL) -> [URL] {
@@ -455,6 +469,18 @@ package struct GitService: Sendable {
 
     func repositories(in workspace: URL) async -> [URL] {
         await read(priority: .utility) { $0.repositories(in: workspace) } ?? []
+    }
+
+    func changelistProjection(_ request: GitChangelistCoreRequest) async -> GitChangelistCoreProjection? {
+        await read { $0.changelistProjection(request) }
+    }
+
+    func reconcileDeletedSelection(at root: URL, changes: [GitChange]) async -> CommandResult {
+        await command { $0.reconcileDeletedSelection(at: root, changes: changes) }
+    }
+
+    func prepareCommitSelection(_ request: GitCommitSelectionRequest) async -> CommandResult {
+        await command { $0.prepareCommitSelection(request) }
     }
 
     func prepareWorkspaceCommit(_ request: GitWorkspaceCommitRequest) async -> Result<GitWorkspaceCommitPreparation, GitWorkspaceCommitFailure> {
@@ -638,6 +664,25 @@ package struct GitService: Sendable {
         await command(at: change.repositoryRoot) { $0.discardAll(change) }
     }
 
+    func prepareRollback(at root: URL, changes: [GitChange], deleteAddedFiles: Bool) async -> Result<GitRollbackPlan, GitRollbackFailure> {
+        let operations = self.operations
+        let execution = GitExecutionContext.current
+        return await withTaskCancellationHandler {
+            await Task.detached(priority: .userInitiated) {
+                GitExecutionContext.$current.withValue(execution) {
+                    operations.prepareRollback(at: root, changes: changes, deleteAddedFiles: deleteAddedFiles)
+                }
+            }.value
+        } onCancel: {
+            execution?.requestCancellation()
+            if let execution { _ = operations.cancel(operationID: execution.operationID) }
+        }
+    }
+
+    func executeRollbackStep(at root: URL, step: GitRollbackPlan.Step) async -> CommandResult {
+        await command(at: root) { $0.executeRollbackStep(at: root, step: step) }
+    }
+
     func stage(hunk: DiffHunk, of change: GitChange) async -> CommandResult {
         await command(at: change.repositoryRoot, fallbackArguments: ["apply", "--cached", "-"]) {
             $0.applyPatch(hunk.patch, at: change.repositoryRoot, mode: "stage")
@@ -658,6 +703,21 @@ package struct GitService: Sendable {
 
     func commit(at repositoryRoot: URL, message: String, amend: Bool = false) async -> CommandResult {
         await command(at: repositoryRoot) { $0.commit(at: repositoryRoot, message: message, amend: amend) }
+    }
+
+    func historyActionCapabilities(at root: URL, revisions: [String], operationID: String) async -> GitHistoryActionCapabilities? {
+        let result = await cancellableRead(operationID: operationID) {
+            $0.historyActionCapabilities(at: root, revisions: revisions, operationID: operationID)
+        }
+        guard let result else { return nil }
+        switch result {
+        case .success(let capabilities): return capabilities
+        case .failure:
+            if !Task.isCancelled {
+                performanceLogger.emit(VcsHistoryActionCapabilitiesFailed(error: LogFailure(domain: "GitHistoryActions", code: "query_failed")))
+            }
+            return nil
+        }
     }
 
     func historyRewritePreview(at repositoryRoot: URL, operation: GitHistoryRewriteOperation, revisions: [String]) async -> GitHistoryRewritePreview? {

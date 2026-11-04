@@ -1,5 +1,88 @@
 # Rust Core API
 
+## Normalized shortcut import validation
+
+`keymap.decodeImport` accepts `{commandIDs: string[], reply: {bindings:
+[{commandID: string, keys: [{key: string, modifiers: string[]}]}]}}` and
+returns `{bindings: [...]}`. The caller supplies its current action catalog;
+unknown or duplicate actions, duplicate keys or modifiers, unknown fields,
+unsupported keys and unmodified printable keys fail with `invalid_request` and
+no partial result. Modifiers are `control`, `alt`, `shift` and `meta`, in
+that canonical order. Keys are lowercase single ASCII graphic characters,
+`f1` through `f24`, or `up`, `down`, `left`, `right`, `return`, `tab`,
+`space`, `backspace`, `delete`, `escape`, `pageup`, `pagedown`, `home`, `end`
+and `insert`. This is the portable vocabulary; each host must still reject keys
+its native input and shortcut model cannot represent. A printable character or `space` requires `control`, `alt` or
+`meta`. Empty key lists represent an explicit unbinding. Actions are returned
+in ID order; each action's key order is retained because the first is its
+primary binding. A shortcut used by different actions is retained for the
+host's final conflict check. Requests are limited to 1 MiB, 4096 catalog IDs,
+4096 actions, eight keys per action and 128 UTF-8 bytes per ID. The shared
+[fixtures](../fixtures/keymap/import-provider-v1.json) cover this contract.
+
+This validates normalized results only. It neither parses an IDE's private
+format nor discovers or starts a provider; an unimplemented provider API must
+not be inferred from the existence of this Core command. Conditional rules and
+multi-stroke keys cannot be represented and must not be silently made global.
+
+`debug.startOrContinue` accepts `{active, paused, requestPending}` booleans and returns
+`{action: "start" | "continue" | "none"}`. An in-flight request or an active,
+non-paused session returns `none`; an inactive session starts, and an active
+paused session continues. The platform executes the result against its current
+session and must still guard against state changes.
+
+`keymap.planImportBindings` accepts `{current: [{commandID, customized, keys}],
+incoming: {bindings}}` and returns `{displaced, conflicts}`. Current entries
+are the host's complete action catalog and effective key-press bindings;
+non-key-press bindings remain in the host and are never displaced. Incoming
+bindings use the same validation as `keymap.decodeImport`. Each displacement
+names an unchanged default action and only the keys to remove. A customized
+owner or two imported actions claiming the same key produces a conflict naming
+`commandID`, `ownerID` and `key`; a conflict clears all displacements so a
+caller cannot apply a partial plan. Actions included in the import replace
+their old bindings, permitting swaps. Results are deterministic. Requests are
+bounded to 1 MiB, 4096 actions, eight keys per action, 4096 conflicts and
+131072 ownership comparisons. Hosts must recheck the source and settings
+revisions at apply time. See [plan fixtures](../fixtures/keymap/import-plan-v1.json).
+
+`keymap.planImportSources` accepts `{manifest, providerID}` and returns
+`{inputs, recognition, limits}` for exactly that declared provider after validating the entire
+manifest; an unknown provider or invalid manifest returns `invalid_request`.
+The payload is bounded to 1 MiB. It performs no filesystem I/O and does not
+establish package trust: callers must supply the enabled, previously accepted
+plugin manifest. Selectors and native read limits are defined by the
+[plugin contract](plugins/v1/README.md#shortcut-import-providers-core-foundation).
+The returned limits bound selectors, recognition probes, files, bytes per file and per snapshot,
+bytes per chunk, directory entries scanned and matching entries per directory;
+native adapters apply these values to their I/O.
+See [source plan fixtures](../fixtures/keymap/source-plans-v1.json).
+
+For the provider foundation, `lsp.startServer` optionally accepts
+`keymapImportProviders`, an array of at most eight declared plugin-local IDs.
+Only a plugin-owned session with valid IDs offers
+`experimental.litheKeymapImport: {versions: [1], providers}`. A backend may
+select a non-empty, duplicate-free subset using `{version: 1, providers}`;
+Core emits `keymapImportProviders` with `result: {providers}` only for a valid
+selection. Invalid IDs, unknown selections and unsupported versions enable no
+providers. This negotiation alone does not implement the product workflow. See the
+[negotiation fixtures](../fixtures/keymap/provider-negotiation-v1.json).
+
+`lsp.keymapImportRequest` accepts `{sessionId, operationId?, providerID,
+snapshotID, timeoutMilliseconds?}` and returns `{operationId}`. The requested
+provider must have been selected in that exact session. `snapshotID` is an
+opaque 1–128 byte ASCII alphanumeric, hyphen or underscore token, never a
+filesystem path; the native snapshot service must separately enforce ownership,
+expiry and read permissions before supplying any source data. The method sends
+`lithe/keymap/import` with only `{providerID, snapshotID}` and caps the request
+deadline at 60 seconds. Completion returns the untrusted JSON-RPC reply as
+`result.value: {id, response}`; callers must validate successful reply data via
+`keymap.decodeImport` before applying it. Replies larger than 1 MiB fail with
+`plugin.keymapImport.replyTooLarge`; no partial result is returned. Normal
+session cancellation and teardown apply. Backend attempts to call
+`lithe/keymap/*` are refused as recursive domain calls. The macOS host has a
+scoped snapshot service, but native provider discovery and a product consumer
+are not implemented yet.
+
 ## Shortcut context compilation
 
 `keymap.parseContext` accepts `{expression: string}` and returns
@@ -1143,6 +1226,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `lsp.hostResponse` | Answer one host-service request a plugin backend sent |
 | `lsp.hostNotify` | Send one host notification to a plugin backend that negotiated it |
 | `lsp.toolchainRequest` | Send one `toolchains/query` to a plugin backend that negotiated the provider |
+| `lsp.keymapImportRequest` | Send one shortcut import request to a negotiated plugin provider |
 | `lsp.vcsRequest` | Send one VCS operation, planned by Core, to a session that negotiated the VCS-provider protocol |
 | `java.prepareLaunch` | Prepare a saved Java source through shared entry selection, serialized build and runtime path resolution |
 | `java.navigationMarkers` | Resolve versioned Java gutter markers from bounded JDT LS semantic requests |
@@ -1173,7 +1257,10 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `git.configureIdentity` | Save or clear one local/global `user.name` or `user.email` override |
 | `git.status` | Resolve the repository, current branch, and working-tree changes |
 | `git.rollbackPlan` | Plan whole-file rollback from explicit Git status identities without reading or changing a repository |
-| `git.rollbackPrepare` | Recheck selected tracked identities against the repository and return rollback steps |
+| `git.rollbackPrepare` | Recheck selected identities against the repository and return rollback steps |
+| `git.prepareCommitSelection` | Prepare and verify the real indexes for explicitly selected changes |
+| `git.reconcileDeletedSelection` | Clear missing selected staged additions after filesystem deletion |
+| `git.changelists` | Reduce local ChangeList metadata and project membership and commit scope |
 | `git.untrackedDirectory` | List one level of a summarized untracked directory: its files and subdirectory summaries |
 | `git.commitState` | Read exact HEAD, symbolic branch and index preconditions for a workspace commit |
 | `git.watchContext` | Resolve the repository and absolute Git metadata roots needed by native file watchers |
@@ -1195,6 +1282,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `remote.disconnect` | Close an open connection and its OpenSSH process tree |
 | `remote.closeAll` | Close every open connection; the host calls it at application exit |
 | `git.historyRewritePreview` | Review undo, message edit, squash, or drop with complete messages, eligibility, and an immutable checkout expectation |
+| `git.historyActionCapabilities` | Read history menu hints from actual HEAD and the bounded first-parent chain |
 | `git.rebasePreview` | Resolve the complete local linear range strictly after a selected unchanged base |
 | `git.rebaseStart` | Start a reviewed native interactive rebase with persisted messages and recovery identity |
 | `git.rebaseSession` | Read the latest owned rebase session and distinguish edit/conflict pauses from completion |
@@ -1673,13 +1761,44 @@ repository-relative `path`, optional `originalPath`, and the two-character Git
 are unstaged while their disk contents remain by default; renames restore both
 paths. Adjacent compatible operations are batched. Unsafe, overlapping or
 ambiguous identities are rejected. `git.rollbackPrepare` also accepts `root`,
-checks tracked identities using bounded literal-path Git status queries, and
+checks selected identities using bounded literal-path Git status queries, and
 fails with `GIT_ROLLBACK_STALE_SELECTION` if any selected identity changed.
-Callers should prepare after confirmation and execute steps in order, stopping
-on failure and refreshing after any attempted write. This status check cannot
-detect content changes that preserve the same status or lock out external Git
-clients between preparation and writes; it is not a content snapshot or an
-atomic transaction. Untracked selections are not accepted by prepare.
+Untracked directories are expanded to the untracked files observed at prepare
+time; a file created later is not included in the resulting deletion steps.
+The 10,000-entry limit applies to the input selection, not the number of files
+inside a selected directory. Callers should prepare after confirmation and
+execute steps in order, stopping on failure and refreshing after any attempted
+write. This status check cannot detect content changes that preserve the same
+status or lock out external Git clients between preparation and writes; it is
+not a content snapshot or an atomic transaction.
+
+`git.reconcileDeletedSelection` accepts a repository `root` and the selected
+pre-delete `changes` (`path`, two-character `status`). Under the repository
+write lease, Core re-reads the selected literal paths and unstages only staged
+additions or copy destinations that are now missing. Retained paths, tracked
+deletions, unselected paths, and copy sources are not unstaged. Filesystem
+operations may partially fail and external Git clients do not share this lease;
+hosts must refresh after success or failure, and concurrent external modifications
+are not an atomic snapshot. Up to 10,000 selected identities are accepted.
+
+`git.prepareCommitSelection` accepts `repositories`, a nonempty list of up to
+128 distinct repository roots and each root's selected identities (`path`,
+optional `originalPath`, and two-character Git `status`). At least one selected
+identity is required across all roots and the selection is limited to 10,000
+identities. Hosts supply every repository whose index should be prepared,
+including those with an empty selection, and check their own ChangeList ownership
+before and after the call. Core checks every repository and selected identity
+before writing, rechecks HEAD and index under the existing repository lease,
+unstages other paths, stages selected paths only when not already staged, and
+verifies the exact staged path set and previously staged selected object IDs
+afterward. Selected untracked directories are expanded into observed files;
+untracked embedded repositories and overlapping directory selections are
+rejected, while tracked submodule gitlinks remain selectable. Paths are literal, including for ordinary `git.write`
+staging. The call prepares indexes; it does not create a commit or replace the
+subsequent workspace commit review. On cancellation or failure earlier writes
+may already have succeeded, so hosts must refresh affected repositories. Git
+clients outside Lithe do not share the lease; content changes that preserve the
+same status and races after the last check are not an atomic snapshot guarantee.
 
 `git.write` accepts a typed mutation request. Its required `operation` values are
 `stage`, `unstage`, `discard`, `discardAll`, `stageAll`, `commit`, `ignore`, `exclude`, `cherryPick`, `revert`,
@@ -1897,6 +2016,19 @@ because it moves a ref without reconstructing or modifying that commit object.
 Native interactive rebases use the dedicated preview/start/session/control
 contract in [git-rebase-session.md](git-rebase-session.md). The base selected
 for “Rebase from Here” remains unchanged; only its successors are rewritten.
+
+`git.historyActionCapabilities` accepts `{root, revisions}` with at most 1,000
+full SHA-1 or SHA-256 commit identities and returns `head`, `canCherryPick`,
+`canUndo`, and `canSquash`. It resolves actual checkout HEAD rather than a
+visible or paginated row. Undo requires a checked-out branch and a HEAD with
+exactly one parent; squash requires a distinct contiguous selection on that
+branch's first-parent history within the latest 1,000 commits. Cherry-pick is
+only offered for a different existing commit. These are structural menu hints,
+not permission to mutate: `git.historyRewritePreview` still checks worktree,
+operation state, unsupported commits, published history, and the reviewed
+snapshot. Clients cancel and discard stale results when the menu closes,
+selection or repository changes, or the history is refreshed. See
+`shared/fixtures/git/history-action-capabilities-v1.json`.
 
 `git.historyRewritePreview` accepts `{ "root": string, "operation": string,
 "revisions": string[] }` for those four operations. It returns `operation`,
@@ -4742,17 +4874,35 @@ separately, answers are stored in `plan.pushTargets`, and a retry restores and
 re-validates them from `previous` without the client forwarding them. Routine
 pushes (`tracking` or `publish` destinations) never produce a question.
 
-An optional `pathScope: { include, paths: { <repository-id>: [<relative-path>] } }`
-restricts local changelist commits. With `include: true`, only the listed literal
-paths are allowed; with `include: false`, the listed paths are excluded. Missing
-repository entries mean an empty set, not unrestricted access in inclusion mode.
-This is an exact-path guard, not a Git pathspec and not a second staging index.
-Core rejects any staged file or automatic parent-reference update outside the
-scope before executing mutations. It never silently unstages other lists. Scope
-changes invalidate a reviewed plan; retries inherit the original scope and may
-not replace it. Continuations retain the scope and validate it before writes,
-alongside the existing exact HEAD/index checks. Omitted scopes preserve existing
-clients' behavior. Shared examples: `shared/fixtures/git/local-changelist-scope-v1.json`.
+`git.changelists` is a pure reducer: the host owns persistence and supplies
+`state` (`lists`, `activeId`, and `assignments` grouped by repository root),
+`files` (root, path, optional original path, and `isCopy`), optional repository
+bindings, and an optional action (`create`, `rename`, `remove`, `activate`,
+`move`, or `rememberRenames`). The response contains the validated state, one
+membership per input file in order, and a commit `scope`. Deletion leaves an
+explicit Default assignment so a file under an assigned directory returns to
+Default. A rename inherits its source's membership, including directory or
+implicit Default membership; copies never inherit or modify their source.
+Ambiguous overlapping renames with different memberships fail closed. Inputs
+and assignment counts are bounded. Hosts must reject stale asynchronous results
+and protect persistence against concurrent windows. The shared fixture is
+`shared/fixtures/git/changelists-reducer-v1.json`.
+
+An optional `pathScope: { include, paths, membership? }` restricts local
+changelist commits. Legacy scopes use literal `paths` grouped by repository ID:
+`include: true` allows only listed paths, while `false` excludes listed paths.
+Core-generated scopes additionally include `membership: { activeId,
+assignments }`, where assignments are grouped by repository ID and may include
+explicit file or trailing-slash directory rules. Exact paths override the
+nearest assigned directory; missing paths belong to Default. Core uses these
+rules against the real staged paths and automatic parent-reference updates,
+including paths staged after the UI snapshot. They are literal identities, not
+Git pathspecs or a second staging index. Omitted `membership` retains legacy
+exact-path behavior. Scope changes invalidate a reviewed plan; retries inherit
+the original scope and may not replace it. Continuations retain the entire
+scope and validate it before writes, alongside exact HEAD/index checks.
+Omitted scopes preserve existing clients' behavior. Legacy examples:
+`shared/fixtures/git/local-changelist-scope-v1.json`.
 
 `git.workspaceCommitStep` accepts `{ session }` and returns the next session,
 executing at most one commit or push. Session fields are `plan`, last observed

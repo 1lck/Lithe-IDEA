@@ -109,6 +109,7 @@ package final class GitFeatureModel: ObservableObject {
             gitChangedFileCount = gitChanges.reduce(0) { count, change in
                 count + (isListedUntrackedContent(change) ? 0 : change.fileCount)
             }
+            scheduleChangelistProjection()
         }
     }
     package private(set) var gitTreeStatus = GitTreeStatusProjection(changes: [])
@@ -148,7 +149,6 @@ package final class GitFeatureModel: ObservableObject {
                let scoped = worktreeCommitFeatures[URL(fileURLWithPath: inspection.worktreeID).standardizedFileURL],
                scoped.gitChanges.filter({ !scoped.isListedUntrackedContent($0) }) != inspection.changes {
                 scoped.gitChanges = inspection.changes
-                scoped.rememberChangelistRenames()
             }
         }
     }
@@ -419,17 +419,25 @@ package final class GitFeatureModel: ObservableObject {
     let changelistStorage: (any GitChangelistStorage)?
     var changelistWorkspace: URL?
     package private(set) var changelistSelectionGeneration = UUID()
+    var changelistProjectionTask: Task<Void, Never>?
+    var changelistProjectionGeneration = UUID()
+    var publishingChangelistProjection = false
+    @Published package internal(set) var changelistProjectionPending = false
     @Published package internal(set) var changelists = GitLocalChangelists() {
         didSet {
+            guard !oldValue.metadataEquals(changelists) else { return }
             if oldValue.activeID != changelists.activeID || oldValue.assignments != changelists.assignments {
                 changelistSelectionGeneration = UUID()
             }
-            // The main checkout may also be open in Commit. Keep one metadata
-            // value for that same storage key, without sharing linked roots.
+            if !publishingChangelistProjection { scheduleChangelistProjection() }
+            // Share persisted metadata across the same workspace, but each model
+            // must compute its own membership for its own status snapshot.
+            var metadata = changelists
+            metadata.projectedMembership = [:]
             if let workspace = changelistWorkspace, let host = worktreeOperationHost, host.changelistWorkspace == workspace,
-               host.changelists != changelists { host.changelists = changelists }
+               !host.changelists.metadataEquals(metadata) { host.changelists = metadata }
             for scoped in worktreeCommitFeatures.values where changelistWorkspace != nil && scoped.changelistWorkspace == changelistWorkspace {
-                if scoped.changelists != changelists { scoped.changelists = changelists }
+                if !scoped.changelists.metadataEquals(metadata) { scoped.changelists = metadata }
             }
         }
     }
@@ -647,6 +655,7 @@ package final class GitFeatureModel: ObservableObject {
             || !repositoryDiffSessions.isEmpty
             || allDiffSessions.contains { $0.isLoadingDiff || $0.isLoadingBranchComparison }
             || isRefreshingGit
+            || changelistProjectionPending
             || isCommitting
             || isRollingBackChanges
             || isPreparingCommitFiles
@@ -678,6 +687,10 @@ package final class GitFeatureModel: ObservableObject {
         interactiveRebase.reset()
         cancelGitHistoryLoading()
         changelistWorkspace = nil
+        changelistProjectionGeneration = UUID()
+        changelistProjectionTask?.cancel()
+        changelistProjectionTask = nil
+        changelistProjectionPending = false
         changelists = GitLocalChangelists()
         changelistStorageFailed = false
         includeChangelistParentReferences = true
@@ -790,6 +803,7 @@ package final class GitFeatureModel: ObservableObject {
         activeRefreshRequestIDs.insert(requestID)
         defer { activeRefreshRequestIDs.remove(requestID) }
         await fulfillGitRefreshRequest(requestID, workspaceURLProvider: workspaceURLProvider)
+        await changelistProjectionTask?.value
     }
 
     private func fulfillGitRefreshRequest(
@@ -916,7 +930,6 @@ package final class GitFeatureModel: ObservableObject {
             }
             if changesChanged {
                 gitChanges = changes
-                rememberChangelistRenames()
                 gitLineChangeMarkers = [:]
                 lineChangeHunks = [:]
                 didChange = true
@@ -1501,13 +1514,13 @@ package final class GitFeatureModel: ObservableObject {
     /// The read is outside the user command context and does not rediscover or
     /// wait for unrelated repositories, stashes, history or project services.
     private func withGitChangeOperation<T: Sendable>(
-        _ changes: [GitChange], onWorktreeSettled: @escaping @MainActor () -> Void = {},
+        _ changes: [GitChange], additionalRoots: [URL] = [], onWorktreeSettled: @escaping @MainActor () -> Void = {},
         caller: String = #function, _ operation: () async -> T
     ) async -> T {
         let generation = workspaceCommitGeneration
         let workspace = workspaceURLProvider?()?.standardizedFileURL
         let hostGeneration = worktreeOperationHost?.workspaceCommitGeneration
-        let requests = Dictionary(uniqueKeysWithValues: Set(changes.map { $0.repositoryRoot.standardizedFileURL }).map { ($0, UUID()) })
+        let requests = Dictionary(uniqueKeysWithValues: Set(changes.map { $0.repositoryRoot.standardizedFileURL } + additionalRoots.map(\.standardizedFileURL)).map { ($0, UUID()) })
         invalidateChangeReads(requests)
         worktreeOperationHost?.invalidateChangeReads(requests)
         return await withGitOperation(afterOperation: {
@@ -1847,31 +1860,37 @@ package final class GitFeatureModel: ObservableObject {
             if self.activeRollbackID == contextID { self.activeRollbackID = nil; self.isRollingBackChanges = false }
         }) {
             var results: [GitService.CommandResult] = []
-            for change in changes {
-                guard isCurrent() else { break }
-                let target = GitRollbackSelection.operationTarget(change)
-                let result: GitService.CommandResult
-                // Tracked paths are restored in one Core operation. Only new
-                // paths need unstaging first (including intent-to-add entries).
-                if GitRollbackSelection.isAddition(change),
-                   change.isStaged || (change.workTreeStatus == "A" && !change.isConflicted) {
-                    let unstaged = await recordingGitCommand { await service.unstage(target) }
-                    results.append(unstaged)
-                    guard isCurrent() else { break }
-                    if !unstaged.succeeded { showResult(unstaged, success: ""); break }
+            var seen: Set<URL> = []
+            let roots = changes.map { $0.repositoryRoot.standardizedFileURL }.filter { seen.insert($0).inserted }
+            let byRoot = Dictionary(grouping: changes) { $0.repositoryRoot.standardizedFileURL }
+            var prepared: [(URL, GitRollbackPlan)] = []
+            // Check every repository before the first write. Execution still
+            // stops on the first failed step; external Git can race this check.
+            for root in roots {
+                guard isCurrent() else { return results }
+                let selected = byRoot[root] ?? []
+                let result = await service.prepareRollback(at: root, changes: selected, deleteAddedFiles: selection.deleteAddedFiles)
+                guard isCurrent() else { return results }
+                switch result {
+                case .success(let plan): prepared.append((root, plan))
+                case .failure(let failure):
+                    if failure.message.contains("GIT_ROLLBACK_STALE_SELECTION") {
+                        notifyWithReference(L10n.string("The selected changes changed. Reopen the rollback dialog and review them again."))
+                    } else {
+                        notifyWithReference(failure.message)
+                    }
+                    return results
                 }
-                if GitRollbackSelection.isAddition(change) {
-                    // Like IDEA, added files become unversioned unless the user
-                    // explicitly asks to delete their local copies.
-                    if !selection.deleteAddedFiles { continue }
-                    result = await recordingGitCommand { await service.discard(target) }
-                } else {
-                    result = await recordingGitCommand { await service.discardAll(target) }
+            }
+            for (root, plan) in prepared {
+                for step in plan.steps {
+                    guard isCurrent() else { return results }
+                    let result = await recordingGitCommand { await service.executeRollbackStep(at: root, step: step) }
+                    results.append(result)
+                    guard isCurrent() else { return results }
+                    showResult(result, success: L10n.string("Rolled back \(step.paths.last ?? "")"))
+                    if !result.succeeded { return results }
                 }
-                results.append(result)
-                guard isCurrent() else { break }
-                showResult(result, success: L10n.string("Rolled back \(change.path)"))
-                if !result.succeeded { break }
             }
             return results
         }
@@ -1973,14 +1992,16 @@ package final class GitFeatureModel: ObservableObject {
     }
 
     package func beginToggleStaging(_ change: GitChange) -> Bool? {
-        guard !isCommitting, !isWorktreeCommitBlocked, !changelistStorageFailed, change.canToggleStaging, pendingStagingStates[change.id] == nil else { return nil }
+        guard !isCommitting, !isWorktreeCommitBlocked, !changelistStorageFailed, !changelistProjectionPending,
+              verifyChangelistStorageCurrent(), change.canToggleStaging, pendingStagingStates[change.id] == nil else { return nil }
         let staged = !change.isStaged
         pendingStagingStates[change.id] = (change.repositoryRoot.standardizedFileURL, staged)
         return staged
     }
 
     package func beginSetStaging(_ changes: [GitChange], staged: Bool, includeWorkingTreeChanges: Bool = false) -> [GitChange] {
-        guard !isCommitting, !isWorktreeCommitBlocked, !changelistStorageFailed else { return [] }
+        guard !isCommitting, !isWorktreeCommitBlocked, !changelistStorageFailed, !changelistProjectionPending,
+              verifyChangelistStorageCurrent() else { return [] }
         let pendingChanges = changes.filter {
             $0.canToggleStaging && pendingStagingStates[$0.id] == nil
                 && ($0.isStaged != staged || (staged && includeWorkingTreeChanges && $0.hasWorkingTreeChange))
@@ -2076,25 +2097,14 @@ package final class GitFeatureModel: ObservableObject {
         return await withGitChangeOperation(changes) {
             let deleted = await action()
             guard isCurrent() else { return false }
-            // Trash does not change the index. Clear only selected additions
-            // that Git confirms are now missing, even after a partial failure.
-            // Tracked deletions and unrelated/retained index content must remain.
-            for root in Set(changes.filter(GitRollbackSelection.isAddition).map(\.repositoryRoot)).sorted(by: { $0.path < $1.path }) {
-                let snapshot = await snapshotProvider(root, availableRepositoryRoots)
+            // Core checks the post-delete status under the repository lease and
+            // only removes missing selected additions from the index.
+            for root in Set(changes.map(\.repositoryRoot)).sorted(by: { $0.path < $1.path }) {
                 guard isCurrent() else { return false }
-                guard let snapshot, snapshot.repositoryRoot.standardizedFileURL == root.standardizedFileURL else {
-                    notifyFailure(L10n.string("Could not refresh Git status. Refresh to verify the changes."), reason: "status_refresh_failed")
-                    return false
-                }
-                for change in changes where change.repositoryRoot == root && GitRollbackSelection.isAddition(change) {
-                    guard let missing = snapshot.changes.first(where: {
-                        $0.path == change.path && $0.workTreeStatus == "D" && GitRollbackSelection.isAddition($0)
-                    }) else { continue }
-                    guard isCurrent() else { return false }
-                    let result = await recordingGitCommand { await service.unstage(GitRollbackSelection.operationTarget(missing)) }
-                    guard isCurrent() else { return false }
-                    if !result.succeeded { notifyWithReference(trimmedMessage(result)); return false }
-                }
+                let selected = changes.filter { $0.repositoryRoot == root }
+                let result = await recordingGitCommand { await service.reconcileDeletedSelection(at: root, changes: selected) }
+                guard isCurrent() else { return false }
+                if !result.succeeded { notifyWithReference(trimmedMessage(result)); return false }
             }
             return deleted
         }
@@ -2103,42 +2113,46 @@ package final class GitFeatureModel: ObservableObject {
     /// Prepare the real index, not a second UI selection. Already staged hunks
     /// in selected files remain intact; unrelated staged files are excluded.
     package func prepareCommitFiles(_ changes: [GitChange]) async -> Bool {
-        guard canPrepareCommitFiles(changes), let first = changes.first else { return false }
-        activateChangelist(changelists.listID(for: first))
-        guard canPrepareCommitFiles(changes) else { return false }
+        guard verifyChangelistStorageCurrent(), canPrepareCommitFiles(changes), let first = changes.first else { return false }
+        let targetList = changelists.listID(for: first)
+        guard await activateChangelist(targetList), canPrepareCommitFiles(changes) else { return false }
         let generation = workspaceCommitGeneration
         let workspace = workspaceURLProvider?()?.standardizedFileURL
-        let selectedIDs = Set(changes.map(\.id))
-        let alreadyStaged = Set(changes.filter(\.isStaged).map(\.id))
-        let excluded = gitChanges.filter { $0.isStaged && !selectedIDs.contains($0.id) }
-        let included = coveringUntrackedDirectoryContents(changes.filter { !alreadyStaged.contains($0.id) })
+        let selected = coveringUntrackedDirectoryContents(changes)
+        let roots = Set(availableRepositoryRoots.map(\.standardizedFileURL) + changes.map { $0.repositoryRoot.standardizedFileURL }).sorted { $0.path < $1.path }
+        let selectedByRoot = Dictionary(grouping: selected) { $0.repositoryRoot.standardizedFileURL }
+        let request = GitCommitSelectionRequest(repositories: roots.map {
+            GitCommitSelectionRequest.Repository(root: $0, selected: selectedByRoot[$0] ?? [])
+        })
+        let affected = gitChanges.filter(\.isStaged) + changes
         isPreparingCommitFiles = true
         defer { if workspaceCommitGeneration == generation { isPreparingCommitFiles = false } }
         func isCurrent() -> Bool {
             workspaceCommitGeneration == generation && workspaceURLProvider?()?.standardizedFileURL == workspace
                 && !Task.isCancelled && GitExecutionContext.current?.isCancellationRequested != true
         }
-        let succeeded = await withGitChangeOperation(excluded + changes) {
-            var seen: Set<String> = []
-            for (targets, staged) in [(excluded, false), (included, true)] {
-                seen = []
-                for change in targets where seen.insert(change.id).inserted {
-                    guard isCurrent() else { return false }
-                    let target = GitRollbackSelection.operationTarget(change)
-                    let result = await recordingGitCommand {
-                        staged ? await service.stage(target) : await service.unstage(target)
-                    }
-                    guard isCurrent() else { return false }
-                    guard result.succeeded else {
-                        notifyWithReference(trimmedMessage(result))
-                        return false
-                    }
+        let succeeded = await withGitChangeOperation(affected, additionalRoots: roots) {
+            let result = await recordingGitCommand { await service.prepareCommitSelection(request) }
+            guard isCurrent() else { return false }
+            guard result.succeeded else {
+                if result.output.contains("GIT_COMMIT_SELECTION_STALE") {
+                    notifyWithReference(L10n.string("The staged files changed. Review the checked files before committing."))
+                } else {
+                    notifyWithReference(trimmedMessage(result))
                 }
+                return false
             }
-            return isCurrent()
+            return true
         }
         guard isCurrent() else { return false }
-        guard isCurrent(), succeeded else { return false }
+        await changelistProjectionTask?.value
+        guard isCurrent(), succeeded, !changelistProjectionPending, !changelistStorageFailed else { return false }
+        let currentRoots = Set(availableRepositoryRoots.map(\.standardizedFileURL) + changes.map { $0.repositoryRoot.standardizedFileURL })
+        guard currentRoots == Set(roots), changelists.activeID == targetList,
+              changes.allSatisfy({ changelists.listID(for: $0) == targetList }) else {
+            notifyWithReference(L10n.string("The staged files changed. Review the checked files before committing."))
+            return false
+        }
         let staged = gitChanges.filter(\.isStaged)
         func matches(_ current: GitChange, _ selected: GitChange) -> Bool {
             current.repositoryRoot.standardizedFileURL == selected.repositoryRoot.standardizedFileURL
@@ -3296,7 +3310,6 @@ package final class GitFeatureModel: ObservableObject {
             if !inserted { merged.append(contentsOf: changes) }
             if gitChanges != merged {
                 gitChanges = merged
-                rememberChangelistRenames()
                 gitLineChangeMarkers = [:]
                 lineChangeHunks = [:]
             }
@@ -3305,6 +3318,7 @@ package final class GitFeatureModel: ObservableObject {
         }
         updateWorktreeInspection(snapshot.changes, at: root, clearingError: false)
         reconcilePendingStagingStates(with: changes, successfullyReadRepositoryRoots: [root])
+        await changelistProjectionTask?.value
         return true
     }
 

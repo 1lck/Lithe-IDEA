@@ -516,6 +516,9 @@ struct DiffScrollSynchronizationTests {
 /// Supplies the same two modified files and foldable context through the normal
 /// service boundary, leaving native rendering and feature actions under test.
 struct DiffToolbarGitOperations: GitOperations {
+    func changelistProjection(_ request: GitChangelistCoreRequest) -> GitChangelistCoreProjection? {
+        RustGitOperations(core: RustCoreBridge()).changelistProjection(request)
+    }
     let root: URL
     var includesWorkingChanges = false
     let commitValue = GitCommit(hash: "aaaaaaaa", shortHash: "aaaaaaaa", parentHashes: ["bbbbbbbb"],

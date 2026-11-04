@@ -343,6 +343,7 @@ fn real_start_request(
         plugin_id: None,
         host_services: Vec::new(),
         toolchain_providers: Vec::new(),
+        keymap_import_providers: Vec::new(),
         executable_path: toolchain
             .root
             .join("bin")

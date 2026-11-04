@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import * as tauriCore from "@/platform/tauri-core";
+import commitSelectionFixture from "../../../../../../shared/fixtures/git/commit-selection-plan-v1.json";
 
 let unavailableRepo: string | null = null;
 let statusFailure: Error | null = null;
 let rollbackPlan: unknown = { steps: [] };
 let rollbackFailure: Error | null = null;
+let interceptPrepare: (() => Promise<unknown>) | undefined;
+let interceptReserve: (() => Promise<unknown>) | undefined;
 
 let interceptWrite: ((args: Record<string, unknown>) => Promise<unknown>) | undefined;
 // Keyed by command: repository discovery may or may not run first, depending
@@ -13,42 +16,51 @@ let fileDiffResponse: unknown = null;
 let statusFiles: unknown[] | null = null;
 let directoryListings: Record<string, unknown[]> | null = null;
 
-const invoke = mock(async (command: string, args?: Record<string, unknown>): Promise<unknown> => {
-  if (command === "git.rollbackPrepare") {
-    if (rollbackFailure) throw rollbackFailure;
-    return rollbackPlan;
-  }
-  if (command === "git.write" && interceptWrite) return interceptWrite(args ?? {});
-  if (command === "git_diff_file") return fileDiffResponse;
-  if (command === "git_discover_repo") {
-    const path = String(args?.path ?? "");
-    return path.startsWith("C:/workspace/") ? path : "C:/repo";
-  }
-  if (command === "git.untrackedDirectory") {
-    const listing = directoryListings?.[String(args?.directory ?? "")];
-    if (!listing) throw new Error("Git untracked file listing failed");
-    return { files: listing };
-  }
-  if (command === "git_status") {
-    const repoPath = String(args?.repoPath ?? "");
-    if (statusFailure) throw statusFailure;
-    if (repoPath === unavailableRepo) return null;
-    if (statusFiles) return { branch: "main", ahead: 0, behind: 0, files: statusFiles };
-    return {
-      branch: repoPath.endsWith("service-a") ? "main" : "develop",
-      ahead: repoPath.endsWith("service-a") ? 1 : 0,
-      behind: repoPath.endsWith("service-b") ? 2 : 0,
-      files: [
-        {
-          path: "src/App.tsx",
-          status: "modified",
-          staged: repoPath.endsWith("service-b"),
-        },
-      ],
-    };
-  }
-  return null;
-});
+const invoke = mock(
+  async (
+    command: string,
+    args?: Record<string, unknown>,
+    _options?: Parameters<typeof tauriCore.invoke>[2],
+  ): Promise<unknown> => {
+    if (command === "core_reserve_commit_selection")
+      return interceptReserve ? interceptReserve() : true;
+    if (command === "git.prepareCommitSelection" && interceptPrepare) return interceptPrepare();
+    if (command === "git.rollbackPrepare") {
+      if (rollbackFailure) throw rollbackFailure;
+      return rollbackPlan;
+    }
+    if (command === "git.write" && interceptWrite) return interceptWrite(args ?? {});
+    if (command === "git_diff_file") return fileDiffResponse;
+    if (command === "git_discover_repo") {
+      const path = String(args?.path ?? "");
+      return path.startsWith("C:/workspace/") ? path : "C:/repo";
+    }
+    if (command === "git.untrackedDirectory") {
+      const listing = directoryListings?.[String(args?.directory ?? "")];
+      if (!listing) throw new Error("Git untracked file listing failed");
+      return { files: listing };
+    }
+    if (command === "git_status") {
+      const repoPath = String(args?.repoPath ?? "");
+      if (statusFailure) throw statusFailure;
+      if (repoPath === unavailableRepo) return null;
+      if (statusFiles) return { branch: "main", ahead: 0, behind: 0, files: statusFiles };
+      return {
+        branch: repoPath.endsWith("service-a") ? "main" : "develop",
+        ahead: repoPath.endsWith("service-a") ? 1 : 0,
+        behind: repoPath.endsWith("service-b") ? 2 : 0,
+        files: [
+          {
+            path: "src/App.tsx",
+            status: "modified",
+            staged: repoPath.endsWith("service-b"),
+          },
+        ],
+      };
+    }
+    return null;
+  },
+);
 
 let invokeSpy: ReturnType<typeof spyOn<typeof tauriCore, "invoke">>;
 
@@ -57,6 +69,8 @@ const {
   addPathsToLocalGitExclude,
   discardHunk,
   rollbackFilesChanges,
+  prepareCommitSelection,
+  reconcileDeletedSelection,
   setFilesStaged,
   getWorkspaceGitStatus,
   getWorkspaceRootGitStatus,
@@ -77,6 +91,8 @@ beforeEach(() => {
   statusFailure = null;
   rollbackPlan = { steps: [] };
   rollbackFailure = null;
+  interceptPrepare = undefined;
+  interceptReserve = undefined;
   statusFiles = null;
   directoryListings = null;
 });
@@ -361,6 +377,159 @@ describe("Git staging write coordination", () => {
       release.resolve();
       await Promise.allSettled(operations);
       interceptWrite = undefined;
+    }
+  }, 1000);
+
+  test("reconciles deleted identities through Core using their owning repository", async () => {
+    const changes = [
+      { path: "new[1].txt", status: "A " },
+      { path: "tracked.txt", status: " M" },
+    ];
+    const emitted = spyOn(gitEvents, "emitGitChanged");
+    try {
+      await reconcileDeletedSelection("C:/repo", changes);
+      expect(invoke).toHaveBeenCalledWith(
+        "git.reconcileDeletedSelection",
+        { root: "C:/repo", changes },
+        { gitExecutionSource: "user" },
+      );
+      expect(emitted).toHaveBeenCalledWith(
+        expect.objectContaining({ repoPath: "C:/repo", source: "reconcile-deleted-selection" }),
+      );
+    } finally {
+      emitted.mockRestore();
+    }
+  });
+
+  test("forwards the shared commit selection identities to Core", async () => {
+    for (const item of commitSelectionFixture.cases) {
+      invoke.mockClear();
+      await prepareCommitSelection(
+        [{ root: "C:/repo", selected: item.selected }],
+        "fixture-selection",
+        new AbortController().signal,
+      );
+      expect(
+        invoke.mock.calls.filter(([command]) => command === "git.prepareCommitSelection"),
+      ).toEqual([
+        [
+          "git.prepareCommitSelection",
+          {
+            repositories: [{ root: "C:/repo", selected: item.selected }],
+            operationId: "fixture-selection",
+          },
+          { gitExecutionSource: "user" },
+        ],
+      ]);
+    }
+  }, 1000);
+
+  test("commit selection waits for an existing index write and forwards all roots", async () => {
+    const started = deferred(),
+      release = deferred();
+    interceptWrite = async () => {
+      started.resolve();
+      await release.promise;
+    };
+    const staging = setFilesStaged("C:/workspace/A", ["earlier.ts"], true);
+    const operations: Promise<unknown>[] = [staging];
+    try {
+      await started.promise;
+      const selection = prepareCommitSelection(
+        [
+          { root: "C:/workspace/B", selected: [{ path: "src/b.ts", status: "MM" }] },
+          { root: "C:/workspace/A", selected: [] },
+        ],
+        "commit-selection-test",
+        new AbortController().signal,
+      );
+      operations.push(selection);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(
+        invoke.mock.calls.filter(([command]) => command === "git.prepareCommitSelection"),
+      ).toHaveLength(0);
+      release.resolve();
+      await selection;
+      expect(
+        invoke.mock.calls.filter(([command]) => command === "git.prepareCommitSelection"),
+      ).toEqual([
+        [
+          "git.prepareCommitSelection",
+          {
+            repositories: [
+              { root: "C:/workspace/A", selected: [] },
+              { root: "C:/workspace/B", selected: [{ path: "src/b.ts", status: "MM" }] },
+            ],
+            operationId: "commit-selection-test",
+          },
+          { gitExecutionSource: "user" },
+        ],
+      ]);
+    } finally {
+      release.resolve();
+      await Promise.allSettled(operations);
+    }
+  }, 1000);
+
+  test("cancelling while admission is pending never dispatches a Core write", async () => {
+    const started = deferred(),
+      release = deferred();
+    interceptReserve = async () => {
+      started.resolve();
+      await release.promise;
+      return true;
+    };
+    const controller = new AbortController();
+    const operation = prepareCommitSelection(
+      [{ root: "C:/repo", selected: [{ path: "a.ts", status: " M" }] }],
+      "reserve-selection-test",
+      controller.signal,
+    );
+    try {
+      await started.promise;
+      controller.abort();
+      release.resolve();
+      await expect(operation).rejects.toMatchObject({ name: "AbortError" });
+      expect(
+        invoke.mock.calls.filter(([command]) => command === "git.prepareCommitSelection"),
+      ).toHaveLength(0);
+      expect(
+        invoke.mock.calls.filter(([command]) => command === "core_release_commit_selection"),
+      ).toEqual([["core_release_commit_selection", { operationId: "reserve-selection-test" }]]);
+    } finally {
+      controller.abort();
+      release.resolve();
+      await Promise.allSettled([operation]);
+    }
+  }, 1000);
+
+  test("cancelling a running commit selection cancels Core and rejects late completion", async () => {
+    const started = deferred(),
+      release = deferred();
+    interceptPrepare = async () => {
+      started.resolve();
+      await release.promise;
+      return { prepared: true };
+    };
+    const controller = new AbortController();
+    const operation = prepareCommitSelection(
+      [{ root: "C:/repo", selected: [{ path: "a.ts", status: " M" }] }],
+      "cancel-selection-test",
+      controller.signal,
+    );
+    try {
+      await started.promise;
+      controller.abort();
+      expect(invoke.mock.calls.filter(([command]) => command === "core_cancel")).toEqual([
+        ["core_cancel", { operationId: "cancel-selection-test" }],
+      ]);
+      release.resolve();
+      await expect(operation).rejects.toMatchObject({ name: "AbortError" });
+    } finally {
+      controller.abort();
+      release.resolve();
+      await Promise.allSettled([operation]);
     }
   }, 1000);
 

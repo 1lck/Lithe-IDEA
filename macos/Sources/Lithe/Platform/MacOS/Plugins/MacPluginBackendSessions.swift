@@ -36,6 +36,23 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
         var errorDescription: String? { message }
     }
 
+    struct KeymapImportResult: Sendable {
+        let response: ToolingJSONValue
+        let sourceDigest: String
+        let sourceFileCount: Int
+    }
+
+    struct KeymapProvider: Equatable, Sendable {
+        let pluginID: String
+        let id: String
+        let displayName: String
+    }
+
+    private struct KeymapCandidate: Sendable {
+        let provider: KeymapProvider
+        let manifest: Data
+    }
+
     /// The installed package a backend starts from.
     struct Package: Equatable {
         let manifest: Data
@@ -70,6 +87,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
     private let stuckSendGrace: Duration
     /// Serves the host requests of every backend.
     let hostDispatcher: PluginHostServiceDispatcher
+    private let keymapImportHost = MacKeymapImportHostService()
     /// Reports a backend that an activation event failed to start; the
     /// workspace or command goes on without it.
     var editorActions: PluginEditorActionHostService?
@@ -86,6 +104,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
     /// A replaced or removed package never starts again in this launch.
     private var replacedPluginIDs: Set<String> = []
     private var running: [String: Running] = [:]
+    private var activeKeymapImports: [String: Int] = [:]
     private var contextObserver: UUID?
 
     /// One process, from its start until it is dropped. `session` is set as
@@ -94,6 +113,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
         let settings: [String: ToolingJSONValue]
         var task: Task<LanguageServerRuntimeSession, Error>?
         var session: LanguageServerRuntimeSession?
+        var hostSessionID: String?
         var ready = false
         /// What Core granted the session, set when the process launches.
         var hostServices: Set<String> = []
@@ -143,6 +163,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
             dispatcher.register(PluginCredentialHostService(credentials: credentials))
             self.hostDispatcher = dispatcher
         }
+        self.hostDispatcher.register(keymapImportHost)
         // Running backends learn of every opened, changed, or closed
         // context; one that starts later asks `listContexts` itself.
         contextObserver = self.hostDispatcher.contexts.observeRevision { [weak self] revision in
@@ -217,6 +238,72 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
         return providers.compactMap { $0["id"] as? String }
     }
 
+    /// Provider IDs already accepted by Core's normalized manifest validation.
+    static func keymapImportProviderIDs(ofManifest manifest: Data) -> [String] {
+        keymapProviderDeclarations(ofManifest: manifest).map(\.id)
+    }
+
+    private struct KeymapProviderDeclaration: Decodable {
+        let id: String
+        let displayName: String
+    }
+
+    private struct KeymapProviderManifest: Decodable {
+        let keymapImportProviders: [KeymapProviderDeclaration]?
+    }
+
+    private static func keymapProviderDeclarations(ofManifest manifest: Data) -> [KeymapProviderDeclaration] {
+        (try? JSONDecoder().decode(KeymapProviderManifest.self, from: manifest).keymapImportProviders) ?? []
+    }
+
+    /// A provider-only backend belongs to the import workflow, so it can be
+    /// stopped as soon as its last import finishes. A multipurpose backend
+    /// remains shared with its other consumers.
+    static func isKeymapOnlyBackend(manifest: Data) -> Bool {
+        guard let object = try? JSONSerialization.jsonObject(with: manifest) as? [String: Any],
+              !(keymapProviderDeclarations(ofManifest: manifest).isEmpty),
+              let permissions = object["permissions"] as? [String],
+              Set(permissions).isSubset(of: ["backend.launch", "keymaps.provide", "keymaps.readSelectedSources"]),
+              object["ui"] == nil || object["ui"] is NSNull else { return false }
+        for key in ["activationEvents", "languageServers", "buildSystems", "debugAdapters", "projectGenerators",
+                    "toolchainProviders", "toolDefinitions", "settings", "settingActions", "vcsProviders",
+                    "executionProviders", "languages"] {
+            if let values = object[key] as? [Any], !values.isEmpty { return false }
+        }
+        return true
+    }
+
+    /// Finds matching providers using their accepted, metadata-only probes.
+    /// This never launches a backend or reads source file contents.
+    func matchingKeymapProviders(root: URL) async throws -> [KeymapProvider] {
+        guard let rustCore = core as? RustCoreBridge else { return [] }
+        let candidates: [KeymapCandidate] = packages.flatMap { element -> [KeymapCandidate] in
+            let (pluginID, package) = element
+            guard !disabledPluginIDs.contains(pluginID), !replacedPluginIDs.contains(pluginID), canStart(pluginID) else { return [] }
+            return Self.keymapProviderDeclarations(ofManifest: package.manifest).map {
+                KeymapCandidate(provider: KeymapProvider(pluginID: pluginID, id: $0.id, displayName: $0.displayName), manifest: package.manifest)
+            }
+        }.sorted { ($0.provider.pluginID, $0.provider.id) < ($1.provider.pluginID, $1.provider.id) }
+        let task = Task.detached(priority: .userInitiated) {
+            let operations = RustKeymapImportOperations(core: rustCore)
+            var matches: [KeymapCandidate] = []
+            for candidate in candidates {
+                try Task.checkCancellation()
+                let plan = try operations.planSources(manifest: candidate.manifest, providerID: candidate.provider.id)
+                if try MacKeymapImportRecognition.matches(root: root, plan: plan) { matches.append(candidate) }
+            }
+            return matches
+        }
+        let matches = try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
+        try Task.checkCancellation()
+        return matches.compactMap { candidate in
+            let id = candidate.provider.pluginID
+            guard packages[id]?.manifest == candidate.manifest, !disabledPluginIDs.contains(id),
+                  !replacedPluginIDs.contains(id), canStart(id) else { return nil }
+            return candidate.provider
+        }
+    }
+
     /// Asks a plugin's provider, starting or reusing its one backend process.
     /// Returns `{ id, response }` unvalidated; see `toolchains.decodeReply`.
     func queryToolchainProvider(
@@ -227,6 +314,68 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
             throw UnavailableError(message: L10n.string("The plugin backend did not offer this version manager."))
         }
         return try await session.toolchainRequest(params: params, timeout: timeout)
+    }
+
+    /// Gives the negotiated importer a temporary, session-owned view of the
+    /// Core-planned files under the source the user selected.
+    func importKeymap(
+        _ providerID: String, selectedRoot: URL, ofPlugin pluginID: String, timeout: TimeInterval
+    ) async throws -> KeymapImportResult {
+        guard let package = packages[pluginID], let rustCore = core as? RustCoreBridge else {
+            throw UnavailableError(message: L10n.string(
+                "Shortcut import is unavailable. Update Lithe and the editor import plugin, then try again."
+            ))
+        }
+        let plan = try RustKeymapImportOperations(core: rustCore).planSources(manifest: package.manifest, providerID: providerID)
+        let recognition = Task.detached { try MacKeymapImportRecognition.matches(root: selectedRoot, plan: plan) }
+        let matches = try await withTaskCancellationHandler { try await recognition.value } onCancel: { recognition.cancel() }
+        guard matches else {
+            throw UnavailableError(message: L10n.string(
+                "Shortcut import is unavailable. Update Lithe and the editor import plugin, then try again."
+            ))
+        }
+        // Count callers before awaiting startup: cancellation or failed
+        // negotiation must also release an import-only backend, while another
+        // concurrent importer may still be waiting for that same startup.
+        activeKeymapImports[pluginID, default: 0] += 1
+        defer {
+            let remaining = (activeKeymapImports[pluginID] ?? 1) - 1
+            if remaining == 0 {
+                activeKeymapImports[pluginID] = nil
+                if packages[pluginID] == package, Self.isKeymapOnlyBackend(manifest: package.manifest) {
+                    stop(pluginID)
+                }
+            } else {
+                activeKeymapImports[pluginID] = remaining
+            }
+        }
+        let session = try await session(for: pluginID)
+        guard session.keymapImportProviders.contains(providerID), packages[pluginID] == package,
+              let entry = running[pluginID], let hostSessionID = entry.hostSessionID else {
+            throw UnavailableError(message: L10n.string(
+                "Shortcut import is unavailable. Update Lithe and the editor import plugin, then try again."
+            ))
+        }
+        let task = Task.detached { try MacKeymapImportSnapshot(root: selectedRoot, plan: plan) }
+        let snapshot = try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
+        guard !Task.isCancelled, running[pluginID] === entry, entry.session === session,
+              entry.hostSessionID == hostSessionID else {
+            snapshot.close()
+            throw CancellationError()
+        }
+        let token = keymapImportHost.snapshots.insert(snapshot, pluginID: pluginID, sessionID: hostSessionID, providerID: providerID)
+        defer { keymapImportHost.snapshots.remove(token) }
+        let reply = try await session.keymapImportRequest(providerID: providerID, snapshotID: token, timeout: timeout)
+        let validation = Task.detached {
+            guard try MacKeymapImportRecognition.matches(root: selectedRoot, plan: plan) else {
+                throw MacKeymapImportSnapshot.Failure.sourceChanged
+            }
+            return try snapshot.contentDigest()
+        }
+        let digest = try await withTaskCancellationHandler { try await validation.value } onCancel: { validation.cancel() }
+        try Task.checkCancellation()
+        _ = try keymapImportHost.snapshots.snapshot(token, pluginID: pluginID, sessionID: hostSessionID, providerID: providerID)
+        return KeymapImportResult(response: reply, sourceDigest: digest, sourceFileCount: snapshot.files.count)
     }
 
     /// Plugins whose backend starts on `event`, such as `onWorkspaceOpen`
@@ -502,7 +651,8 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
             moduleID: ModuleID("\(pluginID).ui"),
             pluginID: pluginID, role: .backend,
             hostServices: hostServices,
-            toolchainProviders: packages[pluginID].map { Self.toolchainProviderIDs(ofManifest: $0.manifest) } ?? []
+            toolchainProviders: packages[pluginID].map { Self.toolchainProviderIDs(ofManifest: $0.manifest) } ?? [],
+            keymapImportProviders: packages[pluginID].map { Self.keymapImportProviderIDs(ofManifest: $0.manifest) } ?? []
         )
         let endBackendProcesses = endBackendProcesses
         let hostDispatcher = hostDispatcher
@@ -520,6 +670,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
         // A new process starts with no subscriptions and nothing in flight.
         hostDispatcher.endSession(pluginID: pluginID)
         let sessionToken = hostDispatcher.beginSession(pluginID: pluginID, hostServices: hostServices)
+        entry.hostSessionID = sessionToken
         entry.hostServices = Set(hostServices)
         session.onFunctionsChange = { [weak self] ids in
             self?.editorActions?.updateFunctions(pluginID: pluginID, sessionID: sessionToken, ids: ids)

@@ -130,7 +130,7 @@ pub(super) fn client_initialize_for_plugin(
                 "window": {
                     "workDoneProgress": true
                 },
-                "experimental": experimental_capabilities(plugin_owned, &state.offered_toolchain_providers)
+                "experimental": experimental_capabilities(plugin_owned, &state.offered_toolchain_providers, &state.offered_keymap_import_providers)
             },
             "initializationOptions": request.initialization_options
         }),
@@ -684,6 +684,27 @@ pub(super) fn client_apply_server_message_for_plugin(
                         error: None,
                     });
                 }
+                state.keymap_import_providers = plugin_owned
+                    .then(|| {
+                        super::keymap_provider::negotiate(
+                            result.get("capabilities").unwrap_or(&Value::Null),
+                            &state.offered_keymap_import_providers,
+                        )
+                    })
+                    .flatten()
+                    .unwrap_or_default();
+                if !state.keymap_import_providers.is_empty() {
+                    events.push(LspClientEvent {
+                        kind: super::keymap_provider::NEGOTIATED_EVENT.to_string(),
+                        request_id: None,
+                        method: Some("initialize".to_string()),
+                        uri: None,
+                        version: None,
+                        diagnostics: None,
+                        result: Some(json!({ "providers": state.keymap_import_providers })),
+                        error: None,
+                    });
+                }
                 state.text_document_sync =
                     text_document_sync_kind(result.get("capabilities").unwrap_or(&Value::Null));
                 state.text_document_save_include_text = match result
@@ -828,6 +849,7 @@ pub(super) fn json_rpc_result(id: &Value, result: Value) -> Result<String, CoreE
 fn experimental_capabilities(
     plugin_owned: bool,
     toolchain_providers: &std::collections::BTreeSet<String>,
+    keymap_import_providers: &std::collections::BTreeSet<String>,
 ) -> Value {
     let mut experimental = super::build_provider::client_experimental_capabilities();
     if plugin_owned {
@@ -839,6 +861,11 @@ fn experimental_capabilities(
             super::toolchain_provider::client_experimental_capabilities(toolchain_providers)
         {
             experimental[toolchain_key] = toolchain_offer;
+        }
+        if let Some((key, offer)) =
+            super::keymap_provider::client_experimental_capabilities(keymap_import_providers)
+        {
+            experimental[key] = offer;
         }
     }
     experimental

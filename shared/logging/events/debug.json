@@ -46,6 +46,21 @@
       },
       "rate": 60,
       "owner": "LitheDebugModule"
+    },
+    {
+      "id": "debug.shortcut.decision_failed",
+      "channel": "debug",
+      "level": "error",
+      "message": "Debug shortcut state decision failed",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Core failure while choosing whether the requested debug shortcut should start or continue"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
     }
   ]
 }

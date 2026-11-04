@@ -380,7 +380,7 @@ extension AppModel {
         case "debug-resume", "debug-step-over", "debug-step-into", "debug-step-out":
             genericDebugFeatureIfActive?.state == .paused
         case "close-project", "search-everywhere", "find-action", "search-in-project",
-             "replace-in-project", "project-local-history", "run", "debug",
+             "replace-in-project", "project-local-history", "run", "debug", "debug-start-or-continue",
              "stop-run", "stop-debug", "toggle-terminal", "toggle-problems",
              "toggle-git-log", "toggle-run", "toggle-tests",
              "toggle-debug", "view-breakpoints", "spring-endpoints", "rebuild-java-index":

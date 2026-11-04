@@ -1015,6 +1015,36 @@ struct ContextMenuCoverageTests {
         #expect(calls == ["open", "folder"])
     }
 
+    @Test
+    func actionEligibilityRefreshOnlyAffectsItsOwnMenuSession() throws {
+        let presenter = LitheContextMenuPresenter()
+        defer { presenter.dismiss() }
+        var calls: [String] = []
+        func items(_ enabled: Bool) -> [LitheContextMenuItem] {
+            [.action("First", isEnabled: enabled) { calls.append("first") },
+             .action("Second") { calls.append("second") }]
+        }
+        var firstSession: UUID?
+        presenter.show(items: items(false), at: NSPoint(x: 200, y: 300), appearance: nil,
+                       locale: Locale(identifier: "en"), onPresented: { firstSession = $0 })
+        let first = try #require(firstSession)
+        presenter.refreshEnabledStates(session: first, items: items(true))
+        let firstWindow = try #require(NSApp.windows.first { $0.isVisible && String(describing: type(of: $0)).contains("LitheContextMenuPanel") })
+        try sendKey(125, to: firstWindow)
+        try sendKey(36, to: firstWindow)
+        #expect(calls == ["first"])
+        var secondSession: UUID?
+        presenter.show(items: items(false), at: NSPoint(x: 200, y: 300), appearance: nil,
+                       locale: Locale(identifier: "en"), onPresented: { secondSession = $0 })
+        #expect(secondSession != firstSession)
+        presenter.dismissActionMenu(session: first)
+        presenter.refreshEnabledStates(session: first, items: items(true))
+        let secondWindow = try #require(NSApp.windows.first { $0.isVisible && String(describing: type(of: $0)).contains("LitheContextMenuPanel") })
+        try sendKey(125, to: secondWindow)
+        try sendKey(36, to: secondWindow)
+        #expect(calls == ["first", "second"])
+    }
+
     @Test func rightClickOnSubmenuKeepsThePopupAndShowRemainsKeyboardAccessible() async throws {
         let presenter = LitheContextMenuPresenter()
         let owner = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 400, height: 300),

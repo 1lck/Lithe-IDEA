@@ -2,6 +2,17 @@ import Foundation
 import LitheGitModule
 
 extension RustCoreBridge {
+    private struct HistoryActionCapabilitiesRequest: Encodable {
+        let root: String
+        let revisions: [String]
+    }
+
+    func gitHistoryActionCapabilities(at root: URL, revisions: [String], operationID: String) -> Result<GitHistoryActionCapabilities, CoreCallError> {
+        executeResult(command: "git.historyActionCapabilities",
+                      payload: HistoryActionCapabilitiesRequest(root: root.standardizedFileURL.path, revisions: revisions),
+                      operationID: operationID)
+    }
+
     private struct HistoryRewritePreviewRequest: Encodable {
         let root: String
         let operation: GitHistoryRewriteOperation

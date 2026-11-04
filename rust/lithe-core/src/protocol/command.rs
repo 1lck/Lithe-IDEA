@@ -132,6 +132,14 @@ pub enum CoreCommand {
     PluginsDeclarativeDecodeGrammar,
     /// Validates independent editor action registration or results.
     PluginsEditorActionsDecode,
+    /// Validates a normalized shortcut import against the host's action catalog.
+    KeymapDecodeImport,
+    /// Plans the selected provider's declared shortcut source inputs.
+    KeymapPlanImportSources,
+    /// Plans conflicts and default-key displacement for a shortcut import.
+    KeymapPlanImportBindings,
+    /// Decides whether a combined debug shortcut starts, continues or does nothing.
+    DebugStartOrContinue,
     /// Registers plugin-owned tools with verified package provenance.
     ToolchainsRegistry,
     /// Validates provider answers using native evidence supplied by the host.
@@ -403,6 +411,8 @@ pub enum CoreCommand {
     LspVcsRequest,
     /// Queues one toolchain-provider query (`lsp.toolchainRequest`).
     LspToolchainRequest,
+    /// Queues a shortcut import against a negotiated provider.
+    LspKeymapImportRequest,
     /// Invokes one plugin function (`lsp.functionRequest`).
     LspFunctionRequest,
     /// Answers a plugin backend's host-service request (`lsp.hostResponse`).
@@ -481,6 +491,12 @@ pub enum CoreCommand {
     GitRollbackPlan,
     /// Rechecks Git identities and plans rollback (`git.rollbackPrepare`).
     GitRollbackPrepare,
+    /// Prepares the real index for an explicit selected-file commit.
+    GitPrepareCommitSelection,
+    /// Reconciles missing selected additions after deletion.
+    GitReconcileDeletedSelection,
+    /// Reduces local ChangeList metadata and projects membership and commit scope.
+    GitChangelists,
     /// Projects retained Git console records without executing Git (`git.consolePresentation`).
     GitConsolePresentation,
     /// Reads an optional remote URL without a visible command (`git.remoteUrl`).
@@ -533,6 +549,8 @@ pub enum CoreCommand {
     GitConfigureIdentity,
     /// Reviews a local history mutation and its immutable checkout snapshot (`git.historyRewritePreview`).
     GitHistoryRewritePreview,
+    /// Resolves action eligibility against the actual checkout history.
+    GitHistoryActionCapabilities,
     /// Preview a linear local range after an unchanged base commit.
     GitRebasePreview,
     /// Start a reviewed native interactive rebase with a durable session.
@@ -675,6 +693,10 @@ impl CoreCommand {
             }
             "plugins.declarative.decodeGrammar" => Some(Self::PluginsDeclarativeDecodeGrammar),
             "plugins.editorActions.decode" => Some(Self::PluginsEditorActionsDecode),
+            "keymap.decodeImport" => Some(Self::KeymapDecodeImport),
+            "keymap.planImportSources" => Some(Self::KeymapPlanImportSources),
+            "keymap.planImportBindings" => Some(Self::KeymapPlanImportBindings),
+            "debug.startOrContinue" => Some(Self::DebugStartOrContinue),
             "toolchains.registry" => Some(Self::ToolchainsRegistry),
             "toolchains.decodeReply" => Some(Self::ToolchainsDecodeReply),
             "toolchains.failureReply" => Some(Self::ToolchainsFailureReply),
@@ -809,6 +831,7 @@ impl CoreCommand {
             "lsp.buildRequest" => Some(Self::LspBuildRequest),
             "lsp.vcsRequest" => Some(Self::LspVcsRequest),
             "lsp.toolchainRequest" => Some(Self::LspToolchainRequest),
+            "lsp.keymapImportRequest" => Some(Self::LspKeymapImportRequest),
             "lsp.functionRequest" => Some(Self::LspFunctionRequest),
             "lsp.hostResponse" => Some(Self::LspHostResponse),
             "lsp.hostNotify" => Some(Self::LspHostNotify),
@@ -848,6 +871,9 @@ impl CoreCommand {
             "git.write" => Some(Self::GitWrite),
             "git.rollbackPlan" => Some(Self::GitRollbackPlan),
             "git.rollbackPrepare" => Some(Self::GitRollbackPrepare),
+            "git.prepareCommitSelection" => Some(Self::GitPrepareCommitSelection),
+            "git.reconcileDeletedSelection" => Some(Self::GitReconcileDeletedSelection),
+            "git.changelists" => Some(Self::GitChangelists),
             "git.consolePresentation" => Some(Self::GitConsolePresentation),
             "git.remoteUrl" => Some(Self::GitRemoteUrl),
             "git.fetchPlan" => Some(Self::GitFetchPlan),
@@ -871,6 +897,7 @@ impl CoreCommand {
             "remote.uploadFile" => Some(Self::RemoteUploadFile),
             "remote.hostInfo" => Some(Self::RemoteHostInfo),
             "git.historyRewritePreview" => Some(Self::GitHistoryRewritePreview),
+            "git.historyActionCapabilities" => Some(Self::GitHistoryActionCapabilities),
             "git.rebasePreview" => Some(Self::GitRebasePreview),
             "git.repositorySetup" => Some(Self::GitRepositorySetup),
             "git.initialize" => Some(Self::GitInitialize),
@@ -942,6 +969,7 @@ mod tests {
             "lsp.buildRequest",
             "lsp.vcsRequest",
             "lsp.toolchainRequest",
+            "lsp.keymapImportRequest",
             "lsp.functionRequest",
             "lsp.hostResponse",
             "lsp.hostNotify",

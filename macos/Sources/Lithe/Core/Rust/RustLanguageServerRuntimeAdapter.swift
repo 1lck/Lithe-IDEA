@@ -338,6 +338,31 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
             .mapError(Self.runtimeFailure)
     }
 
+    func requestKeymapImportProvider(
+        sessionID: String, providerID: String, snapshotID: String, timeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
+        lspKeymapImportRequest(sessionID: sessionID, providerID: providerID, snapshotID: snapshotID, timeout: timeout)
+            .map { LanguageServerRuntimeOperation(operationID: $0.operationId) }
+            .mapError(Self.runtimeFailure)
+    }
+
+    func startPluginKeymapImportBackend(
+        pluginID: String, providerID: String, executableURL: URL, arguments: [String],
+        environment: [String: String], rootURL: URL, initializationOptions: ToolingJSONValue?,
+        hostServices: [String], toolchainProviders: [String], keymapImportProviders: [String],
+        initializeTimeout: TimeInterval, requestTimeout: TimeInterval, shutdownTimeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> {
+        lspStartServer(
+            providerID: providerID, pluginID: pluginID, executableURL: executableURL,
+            arguments: arguments, environment: environment, rootURL: rootURL, workingDirectoryURL: rootURL,
+            initializationOptions: initializationOptions, hostServices: hostServices,
+            toolchainProviders: toolchainProviders, keymapImportProviders: keymapImportProviders,
+            initializeTimeout: initializeTimeout, requestTimeout: requestTimeout, shutdownTimeout: shutdownTimeout
+        ).map {
+            LanguageServerRuntimeStart(sessionID: $0.sessionId, state: $0.state, processID: $0.processId)
+        }.mapError(Self.runtimeFailure)
+    }
+
     func startPluginToolchainBackend(
         pluginID: String,
         providerID: String,

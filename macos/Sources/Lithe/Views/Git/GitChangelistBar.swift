@@ -16,7 +16,7 @@ struct GitChangelistBar: View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .center, spacing: 2) {
                 LitheSettingsSelect(
-                    selection: Binding(get: { feature.changelists.activeID }, set: { feature.activateChangelist($0) }),
+                    selection: Binding(get: { feature.changelists.activeID }, set: { id in Task { await feature.activateChangelist(id) } }),
                     options: feature.changelists.lists.map(\.id),
                     width: LitheDropdownMetrics.minimumRootWidth,
                     accessibilityLabel: "ChangeList",
@@ -75,7 +75,7 @@ struct GitChangelistBar: View {
             get: { deletingID != nil }, set: { if !$0 { deletingID = nil } }
         ), titleVisibility: .visible) {
             Button("Delete ChangeList", role: .destructive) {
-                if let id = deletingID { feature.removeChangelist(id) }
+                if let id = deletingID { Task { await feature.removeChangelist(id) } }
                 deletingID = nil
             }
             Button("Cancel", role: .cancel) { deletingID = nil }
@@ -92,8 +92,12 @@ struct GitChangelistBar: View {
     }
 
     private func saveName() {
-        error = feature.saveChangelistName(name, id: editingID)
-        if error == nil { editing = false }
+        let requestedName = name
+        let id = editingID
+        Task {
+            error = await feature.saveChangelistName(requestedName, id: id)
+            if error == nil { editing = false }
+        }
     }
 }
 

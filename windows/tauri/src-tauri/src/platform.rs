@@ -58,6 +58,17 @@ pub async fn platform_invoke(
         .map(ToString::to_string)
         .unwrap_or_else(|| format!("windows-{}", REQUEST_ID.fetch_add(1, Ordering::Relaxed)));
     let (core_command, payload) = translate(&command, args)?;
+    let selection_gate = if core_command == "git.prepareCommitSelection" {
+        Some(
+            crate::core::start_commit_selection(&log_window, &operation_id)
+                .ok_or_else(|| "GIT_COMMIT_SELECTION_STALE".to_string())?,
+        )
+    } else {
+        None
+    };
+    let completion = selection_gate
+        .as_ref()
+        .map(|_| crate::core::CommitSelectionCompletion(operation_id.clone()));
     let log_level = if [
         "start", "stop", "build", "execute", "import", "commit", "pull", "push", "fetch",
         "install", "activate",
@@ -111,7 +122,30 @@ pub async fn platform_invoke(
         },
     );
 
+    // Core emits requestStarted synchronously after registering its cancellation
+    // token. Replaying a pre-start cancellation here closes the IPC race.
+    let events = if let Some(gate) = selection_gate {
+        let operation_id = operation_id.clone();
+        Some(Arc::new(move |event: &str| {
+            if gate.load(Ordering::Acquire) {
+                let started = serde_json::from_str::<Value>(event)
+                    .ok()
+                    .is_some_and(|value| {
+                        value.get("type").and_then(Value::as_str) == Some("requestStarted")
+                    });
+                if started {
+                    let _ = lithe_core::cancel_operation(&operation_id);
+                }
+            }
+            if let Some(sink) = &events {
+                sink(event);
+            }
+        }) as Arc<dyn Fn(&str) + Send + Sync>)
+    } else {
+        events
+    };
     let response = tauri::async_runtime::spawn_blocking(move || {
+        let _completion = completion;
         if let Some(events) = events {
             return lithe_core::execute_json_with_events(&request, events);
         }
@@ -223,6 +257,8 @@ fn is_interactive_git(core_command: &str, command: &str) -> bool {
     matches!(
         core_command,
         "git.write"
+            | "git.prepareCommitSelection"
+            | "git.reconcileDeletedSelection"
             | "git.workspaceCommitStep"
             | "git.commit"
             | "git.apply"
@@ -246,6 +282,7 @@ fn observes_git_execution(command: &str) -> bool {
     command.starts_with("git.")
         && command != "git.authRespond"
         && command != "git.consolePresentation"
+        && command != "git.changelists"
 }
 
 /// Kind the shared Core uses for npm transfer progress. `agent.install` and
@@ -1148,6 +1185,7 @@ mod tests {
         }
         assert!(!super::observes_git_execution("git.authRespond"));
         assert!(!super::observes_git_execution("git.consolePresentation"));
+        assert!(!super::observes_git_execution("git.changelists"));
         assert!(!super::observes_git_execution("workspace.scan"));
     }
 
@@ -1234,6 +1272,10 @@ mod tests {
         assert!(super::is_interactive_git(
             "git.workspaceCommitStep",
             "git.workspaceCommitStep"
+        ));
+        assert!(super::is_interactive_git(
+            "git.prepareCommitSelection",
+            "git.prepareCommitSelection"
         ));
         assert!(!super::is_interactive_git(
             "git.workspaceCommitPrepare",

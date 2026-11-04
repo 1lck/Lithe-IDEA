@@ -593,7 +593,7 @@ final class PluginMarketplaceFeatureModel: ObservableObject {
         guard let snapshot = pluginManager.snapshots.first(where: { $0.id == pluginID }),
               snapshot.installationStatus != .removed,
               !snapshot.isRequired else { return false }
-        return snapshot.origin != .bundled || OfficialPluginCatalog.entry(for: pluginID) != nil
+        return snapshot.origin != .bundled || OfficialPluginCatalog.trustPolicy(for: pluginID) != nil
     }
 
     // MARK: Installation

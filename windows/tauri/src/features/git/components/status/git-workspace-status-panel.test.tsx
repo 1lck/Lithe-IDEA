@@ -1,5 +1,6 @@
 import {
-  assignChangelist,
+  changelistFileKey,
+  changelistPathKey,
   EMPTY_CHANGELISTS,
   type LocalChangelists,
 } from "../../utils/git-changelists";
@@ -11,6 +12,8 @@ import { createSingleFileWorkingTreeDiff } from "../../utils/working-tree-multi-
 import { createRoot, type Root } from "react-dom/client";
 import * as virtual from "@tanstack/react-virtual";
 import * as statusApi from "../../api/git-status-api";
+import * as dialogs from "@/ui/dialog";
+import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { installHappyDom } from "@/test-utils/happy-dom";
 import { LocaleProvider } from "@/i18n/locale-provider";
 import GitStatusPanel from "./git-status-panel";
@@ -29,11 +32,19 @@ let virtualizer: ReturnType<typeof spyOn<typeof virtual, "useVirtualizer">>;
 const actGlobal = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
 let previousAct: boolean | undefined;
 let previousGetAnimations: PropertyDescriptor | undefined;
+let previousResizeObserver: unknown;
 let previousBuffers: Pick<ReturnType<typeof useBufferStore.getState>, "buffers" | "activeBufferId">;
 let scrollRequests: Array<{ index: number; align?: string }>;
 let previousFolderView: boolean;
 beforeEach(() => {
   restoreDom = installHappyDom();
+  const globals = globalThis as { ResizeObserver?: unknown };
+  previousResizeObserver = globals.ResizeObserver;
+  globals.ResizeObserver ??= class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
   // Base UI measures scroll geometry after animations. This DOM fixture has
   // no animations; provide the browser API that happy-dom does not implement.
   previousGetAnimations = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "getAnimations");
@@ -81,6 +92,7 @@ afterEach(async () => {
     if (previousGetAnimations) {
       Object.defineProperty(HTMLElement.prototype, "getAnimations", previousGetAnimations);
     } else Reflect.deleteProperty(HTMLElement.prototype, "getAnimations");
+    (globalThis as { ResizeObserver?: unknown }).ResizeObserver = previousResizeObserver;
     restoreDom();
     if (previousAct === undefined) delete actGlobal.IS_REACT_ACT_ENVIRONMENT;
     else actGlobal.IS_REACT_ACT_ENVIRONMENT = previousAct;
@@ -96,6 +108,23 @@ const render = async (
     repositoryPaths?: string[];
     showChangelistGroups?: boolean;
     collapsedSections?: ReadonlySet<string>;
+    repoPath?: string;
+    commitWorkspaceKey?: string;
+    commitChangelists?: LocalChangelists;
+    onActivateCommitChangelist?: (
+      id: string,
+      files: GitFile[],
+      roots: string[],
+    ) => boolean | Promise<boolean>;
+    isCommitChangelistCurrent?: (
+      id: string,
+      files: GitFile[],
+      roots: string[],
+    ) => boolean | Promise<boolean>;
+    onCommitSelection?: (paths: string[]) => void;
+    onStagingRefresh?: () => Promise<void>;
+    onValidateStagingMembership?: (files: GitFile[], expected: string[]) => Promise<boolean>;
+    onRefresh?: () => Promise<void>;
   } = {},
 ) => {
   await act(async () =>
@@ -373,14 +402,18 @@ test("View Options switches between the directory tree and a flat list in two cl
 test("bulk and repository staging only include the active changelist, while named groups remain visible", async () => {
   const config = file("A", "application.yaml");
   const feature = file("A", "feature.ts");
-  const lists = assignChangelist(
-    {
-      ...EMPTY_CHANGELISTS,
-      lists: [...EMPTY_CHANGELISTS.lists, { id: "local", name: "Local only" }],
+  const lists: LocalChangelists = {
+    ...EMPTY_CHANGELISTS,
+    lists: [...EMPTY_CHANGELISTS.lists, { id: "local", name: "Local only" }],
+    assignments: { [changelistPathKey("C:/workspace/A", "src/application.yaml")]: "local" },
+    projection: {
+      members: new Map([
+        [changelistFileKey(config)!, "local"],
+        [changelistFileKey(file("A", "feature.ts"))!, "default"],
+      ]),
+      scope: { include: false, paths: {} },
     },
-    [config],
-    "local",
-  );
+  };
   await render([config, feature], lists);
   expect(container.textContent).toContain("Local only");
   const all = container.querySelector<HTMLElement>(
@@ -394,14 +427,18 @@ test("bulk and repository staging only include the active changelist, while name
 
 test("named group selection stays inside that group", async () => {
   const config = file("A", "application.yaml");
-  const lists = assignChangelist(
-    {
-      ...EMPTY_CHANGELISTS,
-      lists: [...EMPTY_CHANGELISTS.lists, { id: "local", name: "Local only" }],
+  const lists: LocalChangelists = {
+    ...EMPTY_CHANGELISTS,
+    lists: [...EMPTY_CHANGELISTS.lists, { id: "local", name: "Local only" }],
+    assignments: { [changelistPathKey("C:/workspace/A", "src/application.yaml")]: "local" },
+    projection: {
+      members: new Map([
+        [changelistFileKey(config)!, "local"],
+        [changelistFileKey(file("A", "feature.ts"))!, "default"],
+      ]),
+      scope: { include: false, paths: {} },
     },
-    [config],
-    "local",
-  );
+  };
   await render([config, file("A", "feature.ts")], lists);
   const checkbox = container.querySelector<HTMLElement>(
     '[aria-label="Include folder Local only in commit"]',
@@ -580,6 +617,135 @@ test("hiding ChangeList groups keeps the repository row and nests files under it
   expect(container.textContent).toContain("two.ts");
 });
 
+test("commit menu prepares all repositories through Core and preserves the selected partial index", async () => {
+  const selected = { ...file("B", "partial.ts"), rawStatus: "MM", staged: true, worktree: true };
+  const other = { ...file("A", "other.ts"), rawStatus: "M ", staged: true };
+  const prepare = spyOn(statusApi, "prepareCommitSelection").mockResolvedValue(undefined);
+  const focused = mock((_paths: string[]) => {});
+  const activate = mock((_id: string) => true);
+  const refresh = mock(async () => {});
+  try {
+    await render([selected, other], undefined, {
+      repositoryPaths: ["C:/workspace/A", "C:/workspace/B"],
+      commitChangelists: EMPTY_CHANGELISTS,
+      onActivateCommitChangelist: activate,
+      onCommitSelection: focused,
+      onStagingRefresh: refresh,
+    });
+    const label = container.querySelector('[aria-label="Exclude partial.ts from commit"]');
+    expect(label).not.toBeNull();
+    const row = label!.closest("[data-git-status-row-index]")!.querySelector('[role="treeitem"]')!;
+    await act(async () =>
+      row.dispatchEvent(new window.MouseEvent("contextmenu", { bubbles: true })),
+    );
+    const item = Array.from(document.querySelectorAll<HTMLElement>("[role=menuitem]")).find(
+      (el) => el.textContent?.trim() === "Commit",
+    );
+    expect(item).toBeDefined();
+    await act(async () => {
+      item!.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(activate).toHaveBeenCalledTimes(1);
+    expect(prepare).toHaveBeenCalledWith(
+      [
+        { root: "C:/workspace/A", selected: [] },
+        {
+          root: "C:/workspace/B",
+          selected: [{ path: "src/partial.ts", originalPath: undefined, status: "MM" }],
+        },
+      ],
+      expect.any(String),
+      expect.any(AbortSignal),
+    );
+    expect(staging).not.toHaveBeenCalled();
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(focused).toHaveBeenCalledWith(["B/src/partial.ts"]);
+  } finally {
+    prepare.mockRestore();
+  }
+}, 1000);
+
+test.each(["before", "after"] as const)(
+  "a %s ChangeList change cannot focus the commit editor",
+  async (phase) => {
+    const selected = { ...file("A", "list.ts"), rawStatus: " M" };
+    const prepare = spyOn(statusApi, "prepareCommitSelection").mockResolvedValue(undefined);
+    const focused = mock((_paths: string[]) => {});
+    try {
+      await render([selected], undefined, {
+        commitChangelists: EMPTY_CHANGELISTS,
+        onActivateCommitChangelist: () => phase !== "before",
+        isCommitChangelistCurrent: () => phase !== "after",
+        onCommitSelection: focused,
+      });
+      const label = container.querySelector('[aria-label="Include list.ts in commit"]');
+      expect(label).not.toBeNull();
+      const row = label!
+        .closest("[data-git-status-row-index]")!
+        .querySelector('[role="treeitem"]')!;
+      await act(async () =>
+        row.dispatchEvent(new window.MouseEvent("contextmenu", { bubbles: true })),
+      );
+      const item = Array.from(document.querySelectorAll<HTMLElement>("[role=menuitem]")).find(
+        (el) => el.textContent?.trim() === "Commit",
+      );
+      expect(item).toBeDefined();
+      await act(async () => {
+        item!.click();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(prepare).toHaveBeenCalledTimes(phase === "before" ? 0 : 1);
+      expect(focused).not.toHaveBeenCalled();
+    } finally {
+      prepare.mockRestore();
+    }
+  },
+  1000,
+);
+
+test("changing workspace cancels pending commit preparation and ignores its completion", async () => {
+  const selected = { ...file("A", "pending.ts"), rawStatus: " M" };
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const prepare = spyOn(statusApi, "prepareCommitSelection").mockReturnValue(pending);
+  const focused = mock((_paths: string[]) => {});
+  try {
+    await render([selected], undefined, { commitWorkspaceKey: "old", onCommitSelection: focused });
+    const label = container.querySelector('[aria-label="Include pending.ts in commit"]');
+    expect(label).not.toBeNull();
+    const row = label!.closest("[data-git-status-row-index]")!.querySelector('[role="treeitem"]')!;
+    await act(async () =>
+      row.dispatchEvent(new window.MouseEvent("contextmenu", { bubbles: true })),
+    );
+    const item = Array.from(document.querySelectorAll<HTMLElement>("[role=menuitem]")).find(
+      (el) => el.textContent?.trim() === "Commit",
+    );
+    expect(item).toBeDefined();
+    await act(async () => {
+      item!.click();
+      await Promise.resolve();
+    });
+    const signal = prepare.mock.calls[0]?.[2];
+    expect(signal?.aborted).toBe(false);
+    await render([selected], undefined, { commitWorkspaceKey: "new", onCommitSelection: focused });
+    expect(signal?.aborted).toBe(true);
+    await act(async () => {
+      release();
+      await pending;
+    });
+    expect(focused).not.toHaveBeenCalled();
+  } finally {
+    release();
+    await pending;
+    prepare.mockRestore();
+  }
+}, 1000);
+
 test("rollback sends the owning repository and both rename identities from the selected row", async () => {
   const globals = globalThis as { ResizeObserver?: unknown };
   const previousResizeObserver = globals.ResizeObserver;
@@ -636,3 +802,123 @@ test("rollback sends the owning repository and both rename identities from the s
     globals.ResizeObserver = previousResizeObserver;
   }
 });
+
+test("delete reconciles the selected staged addition in its owning repository", async () => {
+  const confirm = spyOn(dialogs, "showConfirmDialog").mockResolvedValue(true);
+  const reconcile = spyOn(statusApi, "reconcileDeletedSelection").mockResolvedValue(undefined);
+  const previousDelete = useFileSystemStore.getState().deleteFile;
+  const remove = mock(async (_path: string) => {});
+  let finishRefresh!: () => void;
+  const refreshed = new Promise<void>((resolve) => {
+    finishRefresh = resolve;
+  });
+  const refresh = mock(async () => {
+    finishRefresh();
+  });
+  await act(async () => useFileSystemStore.setState({ deleteFile: remove }));
+  try {
+    await render(
+      [{ ...file("B", "new.ts"), rawStatus: "A ", status: "added", staged: true }],
+      undefined,
+      { onRefresh: refresh },
+    );
+    const label = container.querySelector('[aria-label="Exclude new.ts from commit"]');
+    expect(label).not.toBeNull();
+    const row = label!.closest("[data-git-status-row-index]")!.querySelector('[role="treeitem"]')!;
+    await act(async () =>
+      row.dispatchEvent(new window.MouseEvent("contextmenu", { bubbles: true })),
+    );
+    const item = Array.from(document.querySelectorAll<HTMLElement>("[role=menuitem]")).find(
+      (element) => element.textContent?.trim() === "Delete",
+    );
+    expect(item).toBeDefined();
+    await act(async () => {
+      item!.click();
+      await refreshed;
+      await Promise.resolve();
+    });
+    expect(remove.mock.calls[0]?.[0].replace(/\\/g, "/")).toBe("C:/workspace/B/src/new.ts");
+    expect(reconcile).toHaveBeenCalledWith("C:/workspace/B", [
+      { path: "src/new.ts", status: "A " },
+    ]);
+    expect(refresh).toHaveBeenCalledTimes(1);
+  } finally {
+    confirm.mockRestore();
+    reconcile.mockRestore();
+    await act(async () => useFileSystemStore.setState({ deleteFile: previousDelete }));
+  }
+}, 1000);
+
+test("switching workspace while activating a list prevents index preparation", async () => {
+  const selected = { ...file("A", "pending.ts"), rawStatus: " M" };
+  let release!: (value: boolean) => void;
+  const activation = new Promise<boolean>((resolve) => {
+    release = resolve;
+  });
+  const prepare = spyOn(statusApi, "prepareCommitSelection").mockResolvedValue(undefined);
+  try {
+    await render([selected], undefined, {
+      commitWorkspaceKey: "old",
+      onActivateCommitChangelist: () => activation,
+    });
+    const label = container.querySelector('[aria-label="Include pending.ts in commit"]');
+    const row = label!.closest("[data-git-status-row-index]")!.querySelector('[role="treeitem"]')!;
+    await act(async () =>
+      row.dispatchEvent(new window.MouseEvent("contextmenu", { bubbles: true })),
+    );
+    const item = Array.from(document.querySelectorAll<HTMLElement>("[role=menuitem]")).find(
+      (element) => element.textContent?.trim() === "Commit",
+    );
+    expect(item).toBeDefined();
+    await act(async () => {
+      item!.click();
+      await Promise.resolve();
+    });
+    await render([selected], undefined, { commitWorkspaceKey: "new" });
+    await act(async () => {
+      release(true);
+      await activation;
+    });
+    expect(prepare).not.toHaveBeenCalled();
+  } finally {
+    release(false);
+    await activation;
+    prepare.mockRestore();
+  }
+}, 1000);
+
+test.each(["changed", "workspace"] as const)(
+  "%s membership while awaiting validation prevents staging",
+  async (scenario) => {
+    const selected = file("A", "pending-stage.ts");
+    let release!: (value: boolean) => void;
+    const validation = new Promise<boolean>((resolve) => {
+      release = resolve;
+    });
+    try {
+      await render([selected], undefined, {
+        commitWorkspaceKey: "old",
+        onValidateStagingMembership: () => validation,
+      });
+      const button = container.querySelector<HTMLElement>(
+        '[aria-label="Include pending-stage.ts in commit"]',
+      );
+      expect(button).not.toBeNull();
+      await act(async () => {
+        button!.click();
+        await Promise.resolve();
+      });
+      if (scenario === "workspace")
+        await render([selected], undefined, { commitWorkspaceKey: "new" });
+      await act(async () => {
+        release(scenario === "workspace");
+        await validation;
+      });
+      expect(staging).not.toHaveBeenCalled();
+    } finally {
+      release(false);
+      await validation;
+    }
+  },
+  1000,
+);

@@ -7,7 +7,7 @@ use super::{
 use crate::protocol::{CoreError, ErrorCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 
 const MAX_CHANGES: usize = 10_000;
 
@@ -59,6 +59,10 @@ pub(crate) fn rollback_plan_command(payload: Value) -> Result<Value, CoreError> 
     if request.changes.len() > MAX_CHANGES {
         return Err(invalid());
     }
+    plan(request)
+}
+
+fn plan(request: Request) -> Result<Value, CoreError> {
     let mut identities = HashSet::new();
     let mut claimed = HashSet::new();
     let mut steps = Vec::new();
@@ -139,12 +143,9 @@ struct PrepareRequest {
 // entire repository. Keep both sides of a rename in the same bounded Git call.
 pub(crate) fn rollback_prepare_command(payload: Value) -> Result<Value, CoreError> {
     let request: PrepareRequest = serde_json::from_value(payload).map_err(|_| invalid())?;
-    let plan = rollback_plan_command(
+    rollback_plan_command(
         json!({"changes": request.changes, "deleteAddedFiles": request.delete_added_files}),
     )?;
-    if request.changes.iter().any(|change| change.status == "??") {
-        return Err(invalid());
-    }
     let root = validate_root(&request.root)?;
     let literal = [("GIT_LITERAL_PATHSPECS".to_string(), "1".to_string())];
     let mut actual = HashSet::new();
@@ -160,7 +161,7 @@ pub(crate) fn rollback_prepare_command(payload: Value) -> Result<Value, CoreErro
             "status".into(),
             "--porcelain=v2".into(),
             "-z".into(),
-            "--untracked-files=no".into(),
+            "--untracked-files=all".into(),
             "--".into(),
         ];
         args.append(paths);
@@ -194,13 +195,89 @@ pub(crate) fn rollback_prepare_command(payload: Value) -> Result<Value, CoreErro
         bytes += size;
     }
     collect(&mut batch, &mut actual)?;
-    for change in request.changes {
-        if !actual.contains(&(change.path, change.original_path, change.status)) {
-            return Err(CoreError::new(
-                ErrorCode::InvalidRequest,
-                "GIT_ROLLBACK_STALE_SELECTION",
-            ));
+    let stale = || CoreError::new(ErrorCode::InvalidRequest, "GIT_ROLLBACK_STALE_SELECTION");
+    let mut untracked = BTreeSet::new();
+    let mut tracked = BTreeSet::new();
+    for (path, original, status) in &actual {
+        if status == "??" {
+            untracked.insert(path.clone());
+        } else {
+            tracked.insert(path.clone());
+            if let Some(source) = original {
+                tracked.insert(source.clone());
+            }
         }
     }
-    Ok(plan)
+    let mut verified = Vec::new();
+    for change in request.changes {
+        if change.status != "??" {
+            if !actual.contains(&(
+                change.path.clone(),
+                change.original_path.clone(),
+                change.status.clone(),
+            )) {
+                return Err(stale());
+            }
+            verified.push(change);
+        } else if change.path.ends_with('/') {
+            // Expand a directory to the observed files so files created after
+            // preparation cannot be swept up by a later directory clean.
+            if tracked
+                .range(change.path.clone()..)
+                .next()
+                .is_some_and(|p| p.starts_with(&change.path))
+            {
+                return Err(stale());
+            }
+            let files: Vec<_> = untracked
+                .range(change.path.clone()..)
+                .take_while(|p| p.starts_with(&change.path))
+                .cloned()
+                .collect();
+            if files.is_empty() {
+                return Err(stale());
+            }
+            verified.extend(files.into_iter().map(|path| Change {
+                path,
+                original_path: None,
+                status: "??".into(),
+            }));
+        } else {
+            if !untracked.contains(&change.path) || tracked.contains(&change.path) {
+                return Err(stale());
+            }
+            verified.push(change);
+        }
+    }
+    // The client selection is bounded above; a single reviewed directory may
+    // legitimately expand to more files than that selection limit.
+    plan(Request {
+        changes: verified,
+        delete_added_files: request.delete_added_files,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn expanded_directory_is_not_limited_by_client_selection_count() {
+        let changes = (0..=MAX_CHANGES)
+            .map(|index| Change {
+                path: format!("directory/file-{index}"),
+                original_path: None,
+                status: "??".into(),
+            })
+            .collect();
+        let result = plan(Request {
+            changes,
+            delete_added_files: true,
+        })
+        .unwrap();
+        assert_eq!(
+            result["steps"][0]["paths"].as_array().unwrap().len(),
+            MAX_CHANGES + 1
+        );
+    }
 }

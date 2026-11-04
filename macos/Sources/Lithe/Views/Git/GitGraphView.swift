@@ -51,14 +51,17 @@ struct GitGraphRowActions {
     var onContextSelect: ((GitCommit) -> Void)? = nil
     var additionalContextMenuItems: ((GitCommit) -> [LitheContextMenuItem])? = nil
     var onNavigateHash: ((String) -> Void)? = nil
+    var contextCapabilities: ((GitCommit) -> GitHistoryActionCapabilities?)? = nil
+    var onContextMenuPresented: ((GitCommit, UUID, @escaping () -> [LitheContextMenuItem]) -> Void)? = nil
+    var onContextMenuDismissed: (() -> Void)? = nil
 
     func select(_ commit: GitCommit, modifiers: NSEvent.ModifierFlags) {
         if let onSelectWithModifiers { onSelectWithModifiers(commit, modifiers) }
         else { onSelect(commit) }
     }
 
-    func contextMenuItems(for commit: GitCommit) -> [LitheContextMenuItem] {
-        onContextSelect?(commit)
+    func contextMenuItems(for commit: GitCommit, selecting: Bool = true) -> [LitheContextMenuItem] {
+        if selecting { onContextSelect?(commit) }
         return [
             .action("Copy Commit Hash") {
                 NSPasteboard.general.clearContents()
@@ -70,7 +73,7 @@ struct GitGraphRowActions {
             },
             .separator,
             .action("New Tag…") { onCreateTag(commit) },
-            .action("Cherry-pick Commit…") { onCherryPick(commit) },
+            .action("Cherry-pick Commit…", isEnabled: contextCapabilities == nil || contextCapabilities?(commit)?.canCherryPick == true) { onCherryPick(commit) },
             .action("Revert Commit…") { onRevert(commit) },
             .submenu("Reset Current Branch to Here…", items: [
                 .action("Soft Reset (Keep Changes Staged)") { onReset(commit, .soft) },
@@ -80,6 +83,9 @@ struct GitGraphRowActions {
         ] + (additionalContextMenuItems?(commit) ?? [])
     }
 
+    func contextMenuPresented(for commit: GitCommit, session: UUID) {
+        onContextMenuPresented?(commit, session, { contextMenuItems(for: commit, selecting: false) })
+    }
 }
 
 /// Immutable graph data prepared by the log's data-refresh task. Keeping the
@@ -958,11 +964,14 @@ final class GitGraphCommitRowsNSView: NSView, NSViewToolTipOwner {
     override func menu(for event: NSEvent) -> NSMenu? {
         let index = Int(floor(convert(event.locationInWindow, from: nil).y / rowHeight))
         guard rows.indices.contains(index), let actions, let window else { return nil }
+        let commit = rows[index].commit
         LitheContextMenuPresenter.shared.show(
-            items: actions.contextMenuItems(for: rows[index].commit),
+            items: actions.contextMenuItems(for: commit),
             at: window.convertPoint(toScreen: event.locationInWindow),
             appearance: effectiveAppearance,
-            locale: locale
+            locale: locale,
+            onDismiss: { actions.onContextMenuDismissed?() },
+            onPresented: { session in actions.contextMenuPresented(for: commit, session: session) }
         )
         return nil
     }
@@ -1158,7 +1167,11 @@ private struct GitGraphRowView: View, Equatable {
         .buttonStyle(.litheNoPress)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .onHover { isHovered = $0 }
-        .litheContextMenu { actions.contextMenuItems(for: row.commit) }
+        .litheUpdatingContextMenu(
+            items: { actions.contextMenuItems(for: row.commit) },
+            onPresented: { actions.contextMenuPresented(for: row.commit, session: $0) },
+            onDismiss: { actions.onContextMenuDismissed?() }
+        )
     }
 
     private var foregroundColor: Color {

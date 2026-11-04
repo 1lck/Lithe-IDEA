@@ -1,7 +1,7 @@
 //! Shared workspace commit planning, guarded execution, and partial-success recovery.
 // Decisions: .agents/notes/implemented/feature/2026-09-27-workspace-git-commit-plans.md
 
-mod path_scope;
+pub(super) mod path_scope;
 pub use path_scope::PathScope;
 
 use super::{

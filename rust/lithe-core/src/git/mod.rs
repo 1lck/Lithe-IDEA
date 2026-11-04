@@ -2,8 +2,11 @@
 
 // The initial projection/routing IR is deliberately not command- or host-facing
 // until both native products can consume the same versioned contract.
+mod changelists;
 mod command_trace;
+mod commit_selection;
 mod commit_state;
+mod deleted_selection;
 pub(crate) mod workspace_commit;
 pub use commit_state::{inspect as commit_state, GitCommitGitlink, GitCommitState};
 
@@ -40,6 +43,9 @@ pub use setup::{
     GitConfigureIdentityRequest, GitSetupRequest,
 };
 
+pub(crate) use changelists::changelists_command;
+pub(crate) use commit_selection::prepare_commit_selection_command;
+pub(crate) use deleted_selection::reconcile_deleted_selection_command;
 pub use history::{
     close_history_cursor, history, history_page, references, GitHistoryCursorCloseRequest,
     GitHistoryPageRequest, GitHistoryRequest, GitReferencesRequest,
@@ -56,6 +62,7 @@ pub use rebase_session::{
 };
 pub(crate) use rollback::{rollback_plan_command, rollback_prepare_command};
 
+pub(crate) use rewrite::history_action_capabilities_command;
 pub use rewrite::{
     history_rewrite_preview, GitHistoryRewriteExpectation, GitHistoryRewritePreviewRequest,
     GitHistoryRewriteResult,
@@ -1021,6 +1028,65 @@ pub fn discover_repository_root(
         .map(|path| path.to_string_lossy().replace('\\', "/")))
 }
 
+// Shared by ordinary staging and reviewed commit selection under its existing lease.
+fn stage_paths(root: &str, paths: &[String]) -> Result<GitCommandResponse, CoreError> {
+    let paths = validate_paths(paths)?;
+    let arguments = vec![
+        "add".into(),
+        "-A".into(),
+        "--pathspec-from-file=-".into(),
+        "--pathspec-file-nul".into(),
+    ];
+    let literal = [("GIT_LITERAL_PATHSPECS".to_string(), "1".to_string())];
+    execute_git_with_environment(
+        root,
+        &arguments,
+        Some(nul_pathspec_input(&paths)),
+        false,
+        &literal,
+    )
+}
+
+fn unstage_paths(root: &str, paths: &[String]) -> Result<GitCommandResponse, CoreError> {
+    let paths = validate_paths(paths)?;
+    let literal = [("GIT_LITERAL_PATHSPECS".to_string(), "1".to_string())];
+    let input = nul_pathspec_input(&paths);
+    let head = execute_git(
+        root,
+        &["rev-parse".into(), "--verify".into(), "HEAD".into()],
+        None,
+    )?;
+    if head.exit_code != 0 && commit_state::is_unborn(root)? {
+        let arguments = vec![
+            "rm".into(),
+            "--cached".into(),
+            "--force".into(),
+            "--ignore-unmatch".into(),
+            "--pathspec-from-file=-".into(),
+            "--pathspec-file-nul".into(),
+        ];
+        return execute_git_with_environment(root, &arguments, Some(input), false, &literal);
+    }
+    let restore = vec![
+        "restore".into(),
+        "--staged".into(),
+        "--pathspec-from-file=-".into(),
+        "--pathspec-file-nul".into(),
+    ];
+    let response =
+        execute_git_with_environment(root, &restore, Some(input.clone()), false, &literal)?;
+    if response.exit_code == 0 {
+        return Ok(response);
+    }
+    let reset = vec![
+        "reset".into(),
+        "HEAD".into(),
+        "--pathspec-from-file=-".into(),
+        "--pathspec-file-nul".into(),
+    ];
+    execute_git_with_environment(root, &reset, Some(input), false, &literal)
+}
+
 /// Executes one supported repository mutation without invoking a shell.
 pub fn write(request: GitWriteRequest) -> Result<GitCommandResponse, CoreError> {
     with_git_invocation_trace(|| write_with_trace(request))
@@ -1065,78 +1131,8 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
     let mut arguments: Vec<String>;
 
     match request.operation.as_str() {
-        "stage" => {
-            let paths = validate_paths(&request.paths)?;
-            arguments = vec![
-                "add".into(),
-                "-A".into(),
-                "--pathspec-from-file=-".into(),
-                "--pathspec-file-nul".into(),
-            ];
-            return execute_git(&root, &arguments, Some(nul_pathspec_input(&paths)));
-        }
-        "unstage" => {
-            let paths = validate_paths(&request.paths)?;
-            let literal_paths = [("GIT_LITERAL_PATHSPECS".to_string(), "1".to_string())];
-            let pathspec_input = nul_pathspec_input(&paths);
-
-            // An unborn repository has no HEAD for `restore --staged` or
-            // `reset HEAD` to resolve. Its index can only contain newly added
-            // paths, so remove those entries from the index while preserving
-            // the working tree files.
-            let head = execute_git(
-                &root,
-                &["rev-parse".into(), "--verify".into(), "HEAD".into()],
-                None,
-            )?;
-            if head.exit_code != 0 && commit_state::is_unborn(&root)? {
-                arguments = vec![
-                    "rm".into(),
-                    "--cached".into(),
-                    "--force".into(),
-                    "--ignore-unmatch".into(),
-                    "--pathspec-from-file=-".into(),
-                    "--pathspec-file-nul".into(),
-                ];
-                return execute_git_with_environment(
-                    &root,
-                    &arguments,
-                    Some(pathspec_input),
-                    false,
-                    &literal_paths,
-                );
-            }
-
-            let restore_arguments = vec![
-                "restore".into(),
-                "--staged".into(),
-                "--pathspec-from-file=-".into(),
-                "--pathspec-file-nul".into(),
-            ];
-            let restore = execute_git_with_environment(
-                &root,
-                &restore_arguments,
-                Some(pathspec_input.clone()),
-                false,
-                &literal_paths,
-            )?;
-            if restore.exit_code == 0 {
-                return Ok(restore);
-            }
-            arguments = vec![
-                "reset".into(),
-                "HEAD".into(),
-                "--pathspec-from-file=-".into(),
-                "--pathspec-file-nul".into(),
-            ];
-            return execute_git_with_environment(
-                &root,
-                &arguments,
-                Some(pathspec_input),
-                false,
-                &literal_paths,
-            );
-        }
+        "stage" => return stage_paths(&root, &request.paths),
+        "unstage" => return unstage_paths(&root, &request.paths),
         "discard" => {
             let paths = validate_paths(&request.paths)?;
             let literal_paths = [("GIT_LITERAL_PATHSPECS".to_string(), "1".to_string())];
