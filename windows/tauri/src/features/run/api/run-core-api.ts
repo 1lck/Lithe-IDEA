@@ -16,6 +16,26 @@ import { projectScopedPath } from "../utils/run-configuration";
 
 let requestSequence = 0;
 
+export interface ContextSelectionRequest {
+  sourcePath: string;
+  symbol: string;
+  preferredId: string | null;
+  caseInsensitivePaths: boolean;
+  candidates: Array<{
+    id: string;
+    sourcePath?: string;
+    symbol?: string;
+    generated: boolean;
+    disabled: boolean;
+  }>;
+}
+
+/** Selects an effective configuration using the provider's entry identity. */
+export async function selectContextConfiguration(request: ContextSelectionRequest) {
+  const result = await runCore<{ configurationId: string | null }>("runConfig.selectContextConfiguration", request);
+  return result.configurationId;
+}
+
 function nextRequestId(prefix: string): string {
   requestSequence += 1;
   return `${prefix}-${Date.now()}-${requestSequence}`;
