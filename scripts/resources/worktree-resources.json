@@ -34,19 +34,6 @@
   ],
   "excludedResources": [
     {
-      "id": "editor-keymap-provider-build",
-      "reusable": false,
-      "locations": [
-        ".artifacts/editor-keymap-provider-target/",
-        "Plugins/mac/Official/EditorKeymapImport/target/",
-        ".artifacts/cargo-home/git/",
-        ".artifacts/keymap-plugin-assembly/",
-        "Lithe.app/Contents/Resources/OfficialPlugins/dev.lithe.plugin.editor-keymap-import/"
-      ],
-      "identity": "Mutable Cargo outputs and Git checkouts depend on the pinned provider Cargo.lock and SDK Git revision, rustc, platform and target architecture; they have no sealed reusable identity stamp. The installed plugin is signed as part of its app package.",
-      "reason": "Rebuild in each worktree using its own target and Cargo home; fetch the SDK at its pinned Git revision. Never copy or symlink mutable Cargo state, Git checkouts or an assembled plugin across worktrees. The bundled executable and licenses are written only during packaging before signing and remain read-only at runtime; import snapshots are ephemeral user-selected files outside the app bundle."
-    },
-    {
       "id": "ci-rust-compilation-state",
       "reusable": false,
       "locations": [

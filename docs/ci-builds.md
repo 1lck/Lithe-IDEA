@@ -400,18 +400,6 @@ Windows Build 本机选项位于平台 app-data 的 `build-options/<canonical-wo
 可变状态，没有版本/平台/架构/工具链构建 identity stamp，归入 `build-project-preferences`
 拒绝路由。任何校验或复制阶段均不得跨 worktree 复用，不从安装目录推导写入目标；
 本机保存检查两层原始版本并回读，不改变插件包、代码签名或 Sparkle delta 基线。
-编辑器快捷键导入插件的源码和锁文件随 Git 获取；构建时从锁定的 SDK Git 提交及
-Cargo registry 获取依赖，按当前 rustc、平台和目标架构在本工作树的
-`.artifacts/editor-keymap-provider-target/` 重新编译。此目录登记为
-`editor-keymap-provider-build`，没有可跨工作树复用的封存身份，所有复用阶段均拒绝复制；
-直接运行插件 Cargo 测试生成的 `Plugins/mac/Official/EditorKeymapImport/target/` 也是
-工作树独占的可变状态。
-本地装配验证副本 `.artifacts/keymap-plugin-assembly/` 同样不复用，验证后由当前任务清理。
-构建使用本工作树的 `.artifacts/cargo-home/`；registry crate 下载缓存可按包含插件
-`Cargo.lock` 的既有 Cargo 校验路由复用，Git checkout 则不跨工作树复制，Cargo 从固定
-SDK 提交重新获取。构建阶段将可执行文件和许可证复制到插件包，
-再随 app 签名；运行时只读该包，来源快照留在进程内并读取用户选择的目录，不能影响
-代码签名或 Sparkle delta 基线。
 
 CI 的 `Swatinem/rust-cache` 只复用 Cargo 依赖编译输出，按 OS、架构、rustc、
 Cargo 清单/锁文件、编译环境和 target 布局区分；Swift/plugin 共享一份 macOS Rust

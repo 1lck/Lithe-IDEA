@@ -242,7 +242,6 @@ public enum OfficialPluginCatalog {
     public static let phpPluginID = PluginID("dev.lithe.plugin.php-support")
     public static let goPluginID = PluginID("dev.lithe.plugin.go-support")
     public static let javaPluginID = PluginID("dev.lithe.plugin.java-support")
-    public static let editorKeymapImportPluginID = PluginID("dev.lithe.plugin.editor-keymap-import")
 
     public static let entries: [Entry] = [
         Entry(
@@ -282,17 +281,12 @@ public enum OfficialPluginCatalog {
         entries.first { $0.id == id }
     }
 
-    /// Language suggestions use `entries`; other official packages still need
-    /// an explicit host trust policy without pretending to own a language.
+    /// The host trusts a package as official only when `entries` lists its ID.
+    /// Every other package, bundled or installed, is a community package.
     public static func trustPolicy(for id: PluginID) -> TrustPolicy? {
-        if let entry = entry(for: id) {
-            return TrustPolicy(signatureRequirement: entry.signatureRequirement,
-                               bundledSignatureRequirement: entry.bundledSignatureRequirement)
-        }
-        if id == editorKeymapImportPluginID {
-            return TrustPolicy(signatureRequirement: .publisherPackage, bundledSignatureRequirement: .sameTeamAsHost)
-        }
-        return nil
+        guard let entry = entry(for: id) else { return nil }
+        return TrustPolicy(signatureRequirement: entry.signatureRequirement,
+                           bundledSignatureRequirement: entry.bundledSignatureRequirement)
     }
 
     /// Entries still published as official plugins, which the host may
