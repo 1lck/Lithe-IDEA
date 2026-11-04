@@ -7,6 +7,42 @@ use std::process::Command;
 use std::time::{Duration, UNIX_EPOCH};
 
 #[test]
+fn repository_color_assignments_match_shared_pages() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/git/repository-colors-v1.json"
+    ))
+    .unwrap();
+    for case in fixture["cases"].as_array().unwrap() {
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({"command":"git.repositoryColorAssignments", "payload":case["request"]})
+                .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(response["ok"], true, "{}: {response}", case["name"]);
+        assert_eq!(response["data"], case["expected"], "{}", case["name"]);
+    }
+}
+
+#[test]
+fn repository_color_assignments_reject_invalid_pages() {
+    for payload in [
+        serde_json::json!({"offset": 1, "totalCount": 0, "repositoryIds": []}),
+        serde_json::json!({"offset": 1, "totalCount": 1, "repositoryIds": ["/a"]}),
+        serde_json::json!({"offset": 0, "totalCount": 2, "repositoryIds": ["/a", "/a"]}),
+        serde_json::json!({"offset": 0, "totalCount": 1, "repositoryIds": [""]}),
+        serde_json::json!({"offset": 0, "totalCount": 129, "repositoryIds": vec!["/a"; 129]}),
+    ] {
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({"command":"git.repositoryColorAssignments", "payload":payload})
+                .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(response["ok"], false, "{response}");
+        assert_eq!(response["error"]["code"], "invalid_request", "{response}");
+    }
+}
+
+#[test]
 fn git_checkout_metadata_and_gitdir_pointer_match_shared_fixture() {
     let fixture: Value = serde_json::from_str(include_str!(
         "../../../../shared/fixtures/git/checkout-metadata-v1.json"

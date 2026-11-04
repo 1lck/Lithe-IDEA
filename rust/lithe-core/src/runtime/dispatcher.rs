@@ -3082,6 +3082,11 @@ fn execute_parsed(parsed: CoreRequest) -> CoreResponse {
             parsed.payload,
             crate::git::history_action_capabilities_command,
         ),
+        CoreCommand::GitRepositoryColorAssignments => plugin_response(
+            id,
+            parsed.payload,
+            crate::git::repository_color_assignments_command,
+        ),
         CoreCommand::GitPrepareCommitSelection => plugin_response(
             id,
             parsed.payload,

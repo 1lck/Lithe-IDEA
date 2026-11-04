@@ -570,6 +570,12 @@ struct RustGitOperations: GitOperations, Sendable {
             .changes.map { $0.makeChange(repositoryRoot: root) }
     }
 
+    func repositoryColorAssignments(_ request: GitRepositoryColorPageRequest) -> GitRepositoryColorPage? {
+        let result: Result<GitRepositoryColorPage?, RustCoreBridge.CoreCallError> = core.executeNullableResult(
+            command: "git.repositoryColorAssignments", payload: request)
+        return try? result.get()
+    }
+
     func repositories(in workspaceURL: URL) -> [URL] {
         core.workspaceRepositories(at: workspaceURL)?.repositories.map {
             URL(fileURLWithPath: $0.path).standardizedFileURL

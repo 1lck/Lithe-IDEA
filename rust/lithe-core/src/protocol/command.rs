@@ -635,6 +635,8 @@ pub enum CoreCommand {
     GitHistoryLocate,
     /// Cleans and validates a new branch name in loaded references (`git.branchNamePreview`).
     GitBranchNamePreview,
+    /// Assigns palette slots to a page of ordered repository identities.
+    GitRepositoryColorAssignments,
     /// Resolves the destination and commits for a branch push (`git.pushPreview`).
     GitPushPreview,
     /// Resolves metadata for one commit (`git.commit`).
@@ -1011,6 +1013,7 @@ impl CoreCommand {
             "git.historyCursorClose" => Some(Self::GitHistoryCursorClose),
             "git.historyLocate" => Some(Self::GitHistoryLocate),
             "git.branchNamePreview" => Some(Self::GitBranchNamePreview),
+            "git.repositoryColorAssignments" => Some(Self::GitRepositoryColorAssignments),
             "git.pushPreview" => Some(Self::GitPushPreview),
             "git.commit" => Some(Self::GitCommit),
             "git.commitFiles" => Some(Self::GitCommitFiles),

@@ -70,6 +70,7 @@ struct GitLogView: View {
     @FocusState private var gitLogCommitListFocused: Bool
     @FocusState private var gitToolFocused: Bool
     @State private var gitToolActive = false
+    @State private var repositoryColors: GitRepositoryColors?
 
     private struct ConsoleTailState: Equatable {
         let id: UUID?
@@ -144,6 +145,14 @@ struct GitLogView: View {
             if id != currentReference?.id { headSelected = false }
         }
         .onChange(of: currentReference?.id) { _ in headSelected = false }
+        .task(id: feature.repositoryRootsGeneration) {
+            let generation = feature.repositoryRootsGeneration
+            let roots = feature.availableRepositoryRoots
+            repositoryColors = nil
+            let colors = await feature.repositoryColors(for: roots)
+            guard !Task.isCancelled, generation == feature.repositoryRootsGeneration else { return }
+            repositoryColors = colors
+        }
         .task(id: graphProjectionIdentity) {
             let identity = graphProjectionIdentity
             if let cached = presentationCache.value(for: identity) {
@@ -1856,9 +1865,8 @@ struct GitLogView: View {
     /// repositories. The slot always comes from the full ordered root list, so
     /// hiding worktrees cannot shift the colors of the repositories still shown.
     private func gitRepositoryColorIndex(for repositoryRoot: URL) -> Int? {
-        let repositoryRoots = feature.availableRepositoryRoots
-        guard GitRepositoryColor.isVisible(for: repositoryRoots) else { return nil }
-        return GitRepositoryColor.index(for: repositoryRoot, in: repositoryRoots)
+        guard let repositoryColors, repositoryColors.showColors else { return nil }
+        return repositoryColors.slot(for: repositoryRoot)
     }
 
     private var hasWorktreeRepositories: Bool {

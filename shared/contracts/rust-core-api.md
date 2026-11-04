@@ -1319,6 +1319,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `git.historyCursorClose` | Release an unfinished incremental history cursor and its Git process |
 | `git.historyLocate` | Append bounded history pages until one commit is found and report the budget, window cursor, and exhaustion |
 | `git.branchNamePreview` | Clean and validate a new branch name against already loaded references without running Git |
+| `git.repositoryColorAssignments` | Assign color slots to a bounded page of ordered repository identities |
 | `git.pushPreview` | Resolve a local branch push destination and the bounded commits not present on that remote base |
 | `git.commit` | Return one structured commit by revision with its full message body |
 | `git.commitFiles` | Return files changed by one commit |
@@ -2346,6 +2347,17 @@ returns a cursor the host can continue; a failed read releases it. Requests
 without a cursor start at the first page and continuations must repeat the same
 `root`, `reference`, and `order`. Portable request and response examples are in
 `shared/fixtures/git/history-locate-v1.json`.
+
+`git.repositoryColorAssignments` accepts `{ offset, totalCount, repositoryIds }`.
+IDs are the host's already normalized, unique repository identities in the full
+ordered workspace list, before worktree visibility filtering. Each request carries
+at most 128 IDs and their global offset; IDs are nonempty and at most 4,096 bytes.
+Core rejects duplicates within a page and out-of-range offsets with
+`invalid_request`. The response contains ordered `{ id, slot }` assignments,
+`fallbackSlot` for unknown IDs, and `showColors` for multi-repository views.
+Callers must keep pages from the same list generation together, cancel or discard
+stale results, and never recompute the slots per row. Color palettes remain native
+presentation. See `shared/fixtures/git/repository-colors-v1.json`.
 
 `git.branchNamePreview` is pure: it never starts Git and only reads the
 reference facts the host already loaded. It accepts `rawName` (at most 1,024
