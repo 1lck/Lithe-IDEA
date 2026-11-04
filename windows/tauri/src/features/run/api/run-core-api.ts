@@ -108,6 +108,11 @@ export function resolveRunConfiguration(
   return runCore<CoreResolveResult>("runConfig.resolve", { root, toolchainCandidates });
 }
 
+/** Formats exact argument vectors once for run configuration editors. */
+export function formatArgumentTexts(argumentLists: string[][]) {
+  return runCore<string[]>("runConfig.argumentText", { argumentLists });
+}
+
 export function createLaunchPlan(
   root: string,
   configurationId: string,

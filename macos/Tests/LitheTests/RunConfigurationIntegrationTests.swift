@@ -21,7 +21,6 @@ struct RunConfigurationIntegrationTests {
             projectID: "project", targetID: "target", execution: .task)
         let id = try store.saveBuildProviderConfiguration(reference, name: "Arguments", at: root)
         for entry in fixture.cases {
-            #expect(RunArgumentText.format(entry.values) == entry.text)
             try store.saveOptions(RunOptions(programArguments: entry.text), configurationID: id, scope: .local, at: root)
             let resolved = try #require(store.resolve(at: root, toolchainCandidates: []).configurations.first { $0.configuration.id == id })
             #expect(resolved.options.programArguments == entry.text)

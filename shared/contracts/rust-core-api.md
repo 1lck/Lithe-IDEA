@@ -1173,6 +1173,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `maven.scan` | Parse a Maven project descriptor and recursively return modules/profiles |
 | `maven.launchPlan` | Produce a deterministic Maven invocation from a versioned project context |
 | `execution.resolveEnvironment` | Merge native `inherited` string values, selected `javaHome`/`mavenJavaHome` for the current `toolchain`, and `overrides` into `{ environment }`. `caseInsensitive: true` canonicalizes Windows keys to uppercase. Maven uses Maven JDK with project-JDK fallback; Java uses project JDK. String overrides win; structured `{ toolchain, property: "home" }` bindings use the current step's home for JAVA_HOME, and the named toolchain for other variables. Unknown bindings are omitted. |
+| `execution.resolveSearchPath` | Preserve existing path precedence, sort platform candidates by priority and identity, and deduplicate using the requested case policy. |
 | `execution.planLaunchCommand` | Move oversized Java path-list options into a JDK argument file |
 | `processLifecycle.resolve` | Decide how each process or resource of one Lithe instance ends |
 | `processLifecycle.inventory` | Group a process snapshot of one Lithe instance into terminals, Agent tasks and background services |
@@ -1253,6 +1254,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `runConfig.resolve` | Merge generated, project, and local layers and return diagnostics |
 | `runConfig.updateOptions` | Apply typed option edits and return an updated project or local document |
 | `runConfig.updateToolPreferences` | Replace only generic preferences in a captured local Run document, preserving legacy defaults and unrelated metadata |
+| `runConfig.argumentText` | Format a batch of exact argument vectors as reversible editor text |
 | `runConfig.saveEditorChanges` | Prepare the local and optional project documents for one editor save |
 | `runConfig.createUserConfiguration` | Validate a typed user configuration and return an updated document |
 | `runConfig.createLaunchPlan` | Project one effective configuration into a platform-neutral Run or Debug plan |
@@ -4026,6 +4028,19 @@ subproject migration; a saved empty map is an explicit choice. Old platform
 preferences are copied and read back before cleanup, with already saved choices
 remaining authoritative. See `shared/fixtures/run-configuration/subproject-toolchains.json`.
 
+
+`execution.resolveSearchPath` accepts already-split `existing` directories and
+`candidates` carrying `priority`, opaque `id`, and `path`; lower priority sorts
+first, then ID and path. The result appends candidates after existing directories,
+omits empty entries, and deduplicates exactly or with ASCII case folding when
+`caseInsensitive` is true. The host owns path splitting, joining, discovery, and
+filesystem trust. See `shared/fixtures/execution/search-path-v1.json`.
+
+`runConfig.argumentText` accepts `{ "argumentLists": [["--name", "Alice Smith"], []] }`
+and returns one editor string per input vector in the same order. Quoting and escaping
+are reversible by the existing run-configuration option parser; there is no shell
+expansion or execution. Empty arguments remain explicit. The shared cases are in
+`shared/fixtures/run-configuration/argument-text.json`.
 
 `runConfig.saveEditorChanges` accepts the normal option-edit payload plus the
 required `toolchain` object. In addition to Java and Maven paths, that object

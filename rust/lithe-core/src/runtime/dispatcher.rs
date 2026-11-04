@@ -1116,6 +1116,19 @@ fn execute_parsed(parsed: CoreRequest) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::ExecutionResolveSearchPath => {
+            match serde_json::from_value::<crate::execution::SearchPathRequest>(parsed.payload) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    serde_json::json!(crate::execution::resolve_search_path(request)),
+                ),
+                Err(error) => CoreResponse::failure(
+                    id,
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid search path request")
+                        .with_details(error.to_string()),
+                ),
+            }
+        }
         CoreCommand::ExecutionResolveEnvironment => {
             match serde_json::from_value::<crate::execution::LaunchEnvironmentRequest>(
                 parsed.payload,
@@ -2394,6 +2407,19 @@ fn execute_parsed(parsed: CoreRequest) -> CoreResponse {
             {
                 Ok(data) => CoreResponse::success(id, data),
                 Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::RunConfigArgumentText => {
+            match serde_json::from_value::<crate::execution::ArgumentTextRequest>(parsed.payload) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    serde_json::json!(crate::execution::format_argument_text(request)),
+                ),
+                Err(error) => CoreResponse::failure(
+                    id,
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid argument text request")
+                        .with_details(error.to_string()),
+                ),
             }
         }
         CoreCommand::RunConfigResolve => {
