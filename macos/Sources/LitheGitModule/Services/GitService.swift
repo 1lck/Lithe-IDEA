@@ -115,6 +115,7 @@ package protocol GitOperations: Sendable {
         at rootURL: URL
     ) -> GitBranchComparison?
     func stashes(at rootURL: URL) -> [GitStash]?
+    func resolveFileContext(fileURL: URL, relativeTo rootURL: URL) -> GitFileContext?
     func blame(at rootURL: URL, relativePath: String) -> [GitBlameLine]?
 
     func stage(_ change: GitChange) -> GitProcessResult?
@@ -219,6 +220,7 @@ package protocol GitOperations: Sendable {
 }
 
 package extension GitOperations {
+    func resolveFileContext(fileURL: URL, relativeTo rootURL: URL) -> GitFileContext? { nil }
     func changelistProjection(_ request: GitChangelistCoreRequest) -> GitChangelistCoreProjection? { nil }
     func historyDateMatches(_ query: GitHistoryDateQuery) -> [String]? { nil }
     func reconcileDeletedSelection(at root: URL, changes: [GitChange]) -> GitProcessResult? { nil }
@@ -984,12 +986,10 @@ package struct GitService: Sendable {
     }
 
     func blame(fileURL: URL, at repositoryRoot: URL) async -> [GitBlameLine] {
-        let rootPath = repositoryRoot.standardizedFileURL.path
-        let filePath = fileURL.standardizedFileURL.path
-        guard filePath.hasPrefix(rootPath + "/") else { return [] }
-        let relativePath = String(filePath.dropFirst(rootPath.count + 1))
-        return await read(priority: .utility) {
-            $0.blame(at: repositoryRoot, relativePath: relativePath)
+        return await read(priority: .utility) { operations in
+            guard let context = operations.resolveFileContext(fileURL: fileURL, relativeTo: repositoryRoot),
+                  context.ownership == "git" else { return nil }
+            return operations.blame(at: URL(fileURLWithPath: context.root), relativePath: context.path)
         } ?? []
     }
 

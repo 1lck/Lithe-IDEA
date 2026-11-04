@@ -2675,6 +2675,15 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::GitResolveFileContext => {
+            match serde_json::from_value::<git::file_context::Request>(parsed.payload)
+                .map_err(|error| CoreError::new(ErrorCode::InvalidRequest, "Invalid Git file context request").with_details(error.to_string()))
+                .and_then(git::file_context::resolve)
+            {
+                Ok(data) => CoreResponse::success(id, serde_json::to_value(data).expect("Git file context should encode")),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::GitRebasePreview => {
             match serde_json::from_value::<GitRebasePreviewRequest>(parsed.payload)
                 .map_err(|error| {

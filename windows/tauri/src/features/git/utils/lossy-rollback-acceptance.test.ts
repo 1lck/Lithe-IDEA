@@ -194,6 +194,7 @@ test("acceptance: staged prefix must not redirect rollback to an unselected bloc
   const core = await import("@/platform/tauri-core");
   mock.module("@/platform/tauri-core", () => ({ ...core, invoke: async (command: string, args: any) => {
     if (command === "git_discover_repo") return root;
+    if (command === "git.resolveFileContext") return { root, path: "file.txt", ownership: "git" };
     if (command === "git.command") return { output: git(args.arguments), exitCode: 0 };
     if (command === "git.diff") return { patch: git(["diff", "--unified=3", "--", "file.txt"]) };
     if (command === "git_diff_file") return parseRawDiffContent(git([

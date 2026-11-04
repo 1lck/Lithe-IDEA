@@ -1257,6 +1257,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `git.pullRequestContext` | Resolve worktree-aware PR branch defaults, publication state, and uncommitted-change state |
 | `git.command` | Execute one argument-based Git operation and return its arguments, streams, exit code, and ordered subprocess invocations |
 | `git.repositoryRoot` | Resolve the repository root containing a workspace path without acquiring repository write coordination |
+| `git.resolveFileContext` | Resolve a file to its owning Git checkout and relative path |
 | `git.write` | Validate and execute shared Git mutations such as stage, commit, branch, checkout, remote sync, clone, and stash |
 | `git.fetchPlan` | Validate Fetch choices; optionally inspect a repository to expand enabled per-remote commands |
 | `git.consolePresentation` | Pure IDEA-style configuration/progress folds, empty-output notices and search ranges over retained diagnostic snapshots |
@@ -1586,6 +1587,18 @@ response retains the invocation trace and includes the failure as
 `git.repositoryRoot` accepts `{ "root": string }` and returns the normalized
 absolute repository root or `null` when the path is not inside a repository. It
 is read-only and does not acquire the repository write lease.
+
+`git.resolveFileContext` accepts `{ "root": string, "path": string }` and returns
+`{ "root": string, "path": string, "ownership": "git" }` or `null` for a
+file outside Git. A relative path is anchored at the existing root; an absolute
+file may belong to a different checkout. Core discovers the deepest actual Git
+checkout, including nested repositories and linked worktrees. Missing parent
+directories are resolved from the nearest existing directory, while symlinked
+parents are resolved on the owning host and the final filename is not followed.
+Parent traversal components and unsupported Windows path identities are rejected.
+Errors are not treated as a reason to use the active repository. The command is
+read-only, observes the remote workspace IO boundary, and does not cache ownership.
+Windows `remote://` and `wsl://` URI adapters retain their existing host routing.
 
 `git.command` and typed Git writers share the repository's write lease, including
 linked worktrees. A competing request fails with `invalid_request` while a writer

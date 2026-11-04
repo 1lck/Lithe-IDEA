@@ -8,6 +8,33 @@ import Testing
 
 @Suite("Git status observation", .serialized)
 struct GitStatusObservationTests {
+    @Test
+    func blameMenuAcceptsAnyDiscoveredRepositoryButNotUntrackedOrPrefixNeighbors() {
+        let roots = [URL(fileURLWithPath: "/workspace/first"), URL(fileURLWithPath: "/workspace/second")]
+        #expect(gitBlameCanAnnotate(URL(fileURLWithPath: "/workspace/second/file"), repositoryRoots: roots, isUntracked: false))
+        #expect(!gitBlameCanAnnotate(URL(fileURLWithPath: "/workspace/second/file"), repositoryRoots: roots, isUntracked: true))
+        #expect(!gitBlameCanAnnotate(URL(fileURLWithPath: "/workspace/second-other/file"), repositoryRoots: roots, isUntracked: false))
+        #expect(!gitBlameCanAnnotate(URL(fileURLWithPath: "/workspace/second"), repositoryRoots: roots, isUntracked: false))
+    }
+
+    @Test @MainActor
+    func blameUsesTheEditedFilesRepositoryInsteadOfTheActiveCheckout() async throws {
+        let fixture = try GitObservationFixture(label: "blame-file-ownership")
+        let first = fixture.url.appendingPathComponent("first", isDirectory: true)
+        let second = fixture.url.appendingPathComponent("second", isDirectory: true)
+        try await fixture.initializeRepository(at: first)
+        try await fixture.initializeRepository(at: second)
+        let file = second.appendingPathComponent("tracked.txt")
+        try Data("second repository\n".utf8).write(to: file)
+        try await fixture.git(["add", "tracked.txt"], at: second)
+        try await fixture.git(["commit", "-q", "-m", "second repo change"], at: second)
+        let expected = try await fixture.git(["rev-parse", "HEAD"], at: second)
+        let service = GitService(operations: RustGitOperations(core: RustCoreBridge()))
+        let lines = await service.blame(fileURL: file, at: first)
+        #expect(lines.count == 1)
+        #expect(lines.first?.commitHash == expected)
+    }
+
     @Test @MainActor
     func coreHistoryDatesPreserveOffsetAndFilterEquivalentInstants() async throws {
         let fixture = try GitObservationFixture(label: "history-timezones")

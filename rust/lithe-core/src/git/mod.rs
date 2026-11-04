@@ -14,6 +14,7 @@ pub(crate) mod configuration;
 pub(crate) mod console;
 pub(crate) mod execution_events;
 pub(crate) mod execution_policy;
+pub(crate) mod file_context;
 mod fetch;
 mod fetch_execution;
 #[allow(dead_code)]

@@ -339,6 +339,33 @@ fn real_remote_git_status_stage_commit_and_history_never_touch_the_placeholder()
 }
 
 #[test]
+fn remote_file_context_uses_host_repository_and_preserves_placeholder_identity() {
+    let host = HostFixture::new();
+    host.git(&["init", "-q", "-b", "main"]);
+    let nested = host.root.join("host/nested");
+    std::fs::create_dir(&nested).unwrap();
+    assert!(std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&nested)
+        .status()
+        .unwrap()
+        .success());
+    let context = host.call(
+        "git.resolveFileContext",
+        json!({"path": "nested/missing/file.txt"}),
+    );
+    assert_eq!(context["root"], json!(host.root.join("placeholder/nested")));
+    assert_eq!(context["path"], "missing/file.txt");
+    assert_eq!(context["ownership"], "git");
+    assert_eq!(
+        std::fs::read_dir(host.root.join("placeholder"))
+            .unwrap()
+            .count(),
+        0
+    );
+}
+
+#[test]
 fn remote_parent_repository_discovery_keeps_identity_for_status_and_stage() {
     discovered_repository_keeps_host_identity(false);
 }
