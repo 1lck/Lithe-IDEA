@@ -91,6 +91,12 @@ final class ToolchainSettingsFeatureModel: ObservableObject {
         if touched { scheduleReload() }
     }
 
+    /// A plugin that applies without a restart can add or remove tool definitions,
+    /// so an open page rereads its snapshot. Nothing runs before the page first loads one.
+    func pluginsChanged() {
+        scheduleReload()
+    }
+
     /// Bursts of file events collapse into one reload; the latest reload replaces earlier ones.
     private func scheduleReload() {
         guard snapshot != nil else { return }
