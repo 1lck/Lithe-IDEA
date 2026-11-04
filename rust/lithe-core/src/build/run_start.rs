@@ -361,6 +361,13 @@ fn rerun_target(rerun: &Rerun) -> Validation<Value> {
             "A rerun names one of the plugin's registered function IDs.",
         ));
     }
+    // The function protocol passes an object as the params of a function, so the data is one.
+    if !rerun.data.is_object() {
+        return Err(invalid(
+            "rerun.data",
+            "Rerun data is a JSON object, the params of the function.",
+        ));
+    }
     if serde_json::to_vec(&rerun.data).map_or(usize::MAX, |bytes| bytes.len())
         > MAX_RERUN_DATA_BYTES
     {

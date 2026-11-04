@@ -2787,9 +2787,10 @@ methods take `context: {contextID, generation}` and the permission shown.
   for it and attaches the adapter. Or `{kind: "launch"}`: the adapter starts the
   process itself, taking program, arguments, directory and environment from
   `process` through its `targetBindings`.
-- `rerun` is `{function, data}`: one of the plugin's registered functions and up
-  to 64 KiB of data. When the user chooses Run again, the host calls it with
-  `data` and the backend answers with a new `run/start`, so the backend
+- `rerun` is `{function, data}`: one of the plugin's registered functions and
+  its params, a JSON object of up to 64 KiB. When the user chooses Run again,
+  the host invokes the function with `data` as the params and the current
+  `context`, and the backend answers with a new `run/start`, so the backend
   prepares the restart. Without `rerun` the entry cannot be rerun.
 - The reply carries an opaque `runID`. The host sends
   [`run/didExit`](#host-notifications-protocol-version-3) when the process ends.

@@ -233,6 +233,20 @@
       "error": { "code": "plugin.run.invalidStart", "field": "rerun.function" }
     },
     {
+      "name": "rerun data that is not an object",
+      "params": {
+        "label": "Run",
+        "process": {
+          "executable": { "kind": "tool", "tool": "interpreter" },
+          "arguments": [],
+          "workingDirectory": ".",
+          "environment": {}
+        },
+        "rerun": { "function": "script.rerun", "data": "main.script" }
+      },
+      "error": { "code": "plugin.run.invalidStart", "field": "rerun.data" }
+    },
+    {
       "name": "more than four temporary files",
       "params": {
         "label": "Run",
