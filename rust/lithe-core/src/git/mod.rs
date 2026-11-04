@@ -28,6 +28,7 @@ mod remote_process;
 mod rewrite;
 mod rollback;
 mod setup;
+mod shelf;
 mod untracked_directories;
 
 pub use fetch::{plan as fetch_plan, GitFetchOptions, GitFetchPlanRequest};
@@ -60,6 +61,7 @@ pub use rebase_session::{
     GitRebaseSessionRequest, GitRebaseStartRequest,
 };
 pub(crate) use rollback::{rollback_plan_command, rollback_prepare_command};
+pub(crate) use shelf::shelf_command;
 
 pub(crate) use rewrite::history_action_capabilities_command;
 pub use rewrite::{

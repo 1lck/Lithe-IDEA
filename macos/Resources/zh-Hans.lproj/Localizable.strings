@@ -3367,6 +3367,7 @@
 "Resize dialog, %@" = "调整对话框大小，%@";
 "Resolve %lld conflicted file(s), stage the result, then continue." = "请解决 %lld 个文件的冲突，暂存结果后再继续。";
 "Resolve %lld conflicted file(s), stage them, then continue." = "请解决 %lld 个冲突文件并暂存，然后继续。";
+"Resolve conflicts before shelving changes." = "搁置改动前，请先解决合并冲突。";
 "Resolving dependencies..." = "正在解析依赖…";
 "Resolving push destination…" = "正在确定推送目标…";
 "Resolving service paths..." = "正在解析服务路径…";
@@ -3555,6 +3556,7 @@
 "Saved" = "已保存";
 "Saved breakpoints could not be read." = "无法读取已保存的断点。";
 "Saved changes contain text that is not UTF-8. Inspect the stash with Git." = "保存的更改包含非 UTF-8 文本，请使用 Git 查看该暂存记录。";
+"Saved changes operation failed" = "保存的改动操作失败";
 "Saved debugger stepping filters could not be read." = "无法读取已保存的调试器步进过滤器。";
 "Saved filters" = "书签";
 "Saved in .lithe/run/configurations.json for the whole team. Local JDK paths are never shared." = "保存在 .lithe/run/configurations.json，供整个团队使用。本机 JDK 路径不会共享。";
@@ -4343,6 +4345,7 @@
 "The repository changed or another Git operation is running. Preview the patch again." = "仓库已更改或有其他 Git 操作正在运行。请重新预览补丁。";
 "The repository changed or another Git operation is running. Refresh before retrying." = "仓库已更改或有其他 Git 操作正在运行。请刷新后重试。";
 "The repository changed or another Git operation is running. Refresh the preview to retry." = "仓库已更改或有其他 Git 操作正在运行。请刷新预览后重试。";
+"The repository changed. The shelf was retained; review the working tree before retrying." = "仓库已发生变化。搁置记录已保留，请检查工作区后再重试。";
 "The repository will be opened in detached HEAD state." = "仓库将以 detached HEAD 状态打开。";
 "The request has no secret." = "请求不包含密钥。";
 "The requested font is not installed; the current Lithe font is preserved." = "来源字体未安装，保留 Lithe 当前字体。";
@@ -4430,6 +4433,7 @@
 "The worktree will point directly to a commit. Create a branch there before keeping new commits." = "工作树将直接指向一个提交。若要保留后续新提交，请先在该工作树中创建分支。";
 "Theme" = "主题";
 "Theme…" = "主题…";
+"There are no changes to shelve" = "没有可搁置的改动";
 "There are too many changes to list; some are not shown." = "更改过多，部分未显示。";
 "There is no published GitHub Release to check yet." = "目前还没有可检查的 GitHub Release。";
 "These are the options Lithe will use for the next ordinary Fetch." = "这是 Lithe 下次普通 Fetch 使用的选项。";
@@ -5089,6 +5093,10 @@
 "git.rollback.success" = "已回滚 %1$@";
 "git.rollback.title" = "回滚更改";
 "git.rollback.warning" = "将回滚勾选文件中已暂存和未暂存的更改。Lithe 无法撤销此操作。";
+"git.saved.changed" = "仓库已发生变化。搁置记录已保留，请检查工作区后再重试。";
+"git.saved.conflicts" = "搁置改动前，请先解决合并冲突。";
+"git.saved.failed" = "保存的改动操作失败";
+"git.saved.noChanges" = "没有可搁置的改动";
 "git.status.refreshFailed" = "无法刷新 Git 状态。请刷新以确认更改结果。";
 "git.unifiedView" = "统一视图";
 "history.clearFailed" = "无法清空此项目的本地历史。请检查存储目录权限后重试。";

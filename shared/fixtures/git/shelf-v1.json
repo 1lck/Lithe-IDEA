@@ -1,0 +1,5 @@
+{
+  "capture": { "stagedPatch": "staged patch", "workingPatch": "working patch", "paths": ["old.txt", "新文件.txt"] },
+  "cleanPlan": { "layers": ["working", "staged"] },
+  "restorePlan": { "layers": ["staged", "working"] }
+}
