@@ -9,6 +9,7 @@ mod commit_selection;
 mod commit_state;
 mod deleted_selection;
 pub(crate) mod workspace_commit;
+pub(crate) mod workspace_status;
 pub use commit_state::{inspect as commit_state, GitCommitGitlink, GitCommitState};
 
 pub(crate) mod configuration;

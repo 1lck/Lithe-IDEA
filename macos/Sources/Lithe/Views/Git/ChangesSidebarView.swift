@@ -40,6 +40,29 @@ struct ChangesSidebarView: View {
 
             GitChangesOperationStatus(feature: feature, editor: feature.interactiveRebase)
 
+            if !feature.failedStatusRepositoryRoots.isEmpty {
+                HStack(alignment: .top, spacing: 7) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(LitheTheme.warning)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Some repositories could not be refreshed. Displayed changes may be out of date.")
+                        Text(feature.failedStatusRepositoryRoots.map(\.path).sorted().joined(separator: ", "))
+                            .foregroundStyle(LitheTheme.secondaryText)
+                            .lineLimit(2)
+                            .help(feature.failedStatusRepositoryRoots.map(\.path).sorted().joined(separator: "\n"))
+                    }
+                    .font(LitheTheme.uiFont(size: 11.5))
+                    Spacer(minLength: 0)
+                    Button("Refresh") { Task { await feature.refreshGit() } }
+                        .controlSize(.small)
+                        .lithePointer()
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(LitheTheme.raised)
+                .accessibilityIdentifier("git-status-partial-refresh-warning")
+            }
+
             if let conflict = feature.pendingStashRestoreConflict {
                 if feature.isStashRestoreConflictNoticeVisible {
                     GitStashRestoreConflictBanner(

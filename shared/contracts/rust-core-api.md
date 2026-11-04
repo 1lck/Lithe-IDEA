@@ -1254,6 +1254,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `git.initialize` | Initialize a directory outside existing repositories without staging or committing |
 | `git.configureIdentity` | Save or clear one local/global `user.name` or `user.email` override |
 | `git.status` | Resolve the repository, current branch, and working-tree changes |
+| `git.workspaceStatusMerge` | Plan publication of fresh, retained, and unavailable repository snapshots |
 | `git.rollbackPlan` | Plan whole-file rollback from explicit Git status identities without reading or changing a repository |
 | `git.rollbackPrepare` | Recheck selected identities against the repository and return rollback steps |
 | `git.prepareCommitSelection` | Prepare and verify the real indexes for explicitly selected changes |
@@ -1595,6 +1596,16 @@ that occur before Git starts use the standard error envelope. If a follow-up
 validation or probe fails after at least one subprocess was recorded, the
 response retains the invocation trace and includes the failure as
 `operationError`.
+
+`git.workspaceStatusMerge` accepts ordered `roots`, `previousRoots`, and one
+`{ root, success }` outcome per root. It returns ordered entries with source
+`current`, `previous`, or `missing`, plus `confirmedRoots` and `failedRoots`.
+A failure is never a clean snapshot; a previous snapshot is retained only for a
+still-discovered root. Duplicate, foreign, or incomplete outcomes are rejected.
+Hosts keep the actual snapshots and publish the plan only if its request version
+and workspace identity remain current. Failed roots must not confirm pending Git
+mutations or erase their open diff; their displayed data is marked as potentially
+stale. No status data or credentials are persisted by the planner.
 
 `git.repositoryRoot` accepts `{ "root": string }` and returns the normalized
 absolute repository root or `null` when the path is not inside a repository. It
