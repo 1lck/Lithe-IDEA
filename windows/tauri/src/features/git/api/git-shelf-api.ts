@@ -1,9 +1,9 @@
 import { invoke } from "@/platform/tauri-core";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { pathStartsWithRoot } from "@/utils/path-helpers";
-import { applyGitPatch, exportGitPatch, isGitPatchApplied, previewGitPatch } from "./git-patch-api";
-import { getGitStatus } from "./git-status-api";
-import { createShelfWorkflow, type GitShelf } from "../services/git-shelf-workflow";
+import { emitGitChanged } from "../events/git-events";
+import { resolveRepositoryPathOrThrow } from "./git-repo-api";
+import { createShelfWorkflow, type GitShelf, type ShelfLayer, type ShelfPhase, type ShelfSnapshot } from "../services/git-shelf-workflow";
 
 export const listShelves = (root: string) =>
   invoke<GitShelf[]>("saved_changes_storage", { root, operation: "list" });
@@ -27,49 +27,34 @@ function workflow(root: string, guardCurrent: () => void) {
     guardCurrent();
     assertSavedFiles(root);
   };
+  const callShelf = async <T>(args: Record<string, unknown>): Promise<T> => {
+    guard();
+    const resolved = await resolveRepositoryPathOrThrow(root);
+    guard();
+    try {
+      return await invoke<T>("git.shelf", { root: resolved, ...args });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes("SHELF_CHANGED")) throw new Error("git.saved.changed");
+      if (message.includes("SHELF_CONFLICTS")) throw new Error("git.saved.conflicts");
+      throw error;
+    }
+  };
   return createShelfWorkflow({
     guard,
     identity: () => crypto.randomUUID(),
     now: () => Date.now(),
-    snapshot: async () => {
-      const status = await getGitStatus(root);
-      if (!status) throw new Error("git.saved.failed");
-      if (
-        status.files.some(
-          (file) =>
-            file.rawStatus?.includes("U") || file.rawStatus === "AA" || file.rawStatus === "DD",
-        )
-      )
-        throw new Error("git.saved.conflicts");
-      const staged = await exportGitPatch(root, "staged", []);
-      const working = await exportGitPatch(root, "unstaged", [], { includeUntracked: true });
-      return {
-        stagedPatch: staged.patch,
-        workingPatch: working.patch,
-        paths: [
-          ...new Set(
-            [...staged.files, ...working.files].flatMap((file) => [
-              file.path,
-              ...(file.originalPath ? [file.originalPath] : []),
-            ]),
-          ),
-        ].sort(),
-      };
+    snapshot: () => callShelf<ShelfSnapshot>({ action: "capture" }),
+    plan: async (phase) => (await callShelf<{ layers: ShelfLayer[] }>({ action: "plan", phase })).layers,
+    step: async (phase: ShelfPhase, layer: ShelfLayer, snapshot: ShelfSnapshot) => {
+      try {
+        await callShelf({ action: phase, layer, snapshot });
+      } finally {
+        emitGitChanged({ repoPath: root, scopes: ["working-tree"], source: "apply-patch" });
+      }
     },
     save: (entry) => invoke<void>("saved_changes_storage", { root, operation: "save", entry }),
     remove: (id) => deleteShelf(root, id),
-    isApplied: async (patch, target) => {
-      guard();
-      return isGitPatchApplied(root, patch, target);
-    },
-    apply: async (patch, target, reverse) => {
-      guard();
-      const preview = await previewGitPatch(root, patch, target, crypto.randomUUID(), reverse);
-      if (!preview.applicable || !preview.expectedState)
-        throw new Error(preview.diagnostic || "git.saved.changed");
-      guard();
-      await applyGitPatch(root, patch, target, preview.expectedState, reverse);
-    },
   });
 }
 export const shelveChanges = (root: string, message: string, guardCurrent: () => void) =>

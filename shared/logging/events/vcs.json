@@ -126,13 +126,13 @@
     {
       "id": "vcs.stderr.received",
       "channel": "vcs/{provider}",
-      "level": "warn",
+      "level": "debug",
       "message": "Engine stderr received for server {provider}",
       "fields": {
         "diagnostic": {
           "type": "text",
           "required": true,
-          "description": "Original language server stderr diagnostic, redacted and capped at 1024 UTF-8 bytes",
+          "description": "Unclassified upstream stderr diagnostic; retained only for detailed diagnosis and never treated as an operation failure",
           "reason": "Language servers emit implementation-specific failure explanations only on stderr, so retain the original diagnostic wording for diagnosis after redaction and truncation rather than attempting an unstable parser."
         },
         "truncated": {
@@ -485,6 +485,186 @@
       },
       "rate": 60,
       "owner": "LitheGitModule"
+    },
+    {
+      "id": "vcs.message.error.logged",
+      "channel": "vcs/{provider}",
+      "level": "error",
+      "message": "Engine log message received for server {provider} with severity {severity}",
+      "fields": {
+        "diagnostic": {
+          "type": "text",
+          "required": true,
+          "description": "Original message from the window/logMessage params, redacted and capped at 1024 UTF-8 bytes",
+          "reason": "The language server owns the unstructured window/logMessage explanation and exposes no stable error code for it, so preserve its original wording after redaction and truncation."
+        },
+        "severity": {
+          "type": "token",
+          "required": true,
+          "description": "LSP MessageType mapped to a controlled severity word, e.g. error, warn, info or log"
+        },
+        "provider": {
+          "type": "id",
+          "required": true,
+          "description": "Validated provider identity assigned by Core to this engine session"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "vcs.message.warning.logged",
+      "channel": "vcs/{provider}",
+      "level": "warn",
+      "message": "Engine log message received for server {provider} with severity {severity}",
+      "fields": {
+        "diagnostic": {
+          "type": "text",
+          "required": true,
+          "description": "Original message from the window/logMessage params, redacted and capped at 1024 UTF-8 bytes",
+          "reason": "The language server owns the unstructured window/logMessage explanation and exposes no stable error code for it, so preserve its original wording after redaction and truncation."
+        },
+        "severity": {
+          "type": "token",
+          "required": true,
+          "description": "LSP MessageType mapped to a controlled severity word, e.g. error, warn, info or log"
+        },
+        "provider": {
+          "type": "id",
+          "required": true,
+          "description": "Validated provider identity assigned by Core to this engine session"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "vcs.message.detail.logged",
+      "channel": "vcs/{provider}",
+      "level": "debug",
+      "message": "Engine log message received for server {provider} with severity {severity}",
+      "fields": {
+        "diagnostic": {
+          "type": "text",
+          "required": true,
+          "description": "Original message from the window/logMessage params, redacted and capped at 1024 UTF-8 bytes",
+          "reason": "The language server owns the unstructured window/logMessage explanation and exposes no stable error code for it, so preserve its original wording after redaction and truncation."
+        },
+        "severity": {
+          "type": "token",
+          "required": true,
+          "description": "LSP MessageType mapped to a controlled severity word, e.g. error, warn, info or log"
+        },
+        "provider": {
+          "type": "id",
+          "required": true,
+          "description": "Validated provider identity assigned by Core to this engine session"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "vcs.message.error.shown",
+      "channel": "vcs/{provider}",
+      "level": "error",
+      "message": "Engine show message received for server {provider} with severity {severity}",
+      "fields": {
+        "diagnostic": {
+          "type": "text",
+          "required": true,
+          "description": "Original message from the window/showMessage params, redacted and capped at 1024 UTF-8 bytes",
+          "reason": "The language server owns the window/showMessage explanation shown to the user; retain its original wording after redaction and truncation to correlate a reported message with the server session."
+        },
+        "severity": {
+          "type": "token",
+          "required": true,
+          "description": "LSP MessageType mapped to a controlled severity word, e.g. error, warn, info or log"
+        },
+        "provider": {
+          "type": "id",
+          "required": true,
+          "description": "Validated provider identity assigned by Core to this engine session"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "vcs.message.warning.shown",
+      "channel": "vcs/{provider}",
+      "level": "warn",
+      "message": "Engine show message received for server {provider} with severity {severity}",
+      "fields": {
+        "diagnostic": {
+          "type": "text",
+          "required": true,
+          "description": "Original message from the window/showMessage params, redacted and capped at 1024 UTF-8 bytes",
+          "reason": "The language server owns the window/showMessage explanation shown to the user; retain its original wording after redaction and truncation to correlate a reported message with the server session."
+        },
+        "severity": {
+          "type": "token",
+          "required": true,
+          "description": "LSP MessageType mapped to a controlled severity word, e.g. error, warn, info or log"
+        },
+        "provider": {
+          "type": "id",
+          "required": true,
+          "description": "Validated provider identity assigned by Core to this engine session"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "vcs.message.detail.shown",
+      "channel": "vcs/{provider}",
+      "level": "debug",
+      "message": "Engine show message received for server {provider} with severity {severity}",
+      "fields": {
+        "diagnostic": {
+          "type": "text",
+          "required": true,
+          "description": "Original message from the window/showMessage params, redacted and capped at 1024 UTF-8 bytes",
+          "reason": "The language server owns the window/showMessage explanation shown to the user; retain its original wording after redaction and truncation to correlate a reported message with the server session."
+        },
+        "severity": {
+          "type": "token",
+          "required": true,
+          "description": "LSP MessageType mapped to a controlled severity word, e.g. error, warn, info or log"
+        },
+        "provider": {
+          "type": "id",
+          "required": true,
+          "description": "Validated provider identity assigned by Core to this engine session"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "vcs.session.failed",
+      "channel": "vcs/{provider}",
+      "level": "error",
+      "owner": "lithe-core",
+      "message": "Engine session failed",
+      "fields": {
+        "state": {
+          "type": "token",
+          "required": true,
+          "description": "Core session lifecycle state emitted by the managed engine (for example ready or stopped)."
+        },
+        "provider": {
+          "type": "id",
+          "required": true,
+          "description": "Validated provider identity assigned by Core to this engine session"
+        },
+        "code": {
+          "type": "token",
+          "required": true,
+          "description": "Stable Core lifecycle failure category, such as serverExited or transportFailed, without protocol or process contents"
+        }
+      }
     }
   ]
 }

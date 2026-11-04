@@ -57,7 +57,10 @@ final class MacServiceContainer {
     }
 
     static func makeApplicationLogWriter(onDirectoryFallback: @escaping @Sendable () -> Void = {}) -> MacLogStore {
-        MacLogStore(onDirectoryFallback: onDirectoryFallback)
+        let writer = MacLogStore(onDirectoryFallback: onDirectoryFallback)
+        // Only the process writer owns Core's pending-fact signal.
+        writer.observeCoreFacts()
+        return writer
     }
 
     static func makeDiagnosticsExportService(

@@ -71,6 +71,22 @@ JDK 也一样：`ProjectRuntimeService` 不再问“app 内置的 JDK 在哪”�
 
 同一工作区的服务连续三次启动失败后，自动同步直接返回已有失败，直到显式停止/重启或切换工作区；进入 ready 后清零。这保留短暂故障后的重试，但阻止每次编辑器同步重新创建 JVM。这里选择有限尝试而非增加定时器和无限退避；代价是持续失败需要用户修复环境后重新启动服务。
 
+#### 原生日志属于宿主日志会话
+
+Java Support 使用 Equinox 的 `osgi.logfile` 把原生错误日志写入 `${logDir}/jdt.log`，
+宿主在启动前提供当前会话的可写目录，插件安装包和工作区索引不承担日志所有权。
+`eclipse.log.include.commandline=false` 避免运行参数进入原生文件，单段 1024 KiB、两个备份，
+把该日志限制在约 3 MiB；`eclipse.log.level=WARNING` 控制 Equinox 原生日志，JDT 的 `logLevel` 默认同为 WARNING。
+用户仍可明确调整既有日志级别，但原生文件不等同于 Core 脱敏后的结构化事件。
+
+依据是 Equinox `EclipseStarter.PROP_LOGFILE` 与 `EquinoxLogWriter` 的官方属性；
+不要把 Eclipse workspace 的 `.metadata` 缓存整个搬入日志目录，或复制源码和协议正文作为诊断。
+清单依赖已有 `${logDir}` 契约：当前支持的是能提供本机 `logDirectory` 的宿主；远程或缺少目录的宿主按契约拒绝，
+不偷偷回退到旧的工作区 `.metadata/.log`。直接 JVM 适配保留这些自定义 `-D` 参数且必须保持幂等。
+本轮没有变更既有 `log.protocol` 属性，也没有证据据此宣称协议正文已被关闭；
+详细 trace 仍遵循共享日志只接纳 message 摘要、不保存 verbose 载荷的既有边界。
+组件参数测试不能替代真实 JDT 启动、日志轮转和完整工作流验收。
+
 ### 4. 运行、测试、调试由插件声明后交还宿主
 
 插件一旦声明某个语言，宿主就认为这个语言的进程类能力归插件所有：能力目录（`PluginLanguageProviderCatalogSource`）去掉运行、测试、调试标记，语言包注册表（`LanguagePackRegistry`）不再创建内置的测试提供方，运行和测试服务要求必须有插件的执行模块。这条规则是为 PHP、Go 这类整套由插件提供的语言定的，目的是插件缺失或停用时宿主不偷偷退回内置工具。

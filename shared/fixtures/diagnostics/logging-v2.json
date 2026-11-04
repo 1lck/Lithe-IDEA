@@ -1049,7 +1049,7 @@
     },
     {
       "event": "lsp.stderr.received",
-      "level": "WARN",
+      "level": "DEBUG",
       "fields": {
         "server": "fixture"
       },

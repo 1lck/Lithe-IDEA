@@ -1,124 +1,97 @@
 import { expect, test } from "bun:test";
-import { createShelfWorkflow, type GitShelf, type ShelfSnapshot } from "./git-shelf-workflow";
-import type { GitPatchTarget } from "../types/git-patch.types";
+import { createShelfWorkflow, type GitShelf, type ShelfPhase, type ShelfLayer } from "./git-shelf-workflow";
 
 function fixture() {
   const events: string[] = [];
-  let snapshot: ShelfSnapshot = { stagedPatch: "index", workingPatch: "worktree", paths: ["a"] };
   let saved: GitShelf | undefined;
   let stale = false;
   let failSave = false;
-  let failTarget = "";
-  let changeAfterSave = false;
+  let failStep: string | undefined;
   let failRemove = false;
-  let failCheck = false;
-  let staleAfterCheck = false;
-  const applied = new Set<GitPatchTarget>();
+  let staleAfterStep: string | undefined;
   const workflow = createShelfWorkflow({
-    guard: () => {
-      if (stale) throw new Error("changed workspace");
+    guard: () => { if (stale) throw new Error("changed workspace"); },
+    snapshot: async () => ({ stagedPatch: "index", workingPatch: "worktree", paths: ["a"] }),
+    plan: async (phase: ShelfPhase): Promise<ShelfLayer[]> => {
+      events.push(`plan:${phase}`);
+      return phase === "clean" ? ["working", "staged"] : ["staged", "working"];
     },
-    snapshot: async () => ({ ...snapshot }),
+    step: async (phase, layer, snapshot) => {
+      expect(snapshot).toMatchObject({ stagedPatch: "index", workingPatch: "worktree" });
+      const event = `${phase}:${layer}`;
+      events.push(event);
+      if (event === failStep) throw new Error("git.saved.changed");
+      if (event === staleAfterStep) stale = true;
+    },
     save: async (entry) => {
       events.push("save");
       if (failSave) throw new Error("disk full");
       saved = entry;
-      if (changeAfterSave) snapshot = { ...snapshot, workingPatch: "external edit" };
     },
     remove: async () => {
       events.push("remove");
       if (failRemove) throw new Error("storage unavailable");
       saved = undefined;
     },
-    apply: async (_patch, target, reverse) => {
-      events.push(`${target}:${reverse}`);
-      if (target === failTarget) throw new Error("conflict");
-      if (!reverse && applied.has(target)) throw new Error("patch is already applied");
-      if (reverse) {
-        applied.delete(target);
-        snapshot = {
-          ...snapshot,
-          ...(target === "worktree" ? { workingPatch: "" } : { stagedPatch: "" }),
-        };
-      } else applied.add(target);
-    },
-    isApplied: async (_patch, target) => {
-      if (failCheck) throw new Error("check unavailable");
-      if (staleAfterCheck) stale = true;
-      return applied.has(target) && target !== failTarget;
-    },
     identity: () => "record",
     now: () => 123,
   });
   return {
-    workflow,
-    events,
-    saved: () => saved,
-    change: (value: ShelfSnapshot) => {
-      snapshot = value;
-    },
-    stale: () => {
-      stale = true;
-    },
-    changeAfterSave: () => {
-      changeAfterSave = true;
-    },
-    failSave: () => {
-      failSave = true;
-    },
-    failApply: (target: string) => {
-      failTarget = target;
-    },
-    failRemove: (value: boolean) => {
-      failRemove = value;
-    },
-    failCheck: () => {
-      failCheck = true;
-    },
-    staleAfterCheck: () => {
-      staleAfterCheck = true;
-    },
+    workflow, events, saved: () => saved,
+    stale: () => { stale = true; },
+    failSave: () => { failSave = true; },
+    failStep: (event?: string) => { failStep = event; },
+    failRemove: (value: boolean) => { failRemove = value; },
+    staleAfterStep: (event: string) => { staleAfterStep = event; },
   };
 }
 
-test("shelf persists both versions before cleaning and restores index before worktree", async () => {
+test("persists before executing the Core plan and removes only after restoration", async () => {
   const f = fixture();
   const shelf = await f.workflow.capture("  WIP  ");
   expect(shelf.message).toBe("WIP");
-  expect(f.events).toEqual(["save", "worktree:true", "indexAndWorktree:true"]);
+  expect(f.events).toEqual(["save", "plan:clean", "clean:working", "clean:staged"]);
   await f.workflow.restore(shelf);
-  expect(f.events.slice(3)).toEqual(["indexAndWorktree:false", "worktree:false", "remove"]);
+  expect(f.events.slice(4)).toEqual(["plan:restore", "restore:staged", "restore:working", "remove"]);
   expect(f.saved()).toBeUndefined();
 });
 
-test("storage failure never cleans repository changes", async () => {
+test("storage failure never starts cleanup", async () => {
   const f = fixture();
   f.failSave();
   await expect(f.workflow.capture("WIP")).rejects.toThrow("disk full");
   expect(f.events).toEqual(["save"]);
 });
 
-test("partial restoration keeps the full recovery record", async () => {
+test("failed clean keeps both captured versions", async () => {
+  const f = fixture();
+  f.failStep("clean:staged");
+  await expect(f.workflow.capture("WIP")).rejects.toThrow("git.saved.changed");
+  expect(f.saved()).toMatchObject({ stagedPatch: "index", workingPatch: "worktree" });
+  expect(f.events).toEqual(["save", "plan:clean", "clean:working", "clean:staged"]);
+});
+
+test("partial restoration retains the record and retries the Core plan", async () => {
   const f = fixture();
   const shelf = await f.workflow.capture("WIP");
-  f.failApply("worktree");
-  await expect(f.workflow.restore(shelf)).rejects.toThrow("conflict");
+  f.failStep("restore:working");
+  await expect(f.workflow.restore(shelf)).rejects.toThrow("git.saved.changed");
   expect(f.saved()).toEqual(shelf);
-  expect(f.events).not.toContain("remove");
+  f.failStep();
+  await f.workflow.restore(shelf);
+  expect(f.events.slice(-4)).toEqual(["plan:restore", "restore:staged", "restore:working", "remove"]);
 });
 
-test("retry continues with the working patch after the index was restored before a conflict", async () => {
+test("a workspace switch between layers stops subsequent writes and preserves the record", async () => {
   const f = fixture();
   const shelf = await f.workflow.capture("WIP");
-  f.failApply("worktree");
-  await expect(f.workflow.restore(shelf)).rejects.toThrow("conflict");
-  f.failApply("");
-  await f.workflow.restore(shelf);
-  expect(f.saved()).toBeUndefined();
-  expect(f.events.slice(-2)).toEqual(["worktree:false", "remove"]);
+  f.staleAfterStep("restore:staged");
+  await expect(f.workflow.restore(shelf)).rejects.toThrow("changed workspace");
+  expect(f.events.slice(-2)).toEqual(["plan:restore", "restore:staged"]);
+  expect(f.saved()).toEqual(shelf);
 });
 
-test("retry removes a fully restored shelf after its previous deletion failed", async () => {
+test("a deletion failure keeps the record for retry", async () => {
   const f = fixture();
   const shelf = await f.workflow.capture("WIP");
   f.failRemove(true);
@@ -129,50 +102,11 @@ test("retry removes a fully restored shelf after its previous deletion failed", 
   expect(f.saved()).toBeUndefined();
 });
 
-test("a failed already-applied check keeps the shelf instead of assuming restoration succeeded", async () => {
-  const f = fixture();
-  const shelf = await f.workflow.capture("WIP");
-  f.failApply("worktree");
-  f.failCheck();
-  await expect(f.workflow.restore(shelf)).rejects.toThrow("check unavailable");
-  expect(f.saved()).toEqual(shelf);
-  expect(f.events).not.toContain("remove");
-});
-
-test("a workspace change during the retry check blocks later patches and deletion", async () => {
-  const f = fixture();
-  const shelf = await f.workflow.capture("WIP");
-  f.failApply("worktree");
-  await expect(f.workflow.restore(shelf)).rejects.toThrow("conflict");
-  f.failApply("");
-  f.staleAfterCheck();
-  const previousEvents = f.events.length;
-  await expect(f.workflow.restore(shelf)).rejects.toThrow("changed workspace");
-  expect(f.events.slice(previousEvents)).toEqual(["indexAndWorktree:false"]);
-  expect(f.saved()).toEqual(shelf);
-});
-
-test("workspace changes block writes and retain persisted snapshots", async () => {
+test("a stale workspace blocks restoration before planning", async () => {
   const f = fixture();
   const shelf = await f.workflow.capture("WIP");
   f.stale();
   await expect(f.workflow.restore(shelf)).rejects.toThrow("changed workspace");
+  expect(f.events).toHaveLength(4);
   expect(f.saved()).toEqual(shelf);
-  expect(f.events).toHaveLength(3);
-});
-
-test("an edit after durable capture keeps the shelf and blocks all cleaning", async () => {
-  const f = fixture();
-  f.changeAfterSave();
-  await expect(f.workflow.capture("WIP")).rejects.toThrow("git.saved.changed");
-  expect(f.saved()?.workingPatch).toBe("worktree");
-  expect(f.events).toEqual(["save"]);
-});
-
-test("partial cleaning retains both captured versions for manual recovery", async () => {
-  const f = fixture();
-  f.failApply("indexAndWorktree");
-  await expect(f.workflow.capture("WIP")).rejects.toThrow("conflict");
-  expect(f.saved()).toMatchObject({ stagedPatch: "index", workingPatch: "worktree" });
-  expect(f.events).toEqual(["save", "worktree:true", "indexAndWorktree:true"]);
 });

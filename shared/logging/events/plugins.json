@@ -299,13 +299,13 @@
     {
       "id": "plugins.host.stderr.received",
       "channel": "plugins/{plugin}/host",
-      "level": "warn",
+      "level": "debug",
       "message": "Engine stderr received for server {plugin}",
       "fields": {
         "diagnostic": {
           "type": "text",
           "required": true,
-          "description": "Original language server stderr diagnostic, redacted and capped at 1024 UTF-8 bytes",
+          "description": "Unclassified upstream stderr diagnostic; retained only for detailed diagnosis and never treated as an operation failure",
           "reason": "Language servers emit implementation-specific failure explanations only on stderr, so retain the original diagnostic wording for diagnosis after redaction and truncation rather than attempting an unstable parser."
         },
         "truncated": {
@@ -561,6 +561,331 @@
           "type": "error",
           "required": true,
           "description": "Stable native cleanup failure category; excludes process arguments and paths"
+        }
+      }
+    },
+    {
+      "id": "plugins.operation.finished",
+      "channel": "plugins/{plugin}/host",
+      "level": "info",
+      "message": "Plugin operation finished",
+      "fields": {
+        "plugin": {
+          "type": "id",
+          "required": true,
+          "description": "Installed plugin identity supplied by the owning Core session, never by the notification"
+        },
+        "operation": {
+          "type": "token",
+          "required": true,
+          "description": "Registered plugin function or SDK protocol operation that owns this diagnostic result"
+        },
+        "duration": {
+          "type": "duration",
+          "required": true,
+          "description": "Monotonic elapsed milliseconds measured by the SDK for the completed plugin operation"
+        },
+        "count": {
+          "type": "int",
+          "required": false,
+          "description": "Number of affected items reported by the plugin at this result boundary; absent when unknown"
+        }
+      },
+      "rate": 600,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "plugins.operation.failed",
+      "channel": "plugins/{plugin}/host",
+      "level": "error",
+      "message": "Plugin operation failed",
+      "fields": {
+        "plugin": {
+          "type": "id",
+          "required": true,
+          "description": "Installed plugin identity supplied by the owning Core session, never by the notification"
+        },
+        "operation": {
+          "type": "token",
+          "required": true,
+          "description": "Registered plugin function or SDK protocol operation that owns this diagnostic result"
+        },
+        "duration": {
+          "type": "duration",
+          "required": true,
+          "description": "Monotonic elapsed milliseconds measured by the SDK for the completed plugin operation"
+        },
+        "code": {
+          "type": "token",
+          "required": true,
+          "description": "Stable plugin failure or recovery category, excluding upstream error messages and request contents"
+        },
+        "count": {
+          "type": "int",
+          "required": false,
+          "description": "Number of affected items reported by the plugin at this result boundary; absent when unknown"
+        }
+      },
+      "rate": 600,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "plugins.operation.fallback_selected",
+      "channel": "plugins/{plugin}/host",
+      "level": "warn",
+      "message": "Plugin operation used a degraded result",
+      "fields": {
+        "plugin": {
+          "type": "id",
+          "required": true,
+          "description": "Installed plugin identity supplied by the owning Core session, never by the notification"
+        },
+        "operation": {
+          "type": "token",
+          "required": true,
+          "description": "Registered plugin function or SDK protocol operation that owns this diagnostic result"
+        },
+        "code": {
+          "type": "token",
+          "required": true,
+          "description": "Stable plugin failure or recovery category, excluding upstream error messages and request contents"
+        },
+        "count": {
+          "type": "int",
+          "required": false,
+          "description": "Number of affected items reported by the plugin at this result boundary; absent when unknown"
+        }
+      },
+      "rate": 600,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "plugins.operation.recovery_finished",
+      "channel": "plugins/{plugin}/host",
+      "level": "warn",
+      "message": "Plugin operation recovered",
+      "fields": {
+        "plugin": {
+          "type": "id",
+          "required": true,
+          "description": "Installed plugin identity supplied by the owning Core session, never by the notification"
+        },
+        "operation": {
+          "type": "token",
+          "required": true,
+          "description": "Registered plugin function or SDK protocol operation that owns this diagnostic result"
+        },
+        "code": {
+          "type": "token",
+          "required": true,
+          "description": "Stable plugin failure or recovery category, excluding upstream error messages and request contents"
+        },
+        "count": {
+          "type": "int",
+          "required": false,
+          "description": "Number of affected items reported by the plugin at this result boundary; absent when unknown"
+        }
+      },
+      "rate": 600,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "plugins.diagnostics.rejected",
+      "channel": "plugins/{plugin}/host",
+      "level": "warn",
+      "message": "Plugin diagnostic input rejected",
+      "fields": {
+        "plugin": {
+          "type": "id",
+          "required": true,
+          "description": "Installed plugin identity whose unnegotiated or malformed diagnostic was rejected"
+        },
+        "code": {
+          "type": "token",
+          "required": true,
+          "description": "Fixed rejection category invalid_diagnostic; the rejected private payload is never retained"
+        }
+      },
+      "rate": 1,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "plugins.host.message.error.logged",
+      "channel": "plugins/{plugin}/host",
+      "level": "error",
+      "message": "Engine log message received for server {plugin} with severity {severity}",
+      "fields": {
+        "diagnostic": {
+          "type": "text",
+          "required": true,
+          "description": "Original message from the window/logMessage params, redacted and capped at 1024 UTF-8 bytes",
+          "reason": "The language server owns the unstructured window/logMessage explanation and exposes no stable error code for it, so preserve its original wording after redaction and truncation."
+        },
+        "severity": {
+          "type": "token",
+          "required": true,
+          "description": "LSP MessageType mapped to a controlled severity word, e.g. error, warn, info or log"
+        },
+        "plugin": {
+          "type": "id",
+          "required": true,
+          "description": "Validated plugin identity assigned by Core to this engine session"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "plugins.host.message.warning.logged",
+      "channel": "plugins/{plugin}/host",
+      "level": "warn",
+      "message": "Engine log message received for server {plugin} with severity {severity}",
+      "fields": {
+        "diagnostic": {
+          "type": "text",
+          "required": true,
+          "description": "Original message from the window/logMessage params, redacted and capped at 1024 UTF-8 bytes",
+          "reason": "The language server owns the unstructured window/logMessage explanation and exposes no stable error code for it, so preserve its original wording after redaction and truncation."
+        },
+        "severity": {
+          "type": "token",
+          "required": true,
+          "description": "LSP MessageType mapped to a controlled severity word, e.g. error, warn, info or log"
+        },
+        "plugin": {
+          "type": "id",
+          "required": true,
+          "description": "Validated plugin identity assigned by Core to this engine session"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "plugins.host.message.detail.logged",
+      "channel": "plugins/{plugin}/host",
+      "level": "debug",
+      "message": "Engine log message received for server {plugin} with severity {severity}",
+      "fields": {
+        "diagnostic": {
+          "type": "text",
+          "required": true,
+          "description": "Original message from the window/logMessage params, redacted and capped at 1024 UTF-8 bytes",
+          "reason": "The language server owns the unstructured window/logMessage explanation and exposes no stable error code for it, so preserve its original wording after redaction and truncation."
+        },
+        "severity": {
+          "type": "token",
+          "required": true,
+          "description": "LSP MessageType mapped to a controlled severity word, e.g. error, warn, info or log"
+        },
+        "plugin": {
+          "type": "id",
+          "required": true,
+          "description": "Validated plugin identity assigned by Core to this engine session"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "plugins.host.message.error.shown",
+      "channel": "plugins/{plugin}/host",
+      "level": "error",
+      "message": "Engine show message received for server {plugin} with severity {severity}",
+      "fields": {
+        "diagnostic": {
+          "type": "text",
+          "required": true,
+          "description": "Original message from the window/showMessage params, redacted and capped at 1024 UTF-8 bytes",
+          "reason": "The language server owns the window/showMessage explanation shown to the user; retain its original wording after redaction and truncation to correlate a reported message with the server session."
+        },
+        "severity": {
+          "type": "token",
+          "required": true,
+          "description": "LSP MessageType mapped to a controlled severity word, e.g. error, warn, info or log"
+        },
+        "plugin": {
+          "type": "id",
+          "required": true,
+          "description": "Validated plugin identity assigned by Core to this engine session"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "plugins.host.message.warning.shown",
+      "channel": "plugins/{plugin}/host",
+      "level": "warn",
+      "message": "Engine show message received for server {plugin} with severity {severity}",
+      "fields": {
+        "diagnostic": {
+          "type": "text",
+          "required": true,
+          "description": "Original message from the window/showMessage params, redacted and capped at 1024 UTF-8 bytes",
+          "reason": "The language server owns the window/showMessage explanation shown to the user; retain its original wording after redaction and truncation to correlate a reported message with the server session."
+        },
+        "severity": {
+          "type": "token",
+          "required": true,
+          "description": "LSP MessageType mapped to a controlled severity word, e.g. error, warn, info or log"
+        },
+        "plugin": {
+          "type": "id",
+          "required": true,
+          "description": "Validated plugin identity assigned by Core to this engine session"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "plugins.host.message.detail.shown",
+      "channel": "plugins/{plugin}/host",
+      "level": "debug",
+      "message": "Engine show message received for server {plugin} with severity {severity}",
+      "fields": {
+        "diagnostic": {
+          "type": "text",
+          "required": true,
+          "description": "Original message from the window/showMessage params, redacted and capped at 1024 UTF-8 bytes",
+          "reason": "The language server owns the window/showMessage explanation shown to the user; retain its original wording after redaction and truncation to correlate a reported message with the server session."
+        },
+        "severity": {
+          "type": "token",
+          "required": true,
+          "description": "LSP MessageType mapped to a controlled severity word, e.g. error, warn, info or log"
+        },
+        "plugin": {
+          "type": "id",
+          "required": true,
+          "description": "Validated plugin identity assigned by Core to this engine session"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "plugins.host.session.failed",
+      "channel": "plugins/{plugin}/host",
+      "level": "error",
+      "owner": "lithe-core",
+      "message": "Engine session failed",
+      "fields": {
+        "state": {
+          "type": "token",
+          "required": true,
+          "description": "Core session lifecycle state emitted by the managed engine (for example ready or stopped)."
+        },
+        "plugin": {
+          "type": "id",
+          "required": true,
+          "description": "Validated plugin identity assigned by Core to this engine session"
+        },
+        "code": {
+          "type": "token",
+          "required": true,
+          "description": "Stable Core lifecycle failure category, such as serverExited or transportFailed, without protocol or process contents"
         }
       }
     }

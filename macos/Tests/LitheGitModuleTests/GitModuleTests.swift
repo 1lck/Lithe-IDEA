@@ -383,7 +383,9 @@ struct GitModuleTests {
         let list = try #require(scoped.changelists.lists.last?.id)
         await scoped.moveChanges([change, primaryChange], toChangelist: list)
         #expect(scoped.changelists.listID(for: change) == list)
-        #expect(scoped.changelists.listID(for: primaryChange) == GitLocalChangelists.defaultID)
+        // The other checkout was never projected into this scoped model; an
+        // unknown membership must not silently become permission to commit it.
+        #expect(scoped.changelists.listID(for: primaryChange).isEmpty)
         #expect(scoped.changelistCommitError != nil)
         #expect(await !scoped.commitStagedChanges(message: "wrong list", amend: false))
         #expect(probe.requests.isEmpty)
@@ -471,6 +473,7 @@ struct GitModuleTests {
         await feature.refreshGit()
         await feature.refreshWorktrees()
         let scoped = feature.commitFeature(for: worktree)
+        await scoped.changelistProjectionTask?.value
         var succeeded = false
         let commit = Task { succeeded = await scoped.commitStagedChanges(message: "commit", amend: false) }
         defer { releasePreparation.open(); commit.cancel(); feature.reset() }
@@ -3125,6 +3128,7 @@ struct GitModuleTests {
         await feature.refreshGit()
         await feature.toggleUntrackedDirectory(directory)
         await feature.selectChange(change)
+        await feature.changelistProjectionTask?.value
         let readCount = probe.snapshotRoots.count, metadataCount = metadataReads.paths.count
         if action == "rollback" { feature.requestRollbackChanges([change], included: [change]) }
         let selection = feature.pendingRollbackSelection
@@ -3614,42 +3618,70 @@ struct GitModuleTests {
     }
 
     @Test
-    func shelvingStopsBeforeCleaningWhenAnUntrackedSummaryCannotBeExported() async {
-        // Shelve cleans `generated/` as a whole after saving, so a directory
-        // patch Git could not export must stop it instead of losing files.
+    func shelvingPersistsSnapshotBeforeCoreRejectsChangedWorkingTree() async throws {
         let root = URL(fileURLWithPath: "/workspace")
-        let source = GitChange(repositoryRoot: root, path: "src/App.swift", originalPath: nil,
-                               indexStatus: " ", workTreeStatus: "M")
-        let generated = GitChange(repositoryRoot: root, path: "generated/", originalPath: nil,
-                                  indexStatus: "?", workTreeStatus: "?", untrackedFileCount: 101)
-        func shelve(exportingDirectory: Bool) async -> (cleaned: [String], notifications: [String]) {
-            let cleaned = CleanedPaths()
-            let service = GitService(operations: TestGitOperations(
-                snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: [source, generated]),
-                discardAllHandler: { change in
-                    cleaned.append(change.path)
-                    return GitProcessResult(arguments: ["clean", change.path], output: "", exitCode: 0)
-                },
-                diffPatchHandler: { pathspecs, _ in
-                    pathspecs == ["generated/"] && !exportingDirectory ? nil : "patch \(pathspecs)"
-                }
-            ))
-            let feature = GitFeatureModel(service: service,
-                                          shelveService: ShelveService(storage: TestShelfStorage()))
-            var notifications: [String] = []
-            feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
-                              notify: { notifications.append($0) }, onStateRefreshed: {})
-            await feature.refreshGit()
-            await feature.shelveWorkingTree(message: "WIP")
-            return (cleaned.paths, notifications)
-        }
+        let events = CleanedPaths()
+        let storage = RecordingShelfStorage(events: events)
+        let service = GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: []),
+            discardAllHandler: { change in
+                events.append("discard:" + change.path)
+                return GitProcessResult(arguments: [], output: "", exitCode: 0)
+            },
+            shelfCaptureHandler: {
+                .success(GitShelfSnapshot(stagedPatch: "staged", workingPatch: "working", paths: ["generated/a"]))
+            },
+            shelfPlanHandler: { _ in .success(GitShelfPlan(layers: [.working, .staged])) },
+            shelfStepHandler: { _, layer, _ in
+                events.append("step:" + layer.rawValue)
+                return GitProcessResult(output: "SHELF_CHANGED", exitCode: 1)
+            }
+        ))
+        let feature = GitFeatureModel(service: service, shelveService: ShelveService(storage: storage))
+        var notifications: [String] = []
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+                          notify: { notifications.append($0) }, onStateRefreshed: {})
+        await feature.refreshGit()
+        await feature.shelveWorkingTree(message: "WIP")
 
-        let exported = await shelve(exportingDirectory: true)
-        #expect(exported.cleaned == ["src/App.swift", "generated/"])
+        #expect(events.paths == ["saved", "step:working"])
+        let data = try #require(storage.data)
+        let record = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(record["stagedPatch"] as? String == "staged")
+        #expect(record["workingPatch"] as? String == "working")
+        #expect(notifications.count == 1)
+    }
 
-        let failed = await shelve(exportingDirectory: false)
-        #expect(failed.cleaned.isEmpty)
-        #expect(failed.notifications == ["Could not create a patch for generated/"])
+    @Test
+    func shelvingStopsWithoutSavingWhenWorkspaceClosesDuringCapture() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let started = GitModuleTestGate()
+        let release = GitModuleTestGate()
+        defer { release.open() }
+        let events = CleanedPaths()
+        let storage = RecordingShelfStorage(events: events)
+        let service = GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: []),
+            shelfCaptureHandler: {
+                started.open()
+                guard release.waitSynchronously() else { return .failure(GitPatchFailure("capture timed out")) }
+                return .success(GitShelfSnapshot(stagedPatch: "staged", workingPatch: "working", paths: ["a"]))
+            }
+        ))
+        let feature = GitFeatureModel(service: service, shelveService: ShelveService(storage: storage))
+        var notifications: [String] = []
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+                          notify: { notifications.append($0) }, onStateRefreshed: {})
+        await feature.refreshGit()
+        let operation = Task { await feature.shelveWorkingTree(message: "WIP") }
+        #expect(await started.waitUntilOpen())
+        feature.reset()
+        release.open()
+        await operation.value
+        #expect(events.paths.isEmpty)
+        #expect(storage.data == nil)
+        #expect(notifications.isEmpty)
+        #expect(!feature.isPerformingShelfOperation)
     }
 
     @Test
@@ -5506,6 +5538,21 @@ private struct TestShelfStorage: GitShelfStorage {
     func removeItem(at url: URL) throws {}
 }
 
+private final class RecordingShelfStorage: GitShelfStorage, @unchecked Sendable {
+    private let lock = NSLock()
+    private var written: Data?
+    private let events: CleanedPaths
+    init(events: CleanedPaths) { self.events = events }
+    var data: Data? { lock.withLock { written } }
+    func applicationSupportDirectory() -> URL { URL(fileURLWithPath: "/tmp/lithe-git-module-test") }
+    func fileExists(at url: URL) -> Bool { false }
+    func listDirectory(at url: URL) -> [URL] { [] }
+    func readData(from url: URL) throws -> Data { Data() }
+    func writeData(_ data: Data, to url: URL) throws { lock.withLock { written = data }; events.append("saved") }
+    func createDirectory(at url: URL) throws {}
+    func removeItem(at url: URL) throws {}
+}
+
 private final class TestGitRunGate: @unchecked Sendable {
     private let lock = NSLock()
     private let firstRunStarted = GitModuleTestGate()
@@ -6459,6 +6506,9 @@ private struct TestGitOperations: GitOperations {
         if let changelistProjectionHandler { return changelistProjectionHandler(request) }
         return GitChangelistCoreTestSupport.project(request)
     }
+    private let shelfCaptureHandler: (@Sendable () -> Result<GitShelfSnapshot, GitPatchFailure>)?
+    private let shelfPlanHandler: (@Sendable (GitShelfPhase) -> Result<GitShelfPlan, GitPatchFailure>)?
+    private let shelfStepHandler: (@Sendable (GitShelfPhase, GitShelfLayer, GitShelfSnapshot) -> GitProcessResult?)?
     private let changelistProjectionHandler: (@Sendable (GitChangelistCoreRequest) -> GitChangelistCoreProjection?)?
     private let snapshotValue: GitSnapshot?
     private let snapshotHandler: (@Sendable (URL) -> GitSnapshot?)?
@@ -6582,8 +6632,14 @@ private struct TestGitOperations: GitOperations {
         fetchPlan: GitFetchPlan? = nil,
         fetchHandler: (@Sendable (GitFetchOptions, String) -> GitProcessResult?)? = nil,
         pushPreviewHandler: (@Sendable (GitReference, GitPushTargetChoice?, URL) -> Result<GitPushPreview, GitPushFailure>)? = nil,
-        pushReviewedHandler: (@Sendable (GitReference, GitPushPreview, GitPushTargetChoice?) -> GitProcessResult?)? = nil
+        pushReviewedHandler: (@Sendable (GitReference, GitPushPreview, GitPushTargetChoice?) -> GitProcessResult?)? = nil,
+        shelfCaptureHandler: (@Sendable () -> Result<GitShelfSnapshot, GitPatchFailure>)? = nil,
+        shelfPlanHandler: (@Sendable (GitShelfPhase) -> Result<GitShelfPlan, GitPatchFailure>)? = nil,
+        shelfStepHandler: (@Sendable (GitShelfPhase, GitShelfLayer, GitShelfSnapshot) -> GitProcessResult?)? = nil
     ) {
+        self.shelfCaptureHandler = shelfCaptureHandler
+        self.shelfPlanHandler = shelfPlanHandler
+        self.shelfStepHandler = shelfStepHandler
         self.changelistProjectionHandler = changelistProjectionHandler
         self.snapshotValue = snapshotValue
         self.snapshotHandler = snapshotHandler
@@ -6645,6 +6701,16 @@ private struct TestGitOperations: GitOperations {
         self.fetchHandler = fetchHandler
         self.pushPreviewHandler = pushPreviewHandler
         self.pushReviewedHandler = pushReviewedHandler
+    }
+
+    func shelfCapture(at rootURL: URL) -> Result<GitShelfSnapshot, GitPatchFailure> {
+        shelfCaptureHandler?() ?? .failure(GitPatchFailure("Shelf unavailable"))
+    }
+    func shelfPlan(at rootURL: URL, phase: GitShelfPhase) -> Result<GitShelfPlan, GitPatchFailure> {
+        shelfPlanHandler?(phase) ?? .failure(GitPatchFailure("Shelf unavailable"))
+    }
+    func shelfStep(at rootURL: URL, phase: GitShelfPhase, layer: GitShelfLayer, snapshot: GitShelfSnapshot) -> GitProcessResult? {
+        shelfStepHandler?(phase, layer, snapshot)
     }
 
     func pushPreview(_ reference: GitReference, pushTarget: GitPushTargetChoice?, at rootURL: URL) -> Result<GitPushPreview, GitPushFailure> {
