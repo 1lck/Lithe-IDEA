@@ -87,6 +87,10 @@ const JAVA_BUILD_METHOD: &str = "workspace/executeCommand";
 
 static ENGINE: OnceLock<LspEngine> = OnceLock::new();
 
+#[path = "engine_function_relay.rs"]
+mod relay_hub;
+use relay_hub::RelayHub;
+
 #[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 /// Observable lifecycle of one managed language-server session.
@@ -960,6 +964,8 @@ struct RuntimeSession {
     event_signal: Condvar,
     process: Arc<dyn LspProcessHandle>,
     active: AtomicBool,
+    /// The engine's cross-plugin function relay; see `engine_function_relay`.
+    relay: Arc<RelayHub>,
 }
 
 /// The engine is a process-owning singleton in production, but it holds no
@@ -968,7 +974,10 @@ struct RuntimeSession {
 pub(super) struct LspEngine {
     next_session_id: AtomicU64,
     next_operation_id: AtomicU64,
-    sessions: Mutex<BTreeMap<String, Arc<RuntimeSession>>>,
+    /// Shared with the relay's worker, which reaches sessions by ID.
+    sessions: Arc<Mutex<BTreeMap<String, Arc<RuntimeSession>>>>,
+    /// Cross-plugin function calls; every session of this engine uses it.
+    relay: Arc<RelayHub>,
     /// Failed wire starts have no returned identity. Retain their cleanup
     /// responsibility here and retry disposal before another process starts.
     failed_starts: Mutex<BTreeSet<String>>,
@@ -1727,8 +1736,17 @@ pub fn plugin_function_request(
         .unwrap_or_else(|| engine().next_operation_id());
     engine()
         .session(&request.session_id)?
-        .function_request(request, operation_id.clone())?;
+        .function_request(request, operation_id.clone(), None)?;
     Ok(OperationResponse { operation_id })
+}
+
+/// Replaces the host's view of the enabled plugins and live workspace
+/// contexts that the cross-plugin function relay checks calls against. Calls
+/// in flight that the new view forbids end with an error.
+pub fn configure_function_relay(
+    snapshot: super::function_relay::RelaySnapshot,
+) -> Result<(), CoreError> {
+    engine().relay.configure(snapshot)
 }
 
 /// Cancels a pending semantic request in both client state and the server.
@@ -1864,10 +1882,12 @@ impl LspEngine {
     }
 
     fn with_launcher(launcher: Arc<dyn LspProcessLauncher>) -> Self {
+        let sessions = Arc::new(Mutex::new(BTreeMap::new()));
         Self {
             next_session_id: AtomicU64::new(1),
             next_operation_id: AtomicU64::new(1),
-            sessions: Mutex::new(BTreeMap::new()),
+            relay: RelayHub::start(&sessions),
+            sessions,
             failed_starts: Mutex::new(BTreeSet::new()),
             launcher,
         }
@@ -2268,6 +2288,7 @@ impl LspEngine {
             event_signal: Condvar::new(),
             process: process.handle,
             active: AtomicBool::new(true),
+            relay: Arc::clone(&self.relay),
         });
         session.transition(LspLifecycleState::Created, None)?;
         session.transition(LspLifecycleState::ProcessStarting, None)?;
@@ -3318,11 +3339,22 @@ impl RuntimeSession {
     /// Writes a `lithe/function/invoke` request. The plan comes from
     /// `plugin_function::plan_invocation`, so plugin identity, negotiation,
     /// and registration are checked before anything reaches the process.
+    ///
+    /// `caller` is the plugin whose call the relay forwards, and `None` for a
+    /// call the host starts. Only the relay passes `Some`, so a host cannot
+    /// name a plugin as the caller and a plugin cannot choose its own name.
     fn function_request(
         &self,
         request: PluginFunctionRequest,
         operation_id: String,
+        caller: Option<&str>,
     ) -> Result<(), CoreError> {
+        if caller.is_none() && relay_hub::is_relay_operation_id(&operation_id) {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "This language-server operation ID is reserved for relayed plugin calls.",
+            ));
+        }
         let outbound_order = self.lock_outbound_order()?;
         let (messages, request_id) = {
             let mut state = self.lock_state()?;
@@ -3362,11 +3394,9 @@ impl RuntimeSession {
                 &request.params,
             )?;
             let mut params = params;
-            super::plugin_function::attach_context(
-                &mut params,
-                state.client.plugin_function_version.unwrap_or(0),
-                request.context.as_ref(),
-            )?;
+            let version = state.client.plugin_function_version.unwrap_or(0);
+            super::plugin_function::attach_context(&mut params, version, request.context.as_ref())?;
+            super::plugin_function::attach_caller(&mut params, version, caller);
             let timeout = request
                 .timeout_milliseconds
                 .map(|milliseconds| {
@@ -5206,6 +5236,13 @@ impl RuntimeSession {
                         .collect();
                     outbound.extend(revoke_function_calls_locked(self, &mut state, &removed));
                     push_functions_event(self, &mut state, result);
+                    relay_hub::observe_functions_changed(self);
+                } else if event.kind == "functionRelayRequest" {
+                    outbound.extend(self.relay.answer_request(
+                        self,
+                        event.method.as_deref().unwrap_or_default(),
+                        &event.result.unwrap_or_default(),
+                    )?);
                 } else if event.kind == "functionProgress" {
                     push_function_progress_locked(self, &mut state, event.result);
                 } else if event.kind == "buildProgress" {
@@ -6016,6 +6053,8 @@ impl RuntimeSession {
     }
 
     fn expire_deadlines_at(&self, now: Instant) {
+        // Relayed calls that no callee runs yet have no session deadline.
+        self.relay.expire(now);
         let mut cancellations = Vec::new();
         let mut initialize_timeout = false;
         let mut service_ready_timeout = None;
@@ -7228,6 +7267,7 @@ fn transition_locked(
     error: Option<LspRuntimeError>,
 ) {
     state.lifecycle = lifecycle;
+    relay_hub::observe_lifecycle(session, lifecycle);
     let (id, fields) = EngineLog::SessionUpdated.fact(
         &session.log_identity,
         &json!({"state": lifecycle}),
@@ -7275,6 +7315,16 @@ fn push_request_event(
     result: Option<Value>,
     error: Option<LspRuntimeError>,
 ) {
+    // No host operation waits for a relayed call: the relay answers the
+    // calling plugin, so the event never reaches the host.
+    if relay_hub::is_relayed_operation(operation_id, method) {
+        session.relay.callee_finished(
+            &session.id,
+            operation_id,
+            relay_hub::callee_outcome(result, error),
+        );
+        return;
+    }
     let (result, error) = if let Some(mut preparation) = state.java_launches.remove(operation_id) {
         match preparation.advance(result, error) {
             Ok(JavaLaunchAction::Build(command)) => {
@@ -7686,7 +7736,9 @@ fn cancel_host_request_locked(
         .find(|(_, pending)| *pending == backend_id)
         .map(|(host_request_id, _)| host_request_id.clone())
     else {
-        return Ok(false);
+        // Not a host request: it may name a call the backend relayed to
+        // another plugin.
+        return Ok(session.relay.cancel_from_caller(&session.id, backend_id));
     };
     let backend_id = state
         .host_requests
@@ -16651,6 +16703,7 @@ public class Main {
                     context: None,
                 },
                 operation_id.clone(),
+                None,
             )
             .map(|()| operation_id)
     }
@@ -17875,6 +17928,7 @@ public class Main {
                     context: Some(context),
                 },
                 operation_id,
+                None,
             )
         };
         let error = call(json!({ "contextID": "w/1", "generation": 1 }))
