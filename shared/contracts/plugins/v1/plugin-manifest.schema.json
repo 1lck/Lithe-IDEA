@@ -79,6 +79,7 @@
           "documents.read",
           "editor.edit",
           "editor.actions",
+          "editor.providers",
           "editor.open",
           "preview.open",
           "toolchains.provide",
