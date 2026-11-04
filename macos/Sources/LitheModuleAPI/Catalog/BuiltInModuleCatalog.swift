@@ -403,6 +403,23 @@ public enum LanguageExtensionModuleManifests {
         )
     }
 
+    /// The console link matchers of a plugin; owns no process: while it is
+    /// enabled the Run and Test consoles apply the matchers to their text.
+    public static func outputLinks(
+        pluginID: String,
+        displayName: String,
+        enabledByDefault: Bool = false
+    ) -> ModuleManifest {
+        ModuleManifest(
+            id: .outputLinksExtension(pluginID),
+            displayName: displayName,
+            scope: .workspace,
+            defaultState: enabledByDefault ? .enabled : .disabled,
+            activationPolicy: .onDemand,
+            dependencies: [.module(.workspace)]
+        )
+    }
+
     /// One module for all project generators of a plugin. The New Project
     /// window runs without a workspace, so the module is application-scoped
     /// and owns no process: Core plans and the host creates the project.

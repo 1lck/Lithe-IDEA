@@ -335,6 +335,24 @@ public struct DeclarativePluginLanguage: Equatable, Hashable, Sendable {
     }
 }
 
+/// A pattern a plugin declares for text in the Run and Test consoles (`outputLinkMatchers`).
+/// Rust Core finds the matches; the host only hands the declarations over.
+public struct DeclarativeOutputLinkMatcher: Equatable, Sendable {
+    public let id: String
+    public let pattern: String
+    /// `run` or `test`; nil applies to both consoles.
+    public let scope: String?
+    /// A function of the plugin's backend that turns the matched groups into a location on click.
+    public let resolveFunction: String?
+
+    public init(id: String, pattern: String, scope: String? = nil, resolveFunction: String? = nil) {
+        self.id = id
+        self.pattern = pattern
+        self.scope = scope
+        self.resolveFunction = resolveFunction
+    }
+}
+
 /// A settings button binds a function of the same plugin; its business stays private.
 public struct DeclarativePluginSettingAction: Equatable, Identifiable, Sendable {
     public let id: String
@@ -661,6 +679,8 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
     public let ui: DeclarativeUIContributions?
     /// Entries the plugin adds to the New Project window.
     public let projectGenerators: [DeclarativeProjectGenerator]
+    /// Console text the plugin makes clickable (`outputLinkMatchers` capability).
+    public let outputLinkMatchers: [DeclarativeOutputLinkMatcher]
     /// Whether the plugin declares its own backend process (`backend` 1).
     public let declaresBackend: Bool
     public let normalizedManifest: Data
@@ -719,6 +739,9 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
         }
         projectGenerators = decoded.projectGenerators.map {
             DeclarativeProjectGenerator(id: $0.id, displayName: $0.displayName, icon: $0.icon)
+        }
+        outputLinkMatchers = decoded.outputLinkMatchers.map {
+            DeclarativeOutputLinkMatcher(id: $0.id, pattern: $0.pattern, scope: $0.scope, resolveFunction: $0.resolve?.function)
         }
         ui = decoded.ui
         declaresBackend = decoded.backend != nil
@@ -803,6 +826,16 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             // Enablement only: the editor applies the grammars while it is on.
             modules.append(PluginModuleDeclaration(
                 manifest: LanguageExtensionModuleManifests.grammars(
+                    pluginID: decoded.id,
+                    displayName: decoded.displayName,
+                    enabledByDefault: enabledByDefault
+                )
+            ))
+        }
+        if !outputLinkMatchers.isEmpty {
+            // Enablement only: the Run and Test consoles apply the matchers while it is on.
+            modules.append(PluginModuleDeclaration(
+                manifest: LanguageExtensionModuleManifests.outputLinks(
                     pluginID: decoded.id,
                     displayName: decoded.displayName,
                     enabledByDefault: enabledByDefault
@@ -899,15 +932,18 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
     }
 
     /// Whether the plugin can take effect in a running session. That holds when
-    /// debug adapters and language grammars are its only contributions: the
-    /// host reads adapters on demand when a debug session starts and hands
-    /// grammars to open editors when the registry changes, so the module graph,
+    /// debug adapters, language grammars and console link matchers are its only
+    /// contributions: the host reads adapters on demand when a debug session
+    /// starts, hands grammars to open editors when the registry changes and reads
+    /// the matchers when a console renders, so the module graph,
     /// the language-server and run/test modules, backend processes and UI
     /// composition built at launch do not change. Anything else waits for the
     /// next launch.
     public var canActivateWithoutRestart: Bool {
         let modules = pluginManifest.modules
-        let live: Set<ModuleID> = [.debugAdaptersExtension(id.rawValue), .grammarsExtension(id.rawValue)]
+        let live: Set<ModuleID> = [
+            .debugAdaptersExtension(id.rawValue), .grammarsExtension(id.rawValue), .outputLinksExtension(id.rawValue)
+        ]
         return !modules.isEmpty
             && !declaresBackend
             && modules.allSatisfy { live.contains($0.manifest.id) && $0.contributions.isEmpty }
@@ -1417,11 +1453,20 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
         let settings: [Setting]
         let settingActions: [SettingAction]
         let projectGenerators: [ProjectGenerator]
+        let outputLinkMatchers: [OutputLinkMatcher]
         /// Launch fields stay with Rust Core; the host only needs to know
         /// a backend exists.
         let backend: ToolingJSONValue?
         /// Core owns definition semantics; this bit only supplies an enablement module.
         let hasToolDefinitions: Bool
+
+        struct OutputLinkMatcher: Decodable {
+            struct Resolve: Decodable { let function: String }
+            let id: String
+            let pattern: String
+            let scope: String?
+            let resolve: Resolve?
+        }
 
         /// What plugin management lists. Fields and steps stay with Rust Core,
         /// which evaluates the New Project form and plans every step.
@@ -1450,6 +1495,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             settings = try values.decodeIfPresent([Setting].self, forKey: .settings) ?? []
             settingActions = try values.decodeIfPresent([SettingAction].self, forKey: .settingActions) ?? []
             projectGenerators = try values.decodeIfPresent([ProjectGenerator].self, forKey: .projectGenerators) ?? []
+            outputLinkMatchers = try values.decodeIfPresent([OutputLinkMatcher].self, forKey: .outputLinkMatchers) ?? []
             backend = try values.decodeIfPresent(ToolingJSONValue.self, forKey: .backend)
             hasToolDefinitions = !(try values.decodeIfPresent([ToolingJSONValue].self, forKey: .toolDefinitions) ?? []).isEmpty
         }
@@ -1457,7 +1503,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
         private enum CodingKeys: String, CodingKey {
             case id, displayName, version, pluginAPIVersion, vendor, permissions, activationEvents
             case languages, languageServers, executionProviders, buildSystems, vcsProviders, ui, settings, settingActions
-            case projectGenerators, backend, debugAdapters, toolDefinitions
+            case projectGenerators, backend, debugAdapters, toolDefinitions, outputLinkMatchers
         }
     }
 }

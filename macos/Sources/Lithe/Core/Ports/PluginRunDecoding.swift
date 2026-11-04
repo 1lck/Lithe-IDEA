@@ -83,18 +83,10 @@ struct PluginOutputLink: Equatable, Sendable {
     let target: Target
 }
 
-struct PluginOutputLinkMatcher: Equatable, Sendable {
-    let id: String
-    let pattern: String
-    /// `run` or `test`; nil applies to both consoles.
-    let scope: String?
-    let resolveFunction: String?
-}
-
 /// The matchers one plugin declares in its manifest.
 struct PluginOutputLinkSource: Equatable, Sendable {
     let pluginID: String
-    let matchers: [PluginOutputLinkMatcher]
+    let matchers: [DeclarativeOutputLinkMatcher]
 }
 
 /// A file a `resolve` function found; `line` and `column` are 1-based.
