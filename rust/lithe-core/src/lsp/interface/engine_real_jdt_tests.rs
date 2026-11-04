@@ -350,6 +350,7 @@ fn real_start_request(
         host_services: Vec::new(),
         toolchain_providers: Vec::new(),
         keymap_import_providers: Vec::new(),
+        session_policy: None,
         executable_path: toolchain
             .root
             .join("bin")

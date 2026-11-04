@@ -13,7 +13,9 @@
 //! state directories to prune. The host calls the function, creates the
 //! directories, and starts the process; it never interprets the answer.
 
-use super::declarative::{decode_payload, invalid, is_safe_relative_path, PluginRejection, Validation};
+use super::declarative::{
+    decode_payload, invalid, is_safe_relative_path, PluginRejection, Validation,
+};
 use crate::protocol::{CoreError, ErrorCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -151,7 +153,7 @@ impl Retention {
 /// Whether the host may start the server for a remote workspace.
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub(crate) enum RemoteSupport {
+pub enum RemoteSupport {
     #[default]
     Supported,
     Unsupported,
@@ -223,7 +225,10 @@ impl SessionDeclaration {
             &format!("{field}.serializedCommands"),
             MAX_COMMANDS,
         )?;
-        if let Some(command) = serialized.iter().find(|command| !commands.contains(*command)) {
+        if let Some(command) = serialized
+            .iter()
+            .find(|command| !commands.contains(*command))
+        {
             return Err(invalid(
                 format!("{field}.serializedCommands"),
                 format!("The serialized command {command} is not listed in commands."),
@@ -241,9 +246,10 @@ impl SessionDeclaration {
             ));
         }
         if let Some(state) = &self.state {
-            state.retention.validate().map_err(|message| {
-                invalid(format!("{field}.state.retention"), message)
-            })?;
+            state
+                .retention
+                .validate()
+                .map_err(|message| invalid(format!("{field}.state.retention"), message))?;
         }
         Ok(())
     }
@@ -284,7 +290,10 @@ fn unique_names<'a>(
 ) -> Validation<BTreeSet<&'a str>> {
     let values = values.unwrap_or_default();
     if values.len() > limit {
-        return Err(invalid(field, format!("At most {limit} entries are allowed.")));
+        return Err(invalid(
+            field,
+            format!("At most {limit} entries are allowed."),
+        ));
     }
     let mut names = BTreeSet::new();
     for value in values {
@@ -414,7 +423,7 @@ enum AnsweredExecutable {
 /// sent: until then the engine holds them in order.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct Gate {
+pub struct Gate {
     pub(crate) id: String,
     until: GateCondition,
     pub(crate) method: String,
@@ -558,13 +567,15 @@ pub(crate) fn matches_pattern(params: &Value, pattern: &Map<String, Value>) -> b
     let Some(params) = params.as_object() else {
         return pattern.is_empty();
     };
-    pattern.iter().all(|(key, expected)| match (params.get(key), expected) {
-        (Some(actual @ Value::Object(_)), Value::Object(expected)) => {
-            matches_pattern(actual, expected)
-        }
-        (Some(actual), expected) => actual == expected,
-        (None, _) => false,
-    })
+    pattern
+        .iter()
+        .all(|(key, expected)| match (params.get(key), expected) {
+            (Some(actual @ Value::Object(_)), Value::Object(expected)) => {
+                matches_pattern(actual, expected)
+            }
+            (Some(actual), expected) => actual == expected,
+            (None, _) => false,
+        })
 }
 
 /// `plugins.languageServers.stateRetention` request: the per-workspace
@@ -604,9 +615,10 @@ fn is_state_entry_name(name: &str) -> bool {
 pub fn state_retention_command(payload: Value) -> Result<Value, CoreError> {
     let request: StateRetentionRequest =
         decode_payload(payload, "plugins.languageServers.stateRetention")?;
-    request.retention.validate().map_err(|message| {
-        CoreError::new(ErrorCode::InvalidRequest, message.to_string())
-    })?;
+    request
+        .retention
+        .validate()
+        .map_err(|message| CoreError::new(ErrorCode::InvalidRequest, message.to_string()))?;
     let active: BTreeSet<&str> = request.active_names.iter().map(String::as_str).collect();
     let mut newest: BTreeMap<&str, u64> = BTreeMap::new();
     for entry in &request.entries {
@@ -680,7 +692,10 @@ mod tests {
             &tools(),
         )
         .expect("answer decodes");
-        assert_eq!(plan["launch"], json!({"kind": "packaged", "path": "server/bin/metals"}));
+        assert_eq!(
+            plan["launch"],
+            json!({"kind": "packaged", "path": "server/bin/metals"})
+        );
         assert_eq!(plan["requiredPackagePaths"], json!(["server/bin/metals"]));
         assert_eq!(plan["writablePaths"], json!(["/tmp/plugin/coursier"]));
         assert_eq!(gates.len(), 1);

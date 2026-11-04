@@ -109,6 +109,10 @@ pub enum CoreCommand {
     PluginsDeclarativeTestPlan,
     /// Expands a declarative plugin's language-server launch (`plugins.declarative.languageServerLaunchPlan`).
     PluginsDeclarativeLanguageServerLaunchPlan,
+    /// Checks a plugin backend's language-server launch answer (`plugins.languageServers.decodeLaunch`).
+    PluginsLanguageServersDecodeLaunch,
+    /// Picks the stored language-server state the host may delete (`plugins.languageServers.stateRetention`).
+    PluginsLanguageServersStateRetention,
     /// Checks a debug start and returns the adapter's DAP arguments (`debug.adapters.startArguments`).
     DebugAdaptersStartArguments,
     /// Validates an IDE-to-DAP TCP endpoint, not an attach target.
@@ -445,6 +449,10 @@ pub enum CoreCommand {
     LspHostResponse,
     /// Sends a plugin backend one host notification (`lsp.hostNotify`).
     LspHostNotify,
+    /// Sends a plugin-owned language server one request of its backend (`lsp.pluginServerRequest`).
+    LspPluginServerRequest,
+    /// Sends a plugin-owned language server one notification of its backend (`lsp.pluginServerNotify`).
+    LspPluginServerNotify,
     /// Queues shared Java gutter marker resolution (`java.navigationMarkers`).
     JavaNavigationMarkers,
     /// Queues shared Java entry selection, build and classpath preparation (`java.prepareLaunch`).
@@ -746,6 +754,12 @@ impl CoreCommand {
             "plugins.declarative.languageServerLaunchPlan" => {
                 Some(Self::PluginsDeclarativeLanguageServerLaunchPlan)
             }
+            "plugins.languageServers.decodeLaunch" => {
+                Some(Self::PluginsLanguageServersDecodeLaunch)
+            }
+            "plugins.languageServers.stateRetention" => {
+                Some(Self::PluginsLanguageServersStateRetention)
+            }
             "debug.adapters.startArguments" => Some(Self::DebugAdaptersStartArguments),
             "debug.validateAdapterEndpoint" => Some(Self::DebugValidateAdapterEndpoint),
             "debug.adapters.executablePlan" => Some(Self::DebugAdaptersExecutablePlan),
@@ -918,6 +932,8 @@ impl CoreCommand {
             "lsp.functionRequest" => Some(Self::LspFunctionRequest),
             "lsp.hostResponse" => Some(Self::LspHostResponse),
             "lsp.hostNotify" => Some(Self::LspHostNotify),
+            "lsp.pluginServerRequest" => Some(Self::LspPluginServerRequest),
+            "lsp.pluginServerNotify" => Some(Self::LspPluginServerNotify),
             "java.resolveNavigation" => Some(Self::JavaResolveNavigation),
             "java.prepareLaunch" => Some(Self::JavaPrepareLaunch),
             "lsp.cancelOperation" => Some(Self::LspCancelOperation),
@@ -1081,6 +1097,10 @@ mod tests {
             "lsp.functionRequest",
             "lsp.hostResponse",
             "lsp.hostNotify",
+            "lsp.pluginServerRequest",
+            "lsp.pluginServerNotify",
+            "plugins.languageServers.decodeLaunch",
+            "plugins.languageServers.stateRetention",
             "lsp.cancelOperation",
             "lsp.pollEvents",
             "lsp.waitEvents",

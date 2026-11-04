@@ -3527,7 +3527,10 @@ fn backend_resolved_launch_plan(
     if !KNOWN_ARCHITECTURES.contains(&request.architecture.as_str()) {
         return Err(PluginRejection::new(
             "plugin.launch.invalidRequest",
-            format!("The architecture {} is not supported.", request.architecture),
+            format!(
+                "The architecture {} is not supported.",
+                request.architecture
+            ),
         ));
     }
     let settings = manifest.effective_settings(request.layers());
@@ -3611,8 +3614,7 @@ pub fn decode_language_server_launch_command(payload: Value) -> Result<Value, Co
             }
             if plan.get("workspaceConfiguration").is_none() {
                 if let Some(configuration) = &server.workspace_configuration {
-                    plan["workspaceConfiguration"] =
-                        expand_configuration(configuration, &settings);
+                    plan["workspaceConfiguration"] = expand_configuration(configuration, &settings);
                 }
             }
             let mut policy = server.session.policy(&server.language_id);

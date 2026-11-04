@@ -7,6 +7,7 @@ mod engine_logging;
 mod keymap_provider;
 pub(crate) mod plugin_function;
 mod plugin_logging;
+mod plugin_server;
 pub(crate) mod process;
 pub(crate) mod remote_process;
 #[cfg(test)]

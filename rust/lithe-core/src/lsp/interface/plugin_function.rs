@@ -962,13 +962,10 @@ pub(crate) fn capabilities_answer(version: u64, granted: &BTreeSet<String>) -> V
     }) {
         add(entry.service, "methods", entry.method);
     }
-    for entry in HOST_NOTIFICATIONS
-        .iter()
-        .filter(|entry| {
-            version >= entry.since
-                && (is_implicit_service(entry.service) || holds_service(entry.service, granted))
-        })
-    {
+    for entry in HOST_NOTIFICATIONS.iter().filter(|entry| {
+        version >= entry.since
+            && (is_implicit_service(entry.service) || holds_service(entry.service, granted))
+    }) {
         add(entry.service, "notifications", entry.method);
     }
     json!({
@@ -1067,9 +1064,7 @@ pub(crate) const HOST_NOTIFICATIONS: &[HostNotification] = &[
 fn holds_service(service: &str, granted: &BTreeSet<String>) -> bool {
     granted.contains(service)
         || HOST_METHODS.iter().any(|entry| {
-            entry.service == service
-                && entry.permission.is_some()
-                && granted.contains(entry.method)
+            entry.service == service && entry.permission.is_some() && granted.contains(entry.method)
         })
 }
 
@@ -1361,7 +1356,9 @@ fn check_host_params(
                 .and_then(Value::as_str)
                 .is_some_and(is_function_id)
             {
-                return Err(invalid("The content function must be a plugin function ID."));
+                return Err(invalid(
+                    "The content function must be a plugin function ID.",
+                ));
             }
         }
         HostParams::Empty | HostParams::Object => {}
@@ -1386,7 +1383,9 @@ fn check_language_server_params(
         .and_then(Value::as_str)
         .is_some_and(is_protocol_name)
     {
-        return Err(invalid("serverID must name one of the plugin's language servers."));
+        return Err(invalid(
+            "serverID must name one of the plugin's language servers.",
+        ));
     }
     if rule == HostParams::LanguageServerStatus {
         if !params
@@ -2140,7 +2139,10 @@ mod tests {
             forwarded_host_params(LANGUAGE_SERVER_REQUEST, Some(&request)),
             request
         );
-        assert_eq!(forwarded_host_params(LANGUAGE_SERVER_REQUEST, None), Value::Null);
+        assert_eq!(
+            forwarded_host_params(LANGUAGE_SERVER_REQUEST, None),
+            Value::Null
+        );
     }
 
     /// A content scheme is a lowercase RFC 3986 scheme the host does not own.
