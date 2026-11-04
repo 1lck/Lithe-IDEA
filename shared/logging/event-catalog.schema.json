@@ -1,0 +1,213 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lithe.dev/schemas/logging/event-catalog.schema.json",
+  "title": "Lithe structured logging event catalog",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "root",
+    "events"
+  ],
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "root": {
+      "enum": [
+        "app",
+        "editor",
+        "perf",
+        "lsp",
+        "vcs",
+        "run",
+        "debug",
+        "terminal",
+        "remote",
+        "agent",
+        "update",
+        "plugins"
+      ]
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/event"
+      }
+    }
+  },
+  "$defs": {
+    "field": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "required",
+        "description"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            "int",
+            "bool",
+            "duration",
+            "bytes",
+            "id",
+            "token",
+            "version",
+            "path",
+            "error",
+            "text"
+          ]
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 16,
+          "not": {
+            "enum": [
+              "Validated internal identifier",
+              "Controlled machine vocabulary",
+              "Structured failure",
+              "Path redacted before persistence",
+              "Monotonic elapsed time",
+              "Count or numeric result",
+              "Outcome flag",
+              "Byte count",
+              "Component version",
+              "Upstream diagnostic"
+            ]
+          }
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "text"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "reason"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "reason"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "channel",
+        "level",
+        "message",
+        "fields",
+        "owner"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9_]*){2,}$"
+        },
+        "channel": {
+          "type": "string",
+          "description": "Root, non-plugin root/segment, or plugins/{plugin}/host. The generator also rejects Windows device segments and trailing dots.",
+          "pattern": "^(?:(?:app|editor|perf|lsp|vcs|run|debug|terminal|remote|agent|update)(?:/(?:[a-z0-9][a-z0-9._-]{0,63}|\\{[a-z][a-z0-9_]{0,63}\\}))?|plugins(?:/\\{plugin\\}/host)?)$"
+        },
+        "level": {
+          "enum": [
+            "debug",
+            "info",
+            "warn",
+            "error"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[ -~]+$"
+        },
+        "fields": {
+          "type": "object",
+          "propertyNames": {
+            "allOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]{0,63}$"
+              },
+              {
+                "not": {
+                  "enum": [
+                    "seq",
+                    "event",
+                    "op",
+                    "msg",
+                    "ts",
+                    "level"
+                  ]
+                }
+              }
+            ]
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/field"
+          },
+          "patternProperties": {
+            ".*_ms$": {
+              "properties": {
+                "type": {
+                  "not": {
+                    "const": "duration"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "span": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "failureLevel"
+          ],
+          "properties": {
+            "failureLevel": {
+              "enum": [
+                "debug",
+                "info",
+                "warn",
+                "error"
+              ]
+            }
+          }
+        },
+        "rate": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 60000,
+          "default": 60
+        },
+        "owner": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

@@ -1,17 +1,21 @@
 import Foundation
 import LitheCoreContracts
+import LitheModuleAPI
 
 package protocol GitPerformanceLogger: Sendable {
-    func record(_ message: String)
+    func emit(_ event: any LogEvent)
 }
 
 package struct NullGitPerformanceLogger: GitPerformanceLogger {
     package init() {}
 
-    package func record(_ message: String) {}
+    package func emit(_ event: any LogEvent) {}
 }
 
 package protocol GitOperations: Sendable {
+    func changelistProjection(_ request: GitChangelistCoreRequest) -> GitChangelistCoreProjection?
+    func reconcileDeletedSelection(at root: URL, changes: [GitChange]) -> GitProcessResult?
+    func prepareCommitSelection(_ request: GitCommitSelectionRequest) -> GitProcessResult?
     func prepareWorkspaceCommit(_ request: GitWorkspaceCommitRequest) -> Result<GitWorkspaceCommitPreparation, GitWorkspaceCommitFailure>
     func stepWorkspaceCommit(_ session: GitWorkspaceCommitSession) -> Result<GitWorkspaceCommitSession, GitWorkspaceCommitFailure>
 
@@ -83,6 +87,7 @@ package protocol GitOperations: Sendable {
         mode: String
     ) -> GitProcessResult?
 
+    func historyDateMatches(_ query: GitHistoryDateQuery) -> [String]?
     func history(
         at rootURL: URL,
         reference: GitReference?,
@@ -114,10 +119,13 @@ package protocol GitOperations: Sendable {
     func unstage(_ change: GitChange) -> GitProcessResult?
     func discard(_ change: GitChange) -> GitProcessResult?
     func discardAll(_ change: GitChange) -> GitProcessResult?
+    func prepareRollback(at root: URL, changes: [GitChange], deleteAddedFiles: Bool) -> Result<GitRollbackPlan, GitRollbackFailure>
+    func executeRollbackStep(at root: URL, step: GitRollbackPlan.Step) -> GitProcessResult?
     func commit(at rootURL: URL, message: String, amend: Bool) -> GitProcessResult?
     func cherryPick(_ hash: String, at rootURL: URL) -> GitProcessResult?
     func revert(_ hash: String, at rootURL: URL) -> GitProcessResult?
     func resetCurrentBranch(to hash: String, mode: String, at rootURL: URL) -> GitProcessResult?
+    func historyActionCapabilities(at rootURL: URL, revisions: [String], operationID: String) -> Result<GitHistoryActionCapabilities, GitHistoryActionFailure>
     func historyRewritePreview(at rootURL: URL, operation: GitHistoryRewriteOperation, revisions: [String]) -> GitHistoryRewritePreview?
     func rewriteHistory(at rootURL: URL, expectedState: GitHistoryRewriteExpectedState, message: String?) -> GitProcessResult?
     func interactiveRebasePreview(at rootURL: URL, revision: String) -> Result<GitRebasePreview, GitRebaseFailure>
@@ -126,7 +134,8 @@ package protocol GitOperations: Sendable {
     func controlInteractiveRebase(at rootURL: URL, sessionId: String, action: GitRebaseControlAction, amendMessage: String?, expectedHead: String?) -> GitRebaseProcessResult
     func createHistoryRecoveryBranch(named name: String, reference: String, at rootURL: URL) -> GitProcessResult?
     func exportPatch(at rootURL: URL, source: GitPatchSource, paths: [String], base: String?, target: String?, metadataOnly: Bool) -> Result<GitPatchExport, GitPatchFailure>
-    func inspectSavedPatch(at rootURL: URL, patch: String) -> Result<GitPatchPreview, GitPatchFailure>
+    func savedStashFiles(at rootURL: URL, reference: String, base: String) -> Result<[GitSavedPatchFile], GitPatchFailure>
+    func savedShelfFiles(at rootURL: URL, patch: String, version: String, base: String) -> Result<[GitSavedPatchFile], GitPatchFailure>
     func previewPatch(at rootURL: URL, patch: String, target: GitPatchTarget) -> Result<GitPatchPreview, GitPatchFailure>
     func applyExchangePatch(at rootURL: URL, patch: String, target: GitPatchTarget, expectedState: String) -> GitProcessResult?
     func createBranch(named name: String, from reference: GitReference, checkout: Bool, at rootURL: URL) -> GitProcessResult?
@@ -205,8 +214,20 @@ package protocol GitOperations: Sendable {
 }
 
 package extension GitOperations {
-    func inspectSavedPatch(at rootURL: URL, patch: String) -> Result<GitPatchPreview, GitPatchFailure> {
-        .failure(GitPatchFailure("Saved patch inspection is unavailable"))
+    func changelistProjection(_ request: GitChangelistCoreRequest) -> GitChangelistCoreProjection? { nil }
+    func historyDateMatches(_ query: GitHistoryDateQuery) -> [String]? { nil }
+    func reconcileDeletedSelection(at root: URL, changes: [GitChange]) -> GitProcessResult? { nil }
+    func prepareCommitSelection(_ request: GitCommitSelectionRequest) -> GitProcessResult? { nil }
+    func prepareRollback(at root: URL, changes: [GitChange], deleteAddedFiles: Bool) -> Result<GitRollbackPlan, GitRollbackFailure> {
+        .failure(GitRollbackFailure(L10n.string("Could not refresh Git status. Refresh to verify the changes.")))
+    }
+    func executeRollbackStep(at root: URL, step: GitRollbackPlan.Step) -> GitProcessResult? { nil }
+    func savedStashFiles(at rootURL: URL, reference: String, base: String) -> Result<[GitSavedPatchFile], GitPatchFailure> {
+        .failure(GitPatchFailure(L10n.string("Could not load saved changes")))
+    }
+
+    func savedShelfFiles(at rootURL: URL, patch: String, version: String, base: String) -> Result<[GitSavedPatchFile], GitPatchFailure> {
+        .failure(GitPatchFailure(L10n.string("Could not load saved changes")))
     }
 
     func prepareWorkspaceCommit(_ request: GitWorkspaceCommitRequest) -> Result<GitWorkspaceCommitPreparation, GitWorkspaceCommitFailure> {
@@ -282,6 +303,7 @@ package extension GitOperations {
         .failure(GitPatchFailure("Patch preview is unavailable."))
     }
     func applyExchangePatch(at rootURL: URL, patch: String, target: GitPatchTarget, expectedState: String) -> GitProcessResult? { nil }
+    func historyActionCapabilities(at rootURL: URL, revisions: [String], operationID: String) -> Result<GitHistoryActionCapabilities, GitHistoryActionFailure> { .failure(GitHistoryActionFailure()) }
     func historyRewritePreview(at rootURL: URL, operation: GitHistoryRewriteOperation, revisions: [String]) -> GitHistoryRewritePreview? { nil }
     func rewriteHistory(at rootURL: URL, expectedState: GitHistoryRewriteExpectedState, message: String?) -> GitProcessResult? { nil }
     func repositories(in workspaceURL: URL) -> [URL] {
@@ -364,16 +386,20 @@ private actor GitHistoryCache {
 /// UI-facing Git service. Git command construction, validation, parsing, and
 /// process execution live behind the shared Rust operations port.
 package struct GitService: Sendable {
+    private static let historyDateBatchSize = 4096
     private let operations: any GitOperations
     private let historyCache = GitHistoryCache()
     private let performanceLogger: any GitPerformanceLogger
+    private let executionJournal: GitExecutionJournal?
 
     package init(
         operations: any GitOperations,
-        performanceLogger: any GitPerformanceLogger = NullGitPerformanceLogger()
+        performanceLogger: any GitPerformanceLogger = NullGitPerformanceLogger(),
+        executionJournal: GitExecutionJournal? = nil
     ) {
         self.operations = operations
         self.performanceLogger = performanceLogger
+        self.executionJournal = executionJournal
     }
 
     package struct CommandResult: Sendable {
@@ -390,6 +416,7 @@ package struct GitService: Sendable {
         package let branchDeletion: GitBranchDeletion?
         package let historyRewrite: GitHistoryRewriteResult?
         package let warnings: [GitOperationWarning]
+        package let logReference: LogRecordReference?
 
         package init(
             workingDirectory: URL? = nil,
@@ -404,7 +431,8 @@ package struct GitService: Sendable {
             tagDeletion: GitTagDeletion? = nil,
             branchDeletion: GitBranchDeletion? = nil,
             historyRewrite: GitHistoryRewriteResult? = nil,
-            warnings: [GitOperationWarning] = []
+            warnings: [GitOperationWarning] = [],
+            logReference: LogRecordReference? = nil
         ) {
             self.workingDirectory = workingDirectory
             self.arguments = arguments
@@ -419,6 +447,7 @@ package struct GitService: Sendable {
             self.branchDeletion = branchDeletion
             self.historyRewrite = historyRewrite
             self.warnings = warnings
+            self.logReference = logReference
         }
 
         package var succeeded: Bool {
@@ -440,6 +469,18 @@ package struct GitService: Sendable {
 
     func repositories(in workspace: URL) async -> [URL] {
         await read(priority: .utility) { $0.repositories(in: workspace) } ?? []
+    }
+
+    func changelistProjection(_ request: GitChangelistCoreRequest) async -> GitChangelistCoreProjection? {
+        await read { $0.changelistProjection(request) }
+    }
+
+    func reconcileDeletedSelection(at root: URL, changes: [GitChange]) async -> CommandResult {
+        await command { $0.reconcileDeletedSelection(at: root, changes: changes) }
+    }
+
+    func prepareCommitSelection(_ request: GitCommitSelectionRequest) async -> CommandResult {
+        await command { $0.prepareCommitSelection(request) }
     }
 
     func prepareWorkspaceCommit(_ request: GitWorkspaceCommitRequest) async -> Result<GitWorkspaceCommitPreparation, GitWorkspaceCommitFailure> {
@@ -623,6 +664,25 @@ package struct GitService: Sendable {
         await command(at: change.repositoryRoot) { $0.discardAll(change) }
     }
 
+    func prepareRollback(at root: URL, changes: [GitChange], deleteAddedFiles: Bool) async -> Result<GitRollbackPlan, GitRollbackFailure> {
+        let operations = self.operations
+        let execution = GitExecutionContext.current
+        return await withTaskCancellationHandler {
+            await Task.detached(priority: .userInitiated) {
+                GitExecutionContext.$current.withValue(execution) {
+                    operations.prepareRollback(at: root, changes: changes, deleteAddedFiles: deleteAddedFiles)
+                }
+            }.value
+        } onCancel: {
+            execution?.requestCancellation()
+            if let execution { _ = operations.cancel(operationID: execution.operationID) }
+        }
+    }
+
+    func executeRollbackStep(at root: URL, step: GitRollbackPlan.Step) async -> CommandResult {
+        await command(at: root) { $0.executeRollbackStep(at: root, step: step) }
+    }
+
     func stage(hunk: DiffHunk, of change: GitChange) async -> CommandResult {
         await command(at: change.repositoryRoot, fallbackArguments: ["apply", "--cached", "-"]) {
             $0.applyPatch(hunk.patch, at: change.repositoryRoot, mode: "stage")
@@ -643,6 +703,21 @@ package struct GitService: Sendable {
 
     func commit(at repositoryRoot: URL, message: String, amend: Bool = false) async -> CommandResult {
         await command(at: repositoryRoot) { $0.commit(at: repositoryRoot, message: message, amend: amend) }
+    }
+
+    func historyActionCapabilities(at root: URL, revisions: [String], operationID: String) async -> GitHistoryActionCapabilities? {
+        let result = await cancellableRead(operationID: operationID) {
+            $0.historyActionCapabilities(at: root, revisions: revisions, operationID: operationID)
+        }
+        guard let result else { return nil }
+        switch result {
+        case .success(let capabilities): return capabilities
+        case .failure:
+            if !Task.isCancelled {
+                performanceLogger.emit(VcsHistoryActionCapabilitiesFailed(error: LogFailure(domain: "GitHistoryActions", code: "query_failed")))
+            }
+            return nil
+        }
     }
 
     func historyRewritePreview(at repositoryRoot: URL, operation: GitHistoryRewriteOperation, revisions: [String]) async -> GitHistoryRewritePreview? {
@@ -776,6 +851,32 @@ package struct GitService: Sendable {
         await command(at: repositoryRoot) { $0.resetCurrentBranch(to: hash, mode: mode, at: repositoryRoot) }
     }
 
+    func historyDateMatches(_ commits: [GitCommit], after: Date?, before: Date?) async -> Set<String>? {
+        let matches = await read(priority: .userInitiated) { operations -> Set<String>? in
+            var matches: Set<String> = []
+            for start in stride(from: 0, to: commits.count, by: Self.historyDateBatchSize) {
+                guard !Task.isCancelled else { return nil }
+                let end = min(start + Self.historyDateBatchSize, commits.count)
+                let entries = commits[start..<end].map { commit in
+                    let fallback = commit.dateUtcOffsetMinutes == nil
+                        ? (commit.dateUnixSeconds.map(Double.init) ?? GitLogQuery.parseCommitDate(commit.date)?.timeIntervalSince1970)
+                        : nil
+                    return GitHistoryDateQuery.Entry(id: commit.hash, date: commit.date,
+                        utcOffsetMinutes: commit.dateUtcOffsetMinutes, fallbackUnixSeconds: fallback)
+                }
+                let query = GitHistoryDateQuery(entries: entries, afterUnixSeconds: after?.timeIntervalSince1970,
+                    beforeUnixSeconds: before?.timeIntervalSince1970)
+                guard let batch = operations.historyDateMatches(query) else { return nil }
+                matches.formUnion(batch)
+            }
+            return matches
+        }
+        if matches == nil && !Task.isCancelled {
+            performanceLogger.emit(VcsHistoryDateQueryFailed(error: LogFailure(domain: "GitHistoryQuery", code: "query_failed")))
+        }
+        return matches
+    }
+
     func history(
         at repositoryRoot: URL,
         reference: GitReference? = nil,
@@ -783,11 +884,8 @@ package struct GitService: Sendable {
     ) async -> GitHistorySnapshot {
         let historyLookupStartedAt = ContinuousClock.now
         if let cached = await historyCache.value(rootURL: repositoryRoot, reference: reference, limit: limit) {
-            performanceLogger.record(
-                GitPerformanceLogFormatter.cacheHit(
-                    operation: #function,
-                    durationMilliseconds: elapsedMilliseconds(since: historyLookupStartedAt)
-                )
+            performanceLogger.emit(
+                PerfGitCacheHit(duration: .milliseconds(elapsedMilliseconds(since: historyLookupStartedAt)), operation: "history")
             )
             return cached
         }
@@ -1282,16 +1380,11 @@ package struct GitService: Sendable {
             tagDeletion: result?.tagDeletion,
             branchDeletion: result?.branchDeletion,
             historyRewrite: result?.historyRewrite,
-            warnings: result?.warnings ?? []
+            warnings: result?.warnings ?? [],
+            logReference: execution.flatMap { executionJournal?.takeFailureReference(operationID: $0.operationID) }
         )
-        performanceLogger.record(
-            GitPerformanceLogFormatter.command(
-                operation: operationName,
-                workingDirectory: workingDirectory,
-                arguments: commandResult.arguments,
-                durationMilliseconds: elapsedMilliseconds(since: startedAt),
-                succeeded: commandResult.succeeded
-            )
+        performanceLogger.emit(
+            PerfGitCommandFinished(duration: .milliseconds(elapsedMilliseconds(since: startedAt)), operation: String(operationName.prefix(while: { $0 != "(" })), succeeded: commandResult.succeeded)
         )
         return commandResult
     }
@@ -1301,43 +1394,39 @@ package struct GitService: Sendable {
     }
 
     func savedChangesSnapshot(stash: GitStash?, shelf: GitShelfEntry?, at root: URL) async -> Result<GitSavedChangesSnapshot, GitPatchFailure> {
-        await read { operations in
+        let performanceLogger = performanceLogger
+        return await read { operations in
             do {
                 var patches: [(String, String, String)] = []
                 let identity: String
                 if let stash {
                     guard let commit = operations.commit(at: root, hash: stash.reference) else {
-                        throw GitPatchFailure("Could not load saved changes")
+                        throw GitPatchFailure(L10n.string("Could not load saved changes"))
                     }
                     identity = commit.hash
-                    let result = operations.run(arguments: ["-c", "core.quotepath=false", "stash", "show", "--include-untracked", "--patch", "--binary", "--no-color", "--src-prefix=a/", "--dst-prefix=b/", "--no-ext-diff", "--no-textconv", commit.hash], workingDirectory: root.path, input: nil)
-                    guard result.exitCode == 0 else { throw GitPatchFailure(result.output) }
-                    patches = [("Stash", commit.parentHashes.first.map { String($0.prefix(8)) } ?? "HEAD", result.standardOutput ?? result.output)]
+                    let base = commit.parentHashes.first.map { String($0.prefix(8)) } ?? "HEAD"
+                    let files = try operations.savedStashFiles(at: root, reference: identity, base: base).get()
+                    try Task.checkCancellation()
+                    return .success(GitSavedChangesSnapshot(id: identity, repositoryRoot: root, files: files))
                 } else if let shelf {
                     identity = shelf.id.uuidString
                     patches = [("Staged", "HEAD", shelf.stagedPatch), ("Working tree", "Index", shelf.workingPatch)]
-                } else { throw GitPatchFailure("Select saved changes") }
+                } else { throw GitPatchFailure(L10n.string("Select saved changes")) }
                 var files: [GitSavedPatchFile] = []
                 for (version, base, patch) in patches {
-                    guard patch.utf8.count <= GitPatchContent.maximumByteCount else {
-                        throw GitPatchFailure("Patch files must be at most 32 MiB.")
-                    }
-                    // ponytail: one bounded Core/Git inspection per file; batch section metadata in Core if large shelves make this costly.
-                    for section in GitSavedChangesSnapshot.sections(in: patch) {
-                        try Task.checkCancellation()
-                        let metadata = try operations.inspectSavedPatch(at: root, patch: section).get()
-                        guard let file = metadata.files.first, metadata.files.count == 1 else {
-                            throw GitPatchFailure("Could not inspect saved file")
-                        }
-                        let status = section.contains("\nnew file mode ") ? "A" : section.contains("\ndeleted file mode ") ? "D" : file.originalPath != nil ? "R" : "M"
-                        files.append(GitSavedPatchFile(file: GitCommitFile(status: status, path: file.path), version: version, base: base, patch: section))
-                    }
+                    guard !patch.isEmpty else { continue }
+                    try Task.checkCancellation()
+                    let parsed = try operations.savedShelfFiles(at: root, patch: patch, version: version, base: base).get()
+                    files.append(contentsOf: parsed)
                 }
                 return .success(GitSavedChangesSnapshot(id: identity, repositoryRoot: root, files: files))
             } catch {
+                if !(error is CancellationError) {
+                    performanceLogger.emit(VcsShelfOperationFailed(error: LogFailure(domain: "GitSavedChanges", code: "load_failed"), stage: "load"))
+                }
                 return .failure(GitPatchFailure(error.localizedDescription))
             }
-        } ?? .failure(GitPatchFailure("Could not load saved changes"))
+        } ?? .failure(GitPatchFailure(L10n.string("Could not load saved changes")))
     }
 
     private func read<T: Sendable>(
@@ -1352,12 +1441,8 @@ package struct GitService: Sendable {
             GitExecutionSource.$current.withValue(source) { operation(operations) }
         }
         let result = await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
-        performanceLogger.record(
-            GitPerformanceLogFormatter.read(
-                operation: operationName,
-                durationMilliseconds: elapsedMilliseconds(since: startedAt),
-                succeeded: result != nil
-            )
+        performanceLogger.emit(
+            PerfGitReadFinished(duration: .milliseconds(elapsedMilliseconds(since: startedAt)), operation: String(operationName.prefix(while: { $0 != "(" })), succeeded: result != nil)
         )
         return result
     }
@@ -1367,9 +1452,8 @@ package struct GitService: Sendable {
         phase: String,
         durationMilliseconds: Int
     ) {
-        performanceLogger.record(
-            "[git-performance] operation=worktree-inspection phase=\(phase) worktree=\(GitPerformanceLogFormatter.redact(worktreeID)) duration_ms=\(durationMilliseconds)"
-        )
+        // Worktree IDs are paths in the UI; keep them out of channel identities.
+        performanceLogger.emit(PerfGitWorktreeInspected(duration: .milliseconds(durationMilliseconds), phase: phase, worktree: URL(fileURLWithPath: worktreeID)))
     }
 
     private func elapsedMilliseconds(since startedAt: ContinuousClock.Instant) -> Int {
@@ -1395,37 +1479,4 @@ package struct GitService: Sendable {
             _ = operations.cancel(operationID: operationID)
         }
     }
-}
-
-private enum GitPerformanceLogFormatter {
-    static func command(
-        operation: String,
-        workingDirectory: URL?,
-        arguments: [String],
-        durationMilliseconds: Int,
-        succeeded: Bool
-    ) -> String {
-        let command = GitConsoleCommandFormatter.commandLine(arguments: arguments)
-        let directory = workingDirectory?.path ?? "-"
-        return "[git-performance] operation=\(redact(operation)) duration_ms=\(durationMilliseconds) status=\(succeeded ? "success" : "failure") cwd=\(redact(directory)) command=\(redact(command))"
-    }
-
-    static func read(
-        operation: String,
-        durationMilliseconds: Int,
-        succeeded: Bool
-    ) -> String {
-        "[git-performance] operation=\(redact(operation)) duration_ms=\(durationMilliseconds) status=\(succeeded ? "success" : "failure") cache=miss"
-    }
-
-    static func cacheHit(operation: String, durationMilliseconds: Int) -> String {
-        "[git-performance] operation=\(redact(operation)) duration_ms=\(durationMilliseconds) status=success cache=hit"
-    }
-
-    static func redact(_ value: String) -> String {
-        GitConsoleRedactor.redact(value)
-            .replacingOccurrences(of: "\r", with: "\\r")
-            .replacingOccurrences(of: "\n", with: "\\n")
-    }
-
 }

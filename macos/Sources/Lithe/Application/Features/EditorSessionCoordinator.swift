@@ -6,6 +6,7 @@ import Foundation
 final class EditorSessionCoordinator {
     private let document: DocumentFeatureModel
     private let media: MediaDocumentFeatureModel
+    private let tabOrder: EditorTabOrderFeatureModel
     private var observations: [AnyCancellable]
 
     init(
@@ -16,6 +17,7 @@ final class EditorSessionCoordinator {
     ) {
         self.document = document
         self.media = media
+        self.tabOrder = tabOrder
         observations = [
             document.$activeDocumentID.dropFirst().sink { [weak media, weak terminalPlacement] id in
                 guard id != nil else { return }

@@ -142,6 +142,7 @@ private struct SearchEverywhereContent: View {
     let availableSize: CGSize
     @Environment(\.locale) private var locale
     @State private var searchFocused = false
+    @State private var inputFocusRequest = 0
     @State private var draftQuery: String?
     private var query: String {
         get { draftQuery ?? session.everywhereQuery }
@@ -175,6 +176,22 @@ private struct SearchEverywhereContent: View {
         nonmutating set { session.isEverywherePreviewVisible = newValue }
     }
     @State private var keyMonitor: Any?
+    @State private var panelSize: CGSize?
+    @State private var resizeStart: CGSize?
+
+    private var effectivePanelSize: CGSize {
+        let desired = panelSize ?? CGSize(width: LitheTheme.SearchEverywhere.preferredWidth,
+            height: LitheTheme.SearchEverywhere.maxResultsHeight + 84)
+        return CGSize(width: min(desired.width, max(0, availableSize.width - 32)),
+            height: min(hasQuery ? desired.height : 84, max(0, availableSize.height - 100)))
+    }
+
+    private func resizePanel(_ translation: CGSize) {
+        let start = resizeStart ?? effectivePanelSize
+        panelSize = ProjectReplacePanelGeometry.updated(CGRect(origin: .zero, size: start),
+            translation: translation, corner: .bottomTrailing,
+            in: CGSize(width: max(0, availableSize.width - 32), height: max(0, availableSize.height - 100))).size
+    }
 
     private enum SearchItem: Identifiable {
         case result(FileSearchResult)
@@ -262,17 +279,25 @@ private struct SearchEverywhereContent: View {
             scopeTabs
             searchField
             if hasQuery {
-                resultsWithPreview.frame(maxHeight: LitheTheme.SearchEverywhere.maxResultsHeight)
+                resultsWithPreview.frame(maxHeight: .infinity)
             }
         }
-        .frame(width: min(LitheTheme.SearchEverywhere.preferredWidth, max(0, availableSize.width - 32)),
-               height: min(hasQuery ? LitheTheme.SearchEverywhere.maxResultsHeight + 84 : 84,
-                           max(0, availableSize.height - 100)), alignment: .top)
+        .frame(width: effectivePanelSize.width, height: effectivePanelSize.height, alignment: .top)
         .background(LitheTheme.SearchEverywhere.background)
         .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.popupCornerRadius))
         .overlay {
             RoundedRectangle(cornerRadius: LitheTheme.Metrics.popupCornerRadius)
                 .strokeBorder(LitheTheme.SearchEverywhere.border, lineWidth: 1)
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if hasQuery {
+                ProjectReplaceCornerHandle(corner: .bottomTrailing,
+                    onStart: { resizeStart = effectivePanelSize },
+                    onChange: resizePanel,
+                    onEnd: { resizePanel($0); resizeStart = nil }, preservesWindowPosition: true)
+                    .frame(width: 14, height: 14)
+                    .accessibilityIdentifier("search-everywhere-resize")
+            }
         }
         .background(LitheCenteredPopup(isPresented: $editingExclusions,
             dialogTitle: L10n.string("Search exclusions", locale: locale), focusFirstTextField: true) {
@@ -283,6 +308,13 @@ private struct SearchEverywhereContent: View {
             installKeyMonitor()
         }
         .onDisappear { removeKeyMonitor() }
+        // beginSearchEverywhere publishes even when the popup is already visible.
+        // Read the seeded query, then ask AppKit to focus the existing input again.
+        .onReceive(session.$isSearchEverywhereVisible) { visible in
+            guard visible else { return }
+            draftQuery = session.everywhereQuery
+            inputFocusRequest &+= 1
+        }
         .onChange(of: query) { _ in
             selectedItemID = nil
             selectionRevealRevision &+= 1
@@ -311,6 +343,7 @@ private struct SearchEverywhereContent: View {
                 feature.clearSearchEverywhere()
                 return
             }
+            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
             try? await Task.sleep(for: .milliseconds(180))
             guard !Task.isCancelled else { return }
             await search(queryMode.workspaceQuery, scope == .text ? searchOptions : .default)
@@ -325,6 +358,7 @@ private struct SearchEverywhereContent: View {
                 } label: {
                     Text(LocalizedStringKey(item.rawValue))
                         .font(LitheTheme.uiFont(size: 13))
+                        .lineLimit(1)
                         .foregroundStyle(LitheTheme.searchFieldText)
                         .padding(.horizontal, 8)
                         .modifier(LitheToolWindowTabStyle(isSelected: scope == item, isActive: true))
@@ -377,6 +411,7 @@ private struct SearchEverywhereContent: View {
                 .foregroundStyle(LitheTheme.searchFieldPlaceholder)
                 .allowsHitTesting(false)
         }
+        .background(SearchEverywhereInputFocus(request: inputFocusRequest))
         .accessibilityLabel("Search Everywhere")
         .background(LitheToolWindowActivityTracker(isActive: $searchFocused))
         .padding(.horizontal, 5)
@@ -453,6 +488,7 @@ private struct SearchEverywhereContent: View {
             LitheTreeList(
                 Array(items.enumerated()), id: \.element.id,
                 selection: Binding(get: { selectedID }, set: { selectedItemID = $0 }),
+                multiline: scope == .text,
                 retainsSearchFocus: true
             ) { index, item in
                 itemRow(item, index: index, selected: item.id == selectedID)
@@ -510,30 +546,42 @@ private struct SearchEverywhereContent: View {
                     LitheIcon(kind: iconKind(for: result), size: 16)
                         .frame(width: 16)
 
-                    // 对齐 IDEA：名字和路径左侧连排，而不是把路径推到右端。
-                    Text(SearchEverywhereNameText.highlighted(result, selected: selected,
-                        foreground: session.everywhereGitStatus.change(relativePath: result.url.standardizedFileURL.path)?.fileNameColor
-                            ?? LitheTheme.primaryText))
-                        .font(LitheTheme.uiFont(size: 13))
-                        .foregroundStyle(LitheTheme.primaryText)
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-                    if showsLine, let line = result.line {
-                        Text(":\(line)")
-                            .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
-                            .foregroundStyle(LitheTheme.secondaryText)
-                            .fixedSize(horizontal: true, vertical: false)
-                    }
-                    Text(containerPath(for: result.url))
-                        .font(LitheTheme.uiFont(size: 13))
-                        .foregroundStyle(LitheTheme.secondaryText)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
                     if result.kind == .content {
-                        Text(result.preview)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(result.preview)
+                                .font(LitheTheme.uiFont(size: 13, design: .monospaced))
+                                .foregroundStyle(LitheTheme.primaryText)
+                                .lineLimit(1)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            HStack(spacing: 4) {
+                                Text(result.url.lastPathComponent)
+                                if let line = result.line { Text(":\(line)") }
+                                Text(containerPath(for: result.url)).truncationMode(.middle)
+                            }
                             .font(LitheTheme.uiFont(size: 10.5))
-                            .foregroundStyle(LitheTheme.tertiaryText)
+                            .foregroundStyle(LitheTheme.secondaryText)
                             .lineLimit(1)
+                        }
+                    } else {
+                        // 对齐 IDEA：名字和路径左侧连排，而不是把路径推到右端。
+                        Text(SearchEverywhereNameText.highlighted(result, selected: selected,
+                            foreground: session.everywhereGitStatus.change(relativePath: result.url.standardizedFileURL.path)?.fileNameColor
+                                ?? LitheTheme.primaryText))
+                            .font(LitheTheme.uiFont(size: 13))
+                            .foregroundStyle(LitheTheme.primaryText)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                        if showsLine, let line = result.line {
+                            Text(":\(line)")
+                                .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
+                                .foregroundStyle(LitheTheme.secondaryText)
+                                .fixedSize(horizontal: true, vertical: false)
+                        }
+                        Text(containerPath(for: result.url))
+                            .font(LitheTheme.uiFont(size: 13))
+                            .foregroundStyle(LitheTheme.secondaryText)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
                     }
 
                     Spacer(minLength: 12)
@@ -561,7 +609,7 @@ private struct SearchEverywhereContent: View {
         }
         .padding(.horizontal, 10)
         .frame(maxWidth: .infinity)
-        .frame(height: 24)
+        .frame(height: result.kind == .content ? 40 : 24)
         .litheContextMenu {
             [
                 .action("Open", systemImage: "doc.text", action: {
@@ -935,5 +983,65 @@ struct SearchEverywhereSourcePreview: View {
         guard let request = previewRequest else { return }
         previewRequest = nil
         releaseDocument(request.url, request.id)
+    }
+}
+
+/// Focuses the Search Everywhere input each time the popup is shown or reseeded.
+/// The popup panel selects restored text when it takes focus; for the seeded
+/// command prefix the caret goes after "/" so typing filters commands.
+private struct SearchEverywhereInputFocus: NSViewRepresentable {
+    let request: Int
+
+    func makeNSView(context: Context) -> SearchEverywhereInputFocusView { SearchEverywhereInputFocusView() }
+
+    func updateNSView(_ view: SearchEverywhereInputFocusView, context: Context) {
+        view.request(request)
+    }
+}
+
+final class SearchEverywhereInputFocusView: NSView {
+    private var pending = 0
+    private var handled = 0
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    func request(_ value: Int) {
+        pending = value
+        schedule()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        schedule()
+    }
+
+    private func schedule() {
+        guard pending != handled, window != nil else { return }
+        // Run after the popup finishes presenting, so its own focus and selection come first.
+        DispatchQueue.main.async { [weak self] in self?.apply() }
+    }
+
+    private func apply() {
+        guard pending != handled, let window,
+              let field = Self.textField(in: window.contentView, within: convert(bounds, to: nil))
+        else { return }
+        handled = pending
+        if field.currentEditor() == nil || window.firstResponder !== field.currentEditor() {
+            window.makeFirstResponder(field)
+        }
+        if field.stringValue == "/", let editor = field.currentEditor() {
+            editor.selectedRange = NSRange(location: 1, length: 0)
+        }
+    }
+
+    /// The search row also holds an icon and trailing accessories, so match the
+    /// editable field that lies inside this helper's frame rather than its center.
+    private static func textField(in view: NSView?, within rect: NSRect) -> NSTextField? {
+        guard let view else { return nil }
+        if let field = view as? NSTextField, field.isEditable,
+           rect.contains(field.convert(NSPoint(x: field.bounds.midX, y: field.bounds.midY), to: nil)) {
+            return field
+        }
+        return view.subviews.lazy.compactMap { textField(in: $0, within: rect) }.first
     }
 }

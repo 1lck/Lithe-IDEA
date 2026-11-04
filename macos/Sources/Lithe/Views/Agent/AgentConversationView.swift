@@ -478,6 +478,7 @@ private struct AgentConnectionView: View {
             while !Task.isCancelled {
                 feature.refreshQuota()
                 do { try await Task.sleep(for: .seconds(60)) }
+                // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
                 catch { return }
             }
         }

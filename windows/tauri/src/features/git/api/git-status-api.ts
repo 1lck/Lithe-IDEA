@@ -1,3 +1,4 @@
+import { frontendTrace } from "@/utils/frontend-trace";
 import type { GitExecutionSource } from "@/platform/git-execution-events";
 import { invoke as tauriInvoke } from "@/platform/tauri-core";
 import { emitGitChanged } from "../events/git-events";
@@ -378,23 +379,48 @@ export const discardFileChanges = async (repoPath: string, filePath: string): Pr
   }
 };
 
+export interface GitRollbackChange {
+  path: string;
+  originalPath?: string;
+  status: string;
+}
+
+interface GitRollbackStep {
+  operation: "unstage" | "discard" | "discardAll";
+  paths: string[];
+}
+
 export const rollbackFilesChanges = async (
   repoPath: string,
-  filePaths: string[],
+  changes: GitRollbackChange[],
 ): Promise<void> => {
-  const uniqueFilePaths = [...new Set(filePaths)];
-  if (uniqueFilePaths.length === 0) return;
-
+  if (changes.length === 0) return;
   const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
-  await tauriInvoke("git.write", {
-    repoPath: resolvedRepoPath,
-    operation: "discardAll",
-    paths: uniqueFilePaths,
-  });
-  emitGitChanged({
-    repoPath: resolvedRepoPath,
-    scopes: ["working-tree"],
-    source: "rollback-files",
+  await enqueueStagingWrite(resolvedRepoPath, async () => {
+    const { steps } = await tauriInvoke<{ steps: GitRollbackStep[] }>("git.rollbackPrepare", {
+      repoPath: resolvedRepoPath,
+      changes,
+      deleteAddedFiles: false,
+    });
+    let attempted = false;
+    try {
+      for (const step of steps) {
+        attempted = true;
+        await tauriInvoke("git.write", {
+          repoPath: resolvedRepoPath,
+          operation: step.operation,
+          paths: step.paths,
+        });
+      }
+    } finally {
+      // Git can modify some paths before reporting an error.
+      if (attempted)
+        emitGitChanged({
+          repoPath: resolvedRepoPath,
+          scopes: ["working-tree"],
+          source: "rollback-files",
+        });
+    }
   });
 };
 
@@ -445,3 +471,95 @@ export const initRepository = async (repoPath: string): Promise<boolean> => {
     return false;
   }
 };
+
+export interface GitCommitSelectionRepository {
+  root: string;
+  selected: GitRollbackChange[];
+}
+
+/** Hold the existing per-repository write queues while Core prepares every index. */
+export async function prepareCommitSelection(
+  repositories: GitCommitSelectionRepository[],
+  operationId: string,
+  signal: AbortSignal,
+): Promise<void> {
+  const resolved = await Promise.all(
+    repositories.map(async (repository) => ({
+      root: await resolveRepositoryPathOrThrow(repository.root),
+      selected: repository.selected,
+    })),
+  );
+  const unique = new Map<string, GitCommitSelectionRepository>();
+  for (const repository of resolved) {
+    if (unique.has(repository.root)) throw new Error("GIT_COMMIT_SELECTION_STALE");
+    unique.set(repository.root, repository);
+  }
+  const ordered = [...unique.values()].sort((left, right) => left.root.localeCompare(right.root));
+  const run = async (index: number): Promise<void> => {
+    if (signal.aborted) throw new DOMException("Cancelled", "AbortError");
+    if (index < ordered.length) {
+      await enqueueStagingWrite(ordered[index]!.root, () => run(index + 1));
+      return;
+    }
+    const cancel = () => {
+      void tauriInvoke("core_cancel", { operationId }).catch(() => {
+        frontendTrace("warn", "git.staging", "Could not cancel commit selection");
+      });
+    };
+    signal.addEventListener("abort", cancel, { once: true });
+    let reserved = false;
+    let attempted = false;
+    try {
+      if (signal.aborted) throw new DOMException("Cancelled", "AbortError");
+      reserved = await tauriInvoke<boolean>("core_reserve_commit_selection", { operationId });
+      if (!reserved) throw new Error("GIT_COMMIT_SELECTION_STALE");
+      if (signal.aborted) throw new DOMException("Cancelled", "AbortError");
+      attempted = true;
+      await tauriInvoke(
+        "git.prepareCommitSelection",
+        { repositories: ordered, operationId },
+        { gitExecutionSource: "user" },
+      );
+      if (signal.aborted) throw new DOMException("Cancelled", "AbortError");
+    } finally {
+      signal.removeEventListener("abort", cancel);
+      if (reserved) {
+        await tauriInvoke("core_release_commit_selection", { operationId }).catch(() => {
+          frontendTrace("warn", "git.staging", "Could not release commit selection");
+        });
+      }
+      // A failed or cancelled request can have already changed an index.
+      if (attempted)
+        for (const repository of ordered)
+          emitGitChanged({
+            repoPath: repository.root,
+            scopes: ["working-tree"],
+            source: "prepare-commit-selection",
+          });
+    }
+  };
+  await run(0);
+}
+
+/** Reconcile only selected additions that are missing after deletion. */
+export async function reconcileDeletedSelection(
+  repoPath: string,
+  changes: GitRollbackChange[],
+): Promise<void> {
+  const root = await resolveRepositoryPathOrThrow(repoPath);
+  await enqueueStagingWrite(root, async () => {
+    try {
+      await tauriInvoke(
+        "git.reconcileDeletedSelection",
+        { root, changes },
+        { gitExecutionSource: "user" },
+      );
+    } finally {
+      emitGitChanged({
+        repoPath: root,
+        scopes: ["working-tree"],
+        source: "reconcile-deleted-selection",
+      });
+    }
+  });
+}

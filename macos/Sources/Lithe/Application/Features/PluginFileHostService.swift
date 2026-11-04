@@ -108,7 +108,11 @@ final class PluginFileHostService: PluginHostServiceHandling {
             }
             _ = try PluginHostAPIContext(call, contexts: contexts)
             return .success(result)
-        } catch { return .failure(PluginHostAPIValues.failure(error)) }
+        } catch {
+            var failure = PluginHostAPIValues.failure(error)
+            failure.logError = error
+            return .failure(failure)
+        }
     }
 
     private static func resource(_ root: String, _ path: String) -> ToolingJSONValue {

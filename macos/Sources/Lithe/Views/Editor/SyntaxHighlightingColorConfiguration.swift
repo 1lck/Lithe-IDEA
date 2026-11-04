@@ -159,16 +159,18 @@ struct SyntaxHighlightingColorConfiguration {
         let formats: [String: SyntaxHighlightingColorOverrides]
     }
 
-    static let bundled: SyntaxHighlightingColorConfiguration = {
+    static let bundled: SyntaxHighlightingColorConfiguration = loaded.0
+    static var loadError: (any Error)? { loaded.1 }
+    private static let loaded: (SyntaxHighlightingColorConfiguration, (any Error)?) = {
         do {
             guard let url = SyntaxHighlightingResources.colorConfigurationURL else {
                 throw SyntaxHighlightingColorConfigurationError.missingBundledConfiguration
             }
-            return try SyntaxHighlightingColorConfiguration(data: Data(contentsOf: url))
+            return (try SyntaxHighlightingColorConfiguration(data: Data(contentsOf: url)), nil)
+        // log-exempt: 同一次失败已经记录过：保留原始 loadError，由 LitheApp 启动边界记录 editor.syntax.configuration_failed
         } catch {
             // Invalid packaged colors must not prevent the editor from rendering text.
-            NSLog("Syntax highlighting color configuration could not be loaded: %@", String(describing: error))
-            return SyntaxHighlightingColorConfiguration()
+            return (SyntaxHighlightingColorConfiguration(), error)
         }
     }()
 

@@ -34,6 +34,52 @@
   ],
   "excludedResources": [
     {
+      "id": "editor-keymap-provider-build",
+      "reusable": false,
+      "locations": [
+        ".artifacts/editor-keymap-provider-target/",
+        "Plugins/mac/Official/EditorKeymapImport/target/",
+        ".artifacts/cargo-home/git/",
+        ".artifacts/keymap-plugin-assembly/",
+        "Lithe.app/Contents/Resources/OfficialPlugins/dev.lithe.plugin.editor-keymap-import/"
+      ],
+      "identity": "Mutable Cargo outputs and Git checkouts depend on the pinned provider Cargo.lock and SDK Git revision, rustc, platform and target architecture; they have no sealed reusable identity stamp. The installed plugin is signed as part of its app package.",
+      "reason": "Rebuild in each worktree using its own target and Cargo home; fetch the SDK at its pinned Git revision. Never copy or symlink mutable Cargo state, Git checkouts or an assembled plugin across worktrees. The bundled executable and licenses are written only during packaging before signing and remain read-only at runtime; import snapshots are ephemeral user-selected files outside the app bundle."
+    },
+    {
+      "id": "ci-rust-compilation-state",
+      "reusable": false,
+      "locations": [
+        "rust/target/",
+        "rust/target/macos/",
+        "windows/tauri/src-tauri/target/"
+      ],
+      "identity": "CI-only Swatinem/rust-cache dependency outputs: OS, architecture, rustc, Cargo manifests/lockfiles, environment and target-directory layout define the key. Incremental and workspace crate outputs are removed by the action; these directories have no sealed local worktree identity.",
+      "reason": "Never copy at any worktree reuse stage. Restore only within CI using the action identity, then let Cargo validate every unit. Each worktree owns mutable compilation state and cleanup; only verified Cargo download archives can be copied through the resource validator. Build-time outputs do not change installed bundles, code signatures or Sparkle delta baselines."
+    },
+    {
+      "id": "markdown-preview-assets",
+      "reusable": false,
+      "locations": [
+        "macos/Sources/Lithe/Resources/MarkdownPreview/",
+        "<app-bundle>/Contents/Resources/Lithe_Lithe.bundle/MarkdownPreview/"
+      ],
+      "identity": "Git-tracked preview template and offline vendor scripts, styles, fonts and notices. KaTeX/mhchem versions, source archive integrity and extracted mhchem SHA-256 are fixed in THIRD_PARTY_NOTICES.md. Independent of platform architecture/toolchain; generated bundle copies have no reusable identity stamp.",
+      "reason": "Check out source via Git and copy this checkout's resources at build time before signing. Never copy another worktree's generated bundle or download/patch preview libraries at runtime. All rendering is in memory and the packaged files stay read-only, preserving code signatures and Sparkle delta baselines. Every reuse copy stage rejects this resource."
+    },
+    {
+      "id": "markdown-plantuml-assets",
+      "reusable": false,
+      "locations": [
+        "macos/Sources/Lithe/Resources/MarkdownPreview/vendor/plantuml/",
+        "macos/Sources/Lithe/Resources/MarkdownPreview/plantuml.html",
+        "macos/Sources/Lithe/Resources/MarkdownPreview/plantuml-renderer.js",
+        "<app-bundle>/Contents/Resources/Lithe_Lithe.bundle/MarkdownPreview/"
+      ],
+      "identity": "Git-tracked @plantuml/core 1.2026.9 MIT JavaScript engine with built-in Smetana layout, fixed archive SHA-512, extracted SHA-256 and source revision in THIRD_PARTY_NOTICES.md. No Graphviz/Viz, external include loader or architecture/toolchain-specific runtime. Generated bundle copies and live render requests have no reusable identity stamp.",
+      "reason": "Check out immutable inputs via Git and package this checkout's renderer before signing. Never copy another worktree's generated bundle or render state. Each request owns a nonpersistent WebView with an eight-second deadline; source, callbacks and passive SVG image live only in memory and are released on completion, cancellation or preview teardown. No runtime download, persistent cache or installation-directory write is allowed; signatures and Sparkle delta baselines stay unchanged. Every reuse stage rejects this resource."
+    },
+    {
       "id": "swiftpm-build-state",
       "reusable": false,
       "locations": [
@@ -278,7 +324,7 @@
       "locations": [
         "<system-temp>/lithe-codex-retry-<UUID>/"
       ],
-      "identity": "First-party embedded source from the current host revision and one Agent launch's native executable/retry budget. Platform chooses the system temporary directory; no reusable version, architecture, toolchain or publication identity stamp. The same first-party launcher restores native context reports through a per-launch loopback capability and per-load tickets; those are memory-only process ownership, not reusable resources.",
+      "identity": "First-party embedded source from the current host revision and one Agent launch's native executable/retry budget and explicit provider admission route. Platform chooses the system temporary directory; no reusable version, architecture, toolchain or publication identity stamp. The same first-party launcher restores native context reports through a per-launch loopback capability and per-load tickets; those are memory-only process ownership, not reusable resources.",
       "reason": "The Agent process owner creates the helper before spawn and removes it on preparation failure, cancellation, launch failure or after stopping the process tree. It contains no credentials. Never copy or share it at any worktree stage; installed adapters, user CLI/configuration and signed bundles stay read-only. Subscription connections use the same temporary launcher for history context while retaining native retry settings. The loopback listener, capability and captured reports expire with the owning process and must never be copied."
     },
     {
@@ -317,6 +363,8 @@
       "id": "application-log-state",
       "reusable": false,
       "locations": [
+        "<platform-log-root>/sessions/<session>/{app,editor,lsp,vcs,plugins,remote,run,debug,perf}/",
+        "<platform-log-root>/sessions/<session>/plugins/<id>/files/",
         "<platform-log-root>/{application,language,run,git,plugins,performance}/",
         "<platform-log-root>/lithe.log",
         "<platform-cache>/Lithe/diagnostics-export/<snapshot>/",
@@ -324,7 +372,7 @@
         "<user-export-parent>/.lithe-diagnostics-<snapshot>.zip"
       ],
       "identity": "Mutable distribution-, process-session- and operation-owned diagnostic evidence. No reliable version/platform/architecture/toolchain identity stamp; immutable previews contain redacted bytes for one explicit confirmation only.",
-      "reason": "Native adapters create module logs in user log storage, expire at 30 days and enforce disk budgets. macOS owns one cache staging directory until export/cancel; Windows keeps at most four five-minute previews only in memory and atomically publishes a destination-owned temporary ZIP. Never reuse, copy or share at any worktree stage, and never write into signed packages or installed resources."
+      "reason": "Native adapters create module logs in user log storage, expire at 30 days and enforce disk budgets. macOS owns one cache staging directory until export/cancel; Windows keeps at most four five-minute previews only in memory and atomically publishes a destination-owned temporary ZIP. Never reuse, copy or share at any worktree stage, and never write into signed packages or installed resources. PR3 macOS creates session plugin files with mode 0700 using Core plugin_files_path and descriptor-relative no-follow traversal. Files belong to that log session and expire under the existing retention plan; they are not build/download inputs, and no version, platform, architecture or toolchain combination makes them reusable."
     },
     {
       "id": "mcp-registry-metadata",
@@ -436,10 +484,14 @@
       "locations": [
         ".artifacts/editor/macos/",
         ".artifacts/monaco-workbench/test-assets/",
-        ".artifacts/monaco-probe/assets/"
+        ".artifacts/monaco-probe/assets/",
+        "<editor-memory>/plugin-grammar-workers-and-tokens",
+        "<editor-memory>/plugin-editor-action-leases",
+        "frontend/editor/vendor/",
+        "<editor-memory>/bundled-textmate-workers-and-tokens"
       ],
-      "identity": "Current source palettes, upstream pinned theme revisions, license/NOTICE files, Monaco and Bun versions; no validated build identity stamp",
-      "reason": "Rebuild JavaScript and bundled theme licenses together from this checkout. No copy stage or runtime writes; packaged assets remain read-only and preserve code signatures and Sparkle delta baselines."
+      "identity": "Current source palettes, upstream pinned theme revisions, license/NOTICE files, Monaco and Bun versions; no validated build identity stamp; Git-owned Make/CMake/Groovy grammar bytes and pinned upstream commits in vendor/NOTICE.txt",
+      "reason": "Rebuild JavaScript and bundled theme licenses together from this checkout. No copy stage or runtime writes; packaged assets remain read-only and preserve code signatures and Sparkle delta baselines. Plugin grammars compile only in terminable workers loaded from the same checkout-built textmate-worker.js. Decoded package resources, tokens and action leases stay in process memory; no reusable identity stamp or runtime bundle writes. Basic TextMate grammars are copied by each checkout build; workers and token state remain memory-only. No grammar download, extracted cache or cross-worktree copy is allowed."
     },
     {
       "id": "plugin-host-runtime-state",
@@ -459,6 +511,17 @@
       ],
       "identity": "Worktree-owned frontend perf bundles, local baselines and CPU profiles. They follow that worktree's sources and machine and carry no identity stamp.",
       "reason": "Never copy or share this state at any worktree reuse stage. A bundle or baseline from another worktree would compare different sources. run-windows-perf.mjs rebuilds the bundle in its own worktree; nothing here reaches an app bundle, install directory or Sparkle delta baseline."
+    },
+    {
+      "id": "shared-logging",
+      "reusable": false,
+      "locations": [
+        "shared/logging/",
+        "macos/Sources/LitheModuleAPI/Logging/LogEvents.generated.swift",
+        "rust/lithe-core/src/diagnostics/catalog_generated.rs"
+      ],
+      "identity": "Git-owned event catalog and checked-in generated source bytes from the current revision. No sealed version/platform/architecture/toolchain reuse identity stamp.",
+      "reason": "Generate and check with scripts/logging/generate-log-events.mjs in each target worktree before compilation. Every validation and copy stage rejects cross-worktree reuse. No download or cache; compiled metadata and Swift event values perform no runtime I/O and never change code signatures or Sparkle delta baselines."
     }
   ]
 }

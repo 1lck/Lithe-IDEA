@@ -201,6 +201,11 @@ public enum BuiltInPluginCatalog {
 /// of its language and process declarations. Retired official plugins stay
 /// listed so installed copies keep that pinned trust policy.
 public enum OfficialPluginCatalog {
+    /// Host-pinned trust for an official package, including non-language plugins.
+    public struct TrustPolicy: Equatable, Sendable {
+        public let signatureRequirement: PluginSignatureRequirement
+        public let bundledSignatureRequirement: PluginSignatureRequirement?
+    }
     public enum Distribution: Equatable, Sendable {
         /// Shipped inside the application bundle and sealed by its signature.
         case bundled
@@ -237,6 +242,7 @@ public enum OfficialPluginCatalog {
     public static let phpPluginID = PluginID("dev.lithe.plugin.php-support")
     public static let goPluginID = PluginID("dev.lithe.plugin.go-support")
     public static let javaPluginID = PluginID("dev.lithe.plugin.java-support")
+    public static let editorKeymapImportPluginID = PluginID("dev.lithe.plugin.editor-keymap-import")
 
     public static let entries: [Entry] = [
         Entry(
@@ -274,6 +280,19 @@ public enum OfficialPluginCatalog {
 
     public static func entry(for id: PluginID) -> Entry? {
         entries.first { $0.id == id }
+    }
+
+    /// Language suggestions use `entries`; other official packages still need
+    /// an explicit host trust policy without pretending to own a language.
+    public static func trustPolicy(for id: PluginID) -> TrustPolicy? {
+        if let entry = entry(for: id) {
+            return TrustPolicy(signatureRequirement: entry.signatureRequirement,
+                               bundledSignatureRequirement: entry.bundledSignatureRequirement)
+        }
+        if id == editorKeymapImportPluginID {
+            return TrustPolicy(signatureRequirement: .publisherPackage, bundledSignatureRequirement: .sameTeamAsHost)
+        }
+        return nil
     }
 
     /// Entries still published as official plugins, which the host may
@@ -365,6 +384,24 @@ public enum LanguageExtensionModuleManifests {
         ModuleManifest(
             id: .debugAdaptersExtension(pluginID),
             displayName: "\(displayName) Debugging",
+            scope: .workspace,
+            defaultState: enabledByDefault ? .enabled : .disabled,
+            activationPolicy: .onDemand,
+            dependencies: [.module(.workspace)]
+        )
+    }
+
+    /// One module for all language grammars of a plugin (`languages` 2). It
+    /// owns no process: while it is enabled the editor highlights the
+    /// plugin's languages with their grammars.
+    public static func grammars(
+        pluginID: String,
+        displayName: String,
+        enabledByDefault: Bool = false
+    ) -> ModuleManifest {
+        ModuleManifest(
+            id: .grammarsExtension(pluginID),
+            displayName: displayName,
             scope: .workspace,
             defaultState: enabledByDefault ? .enabled : .disabled,
             activationPolicy: .onDemand,

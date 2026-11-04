@@ -2,6 +2,7 @@ import LitheModuleAPI
 import AppKit
 import SwiftUI
 import LitheGitModule
+import LitheWorkspaceModule
 
 /// Version Control › Git. Ordered the way people set Git up: the program and
 /// credentials, then who commits, then how the repository syncs with its
@@ -21,11 +22,14 @@ struct GitSettingsPage: View {
                     feature: feature,
                     execution: feature.executionSettings,
                     identity: feature.identitySettings,
-                    settings: settings
+                    settings: settings,
+                    workspace: model.workspaceFeature
                 )
             } else {
                 VStack(alignment: .leading, spacing: 0) {
-                    GitProgramSection(settings: settings, execution: nil) { EmptyView() }
+                    GitProgramSection(settings: settings, execution: nil) {
+                        WorkspaceIndexingSettingsView(feature: model.workspaceFeature)
+                    }
                     GitLocalChangesSection(settings: settings)
                 }
             }
@@ -43,6 +47,7 @@ private struct GitSettingsLoadedPage: View {
     @ObservedObject var execution: GitExecutionSettingsFeatureModel
     @ObservedObject var identity: GitRepositorySetupFeatureModel
     @ObservedObject var settings: AppSettings
+    @ObservedObject var workspace: WorkspaceFeatureModel
     @State private var scope = GitIdentityScope.local
     @State private var remoteURL: String?
     @State private var showsKeys = false
@@ -67,6 +72,7 @@ private struct GitSettingsLoadedPage: View {
 
             GitProgramSection(settings: settings, execution: execution) {
                 configurationRows(where: { $0.hasPrefix("credential.") })
+                WorkspaceIndexingSettingsView(feature: workspace)
             }
 
             LitheSettingsSection(title: "Commit", accessory: {

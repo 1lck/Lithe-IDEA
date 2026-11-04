@@ -80,6 +80,23 @@ Maven 安装目录。做法参考 OpenIDEA（Apache-2.0），出处写在仓库�
   Scoop（`apps/*/current`）、`Semeru`、`OpenJDK` 目录；Maven 增加 mise、asdf、SDKMAN、
   Scoop，排在显式配置、wrapper 和 `PATH` 之后，不会抢走它们。
 
+### 项目 JDK 还必须传给 JDT（#1618）
+
+运行配置选对 JDK，并不代表语言服务也选对。现在 Windows 先只读 `runConfig.inspect`
+获得项目工具链，再通过现有 `resolve_java_home` / `select_project_java` 选择；macOS
+复用 `ProjectRuntimeService` 的项目选择。两端都把选择标记送入共享 Core，由 Core
+生成 JDT 官方的 `java.configuration.runtimes[].default`。自定义目录也要探测并加入候选，
+相同 Java 主版本的另一个安装不能抢走显式选择。
+
+例如服务进程使用打包 JDK 21、项目需要 25，服务仍用 21 启动，项目默认 VM 指向 25。
+不要为此替换服务进程的打包 JDK，也不要让 LSP 另写一套版本优先级。
+参考 OpenIdea `b3abc8edd11a2869e3361c66c73e6464714a6c0f` 的
+`crates/ide-sdk/src/java.rs` 中服务器与项目 JDK 分离、注册默认 runtime 的设计；本次独立实现
+接入现有 Lithe 选择器，没有复制上游代码。未配置默认标记的旧客户端保持兼容。
+此变化只改变内存中的启动配置，不写发行资源或增加缓存目录，不影响签名和 Sparkle delta。
+共享 fixture `shared/fixtures/lsp/java-project-runtimes-v1.json` 覆盖同主版本竞争、重复默认、
+无效默认与旧客户端；平台测试验证实际项目设置的传递。
+
 ## 考虑过的备选方案
 
 - **继续逐个工具补 `PATH`（#1492 的做法）**：改动小，但每种工具、每个入口都要再补，

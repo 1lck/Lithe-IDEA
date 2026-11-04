@@ -55,7 +55,7 @@ private struct ProjectPreparationContent: View {
                     }
                     Button(settings.language.localizedString("native.inline.viewLogs")) {
                         showingDetails = false
-                        model.showSettings(category: .diagnostics)
+                        model.openLogs()
                     }
                     if model.alwaysContinuesAfterJavaBuildFailures {
                         Divider()

@@ -224,7 +224,10 @@ fn write_copy(directory: &Path, prefix: &str, document: &str) -> Result<PathBuf,
             })
         })
         .map_err(|error| {
-            let _ = std::fs::remove_file(&staging);
+            // This boundary keeps the primary result; WARN exposes leftover staging.
+            let mut cleanup = crate::diagnostics::core_events::StorageCleanup::default();
+            cleanup.observe(std::fs::remove_file(&staging));
+            cleanup.finish("maven-settings");
             CoreError::new(
                 ErrorCode::ProcessStartFailed,
                 "Could not write the generated Maven settings.",

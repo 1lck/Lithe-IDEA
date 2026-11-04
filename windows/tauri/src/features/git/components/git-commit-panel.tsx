@@ -43,6 +43,7 @@ import { COMMIT_MESSAGE_DEFAULT_HEIGHT } from "../stores/git-commit-panel-prefer
 
 interface GitCommitPanelProps {
   pathScope?: WorkspaceCommitPathScope;
+  validateCommitScope?: () => Promise<boolean>;
   includeParentReferences?: boolean;
   commitScopeError?: string;
   selectedFiles: GitFile[];
@@ -107,6 +108,7 @@ function buildCommitLegend(files: GitFile[]): CommitLegendChunk[] {
 
 const GitCommitPanel = ({
   pathScope,
+  validateCommitScope,
   includeParentReferences = true,
   commitScopeError,
   selectedFiles,
@@ -149,6 +151,34 @@ const GitCommitPanel = ({
   const workspaceReady = useWorkspaceReady(workspaceId);
   const isCurrentWorkspace = workspaceReady && workspaceId === activeWorkspaceId;
   const setDraftOwner = useWorkspaceCommitStore((state) => state.setDraftOwner);
+  const [isCheckingCommit, setIsCheckingCommit] = useState(false);
+  const commitGate = useRef<symbol | null>(null);
+  const liveCommit = useRef({
+    isCurrentWorkspace,
+    workspaceId,
+    workspacePath,
+    repoPath,
+    currentBranch,
+    amend,
+    commitMessage,
+    includeParentReferences,
+  });
+  liveCommit.current = {
+    isCurrentWorkspace,
+    workspaceId,
+    workspacePath,
+    repoPath,
+    currentBranch,
+    amend,
+    commitMessage,
+    includeParentReferences,
+  };
+  useEffect(() => {
+    setIsCheckingCommit(false);
+    return () => {
+      commitGate.current = null;
+    };
+  }, [workspaceId, workspacePath, repoPath]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Keyboard submission keeps actionable validation even while empty buttons are disabled.
@@ -197,6 +227,7 @@ const GitCommitPanel = ({
   const handleCommit = async (pushAfterCommit = false) => {
     if (
       !isCurrentWorkspace ||
+      commitGate.current ||
       commitScopeError ||
       isStaging ||
       commitDiffWritePending() ||
@@ -214,17 +245,53 @@ const GitCommitPanel = ({
       return;
     }
     if (!repoPath) return;
+    const gate = Symbol("commit-validation");
+    commitGate.current = gate;
+    setIsCheckingCommit(true);
     setCommitHint(null);
-    setDraftOwner(repoPath);
     setError(null);
-    await workflow.prepare({
-      repositories: workspaceCommitBindings(workspacePath, repositoryPaths),
-      message: commitMessage.trim(),
-      amend,
-      push: pushAfterCommit,
-      includeParentReferences,
-      pathScope,
-    });
+    const captured = liveCommit.current;
+    try {
+      if (validateCommitScope && !(await validateCommitScope())) {
+        if (commitGate.current === gate) setError(t("vcs.commitFiles.stagingChanged"));
+        return;
+      }
+      const current = liveCommit.current;
+      const latest = workflow.getState();
+      if (
+        commitGate.current !== gate ||
+        !current.isCurrentWorkspace ||
+        current.workspaceId !== captured.workspaceId ||
+        current.workspacePath !== captured.workspacePath ||
+        current.repoPath !== captured.repoPath ||
+        current.currentBranch !== captured.currentBranch ||
+        current.amend !== captured.amend ||
+        current.commitMessage !== captured.commitMessage ||
+        current.includeParentReferences !== captured.includeParentReferences ||
+        commitDiffWritePending() ||
+        latest.busy ||
+        latest.review ||
+        latest.pushTargetPrompt ||
+        (latest.session && !latest.session.succeeded)
+      )
+        return;
+      setDraftOwner(repoPath);
+      await workflow.prepare({
+        repositories: workspaceCommitBindings(workspacePath, repositoryPaths),
+        message: commitMessage.trim(),
+        amend,
+        push: pushAfterCommit,
+        includeParentReferences,
+        pathScope,
+      });
+    } catch {
+      if (commitGate.current === gate) setError(t("vcs.commitFiles.stagingChanged"));
+    } finally {
+      if (commitGate.current === gate) {
+        commitGate.current = null;
+        setIsCheckingCommit(false);
+      }
+    }
   };
 
   const handleRetry = () => {
@@ -259,9 +326,14 @@ const GitCommitPanel = ({
     Boolean(batch.pushTargetPrompt) ||
     Boolean(batch.session && !batch.session.succeeded) ||
     isCommitting ||
+    isCheckingCommit ||
     isGenerating;
   const isGenerateDisabled =
-    selectedFilesCount === 0 || isGenerating || isCommitting || !aiSettings.enabled;
+    selectedFilesCount === 0 ||
+    isGenerating ||
+    isCommitting ||
+    isCheckingCommit ||
+    !aiSettings.enabled;
   const composerButtonClassName =
     "git-commit-ai shrink-0 border border-control-border bg-checkbox-background leading-none text-foreground shadow-none hover:bg-accent [&_svg]:size-4";
 
@@ -301,7 +373,12 @@ const GitCommitPanel = ({
               aria-label={t("git.amend") + t("git.amendLastCommit")}
               checked={amend}
               onCheckedChange={setAmend}
-              disabled={isCommitting || Boolean(batch.review) || Boolean(batch.pushTargetPrompt)}
+              disabled={
+                isCommitting ||
+                isCheckingCommit ||
+                Boolean(batch.review) ||
+                Boolean(batch.pushTargetPrompt)
+              }
             />
             <span>
               {t("git.amend")}
@@ -375,10 +452,9 @@ const GitCommitPanel = ({
           <div className="max-h-40 overflow-auto px-3 py-2 ui-text-sm" aria-live="polite">
             {Object.entries(batch.session.results).map(([id, result]) => {
               const key = `git.workspaceCommit.${result.status}`;
-              const label =
-                Object.prototype.hasOwnProperty.call(getLocaleCatalog("en-US"), key)
-                  ? (key as TranslationKey)
-                  : "git.workspaceCommit.attention";
+              const label = Object.prototype.hasOwnProperty.call(getLocaleCatalog("en-US"), key)
+                ? (key as TranslationKey)
+                : "git.workspaceCommit.attention";
               return (
                 <div key={id} className="break-words">
                   <strong>{id}</strong>: {t(label)}
@@ -451,7 +527,7 @@ const GitCommitPanel = ({
           style={{
             height: `min(var(--git-commit-message-height, ${COMMIT_MESSAGE_DEFAULT_HEIGHT}px), var(--git-commit-message-max-height, 640px), ${COMMIT_MESSAGE_MAX_VIEWPORT_RATIO * 100}vh)`,
           }}
-          disabled={isCommitting}
+          disabled={isCommitting || isCheckingCommit}
         />
       </SidebarComposerBody>
 

@@ -7,6 +7,17 @@ import type {
 } from "../types/git-history-rewrite.types";
 import { resolveRepositoryPathOrThrow } from "./git-repo-api";
 
+export interface GitHistoryActionCapabilities {
+  head: string | null;
+  canCherryPick: boolean;
+  canUndo: boolean;
+  canSquash: boolean;
+}
+
+export function getGitHistoryActionCapabilities(root: string, revisions: string[], operationId: string) {
+  return invoke<GitHistoryActionCapabilities>("git.historyActionCapabilities", {root, revisions, operationId}, {gitExecutionSource: "background"});
+}
+
 export async function getGitHistoryRewritePreview(
   repoPath: string,
   operation: GitHistoryRewriteOperation,

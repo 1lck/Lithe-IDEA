@@ -38,6 +38,8 @@ const DEBUG_ADAPTER_LANGUAGE_SERVER_FIXTURE: &str =
 const DEBUG_ADAPTER_REMOTE_ATTACH_FIXTURE: &str =
     contract_file!("fixtures/debug-adapter-remote-attach.plugin.json");
 const DEBUG_ADAPTER_REJECTIONS: &str = contract_file!("fixtures/debug-adapter-rejections.json");
+const EDITOR_ACTIONS_FIXTURE: &str = contract_file!("fixtures/editor-actions.plugin.json");
+const GRAMMAR_FIXTURE: &str = contract_file!("fixtures/language-grammar.plugin.json");
 const INVALID_MANIFESTS: &str = contract_file!("fixtures/invalid-manifests.json");
 const COMMAND_PLANS: &str = contract_file!("fixtures/command-plans.json");
 const RUNTIME_VERSIONS: &str = contract_file!("fixtures/runtime-versions.json");
@@ -66,6 +68,7 @@ fn fixture(name: &str) -> Value {
         "debug-adapter.plugin.json" => DEBUG_ADAPTER_FIXTURE,
         "debug-adapter-language-server.plugin.json" => DEBUG_ADAPTER_LANGUAGE_SERVER_FIXTURE,
         "debug-adapter-remote-attach.plugin.json" => DEBUG_ADAPTER_REMOTE_ATTACH_FIXTURE,
+        "language-grammar.plugin.json" => GRAMMAR_FIXTURE,
         other => panic!("unknown fixture {other}"),
     };
     serde_json::from_str(source).expect("fixture manifest is JSON")
@@ -89,6 +92,8 @@ fn contract_fixtures_and_official_plugins_validate() {
         WORKSPACE_BACKEND_FIXTURE,
         DEBUG_ADAPTER_FIXTURE,
         DEBUG_ADAPTER_REMOTE_ATTACH_FIXTURE,
+        GRAMMAR_FIXTURE,
+        EDITOR_ACTIONS_FIXTURE,
         OFFICIAL_JAVA,
     ] {
         let outcome = validate(serde_json::from_str(source).unwrap());
@@ -288,6 +293,9 @@ fn command_plan_fixtures_match_golden_expansions() {
             "manifest": fixture(case["plugin"].as_str().unwrap()),
             "request": case["request"],
         });
+        if let Some(arguments) = case.get("manifestArguments") {
+            payload["manifest"]["languageServers"][0]["arguments"] = arguments.clone();
+        }
         // A launch plan selects its process by language or by build system.
         for key in ["languageID", "buildSystemID"] {
             if let Some(value) = case.get(key) {
@@ -2105,4 +2113,77 @@ fn pure_backend_commands_require_ui_4_and_grant_methods_individually() {
     assert!(grants.contains(&json!("lithe/host/editor/applyEdits")));
     assert!(!grants.contains(&json!("editor")));
     assert!(!grants.contains(&json!("lithe/host/workspace/readFile")));
+}
+
+#[test]
+fn terminal_permission_grants_only_owned_terminal_methods_and_requires_backend_two() {
+    let manifest: Value =
+        serde_json::from_str(contract_file!("fixtures/terminal-backend.plugin.json")).unwrap();
+    assert_eq!(validate(manifest.clone())["status"], "ok");
+    let plan = language_server_launch_plan_command(json!({
+        "manifest": manifest, "backend": true,
+        "request": {"pluginDirectory":"/plugins/terminal","stateDirectory":"/state/terminal","architecture":"arm64"}
+    })).unwrap();
+    let grants = plan["plan"]["backend"]["hostServices"].as_array().unwrap();
+    for method in ["create", "show", "close", "reopen", "dispose", "onExit"] {
+        assert!(grants.contains(&json!(format!("lithe/host/terminal/{method}"))));
+    }
+    assert!(!grants.contains(&json!("terminal")));
+    assert!(!grants.contains(&json!("lithe/host/terminal/sendText")));
+    let mut old = manifest;
+    old["requires"]["backend"] = json!(1);
+    assert_ne!(validate(old)["status"], "ok");
+}
+
+#[test]
+fn launch_log_directory_is_explicit_for_servers_and_backends() {
+    for (fixture_name, selection, process) in [
+        (
+            "language-host-integration.plugin.json",
+            json!({"languageID":"java"}),
+            "languageServers",
+        ),
+        ("backend.plugin.json", json!({"backend":true}), "backend"),
+    ] {
+        let mut manifest = fixture(fixture_name);
+        let declaration = if process == "backend" {
+            &mut manifest["backend"]
+        } else {
+            &mut manifest["languageServers"][0]
+        };
+        declaration["arguments"] = json!(["--log=${logDir}/native.log"]);
+        let mut payload = selection;
+        payload["manifest"] = manifest;
+        payload["request"] = json!({"pluginDirectory":"/plugins/example", "stateDirectory":"/state/example", "workspaceStateDirectory":"/state/example/workspace", "architecture":"arm64"});
+        let missing = language_server_launch_plan_command(payload.clone()).unwrap();
+        assert_eq!(
+            missing["error"]["code"], "plugin.launch.invalidRequest",
+            "{missing}"
+        );
+        payload["request"]["logDirectory"] = json!("relative/logs");
+        assert_eq!(
+            language_server_launch_plan_command(payload.clone()).unwrap()["error"]["code"],
+            "plugin.launch.invalidRequest"
+        );
+        payload["request"]["logDirectory"] =
+            json!("/logs/sessions/current/plugins/io.example/files/");
+        let expanded = language_server_launch_plan_command(payload.clone()).unwrap();
+        assert_eq!(expanded["status"], "ok", "{expanded}");
+        assert!(expanded["plan"]["arguments"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|a| a == "--log=/logs/sessions/current/plugins/io.example/files/native.log"));
+        assert!(expanded["plan"]["requiredDirectories"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("log")));
+        if process != "backend" {
+            payload["manifest"]["languageServers"][0]["validationArguments"] = json!(["${logDir}"]);
+            assert_eq!(
+                language_server_launch_plan_command(payload).unwrap()["status"],
+                "rejected"
+            );
+        }
+    }
 }

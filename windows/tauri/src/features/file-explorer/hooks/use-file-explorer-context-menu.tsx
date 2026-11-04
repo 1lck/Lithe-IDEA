@@ -1,4 +1,5 @@
-import { DIRECTORY_MARKS, type DirectoryMark } from "../stores/directory-marks";
+import { DIRECTORY_MARKS, type DirectoryAction, type DirectoryMark } from "../stores/directory-marks";
+import { IndexingSettingsError } from "../stores/indexing-settings-error";
 import {
   canOpenProjectLocalHistory,
   openLocalHistoryForPath,
@@ -90,7 +91,10 @@ interface UseFileExplorerContextMenuOptions {
   rootFolderPath?: string;
   selectedEntries?: Array<{ path: string; is_dir: boolean }>;
   selectedPaths?: ReadonlySet<string>;
-  markDirectory?: (path: string, mark: DirectoryMark) => void;
+  isIndexExcluded?: (path: string) => boolean;
+  markForPath?: (path: string) => DirectoryMark | undefined;
+  canExcludeDirectory?: (path: string) => boolean;
+  markDirectory?: (path: string, action: DirectoryAction) => void;
   onFileSelect: (path: string, isDir: boolean) => void | string | Promise<void | string>;
   onCreateNewFileInDirectory?: (
     directoryPath: string,
@@ -157,6 +161,9 @@ export function useFileExplorerContextMenu({
   selectedEntries = [],
   selectedPaths,
   markDirectory,
+  isIndexExcluded,
+  markForPath,
+  canExcludeDirectory,
   onFileSelect,
   onCreateNewFileInDirectory,
   onCreateNewFolderInDirectory,
@@ -850,20 +857,31 @@ export function useFileExplorerContextMenu({
     }
 
     if (contextMenu.isDir) {
+      const excluded = canExcludeDirectory?.(contextMenu.path) !== false
+        && (Boolean(isIndexExcluded?.(contextMenu.path)) || markForPath?.(contextMenu.path) === "excluded");
       if (markDirectory)
         items.push({
           id: "mark-directory",
           label: t("project.markAs"),
           icon: <FolderOpen />,
           onClick: () => {},
-          children: DIRECTORY_MARKS.map((mark) => ({
+          children: DIRECTORY_MARKS.filter(
+            (mark) => (!excluded || mark === "plain") && (mark !== "excluded" || canExcludeDirectory?.(contextMenu.path) !== false),
+          ).map((mark) => ({
             id: `mark-${mark}`,
-            label: t(`project.mark.${mark}`),
+            label: t(
+              mark === "plain" && excluded
+                ? "indexing.cancelExclusion"
+                : `project.mark.${mark}`,
+            ),
             onClick: () => {
               try {
-                markDirectory(contextMenu.path, mark);
+                markDirectory(contextMenu.path, excluded ? { kind: "cancelExclusion" }
+                  : mark === "excluded" ? { kind: "exclude" } : { kind: "setRole", role: mark });
               } catch (error) {
-                toast.error(t("project.markFailed"), { description: String(error) });
+                toast.error(t("project.markFailed"), {
+                  description: t(error instanceof IndexingSettingsError ? `indexing.${error.code}` : "indexing.writeFailed"),
+                });
               }
             },
           })),
@@ -1005,6 +1023,9 @@ export function useFileExplorerContextMenu({
     selectedEntries,
     selectedPaths,
     markDirectory,
+    isIndexExcluded,
+    markForPath,
+    canExcludeDirectory,
     availableRepoPaths,
     canRemoveWorkspaceRootPath,
     clipboardActions,

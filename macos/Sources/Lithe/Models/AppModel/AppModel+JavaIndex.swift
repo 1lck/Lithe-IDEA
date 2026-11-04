@@ -18,13 +18,13 @@ extension AppModel {
                 let sessions = try await languageSessionsForWorkspaceMaintenance(for: identity)
                 try sessions.rebuildWorkspaceState(providerID: "java", rootURL: identity.url)
                 cancelJavaLanguageServerPreparation()
-                languageIntelligenceModuleCoordinator.resetWorkspaceState(languageToolingFeature)
+                languageToolingFeature.resetProviderState(providerID: "java")
                 showNotification(
                     settings.language.localizedString("native.inline.javaIndexClearedReopenAJavaFileToRebuild")
                 )
             } catch {
                 let prefix = settings.language.localizedString("native.inline.failedToClearTheJavaIndex")
-                showNotification("\(prefix): \(error.localizedDescription)")
+                showNotification("\(prefix): \(error.localizedDescription)", logReference: notificationFailure(error, operation: "java_index"))
             }
         }
     }

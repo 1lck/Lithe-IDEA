@@ -465,13 +465,18 @@ private struct DebugDisassemblyViewport: NSViewRepresentable {
 /// Reads debuggee memory at an address or at the value of an expression, a page at a time.
 /// Lines are labelled by their byte offset from the address that was asked for.
 struct GenericDebugMemoryView: View {
+    @Environment(\.applicationLogSink) private var logSink
     @ObservedObject var disassembly: GenericDebugDisassemblyModel
     @Binding var input: String
     @AppStorage("lithe.debug.memoryDisplay") private var storedDisplay = ""
+    @State private var decodedDisplay = GenericDebugMemoryDisplay.standard
 
     private var display: GenericDebugMemoryDisplay {
-        get { GenericDebugMemoryDisplay(storedText: storedDisplay) }
-        nonmutating set { storedDisplay = newValue.storedText }
+        get { decodedDisplay }
+        nonmutating set {
+            decodedDisplay = newValue
+            storedDisplay = newValue.storedText
+        }
     }
 
     var body: some View {
@@ -480,6 +485,9 @@ struct GenericDebugMemoryView: View {
             content
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .task(id: storedDisplay) {
+            decodedDisplay = GenericDebugMemoryDisplay(storedText: storedDisplay, logSink: logSink)
+        }
     }
 
     private var inputRow: some View {

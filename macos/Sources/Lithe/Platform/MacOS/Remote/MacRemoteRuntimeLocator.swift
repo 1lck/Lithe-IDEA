@@ -77,8 +77,10 @@ final class MacRemoteRuntimeLocator: RuntimeLocator, RuntimeToolDiscovery, @unch
         func optional<Value>(_ operation: () throws -> Value) throws -> Value? {
             try check()
             do { return try operation() }
+            // log-exempt: 预期的缺失：探测的可选文件或目录不存在，按未发现处理
             catch let error as RustCoreBridge.CoreCallError
                 where error.code == "workspace_not_found" || error.details?.contains("NOT_A_DIRECTORY") == true { return nil }
+            // log-exempt: 预期的缺失：探测的可选文件或目录不存在，按未发现处理
             catch let error as RemoteProbeFailure where error.code == "not_found" { return nil }
         }
         func executable(_ path: String) throws -> Bool {
@@ -188,6 +190,7 @@ final class MacRemoteRuntimeLocator: RuntimeLocator, RuntimeToolDiscovery, @unch
             }
             next.java.sort { $0.version.localizedStandardCompare($1.version) == .orderedDescending }
             next.maven.sort { ($0.executablePath.hasSuffix("/mvnd") ? 1 : 0) < ($1.executablePath.hasSuffix("/mvnd") ? 1 : 0) }
+        // log-exempt: 用户取消：调用方取消远程运行时发现
         } catch is CancellationError { return RuntimeDiscoveryResult(javaRuntimes: [], mavenRuntimes: []) }
         catch {
             // A failed/incomplete host snapshot must never authorize a launch.

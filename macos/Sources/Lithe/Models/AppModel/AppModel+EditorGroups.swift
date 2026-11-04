@@ -13,7 +13,7 @@ extension AppModel {
                   !self.documentFeature.hasPendingDocumentClose,
                   self.editorTabOrderFeature.contains(item) else { return }
             guard case .success = result else {
-                self.showNotification(L10n.string("Could not move the editor tab. Its content could not be synchronized."))
+                self.showNotification(L10n.string("Could not move the editor tab. Its content could not be synchronized."), logReference: self.notificationRejection(operation: "editor_move", reason: "synchronization_failed"))
                 return
             }
             if self.editorTabOrderFeature.drop(item, into: group, side: side) { self.selectEditorTab(item) }

@@ -121,18 +121,6 @@ struct EditorTabLayoutTests {
     }
 
     @Test
-    func terminalTabDragPayloadOffersAConcreteItemAndPrivateSessionIdentifier() throws {
-        let sessionID = UUID()
-        let provider = TerminalTabDragPayload.provider(for: sessionID)
-        let encoded = Data(sessionID.uuidString.utf8)
-
-        #expect(!provider.registeredTypeIdentifiers.contains(EditorTabDragPayload.type.identifier))
-        #expect(provider.registeredTypeIdentifiers.contains(TerminalTabDragPayload.type.identifier))
-        #expect(provider.registeredTypeIdentifiers.contains(UTType.utf8PlainText.identifier))
-        #expect(TerminalTabDragPayload.sessionID(from: encoded) == sessionID)
-    }
-
-    @Test
     func terminalDragUsesTheSharedEditorTabState() {
         var state = EditorTabDragState.idle
         let sessionID = UUID()
@@ -180,7 +168,8 @@ struct EditorTabLayoutTests {
     @Test
     func terminalTabPasteboardUsesTheActiveDragWhenPromisedDataIsNotReady() {
         let sessionID = UUID()
-        _ = TerminalTabDragPayload.provider(for: sessionID)
+        TerminalTabDragPayload.beginDrag(sessionID)
+        defer { TerminalTabDragPayload.endDrag() }
         let pasteboard = NSPasteboard(
             name: .init("lithe-promised-terminal-tab-\(UUID().uuidString)")
         )

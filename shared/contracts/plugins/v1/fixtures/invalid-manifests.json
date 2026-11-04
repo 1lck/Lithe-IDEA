@@ -1049,6 +1049,11 @@
       "base": "backend-workspace.plugin.json",
       "edits": [{ "op": "set", "path": "/backend/arguments", "value": ["--cache", "${workspaceStateDir}"] }],
       "expectedCode": "plugin.manifest.invalid"
-    }
+    },
+    {"name": "a grammar needs languages 2", "base": "language-grammar.plugin.json", "edits": [{"op": "set", "path": "/requires/languages", "value": 1}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "languages 2 is used by a grammar or configuration", "base": "language-grammar.plugin.json", "edits": [{"op": "remove", "path": "/languages/0/grammar"}, {"op": "remove", "path": "/languages/0/configuration"}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "a grammar names a known engine", "base": "language-grammar.plugin.json", "edits": [{"op": "set", "path": "/languages/0/grammar/kind", "value": "textmate"}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "a grammar file stays in the package", "base": "language-grammar.plugin.json", "edits": [{"op": "set", "path": "/languages/0/grammar/path", "value": "../http.monarch.json"}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "a comment delimiter is one short line", "base": "language-grammar.plugin.json", "edits": [{"op": "set", "path": "/languages/0/configuration/lineComment", "value": "#\n"}], "expectedCode": "plugin.manifest.invalid"}
   ]
 }

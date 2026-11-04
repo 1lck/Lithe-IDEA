@@ -32,6 +32,14 @@ to native positional formatting, literal percent signs and unmodified argument d
 
 ## Feature Contracts
 
+Action search matches the current interface title, description and group as well
+as the original action metadata. Localized host copy and literal plugin titles
+remain distinct; changing the interface language takes effect on the next query.
+Hidden tool-window rail entries remain recoverable by their available command.
+Core's stateless `search.actions` returns ordered candidate offsets; the host keeps
+ownership of action availability, execution and module activation. See
+[the action search fixture](../fixtures/search/actions-v1.json).
+
 Global Agent instructions edit each upstream Agent's native user file, independently
 of the current project and provider. Opening settings is read-only. Codex uses
 `CODEX_HOME` (otherwise the user home `.codex`) and its first non-empty
@@ -73,6 +81,14 @@ unknown. See the
 [Agent host contract](rust-core-api.md) and `fixtures/agent/acp-events-v1.json`.
 
 Agent history lists can expose matching summaries as pages arrive while the remaining scan stays loading. Partial results prove presence only; final snapshots reconcile removals, and later failures retain visible rows. History surfaces share connection-local recent snapshots and in-flight requests; manual refresh remains immediate. Workspace/Agent isolation, stale-token rejection and upstream history ownership apply to both partial and final results.
+
+History provider filtering defaults to all providers and uses only upstream-reported
+`modelProvider` identities. Choices span active and archived records; missing metadata
+has an explicit unknown choice. A provider selection composes with title/ID search,
+favorites and local removal, including archive results. It is transient presentation
+state, not a routing or account setting, and never narrows the upstream history scan
+or infers provenance from the active model. Bulk actions remain limited to visible
+eligible records. Empty filtered results do not establish that no history exists.
 
 An Agent that advertises steering can accept supplementary user input while its
 logical turn is active. Input delivery has a separate pending/received/failed
@@ -880,3 +896,12 @@ queries keep one execution identity. Stop targets the owned preparation ID befor
 launch and the owned native process ID afterward. Missing or stale references fail without a CLI or old domain fallback.
 A Provider application's native output remains visible even without generated
 Run configurations. See `../fixtures/run-configuration/build-provider.json`.
+
+### Project Java runtime and language-server runtime
+
+Platforms supply the selected project JDK with `javaRuntimes[].isDefault`, reusing
+Run's project configuration and requirement-aware selection. The JDT host JVM may
+remain the bundled supported JVM. Core projects the selected project home to JDT's
+`java.configuration.runtimes[].default`; it must not infer the project VM from the
+server executable. An invalid explicit selection must not mark an unrelated discovered candidate as the default;
+Windows reports the invalid setting before launch.

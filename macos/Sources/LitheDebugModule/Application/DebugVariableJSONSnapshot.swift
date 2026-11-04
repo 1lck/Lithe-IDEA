@@ -12,19 +12,26 @@ final class DebugVariableJSONSnapshot {
         var valueBytes = 4_096
         var outputBytes = 512_000
     }
+    private let logSink: (any LogSink)?
+    private var fieldFailureCount: Int64 = 0
+    private var lastFieldError: (any Error)?
     private let limits: Limits
     private let request: (Int, Int) async throws -> [DebugVariable]
     private var remaining: Int
     private var cache: [Int: [DebugVariable]] = [:]
     private let deadline = ContinuousClock.now.advanced(by: .seconds(10))
 
-    init(limits: Limits = Limits(), request: @escaping (Int, Int) async throws -> [DebugVariable]) {
+    init(limits: Limits = Limits(), logSink: (any LogSink)? = nil, request: @escaping (Int, Int) async throws -> [DebugVariable]) {
+        self.logSink = logSink
         self.limits = limits
         self.request = request
         remaining = limits.nodes
     }
 
     func render(_ variables: [DebugVariable], rootsArePartial: Bool = false) async throws -> String {
+        defer {
+            if let lastFieldError { logSink?.emit(DebugInspectionFallbackSelected(count: fieldFailureCount, error: lastFieldError, stage: "variable-fields")) }
+        }
         var object: [String: ToolingJSONValue] = [:]
         for variable in variables.prefix(limits.children) {
             try Task.checkCancellation()
@@ -64,7 +71,11 @@ final class DebugVariableJSONSnapshot {
                 cache[reference] = Array(children.prefix(limits.children + 1))
             }
         } catch is CancellationError { throw CancellationError() }
-        catch { return marker("Cannot load fields: \(error.localizedDescription)") }
+        catch {
+            fieldFailureCount += 1
+            lastFieldError = error
+            return marker("Cannot load fields: \(error.localizedDescription)")
+        }
         let partial = children.count > limits.children || variable.namedVariables > limits.children
             || variable.indexedVariables > limits.children - min(limits.children, variable.namedVariables)
         let page = Array(children.prefix(limits.children))
@@ -135,6 +146,7 @@ final class DebugVariableJSONRequest {
             return try await withCheckedThrowingContinuation { continuation in
                 ticket.continuation = continuation
                 ticket.timeout = Task { [weak ticket] in
+                    // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
                     do { try await Task.sleep(for: timeout) } catch { return }
                     ticket?.finish(.failure(DebugVariableJSONError.timedOut))
                 }

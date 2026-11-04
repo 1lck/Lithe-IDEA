@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 
 // Portions derived from OpenIDEA `crates/ide-host/src/shell_env.rs`
@@ -18,7 +19,7 @@ import Foundation
 /// cached value immediately and refreshes it in the background for the next launch.
 /// The rest of the shell's environment may hold secrets, so it stays in memory and
 /// only fills variables the process does not already define.
-final class MacLoginShellEnvironment: @unchecked Sendable {
+final class MacLoginShellEnvironment: LoginShellEnvironmentInspecting, @unchecked Sendable {
     static let shared = MacLoginShellEnvironment()
 
     /// Opt-out for tests and for users whose rc files must not run unattended.
@@ -36,9 +37,26 @@ final class MacLoginShellEnvironment: @unchecked Sendable {
 
     private let lock = NSLock()
     private var overlay: [String: String] = [:]
-    private var logging: (any ApplicationLogging)?
+    private var logging: (any LogSink)?
     /// Outcomes from before the log writer exists; startup runs ahead of it.
-    private var pendingRecords: [(level: String, message: String, fields: [String: String])] = []
+    private var pendingRecords: [any LogEvent] = []
+    /// Startup facts and the latest outcome, for the settings page; never variable values.
+    private var launch = Launch()
+    private var lastRead: (date: Date, duration: Duration, variables: Int?)?
+    private var latestLoginPath: [String]?
+    private var isReading = false
+    private var completedReads = 0
+    /// Held for a whole read, so a second request waits for the first shell.
+    private let readLock = NSLock()
+
+    private struct Launch {
+        var shell: String?
+        var cacheURL: URL?
+        var disabled = false
+        var fromCache = false
+        var loginPath: [String] = []
+        var processPath: [String] = []
+    }
 
     init(overlay: [String: String] = [:]) {
         self.overlay = overlay
@@ -53,39 +71,45 @@ final class MacLoginShellEnvironment: @unchecked Sendable {
 
     /// Sends the startup outcome, and every later refresh, to the application log.
     /// Records carry the shell's name, timing and counts, never variable values.
-    func attach(logging: any ApplicationLogging) {
+    func attach(logging: any LogSink) {
         let pending = lock.withLock {
             self.logging = logging
             defer { pendingRecords.removeAll() }
             return pendingRecords
         }
         for record in pending {
-            logging.record(level: record.level, scope: "application", message: record.message, fields: record.fields)
+            logging.emit(record)
         }
     }
 
-    private func record(level: String, message: String, fields: [String: String]) {
+    private func record(_ event: any LogEvent) {
         let logging = lock.withLock {
-            if self.logging == nil { pendingRecords.append((level, message, fields)) }
+            if self.logging == nil {
+                if pendingRecords.count == 8 { pendingRecords.removeFirst() }
+                pendingRecords.append(event)
+            }
             return self.logging
         }
-        logging?.record(level: level, scope: "application", message: message, fields: fields)
+        logging?.emit(event)
     }
 
     private func recordRead(
-        _ environment: [String: String]?, shell: String, source: String, started: ContinuousClock.Instant
+        _ environment: [String: String]?, started: ContinuousClock.Instant, span: inout AppShellEnvironmentSpan
     ) {
-        var fields = [
-            "shell": URL(fileURLWithPath: shell).lastPathComponent,
-            "source": source,
-            "duration": String(describing: started.duration(to: .now))
-        ]
-        if let environment {
-            fields["variables"] = String(environment.count)
-            record(level: "info", message: "login shell environment read", fields: fields)
-        } else {
-            record(level: "warning", message: "login shell environment unavailable", fields: fields)
+        let duration = started.duration(to: .now)
+        lock.withLock {
+            lastRead = (Date(), duration, environment?.count)
+            if let path = environment?["PATH"], !path.isEmpty { latestLoginPath = Self.entries(path) }
+            completedReads += 1
         }
+        if let environment { span.finish(variables: Int64(environment.count)) }
+        else { span.fail(NSError(domain: "shell.environment", code: 1)) }
+    }
+
+    private func beginRead(shell: String, source: String) -> AppShellEnvironmentSpan {
+        let shellName = URL(fileURLWithPath: shell).lastPathComponent
+        let name = ["zsh", "bash", "fish", "sh", "dash", "ksh", "tcsh", "csh", "nu", "pwsh"].contains(shellName) ? shellName : "custom"
+        return AppShellEnvironmentSpan.begin(shell: name, source: source, emit: { [self] in record($0) })
     }
 
     private func replaceOverlay(_ environment: [String: String]) {
@@ -105,8 +129,9 @@ final class MacLoginShellEnvironment: @unchecked Sendable {
         shellTimeout: TimeInterval? = nil,
         applyPath: (String) -> Void = { setenv("PATH", $0, 1) }
     ) -> (@Sendable () -> Void)? {
-        guard environment[skipVariable] == nil else { return nil }
         let shell = loginShell(environment: environment)
+        shared.prepare(shell: shell, cacheURL: cacheURL, environment: environment)
+        guard environment[skipVariable] == nil else { return nil }
         let cachedPath = (try? String(contentsOf: cacheURL, encoding: .utf8))?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let loginPath: String
@@ -115,25 +140,99 @@ final class MacLoginShellEnvironment: @unchecked Sendable {
         } else {
             // A slow rc file must not delay the first start indefinitely.
             let started = ContinuousClock.now
-            let login = read(shell: shell, timeout: shellTimeout ?? coldStartTimeout)
-            shared.recordRead(login, shell: shell, source: "startup", started: started)
+            var span = shared.beginRead(shell: shell, source: "startup")
+            let login = read(shell: shell, timeout: shellTimeout ?? coldStartTimeout, report: { shared.record($0) })
+            shared.recordRead(login, started: started, span: &span)
             guard let login, let path = login["PATH"], !path.isEmpty else { return nil }
             shared.replaceOverlay(login)
-            writeCache(path, to: cacheURL)
+            writeCache(path, to: cacheURL, report: { shared.record($0) })
             loginPath = path
         }
-        applyPath(mergedPath(login: loginPath, inherited: environment["PATH"]))
+        let processPath = mergedPath(login: loginPath, inherited: environment["PATH"])
+        applyPath(processPath)
+        shared.lock.withLock {
+            shared.launch.fromCache = cachedPath?.isEmpty == false
+            shared.launch.loginPath = entries(loginPath)
+            shared.launch.processPath = entries(processPath)
+        }
         guard cachedPath?.isEmpty == false else { return nil }
-        return {
+        // Marked before the closure runs, so a settings page opened meanwhile joins this read.
+        shared.lock.withLock { shared.isReading = true }
+        return { shared.refresh(source: "refresh", timeout: shellTimeout ?? refreshTimeout, joining: false) }
+    }
+
+    /// Records the shell and the inherited `PATH` before anything is applied, so an
+    /// inspector can describe a process that skipped or failed the startup read.
+    func prepare(shell: String, cacheURL: URL?, environment: [String: String]) {
+        lock.withLock {
+            launch = Launch(shell: shell, cacheURL: cacheURL, disabled: environment[Self.skipVariable] != nil,
+                            processPath: Self.entries(environment["PATH"] ?? ""))
+        }
+    }
+
+    /// Reads the shell again for children's non-`PATH` variables and the next launch's
+    /// cached `PATH`. This process keeps its `PATH`: `setenv` is unsafe once threads run.
+    func rereadSynchronously(timeout: TimeInterval = MacLoginShellEnvironment.refreshTimeout) -> LoginShellEnvironmentSnapshot {
+        refresh(source: "manual", timeout: timeout, joining: true)
+        return inspect()
+    }
+
+    func reread() async -> LoginShellEnvironmentSnapshot {
+        // The read blocks on a semaphore for up to the timeout; keep it off the cooperative pool.
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async { continuation.resume(returning: self.rereadSynchronously()) }
+        }
+    }
+
+    private func refresh(source: String, timeout: TimeInterval, joining: Bool) {
+        let (shell, cacheURL, disabled, requested) = lock.withLock {
+            (launch.shell, launch.cacheURL, launch.disabled, completedReads)
+        }
+        guard let shell, !disabled else { return }
+        readLock.withLock {
+            // A read that finished while this request waited already answers it.
+            if joining, lock.withLock({ completedReads > requested }) { return }
+            lock.withLock { isReading = true }
+            defer { lock.withLock { isReading = false } }
             let started = ContinuousClock.now
-            let login = read(shell: shell, timeout: shellTimeout ?? refreshTimeout)
-            shared.recordRead(login, shell: shell, source: "refresh", started: started)
+            var span = beginRead(shell: shell, source: source)
+            let login = Self.read(shell: shell, timeout: timeout, report: { self.record($0) })
+            recordRead(login, started: started, span: &span)
             guard let login else { return }
-            shared.replaceOverlay(login)
-            if let path = login["PATH"], !path.isEmpty {
-                writeCache(path, to: cacheURL)
+            replaceOverlay(login)
+            if let cacheURL, let path = login["PATH"], !path.isEmpty {
+                Self.writeCache(path, to: cacheURL, report: { self.record($0) })
             }
         }
+    }
+
+    func inspect() -> LoginShellEnvironmentSnapshot {
+        lock.withLock {
+            var snapshot = LoginShellEnvironmentSnapshot(shell: launch.shell ?? "")
+            if launch.disabled { snapshot.state = .disabled }
+            else if isReading { snapshot.state = .reading }
+            else if let lastRead { snapshot.state = lastRead.variables == nil ? .failed : .read }
+            if let lastRead {
+                snapshot.readAt = lastRead.date
+                snapshot.variableCount = lastRead.variables
+                let (seconds, attoseconds) = lastRead.duration.components
+                snapshot.durationMilliseconds = Int(seconds) * 1_000 + Int(attoseconds / 1_000_000_000_000_000)
+            }
+            snapshot.startedFromCache = launch.fromCache
+            let login = Set(launch.loginPath)
+            snapshot.processPath = launch.processPath.map {
+                .init(path: $0, origin: login.contains($0) ? .loginShell : .inherited)
+            }
+            if let latestLoginPath, !launch.disabled {
+                snapshot.pathChangedSinceLaunch = latestLoginPath != launch.loginPath
+            }
+            return snapshot
+        }
+    }
+
+    private static func entries(_ path: String) -> [String] {
+        var seen = Set<String>()
+        return path.split(separator: ":").map(String.init).filter { !$0.isEmpty && seen.insert($0).inserted }
     }
 
     /// The login shell's entries first, as in a terminal; then inherited entries it
@@ -153,7 +252,7 @@ final class MacLoginShellEnvironment: @unchecked Sendable {
 
     /// The environment of `shell` started as an interactive login shell, or `nil`
     /// when it fails or does not finish within `timeout`.
-    static func read(shell: String, timeout: TimeInterval) -> [String: String]? {
+    static func read(shell: String, timeout: TimeInterval, report: (any LogEvent) -> Void = { _ in }) -> [String: String]? {
         // Keep this read from looping back into itself through a shell that starts Lithe.
         var environment = ProcessInfo.processInfo.environment
         environment[skipVariable] = "1"
@@ -181,12 +280,12 @@ final class MacLoginShellEnvironment: @unchecked Sendable {
         do {
             try process.run()
         } catch {
-            try? output.fileHandleForWriting.close()
-            try? discardedErrors.close()
+            do { try output.fileHandleForWriting.close() } catch { report(AppStorageMaintenanceFailed(error: error, stage: "shell-pipe-close")) }
+            do { try discardedErrors.close() } catch { report(AppStorageMaintenanceFailed(error: error, stage: "shell-stderr-close")) }
             return nil
         }
-        try? output.fileHandleForWriting.close()
-        try? discardedErrors.close()
+        do { try output.fileHandleForWriting.close() } catch { report(AppStorageMaintenanceFailed(error: error, stage: "shell-pipe-close")) }
+        do { try discardedErrors.close() } catch { report(AppStorageMaintenanceFailed(error: error, stage: "shell-stderr-close")) }
         guard finished.wait(timeout: .now() + timeout) == .success else {
             // Ends the shell and every job its rc file left in the process group, so
             // nothing outlives the read and the pipe reaches end-of-file.
@@ -212,11 +311,11 @@ final class MacLoginShellEnvironment: @unchecked Sendable {
         return result
     }
 
-    private static func writeCache(_ path: String, to url: URL) {
-        try? FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(), withIntermediateDirectories: true
-        )
-        try? path.write(to: url, atomically: true, encoding: .utf8)
+    private static func writeCache(_ path: String, to url: URL, report: (any LogEvent) -> Void) {
+        do {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try path.write(to: url, atomically: true, encoding: .utf8)
+        } catch { report(AppStorageMaintenanceFailed(error: error, stage: "shell-cache-write")) }
     }
 
     private final class OutputBox: @unchecked Sendable {

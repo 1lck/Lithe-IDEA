@@ -97,7 +97,7 @@ const defaultDependencies: MavenModuleDebugDependencies = {
         source: configuration.source === "generated" ? "generated" : "workspace",
       },
       adapterPort,
-      breakpoints,
+      () => useDebuggerStore.getState().breakpoints,
       workspacePath,
       onSessionStarted,
     ),

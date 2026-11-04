@@ -1,3 +1,10 @@
+import type { IndexingErrorCode } from "@/features/file-explorer/stores/workspace-indexing";
+
+export type ContentSearchFailure =
+  | string
+  | { kind: "indexing"; code: IndexingErrorCode }
+  | { kind: "unknown" };
+
 export interface FileItem {
   name: string;
   path: string;

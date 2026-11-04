@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 import Security
 
@@ -27,20 +28,23 @@ enum MacPluginRootIDSecret {
     /// at the same moment wins and both read the same bytes. When the
     /// directory cannot be written, a secret for this launch is used: root
     /// IDs stay unique, only not stable across launches.
-    static func load(from url: URL, fileManager: FileManager = .default) -> Data {
+    static func load(from url: URL, fileManager: FileManager = .default, logSink: (any LogSink)? = nil) -> Data {
         if let stored = read(url) { return stored }
         var bytes = Data(count: byteCount)
         let status = bytes.withUnsafeMutableBytes { SecRandomCopyBytes(kSecRandomDefault, byteCount, $0.baseAddress!) }
         if status != errSecSuccess {
             bytes = Data((0..<byteCount).map { _ in UInt8.random(in: .min ... .max) })
         }
-        try? fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        do { try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true) }
+        catch { logSink?.emit(PluginsResourcesMaintenanceFailed(error: error, stage: "root-id-directory")) }
         let descriptor = open(url.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o600)
         guard descriptor >= 0 else { return read(url) ?? bytes }
         let written = bytes.withUnsafeBytes { write(descriptor, $0.baseAddress, byteCount) }
         close(descriptor)
         guard written == byteCount else {
-            try? fileManager.removeItem(at: url)
+            do { try fileManager.removeItem(at: url) }
+            catch let error as CocoaError where error.code == .fileNoSuchFile { /* Concurrent cleanup already removed it. */ }
+            catch { logSink?.emit(PluginsResourcesMaintenanceFailed(error: error, stage: "root-id-remove")) }
             return bytes
         }
         return bytes

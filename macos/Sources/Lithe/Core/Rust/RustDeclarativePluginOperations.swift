@@ -6,7 +6,8 @@ import LitheModuleAPI
 /// validation and template expansion for both products; this adapter only
 /// translates payloads and outcomes.
 struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, DeclarativeExecutionPlanning,
-    DeclarativeLanguageServerLaunchPlanning, DeclarativePluginSettingsResolving, LanguageServerRuntimeVersionChecking {
+    DeclarativeLanguageServerLaunchPlanning, DeclarativePluginSettingsResolving, LanguageServerRuntimeVersionChecking,
+    DeclarativeEditorContributionDecoding, PluginEditorActionDecoding {
     let core: RustCoreBridge
 
     func validateNativeNodes(ui: PluginNativeUI, data: ToolingJSONValue) throws -> [PluginNativeUI.Node] {
@@ -298,6 +299,23 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
         return result
     }
 
+    func decodeGrammar(manifest: Data, languageID: String, grammar: String) throws -> ToolingJSONValue {
+        struct Payload: Encodable { let manifest: ToolingJSONValue; let languageID: String; let grammar: String }
+        struct Result: Decodable { let language: ToolingJSONValue }
+        let outcome: Outcome<Result> = try execute(
+            "plugins.declarative.decodeGrammar",
+            payload: Payload(manifest: try Self.json(manifest), languageID: languageID, grammar: grammar)
+        )
+        return outcome.value.language
+    }
+
+    func decodeEditorActions(kind: String, value: ToolingJSONValue, text: String = "") throws -> ToolingJSONValue {
+        struct Payload: Encodable { let kind: String; let value: ToolingJSONValue; let text: String }
+        let result: ToolingJSONValue = try core.executeResult(
+            command: "plugins.editorActions.decode", payload: Payload(kind: kind, value: value, text: text)).get()
+        return result
+    }
+
     func resolveSettings(
         manifest: Data,
         settings: [String: ToolingJSONValue],
@@ -422,6 +440,7 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
     }
 
     private struct LaunchRequest: Encodable {
+        let logDirectory: String?
         let pluginDirectory: String
         let stateDirectory: String
         /// Omitted for a process bound to no workspace.
@@ -431,6 +450,7 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
         let projectSettings: [String: ToolingJSONValue]
 
         init(_ request: DeclarativeLanguageServerLaunchRequest) {
+            logDirectory = request.logDirectory?.path
             pluginDirectory = request.pluginDirectory.path
             stateDirectory = request.stateDirectory.path
             workspaceStateDirectory = request.workspaceStateDirectory?.path

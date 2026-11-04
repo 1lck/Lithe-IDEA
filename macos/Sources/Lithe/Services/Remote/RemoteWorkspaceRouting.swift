@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import CryptoKit
 import Foundation
 import LitheCoreContracts
@@ -155,15 +156,32 @@ struct ConnectionWatchingTransport: RemoteWorkspaceTransport {
 /// Project tree and plain file access: remote roots are listed on the host,
 /// all other roots go to the local operations unchanged.
 struct RemoteRoutingWorkspaceOperations: WorkspaceOperations {
+    var logSink: (any LogSink)? = nil
     let local: any WorkspaceOperations
     let registry: RemoteWorkspaceRegistry
     let transport: any RemoteWorkspaceTransport
 
     func invalidateDirectoryListings() { local.invalidateDirectoryListings() }
 
-    func snapshot(at rootURL: URL, visibilityRules: FileVisibilityRules) -> WorkspaceSnapshot? {
+    func configureIndexing(at rootURL: URL, policy: WorkspaceIndexingPolicy, refresh: Bool, ownerID: String? = nil) throws -> WorkspaceIndexingStatus {
+        guard registry.binding(forRoot: rootURL) == nil else {
+            // Remote indexing is not supported by the current transport. Never
+            // configure the local placeholder as if it were the remote project.
+            var status = WorkspaceIndexingStatus()
+            status.supportsExclusions = false
+            return status
+        }
+        return try local.configureIndexing(at: rootURL, policy: policy, refresh: refresh, ownerID: ownerID)
+    }
+
+    func releaseIndexing(at rootURL: URL, revision: UInt64, ownerID: String? = nil) {
+        guard registry.binding(forRoot: rootURL) == nil else { return }
+        local.releaseIndexing(at: rootURL, revision: revision, ownerID: ownerID)
+    }
+
+    func snapshot(at rootURL: URL, visibilityRules: FileVisibilityRules) throws -> WorkspaceSnapshot? {
         guard let binding = registry.binding(forRoot: rootURL) else {
-            return local.snapshot(at: rootURL, visibilityRules: visibilityRules)
+            return try local.snapshot(at: rootURL, visibilityRules: visibilityRules)
         }
         let root = binding.root
         guard let children = try? rows(of: root, at: root, binding: binding, rules: visibilityRules) else {
@@ -223,7 +241,10 @@ struct RemoteRoutingWorkspaceOperations: WorkspaceOperations {
             if case .saved = try transport.writeFile(Data(text.utf8), to: path, expected: expected, session: binding.sessionID) {
                 return true
             }
-        } catch { return false }
+        } catch {
+            logSink?.emit(RemoteWorkspaceWriteFailed(error: (error as? RemoteProbeFailure).map { LogFailure(domain: "RemoteWorkspace", code: $0.code) as any Error } ?? error))
+            return false
+        }
         return false
     }
 

@@ -37,6 +37,7 @@ struct GitRollbackSelectionTests {
             indexStatus: "C", workTreeStatus: " ")
         #expect(GitRollbackSelection.isAddition(copy))
         #expect(GitRollbackSelection.operationTarget(copy).pathspecs == ["copy.txt"])
+        #expect(GitRollbackSelection.isAddition(change("worktree-copy.txt", worktree: "C")))
         #expect(GitRollbackSelection.isAddition(change("intent.txt", worktree: "A")))
         #expect(!GitRollbackSelection.isAddition(change("conflict.txt", index: "A", worktree: "A")))
     }

@@ -5,6 +5,7 @@ mod agent_clipboard;
 mod agent_provider_settings;
 mod ai_commit;
 mod blocking;
+mod commit_selection_gate;
 mod core;
 mod date_time;
 mod debug;
@@ -168,6 +169,8 @@ fn main() {
                 plugin_host::lifecycle::window_destroyed(window.app_handle(), window.label());
                 run::release_window_processes(window.label());
                 core::close_ide_hosts(window.label());
+                core::close_window_indexing(window.label());
+                core::close_window_commit_selections(window.label());
                 agent::close_window_connections(window.label());
                 terminal::close_window_terminals(window.app_handle(), window.label());
                 project_windows::release_window(window.app_handle(), window.label().to_owned());
@@ -178,9 +181,22 @@ fn main() {
                     }
                 }
                 if let Some(watcher) = window.try_state::<Arc<GitMetadataWatcher>>() {
-                    if let Err(error) = watcher.remove(window.label(), None) {
-                        eprintln!("Could not release Git metadata watches: {error}");
-                    }
+                    let watcher = Arc::clone(&watcher);
+                    let owner = window.label().to_owned();
+                    tauri::async_runtime::spawn_blocking(move || {
+                        if let Err(error) = watcher.remove_window(&owner) {
+                            eprintln!("Could not release Git metadata watches: {error}");
+                        }
+                    });
+                }
+                if let Some(watcher) = window.try_state::<Arc<lithe_project::FileWatcher>>() {
+                    let watcher = Arc::clone(&watcher);
+                    let owner = window.label().to_owned();
+                    tauri::async_runtime::spawn_blocking(move || {
+                        if let Err(error) = watcher.remove_window(&owner) {
+                            eprintln!("Could not release file watches: {error}");
+                        }
+                    });
                 }
             }
         })
@@ -206,6 +222,8 @@ fn main() {
                             document::set_document_watches,
                             core::core_execute,
                             core::core_cancel,
+                            core::core_reserve_commit_selection,
+                            core::core_release_commit_selection,
                             core::ide_host_paths,
                             diagnostics::preview_diagnostic_bundle,
                             diagnostics::export_diagnostic_bundle,

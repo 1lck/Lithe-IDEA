@@ -102,6 +102,7 @@ final class SpringFeatureModel: ObservableObject {
             || name == "additional-spring-configuration-metadata.json" else { return }
         reloadTask?.cancel()
         reloadTask = Task { @MainActor [weak self] in
+            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
             try? await Task.sleep(for: .milliseconds(300))
             guard !Task.isCancelled, let self else { return }
             let overrides = Dictionary(uniqueKeysWithValues: openDocuments.map {

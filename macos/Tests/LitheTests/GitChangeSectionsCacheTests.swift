@@ -125,7 +125,7 @@ struct GitChangeSectionsCacheTests {
     }
 
     @Test
-    func movingFilesRegroupsTheCacheWithoutChangingStatusOrHidingOtherLists() {
+    func movingFilesRegroupsTheCacheWithoutChangingStatusOrHidingOtherLists() throws {
         let config = change("application.yaml")
         let code = change("feature.swift")
         let changes = [config, code]
@@ -133,7 +133,10 @@ struct GitChangeSectionsCacheTests {
         var lists = GitLocalChangelists()
         _ = cache.sections(changes: changes, conflictFilterPaths: [], changelists: lists)
         lists.lists.append(GitLocalChangelist(id: "local", name: "Local"))
-        lists.move([config], to: "local")
+        let request = GitChangelistCoreRequest(state: lists, changes: changes,
+            action: .init(type: "move", id: "local", files: [.init(config)]))
+        let projection = try #require(RustGitOperations(core: RustCoreBridge()).changelistProjection(request))
+        lists = try #require(projection.state.local.withMembership(projection.members, for: changes))
         let sections = cache.sections(changes: changes, conflictFilterPaths: [], changelists: lists)
         #expect(sections.displayed == changes)
         #expect(sections.changelists.map(\.id) == ["default", "local"])

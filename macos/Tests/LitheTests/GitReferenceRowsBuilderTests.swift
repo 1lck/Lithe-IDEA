@@ -17,6 +17,7 @@ struct GitReferenceRowsBuilderTests {
             fullName: "refs/heads/\(shortName)",
             shortName: shortName,
             kind: kind,
+            peelsToCommit: true,
             isCurrent: isCurrent,
             upstreamShortName: nil
         )

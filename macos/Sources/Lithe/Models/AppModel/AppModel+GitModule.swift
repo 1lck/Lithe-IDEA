@@ -10,6 +10,8 @@ extension AppModel {
 
     func activateGitModule() async -> GitFeatureModel? {
         guard let feature = await gitModuleCoordinator.activate() else { return nil }
+        feature.notificationRejectionReference = { [weak self] in self?.notificationRejection(operation: "git_workflow", reason: $0) }
+        feature.notifyLog = { [weak self] message, reference in self?.showNotification(message, logReference: reference) }
         gitModuleCoordinator.configureIfNeeded(
             feature,
             handlers: .init(

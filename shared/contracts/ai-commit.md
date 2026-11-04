@@ -2,10 +2,10 @@
 
 Version: 1. Behavioral fixture: `shared/fixtures/ai/commit-generation-v1.json`.
 
-Windows consumes the typed Rust API in `lithe_core::ai`. macOS remains the reference
-for settings and generation behavior and currently retains its Swift implementation;
-this change does not claim that macOS calls the new Rust API. The API has no filesystem,
-HTTP, operating-system credential, or UI dependencies.
+Windows consumes the typed Rust API in `lithe_core::ai`; macOS uses the same planner
+and decoder through the Core JSON commands `ai.planCommit` and
+`ai.decodeCommitMessage`. The API has no filesystem, HTTP, operating-system
+credential, or UI dependencies. macOS PR-description generation remains separate.
 
 ## Portable inputs
 
@@ -14,7 +14,10 @@ HTTP, operating-system credential, or UI dependencies.
 `claude`; authentication is `bearer` or `apiKey`.
 `chatTokenLimitField` defaults to `max_completion_tokens` when absent. Manual Chat
 Completions profiles may select `max_tokens` for legacy gateways; no model-name
-heuristic or silent request retry changes the selected protocol.
+heuristic or silent request retry changes the selected protocol. New macOS profiles
+use the modern field; macOS profiles saved before this setting retain their former
+`max_tokens` behavior until explicitly changed. This is a Lithe request setting,
+not an edit to an imported provider's native configuration.
 
 `CommitOptions`: `language` (`english`, `simplifiedChinese`), `format`
 (`conventional`, `concise`, `imperative`, `descriptive`, `releaseNote`, `custom`),
@@ -56,6 +59,23 @@ Generation never stages, commits, or pushes.
   supported response envelopes, strips Markdown fences and rejects empty responses.
   Provider output-limit termination returns `AI_COMMIT_OUTPUT_LIMIT`; partial text
   from such a response is never applied to the draft.
+
+## Shared JSON commands
+
+`ai.commitInputBudget` accepts `{maximumDiffCharacters, fileLengths}` (Unicode
+scalar counts) and returns per-file `{characters, truncated}`. Hosts send only
+those diff prefixes across the native boundary, together with `originalCharacters`;
+Core validates each prefix and retains the truncation warning. `ai.planCommit`
+accepts `{provider, options, files}` and returns the credential-free `{url, body}`.
+`ai.decodeCommitMessage` accepts `{protocol, response, includeBody}`
+and returns `{message}`. Domain failures use the existing Core error envelope with
+an `AI_COMMIT_*` message; malformed payloads report `AI_COMMIT_INVALID_OPTIONS`
+without echoing diffs, responses or credentials. Credentials are never command inputs.
+macOS resolves its selected provider and credentials in the host, attaches HTTP
+headers locally and preserves its existing staged-diff scope and cancellation.
+The host rejects responses over 2 MiB before Core JSON decoding. Shared fixture
+`shared/fixtures/ai/commit-generation-v1.json` exercises the three protocols on
+both Core and the macOS bridge.
 
 ## Windows adapter surface
 

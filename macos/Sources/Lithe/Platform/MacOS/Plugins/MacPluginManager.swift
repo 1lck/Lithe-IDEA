@@ -134,6 +134,54 @@ final class MacPluginManager: PluginManaging {
         return (builtIn + native).sorted { $0.manifest.displayName < $1.manifest.displayName }
     }
 
+    func languageServerRegistrations(catalog: LanguageProviderCatalog) -> [LanguageServerRegistration] {
+        let packaged = installedPlugins.values
+            .filter { registeredPluginIDs.contains($0.manifest.id) && $0.installation.status == .installed }
+            .sorted { $0.manifest.id < $1.manifest.id }
+            .flatMap { package -> [LanguageServerRegistration] in
+                package.descriptor.languageServers.compactMap { server in
+                    guard isLanguageServerModuleEnabled(.languageServerExtension(server.languageID)) else { return nil }
+                    return Self.languageServerRegistration(server, pluginID: package.manifest.id.rawValue, catalog: catalog)
+                }
+            }
+        let builtIn = managedBuiltInPlugins.flatMap { plugin in
+            (plugin.languageSupports ?? []).compactMap { support -> LanguageServerRegistration? in
+                guard let moduleID = support.languageServerModuleID,
+                      isLanguageServerModuleEnabled(moduleID) else { return nil }
+                return LanguageServerRegistration(
+                    id: support.id, pluginID: plugin.id.rawValue,
+                    executableNames: catalog.descriptors.first { $0.id == support.id }?
+                        .languageServerLaunch?.executableNames ?? []
+                )
+            }
+        }
+        return packaged + builtIn
+    }
+
+    private func isLanguageServerModuleEnabled(_ id: ModuleID) -> Bool {
+        guard let snapshot = try? moduleRuntime.snapshot(for: id) else { return false }
+        return snapshot.state != .disabled && !snapshot.isQuarantined && !snapshot.isSuppressedBySafeMode
+    }
+
+    static func languageServerRegistration(
+        _ server: DeclarativeLanguageServer,
+        pluginID: String,
+        catalog: LanguageProviderCatalog
+    ) -> LanguageServerRegistration {
+        let executableNames: [String]
+        switch server.launch {
+        case .packaged, .systemCommand:
+            executableNames = server.executableNames
+        case .runtime:
+            // A runtime such as java/node is not the server's name. Reuse the
+            // descriptive launch metadata already associated with this language;
+            // it supplies a name only after the enabled plugin supplies the row.
+            executableNames = catalog.descriptors.first { $0.id == server.languageID }?
+                .languageServerLaunch?.executableNames ?? []
+        }
+        return LanguageServerRegistration(id: server.languageID, pluginID: pluginID, executableNames: executableNames)
+    }
+
     func setEnabled(_ enabled: Bool, for pluginID: PluginID) async throws {
         guard let manifest = manifest(for: pluginID) else {
             throw PluginManagerError.unknownPlugin(pluginID)
@@ -260,7 +308,7 @@ final class MacPluginManager: PluginManaging {
                 throw PluginManagerError.unknownPlugin(pluginID)
             }
             beforePackageReplacement(pluginID)
-            if OfficialPluginCatalog.entry(for: pluginID)?.bundledSignatureRequirement == .sameTeamAsHost {
+            if OfficialPluginCatalog.trustPolicy(for: pluginID)?.bundledSignatureRequirement == .sameTeamAsHost {
                 try packageStore.setBundledPluginRemoved(pluginID, removed: true)
             }
             try packageStore.stageInvalidPackageUninstall(pluginID)

@@ -319,7 +319,16 @@ private struct PluginMarketplaceDetail: View {
 
     @ViewBuilder private var action: some View {
         if isBusy {
-            ProgressView().controlSize(.small)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Downloading and verifying plugin…")
+                    .font(LitheTheme.settingsFont)
+                    .foregroundStyle(LitheTheme.secondaryText)
+                ProgressView()
+                    .progressViewStyle(.linear)
+                    .accessibilityLabel(Text("Downloading and verifying plugin…"))
+            }
+            .frame(maxWidth: 280, alignment: .leading)
+            .accessibilityIdentifier("plugin-marketplace-install-progress")
         } else {
             switch state {
             case .installable:
@@ -756,6 +765,14 @@ enum PluginMarketplacePresentation {
         switch permission {
         case "languageServer.launch":
             PluginMarketplacePresentation.localized("Start a language server when you open files of its language", locale: locale)
+        case "editor.actions":
+            L10n.string("Add clickable actions beside document text")
+        case "terminal.create":
+            L10n.string("Open and manage its own native terminals, retaining bounded display history for reopening")
+        case "keymaps.provide":
+            L10n.string("Offer shortcut mappings for import")
+        case "keymaps.readSelectedSources":
+            L10n.string("Read declared shortcut files from the editor you select for import")
         case "process.run":
             PluginMarketplacePresentation.localized("Run your files", locale: locale)
         case "ui.contribute":

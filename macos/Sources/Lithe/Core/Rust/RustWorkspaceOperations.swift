@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 import LitheCoreContracts
 import LitheSearchModule
@@ -12,21 +13,42 @@ struct RustWorkspaceOperations: WorkspaceOperations, Sendable {
         directoryListings.invalidate()
     }
 
+    func releaseIndexing(at rootURL: URL, revision: UInt64, ownerID: String? = nil) {
+        core.releaseIndexing(at: rootURL, revision: revision, ownerID: ownerID)
+    }
+
+    func configureIndexing(at rootURL: URL, policy: WorkspaceIndexingPolicy, refresh: Bool, ownerID: String? = nil) throws -> WorkspaceIndexingStatus {
+        do {
+            return try core.configureIndexing(at: rootURL, policy: policy, refresh: refresh, ownerID: ownerID)
+        } catch let error as RustCoreBridge.CoreCallError {
+            throw indexingFailure(error)
+        } catch { throw WorkspaceIndexingFailure.configureFailed }
+    }
+
+    private func indexingFailure(_ error: RustCoreBridge.CoreCallError) -> any Error {
+        switch error.code {
+        case "cancelled": CancellationError()
+        case "invalid_request", "parse_failed": WorkspaceIndexingFailure.invalidSettings
+        case "workspace_not_found": WorkspaceIndexingFailure.workspaceUnavailable
+        case "permission_denied": WorkspaceIndexingFailure.permissionDenied
+        default: WorkspaceIndexingFailure.configureFailed
+        }
+    }
+
     func snapshot(
         at rootURL: URL,
         visibilityRules: FileVisibilityRules
-    ) -> WorkspaceSnapshot? {
-        if let snapshot = core.snapshot(
-            at: rootURL,
-            hiddenDirectoryNames: visibilityRules.hiddenDirectoryNames,
-            hiddenFilePatterns: visibilityRules.hiddenFilePatterns
-        )?.makeSnapshot(at: rootURL) {
-            return snapshot
+    ) throws -> WorkspaceSnapshot? {
+        do {
+            return try core.snapshot(
+                at: rootURL,
+                hiddenDirectoryNames: visibilityRules.hiddenDirectoryNames,
+                hiddenFilePatterns: visibilityRules.hiddenFilePatterns
+            ).makeSnapshot(at: rootURL)
+        } catch let error as RustCoreBridge.CoreCallError {
+            // Preserve cancellation; an unfiltered inventory is never a fallback.
+            throw indexingFailure(error)
         }
-        return FileSystemWorkspaceSnapshotBuilder().snapshot(
-            at: rootURL,
-            visibilityRules: visibilityRules
-        )
     }
 
     func childRows(
@@ -238,8 +260,14 @@ extension RustWorkspaceOperations: SearchOperations {
         kinds: Set<SearchResultKind>,
         onResults: @escaping @Sendable (SearchEverywhereResults) -> Void
     ) async -> SearchEverywhereResults? {
-        try? await searchEverywherePage(at: rootURL, query: query, options: options, visibilityRules: visibilityRules,
-            includeGeneratedFileNames: includeGeneratedFileNames, kinds: kinds, cursor: nil, onResults: onResults)
+        do {
+            return try await searchEverywherePage(at: rootURL, query: query, options: options, visibilityRules: visibilityRules,
+                includeGeneratedFileNames: includeGeneratedFileNames, kinds: kinds, cursor: nil, onResults: onResults)
+        // log-exempt: 用户取消：搜索被替换或调用方取消时返回空结果
+        } catch is CancellationError { return nil } catch {
+            core.coreLogSink?.emit(AppCoreFallbackSelected(error: error, stage: "search-everywhere"))
+            return nil
+        }
     }
 
     func searchEverywherePage(

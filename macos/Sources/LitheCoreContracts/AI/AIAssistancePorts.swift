@@ -17,6 +17,23 @@ public protocol AIPullRequestDescriptionGenerating: AnyObject {
     ) async throws -> PullRequestDescriptionOutput
 }
 
+/// Credential-free plan returned by the shared commit-generation Core.
+public struct AICommitRequestPlan: Sendable {
+    public let url: URL
+    public let body: Data
+
+    public init(url: URL, body: Data) {
+        self.url = url
+        self.body = body
+    }
+}
+
+/// Shared commit policy; native hosts retain credential and HTTP ownership.
+public protocol AICommitPlanning: Sendable {
+    func planCommit(input: CommitMessageInput, settings: CommitMessageAISettings, provider: AIProviderProfile) throws -> AICommitRequestPlan
+    func decodeCommitResponse(protocolName: CommitMessageAPIProtocol, response: Data, includeBody: Bool) throws -> String
+}
+
 public protocol AIProviderCredentialResolver: Sendable {
     func readAPIKey(for provider: AIProviderProfile) -> String?
 }
@@ -82,6 +99,8 @@ public enum CommitMessageGenerationError: LocalizedError, Sendable {
     case httpFailure(statusCode: Int)
     case invalidResponse
     case emptyResponse
+    case invalidOptions
+    case outputLimit
 
     public var errorDescription: String? {
         switch self {
@@ -103,6 +122,10 @@ public enum CommitMessageGenerationError: LocalizedError, Sendable {
             return L10n.string("The AI provider returned an unexpected response.")
         case .emptyResponse:
             return L10n.string("The AI provider returned an empty commit message.")
+        case .invalidOptions:
+            return L10n.string("aiCommit.aiCOMMITINVALIDOPTIONS")
+        case .outputLimit:
+            return L10n.string("aiCommit.aiCOMMITOUTPUTLIMIT")
         }
     }
 }

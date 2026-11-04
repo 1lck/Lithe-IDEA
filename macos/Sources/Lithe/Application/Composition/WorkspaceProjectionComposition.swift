@@ -14,6 +14,9 @@ enum WorkspaceProjectionComposition {
         let workbench = graph.workbench
         let editorSession = graph.editorSession
         let notification = graph.notification
+        graph.workspace.notifyFailure = { [weak model] in
+            model?.showNotification($0, logReference: model?.notificationRejection(operation: "workspace_files", reason: "operation_failed"))
+        }
         graph.workspace.configureProjection(
             documentsProvider: { [weak document] in
                 document?.openDocuments.map {
@@ -75,13 +78,21 @@ enum WorkspaceProjectionComposition {
             refreshGit: { [weak model] in
                 await model?.gitFeatureIfActive?.refreshGitFromMetadataChange()
             },
-            updateHistoryVisibilityRules: { [weak model] rules in
-                guard let feature = await model?.activateHistoryModule() else { return }
-                await feature.updateVisibilityRules(rules.localHistoryRules)
+            updateHistoryVisibilityRules: { [weak model] _ in
+                // The ignore rules live beside project visibility, so read both from settings.
+                guard let model, let feature = await model.activateHistoryModule() else { return }
+                await feature.updateVisibilityRules(model.settings.localHistoryRules)
             },
             onSnapshotLoaded: { [weak model] snapshot, isInitialLoad in
                 guard let model else { return }
                 model.suggestJavaPluginIfNeeded(files: snapshot.files)
+                if !isInitialLoad {
+                    // Core may have withdrawn working copies after an exclusion change.
+                    // Reconcile open buffers so cancelling exclusion restores language features.
+                    for document in model.openDocuments {
+                        _ = model.activateLanguageServerIfAvailable(for: document)
+                    }
+                }
                 // Loading a ready inventory also resumes deferred run actions.
                 await model.loadProjectServices(
                     at: snapshot.root.url,

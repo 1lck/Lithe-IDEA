@@ -22,7 +22,8 @@ use std::collections::{BTreeMap, BTreeSet};
 /// First plugin API level whose manifests declare capability versions.
 pub(crate) const CAPABILITIES_API_VERSION: u32 = 3;
 
-/// `languages[]`: file types and project markers.
+/// `languages[]`: file types and project markers. Version 2 adds a
+/// declarative `grammar` and an editing `configuration`; see `super::grammar`.
 pub(crate) const LANGUAGES: &str = "languages";
 /// `languageServers[]` apart from their launch fields. Version 2 adds
 /// `workspaceConfiguration`.
@@ -68,6 +69,12 @@ pub(crate) const DEBUG_ADAPTERS_API_VERSION: u32 = 4;
 
 /// Shared executable candidate order and strict explicit selection.
 pub(crate) const EXECUTABLE_RESOLUTION: &str = "executableResolution";
+/// Independent providers that translate external shortcut settings.
+pub(crate) const KEYMAP_IMPORT_PROVIDERS: &str = "keymapImportProviders";
+/// Plugin-owned tool identities, discovery policy and executable candidates.
+pub(crate) const TOOL_DEFINITIONS: &str = "toolDefinitions";
+/// Backend facts that can influence the executable selected for a defined tool.
+pub(crate) const TOOLCHAIN_PROVIDERS: &str = "toolchainProviders";
 
 /// Capability versions this Core build validates and plans. Version 1 of a
 /// capability keeps the meaning its section had at API level 2.
@@ -78,13 +85,16 @@ pub const SUPPORTED_CAPABILITIES: &[(&str, &[u32])] = &[
     (BUILD_SYSTEMS, &[1, 2]),
     (DEBUG_ADAPTERS, &[1, 2]),
     (EXECUTION_PROVIDERS, &[1]),
-    (EXECUTABLE_RESOLUTION, &[1]),
+    (EXECUTABLE_RESOLUTION, &[1, 2]),
+    (KEYMAP_IMPORT_PROVIDERS, &[1]),
     (LANGUAGE_SERVERS, &[1, 2]),
-    (LANGUAGES, &[1]),
+    (LANGUAGES, &[1, 2]),
     (PACKAGE_TRUST, &[1]),
     (PROJECT_GENERATORS, &[1]),
     (SERVER_PROCESS, &[1, 2]),
     (SETTINGS, &[1, 2]),
+    (TOOL_DEFINITIONS, &[1]),
+    (TOOLCHAIN_PROVIDERS, &[1]),
     (UI, &[1, 2, 3, 4]),
     (VCS_PROVIDERS, &[1]),
 ];

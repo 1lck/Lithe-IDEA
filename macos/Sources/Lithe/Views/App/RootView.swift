@@ -5,6 +5,7 @@ import LitheLocalHistoryModule
 import SwiftUI
 
 enum LitheWindowID {
+    static let logs = "logs"
     static let welcome = "welcome"
     static let settings = "settings"
     static let project = "project"
@@ -293,6 +294,9 @@ private struct ActiveSessionChrome: View {
                     title: windowTitle
                 )
             )
+            .onAppear {
+                session.services.logWindowCoordinator?.present = { openWindow(id: LitheWindowID.logs) }
+            }
             .onReceive(session.workbenchFeature.$settingsCategoryRequest.dropFirst()) { _ in
                 SettingsWindowChrome.ownerWindow = NSApp.orderedWindows.first {
                     ($0.delegate as? LitheWindowCoordinator)?.projectSessions.windowScope == scope
@@ -342,12 +346,6 @@ private struct ActiveSessionChrome: View {
                     })
                 }
             }.frame(width: 0, height: 0).allowsHitTesting(false))
-            .sheet(isPresented: Binding(
-                get: { session.diagnosticsFeature.isPresented },
-                set: { session.diagnosticsFeature.isPresented = $0 }
-            )) {
-                DiagnosticsExportSheet(feature: session.diagnosticsFeature)
-            }
             .sheet(item: scopedLocalHistoryRequest) { request in
                 LocalHistoryView(request: request, fontFamily: session.settings.editorFontFamily)
                     .environmentObject(session)
@@ -403,7 +401,7 @@ private struct ActiveSessionChrome: View {
     }
 }
 
-private struct WindowCloseGuard: NSViewRepresentable {
+struct WindowCloseGuard: NSViewRepresentable {
     let windowHandler: any ProjectWindowSessionHandling
     let layout: LitheWindowLayout
     let title: String?
@@ -433,6 +431,7 @@ private struct WindowCloseGuard: NSViewRepresentable {
 }
 
 enum LitheWindowLayout: Equatable {
+    case settingsImport
     case welcome
     case workspace
     case standalone
@@ -446,6 +445,7 @@ enum LitheWindowLayout: Equatable {
 
     var contentSize: NSSize {
         switch self {
+        case .settingsImport: NSSize(width: 640, height: 467)
         case .welcome: Self.welcomeContentSize
         case .workspace: Self.workspaceContentSize
         case .standalone: Self.standaloneContentSize
@@ -454,6 +454,7 @@ enum LitheWindowLayout: Equatable {
 
     var minimumContentSize: NSSize {
         switch self {
+        case .settingsImport: contentSize
         case .welcome: Self.welcomeContentSize
         case .workspace: .zero
         case .standalone: Self.standaloneMinimumContentSize
@@ -737,7 +738,8 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
             return
         }
 
-        let shouldAnimate = self.layout != nil && window.isVisible
+        var shouldAnimate = self.layout != nil && window.isVisible
+        if case .settingsImport = layout { shouldAnimate = false }
         self.layout = layout
         restoredWorkspaceFrame = nil
         // SwiftUI also measures the native minimum. Reset the role baseline

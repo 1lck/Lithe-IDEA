@@ -1197,7 +1197,6 @@ pub fn cleanup_legacy_appdata(app: &AppHandle) {
     }
 }
 
-
 fn workspace_relative(root: &Path, path: &Path) -> Option<String> {
     path.strip_prefix(root)
         .ok()
@@ -1388,6 +1387,34 @@ fn join_relative(root: &Path, relative: &str) -> PathBuf {
 /// the JDK matching the release it compiles for.
 pub(crate) fn discover_java_runtimes(project_root: Option<&Path>) -> Vec<JavaRuntime> {
     probe_java_homes(java_home_candidates(project_root))
+}
+
+/// Uses the same explicit/project-aware selection as Run without probing Maven or Node.
+pub(crate) fn language_service_java_runtimes(
+    root: &Path,
+    configured_home: &str,
+) -> Result<Vec<crate::lsp::JavaLspRuntime>, String> {
+    let mut runtimes = discover_java_runtimes(Some(root));
+    let selected = if configured_home.trim().is_empty() {
+        select_project_java(Some(root), &runtimes)?.id
+    } else {
+        let selected = resolve_java_home(root, configured_home)
+            .map_err(|_| "PROJECT_JDK_INVALID".to_string())?;
+        if let Some(home) = &selected {
+            let runtime = probe_java_home(Path::new(home))
+                .ok_or_else(|| "PROJECT_JDK_INVALID".to_string())?;
+            runtimes.insert(0, runtime);
+        }
+        selected
+    };
+    Ok(runtimes
+        .into_iter()
+        .map(|runtime| crate::lsp::JavaLspRuntime {
+            is_default: selected.as_deref() == Some(runtime.home_path.as_str()),
+            home_path: runtime.home_path,
+            version: runtime.version,
+        })
+        .collect())
 }
 
 fn java_selection_candidates(
@@ -3772,7 +3799,7 @@ mod tests {
         use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_SYNCHRONIZE};
         let mut command = Command::new("cmd");
         command
-            .args(["/C", "ping -n 30 127.0.0.1"])
+            .args(["/D", "/C", "ping -n 30 127.0.0.1"])
             .stdout(Stdio::piped());
         ProcessTree::prepare(&mut command);
         let mut child = command.spawn().expect("spawn service");
@@ -3818,9 +3845,10 @@ mod tests {
         reader.join().expect("join ready fixture reader");
         fixture.output = Some(stdout);
         result.expect("service descendant output");
-        let descendant = *child_process_ids(fixture.root.id())
-            .first()
-            .expect("service descendant");
+        // A parent PID can also match console helpers. Select the
+        // fixture's ping explicitly, independently of snapshot iteration order.
+        let descendant = fixture_descendant_pid(&child_processes(fixture.root.id()))
+            .expect("unique service descendant");
         // Capture identity before stopping the job: PID snapshots can still list
         // an exited process, and a later lookup can race PID reuse.
         // SAFETY: PROCESS_SYNCHRONIZE grants only waiting; this opens a
@@ -3837,15 +3865,48 @@ mod tests {
     }
 
     #[cfg(windows)]
-    fn child_process_ids(parent: u32) -> Vec<u32> {
+    fn child_processes(parent: u32) -> Vec<(u32, String)> {
         let mut system = sysinfo::System::new();
         system.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
         system
             .processes()
             .values()
             .filter(|process| process.parent() == Some(sysinfo::Pid::from_u32(parent)))
-            .map(|process| process.pid().as_u32())
+            .map(|process| {
+                (
+                    process.pid().as_u32(),
+                    process.name().to_string_lossy().into_owned(),
+                )
+            })
             .collect()
+    }
+
+    #[cfg(windows)]
+    fn fixture_descendant_pid(children: &[(u32, String)]) -> Result<u32, String> {
+        let matches = children
+            .iter()
+            .filter(|(_, name)| name.eq_ignore_ascii_case("ping.exe"))
+            .map(|(pid, _)| *pid)
+            .collect::<Vec<_>>();
+        match matches.as_slice() {
+            [pid] => Ok(*pid),
+            _ => Err(format!(
+                "expected one ping.exe child, found {matches:?}; child processes: {children:?}"
+            )),
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn fixture_descendant_selection_requires_a_unique_ping_process() {
+        let mut children = vec![(41, "conhost.exe".into()), (42, "PING.EXE".into())];
+        assert_eq!(fixture_descendant_pid(&children).unwrap(), 42);
+        children.reverse();
+        assert_eq!(fixture_descendant_pid(&children).unwrap(), 42);
+        assert!(fixture_descendant_pid(&[]).is_err());
+        assert!(fixture_descendant_pid(&[(41, "conhost.exe".into())]).is_err());
+        children.push((43, "ping.exe".into()));
+        assert!(fixture_descendant_pid(&children).is_err());
     }
 
     #[cfg(windows)]

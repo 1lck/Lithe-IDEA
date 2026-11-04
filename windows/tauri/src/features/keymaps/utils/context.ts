@@ -1,205 +1,131 @@
 /**
- * Context evaluation engine for "when" clauses
- * Evaluates expressions like "editorFocus && !vimMode"
+ * Projects native boolean context snapshots into truth tables compiled by Core.
+ * No source parsing, expression evaluation, or host request occurs on keydown.
  */
+import { invoke } from "@/platform/tauri-core";
+import { logger } from "@/features/editor/utils/logger";
+import type { Keybinding, KeymapContext } from "../types/keymaps.types";
 
-import type { KeymapContext } from "../types/keymaps.types";
+export interface ParsedContext {
+  keys: string[];
+  values: boolean[];
+}
+interface ParseResult {
+  parsed: ParsedContext | null;
+  error: { code: string; byteOffset: number } | null;
+}
+interface PreparedContext {
+  parsed?: ParsedContext;
+  promise: Promise<void>;
+}
+const MAX_PREPARED_CONTEXTS = 256;
+const MAX_IN_FLIGHT_CONTEXTS = 16;
+const prepared = new Map<string, PreparedContext>();
+let inFlight = 0;
 
-/**
- * Evaluate a when clause against current context
- * Supports: &&, ||, !, ==, !=
- */
+export class KeymapContextError extends Error {
+  constructor(
+    readonly code: string,
+    readonly byteOffset: number = 0,
+  ) {
+    super(code);
+  }
+}
+
+async function compileContext(expression: string): Promise<ParsedContext> {
+  if (inFlight >= MAX_IN_FLIGHT_CONTEXTS) throw new KeymapContextError("preparation_busy");
+  inFlight++;
+  try {
+    const result = await invoke<ParseResult>("keymap.parseContext", { expression });
+    if (result.error) throw new KeymapContextError(result.error.code, result.error.byteOffset);
+    if (!result.parsed) throw new KeymapContextError("invalid_plan");
+    return result.parsed;
+  } finally {
+    inFlight--;
+  }
+}
+
+/** Validate an import privately, then publish its plans together if they fit. */
+export async function prepareImportedContexts(bindings: Keybinding[]): Promise<void> {
+  const expressions = new Set(bindings.map((binding) => binding.when).filter((value): value is string => !!value));
+  if (new Set([...prepared.keys(), ...expressions]).size > MAX_PREPARED_CONTEXTS) {
+    throw new KeymapContextError("too_many_conditions");
+  }
+  const staged = new Map<string, ParsedContext>();
+  for (const expression of expressions) {
+    const existing = prepared.get(expression);
+    if (existing) {
+      await existing.promise;
+      if (existing.parsed) staged.set(expression, existing.parsed);
+    } else {
+      staged.set(expression, await compileContext(expression));
+    }
+  }
+  // Other consumers can change the cache while the import is validating.
+  if (new Set([...prepared.keys(), ...expressions]).size > MAX_PREPARED_CONTEXTS) {
+    throw new KeymapContextError("too_many_conditions");
+  }
+  for (const [expression, parsed] of staged) {
+    if (!prepared.has(expression)) prepared.set(expression, { parsed, promise: Promise.resolve() });
+  }
+}
+
+/** Validate before publishing or persisting a binding; concurrent callers share one request. */
+export async function prepareWhenClause(expression: string | undefined): Promise<void> {
+  if (!expression) return;
+  const existing = prepared.get(expression);
+  if (existing) return existing.promise;
+  if (prepared.size >= MAX_PREPARED_CONTEXTS) {
+    throw new KeymapContextError("too_many_conditions");
+  }
+  const entry: PreparedContext = { promise: Promise.resolve() };
+  prepared.set(expression, entry);
+  entry.promise = compileContext(expression)
+    .then((parsed) => {
+      entry.parsed = parsed;
+    })
+    .catch((error) => {
+      if (prepared.get(expression) === entry) prepared.delete(expression);
+      throw error;
+    });
+  return entry.promise;
+}
+
+/** Registry/default/hydrated input is fail-closed, with diagnostics outside keydown. */
+export async function prepareKeymapContexts(
+  bindings: Keybinding[],
+  signal?: AbortSignal,
+): Promise<void> {
+  const expressions = new Set(bindings.map((binding) => binding.when).filter(Boolean));
+  for (const expression of prepared.keys()) {
+    if (!expressions.has(expression)) prepared.delete(expression);
+  }
+  for (const expression of expressions) {
+    if (signal?.aborted) return;
+    try {
+      await prepareWhenClause(expression);
+    } catch (error) {
+      logger.warn("Keymaps", "Context preparation failed", error);
+    }
+  }
+}
+
+/** Context keys are boolean. Missing keys project to false, as specified by Core. */
 export function evaluateWhenClause(
   whenClause: string | undefined,
   context: Partial<KeymapContext>,
 ): boolean {
   if (!whenClause) return true;
-
-  const tokens = tokenize(whenClause);
-  return evaluateTokens(tokens, context);
+  const table = prepared.get(whenClause)?.parsed;
+  if (!table) return false;
+  const index = table.keys.reduce(
+    (index, key, bit) => index + (context[key] === true ? 2 ** bit : 0),
+    0,
+  );
+  return table.values[index] === true;
 }
 
-type Token =
-  | { type: "identifier"; value: string }
-  | { type: "operator"; value: "&&" | "||" | "!" | "==" | "!=" }
-  | { type: "literal"; value: string | boolean }
-  | { type: "paren"; value: "(" | ")" };
-
-function tokenize(expr: string): Token[] {
-  const tokens: Token[] = [];
-  let i = 0;
-
-  while (i < expr.length) {
-    const char = expr[i];
-
-    if (/\s/.test(char)) {
-      i++;
-      continue;
-    }
-
-    if (char === "(") {
-      tokens.push({ type: "paren", value: "(" });
-      i++;
-      continue;
-    }
-
-    if (char === ")") {
-      tokens.push({ type: "paren", value: ")" });
-      i++;
-      continue;
-    }
-
-    if (char === "!") {
-      if (expr[i + 1] === "=") {
-        tokens.push({ type: "operator", value: "!=" });
-        i += 2;
-      } else {
-        tokens.push({ type: "operator", value: "!" });
-        i++;
-      }
-      continue;
-    }
-
-    if (char === "&" && expr[i + 1] === "&") {
-      tokens.push({ type: "operator", value: "&&" });
-      i += 2;
-      continue;
-    }
-
-    if (char === "|" && expr[i + 1] === "|") {
-      tokens.push({ type: "operator", value: "||" });
-      i += 2;
-      continue;
-    }
-
-    if (char === "=" && expr[i + 1] === "=") {
-      tokens.push({ type: "operator", value: "==" });
-      i += 2;
-      continue;
-    }
-
-    if (char === "'" || char === '"') {
-      const quote = char;
-      let value = "";
-      i++;
-      while (i < expr.length && expr[i] !== quote) {
-        value += expr[i];
-        i++;
-      }
-      i++;
-      tokens.push({ type: "literal", value });
-      continue;
-    }
-
-    let identifier = "";
-    while (i < expr.length && /[a-zA-Z0-9_.]/.test(expr[i])) {
-      identifier += expr[i];
-      i++;
-    }
-
-    if (identifier === "true") {
-      tokens.push({ type: "literal", value: true });
-    } else if (identifier === "false") {
-      tokens.push({ type: "literal", value: false });
-    } else if (identifier) {
-      tokens.push({ type: "identifier", value: identifier });
-    }
-  }
-
-  return tokens;
-}
-
-function evaluateTokens(tokens: Token[], context: Partial<KeymapContext>): boolean {
-  if (tokens.length === 0) return true;
-
-  return evaluateOr(tokens, context).value;
-}
-
-function evaluateOr(
-  tokens: Token[],
-  context: Partial<KeymapContext>,
-): { value: boolean; consumed: number } {
-  const result = evaluateAnd(tokens, context);
-  let consumed = result.consumed;
-
-  while (consumed < tokens.length) {
-    const token = tokens[consumed];
-    if (token.type === "operator" && token.value === "||") {
-      consumed++;
-      const right = evaluateAnd(tokens.slice(consumed), context);
-      result.value = result.value || right.value;
-      consumed += right.consumed;
-    } else {
-      break;
-    }
-  }
-
-  return { value: result.value, consumed };
-}
-
-function evaluateAnd(
-  tokens: Token[],
-  context: Partial<KeymapContext>,
-): { value: boolean; consumed: number } {
-  const result = evaluateUnary(tokens, context);
-  let consumed = result.consumed;
-
-  while (consumed < tokens.length) {
-    const token = tokens[consumed];
-    if (token.type === "operator" && token.value === "&&") {
-      consumed++;
-      const right = evaluateUnary(tokens.slice(consumed), context);
-      result.value = result.value && right.value;
-      consumed += right.consumed;
-    } else {
-      break;
-    }
-  }
-
-  return { value: result.value, consumed };
-}
-
-function evaluateUnary(
-  tokens: Token[],
-  context: Partial<KeymapContext>,
-): { value: boolean; consumed: number } {
-  if (tokens.length === 0) return { value: true, consumed: 0 };
-
-  const token = tokens[0];
-
-  if (token.type === "operator" && token.value === "!") {
-    const result = evaluateUnary(tokens.slice(1), context);
-    return { value: !result.value, consumed: result.consumed + 1 };
-  }
-
-  return evaluatePrimary(tokens, context);
-}
-
-function evaluatePrimary(
-  tokens: Token[],
-  context: Partial<KeymapContext>,
-): { value: boolean; consumed: number } {
-  if (tokens.length === 0) return { value: true, consumed: 0 };
-
-  const token = tokens[0];
-
-  if (token.type === "paren" && token.value === "(") {
-    const result = evaluateOr(tokens.slice(1), context);
-    const closeParen = tokens[result.consumed + 1];
-    if (closeParen?.type === "paren" && closeParen.value === ")") {
-      return { value: result.value, consumed: result.consumed + 2 };
-    }
-    return result;
-  }
-
-  if (token.type === "literal") {
-    return { value: Boolean(token.value), consumed: 1 };
-  }
-
-  if (token.type === "identifier") {
-    const value = context[token.value as keyof KeymapContext] ?? false;
-    return { value, consumed: 1 };
-  }
-
-  return { value: true, consumed: 1 };
+/** The window's keyboard owner releases its cache together with its event listeners. */
+export function releasePreparedContexts(): void {
+  prepared.clear();
 }

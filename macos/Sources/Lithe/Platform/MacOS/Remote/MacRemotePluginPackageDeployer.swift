@@ -14,6 +14,7 @@ struct MacRemotePluginPackageDeployer: RemotePluginPackageDeploying {
     let transport: any MacPluginMarketplaceTransport
     let host: any RemotePluginFileAccess
     let temporaryDirectory: URL
+    var logSink: (any LogSink)? = nil
 
     func buildRequiresPackage(pluginID: String, buildSystemID: String, packageURL: URL) throws -> Bool {
         guard let original = installed.first(where: {
@@ -62,7 +63,7 @@ struct MacRemotePluginPackageDeployer: RemotePluginPackageDeploying {
                   download.version == original.manifest.version.description,
                   let url = URL(string: download.downloadURL) else { throw incompatible(pluginID, platform) }
             let downloaded = try await worker {
-                try await MacPluginPackageDownloader(transport: transport, temporaryDirectory: temporaryDirectory).download(
+                try await MacPluginPackageDownloader(logSink: logSink, transport: transport, temporaryDirectory: temporaryDirectory).download(
                     archiveURL: url, expectedSHA256: download.sha256, pluginID: original.descriptor.id)
             }
             do {
@@ -85,7 +86,7 @@ struct MacRemotePluginPackageDeployer: RemotePluginPackageDeploying {
                         approvedPrograms: provenance.approvedPrograms)
                     _ = try store.verifyCandidatePackage(at: downloaded.packageURL, origin: original.installation.origin,
                                                          marketplace: remoteProvenance)
-                    let snapshot = try LocalSnapshot.read(at: downloaded.packageURL, descriptor: descriptor)
+                    let snapshot = try LocalSnapshot.read(at: downloaded.packageURL, descriptor: descriptor, logSink: logSink)
                     _ = try store.verifyCandidatePackage(at: downloaded.packageURL, origin: original.installation.origin,
                                                          marketplace: remoteProvenance)
                     return snapshot
@@ -107,7 +108,7 @@ struct MacRemotePluginPackageDeployer: RemotePluginPackageDeploying {
             let store = makeStore(architecture)
             let descriptor = try store.verifyCandidatePackage(at: packageURL,
                 origin: original.installation.origin, marketplace: original.installation.marketplace, disk: original.installation.disk)
-            let snapshot = try LocalSnapshot.read(at: packageURL, descriptor: descriptor)
+            let snapshot = try LocalSnapshot.read(at: packageURL, descriptor: descriptor, logSink: logSink)
             _ = try store.verifyCandidatePackage(at: packageURL, origin: original.installation.origin,
                                                  marketplace: original.installation.marketplace, disk: original.installation.disk)
             return snapshot
@@ -141,7 +142,7 @@ struct MacRemotePluginPackageDeployer: RemotePluginPackageDeploying {
             }
             // Detect package replacement or mutation during transfer, including
             // mode changes not covered by the publisher's content signature.
-            let after = try await worker { try LocalSnapshot.read(at: snapshot.root, descriptor: snapshot.descriptor) }
+            let after = try await worker { try LocalSnapshot.read(at: snapshot.root, descriptor: snapshot.descriptor, logSink: logSink) }
             guard snapshot.entries == after.entries else { throw CocoaError(.fileReadCorruptFile) }
             if let localCleanup { await removeLocal(localCleanup) }
             return RemoteDeployedPluginPackage(packageURL: URL(fileURLWithPath: package, isDirectory: true),
@@ -166,7 +167,7 @@ struct MacRemotePluginPackageDeployer: RemotePluginPackageDeploying {
                 } catch let error as RemoteProbeFailure where error.code == "workspace_not_found" {
                     // Cancellation may have won before the allocation.
                 }
-            } catch { NSLog("Remote plugin snapshot cleanup failed (%@)", String(describing: type(of: error))) }
+            } catch { logSink?.emit(RemotePluginsCleanupFailed(error: error, stage: "snapshot")) }
         }
         await cleanup.value
     }
@@ -174,7 +175,7 @@ struct MacRemotePluginPackageDeployer: RemotePluginPackageDeploying {
     private func removeLocal(_ directory: URL) async {
         await Task.detached {
             do { try FileManager().removeItem(at: directory) }
-            catch { NSLog("Remote plugin extraction cleanup failed (%@)", String(describing: type(of: error))) }
+            catch { logSink?.emit(RemotePluginsCleanupFailed(error: error, stage: "extraction")) }
         }.value
     }
 
@@ -203,7 +204,7 @@ private struct LocalSnapshot: Sendable {
     let descriptor: DeclarativePluginDescriptor
     let entries: [Entry]
 
-    static func read(at root: URL, descriptor: DeclarativePluginDescriptor) throws -> Self {
+    static func read(at root: URL, descriptor: DeclarativePluginDescriptor, logSink: (any LogSink)? = nil) throws -> Self {
         let manager = FileManager()
         let root = root.standardizedFileURL
         var entries: [Entry] = []
@@ -224,7 +225,7 @@ private struct LocalSnapshot: Sendable {
                 guard total <= 2 * 1024 * 1024 * 1024 else { throw CocoaError(.fileReadTooLarge) }
                 let directory = values.isDirectory == true
                 entries.append(Entry(path: path, directory: directory, executable: !directory && manager.isExecutableFile(atPath: url.path),
-                    sha256: directory ? "" : try MacPluginPackageDownloader.sha256(of: url)))
+                    sha256: directory ? "" : try MacPluginPackageDownloader.sha256(of: url, logSink: logSink)))
                 if directory { try visit(url, relative: path + "/") }
             }
         }

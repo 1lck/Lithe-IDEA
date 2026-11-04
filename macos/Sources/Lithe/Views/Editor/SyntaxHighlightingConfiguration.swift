@@ -60,16 +60,18 @@ struct SyntaxHighlightingRegistry {
         let formats: [SyntaxHighlightingFormatDefinition]
     }
 
-    static let bundled: SyntaxHighlightingRegistry = {
+    static let bundled: SyntaxHighlightingRegistry = loaded.0
+    static var loadError: (any Error)? { loaded.1 }
+    private static let loaded: (SyntaxHighlightingRegistry, (any Error)?) = {
         do {
             guard let url = SyntaxHighlightingResources.configurationURL else {
                 throw SyntaxHighlightingConfigurationError.missingBundledConfiguration
             }
-            return try SyntaxHighlightingRegistry(data: Data(contentsOf: url))
+            return (try SyntaxHighlightingRegistry(data: Data(contentsOf: url)), nil)
+        // log-exempt: 同一次失败已经记录过：保留原始 loadError，由 LitheApp 启动边界记录 editor.syntax.configuration_failed
         } catch {
             // A bad packaged mapping must not make the editor unusable; retain its generic highlighting.
-            NSLog("Syntax highlighting configuration could not be loaded: %@", String(describing: error))
-            return SyntaxHighlightingRegistry()
+            return (SyntaxHighlightingRegistry(), error)
         }
     }()
 

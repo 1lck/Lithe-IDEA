@@ -148,7 +148,11 @@ pub(super) async fn forward(
                 };
                 // No model-turn deadline. The connection owner aborts this
                 // task on shutdown; copy_bidirectional preserves half-closes.
-                let _ = tokio::io::copy_bidirectional(&mut downstream, &mut upstream).await;
+                crate::failure_log::teardown(
+                    "agent.host.operation_failed",
+                    "websocket_copy",
+                    tokio::io::copy_bidirectional(&mut downstream, &mut upstream).await,
+                );
             });
         }
     }

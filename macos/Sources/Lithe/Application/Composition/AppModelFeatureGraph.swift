@@ -1,5 +1,6 @@
 import Foundation
 import LitheCoreContracts
+import LitheModuleAPI
 import LitheWorkspaceModule
 
 /// Constructs the per-session feature models used by AppModel.
@@ -18,10 +19,10 @@ final class AppModelFeatureGraph {
     let workspaceSession: WorkspaceSessionCoordinator
     let workbenchBackground: WorkbenchBackgroundFeatureModel
     let runtime: RuntimeSettingsFeatureModel
+    let toolchainSettings: ToolchainSettingsFeatureModel
     let languageTooling: LanguageToolingFeatureModel
     let workspace: WorkspaceFeatureModel
     let github: GitHubFeatureModel
-    let diagnostics: DiagnosticsFeatureModel
     let editorTabOrder: EditorTabOrderFeatureModel
     let media: MediaDocumentFeatureModel
     let terminalPlacement: TerminalPlacementFeatureModel
@@ -46,12 +47,17 @@ final class AppModelFeatureGraph {
         // Coordinators report user-facing failures through the notification
         // feature directly; the application shell forwards the same call.
         let notify: @MainActor (String) -> Void = { message in
-            notification.show(message)
+            var reference: LogRecordReference?
+            if let sink = services.logSink {
+                reference = LogScope(sink: sink).emitReferenced(AppNotificationOperationRejected(operation: "language_debug_workflow", reason: "request_failed"))
+            }
+            notification.show(message, logReference: reference)
         }
         workbench = WorkbenchFeatureModel(layoutStore: services.workbenchLayoutStore)
         commitDraft = CommitDraftFeatureModel()
         searchSession = SearchSessionFeatureModel()
         let workspace = WorkspaceFeatureModel(
+            logSink: services.logSink,
             operations: services.workspaceOperations,
             fileOperations: services.fileOperations,
             gitWatchContextProvider: services.gitWatchContextProvider,
@@ -60,6 +66,20 @@ final class AppModelFeatureGraph {
             directoryMarkStore: services.directoryMarkStore
         )
         self.workspace = workspace
+        services.toolchainSettingsDirectories = { [weak workspace] in
+            guard let root = workspace?.rootNode else { return [] }
+            let prefix = root.url.standardizedFileURL.path + "/"
+            var pending = root.children ?? []
+            var paths: [String] = []
+            while !pending.isEmpty && paths.count < 1_024 {
+                let node = pending.removeLast()
+                guard node.isDirectory else { continue }
+                let path = node.url.standardizedFileURL.path
+                if path.hasPrefix(prefix) { paths.append(String(path.dropFirst(prefix.count))) }
+                pending.append(contentsOf: node.children ?? [])
+            }
+            return paths
+        }
         workspaceSession = WorkspaceSessionCoordinator(
             recentProjectsStore: services.recentProjectsStore,
             platformUI: services.platformUI,
@@ -71,6 +91,10 @@ final class AppModelFeatureGraph {
             platform: services.workbenchBackgroundPlatform
         )
         runtime = RuntimeSettingsFeatureModel(service: services.projectRuntimeService)
+        toolchainSettings = ToolchainSettingsFeatureModel(
+            loader: services.toolchainSettingsLoader, loginShell: services.loginShellEnvironmentInspector,
+            inputWatcher: services.toolchainInputWatcher
+        )
         languageTooling = LanguageToolingFeatureModel(
             catalogSource: services.languageProviderCatalogSource,
             catalogSnapshot: services.languageProviderCatalogSnapshot,
@@ -78,11 +102,12 @@ final class AppModelFeatureGraph {
             sessionsProvider: { nil }
         )
         github = GitHubFeatureModel(service: services.githubService)
-        diagnostics = DiagnosticsFeatureModel(service: services.diagnosticsExportService)
+        notification.openLogs = { [weak services] in services?.logWindowCoordinator?.open($0) }
         editorTabOrder = EditorTabOrderFeatureModel()
         media = MediaDocumentFeatureModel()
         terminalPlacement = TerminalPlacementFeatureModel()
         document = DocumentFeatureModel(
+            logSink: services.logSink,
             operations: services.workspaceOperations,
             documentLifecycleDecider: services.documentLifecycleDecider,
             fileOperations: services.fileOperations,

@@ -10,6 +10,22 @@ import LitheLanguageIntelligenceModule
 /// Platform composition roots construct this graph with their own adapters.
 @MainActor
 final class AppServices {
+    var logWindowCoordinator: LogWindowCoordinator?
+    var logWindowLogging: (any LogWindowLogging)?
+    /// Process log sink supplied by the composition root; modules receive the same instance.
+    var logSink: (any LogSink)?
+    var editorSettingsImportScan: ((URL?) async throws -> [EditorSettingsImportSource])?
+    var editorSettingsImportKeymapPlan: (([KeymapImportCurrent], [KeymapImportBinding]) throws -> KeymapImportBindingPlan)?
+    var editorSettingsImportLoadKeymapOnSelection = false
+    var debugStartOrContinue: ((Bool, Bool, Bool) throws -> DebugStartOrContinueAction)?
+    func makeEditorSettingsImport(settings: AppSettings) -> EditorSettingsImportFeatureModel {
+        EditorSettingsImportFeatureModel(settings: settings, chooseDirectory: { [platformUI] in
+            platformUI.chooseDirectory(title: settings.language.localizedString("Choose IDE configuration directory"),
+                                       prompt: settings.language.localizedString("Choose"))
+        }, scan: editorSettingsImportScan, planKeymap: editorSettingsImportKeymapPlan,
+        loadKeymapOnSelection: editorSettingsImportLoadKeymapOnSelection, logSink: logSink)
+    }
+
     var ideCapabilityRegistry: IdeCapabilityRegistry?
     var ideHostTransport: (any IdeHostTransport)?
     /// Codex and Claude Code MCP configuration files. `nil` before platform
@@ -28,6 +44,16 @@ final class AppServices {
     /// Installed plugins with their enabled state, for the New Project
     /// catalog and the plugins that provide a generator's requirements.
     var projectGeneratorSources: (@MainActor () -> [ProjectGeneratorPluginSource])?
+    /// Read-only plugin toolchain projection; absent until platform composition.
+    var toolchainSettingsLoader: (any ToolchainSettingsLoading)?
+    var toolchainInputWatcher: (any ToolchainInputWatching)?
+    /// Existing workspace tree projection; settings must not start a second filesystem scan.
+    var toolchainSettingsDirectories: (@MainActor () -> [String])?
+    /// The startup login-shell read, for settings; absent on platforms that do not read one.
+    var loginShellEnvironmentInspector: (any LoginShellEnvironmentInspecting)?
+    /// Only enabled, registered plugins inject rows. Existing launch metadata
+    /// can supply names, but never creates rows or triggers executable discovery.
+    var languageServerRegistrations: (@MainActor (LanguageProviderCatalog) -> [LanguageServerRegistration])?
     /// Gives build providers that share a language server the language
     /// sessions; `nil` when the platform starts no build providers.
     var connectBuildProviderLanguageSessions: ((@escaping @MainActor () -> LanguageToolingSessionManager?) -> Void)?
@@ -42,6 +68,10 @@ final class AppServices {
     /// Starts plugin backends on `onWorkspaceOpen` and `onCommand:<id>`;
     /// `nil` when the platform runs no plugin backends.
     var pluginBackendActivation: (any PluginBackendActivating)?
+    var pluginEditorActions: PluginEditorActionHostService?
+    /// Static plugin editor resources; `nil` when
+    /// the platform loads no plugins.
+    var pluginEditorLanguages: (any PluginEditorLanguageProviding)?
     let moduleRuntime: ModuleRuntime
     let pluginManager: any PluginManaging
     let pluginMarketplace: any PluginMarketplaceServicing

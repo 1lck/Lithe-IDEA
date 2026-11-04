@@ -12,6 +12,8 @@ pub struct GitWatchContext {
     pub repository_root: PathBuf,
     pub git_directory: PathBuf,
     pub git_common_directory: PathBuf,
+    #[serde(default)]
+    pub rule_directories: Vec<PathBuf>,
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -38,6 +40,7 @@ struct Registration {
 struct WatchState {
     watcher: Option<Debouncer<notify::RecommendedWatcher>>,
     paths: BTreeMap<PathBuf, bool>,
+    closed_windows: BTreeSet<String>,
 }
 
 pub struct GitMetadataWatcher {
@@ -54,13 +57,20 @@ impl GitMetadataWatcher {
             state: Mutex::new(WatchState {
                 watcher: None,
                 paths: BTreeMap::new(),
+                closed_windows: BTreeSet::new(),
             }),
         }
     }
 
     /// Reserve ownership before Core discovery so a late result cannot restore an old watch.
     pub fn begin(&self, owner: &str, lease: &str) -> Result<()> {
-        let mut state = self.state.lock().unwrap();
+        let state = self.state.lock().unwrap();
+        if state
+            .closed_windows
+            .contains(owner.split('\0').next().unwrap_or(owner))
+        {
+            anyhow::bail!("Watch window closed");
+        }
         let mut registrations = self.registrations.lock().unwrap();
         let context = registrations.remove(owner).and_then(|entry| entry.context);
         registrations.insert(
@@ -71,7 +81,7 @@ impl GitMetadataWatcher {
             },
         );
         drop(registrations);
-        self.reconcile(&mut state)
+        Ok(())
     }
 
     pub fn install(&self, owner: &str, lease: &str, context: GitWatchContext) -> Result<()> {
@@ -103,6 +113,17 @@ impl GitMetadataWatcher {
         self.reconcile(&mut state)
     }
 
+    /// All repository registrations owned by a destroyed WebView are revoked together.
+    pub fn remove_window(&self, window: &str) -> Result<()> {
+        let mut state = self.state.lock().unwrap();
+        state.closed_windows.insert(window.to_owned());
+        self.registrations
+            .lock()
+            .unwrap()
+            .retain(|owner, _| owner.split('\0').next() != Some(window));
+        self.reconcile(&mut state)
+    }
+
     fn reconcile(&self, state: &mut WatchState) -> Result<()> {
         let mut desired = BTreeMap::<PathBuf, bool>::new();
         for context in self
@@ -115,6 +136,9 @@ impl GitMetadataWatcher {
             desired
                 .entry(context.repository_root.clone())
                 .or_insert(false);
+            for directory in &context.rule_directories {
+                desired.entry(directory.clone()).or_insert(false);
+            }
             desired.insert(context.git_directory.clone(), true);
             desired.insert(context.git_common_directory.clone(), true);
         }
@@ -236,6 +260,14 @@ fn is_index_write(context: &GitWatchContext, path: &Path) -> bool {
 }
 
 fn is_relevant_metadata_change(context: &GitWatchContext, path: &Path) -> bool {
+    if path == context.repository_root.join(".gitignore")
+        || context
+            .rule_directories
+            .iter()
+            .any(|directory| path == directory.join(".gitignore"))
+    {
+        return true;
+    }
     if let Ok(relative) = path.strip_prefix(&context.git_directory) {
         let first = relative
             .components()
@@ -278,6 +310,26 @@ fn is_relevant_metadata_change(context: &GitWatchContext, path: &Path) -> bool {
 mod tests {
     use super::*;
 
+    fn receive_repository_change(
+        receiver: &std::sync::mpsc::Receiver<Vec<PathBuf>>,
+        repository_root: &Path,
+    ) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            assert!(
+                !remaining.is_zero(),
+                "timed out waiting for {repository_root:?}"
+            );
+            let roots = receiver
+                .recv_timeout(remaining)
+                .unwrap_or_else(|error| panic!("waiting for {repository_root:?}: {error}"));
+            if roots.iter().any(|root| root == repository_root) {
+                return;
+            }
+        }
+    }
+
     fn assert_native_linked_worktree_notification(relative_metadata_path: &str) {
         use std::sync::atomic::{AtomicU64, Ordering};
         use std::sync::mpsc;
@@ -306,6 +358,9 @@ mod tests {
         std::fs::create_dir_all(&repository_root).unwrap();
         std::fs::create_dir_all(&git_directory).unwrap();
         std::fs::create_dir_all(git_common_directory.join("refs/heads")).unwrap();
+        let repository_root = std::fs::canonicalize(repository_root).unwrap();
+        let git_directory = std::fs::canonicalize(git_directory).unwrap();
+        let git_common_directory = std::fs::canonicalize(git_common_directory).unwrap();
         std::fs::write(
             repository_root.join(".git"),
             format!("gitdir: {}\n", git_directory.display()),
@@ -322,6 +377,7 @@ mod tests {
                 "fixture-window",
                 "fixture-lease",
                 GitWatchContext {
+                    rule_directories: Vec::new(),
                     repository_root: repository_root.clone(),
                     git_directory,
                     git_common_directory,
@@ -332,13 +388,75 @@ mod tests {
         // Registration is synchronous; wait for the observable native event,
         // never for an assumed amount of time needed by the debounce timer.
         std::fs::write(metadata_path, "after\n").unwrap();
-        let roots = receiver
-            .recv_timeout(Duration::from_secs(5))
-            .expect("native Git metadata notification should arrive within five seconds");
-        assert!(roots.contains(&repository_root), "{roots:?}");
+        receive_repository_change(&receiver, &repository_root);
         watcher
             .remove("fixture-window", Some("fixture-lease"))
             .unwrap();
+    }
+
+    #[test]
+    fn window_keeps_multiple_repositories_and_shared_holders_until_final_release() {
+        use std::sync::mpsc;
+        struct Fixture(PathBuf);
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        struct Emitter(mpsc::Sender<Vec<PathBuf>>, mpsc::Sender<()>);
+        impl GitMetadataEmitter for Emitter {
+            fn emit_git_metadata_change(&self, event: &GitMetadataChange) {
+                let _ = self.0.send(event.repository_roots.clone());
+                let _ = self.1.send(());
+            }
+        }
+        let fixture = Fixture(
+            std::env::temp_dir().join(format!("lithe-multi-repo-watch-{}", std::process::id())),
+        );
+        let context = |name: &str| {
+            let root = fixture.0.join(name);
+            std::fs::create_dir_all(root.join(".git/info")).unwrap();
+            let root = std::fs::canonicalize(root).unwrap();
+            std::fs::write(root.join(".git/info/exclude"), "before").unwrap();
+            GitWatchContext {
+                git_directory: root.join(".git"),
+                git_common_directory: root.join(".git"),
+                repository_root: root,
+                rule_directories: Vec::new(),
+            }
+        };
+        let first = context("one");
+        let second = context("two");
+        let (sender, receiver) = mpsc::channel();
+        let (observed, notification) = mpsc::channel();
+        let watcher = GitMetadataWatcher::new(Arc::new(Emitter(sender, observed)));
+        for (owner, context) in [("window\0a\01", &first), ("other\0b\03", &first)] {
+            watcher.begin(owner, "lease").unwrap();
+            watcher.install(owner, "lease", context.clone()).unwrap();
+        }
+        // Queue a real notification from the other repository before the target
+        // write. Native backends may deliver these roots in separate batches.
+        std::fs::write(first.git_directory.join("info/exclude"), "unrelated").unwrap();
+        notification
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the first native notification should be queued");
+        watcher.begin("window\0a\02", "lease").unwrap();
+        watcher
+            .install("window\0a\02", "lease", second.clone())
+            .unwrap();
+        assert_eq!(watcher.registrations.lock().unwrap().len(), 3);
+        std::fs::write(second.git_directory.join("info/exclude"), "after").unwrap();
+        receive_repository_change(&receiver, &second.repository_root);
+        watcher.remove_window("window").unwrap();
+        assert_eq!(watcher.registrations.lock().unwrap().len(), 1);
+        std::fs::write(first.git_directory.join("info/exclude"), "after").unwrap();
+        receive_repository_change(&receiver, &first.repository_root);
+        assert!(watcher.begin("window\0late\04", "late").is_err());
+        watcher.install("window\0a\02", "lease", second).unwrap();
+        watcher.remove_window("other").unwrap();
+        let state = watcher.state.lock().unwrap();
+        assert!(state.paths.is_empty());
+        assert!(state.watcher.is_none());
     }
 
     #[test]
@@ -354,6 +472,7 @@ mod tests {
     #[test]
     fn shared_refs_and_worktree_registration_changes_refresh_all_related_worktrees() {
         let context = GitWatchContext {
+            rule_directories: Vec::new(),
             repository_root: PathBuf::from("workspace/linked"),
             git_directory: PathBuf::from("workspace/main/.git/worktrees/linked"),
             git_common_directory: PathBuf::from("workspace/main/.git"),
@@ -382,6 +501,7 @@ mod tests {
     fn only_the_worktree_index_counts_as_an_index_write() {
         // Index rewrites refresh staging only; blame and history wait for refs.
         let linked = GitWatchContext {
+            rule_directories: Vec::new(),
             repository_root: PathBuf::from("workspace/linked"),
             git_directory: PathBuf::from("workspace/main/.git/worktrees/linked"),
             git_common_directory: PathBuf::from("workspace/main/.git"),
@@ -411,6 +531,7 @@ mod tests {
         // Snapshot diffs create and delete these directories while a diff opens;
         // reporting them made the open working-tree diff refresh and close itself.
         let context = GitWatchContext {
+            rule_directories: Vec::new(),
             repository_root: PathBuf::from("workspace/repo"),
             git_directory: PathBuf::from("workspace/repo/.git"),
             git_common_directory: PathBuf::from("workspace/repo/.git"),

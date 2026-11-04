@@ -104,6 +104,8 @@ assert_classification() {
 
     local actual
     actual="$(scripts/ci/common/classify-ci-changes.sh "$BASE_REVISION" HEAD)"
+    # Validation is captured before scope/draft filtering; tested separately below.
+    actual="$(printf '%s\n' "$actual" | sed '/^validation=/d')"
     if [[ "$actual" != "$expected" ]]; then
         printf 'Classifier case %s failed:\nExpected:\n%s\nActual:\n%s\n' \
             "$name" "$expected" "$actual" >&2
@@ -141,6 +143,10 @@ modify_unknown_script() { printf '%s\n' '#!/bin/zsh' 'print -- unknown' > script
 modify_swift_source() { printf '%s\n' 'struct UpdatedApp {}' > macos/Sources/Lithe/App.swift; }
 modify_swift_bridge() { printf '%s\n' 'struct UpdatedRustCoreBridge {}' > macos/Sources/Lithe/Core/Rust/RustCoreBridge.swift; }
 modify_git_source() { printf '%s\n' 'struct UpdatedGitFeature {}' > macos/Sources/LitheGitModule/GitFeature.swift; }
+modify_workspace_git_observation() {
+    mkdir -p macos/Sources/LitheWorkspaceModule/Application
+    printf '%s\n' 'struct UpdatedWorkspaceFeature {}' > macos/Sources/LitheWorkspaceModule/Application/WorkspaceFeatureModel.swift
+}
 modify_git_performance_test() { printf '%s\n' 'struct UpdatedGitPerformanceTests {}' > macos/Tests/LitheGitPerformanceTests/GitPerformanceTests.swift; }
 modify_swift_test() { printf '%s\n' 'struct UpdatedAppTests {}' > macos/Tests/LitheTests/AppTests.swift; }
 modify_plugin_manifest() { printf '%s\n' '{"id":"dev.lithe.go-support","version":"2.0.0"}' > Plugins/mac/Official/GoSupport/plugin.json; }
@@ -261,6 +267,9 @@ assert_classification swift-bridge \
 assert_classification git-source \
     "$(classification true false false false false false false false true)" \
     modify_git_source
+assert_classification workspace-git-observation \
+    "$(classification true false false false false false false false true)" \
+    modify_workspace_git_observation
 assert_classification git-performance-test \
     "$(classification true false false false false false false false true)" \
     modify_git_performance_test
@@ -379,6 +388,20 @@ assert_classification metadata \
 assert_classification classifier \
     "$(classification true true true true true true false false true true pull_request true)" \
     modify_classifier
+modify_plugin_settings_schema_test() {
+    mkdir -p scripts/plugins
+    printf '%s\n' '// Plugin settings schema regression test' > scripts/plugins/plugin-settings-schema.test.mjs
+}
+assert_classification plugin-settings-schema-test-runs-on-linux \
+    "$(classification false false false false false false false false)" \
+    modify_plugin_settings_schema_test
+modify_logging_script() {
+    mkdir -p scripts/logging
+    printf '%s\n' '// Logging catalog validation' > scripts/logging/generate-log-events.mjs
+}
+assert_classification logging-uses-independent-workflow \
+    "$(classification false false false false false false false false)" \
+    modify_logging_script
 LITHE_CI_DRAFT_PULL_REQUEST=true assert_classification draft-defers-runner-lanes \
     "$(classification false false false false false false false false false false pull_request true)" \
     modify_unknown_script
@@ -438,3 +461,12 @@ assert_classification rust-bridge-verifier \
     modify_rust_bridge_verifier
 
 printf '%s\n' 'CI change classifier tests passed'
+
+# The required gate remains on docs, but tooling runs only for code/infrastructure.
+git reset --hard -q "$BASE_REVISION"
+modify_readme
+git add . && git commit -q -m validation-docs
+[[ "$(scripts/ci/common/classify-ci-changes.sh "$BASE_REVISION" HEAD)" == *"validation=false"* ]]
+modify_rust_code
+git add . && git commit -q -m validation-code
+[[ "$(LITHE_CI_DRAFT_PULL_REQUEST=true scripts/ci/common/classify-ci-changes.sh "$BASE_REVISION" HEAD)" == *"validation=true"* ]]

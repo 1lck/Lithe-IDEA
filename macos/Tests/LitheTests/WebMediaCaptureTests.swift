@@ -224,6 +224,7 @@ struct WebMediaCaptureCoverageTests {
     /// Each file that builds a web view, with the file and text that answer its requests.
     private static let answers: [String: (file: String, marker: String)] = [
         "Lithe/Platform/MacOS/MarkdownPreviewWebView.swift": ("MarkdownPreviewWebView.swift", "WebMediaCaptureDenier.shared"),
+        "Lithe/Platform/MacOS/MarkdownPlantUMLRenderer.swift": ("MarkdownPlantUMLRenderer.swift", "WebMediaCaptureDenier.shared"),
         "Lithe/Platform/MacOS/MonacoWorkbenchEditor.swift": ("MonacoWorkbenchEditor.swift", "WebMediaCaptureDenier.shared"),
         "Lithe/Platform/MacOS/Updates/ReleaseNotesWebView.swift": ("ReleaseNotesWebView.swift", "WebMediaCaptureDenier.shared"),
         "Lithe/Views/Agent/AgentDesktopCardView.swift": ("AgentDesktopCardView.swift", "WebMediaCaptureDenier.shared"),

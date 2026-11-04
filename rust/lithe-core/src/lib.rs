@@ -2,6 +2,7 @@
 
 use std::path::Path;
 
+mod action_search;
 mod agent;
 pub mod ai;
 mod build;
@@ -12,6 +13,7 @@ mod editor;
 pub mod execution;
 mod git;
 mod github;
+mod keymap;
 mod languages;
 mod lsp;
 mod mcp;
@@ -23,6 +25,8 @@ mod project_generators;
 mod protocol;
 mod remote;
 mod runtime;
+/// Shared toolchain policy, independent of plugin transport and native discovery.
+pub mod toolchain;
 mod vcs;
 
 pub use protocol::{
@@ -70,6 +74,7 @@ pub fn execute_json_with_events(
 
 /// Runs the native AskPass helper before either host initializes its user interface.
 pub fn git_askpass_main(prompt: &str) -> i32 {
+    crate::diagnostics::helper_failures::install();
     lithe_git_host::authentication::helper_main(prompt)
 }
 
@@ -89,5 +94,6 @@ pub fn attach_ide_request_dispatcher(
     owner: &str,
     dispatcher: std::sync::Arc<dyn Fn(String) -> Result<(), String> + Send + Sync>,
 ) -> Result<(), String> {
+    crate::diagnostics::helper_failures::install();
     lithe_ide_host::attach_dispatcher(host_id, owner, dispatcher)
 }

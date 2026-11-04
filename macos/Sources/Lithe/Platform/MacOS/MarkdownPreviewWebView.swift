@@ -172,16 +172,18 @@ struct MarkdownPreviewWebView: NSViewRepresentable {
                 "html": html,
                 "documentURL": documentURL.absoluteString,
                 "workspaceURL": workspaceURL?.absoluteString ?? "",
-                "appearance": appearance
+                "appearance": appearance,
+                "plantumlFailure": L10n.string("PlantUML could not render this diagram. Showing its source instead.")
             ]
         }
     }
 
+    @Environment(\.applicationLogSink) private var logSink
     let payload: Payload
     var scrollPosition: Binding<MarkdownScrollPosition>? = nil
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(scrollPosition: scrollPosition)
+        Coordinator(scrollPosition: scrollPosition, logSink: logSink)
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -199,6 +201,7 @@ struct MarkdownPreviewWebView: NSViewRepresentable {
         let pagePreferences = WKWebpagePreferences()
         pagePreferences.allowsContentJavaScript = true
         configuration.defaultWebpagePreferences = pagePreferences
+        context.coordinator.installPlantUMLBridge(in: configuration)
 
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = context.coordinator
@@ -215,15 +218,27 @@ struct MarkdownPreviewWebView: NSViewRepresentable {
             documentURL: payload.documentURL,
             workspaceURL: payload.workspaceURL
         )
+        context.coordinator.logSink = logSink
         context.coordinator.scrollPosition = scrollPosition
         context.coordinator.update(payload, in: webView)
         context.coordinator.updateScrollPosition(in: webView)
+    }
+
+    static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
+        coordinator.plantuml.cancel()
+        webView.stopLoading()
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: Coordinator.scrollMessageName)
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: MarkdownPlantUMLRenderer.messageName)
+        webView.navigationDelegate = nil
+        webView.uiDelegate = nil
     }
 
     final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         static let scrollMessageName = "markdownScrollSync"
 
         let assetHandler = MarkdownPreviewAssetSchemeHandler()
+        let plantuml = MarkdownPlantUMLRenderer()
+        var logSink: (any LogSink)?
         var scrollPosition: Binding<MarkdownScrollPosition>?
         private var isReady = false
         private var pendingPayload: Payload?
@@ -231,8 +246,15 @@ struct MarkdownPreviewWebView: NSViewRepresentable {
         private var pendingScrollPosition: MarkdownScrollPosition?
         private var lastObservedScrollRevision: UInt64?
 
-        init(scrollPosition: Binding<MarkdownScrollPosition>?) {
+        init(scrollPosition: Binding<MarkdownScrollPosition>?, logSink: (any LogSink)? = nil) {
+            self.logSink = logSink
             self.scrollPosition = scrollPosition
+        }
+
+        func installPlantUMLBridge(in configuration: WKWebViewConfiguration) {
+            configuration.userContentController.addScriptMessageHandler(
+                MarkdownPlantUMLMessages(self), contentWorld: .page, name: MarkdownPlantUMLRenderer.messageName
+            )
         }
 
         func loadTemplate(in webView: WKWebView) {
@@ -328,24 +350,59 @@ struct MarkdownPreviewWebView: NSViewRepresentable {
 
         private func apply(_ payload: Payload, in webView: WKWebView) {
             Task { @MainActor in
-                _ = try? await webView.callAsyncJavaScript(
+                do { _ = try await webView.callAsyncJavaScript(
                     "return window.LithePreview.update(payload)",
                     arguments: ["payload": payload.javaScriptValue],
                     in: nil,
                     contentWorld: .page
-                )
+                ) } catch {
+                    logSink?.emit(EditorPreviewUpdateFailed(error: error, stage: "markdown-javascript"))
+                }
             }
         }
 
         private func apply(_ position: MarkdownScrollPosition, in webView: WKWebView) {
             Task { @MainActor in
-                _ = try? await webView.callAsyncJavaScript(
+                do { _ = try await webView.callAsyncJavaScript(
                     "return window.LithePreview.setScrollRatio(ratio)",
                     arguments: ["ratio": position.ratio],
                     in: nil,
                     contentWorld: .page
-                )
+                ) } catch {
+                    logSink?.emit(EditorPreviewUpdateFailed(error: error, stage: "markdown-javascript"))
+                }
             }
         }
+    }
+}
+
+/// WebKit retains its message handlers; do not let that retain the renderer.
+private final class MarkdownPlantUMLMessages: NSObject, WKScriptMessageHandlerWithReply {
+    weak var coordinator: MarkdownPreviewWebView.Coordinator?
+
+    init(_ coordinator: MarkdownPreviewWebView.Coordinator) {
+        self.coordinator = coordinator
+    }
+
+    func userContentController(
+        _ controller: WKUserContentController, didReceive message: WKScriptMessage,
+        replyHandler: @escaping (Any?, String?) -> Void
+    ) {
+        guard let coordinator, message.frameInfo.isMainFrame,
+              message.frameInfo.request.url == MarkdownPreviewResources.templateURL,
+              let body = message.body as? [String: Any] else {
+            replyHandler(nil, "diagramRequestRejected")
+            return
+        }
+        if body["cancel"] as? Bool == true {
+            coordinator.plantuml.cancel()
+            replyHandler(true, nil)
+            return
+        }
+        guard let source = body["source"] as? String, let dark = body["dark"] as? Bool else {
+            replyHandler(nil, "diagramRequestRejected")
+            return
+        }
+        coordinator.plantuml.render(source: source, dark: dark, reply: replyHandler)
     }
 }

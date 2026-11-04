@@ -316,7 +316,11 @@ fn check_revision(file: &InstructionFile, request: &SaveRequest) -> Result<(), I
 struct StagedFile(PathBuf);
 impl Drop for StagedFile {
     fn drop(&mut self) {
-        let _ = fs::remove_file(&self.0);
+        crate::failure_log::cleanup(
+            "agent.host.operation_failed",
+            "instructions_staging_cleanup",
+            fs::remove_file(&self.0),
+        );
     }
 }
 

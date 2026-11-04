@@ -49,7 +49,7 @@ final class MacDatabasePluginMigration: @unchecked Sendable {
     private let legacyPassword: @Sendable (_ key: String) -> String?
     private let credentials: any PluginCredentialStoring
     private let fileManager: FileManager
-    private let log: @Sendable (String) -> Void
+    private let logSink: (any LogSink)?
 
     /// - Parameter legacyPassword: reads a password the old module stored,
     ///   by its old key, without writing anything.
@@ -58,13 +58,13 @@ final class MacDatabasePluginMigration: @unchecked Sendable {
         legacyPassword: @escaping @Sendable (_ key: String) -> String?,
         credentials: any PluginCredentialStoring,
         fileManager: FileManager = .default,
-        log: @escaping @Sendable (String) -> Void = { _ in }
+        logSink: (any LogSink)? = nil
     ) {
         self.preferences = preferences
         self.legacyPassword = legacyPassword
         self.credentials = credentials
         self.fileManager = fileManager
-        self.log = log
+        self.logSink = logSink
     }
 
     @discardableResult
@@ -104,7 +104,7 @@ final class MacDatabasePluginMigration: @unchecked Sendable {
                 try credentials.setSecret(password, pluginID: pluginID, key: "connection:\(id):password")
                 passwords += 1
             } catch {
-                log("Database plugin migration could not move the password of connection \(id): \(error.localizedDescription)")
+                if let plugin = LogSegment(pluginID), let connection = LogSegment(id.lowercased()) { logSink?.emit(PluginsMigrationPasswordFailed(connection: connection, error: error, plugin: plugin)) }
             }
         }
 
@@ -122,7 +122,7 @@ final class MacDatabasePluginMigration: @unchecked Sendable {
             // the plugin has state of its own.
             try write(["schemaVersion": 1, "profiles": profiles, "folders": folders], to: connectionsURL)
         } catch {
-            log("Database plugin migration could not write the plugin's state: \(error.localizedDescription)")
+            if let plugin = LogSegment(pluginID) { logSink?.emit(PluginsMigrationStateFailed(error: error, plugin: plugin)) }
             return .failed(error.localizedDescription)
         }
         markDone()

@@ -3,6 +3,7 @@ import {
   type KeybindingPreset,
 } from "@/features/keymaps/defaults/keybinding-presets";
 import type { Keybinding } from "@/features/keymaps/types/keymaps.types";
+import { prepareImportedContexts } from "./context";
 
 const KEYBINDINGS_EXPORT_FORMAT = "lithe.keybindings";
 const KEYBINDINGS_EXPORT_VERSION = 1;
@@ -102,7 +103,9 @@ export function createKeybindingsExportPayload({
   };
 }
 
-export function parseKeybindingsImportJson(jsonString: string): KeybindingsImport | null {
+export async function parseKeybindingsImportJson(
+  jsonString: string,
+): Promise<KeybindingsImport | null> {
   const parsed = JSON.parse(jsonString);
   const candidate = getKeybindingsCandidate(parsed);
 
@@ -110,10 +113,13 @@ export function parseKeybindingsImportJson(jsonString: string): KeybindingsImpor
     return null;
   }
 
+  const keybindings = candidate.keybindings
+    .map((keybinding) => normalizeUserKeybinding(keybinding))
+    .filter((keybinding): keybinding is Keybinding => keybinding !== null);
+  // Validate the entire import before the caller changes the preset or store.
+  await prepareImportedContexts(keybindings);
   return {
     keybindingPreset: candidate.keybindingPreset,
-    keybindings: candidate.keybindings
-      .map((keybinding) => normalizeUserKeybinding(keybinding))
-      .filter((keybinding): keybinding is Keybinding => keybinding !== null),
+    keybindings,
   };
 }

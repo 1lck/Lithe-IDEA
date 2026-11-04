@@ -21,6 +21,7 @@ final class MacStreamingProcess: StreamingProcess, @unchecked Sendable {
     private var outputDecoder = StreamingUTF8Decoder()
     private var timeoutTask: Task<Void, Never>?
     private var activeOperationID: String?
+    private let logSink: (any LogSink)?
     private let processRegistry: ManagedProcessRegistry?
     private let category: ManagedProcessCategory
     private let moduleID: ModuleID?
@@ -29,8 +30,10 @@ final class MacStreamingProcess: StreamingProcess, @unchecked Sendable {
     init(
         processRegistry: ManagedProcessRegistry? = nil,
         category: ManagedProcessCategory = .service,
-        moduleID: ModuleID? = nil
+        moduleID: ModuleID? = nil,
+        logSink: (any LogSink)? = nil
     ) {
+        self.logSink = logSink
         self.processRegistry = processRegistry
         self.category = category
         self.moduleID = moduleID
@@ -90,12 +93,14 @@ final class MacStreamingProcess: StreamingProcess, @unchecked Sendable {
                 guard self.process === terminatedProcess else { return false }
                 guard let handle = self.outputPipe?.fileHandleForReading else { return true }
                 handle.readabilityHandler = nil
-                if let remaining = try? handle.readToEnd(), !remaining.isEmpty {
-                    let output = self.outputDecoder.decode(remaining)
-                    if !output.isEmpty {
-                        outputBatcher.append(output)
+                do {
+                    if let remaining = try handle.readToEnd(), !remaining.isEmpty {
+                        let output = self.outputDecoder.decode(remaining)
+                        if !output.isEmpty {
+                            outputBatcher.append(output)
+                        }
                     }
-                }
+                } catch { self.logSink?.emit(RunProcessIoFailed(error: error, stage: "stdout-drain", operationID: request.operationID)) }
                 let finalOutput = self.outputDecoder.finish()
                 if !finalOutput.isEmpty {
                     outputBatcher.append(finalOutput)
@@ -135,8 +140,10 @@ final class MacStreamingProcess: StreamingProcess, @unchecked Sendable {
                     moduleID: moduleID
                 )
             }
-            try? inputPipe?.fileHandleForReading.close()
-            try? outputPipe.fileHandleForWriting.close()
+            do { try inputPipe?.fileHandleForReading.close() }
+            catch { logSink?.emit(RunProcessIoFailed(error: error, stage: "close", operationID: activeOperationID)) }
+            do { try outputPipe.fileHandleForWriting.close() }
+            catch { logSink?.emit(RunProcessIoFailed(error: error, stage: "close", operationID: activeOperationID)) }
         } catch {
             outputReadLock.withLock {
                 outputDecoder.reset()
@@ -214,10 +221,14 @@ final class MacStreamingProcess: StreamingProcess, @unchecked Sendable {
     }
 
     private func closePipes() {
-        try? inputPipe?.fileHandleForReading.close()
-        try? inputPipe?.fileHandleForWriting.close()
-        try? outputPipe?.fileHandleForReading.close()
-        try? outputPipe?.fileHandleForWriting.close()
+        do { try inputPipe?.fileHandleForReading.close() }
+        catch { logSink?.emit(RunProcessIoFailed(error: error, stage: "close", operationID: activeOperationID)) }
+        do { try inputPipe?.fileHandleForWriting.close() }
+        catch { logSink?.emit(RunProcessIoFailed(error: error, stage: "close", operationID: activeOperationID)) }
+        do { try outputPipe?.fileHandleForReading.close() }
+        catch { logSink?.emit(RunProcessIoFailed(error: error, stage: "close", operationID: activeOperationID)) }
+        do { try outputPipe?.fileHandleForWriting.close() }
+        catch { logSink?.emit(RunProcessIoFailed(error: error, stage: "close", operationID: activeOperationID)) }
         inputPipe = nil
         outputPipe = nil
     }
@@ -235,6 +246,7 @@ final class MacStreamingProcess: StreamingProcess, @unchecked Sendable {
     ) {
         guard let milliseconds, milliseconds > 0 else { return }
         timeoutTask = Task { [weak self, weak process] in
+            // log-exempt: 用户取消：调用方取消采样或超时等待时结束任务
             try? await Task.sleep(for: .milliseconds(milliseconds))
             guard !Task.isCancelled,
                   let self,

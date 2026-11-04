@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Darwin
 import Foundation
 import LitheCoreContracts
@@ -12,20 +13,23 @@ import LitheCoreContracts
 ///
 /// Note: the data-source decision is recorded in .agents/notes/implemented/architecture/2026-09-26-maven-dependency-tree-output-file.md
 struct MacMavenDependencyOutputStore: MavenDependencyOutputStoring {
+    private let logSink: (any LogSink)?
     private let directoryURL: URL
 
     init(
+        logSink: (any LogSink)? = nil,
         rootURL: URL = FileManager.default.temporaryDirectory
             .appendingPathComponent("Lithe", isDirectory: true)
             .appendingPathComponent("maven-dependency-trees", isDirectory: true),
         processIdentifier: pid_t = ProcessInfo.processInfo.processIdentifier,
         isProcessRunning: (pid_t) -> Bool = MacMavenDependencyOutputStore.isProcessRunning
     ) {
+        self.logSink = logSink
         directoryURL = rootURL.appendingPathComponent(String(processIdentifier), isDirectory: true)
         Self.removeAbandonedDirectories(
             in: rootURL,
             keeping: processIdentifier,
-            isProcessRunning: isProcessRunning
+            isProcessRunning: isProcessRunning, logSink: logSink
         )
     }
 
@@ -52,13 +56,14 @@ struct MacMavenDependencyOutputStore: MavenDependencyOutputStoring {
         do {
             try removeIfPresent(fileURL)
         } catch {
-            NSLog("[maven] Could not remove dependency-tree scratch file: \(error.localizedDescription)")
+            logSink?.emit(RunBuildScratchCleanupFailed(error: error, stage: "operation"))
         }
     }
 
     private func removeIfPresent(_ fileURL: URL) throws {
         do {
             try FileManager.default.removeItem(at: fileURL)
+        // log-exempt: 预期的缺失：探测的可选文件或目录不存在，按未发现处理
         } catch CocoaError.fileNoSuchFile {
             return
         }
@@ -67,7 +72,7 @@ struct MacMavenDependencyOutputStore: MavenDependencyOutputStoring {
     private static func removeAbandonedDirectories(
         in rootURL: URL,
         keeping processIdentifier: pid_t,
-        isProcessRunning: (pid_t) -> Bool
+        isProcessRunning: (pid_t) -> Bool, logSink: (any LogSink)?
     ) {
         guard let entries = try? FileManager.default.contentsOfDirectory(
             at: rootURL,
@@ -83,7 +88,7 @@ struct MacMavenDependencyOutputStore: MavenDependencyOutputStoring {
             do {
                 try FileManager.default.removeItem(at: entry)
             } catch {
-                NSLog("[maven] Could not remove abandoned dependency-tree files: \(error.localizedDescription)")
+                logSink?.emit(RunBuildScratchCleanupFailed(error: error, stage: "abandoned"))
             }
         }
     }

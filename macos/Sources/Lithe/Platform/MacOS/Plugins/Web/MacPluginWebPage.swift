@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import AppKit
 import Combine
 import Foundation
@@ -55,6 +56,7 @@ final class MacPluginWebPage: NSObject, PluginWebPageHandle, WKNavigationDelegat
     let window: PluginWebWindow
     let bridge: PluginWebBridge
     private(set) var isClosed = false
+    private let logSink: (any LogSink)?
     private var theme: MacPluginWebTheme
     private var view: MacPluginWebView?
     private var captureGuards = Set<AnyCancellable>()
@@ -71,10 +73,12 @@ final class MacPluginWebPage: NSObject, PluginWebPageHandle, WKNavigationDelegat
         host: any PluginWebBridgeHost,
         stateStore: any PluginWebStateStoring,
         theme: MacPluginWebTheme,
+        logSink: (any LogSink)? = nil,
         mediaUsageDescriptions: @escaping () -> [String: Any]? = { Bundle.main.infoDictionary },
         mediaConfirmer: (any WebMediaCaptureConfirming)? = nil,
         configure: @escaping (WKWebViewConfiguration) -> Void = { _ in }
     ) {
+        self.logSink = logSink
         self.window = window
         self.theme = theme
         self.mediaUsageDescriptions = mediaUsageDescriptions
@@ -93,7 +97,7 @@ final class MacPluginWebPage: NSObject, PluginWebPageHandle, WKNavigationDelegat
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         configuration.setURLSchemeHandler(
-            MacPluginWebSchemeHandler(pluginID: window.pluginID, packageURL: window.packageURL),
+            MacPluginWebSchemeHandler(pluginID: window.pluginID, packageURL: window.packageURL, logSink: logSink),
             forURLScheme: MacPluginWebContent.scheme
         )
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = false

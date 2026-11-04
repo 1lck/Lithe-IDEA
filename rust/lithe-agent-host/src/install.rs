@@ -377,7 +377,11 @@ pub fn install_with_progress(
         .ok_or_else(|| ManagementError::RuntimeMissing("npm was not found".into()))?;
     let agents = data_directory.join("agents");
     let staging = agents.join(format!(".{}.installing", agent.id));
-    let _ = std::fs::remove_dir_all(&staging);
+    crate::failure_log::cleanup(
+        "agent.host.operation_failed",
+        "install_staging_cleanup",
+        std::fs::remove_dir_all(&staging),
+    );
     std::fs::create_dir_all(&staging).map_err(|error| {
         ManagementError::Failed(format!("Could not create {}: {error}", staging.display()))
     })?;
@@ -404,7 +408,11 @@ pub fn install_with_progress(
         replace_directory(&staging, &agent_directory(data_directory, agent))
     });
     if result.is_err() {
-        let _ = std::fs::remove_dir_all(&staging);
+        crate::failure_log::cleanup(
+            "agent.host.operation_failed",
+            "install_staging_cleanup",
+            std::fs::remove_dir_all(&staging),
+        );
     }
     result.map(|()| agent.version.to_owned())
 }
@@ -635,7 +643,11 @@ fn replace_directory(staging: &Path, target: &Path) -> Result<(), ManagementErro
             .and_then(|name| name.to_str())
             .unwrap_or("agent")
     ));
-    let _ = std::fs::remove_dir_all(&previous);
+    crate::failure_log::cleanup(
+        "agent.host.operation_failed",
+        "install_previous_cleanup",
+        std::fs::remove_dir_all(&previous),
+    );
     let had_previous = target.exists();
     if had_previous {
         std::fs::rename(target, &previous).map_err(|error| {
@@ -644,13 +656,21 @@ fn replace_directory(staging: &Path, target: &Path) -> Result<(), ManagementErro
     }
     if let Err(error) = std::fs::rename(staging, target) {
         if had_previous {
-            let _ = std::fs::rename(&previous, target);
+            crate::failure_log::io(
+                "agent.host.operation_failed",
+                "install_rollback",
+                std::fs::rename(&previous, target),
+            );
         }
         return Err(ManagementError::Failed(format!(
             "Could not finish the install: {error}"
         )));
     }
-    let _ = std::fs::remove_dir_all(&previous);
+    crate::failure_log::cleanup(
+        "agent.host.operation_failed",
+        "install_previous_cleanup",
+        std::fs::remove_dir_all(&previous),
+    );
     Ok(())
 }
 

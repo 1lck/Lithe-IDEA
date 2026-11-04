@@ -37,7 +37,7 @@ extension AppModel {
             try services.pluginManager.restore(pluginID)
             objectWillChange.send()
         } catch {
-            showNotification(error.localizedDescription)
+            showNotification(error.localizedDescription, logReference: notificationFailure(error, operation: "plugin_management"))
         }
     }
 
@@ -49,7 +49,7 @@ extension AppModel {
             closeStalePluginWebPages()
             objectWillChange.send()
         } catch {
-            showNotification(error.localizedDescription)
+            showNotification(error.localizedDescription, logReference: notificationFailure(error, operation: "plugin_management"))
         }
     }
 
@@ -61,13 +61,14 @@ extension AppModel {
                 try await services.pluginManager.setEnabled(enabled, for: pluginID)
                 appliedPluginIDs.insert(pluginID)
             } catch {
-                showNotification(error.localizedDescription)
+                showNotification(error.localizedDescription, logReference: notificationFailure(error, operation: "plugin_management"))
             }
         }
         if !appliedPluginIDs.isEmpty {
             buildSystemsFeatureIfActive?.pluginsChanged()
             vcsProvidersFeature?.pluginsChanged()
             closeStalePluginWebPages()
+            await toolchainSettingsFeature.load(workspace: workspaceURL)
         }
         objectWillChange.send()
         return appliedPluginIDs
@@ -79,7 +80,7 @@ extension AppModel {
             closeStalePluginWebPages()
             objectWillChange.send()
         } catch {
-            showNotification(error.localizedDescription)
+            showNotification(error.localizedDescription, logReference: notificationFailure(error, operation: "plugin_management"))
         }
     }
 

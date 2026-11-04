@@ -214,8 +214,14 @@ struct Temporary(PathBuf);
 impl Drop for Temporary {
     fn drop(&mut self) {
         if let Err(error) = fs::remove_file(&self.0) {
+            // log-exempt: 预期的缺失：暂存清理对象已不存在，没有仍需删除的文件或目录。
             if error.kind() != std::io::ErrorKind::NotFound {
-                eprintln!("Skill settings staging cleanup failed: {error}");
+                crate::failure_log::failed(
+                    "agent.skills.cleanup_failed",
+                    "settings",
+                    &format!("{:?}", error.kind()),
+                    "io",
+                );
             }
         }
     }

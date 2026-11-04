@@ -1,0 +1,278 @@
+{
+  "version": 1,
+  "bundledPlans": {
+    "editorFocus": {
+      "keys": [
+        "editorFocus"
+      ],
+      "values": [
+        false,
+        true
+      ]
+    },
+    "!editorFocus": {
+      "keys": [
+        "editorFocus"
+      ],
+      "values": [
+        true,
+        false
+      ]
+    },
+    "terminalFocus": {
+      "keys": [
+        "terminalFocus"
+      ],
+      "values": [
+        false,
+        true
+      ]
+    },
+    "!terminalFocus": {
+      "keys": [
+        "terminalFocus"
+      ],
+      "values": [
+        true,
+        false
+      ]
+    },
+    "fileOpenTargetFocus": {
+      "keys": [
+        "fileOpenTargetFocus"
+      ],
+      "values": [
+        false,
+        true
+      ]
+    },
+    "editorFocus && vimMode": {
+      "keys": [
+        "editorFocus",
+        "vimMode"
+      ],
+      "values": [
+        false,
+        false,
+        false,
+        true
+      ]
+    }
+  },
+  "cases": [
+    {
+      "name": "comparison consumes both boolean operands",
+      "expression": "false == false",
+      "context": {},
+      "matches": true
+    },
+    {
+      "name": "different strings are not equal",
+      "expression": "'a' == 'b'",
+      "context": {},
+      "matches": false
+    },
+    {
+      "name": "empty",
+      "expression": "",
+      "context": {},
+      "matches": true
+    },
+    {
+      "name": "whitespace",
+      "expression": " \n\t",
+      "context": {},
+      "matches": true
+    },
+    {
+      "name": "missing context",
+      "expression": "editorFocus",
+      "context": {},
+      "matches": false
+    },
+    {
+      "name": "focused",
+      "expression": "editorFocus",
+      "context": {
+        "editorFocus": true
+      },
+      "matches": true
+    },
+    {
+      "name": "negation",
+      "expression": "!editorFocus",
+      "context": {},
+      "matches": true
+    },
+    {
+      "name": "and",
+      "expression": "editorFocus && !vimMode",
+      "context": {
+        "editorFocus": true,
+        "vimMode": false
+      },
+      "matches": true
+    },
+    {
+      "name": "or precedence",
+      "expression": "editorFocus || vimMode && terminalFocus",
+      "context": {
+        "editorFocus": true
+      },
+      "matches": true
+    },
+    {
+      "name": "parentheses",
+      "expression": "(editorFocus || vimMode) && terminalFocus",
+      "context": {
+        "editorFocus": true
+      },
+      "matches": false
+    },
+    {
+      "name": "boolean equality",
+      "expression": "editorFocus == true",
+      "context": {
+        "editorFocus": true
+      },
+      "matches": true
+    },
+    {
+      "name": "boolean inequality",
+      "expression": "editorFocus != false",
+      "context": {
+        "editorFocus": true
+      },
+      "matches": true
+    },
+    {
+      "name": "string equality",
+      "expression": "'中文😀' == \"中文😀\"",
+      "context": {},
+      "matches": true
+    },
+    {
+      "name": "string versus boolean",
+      "expression": "editorFocus == 'true'",
+      "context": {
+        "editorFocus": true
+      },
+      "matches": false
+    },
+    {
+      "name": "escaped quote",
+      "expression": "'can\\'t' == \"can't\"",
+      "context": {},
+      "matches": true
+    },
+    {
+      "name": "dotted key",
+      "expression": "editor.focus && true",
+      "context": {
+        "editor.focus": true
+      },
+      "matches": true
+    },
+    {
+      "name": "quoted truthiness",
+      "expression": "'enabled'",
+      "context": {},
+      "matches": true
+    },
+    {
+      "name": "reject @",
+      "expression": "@",
+      "error": "invalid_character"
+    },
+    {
+      "name": "reject &",
+      "expression": "&",
+      "error": "invalid_character"
+    },
+    {
+      "name": "reject |",
+      "expression": "|",
+      "error": "invalid_character"
+    },
+    {
+      "name": "reject =",
+      "expression": "=",
+      "error": "invalid_character"
+    },
+    {
+      "name": "reject -",
+      "expression": "-",
+      "error": "invalid_character"
+    },
+    {
+      "name": "reject editorFocus & vimMode",
+      "expression": "editorFocus & vimMode",
+      "error": "invalid_character"
+    },
+    {
+      "name": "reject 'unfinished",
+      "expression": "'unfinished",
+      "error": "unclosed_string"
+    },
+    {
+      "name": "reject (editorFocus",
+      "expression": "(editorFocus",
+      "error": "expected_closing_paren"
+    },
+    {
+      "name": "reject editorFocus &&",
+      "expression": "editorFocus &&",
+      "error": "expected_operand"
+    },
+    {
+      "name": "reject !",
+      "expression": "!",
+      "error": "expected_operand"
+    },
+    {
+      "name": "reject ()",
+      "expression": "()",
+      "error": "expected_operand"
+    },
+    {
+      "name": "reject editorFocus vimMode",
+      "expression": "editorFocus vimMode",
+      "error": "trailing_token"
+    },
+    {
+      "name": "reject editorFocus)",
+      "expression": "editorFocus)",
+      "error": "trailing_token"
+    },
+    {
+      "name": "reject false == true == false",
+      "expression": "false == true == false",
+      "error": "trailing_token"
+    },
+    {
+      "name": "reject true || @",
+      "expression": "true || @",
+      "error": "invalid_character"
+    },
+    {
+      "name": "reject '\\q'",
+      "expression": "'\\q'",
+      "error": "invalid_escape"
+    },
+    {
+      "name": "length limit",
+      "expression": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "error": "too_long"
+    },
+    {
+      "name": "nesting limit",
+      "expression": "(((((((((((((((((((((((((((((((((true)))))))))))))))))))))))))))))))))",
+      "error": "too_complex"
+    },
+    {
+      "name": "key limit",
+      "expression": "key0 || key1 || key2 || key3 || key4 || key5 || key6 || key7 || key8 || key9 || key10 || key11 || key12",
+      "error": "too_complex"
+    }
+  ]
+}

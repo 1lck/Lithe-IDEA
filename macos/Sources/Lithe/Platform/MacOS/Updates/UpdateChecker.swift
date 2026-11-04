@@ -200,11 +200,12 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
     private var started = false
     /// Sparkle downloads archives through this loopback relay so interrupted
     /// downloads resume and failures keep their network cause.
+    private let logSink: (any LogSink)?
     private let downloadRelay: UpdateDownloadRelay?
     static let releasePageURL = AppUpdateChannel.stableReleaseURL
 
     init(bundle: Bundle = .main, preferences: UserDefaults = .standard,
-         diagnosticSink: @escaping @Sendable (String) -> Void = { NSLog("%@", $0) },
+         logSink: (any LogSink)? = nil,
          sessionFactory: @escaping @Sendable (URLSessionConfiguration) -> MacNetworkSessionLease = {
              MacNetworkSessionProvider.makeSession(configuration: $0, plan: nil)
          },
@@ -218,20 +219,21 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
         let storage = MacFileStorage(identity: MacAppIdentity(bundleIdentifier: bundle.bundleIdentifier))
         self.downloadRelay = downloadRelay ?? UpdateDownloadRelay(store: UpdateDownloadPartialStore(
             directory: storage.cacheDirectory().appendingPathComponent("Lithe/UpdateDownloads", isDirectory: true)),
-            diagnosticSink: diagnosticSink)
-        stableRollback = MacStableRollback(diagnosticSink: diagnosticSink, sessionFactory: sessionFactory)
+            logSink: logSink)
+        self.logSink = logSink
+        stableRollback = MacStableRollback(logSink: logSink, sessionFactory: sessionFactory)
         self.bundle = bundle
         buildIdentity = UpdateBuildIdentity(info: bundle.infoDictionary ?? [:])
         customUpdateSourceBase = AppUpdateChannel.stable.feedURL(info: bundle.infoDictionary ?? [:],
             architecture: Self.architecture).flatMap(URL.init(string:))
-            .flatMap { AppUpdateSource.saved(in: preferences, defaultFeed: $0).customBase }
+            .flatMap { AppUpdateSource.saved(in: preferences, defaultFeed: $0, logSink: logSink).customBase }
         currentVersion = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
         super.init()
         rollbackObservation = stableRollback.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }
         if bundle.bundleURL.pathExtension == "app", let identifier = bundle.bundleIdentifier {
             let target = bundle.bundleURL
             DispatchQueue.global(qos: .utility).async {
-                StableRollbackPackage.removeLeftoverStaging(beside: target, identifier: identifier)
+                StableRollbackPackage.removeLeftoverStaging(beside: target, identifier: identifier, logSink: logSink)
             }
         }
     }
@@ -271,7 +273,7 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
         } else {
             preferences.removeObject(forKey: AppUpdateSource.preferenceKey)
         }
-        customUpdateSourceBase = defaultStableFeed.flatMap { AppUpdateSource.saved(in: preferences, defaultFeed: $0).customBase }
+        customUpdateSourceBase = defaultStableFeed.flatMap { AppUpdateSource.saved(in: preferences, defaultFeed: $0, logSink: logSink).customBase }
         updateInfo = nil
         notice = nil
         status = .idle
@@ -283,7 +285,7 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
         guard let defaultStableFeed else { return .failed(UpdateCheckError.invalidResponse.userMessage) }
         let session = URLSession(configuration: .ephemeral)
         defer { session.invalidateAndCancel() }
-        return await UpdateSourceProbe.run(AppUpdateSource(defaultFeed: defaultStableFeed, customBase: base), session: session)
+        return await UpdateSourceProbe.run(AppUpdateSource(defaultFeed: defaultStableFeed, customBase: base), session: session, logSink: logSink)
     }
 
     private func applyChannel(_ channel: AppUpdateChannel) {

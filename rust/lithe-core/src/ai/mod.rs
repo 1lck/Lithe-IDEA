@@ -1,6 +1,7 @@
 //! Portable AI commit configuration parsing and HTTP request planning; hosts own I/O and secrets.
 
 mod agent_configuration;
+mod commands;
 mod configuration;
 mod generation;
 
@@ -13,3 +14,7 @@ pub use generation::{
 
 #[cfg(test)]
 mod tests;
+
+pub(crate) use commands::{
+    commit_input_budget_command, decode_commit_command, plan_commit_command,
+};

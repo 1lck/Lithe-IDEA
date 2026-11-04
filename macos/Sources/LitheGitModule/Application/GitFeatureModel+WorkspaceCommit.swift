@@ -1,4 +1,5 @@
 import Foundation
+import LitheModuleAPI
 
 // Decisions: .agents/notes/implemented/feature/2026-09-27-workspace-git-commit-plans.md
 extension GitFeatureModel {
@@ -23,9 +24,10 @@ extension GitFeatureModel {
 
     private func prepareWorkspaceCommit(message: String, amend: Bool, push: Bool) async -> Bool {
         loadChangelistsIfNeeded()
-        guard !isCommitting, !isWorktreeCommitBlocked, pendingSubmoduleCommitPlan == nil,
+        guard !isCommitting, !isWorktreeCommitBlocked, !changelistProjectionPending, pendingSubmoduleCommitPlan == nil,
               workspaceCommitAttempt == nil || workspaceCommitAttempt?.succeeded == true else { return false }
-        if let error = changelistCommitError { notify?(error); return false }
+        guard verifyChangelistStorageCurrent() else { return false }
+        if let error = changelistCommitError { notify?(L10n.string(key: error)); return false }
         let message = message.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !message.isEmpty else { notify?("Enter a commit message"); return false }
         isCommitting = true
@@ -130,9 +132,27 @@ extension GitFeatureModel {
             return GitWorkspaceRepositoryBinding(id: relative.isEmpty ? "." : relative.joined(separator: "/"),
                 root: root.standardizedFileURL.path)
         }
-        // Preserve the reviewed/retry scope even if status refreshes report new paths.
-        let scope = retry ? workspaceCommitAttempt?.plan.pathScope
-            : reviewed?.pathScope ?? changelists.commitScope(repositories: bindings, changes: gitChanges)
+        // Preserve reviewed/retry scopes. A new review always takes its scope
+        // from Core and refuses results for a changed metadata or status snapshot.
+        let scope: GitWorkspaceCommitPathScope?
+        if retry {
+            scope = workspaceCommitAttempt?.plan.pathScope
+        } else if let reviewedScope = reviewed?.pathScope {
+            scope = reviewedScope
+        } else {
+            let state = changelists
+            let changes = gitChanges
+            let request = GitChangelistCoreRequest(state: state, changes: changes, repositories: bindings)
+            guard changelistStorageMatches(state),
+                  let projection = await service.changelistProjection(request),
+                  generation == workspaceCommitGeneration, !Task.isCancelled,
+                  changelistStorageMatches(state), changelists.metadataEquals(state), gitChanges == changes,
+                  !changelistStorageFailed, !changelistProjectionPending else {
+                notify?(L10n.string("ChangeList storage is unavailable. Restore the saved data and reopen the workspace."))
+                return nil
+            }
+            scope = projection.scope
+        }
         let request = GitWorkspaceCommitRequest(repositories: bindings,
             message: message, amend: amend, push: push, includeParentReferences: includeParentReferences,
             previous: retry ? workspaceCommitAttempt : nil, reviewed: reviewed, pathScope: scope,
@@ -168,6 +188,7 @@ extension GitFeatureModel {
             let prefix = "refs/heads/"
             let shortName = branch.hasPrefix(prefix) ? String(branch.dropFirst(prefix.count)) : branch
             let reference = GitReference(fullName: prefix + shortName, shortName: shortName, kind: .local,
+                peelsToCommit: false,
                 isCurrent: true, upstreamShortName: nil)
             if case .success(let preview) = await service.pushPreview(reference, pushTarget: nil, at: root) {
                 destinations[root] = preview

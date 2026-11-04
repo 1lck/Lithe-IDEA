@@ -54,6 +54,7 @@ extension AppModel {
             activateWhenReady: activateWhenReady
         )
         editorTabOrderFeature.moveToEnd(.media(media.id))
+        if activateWhenReady { editorTabOrderFeature.focus(.media(media.id)) }
     }
 
     func selectMediaDocument(_ media: MediaDocument) {

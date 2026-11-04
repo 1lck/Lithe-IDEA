@@ -3,7 +3,11 @@
 pub(crate) mod backend;
 pub mod capabilities;
 pub mod declarative;
+/// Independent, host-rendered editor actions of ordinary tool plugins.
+pub mod editor_actions;
 pub(crate) mod executables;
+pub(crate) mod grammar;
+pub(crate) mod keymap_import;
 pub mod marketplace;
 pub(crate) mod native_ui;
 pub(crate) mod settings;

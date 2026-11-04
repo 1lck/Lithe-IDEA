@@ -19,8 +19,11 @@ enum GitLogDatePresentation {
         return formatter
     }
 
-    static func components(_ value: String, locale: Locale) -> (text: String, period: String?) {
-        guard let date = GitLogQuery.parseCommitDate(value) else { return (value, nil) }
+    static func components(_ value: String, utcOffsetMinutes: Int? = nil, unixSeconds: Int64? = nil, locale: Locale) -> (text: String, period: String?) {
+        if utcOffsetMinutes != nil && unixSeconds == nil { return (value, nil) }
+        let instant = unixSeconds.map { Date(timeIntervalSince1970: TimeInterval($0)) }
+            ?? GitLogQuery.parseCommitDate(value)
+        guard let date = instant else { return (value, nil) }
         if locale.language.languageCode?.identifier == "en" {
             let text = twelveHour.string(from: date)
             return (String(text.dropLast(3)), String(text.suffix(2)))
@@ -28,8 +31,8 @@ enum GitLogDatePresentation {
         return (twentyFourHour.string(from: date), nil)
     }
 
-    static func string(_ value: String, locale: Locale) -> String {
-        let parts = components(value, locale: locale)
+    static func string(_ value: String, utcOffsetMinutes: Int? = nil, unixSeconds: Int64? = nil, locale: Locale) -> String {
+        let parts = components(value, utcOffsetMinutes: utcOffsetMinutes, unixSeconds: unixSeconds, locale: locale)
         return parts.text + (parts.period.map { " " + $0 } ?? "")
     }
 }
@@ -48,14 +51,17 @@ struct GitGraphRowActions {
     var onContextSelect: ((GitCommit) -> Void)? = nil
     var additionalContextMenuItems: ((GitCommit) -> [LitheContextMenuItem])? = nil
     var onNavigateHash: ((String) -> Void)? = nil
+    var contextCapabilities: ((GitCommit) -> GitHistoryActionCapabilities?)? = nil
+    var onContextMenuPresented: ((GitCommit, UUID, @escaping () -> [LitheContextMenuItem]) -> Void)? = nil
+    var onContextMenuDismissed: (() -> Void)? = nil
 
     func select(_ commit: GitCommit, modifiers: NSEvent.ModifierFlags) {
         if let onSelectWithModifiers { onSelectWithModifiers(commit, modifiers) }
         else { onSelect(commit) }
     }
 
-    func contextMenuItems(for commit: GitCommit) -> [LitheContextMenuItem] {
-        onContextSelect?(commit)
+    func contextMenuItems(for commit: GitCommit, selecting: Bool = true) -> [LitheContextMenuItem] {
+        if selecting { onContextSelect?(commit) }
         return [
             .action("Copy Commit Hash") {
                 NSPasteboard.general.clearContents()
@@ -67,7 +73,7 @@ struct GitGraphRowActions {
             },
             .separator,
             .action("New Tag…") { onCreateTag(commit) },
-            .action("Cherry-pick Commit…") { onCherryPick(commit) },
+            .action("Cherry-pick Commit…", isEnabled: contextCapabilities == nil || contextCapabilities?(commit)?.canCherryPick == true) { onCherryPick(commit) },
             .action("Revert Commit…") { onRevert(commit) },
             .submenu("Reset Current Branch to Here…", items: [
                 .action("Soft Reset (Keep Changes Staged)") { onReset(commit, .soft) },
@@ -77,6 +83,9 @@ struct GitGraphRowActions {
         ] + (additionalContextMenuItems?(commit) ?? [])
     }
 
+    func contextMenuPresented(for commit: GitCommit, session: UUID) {
+        onContextMenuPresented?(commit, session, { contextMenuItems(for: commit, selecting: false) })
+    }
 }
 
 /// Immutable graph data prepared by the log's data-refresh task. Keeping the
@@ -657,7 +666,7 @@ final class GitGraphScrollDocumentView: NSView {
             let element = GitGraphAccessibilityRow()
             element.setAccessibilityParent(self)
             element.setAccessibilityRole(.button)
-            element.setAccessibilityLabel("\(row.commit.subject), \(row.commit.authorName), \(commitRowsView.dateString(row.commit.date))")
+            element.setAccessibilityLabel("\(row.commit.subject), \(row.commit.authorName), \(commitRowsView.dateString(row.commit.date, utcOffsetMinutes: row.commit.dateUtcOffsetMinutes, unixSeconds: row.commit.dateUnixSeconds))")
             element.setAccessibilitySelected(commitRowsView.isSelected(row.commit.hash))
             element.setAccessibilityFrameInParentSpace(CGRect(x: 0, y: CGFloat(index) * rowHeight, width: bounds.width, height: rowHeight))
             element.onPress = { [weak self] in self?.commitRowsView.select(rowIndex: index) }
@@ -721,7 +730,12 @@ final class GitGraphCommitRowsNSView: NSView, NSViewToolTipOwner {
     private var selectedHashes: Set<String>? = nil
     private var isFocused = true
     private var referenceGroups: [String: GitGraphReferenceGroup] = [:]
-    private var dateTextCache: [String: (text: String, period: String?)] = [:]
+    private struct DateCacheKey: Hashable {
+        let value: String
+        let utcOffsetMinutes: Int?
+        let unixSeconds: Int64?
+    }
+    private var dateTextCache: [DateCacheKey: (text: String, period: String?)] = [:]
 
     override var isFlipped: Bool { true }
 
@@ -773,15 +787,16 @@ final class GitGraphCommitRowsNSView: NSView, NSViewToolTipOwner {
         needsDisplay = true
     }
 
-    private func dateComponents(_ value: String) -> (text: String, period: String?) {
-        if let cached = dateTextCache[value] { return cached }
-        let result = GitLogDatePresentation.components(value, locale: locale)
-        dateTextCache[value] = result
+    private func dateComponents(_ value: String, utcOffsetMinutes: Int? = nil, unixSeconds: Int64? = nil) -> (text: String, period: String?) {
+        let key = DateCacheKey(value: value, utcOffsetMinutes: utcOffsetMinutes, unixSeconds: unixSeconds)
+        if let cached = dateTextCache[key] { return cached }
+        let result = GitLogDatePresentation.components(value, utcOffsetMinutes: utcOffsetMinutes, unixSeconds: unixSeconds, locale: locale)
+        dateTextCache[key] = result
         return result
     }
 
-    func dateString(_ value: String) -> String {
-        let parts = dateComponents(value)
+    func dateString(_ value: String, utcOffsetMinutes: Int? = nil, unixSeconds: Int64? = nil) -> String {
+        let parts = dateComponents(value, utcOffsetMinutes: utcOffsetMinutes, unixSeconds: unixSeconds)
         return parts.text + (parts.period.map { " " + $0 } ?? "")
     }
 
@@ -915,7 +930,7 @@ final class GitGraphCommitRowsNSView: NSView, NSViewToolTipOwner {
                 font: style.meta,
                 color: foreground
             )
-            let date = dateComponents(row.commit.date)
+            let date = dateComponents(row.commit.date, utcOffsetMinutes: row.commit.dateUtcOffsetMinutes, unixSeconds: row.commit.dateUnixSeconds)
             let periodWidth = date.period == nil ? 0 : style.meridiemWidth + 4
             drawText(date.text,
                 in: CGRect(x: max(0, rect.maxX - dateWidth - 8), y: rect.minY, width: dateWidth - periodWidth, height: rowHeight),
@@ -949,11 +964,14 @@ final class GitGraphCommitRowsNSView: NSView, NSViewToolTipOwner {
     override func menu(for event: NSEvent) -> NSMenu? {
         let index = Int(floor(convert(event.locationInWindow, from: nil).y / rowHeight))
         guard rows.indices.contains(index), let actions, let window else { return nil }
+        let commit = rows[index].commit
         LitheContextMenuPresenter.shared.show(
-            items: actions.contextMenuItems(for: rows[index].commit),
+            items: actions.contextMenuItems(for: commit),
             at: window.convertPoint(toScreen: event.locationInWindow),
             appearance: effectiveAppearance,
-            locale: locale
+            locale: locale,
+            onDismiss: { actions.onContextMenuDismissed?() },
+            onPresented: { session in actions.contextMenuPresented(for: commit, session: session) }
         )
         return nil
     }
@@ -1127,7 +1145,7 @@ private struct GitGraphRowView: View, Equatable {
                     .lineLimit(1)
                     .frame(width: 104, alignment: .leading)
 
-                let date = GitLogDatePresentation.components(row.commit.date, locale: locale)
+                let date = GitLogDatePresentation.components(row.commit.date, utcOffsetMinutes: row.commit.dateUtcOffsetMinutes, unixSeconds: row.commit.dateUnixSeconds, locale: locale)
                 HStack(spacing: 4) {
                     Text(verbatim: date.text)
                     if let period = date.period {
@@ -1149,7 +1167,11 @@ private struct GitGraphRowView: View, Equatable {
         .buttonStyle(.litheNoPress)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .onHover { isHovered = $0 }
-        .litheContextMenu { actions.contextMenuItems(for: row.commit) }
+        .litheUpdatingContextMenu(
+            items: { actions.contextMenuItems(for: row.commit) },
+            onPresented: { actions.contextMenuPresented(for: row.commit, session: $0) },
+            onDismiss: { actions.onContextMenuDismissed?() }
+        )
     }
 
     private var foregroundColor: Color {

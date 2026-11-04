@@ -52,6 +52,12 @@ const PERMISSION_VCS: &str = "process.vcs";
 const PERMISSION_PROJECT_GENERATE: &str = "project.generate";
 /// Starting the plugin's own backend process. `backend` 1.
 const PERMISSION_BACKEND: &str = "backend.launch";
+/// Supplying facts that can change the executable selected for a defined tool.
+const PERMISSION_TOOLCHAINS: &str = "toolchains.provide";
+/// Providing normalized shortcuts during an explicit import.
+const PERMISSION_KEYMAPS: &str = "keymaps.provide";
+/// Reading declared files from the explicitly selected import source.
+const PERMISSION_KEYMAP_SOURCES: &str = "keymaps.readSelectedSources";
 /// Letting the backend keep secrets in the host's credential store, private
 /// to the plugin. `backend` 1.
 const PERMISSION_CREDENTIALS: &str = "credentials.store";
@@ -69,9 +75,12 @@ const KNOWN_PERMISSIONS: &[&str] = &[
     PERMISSION_DEBUG_ATTACH,
     PERMISSION_DEBUG_LAUNCH,
     PERMISSION_LANGUAGE_SERVER,
+    PERMISSION_KEYMAPS,
+    PERMISSION_KEYMAP_SOURCES,
     PERMISSION_PROJECT_GENERATE,
     PERMISSION_RUN,
     PERMISSION_TEST,
+    PERMISSION_TOOLCHAINS,
     PERMISSION_UI,
     PERMISSION_UI_WEB,
     PERMISSION_VCS,
@@ -207,6 +216,15 @@ pub struct DeclarativePluginManifest {
     /// `super::backend`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     backend: Option<super::backend::BackendDeclaration>,
+    /// Tool policies owned by plugins, never a host-maintained definition table.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    tool_definitions: Vec<Value>,
+    /// Fact providers served by the plugin's existing backend process.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    toolchain_providers: Vec<Value>,
+    /// Independent shortcut importers implemented by this plugin's backend.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    keymap_import_providers: Vec<super::keymap_import::ProviderDeclaration>,
 }
 
 /// UI supplied by plugins. The host owns every window shell: docking, title,
@@ -421,6 +439,13 @@ struct LanguageDeclaration {
     project_file_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     dependencies: Option<DependencyDeclaration>,
+    /// Syntax highlighting from a package file. `languages` 2; see
+    /// `super::grammar`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    grammar: Option<super::grammar::GrammarDeclaration>,
+    /// Comment and bracket behavior of the editor. `languages` 2.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    configuration: Option<super::grammar::LanguageConfiguration>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -688,6 +713,8 @@ enum LaunchVariable {
     StateDir,
     /// Writable directory for this server's state of the current workspace.
     WorkspaceStateDir,
+    /// Absolute session plugin files directory supplied by the writable storage adapter.
+    LogDir,
     /// Host CPU architecture, one of `KNOWN_ARCHITECTURES`.
     Arch,
     /// Current value of the plugin setting with this ID.
@@ -700,6 +727,7 @@ impl LaunchVariable {
             "pluginDir" => Some(Self::PluginDir),
             "stateDir" => Some(Self::StateDir),
             "workspaceStateDir" => Some(Self::WorkspaceStateDir),
+            "logDir" => Some(Self::LogDir),
             "arch" => Some(Self::Arch),
             _ => name
                 .strip_prefix(SETTING_VARIABLE_PREFIX)
@@ -793,6 +821,22 @@ pub fn validate_manifest_value(value: Value) -> Validation<DeclarativePluginMani
         }
         capabilities::check_manifest_requires(&value, version)?;
     }
+    for (field, limit) in [
+        ("toolDefinitions", 32),
+        ("toolchainProviders", 8),
+        ("keymapImportProviders", super::keymap_import::MAX_PROVIDERS),
+    ] {
+        if value.get(field).is_some_and(|section| {
+            !section
+                .as_array()
+                .is_some_and(|items| !items.is_empty() && items.len() <= limit)
+        }) {
+            return Err(invalid(
+                field,
+                "A declared provider section must be nonempty and bounded.",
+            ));
+        }
+    }
     let manifest: DeclarativePluginManifest = serde_json::from_value(value).map_err(|error| {
         PluginRejection::new(
             "plugin.manifest.invalid",
@@ -851,15 +895,23 @@ impl DeclarativePluginManifest {
             && self.vcs_providers.is_empty()
             && self.debug_adapters.is_empty()
             && self.project_generators.is_empty()
+            && self.tool_definitions.is_empty()
+            && self.toolchain_providers.is_empty()
+            && self.keymap_import_providers.is_empty()
             // A backend 2 may be the whole plugin: it starts on a workspace.
             && self.backend.is_none()
         {
             return Err(invalid("languages", "The plugin declares no languages."));
         }
 
+        let languages_version = self
+            .requires
+            .get(capabilities::LANGUAGES)
+            .copied()
+            .unwrap_or(1);
         let mut language_ids = BTreeSet::new();
         for (index, language) in self.languages.iter_mut().enumerate() {
-            language.normalize(index)?;
+            language.normalize(index, languages_version)?;
             if !language_ids.insert(language.id.clone()) {
                 return Err(invalid(
                     format!("languages[{index}].id"),
@@ -868,6 +920,17 @@ impl DeclarativePluginManifest {
             }
         }
         self.languages.sort_by(|left, right| left.id.cmp(&right.id));
+        if languages_version >= super::grammar::GRAMMAR_LANGUAGES_VERSION
+            && !self
+                .languages
+                .iter()
+                .any(LanguageDeclaration::uses_version_2)
+        {
+            return Err(invalid(
+                "requires.languages",
+                "The declared languages version must be used: languages 2 adds grammar and configuration.",
+            ));
+        }
 
         let declared_settings = self.validate_settings()?;
 
@@ -982,7 +1045,12 @@ impl DeclarativePluginManifest {
             && self.vcs_providers.is_empty()
             && self.debug_adapters.is_empty()
             && self.project_generators.is_empty()
+            && self.tool_definitions.is_empty()
+            && self.toolchain_providers.is_empty()
+            && self.keymap_import_providers.is_empty()
             && self.backend.is_none()
+            // A grammar alone is a complete highlighting plugin.
+            && !self.languages.iter().any(LanguageDeclaration::uses_version_2)
         {
             return Err(invalid(
                 "languages",
@@ -1019,6 +1087,11 @@ impl DeclarativePluginManifest {
             },
         )?;
         self.validate_debug_adapters(&declared_settings)?;
+        self.validate_toolchains()?;
+        if !self.keymap_import_providers.is_empty() {
+            super::keymap_import::validate_declarations(&mut self.keymap_import_providers)?;
+            self.validate_packaged_provider_backend()?;
+        }
         if let Some(backend) = &self.backend {
             backend.validate(&super::backend::DeclarationContext {
                 plugin_api_version: self.plugin_api_version,
@@ -1033,6 +1106,8 @@ impl DeclarativePluginManifest {
                     .activation_events
                     .iter()
                     .any(|event| event == super::backend::ON_WORKSPACE_OPEN),
+                provider_query_trigger: !self.toolchain_providers.is_empty()
+                    || !self.keymap_import_providers.is_empty(),
             })?;
         }
         self.validate_permissions()?;
@@ -1050,20 +1125,21 @@ impl DeclarativePluginManifest {
             ),
             (
                 capabilities::EXECUTABLE_RESOLUTION,
-                self.build_systems.iter().any(|system| {
-                    system
-                        .invocation
-                        .executables
-                        .iter()
-                        .chain(
-                            system
-                                .invocation
-                                .runtime_dependencies
-                                .iter()
-                                .flat_map(|runtime| &runtime.executables),
-                        )
-                        .any(|candidate| candidate.uses_resolution())
-                }),
+                !self.tool_definitions.is_empty()
+                    || self.build_systems.iter().any(|system| {
+                        system
+                            .invocation
+                            .executables
+                            .iter()
+                            .chain(
+                                system
+                                    .invocation
+                                    .runtime_dependencies
+                                    .iter()
+                                    .flat_map(|runtime| &runtime.executables),
+                            )
+                            .any(|candidate| candidate.uses_resolution())
+                    }),
             ),
             (capabilities::LANGUAGES, !self.languages.is_empty()),
             (
@@ -1113,6 +1189,18 @@ impl DeclarativePluginManifest {
                 !self.debug_adapters.is_empty(),
             ),
             (capabilities::BACKEND, self.backend.is_some()),
+            (
+                capabilities::TOOL_DEFINITIONS,
+                !self.tool_definitions.is_empty(),
+            ),
+            (
+                capabilities::TOOLCHAIN_PROVIDERS,
+                !self.toolchain_providers.is_empty(),
+            ),
+            (
+                capabilities::KEYMAP_IMPORT_PROVIDERS,
+                !self.keymap_import_providers.is_empty(),
+            ),
         ];
         sections
             .into_iter()
@@ -1171,6 +1259,70 @@ impl DeclarativePluginManifest {
                     "serverProcess 2 is required exactly when an adapter runs on the selected runtime.",
                 ));
             }
+        }
+        Ok(())
+    }
+
+    fn validate_toolchains(&self) -> Validation<()> {
+        if self.tool_definitions.is_empty()
+            && self.requires.get(capabilities::EXECUTABLE_RESOLUTION) == Some(&2)
+        {
+            return Err(invalid(
+                "requires.executableResolution",
+                "Executable resolution 2 is reserved to tool definitions.",
+            ));
+        }
+        if self.tool_definitions.is_empty() && self.toolchain_providers.is_empty() {
+            return Ok(());
+        }
+        if self.plugin_api_version < CAPABILITIES_API_VERSION {
+            return Err(invalid(
+                "toolDefinitions",
+                "Toolchain declarations require plugin API level 3.",
+            ));
+        }
+        if !self.tool_definitions.is_empty()
+            && self.requires.get(capabilities::EXECUTABLE_RESOLUTION) != Some(&2)
+        {
+            return Err(invalid(
+                "requires.executableResolution",
+                "Tool definitions require executable resolution 2.",
+            ));
+        }
+        crate::toolchain::definitions::validate_declarations(
+            &self.id,
+            &self.tool_definitions,
+            &self.toolchain_providers,
+        )?;
+        if !self.toolchain_providers.is_empty() {
+            self.validate_packaged_provider_backend()?;
+        }
+        Ok(())
+    }
+
+    /// Host-queried providers must start without relying on the discovery they provide.
+    fn validate_packaged_provider_backend(&self) -> Validation<()> {
+        if self.plugin_api_version < CAPABILITIES_API_VERSION || self.backend_version() != 2 {
+            return Err(invalid(
+                "requires.backend",
+                "Providers require plugin API 3 and backend 2.",
+            ));
+        }
+        let backend = self
+            .backend
+            .as_ref()
+            .ok_or_else(|| invalid("backend", "A provider requires the plugin backend."))?;
+        let value = serde_json::to_value(backend)
+            .map_err(|_| invalid("backend", "The backend cannot be encoded."))?;
+        let launch = &value["launch"];
+        let packaged = launch["kind"] == "packaged"
+            || (launch["kind"] == "runtime" && launch["packagedRuntime"].as_str().is_some());
+        if !packaged
+            || value["runtimeDependencies"]
+                .as_array()
+                .is_some_and(|values| !values.is_empty())
+        {
+            return Err(invalid("backend.launch", "Provider backends must bootstrap from packaged executables or packaged runtimes without discovered dependencies."));
         }
         Ok(())
     }
@@ -1350,6 +1502,29 @@ impl DeclarativePluginManifest {
         if !self.build_systems.is_empty() {
             required.insert(PERMISSION_BUILD);
         }
+        if !self.toolchain_providers.is_empty() {
+            required.insert(PERMISSION_TOOLCHAINS);
+        } else if self
+            .permissions
+            .iter()
+            .any(|permission| permission == PERMISSION_TOOLCHAINS)
+        {
+            return Err(invalid(
+                "permissions",
+                "toolchains.provide requires a toolchain provider.",
+            ));
+        }
+        if !self.keymap_import_providers.is_empty() {
+            required.insert(PERMISSION_KEYMAPS);
+            required.insert(PERMISSION_KEYMAP_SOURCES);
+        } else if self.permissions.iter().any(|permission| {
+            permission == PERMISSION_KEYMAPS || permission == PERMISSION_KEYMAP_SOURCES
+        }) {
+            return Err(invalid(
+                "permissions",
+                "Shortcut import permissions require a shortcut import provider.",
+            ));
+        }
         if !self.vcs_providers.is_empty() {
             required.insert(PERMISSION_VCS);
         }
@@ -1404,6 +1579,20 @@ impl DeclarativePluginManifest {
             return Err(invalid(
                 "permissions",
                 "Host API permissions require backend 2.",
+            ));
+        }
+        if self
+            .permissions
+            .iter()
+            .any(|permission| permission == "editor.actions")
+            && !self
+                .permissions
+                .iter()
+                .any(|permission| permission == "documents.read")
+        {
+            return Err(invalid(
+                "permissions",
+                "Editor actions require documents.read for live snapshots.",
             ));
         }
         for permission in required {
@@ -1750,8 +1939,29 @@ impl DeclarativePluginManifest {
 }
 
 impl LanguageDeclaration {
-    fn normalize(&mut self, index: usize) -> Validation<()> {
+    /// Whether the language uses a field `languages` 2 adds.
+    fn uses_version_2(&self) -> bool {
+        self.grammar.is_some() || self.configuration.is_some()
+    }
+
+    fn normalize(&mut self, index: usize, capability_version: u32) -> Validation<()> {
         let field = format!("languages[{index}]");
+        if self.uses_version_2() && capability_version < super::grammar::GRAMMAR_LANGUAGES_VERSION {
+            return Err(invalid(
+                if self.grammar.is_some() {
+                    format!("{field}.grammar")
+                } else {
+                    format!("{field}.configuration")
+                },
+                "grammar and configuration require version 2 of the languages capability.",
+            ));
+        }
+        if let Some(grammar) = &self.grammar {
+            grammar.validate(&format!("{field}.grammar"))?;
+        }
+        if let Some(configuration) = &self.configuration {
+            configuration.validate(&format!("{field}.configuration"))?;
+        }
         let id = self.id.trim().to_lowercase();
         if id.is_empty()
             || id != self.id
@@ -2562,7 +2772,9 @@ fn validate_launch_template(
                 }
             }
             TemplatePart::Variable(
-                LaunchVariable::StateDir | LaunchVariable::WorkspaceStateDir,
+                LaunchVariable::StateDir
+                | LaunchVariable::WorkspaceStateDir
+                | LaunchVariable::LogDir,
             ) if context == LaunchTemplateContext::ValidationProbe => {
                 return Err(template(
                     field.to_string(),
@@ -2976,6 +3188,10 @@ pub struct LanguageServerLaunchPlanRequest {
     /// omits it; a launch that names it then has no usable plan.
     #[serde(default)]
     workspace_state_directory: Option<String>,
+    /// Absolute current-session `plugins/<id>/files` directory. The host creates it
+    /// outside installed resources; Core never infers a writable path.
+    #[serde(default)]
+    log_directory: Option<String>,
     /// Host CPU architecture, one of `KNOWN_ARCHITECTURES`.
     architecture: String,
     /// Values the user stored for the plugin's settings, by setting ID. A
@@ -3002,6 +3218,7 @@ struct LaunchValues<'a> {
     plugin_directory: &'a str,
     state_directory: &'a str,
     workspace_state_directory: &'a str,
+    log_directory: &'a str,
     architecture: &'a str,
     /// Effective value of every declared setting.
     settings: &'a BTreeMap<String, Value>,
@@ -3014,6 +3231,7 @@ struct LaunchRequirements {
     package_paths: BTreeSet<String>,
     uses_state_directory: bool,
     uses_workspace_state_directory: bool,
+    uses_log_directory: bool,
 }
 
 fn language_server_launch_plan(
@@ -3372,6 +3590,32 @@ fn server_launch_plan(
             }
             None => "",
         },
+        log_directory: match request.log_directory.as_deref() {
+            Some(directory) => {
+                let directory = launch_directory(directory, "logDirectory")?;
+                // Recognize absolute native paths on both platforms without using
+                // the build machine's Path::is_absolute semantics for the other OS.
+                let absolute = directory.starts_with('/')
+                    || directory.starts_with("\\\\")
+                    || (directory.as_bytes().get(1) == Some(&b':')
+                        && directory
+                            .as_bytes()
+                            .first()
+                            .is_some_and(u8::is_ascii_alphabetic)
+                        && directory
+                            .as_bytes()
+                            .get(2)
+                            .is_some_and(|b| b"/\\".contains(b)));
+                if !absolute {
+                    return Err(PluginRejection::new(
+                        "plugin.launch.invalidRequest",
+                        "The launch request has no usable absolute logDirectory.",
+                    ));
+                }
+                directory
+            }
+            None => "",
+        },
         architecture: &request.architecture,
         settings: &effective_settings,
     };
@@ -3479,6 +3723,15 @@ fn server_launch_plan(
     if !effective_settings.is_empty() {
         plan["settings"] = json!(effective_settings);
     }
+    if requirements.uses_log_directory {
+        if values.log_directory.is_empty() {
+            return Err(PluginRejection::new(
+                "plugin.launch.invalidRequest",
+                "The launch request has no usable logDirectory.",
+            ));
+        }
+        directories.push("log");
+    }
     plan["requiredDirectories"] = json!(directories);
     plan["requiredPackagePaths"] = json!(requirements.package_paths);
     Ok(plan)
@@ -3556,6 +3809,10 @@ fn expand_launch_template(
             TemplatePart::Variable(LaunchVariable::WorkspaceStateDir) => {
                 requirements.uses_workspace_state_directory = true;
                 expanded.push_str(values.workspace_state_directory);
+            }
+            TemplatePart::Variable(LaunchVariable::LogDir) => {
+                requirements.uses_log_directory = true;
+                expanded.push_str(values.log_directory);
             }
             TemplatePart::Variable(LaunchVariable::Arch) => expanded.push_str(values.architecture),
             TemplatePart::Variable(LaunchVariable::Setting(id)) => {
@@ -4119,6 +4376,62 @@ pub fn workspace_configuration_command(payload: Value) -> Result<Value, CoreErro
             Ok(("configuration", configuration))
         }),
     ))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct GrammarPayload {
+    manifest: Value,
+    #[serde(rename = "languageID")]
+    language_id: String,
+    /// Text of the grammar file the host read from the package.
+    grammar: String,
+}
+
+/// `plugins.declarative.decodeGrammar`: validates the grammar file of one
+/// language and returns what the editor registers for it.
+pub fn decode_grammar_command(payload: Value) -> Result<Value, CoreError> {
+    let payload: GrammarPayload = decode_payload(payload, "plugins.declarative.decodeGrammar")?;
+    Ok(outcome(validate_manifest_value(payload.manifest).and_then(
+        |manifest| {
+            let language = manifest
+                .languages
+                .iter()
+                .find(|language| language.id == payload.language_id)
+                .filter(|language| language.grammar.is_some() || language.configuration.is_some())
+                .ok_or_else(|| {
+                    PluginRejection::new(
+                        "plugin.grammar.unavailable",
+                        format!(
+                            "The plugin declares no grammar for {}.",
+                            payload.language_id
+                        ),
+                    )
+                })?;
+            let grammar = language
+                .grammar
+                .as_ref()
+                .map(|grammar| match grammar.kind {
+                    super::grammar::GrammarKind::Monarch => {
+                        // Monarch cases are ordered. Keep the validated source
+                        // opaque across JSON maps and platform dictionaries.
+                        super::grammar::decode_monarch(&payload.grammar)
+                            .map(|_| json!({"kind": grammar.kind, "source": payload.grammar}))
+                    }
+                })
+                .transpose()?;
+            Ok((
+                "language",
+                json!({
+                    "id": language.id,
+                    "fileExtensions": language.file_extensions,
+                    "fileNames": language.file_names,
+                    "grammar": grammar,
+                    "configuration": language.configuration,
+                }),
+            ))
+        },
+    )))
 }
 
 /// `plugins.declarative.checkRuntimeVersion`: decides whether a launch

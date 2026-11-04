@@ -24,6 +24,8 @@ const WATCH_EXPRESSIONS_STORAGE_KEY = "lithe-debugger-watch-expressions";
 
 interface DebuggerState {
   breakpoints: DebugBreakpoint[];
+  breakpointGeneration: number;
+  breakpointUserRevisions: Record<string, number>;
   watchExpressions: DebugWatchExpression[];
   watchResults: Record<string, DebugWatchResult>;
   workspaceConfigs: DebugLaunchConfig[];
@@ -48,6 +50,7 @@ interface DebuggerState {
     setBreakpointEnabled: (breakpointId: string, enabled: boolean) => void;
     removeBreakpoint: (breakpointId: string) => void;
     clearBreakpoints: () => void;
+    applyRelocatedBreakpoints: (filePath: string, expected: DebugBreakpoint[], points: { line: number; enabled: boolean }[], originalIndices: number[]) => boolean;
     addWatchExpression: (expression: string) => DebugWatchExpression | null;
     updateWatchExpression: (expressionId: string, expression: string) => void;
     removeWatchExpression: (expressionId: string) => void;
@@ -141,14 +144,19 @@ const saveWatchExpressions = (watchExpressions: DebugWatchExpression[]) => {
   window.localStorage.setItem(WATCH_EXPRESSIONS_STORAGE_KEY, JSON.stringify(watchExpressions));
 };
 
-const createBreakpointId = (filePath: string, line: number) =>
-  `bp_${filePath.replace(/[^a-zA-Z0-9]/g, "_")}_${line}`;
+const createBreakpointId = () => `bp_${crypto.randomUUID()}`;
+
+const sameBreakpoint = (left: DebugBreakpoint, right: DebugBreakpoint) =>
+  left.id === right.id && left.filePath === right.filePath && left.line === right.line &&
+  left.enabled === right.enabled && left.createdAt === right.createdAt;
 
 const createWatchExpressionId = () => `watch_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
 export const useDebuggerStore = createSelectors(
   create<DebuggerState>()((set, get) => ({
     breakpoints: loadBreakpoints(),
+    breakpointGeneration: 0,
+    breakpointUserRevisions: {},
     watchExpressions: loadWatchExpressions(),
     watchResults: {},
     workspaceConfigs: [],
@@ -196,7 +204,7 @@ export const useDebuggerStore = createSelectors(
             : [
                 ...state.breakpoints,
                 {
-                  id: createBreakpointId(filePath, line),
+                  id: createBreakpointId(),
                   filePath,
                   line,
                   enabled: true,
@@ -205,33 +213,63 @@ export const useDebuggerStore = createSelectors(
               ];
 
           saveBreakpoints(nextBreakpoints);
-          return { breakpoints: nextBreakpoints };
+          return { breakpoints: nextBreakpoints, breakpointUserRevisions: { ...state.breakpointUserRevisions, [key]: (state.breakpointUserRevisions[key] ?? 0) + 1 } };
         });
       },
 
       setBreakpointEnabled: (breakpointId, enabled) => {
         set((state) => {
+          const key = debugSourcePathKey(state.breakpoints.find(point => point.id === breakpointId)?.filePath ?? "");
           const nextBreakpoints = state.breakpoints.map((breakpoint) =>
             breakpoint.id === breakpointId ? { ...breakpoint, enabled } : breakpoint,
           );
           saveBreakpoints(nextBreakpoints);
-          return { breakpoints: nextBreakpoints };
+          return { breakpoints: nextBreakpoints, breakpointUserRevisions: { ...state.breakpointUserRevisions, [key]: (state.breakpointUserRevisions[key] ?? 0) + 1 } };
         });
       },
 
       removeBreakpoint: (breakpointId) => {
         set((state) => {
+          const key = debugSourcePathKey(state.breakpoints.find(point => point.id === breakpointId)?.filePath ?? "");
           const nextBreakpoints = state.breakpoints.filter(
             (breakpoint) => breakpoint.id !== breakpointId,
           );
           saveBreakpoints(nextBreakpoints);
-          return { breakpoints: nextBreakpoints };
+          return { breakpoints: nextBreakpoints, breakpointUserRevisions: { ...state.breakpointUserRevisions, [key]: (state.breakpointUserRevisions[key] ?? 0) + 1 } };
         });
+      },
+
+      applyRelocatedBreakpoints: (filePath, expected, points, originalIndices) => {
+        const current = get().actions.getBreakpointsForFile(filePath);
+        const expectedIds = new Set(expected.map(point => point.id));
+        const byId = new Map(current.map(point => [point.id, point]));
+        if (points.length !== originalIndices.length ||
+            new Set(originalIndices).size !== originalIndices.length ||
+            originalIndices.some(index => !Number.isInteger(index) || index < 0 || index >= expected.length) ||
+            expected.some(point => !byId.has(point.id) || !sameBreakpoint(byId.get(point.id)!, point))) return false;
+        const added = current.filter(point => !expectedIds.has(point.id));
+        const occupied = new Set(added.map(point => point.line));
+        const relocated = points.flatMap((point, index) => {
+          const previous = expected[originalIndices[index]!]!;
+          if (occupied.has(point.line - 1)) return [];
+          return [{ ...previous, line: point.line - 1, enabled: point.enabled }];
+        });
+        const replacement = [...added, ...relocated];
+        if (replacement.length === current.length && replacement.every(point =>
+          current.some(existing => sameBreakpoint(existing, point)))) return true;
+        const key = debugSourcePathKey(filePath);
+        const nextBreakpoints = [
+          ...get().breakpoints.filter(point => debugSourcePathKey(point.filePath) !== key),
+          ...replacement,
+        ];
+        saveBreakpoints(nextBreakpoints);
+        set({ breakpoints: nextBreakpoints });
+        return true;
       },
 
       clearBreakpoints: () => {
         saveBreakpoints([]);
-        set({ breakpoints: [] });
+        set(state => ({ breakpoints: [], breakpointGeneration: state.breakpointGeneration + 1 }));
       },
 
       addWatchExpression: (expression) => {

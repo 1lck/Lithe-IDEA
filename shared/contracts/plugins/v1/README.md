@@ -12,6 +12,8 @@ This directory is the cross-platform source of truth:
 | --- | --- |
 | `plugin-manifest.schema.json` | JSON shape of `plugin.json` |
 | `fixtures/*.plugin.json` | Valid example manifests, named after the capability they exercise rather than a published plugin: `language-*` (packaged, system-command, and host-integration language servers; `node-runtime` for a discovered runtime), `hello-lithe` and `web-panel` (UI), `settings-v2`, and `build-*` (level 3 build systems and the two forms of a build provider) |
+| `fixtures/tool-definition.plugin.json`, `fixtures/toolchain-provider.plugin.json` | Production-shape Core fixtures for tool definitions and a packaged toolchain provider; require explicit new host capabilities, not yet supplied by native products |
+| `fixtures/keymap-import-provider.plugin.json` | Two independent shortcut import providers sharing one packaged backend; native source access is not implemented yet |
 | `fixtures/invalid-manifests.json` | Edits to a valid manifest and the rejection code every host must report |
 | `fixtures/command-plans.json` | Golden run/test command expansions and language-server launch plans |
 | `fixtures/runtime-versions.json` | Golden outcomes of the launch runtime version check |
@@ -21,6 +23,8 @@ This directory is the cross-platform source of truth:
 | `fixtures/project-plans.json` | Golden `project.*` form evaluations, generation plans, and name checks |
 | `plugin-index.schema.json` | JSON shape of a marketplace source index |
 | `fixtures/marketplace/*.json` | Marketplace index, availability, source URL, and install review golden cases |
+| `toolchains.md` | Implemented Core foundation: plugin definitions/provider declarations, verified-origin registry, reply validation, directory pins, snapshot resolution, version matching and discovery plans; native hosts are not connected |
+| `proposals/toolchains/` | Broader design draft, including unimplemented query transport, native lifecycle/persistence, consumer migration, settings UI and manager plugins; examples are review projections, not installable manifests |
 
 Validation and template expansion are implemented once in Rust Core
 (`rust/lithe-core/src/plugins/`, with build systems in
@@ -36,6 +40,94 @@ schema's `$id` is its URL there. Contract changes land here first and must then
 be synced to that repository, so links in this file that leave this directory
 are absolute. `plugin.json` may not carry a `$schema` key, because unknown
 fields are rejected; editors associate the schema by file name instead.
+
+## Plugin-owned toolchains (Core foundation)
+
+The [toolchains draft](proposals/toolchains/README.md) records the replacement
+design discussed in [PR #1581](https://github.com/1lck/Lithe-IDEA/pull/1581#issuecomment-6541366112).
+All tool definitions belong to enabled plugins; the host supplies only generic
+query, validation, resolution, persistence, and presentation mechanisms. It
+does not add a built-in tool-definition table or interpret version-manager
+configuration formats.
+
+The [implemented Core contract](toolchains.md) now accepts `toolDefinitions: 1`
+and `toolchainProviders: 1` declarations and provides six `toolchains.*` commands.
+`executableResolution: 2` applies to tool-definition candidates only; it does not
+admit new sources into existing Build candidate sets. Definitions are entirely
+plugin-owned, with reserved short IDs checked against host-verified official
+provenance when constructing the registry.
+
+macOS advertises these capabilities for its read-only toolchain settings pages.
+The native adapter scans declarations, probes checked executables, queries plugin
+backends and watches their inputs; Core consumes captured facts and owns validation
+and resolution. Windows does not advertise the capabilities. Saving pins,
+`toolchainConsumers`, generic runtime launches and live backend activation remain
+unsupported, and current Java/Maven/Build/Run selection is unchanged. Version-manager
+implementations such as mise belong to their own plugin packages. Proposal
+envelopes remain separate from production manifests. See [the implemented slice](toolchains.md).
+
+## Shortcut import providers (Core foundation)
+
+`keymapImportProviders` contains one to eight `{id, displayName, recognition, inputs}` entries.
+IDs are unique within the plugin, start with a lowercase letter, contain only
+lowercase ASCII letters, digits and hyphens, and are at most 64 bytes. The
+plugin requires `keymapImportProviders: 1`, `backend: 2`, `serverProcess: 1`,
+`backend.launch`, `keymaps.provide` and `keymaps.readSelectedSources`. Its backend starts from a packaged
+executable or packaged runtime without discovered runtime dependencies. The
+host starts it for an explicit import; it is not a startup or workspace-open
+activation event. The permission permits offering mappings; it grants no file
+access on its own. `keymaps.readSelectedSources` authorizes only the provider's
+declared inputs under the source directory the user explicitly selected for this
+import, and only for the lifetime of that import.
+
+`recognition` lists one to sixteen distinct metadata-only probes. A
+`{kind: "file" | "directory", path}` probe matches an entry of that kind
+beneath the selected root, using the input path restrictions and refusing
+symlinks. A `{kind: "root", base: "userConfig", components}` probe matches
+the selected directory's exact path beneath the platform's user configuration
+directory (macOS Application Support, Windows roaming AppData). Components
+contain one to eight safe literal names and may end in one `*`, matching
+exactly one directory component; the first component must be literal. The
+source matches any probe. Recognition never authorizes reading file contents
+or discloses the absolute path to the provider. A host may use probes without
+launching backends, and must recheck them on import.
+
+`inputs` lists one to sixteen unique selectors. `{kind: "file", path}` selects
+one relative file; `{kind: "directory", path, extension}` selects immediate
+children of that directory with the exact lowercase alphanumeric extension,
+never recursive descendants. Paths have at most 256 characters, contain no
+empty, `.` or `..` segments, backslashes, colons, wildcards, control characters,
+or segments ending in a dot or space. Directory selectors have at most 64
+matches after scanning at most 4096 directory entries. The native reader must reject symlinks and paths escaping the
+selected root, bound each file to 1 MiB and the snapshot to 8 MiB, and expose
+only scoped opaque handles in chunks of at most 128 KiB. A manifest cannot
+authorize arbitrary paths or access an unselected source.
+
+Core offers `experimental.litheKeymapImport: {versions: [1], providers}` only
+to a plugin-owned session with declared providers. The backend selects a
+nonempty duplicate-free subset as `{version: 1, providers}`. A request to an
+unselected provider is refused. `lithe/keymap/import` carries only
+`{providerID, snapshotID}`. The snapshot is an opaque host-owned reference;
+the provider never interprets it as a path. Core bounds the operation and
+validates normalized results against the host's action catalog. Providers own
+source formats and must not silently promote conditional or multi-stroke rules
+to global shortcuts. The exact Core commands, limits and fixtures are in the
+[Rust Core API](https://github.com/1lck/Lithe-IDEA/blob/preview/shared/contracts/rust-core-api.md#normalized-shortcut-import-validation).
+
+When granted individually, protocol 3 methods `lithe/host/keymapImport/listInputs`
+and `lithe/host/keymapImport/readChunk` take `snapshotID` and `providerID`.
+Listing returns `{files: [{id, path, byteCount}]}`; a read additionally takes
+`fileID`, a nonnegative `offset` and `maximumBytes` from 1 through 131072 and
+returns `{data}` containing base64 bytes. Paths are relative to the selected
+root and file IDs are opaque. The host binds snapshots to their plugin, session
+and provider, revokes them when the import or session ends, and rejects files
+replaced or changed after capture. A new snapshot for that provider revokes the
+previous one. Errors never disclose absolute paths.
+
+This is a foundation, not an available product extension: macOS implements the
+scoped reader, but provider discovery, the product import workflow and Windows
+source access are not implemented. Hosts must not advertise this capability
+until they implement the complete workflow. No existing SDK advertises it.
 
 ## Package layout
 
@@ -69,6 +161,9 @@ symbolic links. A host treats an installed package as read-only.
 | `settings` | User-adjustable plugin options (level 2 and later). |
 | `ui` | Host-rendered tool windows and commands (level 2 and later). |
 | `buildSystems` | Project-level build tools (level 3). |
+| `toolDefinitions` | Plugin-owned tool policy ([Core foundation](toolchains.md)); requires `toolDefinitions: 1` and `executableResolution: 2`; macOS hosts read-only discovery. |
+| `toolchainProviders` | Backend fact-provider declarations ([Core foundation](toolchains.md)); requires `toolchainProviders: 1`, backend/server-process capabilities and `toolchains.provide`. |
+| `keymapImportProviders` | Independent shortcut import providers; requires `keymapImportProviders: 1`, `backend: 2`, `serverProcess: 1` and `keymaps.provide`. macOS provides access to explicitly selected sources; Windows does not yet advertise this capability. |
 
 Unknown fields are refused (`plugin.manifest.invalid`) so an older host
 rejects a package instead of ignoring part of it. At levels 1 and 2 a new
@@ -84,6 +179,77 @@ present. A leading dot is optional only in `fileExtensions` (`.php` equals
 `php`). In complete file names, project markers, and management file names it
 is part of the name, so `.toolrc` and `.env.example` stay hidden-file names. Optional `dependencies` lists `managementFileNames`,
 `projectDependencyPaths`, and `projectBinaryPaths` relative to the project.
+
+#### Grammars and editor configuration (`languages` 2)
+
+`languages` 2 adds two optional fields to a language. Both are data: the host
+reads them from the package and the editor applies them without starting any
+process, so a language with a grammar needs no language server, backend, or
+activation event, and a plugin may consist of grammars alone.
+
+```json
+{
+  "id": "http",
+  "displayName": "HTTP Request",
+  "fileExtensions": ["http", "rest"],
+  "grammar": { "kind": "monarch", "path": "grammars/http.monarch.json" },
+  "configuration": {
+    "lineComment": "#",
+    "blockComment": ["/*", "*/"],
+    "brackets": [["{", "}"], ["[", "]"]],
+    "autoClosingPairs": [["{", "}"], ["\"", "\""]]
+  }
+}
+```
+
+- `grammar.kind` names the highlighting engine. Version 2 defines only
+  `monarch`; another engine is added as a new kind in a later version, so a
+  plugin can move between engines without changing anything else.
+- This is a static package contribution: `languages[]` belongs to the manifest
+  and `grammar.path` references a package JSON file. No public host method accepts
+  inline grammar JSON to dynamically register, replace, or dispose a highlighting
+  provider. Live installation/update/withdrawal of eligible static packages does
+  not imply such an API or automatic reload after arbitrary file changes;
+  installed packages remain read-only.
+- Adding another language or grammar using the supported structure needs only
+  plugin data; changing its rules does not itself raise the API version. A new
+  engine or capability kind still needs an implemented host adapter and an
+  explicit contract; an arbitrary new `kind` string cannot supply one.
+- This contribution does not register completion, hover, definition, symbol,
+  formatting, rename, or Code Action providers backed by ordinary plugin
+  functions. Those independent provider bindings are not implemented; existing
+  LSP support and `editor/registerActions` are separate capabilities, not a
+  substitute for them.
+- `grammar.path` is a package-relative file that stays inside the package.
+  Hosts read it read-only from the installed package, pass its text to
+  `plugins.declarative.decodeGrammar`, and hand the returned object to the
+  editor as validated source text, never through a reconstructed JSON object:
+  Monarch `cases` are evaluated in source order. The worker parses that text and
+  defaults `start` to `root` when absent. A grammar Core refuses is `plugin.grammar.invalid` with the
+  failing field (such as `grammar.tokenizer.root[3][1].log`); the language then
+  opens as plain text and the rest of the plugin keeps working.
+- A Monarch grammar is the JSON form of a
+  [Monaco Monarch](https://microsoft.github.io/monaco-editor/monarch.html)
+  definition: rule regexes are strings, and attribute values are strings or
+  string lists. Core accepts at most 256 KiB, 256 states, 4096 rules, regexes
+  of 2048 bytes, attribute lists of 4096 entries, 64 `cases` guards, 32
+  brackets, and actions nested 8 deep. It refuses `log` actions, `next`,
+  `switchTo`, and `include` targets that are not states of the grammar
+  (`@a.b` resolves to the longest declared prefix, as in Monarch), `cases`
+  guards naming an undeclared attribute, and `nextEmbedded` values other
+  than `@pop` or a language ID. The fixture
+  [`fixtures/grammars/http.monarch.json`](fixtures/grammars/http.monarch.json)
+  is a complete example.
+- `configuration` sets `lineComment`, `blockComment` (open and close),
+  `brackets`, and `autoClosingPairs`. Each delimiter is 1 to 16 bytes without
+  control characters; each list has at most 32 pairs.
+- Grammar compilation and matching run only in a terminable worker. No plugin
+  regex runs on the editor UI thread. Include cycles and expanded rule counts
+  over 4096 are refused; a stalled worker is terminated after its local deadline.
+  Buffers over 128 Ki UTF-16 units or 10,000 lines remain plain/editable. Embedded
+  languages are plain text in this first worker adapter.
+- Declaring `languages: 2` without using either field is
+  `plugin.manifest.invalid`; using them under `languages: 1` is too.
 
 ### Language servers
 
@@ -195,6 +361,7 @@ contains a machine path, and the host decides where state lives.
 | `${pluginDir}` | Root of the installed, read-only package. It must be used at most once per value and be followed by a `/`-rooted path inside the package; that path may vary only by `${arch}`. |
 | `${stateDir}` | Writable directory the host keeps for this plugin's server and removes when the plugin is uninstalled. Not available in `validationArguments`. |
 | `${workspaceStateDir}` | Writable directory for the server's state of the current workspace. Not available in `validationArguments`, nor in a [plugin backend](#plugin-backend), which belongs to no workspace. |
+| `${logDir}` | Absolute current-session `plugins/<id>/files/` directory, explicitly supplied by the host as `logDirectory`. Available for language servers and plugin backends, never in `validationArguments`. The host creates it in writable log storage, outside the installed package; Core does not derive it from package resources. |
 | `${arch}` | Host CPU architecture: `arm64` or `x86_64`. |
 | `${setting:<id>}` | Current value of a declared [plugin setting](#plugin-settings-api-2). Not available in `validationArguments`, and never inside a package path. |
 
@@ -202,10 +369,10 @@ contains a machine path, and the host decides where state lives.
 host selects the process with exactly one of `languageID` (a language server),
 `buildSystemID` (a build provider), `vcsProviderID` (a VCS provider), and
 `backend: true` (the [plugin backend](#plugin-backend)), passes `{pluginDirectory,
-stateDirectory, workspaceStateDirectory?, architecture, settings?}`, and
+stateDirectory, workspaceStateDirectory?, logDirectory?, architecture, settings?}`, and
 receives. `workspaceStateDirectory` may be omitted only when the selected
 process does not use `${workspaceStateDir}`; otherwise the request is
-`plugin.launch.invalidRequest`.
+`plugin.launch.invalidRequest`. The same error applies when a template uses `${logDir}` but `logDirectory` is absent, empty, or not absolute.
 
 | Field | Meaning |
 | --- | --- |
@@ -214,7 +381,7 @@ process does not use `${workspaceStateDir}`; otherwise the request is
 | `validationArguments` | Expanded probe arguments. |
 | `runtimeRequirements` | `{tool, minimumVersion?}` for every runtime the host must discover, a discovered launch tool included, sorted by tool. A packaged runtime is not listed. Only the launch tool can carry a minimum version. |
 | `initializationOptions` | Expanded options; absent when the server declares none. |
-| `requiredDirectories` | `state` and/or `workspaceState`: the directories the host must create before starting the server. |
+| `requiredDirectories` | `state`, `workspaceState`, and/or `log`: the directories the host must create before starting the server. |
 | `requiredPackagePaths` | Sorted package-relative paths the launch points at. The host verifies each is inside the package and not a symbolic link before starting the server. |
 | `settings` | Effective value of every declared setting that produced this plan; absent when the plugin declares none. |
 | `buildProvider` | Present only for a `buildSystemID` selection: `{buildSystemID, executesProjectCode, mayUseNetwork, languageServer?}`. `languageServer` names the language whose server is the provider; the rest of the plan is then that server's plan, and the host reuses its running session instead of starting a second process. |
@@ -399,7 +566,7 @@ hosts. Level 3 versions each section on its own. A level 3 manifest lists in
 
 | Capability | Covers | Versions |
 | --- | --- | --- |
-| `languages` | `languages[]` | `1` |
+| `languages` | `languages[]` | `1`, `2` (adds [`grammar` and `configuration`](#grammars-and-editor-configuration-languages-2)) |
 | `packageTrust` | `vendor.bundledSignatureRequirement`: origin-scoped trust for a host-sealed bundled copy of a publisher-signed plugin | `1` |
 | `languageServers` | `languageServers[]` apart from their launch fields | `1`, `2` (adds [`workspaceConfiguration`](#workspace-configuration-languageservers-2)) |
 | `serverProcess` | The launch fields of language servers, of build providers with a process of their own, of VCS providers, and of the plugin backend: `launch`, `arguments`, `validationArguments`, `runtimeDependencies`, `initializationOptions` | `1` |
@@ -413,6 +580,9 @@ hosts. Level 3 versions each section on its own. A level 3 manifest lists in
 | `debugAdapters` | [`debugAdapters[]`](#api-level-4-debug-adapters); v2 adds target arguments/environment | `1`, `2` |
 | `projectGenerators` | [`projectGenerators[]`](#project-generators): entries of the New Project window | `1` |
 | `backend` | [`backend`](#plugin-backend): the plugin's own long-lived process | `1`, `2` (adds [start without a page and workspace contexts](#backend-2-workspace-contexts)) |
+| `toolDefinitions` | [Tool identities, layouts, discovery and four-layer candidates](toolchains.md) | `1` (Core; macOS read-only settings) |
+| `toolchainProviders` | [Provider declarations and permission-bound answer validation](toolchains.md) | `1` (Core; macOS read-only settings) |
+| `executableResolution` | [Shared executable candidates](#shared-executable-candidates-executableresolution-1); v2 adds tool-definition candidates without changing existing Build candidate sets | `1`, `2` (v2 Core; macOS read-only settings) |
 
 Version 1 of every capability means what its section means at level 2
 (runtime launches, launch templates, `initializationOptions`, and so on), so
@@ -500,8 +670,12 @@ Rules for publishing across levels and capability versions:
 | `ui.contribute` | `ui` is declared |
 | `ui.web` | a tool window shows [web content](#web-content-ui-2) |
 | `backend.launch` | `backend` is declared |
+| `keymaps.provide` | `keymapImportProviders` is nonempty; permits offering mappings, not reading files by itself |
+| `keymaps.readSelectedSources` | `keymapImportProviders` is nonempty; permits reading only declared files in an explicitly selected import source |
 | `credentials.store` | the backend uses the [credentials host service](#host-services-protocol-version-2); refused without a `backend` |
 | `workspace.metadata` | the backend uses the [workspace host service](#workspace-contexts-and-capability-discovery-protocol-version-3); refused without `backend` 2 |
+| `editor.actions` | the backend registers independent editor actions; requires `backend` 2 and `documents.read`, grants only `editor/registerActions`, not document edits or domain execution |
+| `terminal.create` | the backend creates and manages its own [native terminals](#plugin-owned-native-terminals-function-protocol-3), including bounded display history for reopen; requires `backend` 2 |
 
 | Activation event | Meaning |
 | --- | --- |
@@ -1683,7 +1857,7 @@ A plugin backend (a language server, build provider, or
 **plugin functions**: plugin-private actions with
 serializable params and results, which the host invokes on behalf of the same
 plugin, for example from that plugin's own window. Functions complement the
-typed domain protocols; they never replace them. Versions 1 and 2 of the protocol are
+typed domain protocols; they never replace them. Versions 1 to 3 of the protocol are
 implemented in Rust Core (`rust/lithe-core/src/lsp/interface/plugin_function.rs`).
 macOS starts every build provider process as a session of the plugin that
 owns it and invokes its functions from that plugin's web pages (the
@@ -2094,6 +2268,7 @@ methods. Unknown options fail before side effects with `unsupportedOption`.
 | --- | --- | --- | --- |
 | `documents/list` | `documents.read` | none | `{documents:[<summary>]}` |
 | `documents/getSnapshot` | `documents.read` | `documentID` | `{document:<summary>, text}` from the dirty live buffer |
+| `editor/registerActions` | `editor.actions` (+ `documents.read`) | `id,function,selector` | `{subscriptionID}`; independent editor actions, see below |
 | `editor/getActive` | `documents.read` | none | summary of the foreground text tab, or `null` |
 | `editor/getSelections` | `documents.read` | `documentID` | `{documentID,version,selections:[{anchor,active}],primaryIndex}` |
 | `editor/applyEdits` | `editor.edit` | `documentID,expectedVersion,edits:[{range,text}]` | `{documentID,version,applied}` |
@@ -2168,6 +2343,79 @@ plugins. `didRun` remains an event, not an acknowledgement that the command's
 business action succeeded; a future result-bearing execute API must use the
 existing request lifecycle rather than infer success from notification delivery.
 
+### Independent editor actions (protocol version 3)
+
+Editor actions are a host presentation capability of an ordinary tool backend,
+not an LSP, Build, Run, Test or Debug provider. A play icon is presentation, not
+an execution kind. The host understands the bounded range/title/icon/invocation
+shape; HTTP/SQL parsing and execution remain private to the plugin. Native domain
+workflows still use their own typed contracts, never a private-function substitute.
+
+A backend declares `backend: 2`, `documents.read` and `editor.actions`, discovers
+`lithe/host/editor/registerActions` with `getCapabilities`, then registers per
+workspace context:
+
+```json
+{
+  "context": {"contextID": "w1", "generation": 1},
+  "id": "requestActions",
+  "function": "requests.collectActions",
+  "selector": {"fileExtensions": ["http", "rest"], "fileNames": []}
+}
+```
+
+- Registration returns `{subscriptionID}`. Dispose with the existing subscription
+  API. It only records the binding and never calls the backend while answering;
+  collection runs later. The function must already be registered on that session.
+- No manifest `runMarkers` section or capability, no special command notification,
+  and no language-server/Run declaration is added. The first implementation starts
+  through existing `onWorkspaceOpen` (or an existing explicit entry); registration
+  cannot discover a backend that has not started. Backend installation still needs
+  restart. Standalone backends have an application-scoped enablement module,
+  without a fake UI or language provider; safe mode/quarantine/disable still veto
+  their startup. Example package: `fixtures/editor-actions.plugin.json`.
+- A selector has 1 to 32 literal names/extensions; extensions accept an optional
+  leading dot. Matching is case-insensitive. At most 32 bindings per plugin across
+  contexts; duplicate registration IDs in a context are refused.
+- The host invokes the collection function via existing `lithe/function/invoke`
+  with workspace context and `{document:{documentID,version,path},text}`. Version
+  is the same public buffer version as `documents/getSnapshot`, not a WebView
+  revision. Source is the dirty live buffer, capped at 128 KiB. Remote workspaces
+  and read-only preview surfaces are not served by this first implementation.
+- Collection is read-only by contract: no network request or business execution.
+  Edits invalidate the old actions immediately and cancel older collection work;
+  the host debounces fresh collection and rejects stale or withdrawn results.
+  macOS bounds the whole collection batch to eight seconds, not eight seconds per
+  binding. Refresh acknowledges scheduling without waiting for collectors; a slow
+  or failed collector must not fail editing or the save synchronization barrier.
+- Return `{actions:[{id,range:{start:{line,column},end:{line,column}},title,icon,
+  invoke:{functionID,params?}}]}`. Positions are one-based UTF-16, half-open and
+  cannot split surrogate pairs. Each range stays in the exact input document.
+  `id` is 1 to 128 bytes without controls, unique per answer; `title` is 1 to 200
+  characters on one line. `icon` is `run` or `run-all`, a host-owned presentation
+  token. At most 1000 actions and 1 MiB serialized; malformed answers are refused
+  whole. Same-line actions share a menu rather than silently replacing each other.
+- Each invocation target is a currently registered function of the same plugin;
+  `params` is a plugin-private JSON object. The host stores it behind an opaque
+  per-batch action key, never accepts invocation payloads from the web editor, and
+  validates document/context/session/registration again on click. It calls the
+  function with `{documentID,expectedVersion,actionID,data:<params>}` through the
+  ordinary invocation lifecycle. The plugin validates/re-reads the live document
+  before side effects. Click executions are not cancelled by unrelated re-parsing;
+  withdrawing the binding, ending its session/context or tearing down the owning
+  editor cancels them. The host never retries side effects automatically.
+- Registration/collection validation is shared Core command
+  `plugins.editorActions.decode`; public host failures retain protocol 3's existing
+  distinct codes (`invalidParams`, `permissionDenied`, `versionConflict`, etc.).
+  No tool-private error or result is interpreted as a build/test result.
+- Existing `commands/didRun {commandID,context?}` is unchanged. A command-palette
+  entry can read the document/selection and call the same plugin implementation.
+- This is an additive host method within protocol 3, not a protocol-version bump.
+  Old hosts do not advertise it. A plugin can retain its existing command/window
+  entry point; a package requiring `editor.actions` is deliberately refused by an
+  older host that does not recognize that permission, rather than silently granted.
+  Grammar capability admission is separate. SDK/contract mirrors still need sync.
+
 ### Compatibility
 
 - Packages of every API level are unchanged: functions add no manifest field.
@@ -2199,28 +2447,28 @@ The official SDKs live in
 also releases them; they implement this contract and never define protocol.
 
 [`sdk/node`](https://github.com/Lithe-IDEA/lithe-plugin-docs/blob/main/sdk/node/README.md) is the official SDK for backends
-started through a `node` runtime launch. It implements this protocol and
-`litheBuild` 1, so a plugin author writes only handlers. It is released
-(`sdk-node-v<version>`) as a `.tgz` with its SHA-256 for plugins to vendor
-into their package. It enforces the rules above on the backend side: `lithe/*` methods are never sent, stdout
+started through a `node` runtime launch. It implements this protocol with
+its host services, `litheBuild`, and VCS providers, so a plugin author writes
+only handlers. It is released (`sdk-node-v<version>`) as a `.tgz` with its
+SHA-256 for plugins to vendor into their package. It enforces the rules above on the backend side: `lithe/*` methods are never sent, stdout
 carries only protocol frames, `PluginError` is the only way to set a
 `pluginErrorCode`, processes started for a call end with it, and its state
 store refuses the plugin package.
 
 [`sdk/java`](https://github.com/Lithe-IDEA/lithe-plugin-docs/blob/main/sdk/java/README.md) is the Java twin for backends
-started through a `java` runtime launch. It needs Java 8 or newer, has no
-runtime dependencies, and is released as a JAR with its SHA-256 for plugins
-to shade into their backend. It enforces the same rules with the same error
+started through a `java` runtime launch. It implements this protocol with
+its host services and `litheBuild`, but not VCS providers. It needs Java 8 or
+newer, has no runtime dependencies, and is released as a JAR with its SHA-256
+for plugins to shade into their backend. It enforces the same rules with the same error
 mapping, with one difference: on Java 8 it stops only a cancelled tool's
 direct child, and the host's process scope ends the rest.
 
 [`sdk/rust`](https://github.com/Lithe-IDEA/lithe-plugin-docs/blob/main/sdk/rust/README.md) is the SDK for
 [plugin backends](#plugin-backend), which ship as packaged executables. It
-implements plugin-function protocol versions 1 and 2, including the
-`credentials` host service, but neither build nor VCS providers. It needs
-Rust 1.87 or newer, depends only on `serde_json`, and is released
-(`sdk-rust-v<version>`) as a `.crate` archive with its SHA-256, or used as a
-Git dependency pinned by the tag. It enforces the same rules: on Unix it
+implements this protocol with its host services, but neither build nor VCS
+providers. It needs Rust 1.87 or newer, depends only on `serde_json`, and is
+released (`sdk-rust-v<version>`) as a `.crate` archive with its SHA-256, or
+used as a Git dependency pinned by the tag. It enforces the same rules: on Unix it
 points stdout at stderr so only protocol frames reach the host, and a panic
 ends only its call, reported like any unexpected failure.
 
@@ -2228,9 +2476,11 @@ The Node.js and Java SDKs each have a sample build provider
 (`sdk/*/examples/sample-build`) that answers one end-to-end scenario driven
 through a real Core session; the Rust SDK's sample backend
 (`sdk/rust/examples/sample-backend`) answers a plugin backend scenario in which
-the test plays the host and serves the credential requests. That repository
-runs them against the Lithe commit its contract copy pins, and weekly against
-the latest `preview`, the branch Lithe changes merge into.
+the test plays the host: it serves the credential requests and the protocol 3
+workspace, file watch and window requests, delivers a command and a context
+change, and checks that cancellation reaches the host. That repository runs
+them against the Lithe commit its contract copy pins, and weekly against the
+latest `preview`, the branch Lithe changes merge into.
 
 No SDK adds a wire field: a backend written without one is equally valid.
 
@@ -2260,6 +2510,8 @@ command payload is a Core `invalid_request` failure instead.
 | `plugin.build.invalidSelection` | Core | A build request selects a scope, target, filter, or argument the declaration does not allow, or misses a required path |
 | `plugin.build.invalidOutput` | Core | Build-tool output or a report does not fit its decoder |
 | `plugin.launch.invalidRequest` | Core | A launch plan request has an unusable directory or an unknown architecture |
+| `plugin.grammar.invalid` | Core | A language's grammar file is not a Monarch grammar Core accepts; `field` names the failing part |
+| `plugin.grammar.unavailable` | Core | The plugin declares no grammar for the language |
 | `plugin.vcs.reserved` | Core | A VCS provider claims the ID of the built-in Git support |
 | `plugin.vcs.invalidOutput` | Core | A VCS provider's reply does not fit the [VCS provider contract](https://github.com/1lck/Lithe-IDEA/blob/preview/shared/contracts/vcs-provider-v1.md) |
 | `plugin.index.invalid` | Core | Malformed index root or entry, or an invalid URL, checksum, platform, version, or date |
@@ -2790,3 +3042,104 @@ Schema 1 loads the complete node set on refresh. Forms, lazy child data sources,
 multi-instance selectors, global function commands, native renderer factories
 and Windows rendering remain follow-up work under #1209; this subset does not
 claim completion of that whole issue.
+
+### Plugin-owned native terminals (function protocol 3)
+
+[`terminal-backend.plugin.json`](fixtures/terminal-backend.plugin.json) is the
+minimal manifest. `terminal.create` grants `lithe/host/terminal/create`, `show`, `close`, `reopen`,
+`dispose`, and `onExit`. It requires `backend:2`; discover the individual
+methods through `getCapabilities` before using them. macOS implements this
+service. Windows has no handler and does not advertise its methods. The
+plugin's web page calls its backend through `functions.invoke`; the backend
+uses these host requests with the invocation's workspace context. There is
+no direct web `terminal.*` bridge and no new protocol version.
+
+| Method (prefix `lithe/host/terminal/`) | Params, in addition to `context` | Result |
+| --- | --- | --- |
+| `create` | `executable`, optional `arguments`, `title`, `cwd`, `environment`, `show`, `retainedContextBytes` | `{terminalID,generation:1}` |
+| `show` | `terminalID` | `null` |
+| `close` | `terminalID`, optional `retainedContextBytes` | `{retainedContextBytes}` after bounded native cleanup |
+| `reopen` | `terminalID`, optional `show` | `{terminalID,generation,restoredContextBytes}` |
+| `dispose` | `terminalID` | `null` after closing and forgetting the handle |
+| `onExit` | `terminalID` | `{subscriptionID}` |
+
+`executable` is an absolute path or a bare command resolved by the native
+terminal's PATH lookup; relative paths containing separators are refused.
+`arguments` is an argv array, never shell text. `cwd` is a `{rootID,path}`
+workspace directory resource (an empty path selects the folder root); without
+it, the workspace root is used. The native adapter rejects a canonical cwd
+outside that workspace. `environment` maps variable names to string overrides
+or `null` removals. Process-ownership scope variables cannot be overridden.
+`show` defaults to true; it selects the terminal in its own window without
+raising a background window. With `show:false`, creation and reopening preserve
+the current terminal selection and do not reveal the terminal panel or request
+input focus; the native tab is mounted when the plugin explicitly calls `show`.
+Unknown options fail before any side effect.
+
+Creation and reopening ask for execution consent with the program, argv and
+working directory, all available in a scrollable, selectable native text view,
+then revalidate context and cancellation before launching
+through the existing PTY terminal module. The response waits for user choice
+without a machine-operation deadline, but cancellation/session/context closure
+still ends it. Native launch and process cleanup retain their own bounds.
+The host never types a launch into an existing shell or reads other terminals.
+There is no `sendText`, user-terminal enumeration, web emulator, or Docker
+special case. First release is local authority only; a remote context fails
+with `plugin.host.authorityUnsupported` instead of starting anything locally.
+
+Each handle belongs to one plugin backend session and one context generation.
+A handle from another plugin, context or replacement backend is `notFound`.
+At most eight handles per plugin are retained, including closed handles;
+`dispose` releases one. Limits are 256 arguments, 16 KiB per argument or
+environment value, 64 environment entries, 64 KiB combined launch data, and
+128 UTF-8 bytes in a nonempty single-line title. `busy` refuses concurrent
+close/reopen/dispose on the same handle. Reopening a running terminal is
+`preconditionFailed`; showing a closed terminal asks the plugin to reopen it.
+
+#### Close, retained context and reopen
+
+`close` ends the process tree and removes the native tab, keeping the handle's
+launch configuration and a plain-text suffix of its displayed terminal output.
+`retainedContextBytes` is a nonnegative UTF-8 byte budget: default **16384**,
+maximum **262144**, and **0** disables history. It can be chosen at create or
+changed at close; over-limit values are refused, never silently expanded.
+The result reports actual retained bytes, which can be smaller to avoid cutting
+a Unicode scalar. The history is a rendering snapshot, not input events, raw
+escape sequences, a resumable process image, or shell state. Secrets already
+printed or echoed by a program can be part of that display; choose 0 when no
+history should be retained.
+
+`reopen` uses the saved executable, argv, cwd and environment in a **new** PTY
+process. It feeds retained plain text to the display before spawning, never to
+stdin. Shell variables, unsubmitted input, process state and automatic command
+replay are not restored. Natural exit and user tab close are also reopenable;
+the snapshot is bounded by the same budget. It keeps `terminalID` and increments
+`generation`; late exit callbacks of previous generations are ignored. These
+handles/history exist only in memory, not across app/backend restart or
+workspace close. No state is written to the app bundle or plugin package.
+
+Natural exit and user tab close run the same bounded native cleanup before
+retaining the budgeted snapshot and releasing the complete native session and
+render buffer. The handle is `busy` during cleanup; its exit notification is
+sent after cleanup, so a subscriber can reopen immediately. A zero-byte budget
+retains no display text on any close or exit path.
+
+`dispose` closes any live process and permanently forgets the launch settings
+and history. Ending the backend session, disabling/updating the plugin or
+closing/replacing its workspace does the same for only its owned terminals;
+user-created terminals are unaffected. Closing a page alone does not close a
+completed terminal creation. Cancellation before launch creates nothing;
+cancellation or context loss during launch closes the newly created process.
+Cancelled creation/reopen is not safe to retry automatically.
+
+`onExit` supports one live subscription per handle. Its event is
+`{type:"exit",terminalID,generation,exitCode,reason}`, with an integer or null
+exit code and `reason:"exited"|"closed"`. Each generation publishes one outcome.
+Subscribing after exit delivers its recorded outcome once; the subscription
+continues across reopen. Disposing it stops notifications and keeps the
+terminal open. A disposed terminal has no further events.
+
+The executable and argv remain plugin-owned semantics. A container plugin can
+launch the user's Docker CLI with an explicit engine and container ID; another
+tool can launch its interactive client through exactly the same service.
+Neither requires a fake Build/Run provider.

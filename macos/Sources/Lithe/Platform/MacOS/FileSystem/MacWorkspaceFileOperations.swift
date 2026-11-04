@@ -5,13 +5,16 @@ import LitheModuleAPI
 struct MacWorkspaceFileOperations: WorkspaceFileOperations {
     private let moveToTrash: @Sendable (URL) throws -> URL
 
-    init(moveToTrash: @escaping @Sendable (URL) throws -> URL = { try MacWorkspaceFileOperations.systemTrash($0) }) {
+    private let logSink: (any LogSink)?
+
+    init(logSink: (any LogSink)? = nil, moveToTrash: @escaping @Sendable (URL) throws -> URL = { try MacWorkspaceFileOperations.systemTrash($0) }) {
+        self.logSink = logSink
         self.moveToTrash = moveToTrash
     }
 
     var supportsDocumentEncoding: Bool { true }
     func observeDocuments(at urls: [URL], onChange: @escaping @Sendable ([URL]) -> Void) -> any DocumentFileObservation {
-        MacDocumentObservation(urls: urls, onChange: onChange)
+        MacDocumentObservation(urls: urls, logSink: logSink, onChange: onChange)
     }
 
     func readDocumentTextAsync(from url: URL) async throws -> String? {
@@ -110,7 +113,7 @@ struct MacWorkspaceFileOperations: WorkspaceFileOperations {
             throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
         }
         let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
-        defer { try? handle.close() }
+        defer { do { try handle.close() } catch { logSink?.emit(AppStorageMaintenanceFailed(error: error, stage: "document-close")) } }
         let info = try documentInfo(descriptor)
         if requiresSingleLink, info.st_nlink != 1 { throw DocumentFileAccessError.hardLinkMutationUnsupported }
         let bytes = try handle.read(upToCount: Self.maxDocumentBytes + 1) ?? Data()
@@ -162,7 +165,13 @@ struct MacWorkspaceFileOperations: WorkspaceFileOperations {
                 return bytes == expectedContent.map { Data($0.utf8) }
             }
             func conflict(_ bytes: Data?) -> EncodedDocumentWriteResult {
-                .conflict(content: bytes.flatMap { try? MacDocumentEncoding.decode($0, encoding: nil).text },
+                let text: String?
+                do { text = try bytes.map { try MacDocumentEncoding.decode($0, encoding: nil).text } }
+                catch {
+                    logSink?.emit(EditorDocumentOpenFailed(error: error, reason: "conflict-decode"))
+                    text = nil
+                }
+                return .conflict(content: text,
                           identity: bytes.map(MacDocumentEncoding.identity))
             }
             let current = try readSnapshot(from: url)
@@ -185,7 +194,7 @@ struct MacWorkspaceFileOperations: WorkspaceFileOperations {
             defer {
                 do { try FileManager.default.removeItem(at: temporary) }
                 catch let error as CocoaError where error.code == .fileNoSuchFile { }
-                catch { NSLog("Could not clean document staging file: %@", error.localizedDescription) }
+                catch { logSink?.emit(EditorDocumentStagingCleanupFailed(error: error)) }
             }
             if current != nil {
                 // Copy metadata before replacing content so permissions and extended attributes survive.
@@ -213,7 +222,7 @@ struct MacWorkspaceFileOperations: WorkspaceFileOperations {
         let descriptor = open(url.path, O_RDWR | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
         guard descriptor >= 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
         let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
-        defer { try? handle.close() }
+        defer { do { try handle.close() } catch { logSink?.emit(AppStorageMaintenanceFailed(error: error, stage: "document-close")) } }
         // Advisory only: unrelated external writers do not participate in this lock.
         guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
         defer { _ = flock(descriptor, LOCK_UN) }

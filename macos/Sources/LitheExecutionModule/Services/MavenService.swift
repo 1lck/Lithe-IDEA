@@ -31,6 +31,7 @@ private struct MavenProjectInventory: Equatable {
 
 @MainActor
 package final class MavenService: ObservableObject {
+    private let logSink: (any LogSink)?
     @Published package private(set) var project: MavenProject?
     @Published package private(set) var projectState: MavenProjectLoadState = .idle
     @Published package private(set) var taskState: MavenTaskState = .idle
@@ -147,6 +148,7 @@ package final class MavenService: ObservableObject {
     private let dependencyTimeoutMilliseconds = 60_000
 
     package init(
+        logSink: (any LogSink)? = nil,
         runtimeService: any MavenRuntimePort,
         process: any StreamingProcess,
         dependencyProcess: any StreamingProcess,
@@ -154,12 +156,13 @@ package final class MavenService: ObservableObject {
         configurationStore: (any MavenConfigurationStoring)? = nil,
         dependencyOutputs: (any MavenDependencyOutputStoring)? = nil
     ) {
+        self.logSink = logSink
         self.runtimeService = runtimeService
         self.process = process
         self.dependencyProcess = dependencyProcess
         self.mavenOperations = mavenOperations
         self.dependencyOutputs = dependencyOutputs
-        configurationWriter = MavenConfigurationWriter(store: configurationStore)
+        configurationWriter = MavenConfigurationWriter(store: configurationStore, logSink: logSink)
         process.onOutput = { [weak self] chunk in
             Task { @MainActor [weak self] in
                 guard self?.activeOperationID != nil else { return }
@@ -264,7 +267,7 @@ package final class MavenService: ObservableObject {
         revision: Int
     ) async {
         let rootURL = inventory.rootURL
-        let mavenOperations = mavenOperations
+        let mavenOperations = mavenOperations, logSink = logSink
         let configurationWriter = configurationWriter
         let result = await Task.detached(priority: .utility) {
             do {
@@ -286,6 +289,7 @@ package final class MavenService: ObservableObject {
                     errorMessage: nil
                 )
             } catch {
+                logSink?.emit(RunPreparationFailed(error: error))
                 return MavenProjectLoadResult(
                     project: nil,
                     reactorPath: nil,
@@ -303,13 +307,17 @@ package final class MavenService: ObservableObject {
             acceptedProjectInventory = result.project == nil ? nil : inventory
             applyStoredConfiguration(result.stored, project: result.project)
             if let context = launchContext {
-                let fingerprint = await Task.detached(priority: .utility) {
-                    try? mavenOperations.mavenLaunchPlan(
+                let fingerprint = await Task.detached(priority: .utility) { () -> String? in
+                    do { return try mavenOperations.mavenLaunchPlan(
                         at: rootURL,
                         context: context,
                         module: nil,
                         goals: [MavenLifecyclePhase.validate.rawValue]
-                    ).configurationFingerprint
+                    ).configurationFingerprint }
+                    catch {
+                        logSink?.emit(RunConfigurationOperationFailed(error: error, stage: "fingerprint"))
+                        return nil
+                    }
                 }.value
                 guard !Task.isCancelled, projectLoadID == loadID, reloadRevision == revision else { return }
                 configurationFingerprint = fingerprint
@@ -512,7 +520,7 @@ package final class MavenService: ObservableObject {
             return
         }
         activeDependencyOutputFile = outputFile
-        let operations = mavenOperations
+        let operations = mavenOperations, logSink = logSink
         Task { [weak self] in
             let result = await Task.detached(priority: .utility) {
                 do {
@@ -526,6 +534,7 @@ package final class MavenService: ObservableObject {
                         errorMessage: nil
                     )
                 } catch {
+                    logSink?.emit(RunPreparationFailed(error: error))
                     return MavenPlanResult(plan: nil, errorMessage: error.localizedDescription)
                 }
             }.value
@@ -648,7 +657,7 @@ package final class MavenService: ObservableObject {
             mavenExecutablePath: mavenExecutablePath,
             javaHomePath: javaHomePath
         )
-        let operations = mavenOperations
+        let operations = mavenOperations, logSink = logSink
         Task { [weak self] in
             let result = await Task.detached(priority: .userInitiated) {
                 do {
@@ -662,6 +671,7 @@ package final class MavenService: ObservableObject {
                         errorMessage: nil
                     )
                 } catch {
+                    logSink?.emit(RunPreparationFailed(error: error))
                     return MavenPlanResult(
                         plan: nil,
                         errorMessage: error.localizedDescription
@@ -789,7 +799,7 @@ package final class MavenService: ObservableObject {
         // The read below now owns the file, so a later cancellation or a new
         // request cannot remove it while Core is still reading it.
         activeDependencyOutputFile = nil
-        let operations = mavenOperations
+        let operations = mavenOperations, logSink = logSink
         let dependencyOutputs = dependencyOutputs
         Task { [weak self] in
             let result = await Task.detached(priority: .utility) {
@@ -803,6 +813,7 @@ package final class MavenService: ObservableObject {
                         errorMessage: nil
                     )
                 } catch {
+                    logSink?.emit(RunPreparationFailed(error: error))
                     return MavenDependencyParseResult(
                         tree: nil,
                         errorMessage: error.localizedDescription
@@ -974,15 +985,19 @@ package final class MavenService: ObservableObject {
         guard let workspaceURL, let context = launchContext else { return }
         fingerprintRevision += 1
         let revision = fingerprintRevision
-        let operations = mavenOperations
+        let operations = mavenOperations, logSink = logSink
         Task { [weak self] in
-            let fingerprint = await Task.detached(priority: .utility) {
-                try? operations.mavenLaunchPlan(
+            let fingerprint = await Task.detached(priority: .utility) { () -> String? in
+                do { return try operations.mavenLaunchPlan(
                     at: workspaceURL,
                     context: context,
                     module: nil,
                     goals: [MavenLifecyclePhase.validate.rawValue]
-                ).configurationFingerprint
+                ).configurationFingerprint }
+                    catch {
+                        logSink?.emit(RunConfigurationOperationFailed(error: error, stage: "fingerprint"))
+                        return nil
+                    }
             }.value
             guard let self, self.fingerprintRevision == revision, let fingerprint else { return }
             if establishBaseline || self.configurationFingerprint == nil {
@@ -1117,7 +1132,9 @@ private actor MavenConfigurationWriter {
     private let store: (any MavenConfigurationStoring)?
     private var latestRevision = 0
 
-    init(store: (any MavenConfigurationStoring)?) {
+    private let logSink: (any LogSink)?
+    init(store: (any MavenConfigurationStoring)?, logSink: (any LogSink)?) {
+        self.logSink = logSink
         self.store = store
     }
 
@@ -1147,6 +1164,7 @@ private actor MavenConfigurationWriter {
             )
             return nil
         } catch {
+            logSink?.emit(RunConfigurationWriteFailed(error: error))
             return error.localizedDescription
         }
     }

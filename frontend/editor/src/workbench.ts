@@ -15,6 +15,7 @@ import "monaco-editor/esm/vs/editor/editor.all.js";
 import { language as javaLanguage } from "monaco-editor/esm/vs/basic-languages/java/java.js";
 import { ensureMonacoLanguageTokenizer } from "./language-contributions";
 import { toMonacoLanguageId } from "./language";
+import { basicLanguageForFilename } from "./basic-file-associations";
 import { SourceText } from "./source-text";
 import { toMonacoModelValue } from "./line-endings";
 import { acquireMonacoModel } from "./model-lifecycle";
@@ -27,6 +28,9 @@ import { isMacintosh } from "monaco-editor/esm/vs/base/common/platform.js";
 import { IContextMenuService } from "monaco-editor/esm/vs/platform/contextview/browser/contextView.js";
 import { Action, Separator, type IAction } from "monaco-editor/esm/vs/base/common/actions.js";
 import { normalizeRunMarkers, runMarkerForLine, runMarkerIcon, type RunMarker, type RunMarkerIcon } from "./run-markers";
+import { attachPluginEditorActions } from "./plugin-editor-actions";
+import { installPluginGrammar, inheritPluginTokenizer } from "./plugin-grammar-tokenizer";
+import { setPluginLanguages, hasPluginLanguage, pluginLanguageForFilename, type PluginLanguage } from "./plugin-languages";
 
 const escapeHTML = (value: string) => value.replace(/[&<>"']/g, character =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
@@ -48,14 +52,21 @@ export interface WorkbenchHost {
   javaRunIconsDark?: Partial<Record<RunMarkerIcon, string>>;
   /** Native IDEA order: line numbers, then action decorations. */
   lineNumbersFirst?: boolean;
+  reportIndentation?: boolean;
   /** Opt in only when the host handles setBlameVisibility for repository files. */
   gitBlameMenu?: boolean;
   foldingIcons?: Record<"expanded" | "collapsed", { light: string; dark: string }>;
   keybindings?: { command: string; label: string; keybinding: number }[];
 }
 
+const editorLanguageID = (id: string | undefined) => id && hasPluginLanguage(id) ? id : toMonacoLanguageId(id);
+
 function languageForFilename(filename: string | undefined): string {
   if (!filename) return "plaintext";
+  const plugin = pluginLanguageForFilename(filename);
+  if (plugin) return plugin;
+  const basic = basicLanguageForFilename(filename);
+  if (basic) return basic;
   const name = filename.toLowerCase();
   const registered = monaco.languages.getLanguages();
   const exact = registered.find(language => language.filenames?.some(file => file.toLowerCase() === name));
@@ -213,10 +224,17 @@ export function mountWorkbench(host: WorkbenchHost) {
     Object.assign(state, { markers, version, revision });
     for (const view of allEditors()) navigationContexts.get(view)?.();
   }
+  const pluginActions = attachPluginEditorActions({
+    entries: () => entries, editors: allEditors, request: languageRequest,
+    current: (id, entry) => documentCheckpoint(id, entry),
+    lineNumbersFirst: host.lineNumbersFirst === true,
+  });
   // Java Run markers: the host answers which `main` methods and tests exist and
   // their last outcomes; the editor only draws them and routes actions back.
   type RunMarkerState = { generation: number; version: number; revision: number; markers: RunMarker[];
     canDebug: boolean; decorations: string[]; timer?: ReturnType<typeof setTimeout> };
+  let previousPluginLanguageIDs = new Set<string>();
+  let pluginLanguageUpdates: Promise<unknown> = Promise.resolve();
   const runMarkerStates = new WeakMap<Entry, RunMarkerState>();
   const runMarkerContexts = new WeakMap<monaco.editor.IStandaloneCodeEditor, () => void>();
   async function refreshRunMarkers(id: string, entry: Entry) {
@@ -260,6 +278,7 @@ export function mountWorkbench(host: WorkbenchHost) {
     state.timer = setTimeout(() => { void refreshRunMarkers(id, entry).catch(console.error); }, 180);
   }
   function scheduleNavigation(id: string, entry: Entry) {
+    pluginActions.schedule(id, entry);
     scheduleRunMarkers(id, entry);
     if (entry.model.getLanguageId() !== "java" && !navigationStates.has(entry)) return;
     const state = navigationStates.get(entry);
@@ -321,11 +340,21 @@ export function mountWorkbench(host: WorkbenchHost) {
     fail(event.reason);
   });
 
+  // Reuse Monaco's detection; never rewrite text or reset the model/undo stack.
+  function applyIndentation(model: monaco.editor.ITextModel) {
+    const size = displayOptions.tabSize;
+    if (typeof size !== "number" || !Number.isInteger(size) || size < 1 || size > 16) return;
+    const spaces = displayOptions.insertSpaces !== false;
+    if (displayOptions.detectIndentation !== false) model.detectIndentation(spaces, size);
+    else model.updateOptions({ tabSize: size, insertSpaces: spaces });
+    model.updateOptions({ indentSize: "tabSize" });
+  }
+
   async function prepareEntry(payload: any): Promise<Entry> {
     let entry = entries.get(payload.id);
     const languageID = payload.language || (entry && (payload.filename === undefined || payload.filename === entry.filename)
       ? entry.languageID : languageForFilename(payload.filename));
-    const language = toMonacoLanguageId(languageID);
+    const language = editorLanguageID(languageID);
     if (!entry) {
       if (typeof payload.text !== "string") throw new Error("New model requires document text");
       await ensureMonacoLanguageTokenizer(language);
@@ -336,10 +365,19 @@ export function mountWorkbench(host: WorkbenchHost) {
     if (!entry) {
       const acquired = acquireMonacoModel(payload.text, language, monaco.Uri.parse(`lithe://document/${payload.id}`));
       const model = acquired.model;
+      applyIndentation(model);
       // Monaco owns normalized editing coordinates; the source mirror preserves disk newlines.
       model.setEOL(monaco.editor.EndOfLineSequence.LF);
       entry = { languageID, source: new SourceText(payload.text, model.getAlternativeVersionId()), model, release: acquired.release, revision: payload.revision, chain: Promise.resolve(), readonly: payload.readonly, frozen: false, pendingEdits: 0, state: null, filename: payload.filename, locationRevision: payload.locationRevision ?? 0, contextGeneration: 0 };
       entries.set(payload.id, entry);
+      const reportIndentation = () => {
+        const { tabSize, insertSpaces } = model.getOptions();
+        void send({ type: "indentation", id: payload.id, tabSize, insertSpaces }).catch(fail);
+      };
+      if (host.reportIndentation) {
+        model.onDidChangeOptions(reportIndentation);
+        reportIndentation();
+      }
       const owned = entry;
       model.onDidChangeContent(event => {
         scheduleNavigation(payload.id, owned);
@@ -929,6 +967,7 @@ export function mountWorkbench(host: WorkbenchHost) {
     view.onDidChangeModelLanguage(() => syncDefinitionNavigation(view));
     view.onDidDispose(() => { definitionNavigation.get(view)?.lifetime.dispose(); definitionNavigation.delete(view); });
     attachRunInteractions(view);
+    pluginActions.attach(view);
     debugRunContexts.set(view, view.createContextKey("litheCanRunToCursor", false));
     function request(type: "toggleBreakpoint" | "editBreakpoint" | "runToCursor", line: number, column = 1) {
       const model = view.getModel();
@@ -1031,6 +1070,49 @@ export function mountWorkbench(host: WorkbenchHost) {
         editor.setScrollTop(Math.min(1, Math.max(0, payload.ratio!)) * extent, monaco.editor.ScrollType.Immediate);
         lastMarkdownRatio = Math.min(1, Math.max(0, payload.ratio!));
       } finally { applyingMarkdownScroll = false; }
+    },
+    /**
+     * Replaces independent file types, configurations and tokenizers.
+     */
+    setPluginLanguages(payload: { languages?: PluginLanguage[] }) {
+      pluginLanguageUpdates = pluginLanguageUpdates.then(async () => {
+        await activation;
+        const languages = Array.isArray(payload?.languages) ? payload.languages : [];
+        // Built-in tokenizer setup also writes configuration. Complete it before
+        // applying a configuration-only contribution, never after the override.
+        await Promise.all(languages.filter(language => !language.grammar)
+          .map(language => ensureMonacoLanguageTokenizer(toMonacoLanguageId(language.id))));
+        const result = setPluginLanguages(monaco.languages, languages, installPluginGrammar, inheritPluginTokenizer);
+        // A plugin installed while its files are open: they take its language
+        // now, and leave it when the plugin goes.
+        const pluginIDs = new Set([...previousPluginLanguageIDs, ...languages.map(language => editorLanguageID(language?.id))]);
+        previousPluginLanguageIDs = new Set(languages.map(language => editorLanguageID(language?.id)));
+        for (const [id, entry] of entries) {
+          if (entry.filename === undefined || entry.model.isDisposed()) continue;
+          const languageID = languageForFilename(entry.filename), language = editorLanguageID(languageID);
+          if (!(pluginIDs.has(language) || pluginIDs.has(entry.model.getLanguageId()))) continue;
+          // A same-ID grammar can disappear before its builtin ever loaded.
+          // Restore the provider even when no model language transition is needed.
+          await ensureMonacoLanguageTokenizer(language);
+          if (entries.get(id) !== entry || entry.model.isDisposed()) continue;
+          if (language === entry.model.getLanguageId() && languageID === entry.languageID) continue;
+          entry.contextGeneration++;
+          entry.languageID = languageID;
+          monaco.editor.setModelLanguage(entry.model, language);
+          for (const view of allEditors()) {
+            if (view.getModel() === entry.model) syncDefinitionNavigation(view);
+          }
+        }
+        void pluginActions.refresh().catch(console.error);
+        return result;
+      });
+      return pluginLanguageUpdates;
+    },
+    async refreshPluginEditorActions() {
+      await activation;
+      // Acknowledge scheduling, not plugin completion: optional collectors
+      // must never hold the native save/edit bridge until its fatal deadline.
+      void pluginActions.refresh().catch(console.error);
     },
     async refreshJavaRunMarkers() {
       await activation;
@@ -1279,12 +1361,19 @@ export function mountWorkbench(host: WorkbenchHost) {
       } finally { updating = false; }
     },
     configure(payload: any) {
-      const theme = payload.theme as WorkbenchThemeInput | undefined;
+      const theme = payload.theme ? { ...payload.theme } as WorkbenchThemeInput : undefined;
+      // Native settings validate and bound this canonical JSON before it crosses the bridge.
+      if (theme && payload.appearance?.customTheme) {
+        try { theme.custom = JSON.parse(payload.appearance.customTheme); } catch { /* Keep the existing native palette. */ }
+      }
       const name = theme ? defineWorkbenchTheme(theme, host.palette)
         : payload.dark ? "lithe-dark" : "lithe-light";
       javaKeywordNavigationFilter = payload.javaKeywordNavigationFilter !== false;
+      const indentationChanged = ["tabSize", "insertSpaces", "detectIndentation"].some(key =>
+        payload.appearance?.[key] !== undefined && payload.appearance[key] !== displayOptions[key]);
       Object.assign(displayOptions, {
         ...payload.appearance,
+        ...(theme?.syntaxScheme ? { bracketPairColorization: { enabled: theme.syntaxScheme !== "idea" } } : {}),
         // Standalone updateOptions and newly created split editors both apply
         // this construction theme globally, so it must track the host theme.
         theme: name,
@@ -1299,6 +1388,7 @@ export function mountWorkbench(host: WorkbenchHost) {
         navigationContexts.get(view)?.();
         gitContextUpdates.get(view)?.();
       }
+      if (indentationChanged) for (const entry of entries.values()) applyIndentation(entry.model);
       monaco.editor.setTheme(name);
     },
     async debugState(id: string, state: { breakpoints: { line: number; enabled: boolean; verified: boolean; logpoint: boolean; conditional?: boolean; message?: string }[]; muted: boolean; canToggleBreakpoints?: boolean; sessionActive?: boolean; paused?: boolean; canRunToCursor?: boolean; executionLine?: number; revision?: number; variables?: { name: string; value: string }[] }) {
@@ -1526,14 +1616,14 @@ export function mountWorkbench(host: WorkbenchHost) {
       .monaco-editor .lithe-java-navigation-down:after,.monaco-editor .lithe-java-navigation-both:after{content:'↓'}
       .monaco-editor .lithe-java-navigation-both:before,.monaco-editor .lithe-java-navigation-both:after{width:50%;max-width:12px}
       ${navigationIconStyles}
-      .monaco-editor .lithe-java-run{cursor:pointer;background-size:14px 14px;background-repeat:no-repeat;background-position:center;opacity:.9}
+      .monaco-editor .lithe-java-run,.monaco-editor .lithe-plugin-editor-action{cursor:pointer;background-size:14px 14px;background-repeat:no-repeat;background-position:center;opacity:.9}
       .monaco-editor .lithe-java-run:hover{opacity:1}
       ${runIconStyles}
       ${darkRunIconStyles}
       ${host.lineNumbersFirst ? `
       .monaco-editor.lithe-line-numbers-first .line-numbers.lithe-breakpoint{font-size:0;color:var(--vscode-debugIcon-breakpointForeground,#e51400)}
       .monaco-editor.lithe-line-numbers-first .line-numbers.lithe-breakpoint:before{font-size:16px}
-      .monaco-editor.lithe-line-numbers-first .cldr.lithe-java-run{width:${nativeGutter.icon}px!important;margin-left:${nativeGutter.gap}px;opacity:1}
+      .monaco-editor.lithe-line-numbers-first .cldr.lithe-java-run,.monaco-editor.lithe-line-numbers-first .cldr.lithe-plugin-editor-action{width:${nativeGutter.icon}px!important;margin-left:${nativeGutter.gap}px;opacity:1}
       .monaco-editor.lithe-line-numbers-first .lithe-java-run-run,.monaco-editor.lithe-line-numbers-first .lithe-java-run-run-all{background-size:16px 16px}
       .monaco-editor.lithe-line-numbers-first .lithe-java-run-passed,.monaco-editor.lithe-line-numbers-first .lithe-java-run-failed{background-size:14px 14px}
       .monaco-editor.lithe-line-numbers-first .cldr.lithe-java-navigation{width:${nativeGutter.icon}px!important;margin-left:${nativeGutter.gap + nativeGutter.icon}px}
@@ -1827,7 +1917,7 @@ export function mountWorkbench(host: WorkbenchHost) {
       debugStyle.remove();
       for (const cancel of openingMeasurements) cancel();
       ++nativeFindGeneration; dismissNativeFind();
-      review?.dispose(); semanticChanges.dispose(); for (const view of allEditors()) view.dispose(); surfaces.clear(); entries.forEach(entry => entry.release()); textmate?.dispose(); workers.forEach(worker => worker.terminate()); URL.revokeObjectURL(url);
+      pluginActions.dispose(); setPluginLanguages(monaco.languages, [], installPluginGrammar); review?.dispose(); semanticChanges.dispose(); for (const view of allEditors()) view.dispose(); surfaces.clear(); entries.forEach(entry => entry.release()); textmate?.dispose(); workers.forEach(worker => worker.terminate()); URL.revokeObjectURL(url);
     });
     await send({ type: "ready" });
   }

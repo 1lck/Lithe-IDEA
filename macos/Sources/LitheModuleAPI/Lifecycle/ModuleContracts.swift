@@ -133,6 +133,7 @@ public final class ModuleLease {
 
 @MainActor
 public struct ModuleContext {
+    public let logSink: (any LogSink)?
     public let moduleID: ModuleID
     public let workspaceURL: URL?
     public let capabilities: any ModuleCapabilityResolver
@@ -148,8 +149,10 @@ public struct ModuleContext {
         events: any ModuleEventPublishing,
         resources: any ModuleResourceManaging,
         leases: any ModuleLeaseManaging
-        , contributions: any ModuleContributionPublishing
+        , contributions: any ModuleContributionPublishing,
+        logSink: (any LogSink)? = nil
     ) {
+        self.logSink = logSink
         self.moduleID = moduleID
         self.workspaceURL = workspaceURL
         self.capabilities = capabilities

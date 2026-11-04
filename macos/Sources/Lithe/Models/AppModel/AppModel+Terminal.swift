@@ -39,9 +39,9 @@ extension AppModel {
         sessions(orderedBy: terminalPlacementFeature.editorSessionIDs)
     }
     var activeToolTerminalSession: TerminalSession? {
+        guard let activeTerminalSessionID else { return nil }
         let toolSessions = toolTerminalSessions
-        if let activeTerminalSessionID,
-           let activeSession = toolSessions.first(where: { $0.id == activeTerminalSessionID }) {
+        if let activeSession = toolSessions.first(where: { $0.id == activeTerminalSessionID }) {
             return activeSession
         }
         return toolSessions.first
@@ -222,7 +222,7 @@ extension AppModel {
     @discardableResult
     func sendDebugStandardInput(_ input: String) -> Bool {
         guard !input.isEmpty, let terminalFeature, let sessionID = debugStandardInputSessionID else {
-            showNotification("No running debug process accepts standard input")
+            showNotification("No running debug process accepts standard input", logReference: notificationRejection(operation: "terminal", reason: "unavailable_0"))
             return false
         }
         let payload = input.hasSuffix("\n") ? input : input + "\n"
@@ -279,10 +279,26 @@ extension AppModel {
         editorTabOrderFeature.repositoryDiffSelected = false
         terminalPlacementFeature.moveToEditor(sessionID)
         editorTabOrderFeature.moveToEnd(.terminal(sessionID))
+        editorTabOrderFeature.focus(.terminal(sessionID))
         terminalPlacementFeature.reorderEditorSessions(
             orderedIDs: editorTabOrderFeature.terminalIDs
         )
         _ = terminalFeature?.selectSession(session)
+    }
+
+    /// Moves a terminal into an editor group. It joins the tab order first so an edge drop commits the split.
+    /// A nil group targets the focused editor group.
+    @discardableResult
+    func moveTerminalToEditor(_ sessionID: UUID, into group: UUID?, side: EditorGroupDropSide) -> Bool {
+        guard terminalSessions.contains(where: { $0.id == sessionID }) else { return false }
+        let item = EditorTabItem.terminal(sessionID)
+        if editorTabOrderFeature.contains(item) {
+            guard let group, editorTabOrderFeature.drop(item, into: group, side: side) else { return false }
+        } else {
+            guard editorTabOrderFeature.insert(item, into: group, side: side) else { return false }
+        }
+        selectEditorTab(item)
+        return true
     }
 
     func moveTerminalToEditor(_ sessionID: UUID, before targetSessionID: UUID) {
@@ -366,7 +382,7 @@ extension AppModel {
         }
     }
 
-    private func closeTerminalSession(_ session: TerminalSession) {
+    func closeTerminalSession(_ session: TerminalSession) {
         guard terminalSessions.contains(where: { $0.id == session.id }) else { return }
         debugTerminalSessionIDs.remove(session.id)
         for debugSessionID in debugTerminalSessionIDsByDebugSession.keys {
@@ -388,7 +404,7 @@ extension AppModel {
             workbenchFeature.setVisibility(.terminal, isVisible: false)
         }
         if terminalSessions.isEmpty {
-            try? services.moduleRuntime.markIdle(.terminal)
+            do { try services.moduleRuntime.markIdle(.terminal) } catch { services.logSink?.emit(AppModuleTransitionFailed(error: error, module: "terminal", stage: "idle")) }
         }
     }
 

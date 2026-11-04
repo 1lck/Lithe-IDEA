@@ -25,6 +25,11 @@ final class CommitFileDeletionFeatureModel: ObservableObject {
     private let hasUnsavedEdits: @MainActor (URL) -> Bool
     private let closeCleanDocuments: @MainActor (URL) -> Void
     private let notify: @MainActor (String) -> Void
+    var notifyFailure: ((String, Error) -> Void)?
+    private func reportFailure(_ error: Error) {
+        guard !error.isCancellation else { return }
+        if let notifyFailure { notifyFailure(error.localizedDescription, error) } else { notify(error.localizedDescription) }
+    }
     private let synchronizeEditors: @MainActor ([URL]) async throws -> Void
 
     init(files: any WorkspaceFileOperations,
@@ -82,7 +87,7 @@ final class CommitFileDeletionFeatureModel: ObservableObject {
     private func perform(_ request: Request) async {
         defer { isDeleting = false; deletionTask = nil }
         do { try await synchronizeEditors(request.urls) }
-        catch { if request.isCurrent() { notify(error.localizedDescription) }; return }
+        catch { if request.isCurrent() { reportFailure(error) }; return }
         guard request.isCurrent(), request.isEligible(), !Task.isCancelled,
               request.urls.allSatisfy({ contains($0, in: request.root) && files.fileExists(at: $0) }) else { return }
         guard !request.urls.contains(where: hasUnsavedEdits) else { reportUnsaved(); return }
@@ -103,7 +108,7 @@ final class CommitFileDeletionFeatureModel: ObservableObject {
             }
             return true
         } catch {
-            notify(error.localizedDescription)
+            reportFailure(error)
             return false
         }
     }

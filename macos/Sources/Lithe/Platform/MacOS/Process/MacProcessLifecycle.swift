@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Darwin
 import Foundation
 
@@ -17,6 +18,8 @@ final class MacProcessInstance: @unchecked Sendable {
     private let lock = NSLock()
     private var record: MacProcessInstanceRecord
     private var retentionTracker: MacRetainedProcessTracker?
+    private var logSink: (any LogSink)?
+    private var pendingLogs: [any LogEvent] = []
     private var approvedTermination: Set<MacProcessIdentity> = []
 
     init(scope: MacProcessScope, store: MacProcessInstanceRecordStore, record: MacProcessInstanceRecord) {
@@ -24,9 +27,9 @@ final class MacProcessInstance: @unchecked Sendable {
         self.store = store
         self.applicationSessionID = record.applicationSessionID
         self.record = record
-        retentionTracker = MacRetainedProcessTracker { [weak self] identities in
+        retentionTracker = MacRetainedProcessTracker(report: { [weak self] in self?.report($0) }, discovered: { [weak self] identities in
             self?.persistRetained(identities)
-        }
+        })
         retentionTracker?.refresh(adding: record.retained)
     }
 
@@ -50,6 +53,23 @@ final class MacProcessInstance: @unchecked Sendable {
             instance.mutate { $0.supervisor = supervisor }
         }
         return instance
+    }
+
+    /// The process lifecycle starts before logging. Keep at most eight typed startup failures.
+    func attach(logSink: any LogSink) {
+        lock.withLock {
+            self.logSink = logSink
+            pendingLogs.forEach { logSink.emit($0) }
+            pendingLogs.removeAll()
+        }
+    }
+    func report(_ event: any LogEvent) { lock.withLock { reportLocked(event) } }
+    private func reportLocked(_ event: any LogEvent) {
+        if let logSink { logSink.emit(event) }
+        else {
+            if pendingLogs.count == 8 { pendingLogs.removeFirst() }
+            pendingLogs.append(event)
+        }
     }
 
     var supervisor: MacProcessIdentity? { lock.withLock { record.supervisor } }
@@ -130,7 +150,7 @@ final class MacProcessInstance: @unchecked Sendable {
         do {
             try store.save(record)
         } catch {
-            FileHandle.standardError.write(Data("Could not save the process lifecycle record: \(error)\n".utf8))
+            reportLocked(AppProcessJournalFailed(error: error, stage: "save"))
         }
     }
 }
@@ -165,12 +185,16 @@ enum MacProcessSupervisor {
     }
 
     /// Supervisor entry point; never returns.
-    static func run(arguments: [String]) -> Never {
+    static func run(arguments: [String], logStore: MacLogStore) -> Never {
         guard arguments.count >= 2, let applicationProcessID = pid_t(arguments[1]) else { exit(EX_USAGE) }
         let scope = arguments[0]
         signal(SIGHUP, SIG_IGN)
         waitForExit(of: applicationProcessID)
-        recover(scope: scope, store: MacProcessInstanceRecordStore(), settings: storedSettings())
+        let writer = logStore
+        recover(scope: scope, store: MacProcessInstanceRecordStore(), settings: storedSettings(), logSink: writer)
+        let finished = DispatchSemaphore(value: 0)
+        Task { await writer.finishSession(); finished.signal() }
+        _ = finished.wait(timeout: .now() + 10)
         exit(EXIT_SUCCESS)
     }
 
@@ -199,16 +223,18 @@ enum MacProcessSupervisor {
         scope: String,
         store: MacProcessInstanceRecordStore,
         settings: ProcessTerminationSettings,
-        reader: MacProcessInventoryReader = MacProcessInventoryReader()
+        reader: MacProcessInventoryReader = MacProcessInventoryReader(),
+        logSink: (any LogSink)? = nil
     ) {
         guard var record = store.load(scope: scope) else { return }
         guard !record.completedShutdown else {
-            store.remove(scope: scope)
+            store.remove(scope: scope, logSink: logSink)
             return
         }
         if record.awaitingStartupConfirmation == true {
             record.supervisor = nil
-            try? store.save(record)
+            do { try store.save(record) }
+            catch { logSink?.emit(AppProcessJournalFailed(error: error, stage: "supervisor-save")) }
             return
         }
         let snapshot = MacProcessTable.snapshot()
@@ -227,7 +253,8 @@ enum MacProcessSupervisor {
         ), let plan = inventory.plan else {
             record.supervisor = nil
             record.recoveredAfterCrash = true
-            try? store.save(record)
+            do { try store.save(record) }
+            catch { logSink?.emit(AppProcessJournalFailed(error: error, stage: "supervisor-save")) }
             return
         }
         let gracePeriod = TimeInterval(plan.gracefulStopMilliseconds) / 1_000
@@ -243,12 +270,13 @@ enum MacProcessSupervisor {
             }
         }
         guard leftForStartup else {
-            store.remove(scope: scope)
+            store.remove(scope: scope, logSink: logSink)
             return
         }
         record.supervisor = nil
         record.recoveredAfterCrash = true
-        try? store.save(record)
+        do { try store.save(record) }
+            catch { logSink?.emit(AppProcessJournalFailed(error: error, stage: "supervisor-save")) }
     }
 
     static func storedSettings(defaults: UserDefaults = .standard) -> ProcessTerminationSettings {
@@ -275,7 +303,8 @@ struct MacStartupProcessSweep: Sendable {
         currentScope: String,
         excluding excluded: Set<pid_t>,
         settings: ProcessTerminationSettings,
-        reader: MacProcessInventoryReader = MacProcessInventoryReader()
+        reader: MacProcessInventoryReader = MacProcessInventoryReader(),
+        logSink: (any LogSink)? = nil
     ) -> [Leftovers] {
         var leftovers: [Leftovers] = []
         let snapshot = MacProcessTable.snapshot()
@@ -288,7 +317,7 @@ struct MacStartupProcessSweep: Sendable {
                 do {
                     try store.save(record)
                 } catch {
-                    FileHandle.standardError.write(Data("Could not save retained startup descendants: \(error)\n".utf8))
+                    logSink?.emit(AppProcessJournalFailed(error: error, stage: "startup_descendants"))
                 }
             }
             guard let inventory = try? reader.inventory(
@@ -302,7 +331,7 @@ struct MacStartupProcessSweep: Sendable {
                 snapshot: snapshot
             ) else { continue }
             if inventory.items.isEmpty {
-                store.remove(scope: record.scope)
+                store.remove(scope: record.scope, logSink: logSink)
             } else {
                 leftovers.append(Leftovers(scope: record.scope, inventory: inventory))
             }

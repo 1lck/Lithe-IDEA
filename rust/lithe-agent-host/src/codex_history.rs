@@ -17,10 +17,6 @@ const PAGE_SIZE: u32 = 50;
 /// Source kinds codex-acp lists, so archived and active history share a scope.
 const SOURCE_KINDS: [&str; 5] = ["cli", "vscode", "exec", "appServer", "unknown"];
 
-/// Provider ids codex-acp records threads under for each authentication mode.
-const SUBSCRIPTION_PROVIDER: &str = "openai";
-const GATEWAY_PROVIDER: &str = "custom-gateway";
-
 /// Threads for the workspace. `complete` is false when the page bound
 /// stopped the listing, allowing the archived-history UI to disclose truncation.
 #[derive(Debug, PartialEq, Eq)]
@@ -34,7 +30,6 @@ pub(crate) struct ListedSessions {
 pub(crate) struct CodexHistory {
     executable: PathBuf,
     cwd: PathBuf,
-    model_provider: &'static str,
     /// Account directory, so archived history belongs to the selected account.
     codex_home: Option<PathBuf>,
 }
@@ -53,7 +48,6 @@ impl CodexHistory {
         let probe = Self {
             executable,
             cwd: cwd.clone(),
-            model_provider: SUBSCRIPTION_PROVIDER,
             codex_home,
         };
         probe
@@ -98,7 +92,6 @@ impl CodexHistory {
         let probe = Self {
             executable,
             cwd: cwd.clone(),
-            model_provider: SUBSCRIPTION_PROVIDER,
             codex_home,
         };
         probe
@@ -120,21 +113,17 @@ impl CodexHistory {
 
     /// Only Codex connections have archived history; other Agents return None.
     pub(crate) fn for_launch(launch: &ResolvedLaunch) -> Option<Self> {
-        let (executable, model_provider) = match &launch.subscription_cli {
-            Some(executable) => (executable.clone(), SUBSCRIPTION_PROVIDER),
-            None => {
-                let executable = launch
-                    .env
-                    .iter()
-                    .find(|(name, _)| name == "CODEX_PATH")
-                    .map(|(_, value)| PathBuf::from(value))?;
-                (executable, GATEWAY_PROVIDER)
-            }
+        let executable = match &launch.subscription_cli {
+            Some(executable) => executable.clone(),
+            None => launch
+                .env
+                .iter()
+                .find(|(name, _)| name == "CODEX_PATH")
+                .map(|(_, value)| PathBuf::from(value))?,
         };
         Some(Self {
             executable,
             cwd: launch.cwd.clone(),
-            model_provider,
             codex_home: launch.codex_home.clone(),
         })
     }
@@ -172,12 +161,10 @@ impl CodexHistory {
         mut on_page: impl FnMut(&[HistoryThread]),
     ) -> Result<ListedSessions, String> {
         let workspace_path = normalize_path(&self.cwd.to_string_lossy());
-        let provider = self.model_provider;
         self.exchange(|mut input, mut output| async move {
             list_pages(
                 &mut input,
                 &mut output,
-                provider,
                 &workspace_path,
                 archived,
                 &mut on_page,
@@ -314,6 +301,7 @@ struct HistoryThread {
     id: String,
     title: Option<String>,
     updated_at: Option<String>,
+    model_provider: Option<String>,
 }
 
 impl HistoryThread {
@@ -326,6 +314,7 @@ impl HistoryThread {
                 .as_deref()
                 .and_then(|title| workspace.present_title(title)),
             updated_at: self.updated_at.clone(),
+            model_provider: self.model_provider.clone(),
         }
     }
 }
@@ -336,7 +325,6 @@ impl HistoryThread {
 async fn list_pages(
     input: &mut (impl AsyncWrite + Unpin),
     output: &mut (impl AsyncBufRead + Unpin),
-    model_provider: &str,
     workspace: &str,
     archived: bool,
     on_page: &mut impl FnMut(&[HistoryThread]),
@@ -358,7 +346,10 @@ async fn list_pages(
                 "cursor": cursor,
                 // Bounded pages keep each reply under the probe's size limit.
                 "limit": PAGE_SIZE,
-                "modelProviders": [model_provider],
+                // Billing routes can change without changing this account's
+                // history. The official API's empty filter includes native,
+                // gateway and previous providers without guessing their ids.
+                "modelProviders": [],
                 "sourceKinds": SOURCE_KINDS,
             }),
         )
@@ -409,6 +400,11 @@ fn parse_page(
                 // Resume/settings can touch updatedAt without a new conversation turn.
                 // Missing activity is unknown; never substitute metadata time or the local clock.
                 updated_at: thread["recencyAt"].as_i64().and_then(iso8601),
+                model_provider: thread["modelProvider"]
+                    .as_str()
+                    .map(str::trim)
+                    .filter(|provider| !provider.is_empty())
+                    .map(str::to_owned),
             })
         })
         .collect();

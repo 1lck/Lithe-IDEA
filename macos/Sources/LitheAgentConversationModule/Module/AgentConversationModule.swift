@@ -36,7 +36,7 @@ public final class AgentConversationModule: LitheModule {
 
     public func activate(context: ModuleContext) async throws {
         guard capability == nil else { return }
-        let feature = AgentConversationFeatureModel(transport: transportFactory(), workspaceURL: context.workspaceURL,
+        let feature = AgentConversationFeatureModel(logSink: context.logSink, transport: transportFactory(), workspaceURL: context.workspaceURL,
                                                    historyPersistence: historyPersistence, historyExporter: historyExporter,
                                                    statisticsPersistence: statisticsPersistence)
         context.resources.register(AgentConnectionResource(feature: feature))

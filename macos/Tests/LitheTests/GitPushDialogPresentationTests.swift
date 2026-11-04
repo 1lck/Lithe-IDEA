@@ -169,21 +169,28 @@ struct GitPushDialogModelTests {
         #expect(!model.canPush)
     }
 
-    @Test
-    func selectingACommitLoadsItsChangedFiles() async {
+    @Test(arguments: [false, true])
+    func selectingACommitLoadsItsChangedFiles(waitForInitialFiles: Bool) async throws {
+        let initialFiles = [GitCommitFile(status: "A", path: "Sources/Initial.swift")]
         let files = [GitCommitFile(status: "M", path: "Sources/App.swift")]
         let script = PushDialogScript(
             previews: [.success(pushPreview(branch: "topic", commits: [commit("c1"), commit("c2")]))],
-            files: files
+            filesByCommit: ["c1": initialFiles, "c2": files]
         )
         let model = GitPushDialogModel(actions: actions(script))
+        defer { model.selectCommit(nil) }
         await model.load()
+        if waitForInitialFiles {
+            try #require(await awaitChange(on: model) { model.files == .loaded(initialFiles) })
+        }
 
         model.selectCommit(commit("c2"))
 
         #expect(model.selectedCommit?.hash == "c2")
+        // Cancellation does not order callbacks: c1 may be requested after c2.
+        // Distinct results verify the selected commit without assuming request order.
         #expect(await awaitChange(on: model) { model.files == .loaded(files) })
-        #expect(script.filesRequests.last == "c2")
+        #expect(script.filesRequests.contains("c2"))
     }
 }
 
@@ -194,16 +201,16 @@ private final class PushDialogScript: @unchecked Sendable {
     private var recordedTargets: [GitPushTargetChoice?] = []
     private var recordedPushes: [(preview: GitPushPreview, target: GitPushTargetChoice?)] = []
     private var recordedFiles: [String] = []
-    private let files: [GitCommitFile]?
+    private let filesByCommit: [String: [GitCommitFile]]
 
     init(
         previews: [Result<GitPushPreview, GitPushFailure>],
         pushResults: [GitPushFailure?] = [],
-        files: [GitCommitFile]? = nil
+        filesByCommit: [String: [GitCommitFile]] = [:]
     ) {
         self.previews = previews
         self.pushResults = pushResults
-        self.files = files
+        self.filesByCommit = filesByCommit
     }
 
     func nextPreview(_ target: GitPushTargetChoice?) -> Result<GitPushPreview, GitPushFailure> {
@@ -222,7 +229,7 @@ private final class PushDialogScript: @unchecked Sendable {
     func nextFiles(_ commit: GitCommit) -> [GitCommitFile]? {
         lock.lock(); defer { lock.unlock() }
         recordedFiles.append(commit.hash)
-        return files
+        return filesByCommit[commit.hash]
     }
 
     var previewTargets: [GitPushTargetChoice?] { lock.lock(); defer { lock.unlock() }; return recordedTargets }

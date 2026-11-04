@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Darwin
 import Foundation
 
@@ -17,9 +18,11 @@ final class MacRetainedProcessTracker: @unchecked Sendable {
     private var registered: Set<MacProcessIdentity> = []
     private let descriptor: Int32
     private let source: DispatchSourceRead?
+    private let report: @Sendable (any LogEvent) -> Void
     private let discovered: @Sendable ([MacProcessIdentity]) -> Void
 
-    init(discovered: @escaping @Sendable ([MacProcessIdentity]) -> Void) {
+    init(report: @escaping @Sendable (any LogEvent) -> Void = { _ in }, discovered: @escaping @Sendable ([MacProcessIdentity]) -> Void) {
+        self.report = report
         self.discovered = discovered
         descriptor = kqueue()
         if descriptor >= 0 {
@@ -34,7 +37,7 @@ final class MacRetainedProcessTracker: @unchecked Sendable {
             source.resume()
         } else {
             source = nil
-            FileHandle.standardError.write(Data("Could not watch retained processes: \(errno)\n".utf8))
+            report(AppProcessWatchFailed(error: NSError(domain: NSPOSIXErrorDomain, code: Int(errno)), stage: "create"))
         }
     }
 
@@ -70,7 +73,7 @@ final class MacRetainedProcessTracker: @unchecked Sendable {
             if kevent(descriptor, &change, 1, nil, 0, nil) == 0 {
                 registered.insert(identity)
             } else if errno != ESRCH {
-                FileHandle.standardError.write(Data("Could not watch retained PID \(identity.processID): \(errno)\n".utf8))
+                report(AppProcessWatchFailed(error: NSError(domain: NSPOSIXErrorDomain, code: Int(errno)), pid: Int64(identity.processID), stage: "register"))
             }
         }
     }
@@ -82,7 +85,7 @@ final class MacRetainedProcessTracker: @unchecked Sendable {
             kevent(descriptor, nil, 0, $0.baseAddress, Int32($0.count), &timeout)
         }
         if count < 0, errno != EINTR {
-            FileHandle.standardError.write(Data("Could not read retained process events: \(errno)\n".utf8))
+            report(AppProcessWatchFailed(error: NSError(domain: NSPOSIXErrorDomain, code: Int(errno)), stage: "read"))
         }
         refresh()
     }

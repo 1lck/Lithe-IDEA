@@ -1,4 +1,5 @@
 import Foundation
+import LitheModuleAPI
 import LitheCoreContracts
 import LitheGitModule
 import LitheSearchModule
@@ -10,6 +11,12 @@ import LitheRustCore
 /// Windows Qt binding will consume. The bridge stays synchronous at this
 /// layer; callers move filesystem and Git work off the main actor.
 struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
+    var logRole: LanguageServerLogRole = .languageServer
+    var logSubject: String? = nil
+    var logPluginID: String? = nil
+    var coreLogSink: (any LogSink)? = nil
+    var registerLogSession: (@Sendable (String, String) -> Void)? = nil
+    var releaseLogSession: (@Sendable (String) -> Void)? = nil
     var gitPreferences: GitExecutionPreferences? = nil
     var gitExecutionJournal: GitExecutionJournal? = nil
     var remoteWorkspaces: RemoteWorkspaceRegistry? = nil
@@ -81,9 +88,10 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let root: WorkspaceNodePayload
         let files: [String]
         let nestedWorktrees: [String]
+        let incompleteDirectories: [String]
 
         private enum CodingKeys: String, CodingKey {
-            case root, files, nestedWorktrees
+            case root, files, nestedWorktrees, incompleteDirectories
         }
 
         init(from decoder: any Decoder) throws {
@@ -91,6 +99,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             root = try container.decode(WorkspaceNodePayload.self, forKey: .root)
             files = try container.decode([String].self, forKey: .files)
             nestedWorktrees = try container.decodeIfPresent([String].self, forKey: .nestedWorktrees) ?? []
+            incompleteDirectories = try container.decodeIfPresent([String].self, forKey: .incompleteDirectories) ?? []
         }
 
         func makeSnapshot(at rootURL: URL) -> WorkspaceSnapshot {
@@ -99,7 +108,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 return WorkspaceSnapshot(
                     root: FileNode(url: rootURL, isDirectory: true, children: nil),
                     files: files.map { rootURL.appendingPathComponent($0) },
-                    nestedWorktrees: nested
+                    nestedWorktrees: nested, incompleteDirectories: incompleteDirectories
                 )
             }
             // Preserve Core's file order while sharing URLs with the full tree.
@@ -109,7 +118,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             return WorkspaceSnapshot(
                 root: rootNode,
                 files: files.map { fileURLs[$0] ?? rootURL.appendingPathComponent($0) },
-                nestedWorktrees: nested
+                nestedWorktrees: nested, incompleteDirectories: incompleteDirectories
             )
         }
     }
@@ -262,6 +271,46 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let relocated: Bool
     }
 
+    struct HistoryUsagePayload: Decodable, Sendable {
+        let usedBytes: Int64
+        let limitBytes: Int64
+    }
+
+    struct HistoryIgnorePreviewPayload: Decodable, Sendable {
+        struct RegexError: Decodable, Sendable, Equatable {
+            let index: Int
+            let message: String
+        }
+
+        enum Match: Decodable, Sendable, Equatable {
+            case hidden
+            case pattern(String)
+            case regex(index: Int)
+
+            private enum CodingKeys: String, CodingKey { case kind, pattern, index }
+
+            init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                switch try container.decode(String.self, forKey: .kind) {
+                case "hidden": self = .hidden
+                case "pattern": self = .pattern(try container.decode(String.self, forKey: .pattern))
+                case "regex": self = .regex(index: try container.decode(Int.self, forKey: .index))
+                case let kind:
+                    throw DecodingError.dataCorruptedError(forKey: .kind, in: container, debugDescription: "Unknown match \(kind)")
+                }
+            }
+        }
+
+        let regexErrors: [RegexError]
+        let builtInIgnorePatterns: [String]
+        let matched: Match?
+        let gitIgnored: Bool?
+    }
+
+    private struct HistoryClearPayload: Decodable, Sendable {
+        let cleared: Bool
+    }
+
     struct MarkdownRenderPayload: Decodable, Sendable {
         let html: String
     }
@@ -305,8 +354,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let redacted: String
     }
 
-    struct DiagnosticsManifestPayload: Decodable, Sendable {
-        struct Environment: Decodable, Sendable {
+    struct DiagnosticsManifestPayload: Codable, Sendable {
+        struct Environment: Codable, Sendable {
             let appVersion: String
             let osName: String
             let osVersion: String
@@ -315,12 +364,13 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             let diskFreeBytes: Int64
         }
 
-        struct FileEntry: Decodable, Sendable {
+        struct FileEntry: Codable, Sendable {
             let relativePath: String
             let sizeBytes: Int64
             let description: String
         }
 
+        let redaction: String
         let schemaVersion: Int
         let generatedAtEpochMilliseconds: Int64
         let environment: Environment
@@ -1171,9 +1221,25 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             let patch: String
         }
 
+        struct File: Decodable, Sendable {
+            let path: String
+            let originalPath: String?
+            let status: String
+            let patch: String
+            let rows: [Row]
+            let hunks: [Hunk]
+
+            func makeDocument() -> DiffDocument {
+                DiffDocument(patch: patch,
+                    rows: rows.enumerated().map { $0.element.makeModel(sequence: $0.offset) },
+                    hunks: hunks.map { DiffHunk(id: $0.id, header: $0.header, patch: $0.patch) })
+            }
+        }
+
         let patch: String
         let rows: [Row]
         let hunks: [Hunk]
+        let files: [File]?
 
         func makeDocument() -> DiffDocument {
             DiffDocument(
@@ -1209,6 +1275,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             let authorName: String
             let authorEmail: String
             let date: String
+            let dateUtcOffsetMinutes: Int?
+            let dateUnixSeconds: Int64?
             let subject: String
             let decorations: String
         }
@@ -1254,6 +1322,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                         authorName: commit.authorName,
                         authorEmail: commit.authorEmail,
                         date: commit.date,
+                        dateUtcOffsetMinutes: commit.dateUtcOffsetMinutes,
+                        dateUnixSeconds: commit.dateUnixSeconds,
                         subject: commit.subject,
                         decorations: commit.decorations
                     )
@@ -1288,6 +1358,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 fullName: reference.fullName,
                 shortName: reference.shortName,
                 kind: kind,
+                peelsToCommit: reference.peelsToCommit,
                 isCurrent: reference.isCurrent,
                 upstreamShortName: reference.upstreamShortName,
                 ahead: reference.ahead ?? 0, behind: reference.behind ?? 0
@@ -1310,6 +1381,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                         authorName: commit.authorName,
                         authorEmail: commit.authorEmail,
                         date: commit.date,
+                        dateUtcOffsetMinutes: commit.dateUtcOffsetMinutes,
+                        dateUnixSeconds: commit.dateUnixSeconds,
                         subject: commit.subject,
                         decorations: commit.decorations
                     )
@@ -1331,6 +1404,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 authorName: commit.authorName,
                 authorEmail: commit.authorEmail,
                 date: commit.date,
+                dateUtcOffsetMinutes: commit.dateUtcOffsetMinutes,
+                dateUnixSeconds: commit.dateUnixSeconds,
                 subject: commit.subject,
                 decorations: commit.decorations
             )
@@ -1603,6 +1678,25 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let pruneExpired: Bool
         let hiddenDirectoryNames: [String]
         let hiddenFilePatterns: [String]
+        let ignoreRules: HistoryIgnoreRules
+        let storageLimitBytes: Int64?
+    }
+
+    private struct HistoryIgnoreRules: Encodable {
+        let pathPatterns: [String]
+        let pathRegexes: [String]
+    }
+
+    private struct HistoryIgnorePreviewRequest: Encodable {
+        let path: String?
+        let ignoreRules: HistoryIgnoreRules
+        let hiddenFilePatterns: [String]
+        let workspaceRoot: String?
+    }
+
+    private struct HistoryStorageRequest: Encodable {
+        let storageRoot: String
+        var storageLimitBytes: Int64?
     }
 
     private struct HistoryEntriesRequest: Encodable {
@@ -1833,6 +1927,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     // session ID, opaque operation IDs, and the events Rust chooses to publish.
 
     struct LspStartServerPayload: Decodable, Sendable {
+        let channel: String?
         let sessionId: String
         let state: String
         let processId: Int32?
@@ -1894,6 +1989,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     }
 
     private struct LspStartServerRequest: Encodable {
+        let role: String
+        let logSubject: String?
         let providerId: String
         /// The plugin that owns the process; nil for host-owned servers.
         let pluginId: String?
@@ -1906,6 +2003,10 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let workspaceConfiguration: ToolingJSONValue?
         /// Host services a plugin backend may request; omitted when none.
         let hostServices: [String]?
+        /// Manifest providers offered to a plugin backend; omitted when none.
+        let toolchainProviders: [String]?
+        /// Shortcut import providers offered to a plugin backend; omitted when none.
+        let keymapImportProviders: [String]?
         let runtimeExecutablePath: String?
         let jdtlsLaunchResources: LspJdtlsLaunchResourcesRequest?
         let cacheDirectory: String?
@@ -1919,6 +2020,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     }
 
     private struct LspJavaRuntimeRequest: Encodable {
+        let isDefault: Bool
         let homePath: String
         let version: String
     }
@@ -2052,6 +2154,19 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let timeoutMilliseconds: Int
     }
 
+    private struct LspToolchainRequest: Encodable {
+        let sessionId: String
+        let params: ToolingJSONValue
+        let timeoutMilliseconds: Int
+    }
+
+    private struct LspKeymapImportRequest: Encodable {
+        let sessionId: String
+        let providerID: String
+        let snapshotID: String
+        let timeoutMilliseconds: Int
+    }
+
     private struct LspVcsRequest: Encodable {
         let sessionId: String
         let vcs: String
@@ -2110,6 +2225,12 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     }
 
     struct LspRuntimeEventPayload: Decodable, Sendable {
+        let channel: String?
+        let pluginId: String?
+        let role: String?
+        let event: String?
+        let fields: [String: CoreLogScalar]?
+        let catalogLevel: String?
         let type: String
         let sequence: UInt64
         let providerId: String
@@ -2350,6 +2471,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     private struct GitDiffRequest: Encodable {
         let root: String
         let pathspecs: [String]
+        let stashReference: String?
+        let includeFileSections: Bool?
         let reference: String?
         let gitReference: GitReferenceRequest?
         let targetGitReference: GitReferenceRequest?
@@ -2452,12 +2575,36 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         return String(cString: lithe_bridge_version())
     }
 
+    func releaseIndexing(at rootURL: URL, revision: UInt64, ownerID: String? = nil) {
+        struct Payload: Encodable { let root: String; let revision: UInt64; let ownerId: String? }
+        struct Response: Decodable { let released: Bool }
+        let _: Response? = execute(command: "workspace.releaseIndexing", payload: Payload(root: rootURL.path, revision: revision, ownerId: ownerID))
+    }
+
+    func configureIndexing(at rootURL: URL, policy: WorkspaceIndexingPolicy, refresh: Bool, ownerID: String? = nil) throws -> WorkspaceIndexingStatus {
+        struct Request: Encodable {
+            let root: String
+            let ownerId: String?
+            let manualExcludedDirectories: [String]
+            let includedDirectories: [String]
+            let gitIgnoreEnabled: Bool
+            let refresh: Bool
+        }
+        return try executeResult(command: "workspace.configureIndexing", payload: Request(
+            root: rootURL.standardizedFileURL.path,
+            ownerId: ownerID,
+            manualExcludedDirectories: policy.manualExcludedDirectories,
+            includedDirectories: policy.includedDirectories,
+            gitIgnoreEnabled: policy.gitIgnoreEnabled, refresh: refresh
+        )).get()
+    }
+
     func snapshot(
         at rootURL: URL,
         hiddenDirectoryNames: [String] = [],
         hiddenFilePatterns: [String] = []
-    ) -> WorkspaceSnapshotPayload? {
-        execute(
+    ) throws -> WorkspaceSnapshotPayload {
+        try executeResult(
             command: "workspace.snapshot",
             payload: SnapshotRequest(
                 root: rootURL.standardizedFileURL.path,
@@ -2465,7 +2612,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 hiddenFilePatterns: hiddenFilePatterns,
                 includeTree: false
             )
-        )
+        ).get()
     }
 
     /// Lists one visible level below each workspace-relative directory.
@@ -2678,7 +2825,10 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         content: String?,
         pruneExpired: Bool,
         hiddenDirectoryNames: [String],
-        hiddenFilePatterns: [String]
+        hiddenFilePatterns: [String],
+        ignorePatterns: [String] = [],
+        ignoreRegexes: [String] = [],
+        storageLimitBytes: Int64? = nil
     ) -> HistoryEntryPayload? {
         execute(
             command: "history.record",
@@ -2690,9 +2840,50 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 content: content,
                 pruneExpired: pruneExpired,
                 hiddenDirectoryNames: hiddenDirectoryNames,
-                hiddenFilePatterns: hiddenFilePatterns
+                hiddenFilePatterns: hiddenFilePatterns,
+                ignoreRules: HistoryIgnoreRules(
+                    pathPatterns: ignorePatterns,
+                    pathRegexes: ignoreRegexes
+                ),
+                storageLimitBytes: storageLimitBytes
             )
         )
+    }
+
+    func historyIgnorePreview(
+        path: String?,
+        ignorePatterns: [String],
+        ignoreRegexes: [String],
+        hiddenFilePatterns: [String],
+        workspaceURL: URL? = nil
+    ) -> HistoryIgnorePreviewPayload? {
+        execute(
+            command: "history.ignorePreview",
+            payload: HistoryIgnorePreviewRequest(
+                path: path,
+                ignoreRules: HistoryIgnoreRules(
+                    pathPatterns: ignorePatterns,
+                    pathRegexes: ignoreRegexes
+                ),
+                hiddenFilePatterns: hiddenFilePatterns,
+                workspaceRoot: workspaceURL?.standardizedFileURL.path
+            )
+        )
+    }
+
+    func historyUsage(storageURL: URL, limitBytes: Int64? = nil) -> HistoryUsagePayload? {
+        execute(
+            command: "history.usage",
+            payload: HistoryStorageRequest(storageRoot: storageURL.standardizedFileURL.path, storageLimitBytes: limitBytes)
+        )
+    }
+
+    func historyClear(storageURL: URL) -> Bool {
+        let response: HistoryClearPayload? = execute(
+            command: "history.clear",
+            payload: HistoryStorageRequest(storageRoot: storageURL.standardizedFileURL.path)
+        )
+        return response?.cleared == true
     }
 
     func historyEntries(
@@ -2741,7 +2932,11 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     }
 
     func scanMaven(at rootURL: URL, paths: [String] = []) -> MavenScanPayload? {
-        try? scanMavenResult(at: rootURL, paths: paths).get()
+        do { return try scanMavenResult(at: rootURL, paths: paths).get() }
+        catch {
+            coreLogSink?.emit(AppCoreFallbackSelected(error: LitheModuleAPI.LogFailure(domain: "RustCore", code: error.code), stage: "maven-scan"))
+            return nil
+        }
     }
 
     func scanMavenResult(
@@ -3375,6 +3570,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             payload: GitDiffRequest(
                 root: rootURL.standardizedFileURL.path,
                 pathspecs: pathspecs,
+                stashReference: nil,
+                includeFileSections: nil,
                 reference: reference,
                 gitReference: gitReference.map(GitReferenceRequest.init),
                 targetGitReference: targetGitReference.map(GitReferenceRequest.init),
@@ -3385,6 +3582,22 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 ignoreAllWhitespace: ignoreAllWhitespace
             )
         )
+    }
+
+    private struct GitParsePatchRequest: Encodable {
+        let root: String
+        let patch: String
+    }
+
+    func gitParseSavedPatch(at rootURL: URL, patch: String) -> Result<GitDiffPayload, CoreCallError> {
+        executeResult(command: "git.parsePatch", payload: GitParsePatchRequest(root: rootURL.standardizedFileURL.path, patch: patch))
+    }
+
+    func gitSavedStashDiff(at rootURL: URL, reference: String) -> Result<GitDiffPayload, CoreCallError> {
+        executeResult(command: "git.diff", payload: GitDiffRequest(
+            root: rootURL.standardizedFileURL.path, pathspecs: ["."], stashReference: reference,
+            includeFileSections: true, reference: nil, gitReference: nil, targetGitReference: nil,
+            commit: nil, staged: false, untracked: false, contextLines: 3, ignoreAllWhitespace: false))
     }
 
     func gitApply(
@@ -3415,6 +3628,14 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 mode: mode
             )
         )
+    }
+
+    struct GitHistoryDateQueryPayload: Decodable, Sendable {
+        let matchingIds: [String]
+    }
+
+    func gitHistoryDateQuery(_ query: GitHistoryDateQuery) -> GitHistoryDateQueryPayload? {
+        execute(command: "git.historyQuery", payload: query)
     }
 
     func gitHistory(
@@ -3746,6 +3967,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         initializationOptions: ToolingJSONValue? = nil,
         workspaceConfiguration: ToolingJSONValue? = nil,
         hostServices: [String] = [],
+        toolchainProviders: [String] = [],
+        keymapImportProviders: [String] = [],
         runtimeExecutableURL: URL? = nil,
         jdtlsLaunchResources: JDTLSLaunchResources? = nil,
         cacheDirectoryURL: URL? = nil,
@@ -3756,11 +3979,12 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         requestTimeout: TimeInterval = 30,
         shutdownTimeout: TimeInterval = 2
     ) -> Result<LspStartServerPayload, CoreCallError> {
-        executeResult(
+        let result: Result<LspStartServerPayload, CoreCallError> = executeResult(
             command: "lsp.startServer",
             payload: LspStartServerRequest(
+                role: logRole.rawValue, logSubject: logSubject,
                 providerId: providerID,
-                pluginId: pluginID,
+                pluginId: pluginID ?? logPluginID,
                 executablePath: executableURL.standardizedFileURL.path,
                 arguments: arguments,
                 environment: environment,
@@ -3769,6 +3993,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 initializationOptions: initializationOptions,
                 workspaceConfiguration: workspaceConfiguration,
                 hostServices: hostServices.isEmpty ? nil : hostServices,
+                toolchainProviders: toolchainProviders.isEmpty ? nil : toolchainProviders,
+                keymapImportProviders: keymapImportProviders.isEmpty ? nil : keymapImportProviders,
                 runtimeExecutablePath: runtimeExecutableURL?.standardizedFileURL.path,
                 jdtlsLaunchResources: jdtlsLaunchResources.map {
                     LspJdtlsLaunchResourcesRequest(
@@ -3784,13 +4010,17 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 mavenContext: mavenContext,
                 javaGradle: javaGradle,
                 javaRuntimes: (jdtlsLaunchResources?.javaRuntimes ?? []).map {
-                    LspJavaRuntimeRequest(homePath: $0.homePath, version: $0.version)
+                    LspJavaRuntimeRequest(isDefault: $0.isDefault, homePath: $0.homePath, version: $0.version)
                 },
                 initializeTimeoutMilliseconds: Self.milliseconds(initializeTimeout),
                 requestTimeoutMilliseconds: Self.milliseconds(requestTimeout),
                 shutdownTimeoutMilliseconds: Self.milliseconds(shutdownTimeout)
             )
         )
+        if case .success(let started) = result, let channel = started.channel {
+            registerLogSession?(started.sessionId, channel)
+        }
+        return result
     }
 
     /// Asks the server to shut down. The session stays addressable until
@@ -4078,6 +4308,36 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         )
     }
 
+    /// Sends one `toolchains/query` to a session that negotiated its provider.
+    func lspToolchainRequest(
+        sessionID: String,
+        params: ToolingJSONValue,
+        timeout: TimeInterval
+    ) -> Result<LspOperationPayload, CoreCallError> {
+        executeResult(
+            command: "lsp.toolchainRequest",
+            payload: LspToolchainRequest(
+                sessionId: sessionID, params: params, timeoutMilliseconds: max(1, Self.milliseconds(timeout))
+            )
+        )
+    }
+
+    /// Requests a negotiated import provider using only a host-owned snapshot reference.
+    func lspKeymapImportRequest(
+        sessionID: String,
+        providerID: String,
+        snapshotID: String,
+        timeout: TimeInterval
+    ) -> Result<LspOperationPayload, CoreCallError> {
+        executeResult(
+            command: "lsp.keymapImportRequest",
+            payload: LspKeymapImportRequest(
+                sessionId: sessionID, providerID: providerID, snapshotID: snapshotID,
+                timeoutMilliseconds: max(1, Self.milliseconds(timeout))
+            )
+        )
+    }
+
     /// Invokes a plugin function. Core refuses it unless the session belongs
     /// to `pluginID` and registered the function.
     func lspFunctionRequest(
@@ -4286,11 +4546,12 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         payload: Payload,
         operationID: String? = nil
     ) -> Data? {
-        try? executeResult(
-            command: command,
-            payload: payload,
-            operationID: operationID
-        ).get()
+        do {
+            return try executeResult(command: command, payload: payload, operationID: operationID).get()
+        } catch {
+            coreLogSink?.emit(AppCoreFallbackSelected(error: LitheModuleAPI.LogFailure(domain: "RustCore", code: error.code), stage: command, operationID: operationID))
+            return nil
+        }
     }
 
     /// Runs a command whose success carries no data. The core encodes those as a
@@ -4359,7 +4620,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 details: nil
             ))
         }
-        let observesGit = command.hasPrefix("git.") && command != "git.authRespond" && command != "git.consolePresentation"
+        let observesGit = command.hasPrefix("git.") && command != "git.authRespond" && command != "git.consolePresentation" && command != "git.changelists"
         let execution = observesGit ? GitExecutionContext.current : nil
         if execution?.isCancellationRequested == true {
             return .failure(CoreCallError(code: "cancelled", message: "Operation was cancelled", details: nil))
@@ -4369,12 +4630,10 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         gitOptions.interactive = execution != nil
         gitOptions.source = execution?.source ?? GitExecutionSource.current
         let remoteWorkspace: RemoteWorkspace?
-        do {
-            remoteWorkspace = try self.remoteWorkspace(for: command, payload: payload)
-        } catch let failure as CoreCallError {
-            return .failure(failure)
-        } catch {
-            return .failure(CoreCallError(code: "invalid_request", message: "Invalid workspace request", details: nil))
+        switch Result(catching: { try self.remoteWorkspace(for: command, payload: payload) }) {
+        case .success(let value): remoteWorkspace = value
+        case .failure(let error):
+            return .failure((error as? CoreCallError) ?? CoreCallError(code: "invalid_request", message: "Invalid workspace request", details: nil))
         }
         guard let requestData = try? JSONEncoder().encode(
             Request(

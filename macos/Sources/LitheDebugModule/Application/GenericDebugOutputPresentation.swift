@@ -27,6 +27,7 @@ public final class GenericDebugOutputPresentation: ObservableObject {
         guard flushTask == nil else { return }
         let flushDelay = flushDelay
         flushTask = Task { @MainActor [weak self] in
+            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
             try? await Task.sleep(for: flushDelay)
             guard !Task.isCancelled else { return }
             self?.flush()

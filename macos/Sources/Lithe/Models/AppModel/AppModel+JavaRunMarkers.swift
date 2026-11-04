@@ -95,7 +95,8 @@ extension AppModel {
         }
         guard let configuration else {
             showNotification(
-                "No run configuration exists for \(mainClass) yet. Wait for the Java project to finish importing, then try again."
+                "No run configuration exists for \(mainClass) yet. Wait for the Java project to finish importing, then try again.",
+                logReference: notificationRejection(operation: "run_marker", reason: "configuration_missing")
             )
             return
         }
@@ -153,11 +154,6 @@ extension AppModel {
     }
 
     private func recordJavaRunMarkerFailure(_ error: Error, sessions: LanguageToolingSessionManager) {
-        sessions.recordLanguageServerLog(
-            providerID: "java",
-            level: .warning,
-            message: L10n.string("Java Run marker request failed"),
-            detail: error.localizedDescription
-        )
+        sessions.recordHostFailure(providerID: "java", stage: "runMarkers", error: error)
     }
 }

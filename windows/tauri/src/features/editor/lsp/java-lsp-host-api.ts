@@ -1,3 +1,6 @@
+import { createTranslator } from "@/i18n/locale";
+import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { inspectRunConfiguration } from "@/features/run/api/run-core-api";
 import { invoke } from "@/platform/tauri-core";
 
 export interface JdtlsLaunchResources {
@@ -29,6 +32,7 @@ export interface JavaLspLaunch {
 }
 
 export interface JavaLspRuntime {
+  isDefault?: boolean;
   homePath: string;
   version: string;
 }
@@ -38,8 +42,16 @@ export interface JavaLspGradle {
   wrapperPresent: boolean;
 }
 
-export function resolveJavaLspLaunch(workspacePath: string) {
+export async function resolveJavaLspLaunch(workspacePath: string) {
+  const configuration = await inspectRunConfiguration(workspacePath, false);
   return invoke<JavaLspLaunch>("lsp_resolve_java_launch", {
     workspacePath,
+    projectJavaHome: configuration.toolchain?.java?.homePath ?? "",
+  }).catch((error: unknown) => {
+    if ((error instanceof Error ? error.message : error) === "PROJECT_JDK_INVALID") {
+      const t = createTranslator(useSettingsStore.getState().settings.displayLanguage);
+      throw new Error(t("lsp.projectJdkInvalid"));
+    }
+    throw error;
   });
 }

@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 import LitheCoreContracts
 
@@ -13,6 +14,7 @@ final class MacJdtHostIntegration: MacLanguageServerHostIntegration {
 
     let id = MacJdtHostIntegration.integrationID
 
+    private let logSink: (any LogSink)?
     private let launchResolver: MacPluginLanguageServerLaunchResolver
     private let runtimeService: ProjectRuntimeService
     private let workspaceState: MacJdtWorkspaceState
@@ -24,8 +26,10 @@ final class MacJdtHostIntegration: MacLanguageServerHostIntegration {
     init(
         launchResolver: MacPluginLanguageServerLaunchResolver,
         runtimeService: ProjectRuntimeService,
-        workspaceState: MacJdtWorkspaceState
+        workspaceState: MacJdtWorkspaceState,
+        logSink: (any LogSink)? = nil
     ) {
+        self.logSink = logSink
         self.launchResolver = launchResolver
         self.runtimeService = runtimeService
         self.workspaceState = workspaceState
@@ -51,8 +55,9 @@ final class MacJdtHostIntegration: MacLanguageServerHostIntegration {
             return
         }
         let cacheDirectoryURL = workspaceState.cacheDirectoryURL
+        let logSink = logSink
         stateRemoval = Task.detached(priority: .utility) {
-            MacJdtWorkspaceState.removeAllState(in: cacheDirectoryURL)
+            MacJdtWorkspaceState.removeAllState(in: cacheDirectoryURL, logSink: logSink)
         }
     }
 
@@ -76,20 +81,16 @@ final class MacJdtHostIntegration: MacLanguageServerHostIntegration {
             // JDT LS binds each project to the installed JDK that matches its
             // release; the JDK it runs on cannot build a project for a newer
             // Java release.
-            let discovered = runtimeService.javaRuntimes.isEmpty
-                ? MacRuntimeDiscovery.discover(environment: MacRuntimeLocator().environment()).javaRuntimes
-                : runtimeService.javaRuntimes
             let resources = try launchResources.resources(
                 from: declared,
-                javaRuntimes: discovered.map {
-                    JavaLanguageServiceRuntime(homePath: $0.homePath, version: $0.version)
-                }
+                javaRuntimes: runtimeService.javaLanguageServiceRuntimes()
             )
             return .available(LanguageServerHostIntegrationLaunch(
                 runtimeExecutableURL: runtimeExecutableURL,
                 coreLaunch: .jdt(resources)
             ))
         } catch {
+            logSink?.emit(PluginsResourcesMaintenanceFailed(error: error, stage: "jdt-launch-resolution"))
             return .unavailable(error.localizedDescription)
         }
     }

@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import LitheGitModule
+import LitheTestDesktopIsolation
 import Testing
 @testable import Lithe
 
@@ -105,6 +106,24 @@ struct BranchSwitcherPopoverBehaviorTests {
 
     @Test
     @MainActor
+    func referenceDecodingPreservesTagDeletionEligibility() throws {
+        let references = #"""
+        [
+          {"fullName":"refs/tags/commit","shortName":"commit","kind":"tag","peelsToCommit":true,"isCurrent":false},
+          {"fullName":"refs/tags/tree","shortName":"tree","kind":"tag","peelsToCommit":false,"isCurrent":false}
+        ]
+        """#
+        let data = Data((#"{"references": "# + references + #", "recentReferences": "# + references + #", "commits":[], "hasMore":false}"#).utf8)
+        let history = try JSONDecoder().decode(RustCoreBridge.GitHistoryPayload.self, from: data).makeSnapshot()
+        let snapshot = try JSONDecoder().decode(RustCoreBridge.GitReferencesPayload.self, from: data).makeSnapshot()
+        for rows in [history.references, history.recentReferences, snapshot.references, snapshot.recentReferences] {
+            #expect(rows.map(\.peelsToCommit) == [true, false])
+            #expect(rows.map(\.supportsTagDeletion) == [true, false])
+        }
+    }
+
+    @Test
+    @MainActor
     func actionsAndBranchesShareScrollingWhileSearchStaysFixed() throws {
         let feature = GitFeatureModel(service: GitService(operations: RustGitOperations(core: RustCoreBridge())))
         let host = NSHostingView(rootView: BranchSwitcherPopover(feature: feature, isPresented: .constant(true),
@@ -184,6 +203,128 @@ struct BranchSwitcherPopoverBehaviorTests {
         rows.forEach { $0.updateTrackingAreas() }
         await Self.drainMainQueue()
         #expect(highlighted.values.allSatisfy { !$0 }, "Leaving the viewport clears the last hover")
+    }
+
+    /// Issue 1621: a trackpad gesture stays bound to the window it began in.
+    @Test
+    @MainActor
+    func trackpadGestureOverAnExpansionReachesTheListUntilItFinishes() throws {
+        let harness = try BranchExpansionScrollHarness()
+        defer { harness.close() }
+        var scheduled: [(delay: TimeInterval, work: DispatchWorkItem)] = []
+        harness.row.scheduleExpansionRetirement = { scheduled.append(($0, $1)) }
+        let panel = harness.panel
+        let overlay = try #require(panel.contentView)
+
+        overlay.scrollWheel(with: try harness.event(phase: .mayBegin))
+        #expect(panel.isVisible && LitheTestRequestedWindowAlpha(panel) == 1, "Resting fingers must not hide the full name")
+        #expect(scheduled.isEmpty)
+
+        overlay.scrollWheel(with: try harness.event(phase: .began))
+        #expect(panel.isVisible, "Closing the panel here is what dropped the gesture")
+        #expect(LitheTestRequestedWindowAlpha(panel) == 0, "The stale name must not float over the scrolling list")
+        #expect(!panel.ignoresMouseEvents, "An alpha 0 panel is click-through unless it opts in")
+
+        // The list may release the row mid-gesture without ending the handoff.
+        harness.row.removeFromSuperview()
+        #expect(panel.isVisible)
+        overlay.scrollWheel(with: try harness.event(phase: .changed))
+        overlay.scrollWheel(with: try harness.event(phase: .ended))
+        overlay.scrollWheel(with: try harness.event(momentum: .begin))
+        overlay.scrollWheel(with: try harness.event(momentum: .end))
+        #expect(harness.scroll.received.count == 6, "Every event of the gesture reaches the list")
+        #expect(scheduled.map(\.delay) == [10, 10, 0.15, 10, 0.15])
+        let superseded = scheduled.dropLast().allSatisfy { $0.work.isCancelled }
+        #expect(superseded, "A later event supersedes earlier retirements")
+        #expect(panel.isVisible)
+
+        try #require(scheduled.last).work.perform()
+        #expect(!panel.isVisible)
+        #expect(harness.window.childWindows?.contains(panel) != true)
+    }
+
+    @Test(arguments: [false, true])
+    @MainActor
+    func clickingTheHiddenExpansionReachesTheCurrentContent(rightClick: Bool) throws {
+        let harness = try BranchExpansionScrollHarness()
+        defer { harness.close() }
+        var scheduled: [DispatchWorkItem] = []
+        harness.row.scheduleExpansionRetirement = { scheduled.append($1) }
+        harness.row.onPress = { Issue.record("A hidden expansion must not activate its old row") }
+        harness.row.onSecondaryPress = { _ in Issue.record("A hidden expansion must not open its old row's menu") }
+        let panel = harness.panel
+        let overlay = try #require(panel.contentView)
+        overlay.scrollWheel(with: try harness.event(phase: .began))
+
+        // Replace the source row, just as scrolling a lazy list can do.
+        harness.row.removeFromSuperview()
+        let current = BranchExpansionClickRecorder(frame: harness.scroll.bounds)
+        harness.scroll.documentView = current
+        panel.setFrameOrigin(NSPoint(x: panel.frame.minX + 12, y: panel.frame.minY + 3))
+        let point = NSPoint(x: 20, y: 12)
+        let expectedPoint = harness.window.convertPoint(fromScreen: panel.convertPoint(toScreen: point))
+        let types: [NSEvent.EventType] = rightClick
+            ? [.rightMouseDown, .rightMouseDragged, .rightMouseUp]
+            : [.leftMouseDown, .leftMouseDragged, .leftMouseUp]
+        for type in types {
+            panel.sendEvent(try #require(NSEvent.mouseEvent(with: type, location: point,
+                modifierFlags: [.shift], timestamp: 42, windowNumber: panel.windowNumber, context: nil,
+                eventNumber: 7, clickCount: 2, pressure: 0.5)))
+            if type == types.first { #expect(panel.isVisible, "Keep receiving the native mouse sequence until mouse-up") }
+        }
+        #expect(current.events.map(\.type) == types)
+        #expect(current.events.allSatisfy { $0.window === harness.window && $0.locationInWindow == expectedPoint })
+        #expect(current.events.allSatisfy { $0.modifierFlags.contains(.shift) && $0.clickCount == 2 && $0.timestamp == 42 })
+        #expect(!panel.isVisible)
+        #expect(harness.window.childWindows?.contains(panel) != true)
+        #expect(scheduled.allSatisfy { $0.isCancelled })
+    }
+
+    @Test
+    @MainActor
+    func clickingOutsideTheParentContentOnlyRetiresTheHiddenExpansion() throws {
+        let harness = try BranchExpansionScrollHarness()
+        defer { harness.close() }
+        harness.row.scheduleExpansionRetirement = { _, _ in }
+        let panel = harness.panel
+        try #require(panel.contentView).scrollWheel(with: try harness.event(phase: .began))
+        harness.row.removeFromSuperview()
+        let current = BranchExpansionClickRecorder(frame: harness.scroll.bounds)
+        harness.scroll.documentView = current
+        panel.sendEvent(try #require(NSEvent.mouseEvent(with: .leftMouseDown,
+            location: NSPoint(x: harness.window.frame.width + 20, y: 12), modifierFlags: [], timestamp: 0,
+            windowNumber: panel.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)))
+        #expect(current.events.isEmpty)
+        #expect(!panel.isVisible && panel.parent == nil)
+    }
+
+    @Test
+    @MainActor
+    func closingTheParentRetiresTheDetachedExpansionWithoutWaitingForItsTimer() throws {
+        let harness = try BranchExpansionScrollHarness()
+        defer { harness.close() }
+        var scheduled: [DispatchWorkItem] = []
+        harness.row.scheduleExpansionRetirement = { scheduled.append($1) }
+        let panel = harness.panel
+        try #require(panel.contentView).scrollWheel(with: try harness.event(phase: .began))
+        harness.row.removeFromSuperview()
+
+        harness.window.close()
+
+        #expect(!panel.isVisible)
+        #expect(panel.parent == nil)
+        #expect(scheduled.count == 1 && scheduled.allSatisfy { $0.isCancelled })
+    }
+
+    @Test
+    @MainActor
+    func mouseWheelOverAnExpansionClosesItAndScrollsTheList() throws {
+        let harness = try BranchExpansionScrollHarness()
+        defer { harness.close() }
+        let panel = harness.panel
+        try #require(panel.contentView).scrollWheel(with: try harness.event())
+        #expect(!panel.isVisible)
+        #expect(harness.scroll.received.count == 1)
     }
 
     @Test(arguments: [ColorScheme.light, .dark])
@@ -580,6 +721,61 @@ struct BranchSwitcherPopoverBehaviorTests {
 }
 
 @MainActor
+private final class BranchExpansionScrollHarness {
+    final class RecordingScrollView: NSScrollView {
+        var received: [NSEvent] = []
+        override func scrollWheel(with event: NSEvent) { received.append(event) }
+    }
+
+    let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 120, height: 24),
+                          styleMask: [.borderless], backing: .buffered, defer: false)
+    let scroll = RecordingScrollView(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
+    let row = BranchPopupRowControl()
+    let panel: NSWindow
+
+    init() throws {
+        window.isReleasedWhenClosed = false
+        let document = NSView(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
+        scroll.documentView = document
+        window.contentView = scroll
+        window.orderFrontRegardless()
+        row.frame = document.bounds
+        row.renderExpansion = {
+            AnyView(Text("a-branch-name-that-is-much-wider-than-the-row").fixedSize())
+        }
+        document.addSubview(row)
+        row.mouseEntered(with: try #require(NSEvent.enterExitEvent(with: .mouseEntered, location: .zero,
+            modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
+            eventNumber: 0, trackingNumber: 0, userData: nil)))
+        panel = try #require(window.childWindows?.first(where: { $0.isVisible }))
+    }
+
+    func close() {
+        panel.close()
+        window.contentView = nil
+        window.close()
+    }
+
+    /// With no phase this is a mouse wheel tick.
+    func event(phase: CGScrollPhase? = nil, momentum: CGMomentumScrollPhase? = nil) throws -> NSEvent {
+        let event = try #require(CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1,
+                                         wheel1: -8, wheel2: 0, wheel3: 0))
+        if let phase { event.setIntegerValueField(.scrollWheelEventScrollPhase, value: Int64(phase.rawValue)) }
+        if let momentum { event.setIntegerValueField(.scrollWheelEventMomentumPhase, value: Int64(momentum.rawValue)) }
+        return try #require(NSEvent(cgEvent: event))
+    }
+}
+
+private final class BranchExpansionClickRecorder: NSView {
+    var events: [NSEvent] = []
+    override func mouseDown(with event: NSEvent) { events.append(event) }
+    override func mouseDragged(with event: NSEvent) { events.append(event) }
+    override func mouseUp(with event: NSEvent) { events.append(event) }
+    override func rightMouseDown(with event: NSEvent) { events.append(event) }
+    override func rightMouseDragged(with event: NSEvent) { events.append(event) }
+    override func rightMouseUp(with event: NSEvent) { events.append(event) }
+}
+
 private final class BranchHoverTestWindow: NSWindow {
     var pointer = NSPoint.zero
     override var mouseLocationOutsideOfEventStream: NSPoint { pointer }

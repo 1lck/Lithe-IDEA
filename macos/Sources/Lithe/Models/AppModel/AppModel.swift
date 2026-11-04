@@ -13,11 +13,12 @@ import LitheCoreContracts
 @MainActor
 final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     let id = UUID()
+    lazy var editorSettingsImport = services.makeEditorSettingsImport(settings: settings)
     var hasSuggestedJavaPlugin = false
     lazy var debugPerformanceFeature = DebugPerformanceFeatureModel(sampler: services.debugPerformanceSampler)
     lazy var testPerformanceFeature = TestJVMPerformanceFeatureModel(
         sampler: services.debugPerformanceSampler, provider: services.testJVMPerformance)
-    lazy var ideCapabilities = IdeCapabilitiesFeatureModel(model: self)
+    lazy var ideCapabilities = IdeCapabilitiesFeatureModel(model: self, logSink: services.logSink)
     /// Settings › MCP: servers registered with Codex and Claude Code, created
     /// when the page is first shown.
     lazy var mcpServerLibrary = McpServerLibraryFeatureModel(model: self)
@@ -103,12 +104,12 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     )
     lazy var agentInstructionsFeature = AgentInstructionsFeatureModel(service: services.agentInstructions)
     lazy var agentHooksFeature = AgentHooksFeatureModel(service: services.agentHooks)
-    lazy var agentSkillsFeature = AgentSkillsFeatureModel(service: services.agentManagement)
+    lazy var agentSkillsFeature = AgentSkillsFeatureModel(service: services.agentManagement, logSink: services.logSink)
     /// Settings › Plugins marketplace and plugin repositories, created when
     /// the page is first shown.
     lazy var pluginMarketplaceFeature = PluginMarketplaceFeatureModel(
         service: services.pluginMarketplace,
-        pluginManager: services.pluginManager
+        pluginManager: services.pluginManager, logSink: services.logSink
     )
     var commitDraftFeature: CommitDraftFeatureModel { featureGraph.commitDraft }
     lazy var commitWorkflow = CommitWorkflowComposition.make(model: self)
@@ -160,10 +161,12 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     private var documentLanguageCoordinator: DocumentLanguageCoordinator?
     private var sidebarRefreshTask: Task<Void, Never>?
     private var moduleSessionCoordinator: ModuleSessionCoordinator?
+    var isModuleRuntimeShuttingDown: Bool { moduleSessionCoordinator?.isShuttingDown == true }
     private(set) var isProjectSessionClosed = false
     private var featureObservationBinder: AppModelObservationBinder?
     private var fileVisibilityRulesObserverID: UUID?
     private var searchExclusionsObservation: AnyCancellable?
+    private var localHistoryIgnoreRulesObservation: AnyCancellable?
     private var livePluginObservation: AnyCancellable?
     private var requestProjectOpen: ((URL) -> Void)?
     private var requestProjectOpenAtPlacement: ((URL, ProjectOpenPlacement) -> Void)?
@@ -204,12 +207,12 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     var notificationFeature: WorkbenchNotificationFeatureModel { featureGraph.notification }
     var workbenchBackgroundFeature: WorkbenchBackgroundFeatureModel { featureGraph.workbenchBackground }
     var runtimeFeature: RuntimeSettingsFeatureModel { featureGraph.runtime }
+    var toolchainSettingsFeature: ToolchainSettingsFeatureModel { featureGraph.toolchainSettings }
     var languageToolingFeature: LanguageToolingFeatureModel { featureGraph.languageTooling }
     let debugLaunchConfigurationResolver: DebugLaunchConfigurationResolver
     let debugPortAvailabilityChecker: any DebugPortAvailabilityChecking
     var workspaceFeature: WorkspaceFeatureModel { featureGraph.workspace }
     var githubFeature: GitHubFeatureModel { featureGraph.github }
-    var diagnosticsFeature: DiagnosticsFeatureModel { featureGraph.diagnostics }
     var editorTabOrderFeature: EditorTabOrderFeatureModel { featureGraph.editorTabOrder }
     var mediaFeature: MediaDocumentFeatureModel { featureGraph.media }
     var terminalPlacementFeature: TerminalPlacementFeatureModel {
@@ -225,7 +228,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         store: moduleCapabilityStore,
         awaitShutdown: { [weak self] in await self?.awaitModuleRuntimeShutdown() },
         onChange: { [weak self] in self?.scheduleObjectWillChangeRelay(affectsSettings: false) },
-        onError: { [weak self] in self?.showNotification($0) }
+        onError: { [weak self] in self?.showNotification($0, logReference: self?.notificationRejection(operation: "module_activation", reason: "activation_failed")) }
     )
     lazy var debugModuleCoordinator = DebugModuleCoordinator(
         runtime: services.moduleRuntime,
@@ -235,7 +238,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         openWorkspace: { feature, url in feature.openWorkspace(at: url) },
         onStateChange: { [weak self] in self?.handleDebugSessionStateChange($0) },
         onChange: { [weak self] in self?.scheduleObjectWillChangeRelay(affectsSettings: false) },
-        onError: { [weak self] in self?.showNotification($0) }
+        onError: { [weak self] in self?.showNotification($0, logReference: self?.notificationRejection(operation: "module_activation", reason: "activation_failed")) }
     )
     lazy var languageIntelligenceModuleCoordinator = LanguageIntelligenceModuleCoordinator(
         runtime: services.moduleRuntime,
@@ -245,18 +248,19 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             guard self?.isProjectSessionClosed == false else { throw CancellationError() }
         },
         bind: { [weak self] in self?.bindLanguageIntelligenceCapability($0) },
-        notify: { [weak self] in self?.showNotification($0) }
+        notify: { [weak self] in self?.showNotification($0, logReference: self?.notificationRejection(operation: "language_activation", reason: "activation_failed")) }
     )
     lazy var terminalModuleCoordinator = TerminalModuleCoordinator(
         runtime: services.moduleRuntime,
         store: moduleCapabilityStore,
-        onChange: { [weak self] in self?.scheduleObjectWillChangeRelay(affectsSettings: false) }
+        onChange: { [weak self] in self?.scheduleObjectWillChangeRelay(affectsSettings: false) },
+        logSink: services.logSink
     )
     lazy var gitModuleCoordinator = GitModuleCoordinator(
         runtime: services.moduleRuntime,
         store: moduleCapabilityStore,
         onChange: { [weak self] in self?.scheduleObjectWillChangeRelay(affectsSettings: false) },
-        onError: { [weak self] in self?.showNotification($0) }
+        onError: { [weak self] in self?.showNotification($0, logReference: self?.notificationRejection(operation: "module_activation", reason: "activation_failed")) }
     )
     let javaLanguageServerPreparationCoordinator = JavaLanguageServerPreparationCoordinator()
     lazy var historyModuleCoordinator = HistoryModuleCoordinator(
@@ -264,7 +268,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         store: moduleCapabilityStore,
         workspace: { [weak self] in self?.workspaceURL },
         settings: { [weak self] in
-            self?.settings.fileVisibilityRules.localHistoryRules
+            self?.settings.localHistoryRules
                 ?? LocalHistoryVisibilityRules(hiddenDirectoryNames: [], hiddenFilePatterns: [])
         },
         files: { [weak self] in self?.projectFiles ?? [] },
@@ -273,19 +277,19 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
                 LocalHistoryDocumentSnapshot(id: $0.id, url: $0.url, text: $0.text)
             } ?? []
         },
-        notify: { [weak self] in self?.showNotification($0) },
+        notify: { [weak self] in self?.showNotification($0, logReference: self?.notificationRejection(operation: "history_activation", reason: "activation_failed")) },
         onChange: { [weak self] in self?.scheduleObjectWillChangeRelay(affectsSettings: false) }
     )
     lazy var searchModuleCoordinator = SearchModuleCoordinator(
         runtime: services.moduleRuntime,
         store: moduleCapabilityStore,
         onChange: { [weak self] in self?.scheduleObjectWillChangeRelay(affectsSettings: false) },
-        onError: { [weak self] in self?.showNotification($0) }
+        onError: { [weak self] in self?.showNotification($0, logReference: self?.notificationRejection(operation: "module_activation", reason: "activation_failed")) }
     )
     lazy var runWorkflowCoordinator = RunWorkflowCoordinator(
         pluginCatalog: services.pluginCatalog,
         moduleRuntime: services.moduleRuntime,
-        notify: { [weak self] in self?.showNotification($0) },
+        notify: { [weak self] in self?.showNotification($0, logReference: self?.notificationRejection(operation: "run_workflow", reason: "preparation_failed")) },
         onPendingActionChange: { [weak self] in self?.scheduleObjectWillChangeRelay(affectsSettings: false) }
     )
     var languageCapability: LitheLanguageIntelligenceModule.LanguageIntelligenceCapability? {
@@ -314,7 +318,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     lazy var workbenchUIRegistry: WorkbenchModuleUIRegistry = {
         do { return try WorkbenchModuleUIComposition.registry(for: services.pluginCatalog, iconResources: services.pluginUIIconResources) }
         catch {
-            NSLog("Lithe workbench UI registration failed: %@", error.localizedDescription)
+            services.logSink?.emit(AppWorkbenchRegistrationFailed(error: error))
             // External metadata cannot terminate the application shell.
             do {
                 return try WorkbenchModuleUIRegistry(registrations: WorkbenchModuleUIComposition.registrations)
@@ -380,6 +384,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     var detectedClaudeConfiguration: AIConfigurationSnapshot? {
         detectedAIConfigurations.first { $0.source == .claude }
     }
+
+    func openLogs(_ request: LogWindowOpenRequest = .init()) { services.logWindowCoordinator?.open(request) }
 
     func showSettings(category: SettingsCategory = .general) {
         workbenchFeature.presentSettings(category: category)
@@ -480,7 +486,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         if affectsSettings { pendingRelayAffectsSettings = true }
         guard !isObjectWillChangeRelayScheduled else { return }
         isObjectWillChangeRelayScheduled = true
-        let signpost = LitheSignpost.begin("appmodel.relay")
+        let signpost = LitheSignpost.begin("appmodel.relay", logSink: services.logSink)
         Task { @MainActor [weak self] in
             defer { LitheSignpost.end("appmodel.relay", signpost) }
             guard let self else { return }
@@ -542,11 +548,22 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
                 },
                 visibilityRules: { [weak self] in
                     self?.settings.fileVisibilityRules ?? .default
+                },
+                waitForWorkspaceOpenPreparation: { [weak self] in
+                    guard let self else { return }
+                    await self.awaitModuleRuntimeShutdown()
+                    guard let capability = try? await self.services.moduleRuntime.activateCapability(.workspaceFoundation),
+                          let capability = capability as? LitheWorkspaceModule.WorkspaceFoundationCapability else { return }
+                    capability.attach(workspaceProjection: self.workspaceFeature)
                 }
             )
         )
         languageToolingFeature.configureSessions { [weak self] in
             self?.languageToolingSessionsIfActive
+        }
+        languageToolingFeature.registerPreparationCancellation(providerID: "java") { [weak self] in
+            self?.javaLanguageServerPreparationCoordinator.cancelMavenConfigurationSynchronization()
+            self?.cancelJavaLanguageServerPreparation()
         }
         services.connectBuildProviderLanguageSessions? { [weak self] in
             self?.languageToolingSessionsIfActive
@@ -589,6 +606,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             guard let self else { return }
             self.workspaceFeature.updateVisibilityRules(self.settings.fileVisibilityRules)
         }
+        localHistoryIgnoreRulesObservation = observeLocalHistoryIgnoreRules()
         searchExclusionsObservation = settings.searchExclusionsChanges.sink { [weak self] in
             guard let self, let root = self.workspaceURL else { return }
             self.searchFeatureIfActive?.invalidateIndex(at: root, visibilityRules: self.settings.searchEverywhereVisibilityRules.searchRules)
@@ -612,11 +630,11 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         }
         if let configuration = (needsConfigurationImport ? configurationToImport : nil) ?? (shouldImportCodex ? codexConfiguration : nil) {
             let provider = settings.importAIConfiguration(configuration)
-            try? services.secureStore.delete(key: provider.apiKeyIdentifier)
+            do { try services.secureStore.delete(key: provider.apiKeyIdentifier) } catch { services.logSink?.emit(AppCredentialsCleanupFailed(error: error)) }
         } else if settings.commitMessageAI.providers.isEmpty,
                   let configuration = detectedAIConfigurations.first {
             let provider = settings.importAIConfiguration(configuration)
-            try? services.secureStore.delete(key: provider.apiKeyIdentifier)
+            do { try services.secureStore.delete(key: provider.apiKeyIdentifier) } catch { services.logSink?.emit(AppCredentialsCleanupFailed(error: error)) }
         }
         languageServerToolsIfActive?.onCandidatesChanged = { [weak self] providerID in
             guard let self,
@@ -709,6 +727,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
 
     func shutdownProjectSession() async {
         isProjectSessionClosed = true
+        toolchainSettingsFeature.close()
         commitFileDeletion.reset()
         // Native window close can retain this model through Settings without
         // closing its workspace. Revoke page requests before teardown can yield.
@@ -732,6 +751,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             self.fileVisibilityRulesObserverID = nil
         }
         searchExclusionsObservation = nil
+        localHistoryIgnoreRulesObservation = nil
         livePluginObservation = nil
         await shutdownModuleRuntime()
         moduleSessionCoordinator?.stopObserving()
@@ -933,7 +953,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         } else if placement == .thisWindow {
             openProjectDirectly(url)
         } else {
-            showNotification("Project window management is unavailable.")
+            showNotification("Project window management is unavailable.", logReference: notificationRejection(operation: "project_window", reason: "unavailable"))
         }
     }
 
@@ -972,6 +992,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         springFeature.reset()
         mybatisFeature.reset()
         workspaceSessionCoordinator.resetWorkspaceFeature()
+        // The popup belongs to the old project; an activation it started may never finish.
+        dismissSearchEverywhere()
         searchModuleCoordinator.resetFeature(searchFeatureIfActive)
         workbenchFeature.hideAllToolWindows()
         editorChrome.reset()
@@ -1029,6 +1051,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         languageToolingSessionsIfActive?.stopAll()
         executionModuleCoordinator.resetTests(languageTestServiceIfActive)
         runtimeFeature.closeProject()
+        toolchainSettingsFeature.close()
         executionModuleCoordinator.resetFeatures(
             maven: mavenFeatureIfActive,
             run: runFeatureIfActive,
@@ -1128,15 +1151,15 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     }
 
     func javaIconKind(for url: URL) async -> LitheIconKind? {
-        await JavaFileIconResolver.resolve(for: url, storage: services.fileStorage)
+        await JavaFileIconResolver.resolve(for: url, storage: services.fileStorage, logSink: services.logSink)
     }
 
     func refreshWorkspace() async {
         await workspaceFeature.refreshCurrent()
     }
 
-    func markProjectDirectory(_ url: URL, as mark: WorkspaceDirectoryMark) async {
-        await workspaceFeature.markDirectory(url, as: mark)
+    func markProjectDirectory(_ url: URL, action: WorkspaceDirectoryAction) async {
+        await workspaceFeature.markDirectory(url, action: action)
     }
 
     func requestCreateFile(in directory: URL) {
@@ -1235,7 +1258,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     func restoreSelectedLocalHistoryEntry() async {
         guard let feature = await activateHistoryModule(),
               let restoration = await feature.restoreSelectedLocalHistoryEntry() else {
-            showNotification("Could not restore local history")
+            showNotification("Could not restore local history", logReference: notificationRejection(operation: "history_restore", reason: "restore_failed"))
             return
         }
         if let documentID = restoration.documentID {
@@ -1254,7 +1277,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     func restoreSelectedProjectLocalHistoryEntry() async {
         guard let feature = await activateHistoryModule(),
               let restoration = await feature.restoreSelectedProjectLocalHistoryEntry() else {
-            showNotification("Could not restore project history")
+            showNotification("Could not restore project history", logReference: notificationRejection(operation: "project_history_restore", reason: "restore_failed"))
             return
         }
         if let documentID = restoration.documentID {
@@ -1336,7 +1359,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
                 showNotification("Saved \(document.displayName) as \(encoding.displayName)")
             } catch {
                 if !(error is CancellationError) {
-                    showNotification(documentFeature.saveFailureMessage(for: document, error: error))
+                    showNotification(documentFeature.saveFailureMessage(for: document, error: error), logReference: documentFeature.lastSaveFailureReference)
                 }
             }
         }
@@ -1369,158 +1392,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         documentFeature.documentDidChange(document)
     }
 
-    @discardableResult
-    func activateCurrentDocumentLanguageServerIfAvailable() -> Bool {
-        guard let activeDocument else { return false }
-        return activateLanguageServerIfAvailable(for: activeDocument)
-    }
-
-    @discardableResult
-    func activateLanguageServerIfAvailable(for document: EditorDocument) -> Bool {
-        guard let identity = currentWorkspaceIdentity,
-              let descriptor = languageProviderCatalog.provider(for: document.url) else { return false }
-        let workspaceURL = identity.url
-        guard !languageToolingFeature.isDisabled(descriptor.id) else {
-            languageToolingSessionsIfActive?.recordLanguageServerLog(
-                providerID: descriptor.id,
-                level: .info,
-                message: L10n.string("Language server activation skipped"),
-                detail: L10n.string("Disabled in this workspace")
-            )
-            return false
-        }
-        if moduleSessionCoordinator?.isShuttingDown == true {
-            Task { @MainActor [weak self, weak document] in
-                guard let self else { return }
-                await self.awaitModuleRuntimeShutdown()
-                guard let document, !Task.isCancelled, self.isCurrentWorkspace(identity),
-                      self.openDocuments.contains(where: { $0 === document }) else { return }
-                _ = self.activateLanguageServerIfAvailable(for: document)
-            }
-            return false
-        }
-        if descriptor.id == "java" {
-            switch prepareJavaLanguageServerRuntimeIfNeeded(for: document) {
-            case .ready: break
-            case .preparing: return false
-            }
-        }
-        if let ownership = services.pluginCatalog.languageSupport(for: document.url),
-           let moduleID = ownership.declaration.languageServerModuleID {
-            let support = ownership.declaration
-            // Static plugin metadata may exist before a native plugin is loaded.
-            // Only a registered and enabled module may enter LSP activation.
-            guard let snapshot = try? services.moduleRuntime.snapshot(for: moduleID),
-                  snapshot.state != .disabled else {
-                return false
-            }
-            let capabilityID = ModuleCapabilityID.languageServerExtension(support.id)
-            if services.moduleRuntime.capability(capabilityID) == nil {
-                Task { [weak self, weak document] in
-                    guard let self, let document else { return }
-                    do {
-                        await self.awaitModuleRuntimeShutdown()
-                        guard !Task.isCancelled, self.isCurrentWorkspace(identity),
-                              self.openDocuments.contains(where: { $0 === document }) else { return }
-                        _ = try await self.services.moduleRuntime.activateCapability(capabilityID)
-                        guard self.isCurrentWorkspace(identity), !Task.isCancelled,
-                              self.openDocuments.contains(where: { $0 === document }) else { return }
-                        _ = self.activateLanguageServerIfAvailable(for: document)
-                    } catch {
-                        // Only an activation that is still wanted may report a failure.
-                        guard self.isCurrentWorkspace(identity),
-                              self.openDocuments.contains(where: { $0 === document }) else { return }
-                        self.languageToolingFeature.markActivationFailed(
-                            providerID: descriptor.id,
-                            descriptor: descriptor,
-                            error: error
-                        )
-                    }
-                }
-                return false
-            }
-            if let provider = services.moduleRuntime.capability(capabilityID)
-                    as? any LanguageServerExtensionProviding,
-               provider.lifecycle.isRetired {
-                // The module is being stopped; its capability is still
-                // published until the stop completes.
-                return false
-            }
-            if let provider = services.moduleRuntime.capability(capabilityID)
-                    as? any LanguageServerExtensionProviding,
-               let sessions = languageToolingSessionsIfActive,
-               !sessions.registerLanguageServerExtension(provider, support: support) {
-                languageToolingFeature.markActivationFailed(
-                    providerID: descriptor.id,
-                    descriptor: descriptor,
-                    error: LanguageExtensionRegistrationError.invalidLanguageServerProvider(
-                        support.displayName
-                    )
-                )
-                return false
-            }
-            // A plugin enabled after launch registers its server after the
-            // startup probe ran, so probe it now instead of reporting the
-            // executable as missing before any check happened.
-            if let sessions = languageToolingSessionsIfActive,
-               let tools = languageServerToolsIfActive,
-               let registered = sessions.languageServerExtensionDescriptor(languageID: support.id),
-               tools.needsCandidateValidation(for: registered) {
-                Task { [weak self, weak document] in
-                    await tools.refreshCandidates(for: registered)
-                    guard let self, let document, self.isCurrentWorkspace(identity), !Task.isCancelled,
-                          self.openDocuments.contains(where: { $0 === document }) else { return }
-                    _ = self.activateLanguageServerIfAvailable(for: document)
-                }
-                return false
-            }
-            registerLanguageDependencySourceIfAvailable(support: support)
-        }
-        if let snapshot = try? services.moduleRuntime.snapshot(for: .languageIntelligence),
-           snapshot.state != .active,
-           snapshot.state != .idle {
-            Task { [weak self] in
-                guard let self else { return }
-                do {
-                    _ = try await self.languageIntelligenceModuleCoordinator.activate()
-                    guard self.isCurrentWorkspace(identity), !Task.isCancelled,
-                          self.openDocuments.contains(where: { $0 === document }) else { return }
-                    _ = self.activateLanguageServerIfAvailable(for: document)
-                } catch {
-                    guard self.isCurrentWorkspace(identity),
-                          self.openDocuments.contains(where: { $0 === document }) else { return }
-                    self.languageToolingFeature.markActivationFailed(
-                        providerID: descriptor.id,
-                        descriptor: descriptor,
-                        error: error
-                    )
-                }
-            }
-            return false
-        }
-        do {
-            guard let languageToolingSessions = languageToolingSessionsIfActive else { return false }
-            try languageToolingSessions.synchronizeLanguageServer(
-                for: document.url,
-                text: document.text,
-                rootURL: workspaceURL,
-                changes: document.takePendingLanguageServerChanges()
-            )
-            languageToolingFeature.markActivationSucceeded(providerID: descriptor.id)
-            if let moduleID = services.pluginCatalog.languageSupport(for: document.url)?
-                    .declaration.languageServerModuleID {
-                // A successful sync is the plugin LSP's latest activity. The
-                // idle policy can stop it after the user leaves the document
-                // untouched, while subsequent edits refresh this timestamp.
-                try? services.moduleRuntime.markIdle(moduleID)
-            }
-            return languageToolingSessions.activeLanguageServerIDs.contains(descriptor.id)
-        } catch {
-            languageToolingFeature.markActivationFailed(providerID: descriptor.id, descriptor: descriptor, error: error)
-            return false
-        }
-    }
-
     func commitStagedChanges() async {
         await commitWorkflow.commit()
     }
@@ -1549,7 +1420,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
                 capability: .aiPullRequestDescription
             )
         }
-        defer { try? services.moduleRuntime.markIdle(.aiAssistance) }
+        defer { do { try services.moduleRuntime.markIdle(.aiAssistance) } catch { services.logSink?.emit(AppModuleTransitionFailed(error: error, module: "ai-assistance", stage: "idle")) } }
         return try await capability.generatePullRequestDescription(
             input: input,
             settings: settings.commitMessageAI

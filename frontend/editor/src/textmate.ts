@@ -1,6 +1,6 @@
 /// <reference path="./monaco-tokenization-internals.d.ts" />
 import { applyStateStackDiff } from "vscode-textmate";
-import { createJavaGrammar, INITIAL, tokenRole } from "./textmate-grammar";
+import { createTextMateGrammar, INITIAL, tokenRole } from "./textmate-grammar";
 import { tokenizeLineWithinLimit } from "./textmate-line-limit";
 import { TokenizationRegistry, Token, TokenizationResult, EncodedTokenizationResult } from "monaco-editor/esm/vs/editor/common/languages.js";
 import { ContiguousMultilineTokensBuilder } from "monaco-editor/esm/vs/editor/common/tokens/contiguousMultilineTokensBuilder.js";
@@ -8,21 +8,33 @@ import { StandaloneServices } from "monaco-editor/esm/vs/editor/standalone/brows
 import { IStandaloneThemeService } from "monaco-editor/esm/vs/editor/standalone/common/standaloneTheme.js";
 import { ILanguageService } from "monaco-editor/esm/vs/editor/common/languages/language.js";
 
-export interface JavaTextMateResources {
+export interface TextMateResources {
   wasmURL?: string;
   grammarURL?: string;
   createWorker?: () => Worker;
 }
 
-export async function installJavaTextMate(resourcesConfig: JavaTextMateResources = {}) {
+export type JavaTextMateResources = TextMateResources;
+
+/** An ownership change during async preparation is not a tokenizer failure. */
+export class TextMateInstallationCancelled extends Error {}
+
+export function installJavaTextMate(resourcesConfig: JavaTextMateResources = {}) {
+  return installTextMate("java", "source.java", resourcesConfig);
+}
+
+/** A bundled grammar owns one registration and bounded background worker. */
+export async function installTextMate(language: string, scopeName: string, resourcesConfig: TextMateResources = {},
+  canRegister: () => boolean = () => true) {
   const resources = await Promise.all([fetch(resourcesConfig.wasmURL ?? "onig.wasm"),
-    fetch(resourcesConfig.grammarURL ?? "java.tmLanguage.json"),
+    fetch(resourcesConfig.grammarURL ?? `${language}.tmLanguage.json`),
     resourcesConfig.createWorker ? Promise.resolve(undefined) : fetch("textmate-worker.js")] as const);
-  if (resources.some(resource => resource && !resource.ok)) throw new Error("Java tokenizer resources are unavailable");
+  if (resources.some(resource => resource && !resource.ok)) throw new Error(`Tokenizer resources are unavailable: ${language}`);
   const [wasm, grammarText, workerSource] = await Promise.all([resources[0].arrayBuffer(), resources[1].text(), resources[2]?.text()]);
-  const { registry, grammar } = await createJavaGrammar(wasm, grammarText);
+  const { registry, grammar } = await createTextMateGrammar(wasm, grammarText, scopeName);
+  if (!canRegister()) { registry.dispose(); throw new TextMateInstallationCancelled(); }
   const theme = StandaloneServices.get(IStandaloneThemeService);
-  const languageID = StandaloneServices.get(ILanguageService).languageIdCodec.encodeLanguageId("java");
+  const languageID = StandaloneServices.get(ILanguageService).languageIdCodec.encodeLanguageId(language);
   let url: string | undefined;
   let worker: Worker;
   const revokeWorkerURL = () => { if (url) URL.revokeObjectURL(url); };
@@ -38,20 +50,26 @@ export async function installJavaTextMate(resourcesConfig: JavaTextMateResources
   let nextID = 0;
   let failure: Error | undefined;
   const ready = new Promise<void>((resolve, reject) => {
-    const deadline = setTimeout(() => reject(new Error("Java tokenizer worker startup timed out")), 10_000);
+    const deadline = setTimeout(() => reject(new Error(`Tokenizer worker startup timed out: ${language}`)), 10_000);
     worker.onmessage = ({ data }) => {
       if (data.type === "ready") { clearTimeout(deadline); resolve(); }
       else if (data.type === "error") { clearTimeout(deadline); reject(new Error(data.message)); }
     };
     worker.onerror = event => { clearTimeout(deadline); reject(new Error(event.message)); };
   });
-  worker.postMessage({ type: "init", wasm, grammar: grammarText });
+  worker.postMessage({ type: "init", wasm, grammar: grammarText, scopeName });
   try { await ready; } catch (error) { worker.terminate(); revokeWorkerURL(); registry.dispose(); throw error; }
+  // No await may separate the final ownership check from registration. A plugin
+  // can take this language while resource fetches or worker startup are pending.
+  if (!canRegister()) {
+    worker.terminate(); revokeWorkerURL(); registry.dispose();
+    throw new TextMateInstallationCancelled();
+  }
   function encoded(tokens: any[], length: number, endOffsets: boolean) {
     const data = new Uint32Array(tokens.length * 2);
     for (let i = 0; i < tokens.length; i++) {
       data[i * 2] = endOffsets ? Math.min(tokens[i].endIndex, length) : tokens[i].startIndex;
-      data[i * 2 + 1] = theme.getColorTheme().tokenTheme.match(languageID, tokenRole(tokens[i].scopes)) | 1024;
+      data[i * 2 + 1] = theme.getColorTheme().tokenTheme.match(languageID, tokenRole(tokens[i].scopes, language)) | 1024;
     }
     return data;
   }
@@ -62,7 +80,7 @@ export async function installJavaTextMate(resourcesConfig: JavaTextMateResources
     for (const binding of bindings.values()) for (const waiter of binding.waiters) waiter.reject(error);
     worker.terminate();
     // Recreate backends with Monaco’s bounded default background tokenizer.
-    TokenizationRegistry.handleChange(["java"]);
+    TokenizationRegistry.handleChange([language]);
   };
   worker.onerror = event => fail(new Error(event.message));
   worker.onmessage = ({ data }) => {
@@ -90,11 +108,11 @@ export async function installJavaTextMate(resourcesConfig: JavaTextMateResources
       for (const waiter of binding.waiters) waiter.resolve();
     }
   };
-  const registration = TokenizationRegistry.register("java", {
+  const registration = TokenizationRegistry.register(language, {
     getInitialState: () => INITIAL,
     tokenize(line: string, _hasEOL: boolean, state: any) {
       const result = tokenizeLineWithinLimit(grammar, line, state);
-      return new TokenizationResult(result.tokens.map(token => new Token(token.startIndex, tokenRole(token.scopes), "java")), result.ruleStack);
+      return new TokenizationResult(result.tokens.map(token => new Token(token.startIndex, tokenRole(token.scopes, language), language)), result.ruleStack);
     },
     tokenizeEncoded(line: string, _hasEOL: boolean, state: any) {
       const result = tokenizeLineWithinLimit(grammar, line, state);
@@ -130,7 +148,7 @@ export async function installJavaTextMate(resourcesConfig: JavaTextMateResources
       };
     },
   });
-  const themeChanges = theme.onDidColorThemeChange(() => TokenizationRegistry.handleChange(["java"]));
+  const themeChanges = theme.onDidColorThemeChange(() => TokenizationRegistry.handleChange([language]));
   return {
     // Event-based completion is useful for diagnostics and integration checks.
     // It has a local deadline even when a window is detached or hidden.

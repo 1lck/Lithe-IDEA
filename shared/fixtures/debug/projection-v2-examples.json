@@ -1,5 +1,5 @@
 {
-  "description": "Synthetic projection v2 inputs for review. accept entries must validate against debug-session-projection.draft.schema.json; reject entries must fail schema validation. Semantic rules (supported equals the conjunction, stale generations are dropped) belong to Core tests.",
+  "description": "Shared debug session projection v2 regression inputs for Rust Core and macOS decoding tests. accept entries must decode and round-trip unchanged in Core; reject entries must fail decoding or validation. Semantic rules (supported equals the conjunction, stale generations are dropped) belong to Core tests.",
   "accept": [
     {
       "name": "source frame and no-source assembly frame on one thread",

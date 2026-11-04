@@ -578,7 +578,9 @@ struct WorkbenchView: View {
                             occurrenceCount: notification.occurrenceCount,
                             showHistory: { isNotificationCenterPresented = true },
                             actionTitle: notification.action?.title,
-                            performAction: { model.performNotificationAction(notification.id) }) {
+                            performAction: { model.performNotificationAction(notification.id) },
+                            hasLogReference: notification.logReference != nil,
+                            showLog: { model.showNotificationLog(notification.id) }) {
                             model.dismissNotification(notification.id)
                         }
                         .onHover { model.setNotificationHovered(notification.id, isHovered: $0) }
@@ -1266,6 +1268,7 @@ struct WorkbenchView: View {
                     model.showSettings()
                 },
                 .action("Plugins…") { model.showSettings(category: .plugins) },
+                .action("Logs and Diagnostics…") { model.openLogs() },
                 .separator,
                 .action("Theme…") { model.showSettings(category: .general) },
                 .action("Keymap…") { model.showSettings(category: .keymap) }
@@ -1276,6 +1279,7 @@ struct WorkbenchView: View {
     private var activityBar: some View {
         VStack(spacing: 0) {
             dockStripe(DockPosition(anchor: .left, group: .primary))
+            WorkbenchToolWindowsMenu(model: model)
             Spacer(minLength: 0)
             dockStripe(DockPosition(anchor: .left, group: .secondary))
             dockStripe(DockPosition(anchor: .bottom, group: .primary))
@@ -1336,7 +1340,10 @@ struct WorkbenchView: View {
         .background(frameChromeBackground)
     }
 
-    private func contributionCustomizationItems(_ contribution: ModuleContribution) -> [LitheContextMenuItem] {
+    private func contributionCustomizationItems(
+        _ contribution: ModuleContribution,
+        dockMoveItems: [LitheContextMenuItem] = []
+    ) -> [LitheContextMenuItem] {
         let workbench = model.workbenchFeature
         let state = moduleUIRegistry.state(for: contribution, model: model)
         let hidden = workbench.contributionPreferences[contribution.id]?.isHidden == true
@@ -1349,17 +1356,22 @@ struct WorkbenchView: View {
                 workbench.customizeContribution(contribution.id, isHidden: true)
             }
         ]
+        var moveItems: [LitheContextMenuItem] = []
         if contribution.kind == .toolWindow {
-            items += [
+            moveItems += [
                 .action(L10n.string("Move to Left")) { workbench.customizeContribution(contribution.id, placement: .leftSidebar) },
                 .action(L10n.string("Move to Bottom")) { workbench.customizeContribution(contribution.id, placement: .activityBar) },
                 .action(L10n.string("Move to Right")) { workbench.customizeContribution(contribution.id, placement: .rightSidebar) }
             ]
         }
-        items += [
+        moveItems += [
             .action(L10n.string("Move Earlier")) { workbench.moveContribution(contribution.id, earlier: true) },
             .action(L10n.string("Move Later")) { workbench.moveContribution(contribution.id, earlier: false) }
         ]
+        if !dockMoveItems.isEmpty {
+            moveItems += [.separator] + dockMoveItems
+        }
+        items.append(.submenu(L10n.string("Move"), items: moveItems))
         return items
     }
 
@@ -1440,7 +1452,7 @@ struct WorkbenchView: View {
                         let editorItems: [LitheContextMenuItem] = renderer?.openInEditor.map { open in
                             [.action(L10n.string("Open in Editor")) { open(model) }, .separator]
                         } ?? []
-                        return editorItems + (entry.map { contributionCustomizationItems($0) } ?? []) + DockAnchor.allCases.flatMap { anchor in
+                        let dockMoveItems = DockAnchor.allCases.flatMap { anchor in
                             DockGroup.allCases.map { group in
                                 let destination = DockPosition(anchor: anchor, group: group)
                                 return LitheContextMenuItem.action(dockMoveTitle(destination), action: {
@@ -1448,6 +1460,9 @@ struct WorkbenchView: View {
                                 })
                             }
                         }
+                        return editorItems + (entry.map {
+                            contributionCustomizationItems($0, dockMoveItems: dockMoveItems)
+                        } ?? [.submenu(L10n.string("Move"), items: dockMoveItems)])
                     }
                     .accessibilityIdentifier("tool-window-" + tool.rawValue)
                 }
@@ -1819,18 +1834,21 @@ struct WorkbenchView: View {
                 .fixedSize()
                 .help("File encoding")
             }
-            Text("\(settings.tabWidth) spaces")
+            if let document = model.focusedEditorDocument ?? model.activeDocument {
+                EditorIndentationStatusLabel(document: document)
+            }
             Button {
                 model.saveActiveDocument()
             } label: {
                 Image(systemName: model.activeDocument?.isReadOnly == true ? "lock.fill" : "lock.open")
             }
-            .litheIconButton()
+            .litheStatusBarIconButton()
             .disabled(model.activeDocument?.isReadOnly == true)
             .help(LocalizedStringKey(
                 model.activeDocument?.isReadOnly == true ? "Read-only document" : "Save"
             ))
             ProjectPreparationStatusView(compact: true)
+            LanguageServerStatusView()
             MemoryUsageStatusView()
             FrameRateStatusView()
             gitStatus
@@ -1841,6 +1859,7 @@ struct WorkbenchView: View {
         HStack(spacing: 10) {
             EditorCaretPositionLabel(chrome: model.editorChrome) { model.showGoToLine() }
             ProjectPreparationStatusView(compact: true)
+            LanguageServerStatusView()
             MemoryUsageStatusView()
             FrameRateStatusView()
             gitStatus
@@ -1973,6 +1992,12 @@ private struct WorkbenchNotificationCenterView: View {
                                         .buttonStyle(.litheNoPress)
                                         .font(LitheTheme.uiFont(size: 12))
                                         .foregroundStyle(LitheTheme.accent)
+                                    }
+
+                                    if notification.logReference != nil {
+                                        Button("Show log") { model.showNotificationLog(notification.id) }
+                                            .buttonStyle(.litheNoPress)
+                                            .foregroundStyle(LitheTheme.accent)
                                     }
 
                                     Text(notification.updatedAt.formatted(date: .omitted, time: .shortened))

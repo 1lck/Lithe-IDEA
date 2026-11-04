@@ -43,6 +43,7 @@ extension AppModel {
         do {
             sessions = try await languageSessionsForWorkspaceMaintenance(for: identity)
         } catch {
+            if !(error is CancellationError) { services.logSink?.emit(AppCoreFallbackSelected(error: error, stage: "java-entrypoints")) }
             return (.failed(error.localizedDescription), nil)
         }
         guard isCurrentWorkspace(identity) else { return (.pending, nil) }
@@ -52,7 +53,8 @@ extension AppModel {
             // through `projectPreparation`, so the result here is not needed.
             Task { [weak self, sessions] in
                 guard self?.isCurrentWorkspace(identity) == true, !Task.isCancelled else { return }
-                _ = try? await sessions.javaEntrypoints(rootURL: identity.url)
+                do { _ = try await sessions.javaEntrypoints(rootURL: identity.url) }
+                catch { sessions.recordHostFailure(providerID: "java", stage: "entrypoint-warmup", error: error) }
             }
             return (.pending, sessions)
         }
@@ -64,6 +66,7 @@ extension AppModel {
         do {
             return (.discovered(try await sessions.javaEntrypoints(rootURL: identity.url)), sessions)
         } catch {
+            if !(error is CancellationError) { services.logSink?.emit(AppCoreFallbackSelected(error: error, stage: "java-entrypoints")) }
             return (.failed(error.localizedDescription), sessions)
         }
     }
@@ -135,12 +138,7 @@ extension AppModel {
         do {
             entrypoints = try await sessions.javaEntrypoints(rootURL: identity.url)
         } catch {
-            sessions.recordLanguageServerLog(
-                providerID: "java",
-                level: .warning,
-                message: L10n.string("Java entry-point freshness check failed"),
-                detail: error.localizedDescription
-            )
+            sessions.recordHostFailure(providerID: "java", stage: "entrypointFreshness", error: error)
             return
         }
         guard isCurrentWorkspace(identity) else { return }
@@ -170,6 +168,7 @@ extension AppModel {
                 rootURL: workspaceURL
             )
         } catch {
+            if !(error is CancellationError) { services.logSink?.emit(AppCoreFallbackSelected(error: error, stage: "java-entrypoints")) }
             return false
         }
         guard let entrypoints = try? await sessions.javaEntrypoints(rootURL: workspaceURL) else {

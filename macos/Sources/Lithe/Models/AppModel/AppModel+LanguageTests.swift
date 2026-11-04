@@ -55,11 +55,12 @@ extension AppModel {
                     operationID: operationID
                 )
                 execution.tests.replaceDiscoveredItems(projected, providerID: "java")
+            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
             } catch is CancellationError {
                 return
             } catch {
                 guard isCurrentLanguageTestDiscovery(operationID) else { return }
-                showNotification(error.localizedDescription)
+                showNotification(error.localizedDescription, logReference: notificationFailure(error, operation: "language_tests"))
             }
         }
     }
@@ -103,7 +104,7 @@ extension AppModel {
         activeTestTarget = ActiveTestTarget(providerID: providerID, scope: scope)
         switch javaTestWorkflowState.resolveDebugRequest(providerID: providerID, scope: scope) {
         case .rejected(let message):
-            showNotification(message)
+            showNotification(message, logReference: notificationRejection(operation: "test_debug", reason: "request_rejected"))
             return
         case .resolved(let request):
             startJavaTestDebug(request: request, workspaceURL: workspaceURL)

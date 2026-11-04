@@ -1,6 +1,7 @@
 import SwiftUI
 import LitheAgentConversationModule
 import LitheCoreContracts
+import LitheModuleAPI
 
 enum AgentHistoryFilter: String, CaseIterable {
     case all, favorites, removed
@@ -10,6 +11,42 @@ enum AgentHistoryFilter: String, CaseIterable {
         case .all: "All conversations"
         case .favorites: "Pinned"
         case .removed: "Removed conversations"
+        }
+    }
+}
+
+/// A presentation-only filter; upstream continues to list the complete account/workspace history.
+enum AgentHistoryProviderFilter: Hashable {
+    case all, unknown, provider(String)
+
+    var title: String {
+        switch self {
+        case .all: L10n.string("All providers")
+        case .unknown: L10n.string("Unknown provider")
+        case .provider(let id): id
+        }
+    }
+
+    func matches(_ session: AgentSessionSummary) -> Bool {
+        switch self {
+        case .all: true
+        case .unknown: session.modelProvider == nil
+        case .provider(let id): session.modelProvider == id
+        }
+    }
+
+    static func options(_ sessions: [AgentSessionSummary]) -> [Self] {
+        let providers = Set(sessions.compactMap(\.modelProvider)).sorted().map(Self.provider)
+        return [.all] + providers + (sessions.contains { $0.modelProvider == nil } ? [.unknown] : [])
+    }
+
+    static func menuItems(_ sessions: [AgentSessionSummary], selected: Self,
+                          onSelect: @escaping (Self) -> Void) -> [LitheContextMenuItem] {
+        var values = options(sessions)
+        // Partial refreshes must not remove the user's current filter control.
+        if !values.contains(selected) { values.append(selected) }
+        return values.map { value in
+            .action(value.title, localizesTitle: false, checked: value == selected) { onSelect(value) }
         }
     }
 }
@@ -74,11 +111,18 @@ enum AgentHistoryListItem: Identifiable, Equatable {
 enum AgentHistoryPresentation {
     enum EmptyState { case loading, incomplete, noMatches, noHistory }
 
+    /// Automatic expansion is only a default; the user's disclosure choice wins.
+    static func isArchiveExpanded(explicit: Bool?, isSearching: Bool,
+                                  provider: AgentHistoryProviderFilter, hasMatches: Bool) -> Bool {
+        explicit ?? ((isSearching || provider != .all) && hasMatches)
+    }
+
     /// A partial upstream scan cannot establish that history or a search is empty.
-    static func emptyState(isRefreshing: Bool, query: String, isArchivedHistoryComplete: Bool) -> EmptyState {
+    static func emptyState(isRefreshing: Bool, query: String, isArchivedHistoryComplete: Bool,
+                           hasProviderFilter: Bool = false) -> EmptyState {
         if isRefreshing { return .loading }
         if !isArchivedHistoryComplete { return .incomplete }
-        return query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .noHistory : .noMatches
+        return !hasProviderFilter && query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .noHistory : .noMatches
     }
 
     static func popupTitle(_ session: AgentSessionSummary, metadata: AgentHistoryMetadata?,
@@ -116,9 +160,11 @@ enum AgentHistoryPresentation {
     }
 
     static func sessions(_ sessions: [AgentSessionSummary], metadata: [String: AgentHistoryMetadata],
-                         query: String, filter: AgentHistoryFilter) -> [AgentSessionSummary] {
+                         query: String, filter: AgentHistoryFilter,
+                         provider: AgentHistoryProviderFilter = .all) -> [AgentSessionSummary] {
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
         return sessions.filter { session in
+            guard provider.matches(session) else { return false }
             let entry = metadata[session.id] ?? AgentHistoryMetadata()
             guard entry.isHidden == (filter == .removed), filter != .favorites || entry.isFavorite else { return false }
             let title = entry.title ?? session.title ?? ""
@@ -158,7 +204,8 @@ enum AgentHistoryPresentation {
     static func managementSessions(_ sessions: [AgentSessionSummary], openSessionIDs: [String],
                                    conversations: [String: AgentConversation], archivedSessionIDs: Set<String> = [],
                                    metadata: [String: AgentHistoryMetadata],
-                                   query: String, filter: AgentHistoryFilter, locale: Locale = .current) -> [AgentSessionSummary] {
+                                   query: String, filter: AgentHistoryFilter, locale: Locale = .current,
+                                   provider: AgentHistoryProviderFilter = .all) -> [AgentSessionSummary] {
         // One O(n) pass builds the rows and `sessions` sorts them once: O(n log n).
         // The final order is by activity date, so pre-sorting here was redundant.
         let activeSessions = sessions.filter { !archivedSessionIDs.contains($0.id) }
@@ -173,7 +220,7 @@ enum AgentHistoryPresentation {
             row.title = popupTitle(row, metadata: metadata[session.id], conversation: conversations[session.id], locale: locale)
             return row
         }
-        return Self.sessions(rows, metadata: metadata, query: query, filter: filter)
+        return Self.sessions(rows, metadata: metadata, query: query, filter: filter, provider: provider)
     }
 
     /// Value-type styles: creating an `ISO8601DateFormatter` per call made
@@ -243,6 +290,7 @@ final class AgentHistoryRowsCache {
         let conversationTitles: [String: String]
         let query: String
         let filter: AgentHistoryFilter
+        var provider: AgentHistoryProviderFilter = .all
         let localeIdentifier: String
     }
 
@@ -336,6 +384,7 @@ struct AgentHistoryView: View {
     @State private var historyListActive = false
     @State private var query = ""
     @State private var filter = AgentHistoryFilter.all
+    @State private var providerFilter = AgentHistoryProviderFilter.all
     @State private var isSelecting = false
     @State private var selectedIDs: Set<String> = []
     @State private var editingID: String?
@@ -354,18 +403,23 @@ struct AgentHistoryView: View {
         let key = AgentHistoryRowsCache.Key(
             sessions: feature.sessions, openSessionIDs: feature.openSessionIDs, archivedSessionIDs: archivedIDs,
             metadata: history.metadata, conversationTitles: feature.conversations.mapValues(AgentHistoryPresentation.titleKey),
-            query: query, filter: filter, localeIdentifier: locale.identifier)
+            query: query, filter: filter, provider: providerFilter, localeIdentifier: locale.identifier)
         return rowsCache.rows(for: key) {
             AgentHistoryPresentation.managementSessions(feature.sessions, openSessionIDs: feature.openSessionIDs,
                 conversations: feature.conversations, archivedSessionIDs: archivedIDs,
-                metadata: history.metadata, query: query, filter: filter, locale: locale)
+                metadata: history.metadata, query: query, filter: filter, locale: locale, provider: providerFilter)
         }
     }
     /// Searched and filtered like active rows; local restoration never loads a transcript.
     private var archived: [AgentSessionSummary] {
-        AgentHistoryPresentation.sessions(feature.archivedSessions, metadata: history.metadata, query: query, filter: filter)
+        AgentHistoryPresentation.sessions(feature.archivedSessions, metadata: history.metadata,
+            query: query, filter: filter, provider: providerFilter)
     }
     private var isSearching: Bool { !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    private var isArchivedExpanded: Bool {
+        AgentHistoryPresentation.isArchiveExpanded(explicit: archivedExpansion,
+            isSearching: isSearching, provider: providerFilter, hasMatches: !archived.isEmpty)
+    }
 
     var body: some View {
         // Sorting and filtering run once per evaluation, not once per use.
@@ -384,7 +438,7 @@ struct AgentHistoryView: View {
                 .accessibilityIdentifier("agent-history-back")
             }
             divider
-            toolbar(count: rows.count, visible: rowIDs)
+            toolbar(count: rows.count + archivedRows.count, visible: rowIDs)
             divider
             if let error = history.errorMessage ?? feature.historyError ?? feature.archivedHistoryError {
                 AgentInlineNotice(text: error, status: .error)
@@ -419,6 +473,8 @@ struct AgentHistoryView: View {
         .onAppear { feature.refreshSessionsIfNeeded() }
         .onChange(of: rowIDs) { selectedIDs.formIntersection($0) }
         .onChange(of: query) { _ in archivedExpansion = nil }
+        .onChange(of: ObjectIdentifier(feature)) { _ in resetProviderFilter() }
+        .onChange(of: feature.accountDirectory) { _ in resetProviderFilter() }
         .alert("Confirm deletion", isPresented: Binding(
             get: { pendingRemovalIDs != nil },
             set: { if !$0 { pendingRemovalIDs = nil } }
@@ -471,9 +527,9 @@ struct AgentHistoryView: View {
             }
             if isSelecting {
                 HStack(spacing: 8) {
-                    Button(selected.count == count && count > 0 ? "Deselect all" : "Select all") {
-                        selectedIDs = selected.count == count ? [] : Set(visible)
-                    }.disabled(count == 0)
+                    Button(selected.count == visible.count && !visible.isEmpty ? "Deselect all" : "Select all") {
+                        selectedIDs = selected.count == visible.count ? [] : Set(visible)
+                    }.disabled(visible.isEmpty)
                     Spacer(minLength: 0)
                     LitheMenu {
                         LitheContextMenuItem.action("Export conversations") { history.export(selected) }
@@ -543,19 +599,41 @@ struct AgentHistoryView: View {
                 for mode in AgentHistoryFilter.allCases {
                     LitheContextMenuItem.action(mode.menuTitle, checked: mode == filter) { filter = mode }
                 }
+                LitheContextMenuItem.separator
+                LitheContextMenuItem.submenu("Conversation provider", items: providerItems)
             } label: {
-                LitheSystemIcon(systemImage: filter == .favorites ? "pin.fill" : "line.3.horizontal.decrease", size: LitheTheme.Metrics.toolbarIconSize)
+                HStack(spacing: LitheTheme.Banner.gap) {
+                    LitheSystemIcon(systemImage: filter == .favorites ? "pin.fill" : "line.3.horizontal.decrease", size: LitheTheme.Metrics.toolbarIconSize)
+                    if providerFilter != .all {
+                        Text(verbatim: providerFilter.title).font(LitheTheme.uiFont(size: 11)).lineLimit(1)
+                    }
+                }
             }
-            .litheToolbarIconButton()
+            .litheToolbarIconButton(isIconOnly: providerFilter == .all)
                 .help(filter.title)
                 .accessibilityIdentifier("agent-history-filter")
         }.foregroundStyle(AgentPanelStyle.secondary)
     }
 
+    private var providerItems: [LitheContextMenuItem] {
+        AgentHistoryProviderFilter.menuItems(feature.sessions + feature.archivedSessions, selected: providerFilter) { option in
+            providerFilter = option
+            selectedIDs = []
+            archivedExpansion = nil
+        }
+    }
+
+    private func resetProviderFilter() {
+        providerFilter = .all
+        selectedIDs = []
+        archivedExpansion = nil
+    }
+
     @ViewBuilder private var emptyState: some View {
         switch AgentHistoryPresentation.emptyState(
             isRefreshing: feature.isRefreshingSessions || feature.isRefreshingArchivedSessions,
-            query: query, isArchivedHistoryComplete: feature.isArchivedHistoryComplete
+            query: query, isArchivedHistoryComplete: feature.isArchivedHistoryComplete,
+            hasProviderFilter: providerFilter != .all
         ) {
         case .incomplete:
             Spacer(minLength: 0)
@@ -563,7 +641,7 @@ struct AgentHistoryView: View {
             AgentEmptyStateView(systemImage: "clock", title: "Loading history…", message: "", isBusy: true)
         case .noMatches:
             AgentEmptyStateView(systemImage: "magnifyingglass", title: "No matching conversations",
-                               message: AgentLocalization.string("Try another title or session ID.", locale: locale))
+                               message: AgentLocalization.string("Try another search or provider filter.", locale: locale))
         case .noHistory:
             AgentEmptyStateView(systemImage: "clock.arrow.circlepath", title: "No earlier conversations",
                                message: AgentLocalization.string("Conversations for this project and Agent appear here.", locale: locale))
@@ -594,7 +672,7 @@ struct AgentHistoryView: View {
         }
         return AgentHistoryList(
                 items: built.items, archived: built.archived, revision: built.revision,
-                isArchivedExpanded: archivedExpansion ?? (isSearching && !archivedRows.isEmpty),
+                isArchivedExpanded: isArchivedExpanded,
                 isArchivedBusy: feature.isRefreshingArchivedSessions || feature.unarchivingSessionID != nil,
                 isRemovedFilter: filter == .removed, isSelecting: isSelecting, selectedIDs: selectedIDs,
                 editingID: editingID, editingText: editingTitle, editingTitle: $editingTitle,
@@ -653,7 +731,7 @@ struct AgentHistoryView: View {
                 else { pendingRemovalIDs = [id] }
             },
             restoreArchived: { history.setHidden([$0], false) },
-            toggleArchived: { archivedExpansion = !(archivedExpansion ?? (isSearching && !archived.isEmpty)) })
+            toggleArchived: { archivedExpansion = !isArchivedExpanded })
     }
 
     private var divider: some View { Rectangle().fill(AgentPanelStyle.border).frame(height: 1) }

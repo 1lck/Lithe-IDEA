@@ -1,3 +1,4 @@
+import LitheGitTestSupport
 import AppKit
 import Combine
 import CoreServices
@@ -1425,8 +1426,9 @@ struct LitheCoreLogicTests {
                 isDirectory: false
             )
         )
+        // Run configurations are edited through the run configuration editor.
         #expect(
-            !rules.isHidden(
+            rules.isHidden(
                 root.appendingPathComponent(".lithe/run/configurations.json"),
                 relativeTo: root,
                 isDirectory: false
@@ -1468,10 +1470,13 @@ struct LitheCoreLogicTests {
         #expect(rules.isHiddenPath(workspace.appendingPathComponent(".lithe/project.json"), relativeTo: workspace))
         #expect(rules.isWatchedDespiteHiding(workspace.appendingPathComponent(".lithe"), relativeTo: workspace))
         #expect(!rules.isWatchedDespiteHiding(workspace.appendingPathComponent("src/App.java"), relativeTo: workspace))
-        #expect(!FileVisibilityRules.default.isHiddenPath(workspace.appendingPathComponent(".lithe"), relativeTo: workspace))
+        #expect(FileVisibilityRules.default.isHidden(workspace.appendingPathComponent(".lithe"), relativeTo: workspace, isDirectory: true))
+        // Turning the built-in off shows the folder again.
+        let shown = FileVisibilityRules(hiddenDirectoryNames: [], hiddenFilePatterns: ["!.lithe/**"])
+        #expect(!shown.isHidden(workspace.appendingPathComponent(".lithe/project.json"), relativeTo: workspace, isDirectory: false))
 
-        // By default `.lithe` follows the ordinary visibility logic (shown in the
-        // tree) and is watched; every way of hiding it only changes the display.
+        // By default `.lithe` is hidden from the tree yet watched; every way of
+        // hiding it only changes the display.
         let variants: [FileVisibilityRules] = [
             .default,
             FileVisibilityRules(hiddenDirectoryNames: [".lithe"], hiddenFilePatterns: []),
@@ -1491,7 +1496,7 @@ struct LitheCoreLogicTests {
             )
             #expect(variantBatch.workspacePaths == rootConfiguration.sorted(), "\(variant)")
         }
-        #expect(!FileVisibilityRules.default.isHiddenPath(workspace.appendingPathComponent(".lithe/project.json"), relativeTo: workspace))
+        #expect(FileVisibilityRules.default.isHiddenPath(workspace.appendingPathComponent(".lithe/project.json"), relativeTo: workspace))
     }
 
     @Test
@@ -1529,13 +1534,14 @@ struct LitheCoreLogicTests {
         // Matching ignores case.
         #expect(hidden("Modules/A/DIST", ["**/dist/"], isDirectory: true))
         // A plain name or a glob without a folder suffix stays a file pattern.
-        #expect(hidden(".lithe", [".lithe"], isDirectory: false))
-        #expect(!hidden(".lithe", [".lithe"], isDirectory: true))
-        #expect(!hidden(".lithe/dependencies/index.json", [".lithe"], isDirectory: false))
+        // `!.lithe/**` takes the built-in configuration folder rule off.
+        #expect(hidden(".lithe", [".lithe", "!.lithe/**"], isDirectory: false))
+        #expect(!hidden(".lithe", [".lithe", "!.lithe/**"], isDirectory: true))
+        #expect(!hidden(".lithe/dependencies/index.json", [".lithe", "!.lithe/**"], isDirectory: false))
         #expect(hidden("src/Name.log", ["*.log"], isDirectory: false))
         #expect(!hidden("src/Name.log", ["*.log"], isDirectory: true))
-        // The default rules leave `.lithe` visible.
-        #expect(!FileVisibilityRules.default.isHidden(root.appendingPathComponent(".lithe"), relativeTo: root, isDirectory: true))
+        // The default rules hide `.lithe` like IDEA's `.idea`.
+        #expect(FileVisibilityRules.default.isHidden(root.appendingPathComponent(".lithe"), relativeTo: root, isDirectory: true))
     }
 
     @Test
@@ -1875,7 +1881,7 @@ struct LitheCoreLogicTests {
     }
 
     @Test
-    func markdownPreviewResourcesAreBundledAndPlantUMLFree() throws {
+    func markdownPreviewResourcesAreBundledAndOffline() throws {
         let templateURL = try #require(MarkdownPreviewResources.templateURL)
         let directoryURL = try #require(MarkdownPreviewResources.directoryURL)
         #expect(FileManager.default.fileExists(atPath: templateURL.path))
@@ -1888,8 +1894,9 @@ struct LitheCoreLogicTests {
             contentsOf: directoryURL.appendingPathComponent("preview.js"),
             encoding: .utf8
         )
-        #expect(!template.lowercased().contains("plantuml"))
-        #expect(!runtime.lowercased().contains("plantuml"))
+        #expect(FileManager.default.fileExists(atPath: directoryURL.appendingPathComponent("plantuml.html").path))
+        #expect(FileManager.default.fileExists(atPath: directoryURL.appendingPathComponent("vendor/plantuml/plantuml.js").path))
+        #expect(runtime.contains("markdownPlantUML"))
         #expect(!template.contains("script src=\"http"))
         #expect(template.contains("connect-src 'none'"))
     }
@@ -3104,7 +3111,7 @@ struct EditorDocumentTests {
 
         await model.markDirectory(
             workspace.appendingPathComponent("assets", isDirectory: true),
-            as: .resources
+            action: .setRole(.resources)
         )
 
         #expect(model.directoryMarks["assets"] == .resources)
@@ -3141,7 +3148,7 @@ struct EditorDocumentTests {
         let saveTask = Task {
             await model.markDirectory(
                 firstWorkspace.appendingPathComponent("assets", isDirectory: true),
-                as: .resources
+                action: .setRole(.resources)
             )
         }
 
@@ -3179,14 +3186,14 @@ struct EditorDocumentTests {
         let firstSave = Task {
             await model.markDirectory(
                 workspace.appendingPathComponent("Sources", isDirectory: true),
-                as: .sources
+                action: .setRole(.sources)
             )
         }
         #expect(await saveStarted.waitUntilOpen(timeout: .seconds(5)))
         let secondSave = Task {
             await model.markDirectory(
                 workspace.appendingPathComponent("assets", isDirectory: true),
-                as: .resources
+                action: .setRole(.resources)
             )
         }
 
@@ -3225,6 +3232,41 @@ struct EditorDocumentTests {
         ]
         #expect(model.directoryMarks == expected)
         #expect(markStore.savedMarks == expected)
+    }
+
+    @Test(arguments: [false, true])
+    @MainActor
+    func excludedItemsRelocateHistoryWithoutIndexCandidates(isDirectory: Bool) async throws {
+        let workspace = FileManager.default.temporaryDirectory
+            .appendingPathComponent("excluded-history-\(UUID().uuidString)").standardizedFileURL
+        try FileManager.default.createDirectory(at: workspace.appendingPathComponent("archive"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: workspace) }
+        try Data("retained history".utf8).write(to: workspace.appendingPathComponent("archive/note.txt"))
+        let target = workspace.appendingPathComponent("dest")
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+        let source = workspace.appendingPathComponent(isDirectory ? "archive" : "archive/note.txt")
+        let destination = source.deletingLastPathComponent().appendingPathComponent("renamed")
+        var relocations: [(URL, URL)] = []
+        let model = makeWorkspaceObservationUnitModel(
+            fileOperations: MacWorkspaceFileOperations(), provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: TestDirectoryWatcherFactory(), refreshGit: {},
+            relocateHistory: { relocations.append(($0, $1)) },
+            directoryMarkStore: RecordingWorkspaceDirectoryMarkStore(initial: ["archive": .excluded])
+        )
+        defer { model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        #expect(model.projectFiles.isEmpty)
+        model.requestRenameProjectItem(at: source)
+        await model.performProjectItemEdit(named: "renamed")
+        #expect(relocations.map { $0.0.standardizedFileURL.path } == [source.path])
+        #expect(relocations.map { $0.1.standardizedFileURL.path } == [destination.path])
+        await model.moveProjectItems([destination], to: target)
+        let moved = target.appendingPathComponent("renamed")
+        #expect(relocations.map { $0.0.standardizedFileURL.path } == [source.path, destination.path])
+        #expect(relocations.map { $0.1.standardizedFileURL.path } == [destination.path, moved.path])
+        let movedFile = isDirectory ? moved.appendingPathComponent("note.txt") : moved
+        #expect(try String(contentsOf: movedFile, encoding: .utf8) == "retained history")
+        #expect(model.projectFiles.isEmpty, "history migration must not repopulate index candidates")
     }
 
     @Test
@@ -4158,6 +4200,24 @@ struct EditorDocumentTests {
         )
 
         #expect(configuration.physicalRoots.map(\.path) == [repository.path, commonDirectory.path])
+    }
+
+    @Test
+    func hiddenAndAncestorGitIgnoreRulesKeepTheirSignalInMixedBatches() {
+        let repository = URL(fileURLWithPath: "/tmp/lithe-mixed-ignore-rules")
+        let workspace = repository.appendingPathComponent("app")
+        let git = repository.appendingPathComponent(".git")
+        let configuration = DirectoryWatchConfiguration(workspaceRoot: workspace,
+            gitContext: GitWatchContext(repositoryRoot: repository, gitDirectory: git, gitCommonDirectory: git))
+        let rules = FileVisibilityRules(hiddenDirectoryNames: [], hiddenFilePatterns: [".gitignore"])
+        let watcher = MacDirectoryWatcher(configuration: configuration, visibilityRules: rules) { _ in }
+        let visible = workspace.appendingPathComponent("Keep.java").path
+        for ignore in [workspace.appendingPathComponent(".gitignore"), repository.appendingPathComponent(".gitignore")] {
+            let batch = watcher.classify(paths: [ignore.path, visible], eventFlags: [0, 0])
+            #expect(batch.workspacePaths == [visible])
+            #expect(batch.gitStateMayHaveChanged)
+            #expect(batch.gitMetadataMayHaveChanged)
+        }
     }
 
     @Test
@@ -6396,6 +6456,7 @@ private func makeWorkspaceObservationUnitModel(
     notifyWorkspaceFileChanges: @escaping @MainActor ([WorkspaceFileChange]) -> Void = { _ in },
     reloadProjectServices: @escaping @MainActor () async -> Void = {},
     recordHistory: @escaping @MainActor (URL, LocalHistoryReason) async -> Void = { _, _ in },
+    relocateHistory: @escaping @MainActor (URL, URL) async -> Void = { _, _ in },
     directoryMarkStore: any WorkspaceDirectoryMarkStoring = EmptyWorkspaceDirectoryMarkStore(),
     observationDelay: (@Sendable (Duration) async throws -> Void)? = nil,
     documentsProvider: @escaping @MainActor @Sendable () -> [EditorDocument] = { [] },
@@ -6421,7 +6482,7 @@ private func makeWorkspaceObservationUnitModel(
         openFile: { _ in },
         notify: notify,
         recordHistory: recordHistory,
-        relocateHistory: { _, _ in },
+        relocateHistory: relocateHistory,
         relocateOpenDocuments: { _, _ in },
         closeDocuments: closeDocuments,
         processExternalChanges: processExternalChanges,

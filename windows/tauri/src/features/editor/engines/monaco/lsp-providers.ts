@@ -25,6 +25,8 @@ import {
 import { flushLspDocumentChanges } from "@/features/editor/lsp/pending-document-changes";
 import { useLspStore } from "@/features/editor/lsp/stores/lsp.store";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
+import { diagnosticsForCodeActionMarker } from "./code-action-diagnostics";
+import { useDiagnosticsStore } from "@/features/diagnostics/stores/diagnostics.store";
 import {
   collectWorkspaceTextEdits,
   filePathFromUri,
@@ -504,31 +506,26 @@ export function registerMonacoLspProviders() {
       if (!target) return { actions: [], dispose: () => {} };
 
       const actions: Monaco.languages.CodeAction[] = [];
+      const diagnostics = useDiagnosticsStore.getState().actions.getDiagnosticsForFile(target.filePath);
       for (const marker of context.markers.slice(0, 3)) {
-        const diagnostic = {
-          severity: marker.severity === 8 ? "error" : marker.severity === 4 ? "warning" : "info",
-          filePath: target.filePath,
-          line: marker.startLineNumber - 1,
-          column: marker.startColumn - 1,
-          endLine: marker.endLineNumber - 1,
-          endColumn: marker.endColumn - 1,
-          message: marker.message,
-          source: marker.source,
-          code: typeof marker.code === "string" ? marker.code : undefined,
-        } as const;
-        const lspActions = await lspClient.getCodeActions(target, diagnostic);
-        for (const action of lspActions) {
-          if (action.disabledReason) continue;
-          const edit = toWorkspaceEdit(getPayloadEdit(action.payload));
-          if (!edit) continue;
-          actions.push({
-            title: action.title,
-            kind: codeActionKind(action.kind),
-            diagnostics: [marker],
-            isPreferred: action.isPreferred,
-            edit,
-          });
+        // Monaco markers are a visual projection (including a minimum underline
+        // width). Recover their owning diagnostic instead of reconstructing LSP data.
+        for (const diagnostic of diagnosticsForCodeActionMarker(diagnostics, marker)) {
+          const lspActions = await lspClient.getCodeActions(target, diagnostic);
+          for (const action of lspActions) {
+            if (action.disabledReason) continue;
+            const edit = toWorkspaceEdit(getPayloadEdit(action.payload));
+            if (!edit) continue;
+            actions.push({
+              title: action.title,
+              kind: codeActionKind(action.kind),
+              diagnostics: [marker],
+              isPreferred: action.isPreferred,
+              edit,
+            });
+          }
         }
+
       }
 
       return { actions, dispose: () => {} };

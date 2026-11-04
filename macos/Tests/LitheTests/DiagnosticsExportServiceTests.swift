@@ -1,4 +1,5 @@
 import Foundation
+import LitheModuleAPI
 import Testing
 @testable import Lithe
 
@@ -48,6 +49,7 @@ private final class InMemoryDiagnosticsFileStorage: FileStorage, @unchecked Send
     /// Invoked at the top of `readData` (on the caller's thread) so a test can
     /// pause the detached staging task and interleave a `cancel()`.
     var beforeReadData: (@Sendable () -> Void)?
+    var beforeCreateDirectory: (@Sendable () -> Void)?
 
     func seed(_ data: Data, at url: URL) {
         lock.lock()
@@ -117,6 +119,7 @@ private final class InMemoryDiagnosticsFileStorage: FileStorage, @unchecked Send
     }
 
     func createDirectory(at url: URL, withIntermediateDirectories: Bool) throws {
+        beforeCreateDirectory?()
         lock.lock()
         directories.insert(url.path)
         lock.unlock()
@@ -154,7 +157,7 @@ struct DiagnosticsExportServiceTests {
     }
 
     @Test
-    func prepareStagesRedactedLogAndAwaitsConfirmation() async {
+    func prepareIgnoresV1LogAndAwaitsConfirmation() async {
         // `swift test` does not force-load the Rust Core static library by
         // default (see scripts/macos/test/test-macos.sh); skip gracefully rather than
         // asserting on the "unavailable" failure path, mirroring
@@ -186,9 +189,10 @@ struct DiagnosticsExportServiceTests {
             Issue.record("Expected awaitingConfirmation after prepare(), got \(service.state)")
             return
         }
-        #expect(manifest.files.map(\.relativePath).sorted() == ["environment.json", "lithe.log"])
+        #expect(manifest.files.map(\.relativePath).sorted() == ["environment.json"])
         #expect(manifest.environment.appVersion == "1.2.3")
         #expect(manifest.environment.cpuCoreCount == 8)
+        service.cancel()
     }
 
     @Test
@@ -284,10 +288,12 @@ struct DiagnosticsExportServiceTests {
         let logDirectoryProviding = makeLogDirectoryProviding()
         storage.seed(Data("token=secret\n".utf8), at: logDirectoryProviding.applicationLogFileURL)
 
-        // Gate the log read so prepare() is provably mid-flight when we cancel.
+        // Gate staging creation so prepare() is provably mid-flight when we cancel.
         let readEntered = DispatchSemaphore(value: 0)
         let readRelease = DispatchSemaphore(value: 0)
-        storage.beforeReadData = {
+        storage.beforeCreateDirectory = {
+            // Gate only the first staging creation; child directories are ordinary I/O.
+            storage.beforeCreateDirectory = nil
             readEntered.signal()
             // Bounded so a missed handshake fails fast instead of hanging CI;
             // the happy path releases within milliseconds.
@@ -303,6 +309,7 @@ struct DiagnosticsExportServiceTests {
         )
 
         let prepareTask = Task { await service.prepare() }
+        defer { readRelease.signal(); prepareTask.cancel() }
         // Wait off the main actor (bounded) so prepare() and its detached task
         // can run, then assert the read was actually reached before cancelling.
         let entered: DispatchTimeoutResult = await withCheckedContinuation { continuation in
@@ -332,7 +339,6 @@ struct DiagnosticsExportServiceTests {
 }
 
 private struct SelectedDirectoryLogCollector: ApplicationLogging {
-    func record(level: String, scope: String, message: String, fields: [String: String]) {}
     func configureDiagnostic(category: String?, enabled: Bool) async {}
     func clear() async throws {}
     func collect(query: ApplicationLogQuery) async throws -> ApplicationLogCollection {
@@ -358,5 +364,58 @@ extension DiagnosticsExportServiceTests {
         #expect(manifest.files.contains { $0.relativePath == "logs/language/session.log" })
         #expect(!manifest.files.contains { $0.relativePath == "lithe.log" })
         service.cancel()
+    }
+}
+
+extension DiagnosticsExportServiceTests {
+    @Test func environmentSummaryIsOptionalValidJSONAndManifestKeepsCoreProvenance() async throws {
+        let storage = InMemoryDiagnosticsFileStorage()
+        let service = DiagnosticsExportService(logDirectoryProviding: makeLogDirectoryProviding(), fileStorage: storage,
+            systemDiagnostics: StubSystemDiagnosticsProvider(), archiver: RecordingArchiver(), core: RustCoreBridge())
+        defer { service.cancel() }
+        await service.prepare(includeEnvironment: true, environment: .init(appVersion: "1.2.3", osVersion: "fixture",
+            architecture: "arm64", plugins: ["fixture-plugin"]))
+        guard case .awaitingConfirmation(let manifest) = service.state else { Issue.record("No prepared bundle"); return }
+        #expect(manifest.redaction == "core-v2")
+        let path = try #require(storage.allFilePaths.first { $0.hasSuffix("/environment.json") })
+        let data = try storage.readData(from: URL(fileURLWithPath: path))
+        let summary = try JSONDecoder().decode(RustCoreBridge.LogEnvironment.self, from: data)
+        #expect(summary.architecture == "arm64" && summary.plugins == ["fixture-plugin"])
+        await service.prepare(includeEnvironment: false)
+        guard case .awaitingConfirmation(let withoutEnvironment) = service.state else { Issue.record("No second bundle"); return }
+        #expect(!withoutEnvironment.files.contains { $0.relativePath == "environment.json" })
+    }
+}
+
+
+private struct FailedCrashDirectory: CrashReportCollecting {
+    let directory: URL
+    let sink: any LogSink
+    func collect(since: Date, until: Date) throws -> DiagnosticCrashReports {
+        try MacCrashReportCollector(directory: directory, processName: "Fixture", bundleID: "fixture.app", sink: sink)
+            .collect(since: since, until: until)
+    }
+}
+
+extension DiagnosticsExportServiceTests {
+    @Test func crashDirectoryFailureIsFrozenIntoStatusWithoutFailingExport() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let blocked = root.appendingPathComponent("not-a-directory")
+        try Data().write(to: blocked)
+        let storage = InMemoryDiagnosticsFileStorage()
+        let sink = TypedLogRecorder()
+        let service = DiagnosticsExportService(logDirectoryProviding: makeLogDirectoryProviding(), fileStorage: storage,
+            systemDiagnostics: StubSystemDiagnosticsProvider(), archiver: RecordingArchiver(), core: RustCoreBridge(),
+            crashReports: FailedCrashDirectory(directory: blocked, sink: sink), sink: sink)
+        defer { service.cancel() }
+        await service.prepare(includeEnvironment: false, includeCrashes: true)
+        guard case .awaitingConfirmation(let manifest) = service.state else { Issue.record("Crash failure aborted planning"); return }
+        #expect(manifest.files.contains { $0.relativePath == "collection-status.txt" })
+        let path = try #require(storage.allFilePaths.first { $0.hasSuffix("collection-status.txt") })
+        let status = String(decoding: try storage.readData(from: URL(fileURLWithPath: path)), as: UTF8.self)
+        #expect(status.contains("crash directory unreadable"))
+        #expect(sink.events.contains { $0 is AppDiagnosticsCrashSkipped })
     }
 }

@@ -7,6 +7,7 @@ struct GitGraphLayoutTests {
     @Test("Current branch background follows every merge parent, not lane or row adjacency")
     func currentBranchMembership() {
         let refs = [GitReference(fullName: "refs/heads/main", shortName: "main", kind: .local,
+                                  peelsToCommit: true,
                                   isCurrent: true, upstreamShortName: nil)]
         let commits = [commit("head", ["left", "merged"], "HEAD -> main"),
                        commit("other", ["base"], "other"), commit("left", ["base"])]
@@ -268,6 +269,7 @@ struct GitGraphLayoutTests {
         let tagged = [commit("tip", ["tag"]), commit("tag", ["root"], "tag: v1"), commit("root", [])]
         #expect(GitGraphLayoutService.layout(commits: tagged).rows.map(\.layoutIndex) == [1, 1, 1])
         let remote = GitReference(fullName: "refs/remotes/upstream/work", shortName: "upstream/work", kind: .remote,
+                                  peelsToCommit: true,
                                   isCurrent: false, upstreamShortName: nil)
         let tips = [commit("local", ["root"], "main"), commit("remote", ["root"], "upstream/work"), commit("root", [])]
         let withRemote = GitGraphLayoutService.layout(commits: tips, references: [remote])

@@ -81,12 +81,19 @@ async function readRegistry() {
   // are mutable user state, never download artifacts. Runtime profile import is
   // owned by the platform startup adapters; this build reuse route always rejects
   // both original state and migration snapshots and must not gain a validator.
+  // Plugin grammar workers use checkout-built editor assets; decoded grammars,
+  // document tokens and editor action leases are memory-only, never reusable.
+  // Shared logging catalogs and generated API sources also use the refusal route:
+  // validate with generate-log-events.mjs in the target checkout; never copy.
   // Shared i18n source and generated tables take this same refusal route:
   // rebuild from the target checkout, never copy another worktree's translations.
   // AutoBuild publication checkpoints and baseline downloads are invocation-owned,
   // not reusable build inputs, even without plugin mirror staging.
   // Plugin host secrets and workspace state also take this rejection route,
   // never a download/cache validator: their identity belongs to the installation.
+  // Offline Markdown libraries, including PlantUML, are pinned Git inputs.
+  // Rebuild the target checkout's template/vendor resources before signing.
+  // Generated bundles and live render state are never reusable resources.
   const excludedResources = registry.excludedResources ?? [];
   if (!Array.isArray(excludedResources)) throw new Error("Invalid excluded worktree resources");
   for (const resource of excludedResources) {
@@ -155,7 +162,7 @@ async function requiredFile(root, relativePath, resourceID) {
 async function validatorArguments(resource, cachePath, targetRoot) {
   if (resource.validator === "cargo") {
     const lockPaths = [];
-    for (const relativePath of ["rust/Cargo.lock", "windows/tauri/src-tauri/Cargo.lock"]) {
+    for (const relativePath of ["rust/Cargo.lock", "windows/tauri/src-tauri/Cargo.lock", "Plugins/mac/Official/EditorKeymapImport/Cargo.lock"]) {
       const candidate = path.join(targetRoot, relativePath);
       if (await pathExists(candidate)) lockPaths.push(candidate);
     }
@@ -383,11 +390,12 @@ async function main() {
     ? options.resources.map((identifier) => {
       // Generated matrix views, runtime snapshots, per-execution Java launch files, Sparkle baseline
       // and AutoBuild staging (including per-tag baselines and local/downloaded publication checkpoints), per-launch
-      // Codex relays and isolated plugin packages take this rejection route, never a content-hash validator.
+      // CI Rust compilation state, Codex relays and plugin packages take this rejection route, never a download validator.
       // Identical bytes do not establish transferable execution ownership.
       // SwiftPM scratch-local compiler stamps only invalidate local products;
       // swiftpm-build-state is not a sealed download cache and has no copy stage.
-      // Includes application-log-state: logs, confirmation snapshots and export ZIP
+      // Includes application-log-state: v2 sessions, plugin files (0700/no-follow),
+      // confirmation snapshots and export ZIP
       // staging belong to one runtime session; no validator or copy stage applies.
       // Includes test-jfr-recordings: worker-owned profiling output has no transferable build identity.
       // Localized logging probes also reject their temporary SwiftPM UI hosts;
@@ -424,8 +432,12 @@ async function main() {
       // Per-launch Codex helpers also own memory-only context replay tickets and
       // loopback capabilities; they stay on this exclusion route, never a copy stage.
       // Agent edit-and-paste state is user-owned runtime data, without a copy stage.
-      // editor-theme-assets rebuild palettes and license notices together; no build stamp permits reuse.
+      // editor-theme-assets rebuild palettes, bundled Make/CMake/Groovy grammars and notices together.
+      // editor-keymap-provider-build is worktree-local Cargo state and a sealed plugin, never a reusable cache.
+      // Git-owned grammar inputs and memory-only tokenizer workers never enter a copy validator.
       if (excludedResources.some((resource) => resource.id === identifier)) {
+        // Per-launch relays also own their provider admission route; they stay
+        // excluded even when their embedded source matches another worktree.
         const excluded = excludedResources.find((resource) => resource.id === identifier);
         throw new Error(`Resource ${identifier} is isolated (${excluded.locations.join(", ")}): ${excluded.identity}; ${excluded.reason}; it cannot be reused across worktrees`);
       }

@@ -719,7 +719,8 @@ public final class AgentConnectionModel: ObservableObject {
             guard isRefreshingArchivedSessions, token == archivedRefreshToken else { return }
             listedArchivedSessions = (event["sessions"] as? [[String: Any]] ?? []).compactMap { entry in
                 guard let id = entry["sessionId"] as? String else { return nil }
-                return AgentSessionSummary(id: id, title: entry["title"] as? String, updatedAt: entry["updatedAt"] as? String)
+                return AgentSessionSummary(id: id, title: entry["title"] as? String,
+                    updatedAt: entry["updatedAt"] as? String, modelProvider: entry["modelProvider"] as? String)
             }
             isArchivedHistoryComplete = event["complete"] as? Bool ?? false
             archivedRefreshToken = nil
@@ -952,7 +953,8 @@ public final class AgentConnectionModel: ObservableObject {
             return AgentSessionSummary(
                 id: id,
                 title: entry["title"] as? String ?? local?.title,
-                updatedAt: entry["updatedAt"] as? String
+                updatedAt: entry["updatedAt"] as? String,
+                modelProvider: entry["modelProvider"] as? String
             )
         }
         let listedIDs = Set(listed.map(\.id))
@@ -1596,6 +1598,7 @@ public final class AgentConnectionModel: ObservableObject {
     private func scheduleFlush() {
         guard flushTask == nil else { return }
         flushTask = Task { [weak self] in
+            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
             try? await Task.sleep(for: .milliseconds(40))
             guard let self, !Task.isCancelled else { return }
             self.flushTask = nil

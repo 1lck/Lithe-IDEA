@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 
 /// Stores temporary local changes outside Git's object database.
@@ -8,9 +9,11 @@ import Foundation
 /// entries instead of guessing.
 package struct ShelveService: Sendable {
     private static let formatVersion = 1
+    private let logSink: (any LogSink)?
     private let storage: any GitShelfStorage
 
-    package init(storage: any GitShelfStorage) {
+    package init(storage: any GitShelfStorage, logSink: (any LogSink)? = nil) {
+        self.logSink = logSink
         self.storage = storage
     }
 
@@ -29,7 +32,7 @@ package struct ShelveService: Sendable {
         stagedPatch: String,
         workingPatch: String
     ) async -> GitShelfEntry? {
-        let storage = self.storage
+        let storage = self.storage, logSink = self.logSink
         let root = repositoryRoot.standardizedFileURL.path
         let entry = GitShelfEntry(
             id: UUID(),
@@ -42,14 +45,14 @@ package struct ShelveService: Sendable {
             workingPatch: workingPatch
         )
         return await Task.detached(priority: .userInitiated) {
-            Self.write(entry, storage: storage, repositoryRootPath: root)
+            Self.write(entry, storage: storage, repositoryRootPath: root, logSink: logSink)
                 ? entry
                 : nil
         }.value
     }
 
     func delete(_ entry: GitShelfEntry, repositoryRoot: URL) async -> Bool {
-        let storage = self.storage
+        let storage = self.storage, logSink = self.logSink
         let root = repositoryRoot.standardizedFileURL.path
         return await Task.detached(priority: .utility) {
             let url = Self.fileURL(
@@ -62,6 +65,7 @@ package struct ShelveService: Sendable {
                 try storage.removeItem(at: url)
                 return true
             } catch {
+                logSink?.emit(VcsShelfOperationFailed(error: error, stage: "delete"))
                 return false
             }
         }.value
@@ -118,7 +122,7 @@ package struct ShelveService: Sendable {
     private static func write(
         _ entry: GitShelfEntry,
         storage: any GitShelfStorage,
-        repositoryRootPath: String
+        repositoryRootPath: String, logSink: (any LogSink)?
     ) -> Bool {
         let directory = directoryURL(storage: storage, repositoryRootPath: repositoryRootPath)
         let url = fileURL(for: entry.id, storage: storage, repositoryRootPath: repositoryRootPath)
@@ -128,6 +132,7 @@ package struct ShelveService: Sendable {
             try storage.writeData(data, to: url)
             return true
         } catch {
+            logSink?.emit(VcsShelfOperationFailed(error: error, stage: "save"))
             return false
         }
     }
