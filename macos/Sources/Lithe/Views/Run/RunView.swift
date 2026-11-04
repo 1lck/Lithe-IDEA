@@ -64,6 +64,7 @@ struct RunView: View {
                 ) { url, line, column in
                     model.openSourceLocation(url: url, line: line, column: column)
                 }
+                .pluginLinks(in: model, scope: .run, searchRoots: feature.sourceSearchRoots)
             } else {
                 RunServicesSplitView(
                     isScopeCollapsed: isConfigurationListCollapsed,
@@ -594,6 +595,7 @@ struct RunView: View {
             ) { url, line, column in
                 model.openSourceLocation(url: url, line: line, column: column)
             }
+            .pluginLinks(in: model, scope: .run, searchRoots: feature.sourceSearchRoots)
         }
     }
 
@@ -872,6 +874,7 @@ struct RunView: View {
                 ) { url, line, column in
                     model.openSourceLocation(url: url, line: line, column: column)
                 }
+                .pluginLinks(in: model, scope: .run, searchRoots: feature.sourceSearchRoots)
                 .id(configuration.id)
             }
         }

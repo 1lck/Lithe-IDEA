@@ -267,7 +267,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
               object["ui"] == nil || object["ui"] is NSNull else { return false }
         for key in ["activationEvents", "languageServers", "buildSystems", "debugAdapters", "projectGenerators",
                     "toolchainProviders", "toolDefinitions", "settings", "settingActions", "vcsProviders",
-                    "executionProviders", "languages"] {
+                    "executionProviders", "languages", "outputLinkMatchers"] {
             if let values = object[key] as? [Any], !values.isEmpty { return false }
         }
         return true

@@ -1223,17 +1223,26 @@ final class MacServiceContainer {
             }
         }
         services.pluginEditorActions = pluginBackends.editorActions
+        let isModuleUsable: @MainActor (ModuleID) -> Bool = { [weak moduleRuntime] id in
+            guard let snapshot = try? moduleRuntime?.snapshot(for: id) else { return false }
+            return snapshot.state != .disabled && !snapshot.isQuarantined && !snapshot.isSuppressedBySafeMode
+        }
         services.pluginEditorLanguages = MacPluginEditorLanguages(
             launchRegistered: pluginStartup.registeredPlugins,
-            isModuleUsable: { [weak moduleRuntime] id in
-                guard let snapshot = try? moduleRuntime?.snapshot(for: id) else { return false }
-                return snapshot.state != .disabled && !snapshot.isQuarantined && !snapshot.isSuppressedBySafeMode
-            },
+            isModuleUsable: isModuleUsable,
             livePackages: { liveSnapshotBox.snapshot.activePackages },
             decoder: declarativePluginOperations,
             triggers: [livePlugins.changes, editorLanguageModuleChanges.eraseToAnyPublisher()],
             logSink: logSink
         )
+        // Output link matchers of enabled plugins; Rust Core finds the matches.
+        services.pluginOutputLinks = PluginOutputLinkService(matching: RustPluginRunOperations(core: rustCore)) {
+            PluginOutputLinkSource.sources(
+                launchRegistered: pluginStartup.registeredPlugins.filter {
+                    isModuleUsable(.outputLinksExtension($0.descriptor.id.rawValue))
+                },
+                live: liveSnapshotBox.snapshot.activePackages)
+        }
         services.ideHostTransport = MacIdeHostTransport(core: rustCore, storage: fileStorage)
         services.proxyPasswordStore = proxyPasswordStore
         services.proxyConnectionChecker = proxyConnectionChecker
@@ -1505,8 +1514,8 @@ final class MacServiceContainer {
                     )
                 }
             }
-            // The build-systems, VCS-providers, and project-generators
-            // modules also carry the enabled state; the host reads it before
+            // The build-systems, VCS-providers, project-generators, and
+            // output-links modules also carry the enabled state; the host reads it before
             // handing the plugin to Rust Core or the New Project window.
             let workbench = descriptor.pluginManifest.modules.filter {
                 !$0.contributions.isEmpty
@@ -1517,6 +1526,7 @@ final class MacServiceContainer {
                     || $0.manifest.id == .backendExtension(descriptor.id.rawValue)
                     || $0.manifest.id == .toolchainsExtension(descriptor.id.rawValue)
                     || $0.manifest.id == .projectGeneratorsExtension(descriptor.id.rawValue)
+                    || $0.manifest.id == .outputLinksExtension(descriptor.id.rawValue)
             }.map { declaration in
                 ModuleFactory(manifest: declaration.manifest, contributions: declaration.contributions) {
                     DeclarativeWorkbenchModule(declaration: declaration)
