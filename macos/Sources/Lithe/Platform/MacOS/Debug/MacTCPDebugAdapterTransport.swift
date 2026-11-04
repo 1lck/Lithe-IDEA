@@ -73,6 +73,10 @@ final class MacTCPDebugAdapterTransport: DebugAdapterDrainingTransport {
     var onData: ((Data) -> Void)?
     var onErrorOutput: ((Data) -> Void)?
     var onTermination: ((Int) -> Void)?
+    /// The stream reached the adapter: Core's first `ready` after a start.
+    var onConnected: (() -> Void)?
+    /// Why Core failed the stream, reported just before its error output.
+    var onFailure: ((DebugTransportFailureReason) -> Void)?
 
     init(
         endpointResolver: @escaping EndpointResolver,
@@ -146,10 +150,12 @@ final class MacTCPDebugAdapterTransport: DebugAdapterDrainingTransport {
 
     private func apply(_ step: DebugTransportStep, inbound: Data? = nil) {
         let registrationID = transportID
+        let connected = phase != .ready && step.phase == .ready
         generation = step.generation
         phase = step.phase
         effectDepth += 1
         defer { effectDepth -= 1 }
+        if connected { onConnected?() }
         for effect in step.effects {
             // A callback or an observer may have stopped or restarted the stream
             // while an earlier effect ran; the rest of this step is stale.
@@ -175,6 +181,7 @@ final class MacTCPDebugAdapterTransport: DebugAdapterDrainingTransport {
         case .close:
             closeConnection()
         case .reportFailure(let reason, let message):
+            onFailure?(reason)
             onErrorOutput?(Data((failureText(reason, message: message) + "\n").utf8))
         case .notifyTermination(let exitCode):
             onTermination?(exitCode)

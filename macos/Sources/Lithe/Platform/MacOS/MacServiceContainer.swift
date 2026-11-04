@@ -856,8 +856,11 @@ final class MacServiceContainer {
                                 ),
                                 core: rustCore,
                                 deadlineScheduler: MacDebugOperationDeadlineScheduler(),
-                                beginPluginStartup: {
-                                    pluginOperations.begin(pluginID: pluginID, operation: .debugAdapterStart, at: .resolve)
+                                beginPluginStartup: { operationID in
+                                    pluginOperations.begin(
+                                        pluginID: pluginID, operation: .debugAdapterStart, at: .resolve,
+                                        operationID: operationID
+                                    )
                                 }
                             )
                             // Remembered so withdrawing this plugin ends this session
@@ -1484,6 +1487,7 @@ final class MacServiceContainer {
                     } ?? probe.packagedRuntimeURL,
                     languageIdentifier: server.languageIdentifier,
                     launchSource: launchSource,
+                    pluginID: descriptor.id.rawValue,
                     executableVersionRequirement: probe.versionRequirement,
                     hostIntegrationID: server.hostIntegrationID,
                     launchRuntimeTool: server.launchRuntimeTool

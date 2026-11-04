@@ -232,10 +232,15 @@ Swift 侧对应 `PluginOperationAttempt`。差异只在 `plugin_operations.rs` �
 所有权按“谁执行，谁记录”划分：
 
 - 调试适配器启动和构建命令由 macOS 宿主执行，宿主在解析、启动、初始化、超时、退出和解码的真实边界推进阶段，
-  通过 `diagnostics.recordPluginOperation` 写入。
-- 语言服务器由宿主解析启动方案、由 Core 拉起和握手。宿主只记录启动前的失败；进入启动后用
-  `startupOperation:{operationId,elapsedMs}` 把 attempt 交给 Core。Core 在 spawn 失败、提前退出、握手失败、
-  初始化超时或初始化成功时记录唯一结果，耗时为宿主已用时间加 Core 计时。
+  通过 `diagnostics.recordPluginOperation` 写入。调试 attempt 的 op 直接用调试会话 ID，和该会话自己的
+  `DebugTransportFailed` 等记录对得上。适配器“可达”之前一直是 launch：stdio 进程在跑起来后可达，语言服务器托管的
+  适配器要等 socket 连上才可达，所以发现端口失败记 launch、发现超时记 timeout，只有可达过的适配器断开才记 exit。
+  Core 拒绝创建调试会话（例如父会话已结束）是宿主结果，取消 attempt，不算插件故障。
+- 语言服务器由宿主解析启动方案、由 Core 拉起和握手。宿主只记录启动前的失败，plugin API 1 以宿主进程方式启动的
+  服务器也一样；进入启动后用 `startupOperation:{pluginId,operationId,elapsedMs}` 把 attempt 交给 Core。
+  `pluginId` 放在 handoff 里而不是取自会话，因为 API 1 服务器的会话没有插件身份；会话有身份时两者必须一致，
+  否则 Core 忽略这个 handoff。Core 在 spawn 失败或写 initialize 失败（launch）、提前退出、握手失败、
+  初始化超时或初始化成功时记录唯一结果，耗时为宿主已用时间加 Core 计时；被新索引策略淘汰的启动按取消处理。
 - 构建计划实际由插件后端提供时，宿主取消自己的 attempt，由 SDK 记录，避免同一次工作出现两条事实。
 
 一次 attempt 只有第一次终态生效。取消、停止、被新请求取代的过期结果都不记录，因为它们不是插件故障；

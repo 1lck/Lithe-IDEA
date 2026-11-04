@@ -318,6 +318,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
             runtimeTools: configuration.runtimeTools,
             executableURL: configuration.executableURL,
             launchSource: configuration.launchSource,
+            pluginID: configuration.pluginID,
             executableVersionRequirement: configuration.executableVersionRequirement,
             hostIntegrationID: configuration.hostIntegrationID,
             launchRuntimeTool: configuration.launchRuntimeTool
@@ -1696,8 +1697,9 @@ package final class LanguageToolingSessionManager: ObservableObject,
         }
         languageServerStartupAttempts[descriptor.id] = (rootURL, attempts + 1)
         let operationID = requestedOperationID ?? UUID()
-        // Only a declarative launch has no plugin process to report its start.
-        let startupAttempt = (descriptor.languageServerLaunch?.launchSource?.pluginID).map {
+        // Only a declarative launch has no plugin process to report its start;
+        // a plugin API 1 server is one too, though it has no launch templates.
+        let startupAttempt = descriptor.languageServerLaunch?.pluginID.map {
             pluginOperations.begin(
                 pluginID: $0, operation: .languageServerStart, at: .resolve, operationID: operationID.uuidString
             )

@@ -244,13 +244,16 @@ struct MacBuildProviderSessionsTests {
 
     /// Once a launch is requested Core owns the plugin's start result, failed
     /// or not; the host hands the attempt over and records nothing itself.
-    @Test(arguments: [false, true])
-    func aLaunchHandsTheDeclarativeStartToCore(failsToStart: Bool) async throws {
+    /// A plugin API 1 server starts as a host-owned process, so the handoff,
+    /// not the session, names the plugin.
+    @Test(arguments: [false, true], [false, true])
+    func aLaunchHandsTheDeclarativeStartToCore(failsToStart: Bool, pluginOwnsTheProcess: Bool) async throws {
         let core = ScriptedProviderCore(failStart: failsToStart)
         let operations = RecordedPluginOperations()
         let session = LanguageServerRuntimeSession(
             providerID: "fixture", executableURL: URL(fileURLWithPath: "/host/bin/server"),
-            arguments: [], environment: [:], core: core, pluginID: "dev.example.fixture"
+            arguments: [], environment: [:], core: core,
+            pluginID: pluginOwnsTheProcess ? "dev.example.fixture" : nil
         )
         defer { session.stop() }
         let settled = TestGate()
@@ -267,6 +270,7 @@ struct MacBuildProviderSessionsTests {
         try? session.start(rootURL: URL(fileURLWithPath: "/workspace"), workspaceFingerprint: nil)
         try #require(await settled.waitUntilOpen())
 
+        #expect(core.startupHandoffs.map(\.pluginId) == ["dev.example.fixture"])
         #expect(core.startupHandoffs.map(\.operationId) == ["lsp-start"])
         #expect(core.startupHandoffs.map(\.elapsedMs) == [RecordedPluginOperations.tick])
         #expect(operations.observations.isEmpty)

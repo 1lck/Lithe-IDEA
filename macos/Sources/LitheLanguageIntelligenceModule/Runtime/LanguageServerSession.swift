@@ -41,7 +41,10 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     private var startingPreparedProcess = false
     /// Held until launch: a preparation failure ends it here, a launch hands it to Core.
     private var startupAttempt: PluginOperationAttempt?
-    package func observePluginStartup(_ attempt: PluginOperationAttempt) { startupAttempt = attempt }
+    package func observePluginStartup(_ attempt: PluginOperationAttempt) {
+        startupAttempt?.cancel()
+        startupAttempt = attempt
+    }
     private func endStartupAttempt(throwing error: any Error) {
         startupAttempt?.end(throwing: error)
         startupAttempt = nil
@@ -1331,12 +1334,13 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     }
 
     package func stop() {
-        startupAttempt?.cancel()
-        startupAttempt = nil
         beginStop(inBackground: false)
     }
 
     private func beginStop(inBackground: Bool) {
+        // A stopped start is cancelled; a later start must not report it.
+        startupAttempt?.cancel()
+        startupAttempt = nil
         let wasStarting = startupGeneration != nil
         preparationTask?.cancel()
         preparationTask = nil

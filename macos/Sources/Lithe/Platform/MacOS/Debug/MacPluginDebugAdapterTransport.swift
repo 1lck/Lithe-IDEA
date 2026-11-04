@@ -36,6 +36,8 @@ final class MacPluginDebugAdapterTransport: DebugAdapterDrainingTransport, Debug
     private let findCommand: @MainActor ([String]) -> URL?
     private let startHostedPort: HostedPortStarter
     private let socketFactory: @MainActor (String, UInt16) -> any DebugAdapterSocketConnection
+    /// Runs a hosted adapter's discovery and connect deadlines; nil uses system timers.
+    private let deadlineScheduler: (any DebugOperationDeadlineScheduling)?
     private let logSink: (any LogSink)?
     private var transport: (any DebugAdapterTransport)?
     var startupAttempt: PluginOperationAttempt?
@@ -56,7 +58,8 @@ final class MacPluginDebugAdapterTransport: DebugAdapterDrainingTransport, Debug
         },
         socketFactory: @escaping @MainActor (String, UInt16) -> any DebugAdapterSocketConnection = {
             NetworkDebugAdapterSocketConnection(host: $0, port: $1)
-        }
+        },
+        deadlineScheduler: (any DebugOperationDeadlineScheduling)? = nil
     ) {
         self.adapterID = adapterID
         self.findCommand = findCommand
@@ -66,23 +69,38 @@ final class MacPluginDebugAdapterTransport: DebugAdapterDrainingTransport, Debug
         self.logSink = logSink
         self.startHostedPort = startHostedPort
         self.socketFactory = socketFactory
+        self.deadlineScheduler = deadlineScheduler
     }
 
     var isRunning: Bool { transport?.isRunning ?? false }
 
     func start(rootURL: URL) throws {
         let transport: any DebugAdapterTransport
+        let connectsLater: Bool
         switch try resolve(rootURL).host {
         case .process(let process):
             transport = try processTransport(for: process)
+            connectsLater = false
         case .languageServer(let languageID, let command):
             let startHostedPort = startHostedPort
-            transport = MacHostedPortDebugAdapterTransport(
+            let hosted = MacHostedPortDebugAdapterTransport(
                 portResolver: { rootURL in try await startHostedPort(languageID, command, rootURL) },
                 core: core,
                 logSink: logSink,
+                deadlineScheduler: deadlineScheduler,
                 socketFactory: socketFactory
             )
+            // Starting the server and finding the port outlive `start`, so the
+            // attempt stays at launch until the socket connects. A failure
+            // before then is the launch's, or the deadline's.
+            let attempt = startupAttempt
+            hosted.onConnected = { attempt?.advance(to: .initialize) }
+            hosted.onFailure = { reason in
+                guard reason == .startupTimedOut, attempt?.stage == .launch else { return }
+                attempt?.advance(to: .timeout)
+            }
+            transport = hosted
+            connectsLater = true
         }
         transport.onData = { [weak self] in self?.onData?($0) }
         transport.onErrorOutput = { [weak self] in self?.onErrorOutput?($0) }
@@ -92,6 +110,8 @@ final class MacPluginDebugAdapterTransport: DebugAdapterDrainingTransport, Debug
         // fails from here is starting the adapter.
         startupAttempt?.advance(to: .launch)
         try transport.start(rootURL: rootURL)
+        // A process adapter is reachable once it runs; what fails next is the handshake.
+        if !connectsLater { startupAttempt?.advance(to: .initialize) }
     }
 
     private func processTransport(

@@ -1728,8 +1728,8 @@ package final class BuildSystemService: ObservableObject {
     /// The tool is only resolved once Core says the source is a provider; a
     /// command plan resolves it when it runs.
     ///
-    /// The host reports `attempt` only while it does the work itself: a
-    /// provider plan hands the load to the plugin's process, which reports it.
+    /// The tool lookup and the second plan are still host work, so their
+    /// failures stay on `attempt`; the provider owns the load once it is sent.
     private func outputPlan(
         _ entry: BuildSystemEntry,
         workspaceURL: URL,
@@ -1740,10 +1740,10 @@ package final class BuildSystemService: ObservableObject {
     ) async throws -> BuildOutputPlan {
         let planned = try plan(BuildProviderHints(reason: reason))
         guard case .provider = planned else { return planned }
-        attempt.cancel()
-        guard let executable = try await providerTool(entry, workspaceURL: workspaceURL, owner: owner) else {
-            return planned
-        }
+        attempt.advance(to: .resolve)
+        let executable = try await providerTool(entry, workspaceURL: workspaceURL, owner: owner)
+        attempt.advance(to: .plan)
+        guard let executable else { return planned }
         return try plan(BuildProviderHints(reason: reason, toolExecutable: executable))
     }
 
@@ -1804,6 +1804,9 @@ package final class BuildSystemService: ObservableObject {
             }
             let target = Self.providerTarget(entry, workspaceURL: workspaceURL)
             guard modelInputsAreCurrent(request), canAppend(owner) else { throw CancellationError() }
+            // The plugin's process reports the load through `lithe/log` from
+            // here on; the host recording it too would double it.
+            attempt.cancel()
             let result = try await providers.send(request, to: target, timeout: timeout)
             guard modelInputsAreCurrent(request), canAppend(owner), !Task.isCancelled else { throw CancellationError() }
             return .providerResult(result)

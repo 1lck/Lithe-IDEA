@@ -2050,6 +2050,33 @@ struct BuildSystemServiceTests {
         #expect(operations.observations.isEmpty)
     }
 
+    /// The host resolves the provider's tool before it sends anything; when
+    /// that fails the provider never sees the load, so the host records it.
+    @Test
+    func providerToolFailureBeforeTheRequestIsRecordedByTheHost() async throws {
+        let planner = FakeBuildPlanner()
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "provider")])
+        planner.providerRequest = Self.providerRequest(method: "lithe/build/model")
+        let providers = FakeBuildProviders()
+        let operations = RecordedPluginOperations()
+        let harness = Harness(
+            planner: planner, providers: providers,
+            settings: { _ in ["toolPath": .string("/custom tools/build")] },
+            pluginOperations: operations.reporter
+        )
+        harness.tools.failure = BuildToolResolutionError("Selected executable is unavailable.", terminal: true)
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        #expect(await harness.waitForEntries { $0.first?.modelState == .notLoaded })
+
+        harness.service.loadModel(Self.instanceID)
+        #expect(await harness.waitForEntries { if case .failed = $0.first?.modelState { return true }; return false })
+
+        #expect(providers.sent.isEmpty)
+        #expect(operations.observations.map(\.operation) == ["lithe/build/model"])
+        #expect(operations.observations.map(\.stage) == [.resolve])
+    }
+
     @Test
     func stoppedDeclarativeModelCommandRecordsNothing() async throws {
         let planner = FakeBuildPlanner()

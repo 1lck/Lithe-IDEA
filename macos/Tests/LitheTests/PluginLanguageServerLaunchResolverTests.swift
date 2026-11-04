@@ -467,22 +467,57 @@ struct PluginLanguageServerLaunchResolverTests {
         )])
     }
 
-    /// The manager begins an attempt only for a declarative launch: a server the
-    /// host owns has no plugin to attribute it to. The attempt carries the
-    /// manager's operation ID, so it joins the session's other records.
+    /// Stopping cancels the attempt on every stop path, so a later start of the
+    /// same session cannot report the stopped one.
     @MainActor
-    @Test(arguments: [true, false])
-    func aServerWithoutAnExecutableRecordsOnlyADeclarativeStart(declarative: Bool) {
+    @Test
+    func aStartStoppedBeforeLaunchIsNotReportedByALaterStart() async {
+        let operations = RecordedPluginOperations()
+        let session = LanguageServerRuntimeSession(
+            providerID: "fixture",
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["${pluginDir}/server"],
+            environment: [:],
+            launchResolver: { _ in
+                throw DeclarativePluginRejection(
+                    code: "plugin.launch.invalidRequest",
+                    message: "The launch request has no usable pluginDirectory."
+                )
+            },
+            core: RustCoreBridge()
+        )
+        session.observePluginStartup(operations.reporter.begin(
+            pluginID: "dev.example.plugin", operation: .languageServerStart, at: .resolve, operationID: "lsp-start"
+        ))
+
+        #expect(await session.stopAndWait())
+        #expect(throws: LanguageServerSessionStartError.self) {
+            try session.start(rootURL: URL(fileURLWithPath: "/projects/one"), workspaceFingerprint: nil)
+        }
+
+        #expect(operations.observations.isEmpty)
+    }
+
+    /// The manager begins an attempt only for a server a plugin declares,
+    /// whether its launch is templated (plugin API 2 and later) or literal
+    /// (plugin API 1): a server the host owns has no plugin to attribute it to.
+    /// The attempt carries the manager's operation ID, so it joins the
+    /// session's other records.
+    @MainActor
+    @Test(arguments: ["launchTemplates", "pluginAPI1", "hostOwned"])
+    func aServerWithoutAnExecutableRecordsOnlyADeclarativeStart(owner: String) {
         let source = DeclarativeLanguageServerLaunchSource(
             pluginID: "dev.example.plugin",
             languageID: "fixture",
             manifest: Data(),
             packageURL: URL(fileURLWithPath: "/plugins/fixture")
         )
+        let declarative = owner != "hostOwned"
         let launch = LanguageServerLaunchDescriptor(
             executableNames: ["fixture-language-server"],
             arguments: [],
-            launchSource: declarative ? source : nil
+            launchSource: owner == "launchTemplates" ? source : nil,
+            pluginID: owner == "pluginAPI1" ? "dev.example.plugin" : nil
         )
         let descriptor = LanguageProviderDescriptor(
             id: "fixture",
@@ -496,7 +531,8 @@ struct PluginLanguageServerLaunchResolverTests {
             descriptor: descriptor,
             runtimeService: FixedLanguageToolRuntime(candidates: [:]),
             languageServerLaunch: launch,
-            languageServerCore: RustCoreBridge()
+            languageServerCore: RustCoreBridge(),
+            languageServerExecutableResolver: { _ in nil }
         )
         let operations = RecordedPluginOperations()
         let manager = LanguageToolingSessionManager(
@@ -507,8 +543,8 @@ struct PluginLanguageServerLaunchResolverTests {
         defer { manager.stopAllLanguageServers() }
         let operationID = UUID()
 
-        // Only what is recorded matters here: the declarative server stops at
-        // discovery, while the host-owned one fails later at process start.
+        // Only what is recorded matters here: with no executable every server
+        // stops at discovery, and only a plugin's server has an attempt to end.
         #expect(throws: (any Error).self) {
             _ = try manager.startLanguageServer(
                 providerID: descriptor.id, rootURL: URL(fileURLWithPath: "/projects/one"), operationID: operationID

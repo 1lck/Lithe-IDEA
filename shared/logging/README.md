@@ -94,7 +94,7 @@ Swift 的事件值是**未经脱敏的内存输入**，不能自行序列化落�
   | operation | 声明来源 | 记录方 | 可能的失败阶段 |
   | --- | --- | --- | --- |
   | `languageServer/start` | `languageServers[]` | macOS 宿主记启动前的失败；进入启动后用 `lsp.startServer.startupOperation` 交给 Core，Core 记录唯一结果 | resolve、launch、exit、initialize、timeout |
-  | `debugAdapter/start` | `debugAdapters[]` | macOS 宿主 | resolve、launch、exit、initialize、timeout |
+  | `debugAdapter/start` | `debugAdapters[]` | macOS 宿主；op 为调试会话 ID，Core 拒绝建会话不记录 | resolve、launch、exit、initialize、timeout |
   | `lithe/build/model` | `buildSystems[]` 的命令式模型 | macOS 宿主；计划由插件后端提供时由 SDK 记录 | plan、resolve、launch、timeout、exit、decode |
   | `lithe/build/dependencies` | `buildSystems[]` 的命令式依赖树 | macOS 宿主；计划由插件后端提供时由 SDK 记录 | plan、resolve、launch、timeout、exit、decode |
 

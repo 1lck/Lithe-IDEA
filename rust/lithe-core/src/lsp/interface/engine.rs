@@ -2260,6 +2260,8 @@ impl LspEngine {
         if let Err(error) = check_indexing() {
             self.lock_sessions()?.remove(&session_id);
             session.active.store(false, Ordering::Release);
+            // A retired start is cancelled; the process exit must not record it.
+            plugin_operations::abandon(attempt);
             session.kill_process();
             return Err(error);
         }
@@ -2268,6 +2270,8 @@ impl LspEngine {
         session.spawn_outbound_maintenance();
         let outbound_order = session.lock_outbound_order()?;
         if let Err(error) = session.send_messages(&outbound_order, initialize.messages) {
+            // startServer fails here, so the attempt failed to launch.
+            plugin_operations::finish(attempt, Some(AttemptStage::Launch));
             session.fail(
                 "transportFailed",
                 "initialize",
@@ -2282,6 +2286,9 @@ impl LspEngine {
         if let Err(error) = check_indexing() {
             self.lock_sessions()?.remove(&session_id);
             session.active.store(false, Ordering::Release);
+            // The readers already run; abandon before the kill so the exit
+            // they observe finds no attempt to record.
+            plugin_operations::abandon(attempt);
             session.kill_process();
             return Err(error);
         }
@@ -5655,6 +5662,9 @@ impl RuntimeSession {
             {
                 state.initialize_deadline = None;
                 initialize_timeout = true;
+                // Decided under the state lock, like the initialize response,
+                // so exactly one of the two records the attempt.
+                plugin_operations::finish(&self.startup_attempt, Some(AttemptStage::Timeout));
             }
             let applying_maven_context = state
                 .pending
@@ -5882,7 +5892,6 @@ impl RuntimeSession {
             );
             self.kill_process();
         } else if initialize_timeout {
-            plugin_operations::finish(&self.startup_attempt, Some(AttemptStage::Timeout));
             // Timeout termination must not wait behind a blocked stdin write;
             // killing the process is what releases that write.
             self.fail(
@@ -6802,11 +6811,19 @@ fn push_cleanup_fact(
 
 // Only a declarative language server carries a host attempt. SDK backends report
 // their own operations through `lithe/log`, so a stray handoff on another role is
-// ignored rather than rejecting the start.
+// ignored rather than rejecting the start. The handoff names its plugin, since a
+// plugin API 1 server starts with no session plugin; a session another plugin
+// owns never takes the attempt, so no fact lands on a plugin that did not run.
 fn startup_attempt(request: &StartServerRequest) -> AttemptSlot {
-    match (&request.startup_operation, &request.plugin_id) {
-        (Some(handoff), Some(plugin_id)) if request.role == SessionRole::LanguageServer => {
-            Attempt::slot(&LANGUAGE_SERVER_START, plugin_id.clone(), handoff.clone())
+    match &request.startup_operation {
+        Some(handoff)
+            if request.role == SessionRole::LanguageServer
+                && request
+                    .plugin_id
+                    .as_ref()
+                    .is_none_or(|owner| *owner == handoff.plugin_id) =>
+        {
+            Attempt::slot(&LANGUAGE_SERVER_START, handoff.clone())
         }
         _ => Attempt::none(),
     }
@@ -11561,33 +11578,42 @@ mod tests {
 
     /// A declarative plugin start handed off by the host ends in exactly one Core
     /// result: `initialize` success, an exit before it, or nothing for a user stop.
-    /// Later exits belong to the session, not the start.
+    /// Later exits belong to the session, not the start. A plugin API 1 server
+    /// starts host-owned, so the handoff alone names the plugin; a session owned
+    /// by a different plugin records nothing.
     #[test]
     fn declarative_plugin_start_records_one_host_operation_per_attempt() {
         const PLUGIN: &str = "io.example.declarative-start";
-        let handoff = |operation_id: &'static str| {
+        const OTHER: &str = "io.example.declarative-start-other";
+        let handoff = |operation_id: &'static str, owner: Option<&'static str>| {
             move |request: &mut StartServerRequest| {
-                request.plugin_id = Some(PLUGIN.to_string());
+                request.plugin_id = owner.map(str::to_string);
                 request.startup_operation = Some(AttemptHandoff {
+                    plugin_id: PLUGIN.to_string(),
                     operation_id: operation_id.to_string(),
                     elapsed_ms: 5,
                 });
             }
         };
 
-        let mut ready = Harness::start(handoff("declarative-ready"));
+        let mut ready = Harness::start(handoff("declarative-ready", Some(PLUGIN)));
         ready.server.complete_initialize(ready_capabilities());
         ready.await_state(LspLifecycleState::Ready);
         ready.server.exit(Some(1));
         ready.await_state(LspLifecycleState::Failed);
 
-        let mut exited = Harness::start(handoff("declarative-exited"));
+        let mut exited = Harness::start(handoff("declarative-exited", None));
         exited.server.exit(Some(2));
         exited.await_state(LspLifecycleState::Failed);
 
-        let mut stopped = Harness::start(handoff("declarative-stopped"));
+        let mut stopped = Harness::start(handoff("declarative-stopped", Some(PLUGIN)));
         stopped.session().stop().unwrap();
         stopped.await_state(LspLifecycleState::Stopped);
+
+        let mut foreign = Harness::start(handoff("declarative-foreign", Some(OTHER)));
+        foreign.server.exit(Some(3));
+        foreign.await_state(LspLifecycleState::Failed);
+        assert!(plugin_operations::test_capture::take(OTHER).is_empty());
 
         let facts = plugin_operations::test_capture::take(PLUGIN);
         assert!(facts
@@ -11604,6 +11630,57 @@ mod tests {
                 (
                     Some("declarative-exited".to_string()),
                     Some(AttemptStage::Exit)
+                ),
+            ]
+        );
+    }
+
+    /// startServer failing after spawn is a `launch` failure, and an initialize
+    /// timeout decided under the state lock is the only result even when the
+    /// response arrives afterwards.
+    #[test]
+    fn declarative_plugin_start_attributes_write_failure_and_timeout() {
+        const PLUGIN: &str = "io.example.declarative-start-failures";
+        let handoff = |operation_id: &str, request: &mut StartServerRequest| {
+            request.plugin_id = Some(PLUGIN.to_string());
+            request.startup_operation = Some(AttemptHandoff {
+                plugin_id: PLUGIN.to_string(),
+                operation_id: operation_id.to_string(),
+                elapsed_ms: 5,
+            });
+        };
+
+        let broken = ScriptedServer::new();
+        broken.break_input();
+        let engine = LspEngine::with_launcher(broken.launcher());
+        let mut request = start_request(&broken);
+        handoff("declarative-write-failed", &mut request);
+        assert!(engine.start_server(request).is_err());
+
+        let mut timed_out = Harness::start(|request| {
+            handoff("declarative-timed-out", request);
+            request.initialize_timeout_milliseconds = 60_000;
+        });
+        timed_out
+            .session()
+            .expire_deadlines_at(Instant::now() + Duration::from_secs(61));
+        timed_out.await_state(LspLifecycleState::Failed);
+        timed_out.server.complete_initialize(ready_capabilities());
+
+        let results: Vec<_> = plugin_operations::test_capture::take(PLUGIN)
+            .into_iter()
+            .map(|fact| (fact.operation_id, fact.failure))
+            .collect();
+        assert_eq!(
+            results,
+            [
+                (
+                    Some("declarative-write-failed".to_string()),
+                    Some(AttemptStage::Launch)
+                ),
+                (
+                    Some("declarative-timed-out".to_string()),
+                    Some(AttemptStage::Timeout)
                 ),
             ]
         );

@@ -63,6 +63,8 @@ public struct PluginOperationObservation: Encodable, Sendable, Equatable {
 /// An attempt passed to Core with the request that starts the process. Core
 /// then records its result, adding its own time to `elapsedMs`.
 public struct PluginOperationHandoff: Encodable, Sendable, Equatable {
+    /// Named here because a plugin API 1 server starts with no plugin identity.
+    public let pluginId: String
     public let operationId: String
     public let elapsedMs: UInt64
 }
@@ -158,7 +160,7 @@ public final class PluginOperationAttempt {
         guard !isEnded else { return nil }
         isEnded = true
         guard reporter.record != nil else { return nil }
-        return PluginOperationHandoff(operationId: operationID, elapsedMs: elapsedMilliseconds)
+        return PluginOperationHandoff(pluginId: pluginID, operationId: operationID, elapsedMs: elapsedMilliseconds)
     }
 
     private func end(failure: PluginOperationStage?) {

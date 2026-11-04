@@ -17,7 +17,7 @@ use super::{
     channel::{identity_segment, LogError},
     core_events,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
@@ -152,11 +152,20 @@ struct Request {
     plugin_id: String,
     operation: String,
     outcome: Outcome,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "present")]
     stage: Option<Stage>,
     duration_ms: u64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "present")]
     operation_id: Option<String>,
+}
+
+/// An optional field is either absent or a value; an explicit `null` is rejected.
+fn present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    T::deserialize(deserializer).map(Some)
 }
 
 #[derive(Deserialize)]
@@ -251,10 +260,14 @@ pub fn record_request(input: Value) -> Result<Value, LogError> {
 /// Attempt the host began and handed to Core, which owns the rest of it.
 ///
 /// The host records only failures before the handoff; Core records the single
-/// terminal result after it. Wire form: `{operationId, elapsedMs}`.
+/// terminal result after it. Wire form: `{pluginId, operationId, elapsedMs}`.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AttemptHandoff {
+    /// Plugin whose declaration the attempt runs. It is named here rather than
+    /// taken from the session, because a plugin API 1 server is launched as a
+    /// host-owned process with no plugin identity of its own.
+    pub plugin_id: String,
     /// Host operation that already correlates the attempt's lifecycle facts.
     pub operation_id: String,
     /// Monotonic milliseconds the host spent on the attempt before the handoff.
@@ -280,12 +293,11 @@ impl Attempt {
     /// Slot holding a handed-off attempt, timed from now.
     pub(crate) fn slot(
         contribution: &'static Contribution,
-        plugin_id: String,
         handoff: AttemptHandoff,
     ) -> AttemptSlot {
         Arc::new(Mutex::new(Some(Self {
             contribution,
-            plugin_id,
+            plugin_id: handoff.plugin_id,
             operation_id: handoff.operation_id,
             host_elapsed_ms: handoff.elapsed_ms,
             started: Instant::now(),
@@ -476,6 +488,15 @@ mod tests {
             input.as_object_mut().unwrap().remove(key);
             assert_eq!(prepare(input).unwrap_err().code, -32064, "{key}");
         }
+        // Optional fields are absent or a value; `null` is neither.
+        let finished = json!({"pluginId":"io.example.contribution",
+            "operation":"languageServer/start", "outcome":"finished", "durationMs":2});
+        assert!(prepare(finished.clone()).is_ok());
+        for key in ["stage", "operationId"] {
+            let mut input = finished.clone();
+            input[key] = Value::Null;
+            assert_eq!(prepare(input).unwrap_err().code, -32064, "{key}");
+        }
     }
 
     // The first terminal path takes the attempt; later paths and abandoned slots
@@ -483,12 +504,14 @@ mod tests {
     #[test]
     fn diagnostics_host_plugin_operations_attempt_slot_ends_once() {
         let handoff = AttemptHandoff {
+            plugin_id: "io.example.lsp".into(),
             operation_id: "attempt-9".into(),
             elapsed_ms: 40,
         };
-        let slot = Attempt::slot(&LANGUAGE_SERVER_START, "io.example.lsp".into(), handoff);
+        let slot = Attempt::slot(&LANGUAGE_SERVER_START, handoff);
         let taken = slot.lock().unwrap().take().unwrap();
         assert!(std::ptr::eq(taken.contribution, &LANGUAGE_SERVER_START));
+        assert_eq!(taken.plugin_id, "io.example.lsp");
         assert_eq!(taken.host_elapsed_ms, 40);
         assert_eq!(taken.operation_id, "attempt-9");
         finish(&slot, Some(Stage::Exit));

@@ -45,8 +45,9 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
     private var errorOutputDecoder = StreamingUTF8Decoder()
     private var ownsCoreSession = false
     private var isStopping = false
-    /// Begins a declarative adapter's start attempt; nil for host-owned adapters.
-    private let beginPluginStartup: (@MainActor () -> PluginOperationAttempt)?
+    /// Begins a declarative adapter's start attempt under the session's ID, the
+    /// operation of the session's own debug records; nil for host-owned adapters.
+    private let beginPluginStartup: (@MainActor (_ operationID: String) -> PluginOperationAttempt)?
     /// Ends when the adapter leaves `initializing`, fails, or the session stops.
     private var startupAttempt: PluginOperationAttempt?
 
@@ -79,7 +80,7 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
         deadlineScheduler: any DebugOperationDeadlineScheduling,
         operationTimeoutMilliseconds: Int = 10_000,
         initializationTimeoutMilliseconds: Int? = nil,
-        beginPluginStartup: (@MainActor () -> PluginOperationAttempt)? = nil
+        beginPluginStartup: (@MainActor (_ operationID: String) -> PluginOperationAttempt)? = nil
     ) {
         self.beginPluginStartup = beginPluginStartup
         self.logSink = logSink
@@ -107,17 +108,20 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
         discardPendingStartDebuggingRequests()
         capabilities = .unknown
         startupAttempt?.cancel()
-        startupAttempt = beginPluginStartup?()
+        startupAttempt = beginPluginStartup?(sessionID)
         let resolving = transport as? any DebugAdapterLaunchResolvingTransport
         resolving?.startupAttempt = startupAttempt
         defer { resolving?.startupAttempt = nil }
         do { try transport.start(rootURL: rootURL.standardizedFileURL) }
         catch {
-            startupAttempt?.end(throwing: error)
+            // A synchronous start is not cancelled by its caller's task, so
+            // its error is a failure even when that task was cancelled.
+            startupAttempt?.fail()
             logSink?.emit(DebugTransportFailed(stage: "process-start", operationID: sessionID))
             throw error
         }
-        startupAttempt?.advance(to: .initialize)
+        // A resolving transport moves the attempt itself once the adapter is reachable.
+        if resolving == nil { startupAttempt?.advance(to: .initialize) }
         if let initializationTimeoutMilliseconds {
             let token = UUID()
             initializationToken = token
@@ -143,7 +147,9 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
             ownsCoreSession = true
             try apply(update)
         } catch {
-            startupAttempt?.fail()
+            // Core refused the session before the adapter saw a byte, such as
+            // a parent that already ended: a host outcome, not the plugin's.
+            startupAttempt?.cancel()
             cancelInitializationDeadline()
             transport.stop()
             releaseCoreSession()
@@ -878,7 +884,9 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
 
     private func transportTerminated(exitCode: Int) {
         guard !isStopping else { return }
-        startupAttempt?.advance(to: .exit)
+        // Only an adapter that was reachable exited; before that the launch
+        // failed, and after a deadline the timeout stands.
+        if startupAttempt?.stage == .initialize { startupAttempt?.advance(to: .exit) }
         if exitCode != 0 && state != .failed {
             logSink?.emit(DebugTransportFailed(exitCode: Int64(exitCode), stage: "transport-exit", operationID: sessionID))
         }
