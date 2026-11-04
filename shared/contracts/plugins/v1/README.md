@@ -736,18 +736,27 @@ What the engine enforces on `lsp.pluginServerRequest` and
   `workspace/didChangeConfiguration` is the only notification Core consumes
   itself.
 
-**State and retention.** The server's per-workspace state lives in
-`workspaceStateDirectory`, which the host creates under the plugin's storage
-(never under the package or application bundle) and which survives disabling
-and updating the plugin. The plugin chooses the sub-directory names inside it.
-The host asks `plugins.languageServers.stateRetention` with `{retention,
-nowUnixSeconds, entries: [{name, lastModifiedUnixSeconds}], activeNames}` and
-deletes the `expiredNames` it returns: a directory older than `maxAgeDays` and,
-of the rest, all but the newest `maxEntries` that open workspaces leave free.
-A workspace that is open is never pruned. Names that are not a single path
-component are ignored. The host also offers a generic "reset language server
-state" action that deletes the current workspace's directory after the user
-confirms.
+**State and retention.** The host keeps one state directory per workspace for
+each server, under the plugin's storage (never under the package or application
+bundle), and gives the server its own as `workspaceStateDirectory`. The
+directories survive disabling and updating the plugin. The plugin chooses the
+sub-directory names inside its `workspaceStateDirectory`; the host chooses the
+names of the per-workspace directories themselves and never looks inside them.
+
+The host refreshes a workspace directory's modification time on every start of
+the server and sweeps in the background after a start. It asks
+`plugins.languageServers.stateRetention` with `{retention, nowUnixSeconds,
+entries: [{name, lastModifiedUnixSeconds}], activeNames}`, where `entries` are
+the per-workspace directories it found and `activeNames` are those of open
+workspaces, and deletes the `expiredNames` it returns: a directory older than
+`maxAgeDays` and, of the rest, all but the newest `maxEntries` that open
+workspaces leave free. A workspace that is open is never pruned. Names that are
+not a single path component are ignored, and the host deletes only names it
+listed. A plugin that declares no `state.retention` keeps everything.
+
+The host can also discard the state of one workspace; the server rebuilds it
+the next time it starts. In this version that is an engine path only, with no
+user-facing action yet.
 
 **Preparation status.** `languageServer/setStatus` reports how ready the
 server is. It exists because `lithe/function/progress` belongs to a call that
