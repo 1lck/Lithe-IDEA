@@ -1667,36 +1667,49 @@ package final class GitFeatureModel: ObservableObject {
         return CommitMessageInput(path: change.path, changeKind: change.kind.commitMessageKind, diff: patch)
     }
 
-    /// Builds the input for the commit editor from the index snapshot. This
-    /// deliberately bypasses the selected file's working-tree diff so a file
-    /// with both staged and unstaged edits is represented correctly.
-    package func stagedCommitMessageInput() async -> CommitMessageInput? {
-        // `gitChanges` is the workspace aggregate. Keeping this input
-        // aggregate in the same way as the commit operation prevents the AI
-        // button from silently ignoring staged files in child repositories.
-        let stagedChanges = activeChangelistChanges.filter(\.isStaged)
-        guard !stagedChanges.isEmpty else { return nil }
-
-        var files: [CommitMessageFileInput] = []
-        files.reserveCapacity(stagedChanges.count)
-        for change in stagedChanges {
-            guard let patch = await service.stagedDiffPatch(
-                for: change,
-                whitespace: gitDiffWhitespaceMode
-            ), !patch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                continue
-            }
-            files.append(
-                CommitMessageFileInput(
-                    path: change.path,
-                    changeKind: change.kind.commitMessageKind,
-                    diff: patch
-                )
-            )
+    /// Captures the complete active-list index evidence without using view diff caches.
+    package func stagedCommitMessageContext() async throws -> GitCommitMessageContext {
+        let staged = activeChangelistChanges.filter(\.isStaged)
+        guard !staged.isEmpty else { throw CommitMessageGenerationError.emptyDiff }
+        let grouped = Dictionary(grouping: staged) { $0.repositoryRoot.standardizedFileURL.path }
+        let repositories = grouped.keys.sorted().map { root in
+            GitCommitMessageRepository(root: root, files: (grouped[root] ?? []).map { change in
+                GitCommitMessageSelectedFile(path: change.path, originalPath: change.originalPath,
+                    changeKind: change.kind.commitMessageKind.rawValue)
+            })
         }
+        let capture: GitCommitMessageCoreCapture
+        switch await service.captureCommitMessageContext(repositories) {
+        case .success(let value): capture = value
+        case .failure(let failure):
+            switch failure.message {
+            case "AI_COMMIT_SENSITIVE_FILE": throw CommitMessageGenerationError.sensitiveFileExcluded
+            case "AI_COMMIT_EMPTY_DIFF": throw CommitMessageGenerationError.emptyDiff
+            case "AI_COMMIT_STALE": throw CommitMessageGenerationError.staleChanges
+            case "AI_COMMIT_TOO_MANY_FILES": throw CommitMessageGenerationError.tooManyFiles
+            default: throw CommitMessageGenerationError.diffUnavailable
+            }
+        }
+        guard capture.token.utf8.count == 64,
+              capture.token.utf8.allSatisfy({ ($0 >= 48 && $0 <= 57) || ($0 >= 97 && $0 <= 102) }),
+              !capture.files.isEmpty, capture.files.count <= 1_000 else {
+            throw CommitMessageGenerationError.diffUnavailable
+        }
+        let files = try capture.files.map { file -> CommitMessageFileInput in
+            guard !file.path.isEmpty, let kind = CommitMessageChangeKind(rawValue: file.changeKind),
+                  file.originalCharacters >= file.diff.unicodeScalars.count,
+                  file.truncated == (file.originalCharacters > file.diff.unicodeScalars.count) else {
+                throw CommitMessageGenerationError.diffUnavailable
+            }
+            return CommitMessageFileInput(path: file.path, changeKind: kind, diff: file.diff,
+                originalCharacters: file.originalCharacters)
+        }
+        guard !files.isEmpty else { throw CommitMessageGenerationError.emptyDiff }
+        return GitCommitMessageContext(input: CommitMessageInput(files: files), token: capture.token, repositories: repositories)
+    }
 
-        guard !files.isEmpty else { return nil }
-        return CommitMessageInput(files: files)
+    package func isCommitMessageContextCurrent(_ context: GitCommitMessageContext) async -> Bool {
+        await service.checkCommitMessageContext(context)
     }
 
     package func stageSelectedChange() async {

@@ -2854,6 +2854,7 @@ fn execute(request: &str) -> CoreResponse {
             crate::git::prepare_commit_selection_command,
         ),
         CoreCommand::GitShelf => plugin_response(id, parsed.payload, crate::git::shelf_command),
+        CoreCommand::GitCommitMessageContext => plugin_response(id, parsed.payload, crate::git::commit_message_context_command),
         CoreCommand::GitChangelists => {
             plugin_response(id, parsed.payload, crate::git::changelists_command)
         }

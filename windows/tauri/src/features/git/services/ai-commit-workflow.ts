@@ -1,11 +1,13 @@
 import type { CommitFileInput } from "../types/ai-commit";
+import type { CommitContext } from "./ai-commit-context";
 
 export interface CommitDraftState {
   selection: string;
   message: string;
 }
 export interface CommitGenerationDependencies {
-  readFiles: () => Promise<CommitFileInput[]>;
+  readContext: () => Promise<CommitContext>;
+  isCurrent: (context: CommitContext) => Promise<boolean>;
   generate: (files: CommitFileInput[]) => Promise<string>;
   current: () => CommitDraftState;
   confirmReplace: () => Promise<boolean>;
@@ -22,17 +24,17 @@ export async function generateCommitDraft(
     deps.signal.throwIfAborted();
     if (deps.current().selection !== selection) throw new Error("AI_COMMIT_STALE");
   };
-  const files = await deps.readFiles();
+  const context = await deps.readContext();
   checkSelection();
-  const generated = await deps.generate(files);
+  const generated = await deps.generate(context.files);
   checkSelection();
   const draft = deps.current().message;
   if (draft.trim() && !(await deps.confirmReplace())) return "kept";
   checkSelection();
-  // Refresh the actual patch, not just file names: edits during the HTTP request invalidate it.
-  const latestFiles = await deps.readFiles();
+  // Core checks fresh Git content and the index, without the UI diff cache.
+  const stillCurrent = await deps.isCurrent(context);
   checkSelection();
-  if (JSON.stringify(files) !== JSON.stringify(latestFiles)) throw new Error("AI_COMMIT_STALE");
+  if (!stillCurrent) throw new Error("AI_COMMIT_STALE");
   if (deps.current().message !== draft) throw new Error("AI_COMMIT_DRAFT_CHANGED");
   deps.apply(generated);
   return "applied";

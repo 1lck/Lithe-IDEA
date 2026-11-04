@@ -76,6 +76,9 @@ pub struct CommitFile {
     pub change_kind: String,
     /// Patch evidence; metadata alone is insufficient for generation.
     pub diff: String,
+    /// Full Unicode-scalar count when `diff` is a Core-budgeted prefix.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original_characters: Option<usize>,
 }
 
 /// Credential-free request plan. Native transports add authentication at send time.
@@ -92,7 +95,38 @@ pub fn plan_commit(
     options: &CommitOptions,
     files: &[CommitFile],
 ) -> Result<CommitRequestPlan, &'static str> {
-    plan_commit_with_truncation(provider, options, files, &[])
+    let lengths: Vec<usize> = files
+        .iter()
+        .filter_map(|file| file.original_characters)
+        .collect();
+    if lengths.is_empty() {
+        plan_commit_with_truncation(provider, options, files, &[])
+    } else if lengths.len() == files.len() {
+        plan_commit_bounded(provider, options, files, &lengths)
+    } else {
+        Err("AI_COMMIT_INVALID_OPTIONS")
+    }
+}
+
+/// Plans a request from Core-budgeted prefixes while retaining truncation evidence.
+pub(crate) fn plan_commit_bounded(
+    provider: &Provider,
+    options: &CommitOptions,
+    files: &[CommitFile],
+    original_characters: &[usize],
+) -> Result<CommitRequestPlan, &'static str> {
+    if files.len() != original_characters.len() {
+        return Err("AI_COMMIT_INVALID_OPTIONS");
+    }
+    let budgets = commit_input_budget(options.maximum_diff_characters, original_characters)?;
+    let mut truncated = Vec::with_capacity(budgets.len());
+    for (file, budget) in files.iter().zip(budgets) {
+        if file.diff.chars().count() != budget.characters {
+            return Err("AI_COMMIT_INVALID_OPTIONS");
+        }
+        truncated.push(budget.truncated);
+    }
+    plan_commit_with_truncation(provider, options, files, &truncated)
 }
 
 #[derive(Serialize)]
@@ -284,7 +318,7 @@ pub(crate) fn plan_commit_with_truncation(
     })
 }
 
-fn sensitive_path(path: &str) -> bool {
+pub(crate) fn sensitive_path(path: &str) -> bool {
     let path = path.replace('\\', "/").to_lowercase();
     let name = path.rsplit('/').next().unwrap_or("");
     name == ".env"

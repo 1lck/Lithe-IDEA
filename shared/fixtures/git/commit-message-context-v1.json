@@ -1,0 +1,20 @@
+{
+  "captureRequest": {
+    "action": "capture",
+    "mode": "staged",
+    "maximumDiffCharacters": 8000,
+    "repositories": [
+      {
+        "root": "/repo",
+        "files": [{ "path": "text.txt", "changeKind": "modified" }]
+      }
+    ]
+  },
+  "captureResponse": {
+    "files": [
+      { "path": "text.txt", "changeKind": "modified", "diff": "+example", "originalCharacters": 8, "truncated": false }
+    ],
+    "token": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "checkResponse": { "isCurrent": false }
+}

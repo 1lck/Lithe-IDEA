@@ -30,15 +30,17 @@ extension RustCoreBridge: AICommitPlanning {
         struct Budgets: Decodable { let files: [Budget] }
         struct Payload: Encodable { let provider: Provider; let options: Options; let files: [File] }
         struct Result: Decodable { let url: String; let body: ToolingJSONValue }
-        let lengths = input.files.map { $0.diff.unicodeScalars.count }
+        let lengths = input.files.map(\.originalCharacters)
         do {
             let budget: Budgets = try executeResult(command: "ai.commitInputBudget", payload: BudgetPayload(
                 maximumDiffCharacters: settings.maximumDiffCharacters, fileLengths: lengths
             )).get()
             guard budget.files.count == input.files.count,
-                  zip(budget.files, lengths).allSatisfy({ allocation, length in
-                      allocation.characters >= 0 && allocation.characters <= length &&
-                      allocation.truncated == (allocation.characters < length)
+                  zip(zip(budget.files, lengths), input.files).allSatisfy({ pair, file in
+                      let (allocation, length) = pair
+                      return allocation.characters >= 0 && allocation.characters <= length &&
+                          allocation.characters <= file.diff.unicodeScalars.count &&
+                          allocation.truncated == (allocation.characters < length)
                   }) else { throw CommitMessageGenerationError.invalidResponse }
             let files = zip(zip(input.files, lengths), budget.files).map { pair, allocation in
                 File(path: pair.0.path, changeKind: pair.0.changeKind.rawValue,

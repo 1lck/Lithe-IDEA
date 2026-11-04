@@ -1433,7 +1433,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     }
 
     func discardPendingGeneratedCommitMessage() {
-        commitDraftFeature.discardGeneratedMessage()
+        commitWorkflow.discardGeneratedMessage()
     }
 
     func toggleStaging(_ change: GitChange) {
