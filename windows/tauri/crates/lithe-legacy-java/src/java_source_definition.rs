@@ -351,14 +351,3 @@ fn referenced_member(
 fn utf16_column(line: &str, byte: usize) -> usize {
     line[..byte.min(line.len())].encode_utf16().count()
 }
-
-fn line_number(source: &str, byte: usize) -> usize {
-    source[..byte.min(source.len())]
-        .bytes()
-        .filter(|value| *value == b'\n')
-        .count()
-}
-
-fn utf16_offset(source: &str, byte: usize) -> usize {
-    source[..byte.min(source.len())].encode_utf16().count()
-}

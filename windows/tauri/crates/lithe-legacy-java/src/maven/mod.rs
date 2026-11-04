@@ -6,7 +6,7 @@
 mod dependency_tree;
 mod test_reports;
 
-pub use self::dependency_tree::{dependencies, MavenDependenciesRequest};
+pub use self::dependency_tree::dependencies;
 use self::test_reports::MavenTestReportsRequest;
 use crate::contracts::{
     MavenDiagnosticResponse, MavenDiagnosticsResponse, MavenLaunchExecutableResponse,
@@ -21,7 +21,6 @@ use quick_xml::{Reader, Writer};
 use regex::Regex;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 
@@ -177,11 +176,8 @@ fn launch_plan_with_arguments(
         .map(|value| normalized_project_path(value, "Maven module"))
         .transpose()?;
     if let Some(module) = module.as_deref().filter(|value| *value != ".") {
-        let declared = declared_modules(&validated.canonical_reactor)?;
-        if !declared
-            .iter()
-            .any(|candidate| candidate.relative_path == module)
-        {
+        let declared = declared_module_paths(&validated.canonical_reactor)?;
+        if !declared.iter().any(|path| path == module) {
             return Err(CoreError::new(
                 ErrorCode::InvalidRequest,
                 "Maven module is not part of the selected reactor",
@@ -578,20 +574,12 @@ struct Descriptor {
     group_id: Option<String>,
     artifact_id: Option<String>,
     version: Option<String>,
-    /// Coordinates of `<parent>`, recorded so a module can be matched back to the
-    /// reactor entry it inherits from. Maven identifies a parent by all three
-    /// coordinates: a shared `artifactId` does not prove the relationship, so a
-    /// module whose parent lives outside this reactor keeps its own plugins.
-    parent_group_id: Option<String>,
-    parent_artifact_id: Option<String>,
-    parent_version: Option<String>,
     packaging: String,
     build_directory: Option<String>,
     /// `<reportsDirectory>` values configured for Surefire or Failsafe, raw.
     test_report_directories: Vec<String>,
     module_paths: Vec<String>,
     profiles: Vec<MavenProfileResponse>,
-    plugins: Vec<BuildPlugin>,
     source_directory: Option<String>,
     test_source_directory: Option<String>,
     resource_directories: Vec<String>,
@@ -600,84 +588,10 @@ struct Descriptor {
     generated_test_source_directories: Vec<String>,
 }
 
-impl Descriptor {
-    /// The coordinates a child must name in `<parent>` to inherit from this POM.
-    ///
-    /// `groupId` and `version` fall back to what `<parent>` declares, which is the
-    /// value Maven gives a module that inherits them. A coordinate that is still a
-    /// `${...}` expression proves nothing -- see `still_an_expression`.
-    fn coordinates(&self) -> Option<ModuleCoordinates> {
-        verified_coordinates(
-            self.group_id.as_deref(),
-            self.artifact_id.as_deref(),
-            self.version.as_deref(),
-        )
-    }
-
-    /// The coordinates this POM names in its own `<parent>`, when it declares all
-    /// three. A partial declaration, or one still carrying a `${...}` expression,
-    /// names no verifiable parent.
-    fn parent_key(&self) -> Option<ModuleCoordinates> {
-        verified_coordinates(
-            self.parent_group_id.as_deref(),
-            self.parent_artifact_id.as_deref(),
-            self.parent_version.as_deref(),
-        )
-    }
-}
-
-/// Whether a coordinate value is still a `${...}` expression.
-///
-/// Maven interpolates expressions before it matches a parent, so the same raw text
-/// can resolve to different values: two POMs writing `${revision}` may end up with
-/// different versions once their own properties apply. A coordinate that has not
-/// been resolved therefore cannot prove which POM a module inherits from, and is
-/// refused rather than compared as a literal.
-fn still_an_expression(value: &str) -> bool {
-    value.contains("${")
-}
-
-/// Builds the `groupId:artifactId:version` triple a parent is identified by, or
-/// `None` when any part is missing or still an unresolved expression.
-fn verified_coordinates(
-    group_id: Option<&str>,
-    artifact_id: Option<&str>,
-    version: Option<&str>,
-) -> Option<ModuleCoordinates> {
-    let parts = [group_id?, artifact_id?, version?];
-    if parts.iter().any(|value| still_an_expression(value)) {
-        return None;
-    }
-    Some((
-        parts[0].to_string(),
-        parts[1].to_string(),
-        parts[2].to_string(),
-    ))
-}
-
-/// One `<build><plugins>` entry as Maven applies it.
-///
-/// `inherited` mirrors `<inherited>`: `false` keeps the plugin on the module that
-/// declares it and stops it from reaching any child, which is the only way a
-/// parent can ship a framework plugin to itself without making the whole reactor
-/// runnable.
-
 /// Maven's default `<groupId>` for a plugin declaration that omits one. The
 /// `Plugin` model initializes the field to this value, so a bare artifactId is
 /// never resolved against another group.
 const DEFAULT_PLUGIN_GROUP: &str = "org.apache.maven.plugins";
-
-#[derive(Debug, Clone)]
-/// Visibility matches `DeclaredModule`, which is re-exported crate-wide.
-struct BuildPlugin {
-    /// The group Maven resolves the plugin under. A declaration that omits
-    /// `<groupId>` gets Maven's default of `org.apache.maven.plugins`, so a
-    /// bare `spring-boot-maven-plugin` names a different plugin than
-    /// `org.springframework.boot:spring-boot-maven-plugin`.
-    pub(crate) group_id: String,
-    pub(crate) artifact_id: String,
-    pub(crate) inherited: bool,
-}
 
 #[derive(Debug, Default)]
 /// Configuration buffered until the owning build plugin's `artifactId` is known.
@@ -685,8 +599,6 @@ struct PendingBuildPlugin {
     /// `<groupId>`; absent means Maven's default of `org.apache.maven.plugins`.
     group_id: Option<String>,
     artifact_id: Option<String>,
-    /// `<inherited>`; absent means Maven's default of `true`.
-    inherited: Option<bool>,
     compiler_generated_source_directories: Vec<String>,
     compiler_generated_test_source_directories: Vec<String>,
     build_helper_source_directories: Vec<String>,
@@ -694,232 +606,30 @@ struct PendingBuildPlugin {
     reports_directories: Vec<String>,
 }
 
-/// One module of the declared build graph, flattened with the root first.
+/// Lists the project-relative path of every module the reactor declares, with
+/// the root first as `.`.
 ///
-/// Callers inside the core read this instead of walking directories: Maven
-/// modules are declared in `<modules>`, so a module may sit in a directory the
-/// shared detector walk prunes -- one named `build` or `out` is invisible to a
-/// directory-driven scan -- while a stray `pom.xml` outside the graph is not a
-/// module at all.
-#[derive(Debug, Clone)]
-pub struct DeclaredModule {
-    /// Project-relative, forward-slashed, `.` for the root module.
-    pub relative_path: String,
-    pub artifact_id: String,
-    pub packaging: String,
-    /// Every plugin in the module's effective `<build><plugins>`, including the
-    /// ones it inherits from `<parent>`.
-    pub plugins: Vec<BuildPlugin>,
-    /// Source roots parsed from this module's own POM.
-    pub source_roots: Vec<MavenSourceRootResponse>,
-}
-
-impl DeclaredModule {
-    /// Reports whether this module applies a build plugin, whether it declares
-    /// the plugin itself or inherits it from `<parent>`.
-    ///
-    /// A plugin is identified by `groupId:artifactId`. Maven gives a declaration
-    /// that omits `<groupId>` the default `org.apache.maven.plugins`, so a bare
-    /// `spring-boot-maven-plugin` names a different artifact than
-    /// `org.springframework.boot:spring-boot-maven-plugin` -- matching on the
-    /// artifactId alone would hand the module a framework whose goal it never
-    /// applied.
-    pub fn applies_plugin(&self, group_id: &str, artifact_id: &str) -> bool {
-        self.plugins
-            .iter()
-            .any(|plugin| plugin.group_id == group_id && plugin.artifact_id == artifact_id)
-    }
-
-    /// `pom` packaging is an aggregator: it produces no artifact to run, so a
-    /// plugin declared there configures its children rather than a service.
-    pub fn is_aggregator(&self) -> bool {
-        self.packaging == "pom"
-    }
-}
-
-/// Reads the declared module graph, or an empty list when the root is not a
-/// Maven project.
-pub fn declared_modules(root: &Path) -> Result<Vec<DeclaredModule>, CoreError> {
+/// Maven modules are declared in `<modules>`, so a module may sit in a
+/// directory a directory-driven scan would prune -- one named `build` or `out`
+/// -- while a stray `pom.xml` outside the graph is not a module at all.
+fn declared_module_paths(root: &Path) -> Result<Vec<String>, CoreError> {
     let Some(root_descriptor) = descriptor(&root.join("pom.xml"))? else {
         return Ok(Vec::new());
     };
-    // Inheritance is resolved from the `<parent>` coordinates a module names, so
-    // the reactor is indexed by directory first and the walk reads that resolved
-    // set instead of assuming an ancestor sits above the module in the module graph.
-    let resolved = inheritance_index(root, &root_descriptor)?;
-    let mut modules = Vec::new();
+    let mut paths = Vec::new();
     let mut visited = vec![root.to_path_buf()];
-    collect_modules(
-        root,
-        root,
-        root_descriptor,
-        &mut modules,
-        &mut visited,
-        &resolved,
-    );
-    Ok(modules)
+    collect_module_paths(root, root, &root_descriptor, &mut paths, &mut visited);
+    Ok(paths)
 }
 
-/// Full `groupId:artifactId:version` identity of one POM.
-///
-/// Maven matches a `<parent>` reference against this triple, so a shared
-/// `artifactId` cannot prove which POM a module inherits from: a reactor may
-/// aggregate a module whose real parent lives outside it under that name.
-type ModuleCoordinates = (String, String, String);
-
-/// Indexes every module the reactor declares by the directory it lives in, with
-/// the plugin set it effectively applies.
-///
-/// Only the reactor is consulted. A `<parent>` this reactor cannot prove -- one
-/// whose full coordinates match no module here, including a parent reached through
-/// `<relativePath>` outside the workspace or from the local repository --
-/// contributes nothing, which is what keeps a module from being handed a
-/// framework the reactor cannot verify.
-///
-/// The reader stays deliberately shallow rather than reproducing Maven's
-/// effective model: it reads coordinates, `<modules>`, and `<build><plugins>`
-/// with their `<inherited>` flags, and resolves only parent links the reactor
-/// itself proves. Property interpolation, profiles, and `relativePath` resolution
-/// stay with Maven, and anything that would need them resolves to no inheritance
-/// instead of a guess.
-fn inheritance_index(
-    root: &Path,
-    root_descriptor: &Descriptor,
-) -> Result<BTreeMap<PathBuf, Vec<BuildPlugin>>, CoreError> {
-    // Pass one: every POM the reactor declares. Inheritance can only be resolved
-    // once all of them are known, because a child may name a parent that is not
-    // its aggregator and sits later in the module graph.
-    let mut modules: Vec<(PathBuf, Descriptor)> = Vec::new();
-    let mut pending = vec![(root.to_path_buf(), root_descriptor.clone())];
-    let mut visited = vec![root.to_path_buf()];
-
-    while let Some((directory, current)) = pending.pop() {
-        modules.push((directory.clone(), current.clone()));
-        for raw_path in &current.module_paths {
-            let Some(relative) = normalize_relative_path(raw_path) else {
-                continue;
-            };
-            let child = directory.join(&relative).clean();
-            if visited.iter().any(|path| path == &child) || !child.starts_with(root) {
-                continue;
-            }
-            let Ok(Some(child_descriptor)) = descriptor(&child.join("pom.xml")) else {
-                continue;
-            };
-            visited.push(child.clone());
-            pending.push((child, child_descriptor));
-        }
-    }
-
-    // Two modules sharing one coordinate set leave a child unable to say which it
-    // inherits, so neither is offered as a parent.
-    let mut by_coordinates: BTreeMap<ModuleCoordinates, usize> = BTreeMap::new();
-    let mut ambiguous: BTreeSet<ModuleCoordinates> = BTreeSet::new();
-    for (position, (_, module)) in modules.iter().enumerate() {
-        let Some(coordinates) = module.coordinates() else {
-            continue;
-        };
-        if by_coordinates.contains_key(&coordinates) {
-            by_coordinates.remove(&coordinates);
-            ambiguous.insert(coordinates);
-        } else if !ambiguous.contains(&coordinates) {
-            by_coordinates.insert(coordinates, position);
-        }
-    }
-
-    // Pass two: resolve from the top down, so every module reads the set its own
-    // parent ended up with. Reading the ancestors' raw declarations instead would
-    // let a plugin an intermediate parent stopped reappear below it.
-    let mut resolved: BTreeMap<usize, Vec<BuildPlugin>> = BTreeMap::new();
-    let mut visiting: BTreeSet<usize> = BTreeSet::new();
-    for position in 0..modules.len() {
-        resolve_plugins(
-            position,
-            &modules,
-            &by_coordinates,
-            &mut resolved,
-            &mut visiting,
-        );
-    }
-
-    Ok(modules
-        .into_iter()
-        .enumerate()
-        .map(|(position, (directory, _))| {
-            (
-                directory,
-                resolved.get(&position).cloned().unwrap_or_default(),
-            )
-        })
-        .collect())
-}
-
-/// Resolves one module's effective `<build><plugins>`: its own declarations plus
-/// what its parent hands down.
-///
-/// `<inherited>false</inherited>` stops a plugin at the module that declares it.
-/// Because a child reads this resolved set rather than the ancestors' raw
-/// declarations, the stop holds for every descendant instead of letting a further
-/// ancestor supply the plugin again.
-fn resolve_plugins(
-    position: usize,
-    modules: &[(PathBuf, Descriptor)],
-    by_coordinates: &BTreeMap<ModuleCoordinates, usize>,
-    resolved: &mut BTreeMap<usize, Vec<BuildPlugin>>,
-    visiting: &mut BTreeSet<usize>,
-) -> Vec<BuildPlugin> {
-    if let Some(existing) = resolved.get(&position) {
-        return existing.clone();
-    }
-    // Two POMs naming each other cannot produce a model; stopping at the repeat
-    // keeps the walk finite and leaves that module with its own declarations.
-    if !visiting.insert(position) {
-        return modules[position].1.plugins.clone();
-    }
-
-    let descriptor = &modules[position].1;
-    let inherited = descriptor
-        .parent_key()
-        .and_then(|key| by_coordinates.get(&key).copied())
-        .filter(|parent| *parent != position)
-        .map(|parent| resolve_plugins(parent, modules, by_coordinates, resolved, visiting))
-        .unwrap_or_default();
-    visiting.remove(&position);
-
-    let effective = merge_inherited(&descriptor.plugins, &inherited);
-    resolved.insert(position, effective.clone());
-    effective
-}
-
-/// Merges what a module declares with what its parent hands down.
-///
-/// The module's own declaration wins, matching the single `groupId:artifactId`
-/// Maven merges the two under, and only plugins the parent passes on are
-/// considered at all.
-fn merge_inherited(own: &[BuildPlugin], inherited: &[BuildPlugin]) -> Vec<BuildPlugin> {
-    let mut merged = own.to_vec();
-    for plugin in inherited {
-        if plugin.inherited
-            && !merged.iter().any(|existing| {
-                existing.group_id == plugin.group_id && existing.artifact_id == plugin.artifact_id
-            })
-        {
-            merged.push(plugin.clone());
-        }
-    }
-    merged
-}
-/// Flattens the graph depth-first. Unlike `module`, which builds the nested
-/// response, a visited path is never released: a module reachable through two
-/// parents is one module, and emitting it twice would produce two run
-/// configurations for one service.
-fn collect_modules(
+/// Walks the module graph depth-first. A visited directory is never released:
+/// a module reachable through two parents is still one module.
+fn collect_module_paths(
     root: &Path,
     directory: &Path,
-    current: Descriptor,
-    modules: &mut Vec<DeclaredModule>,
+    current: &Descriptor,
+    paths: &mut Vec<String>,
     visited: &mut Vec<PathBuf>,
-    resolved: &BTreeMap<PathBuf, Vec<BuildPlugin>>,
 ) {
     let relative_path = directory
         .strip_prefix(root)
@@ -927,27 +637,7 @@ fn collect_modules(
         .map(|value| value.to_string_lossy().replace('\\', "/"))
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| ".".to_string());
-    let current_source_roots = source_roots(Some(&current));
-    // The index already resolved this directory against the `<parent>` it names,
-    // so these are the effective plugins. A directory it did not resolve has no
-    // provable parent and keeps only what it declares.
-    let effective_plugins = resolved
-        .get(directory)
-        .cloned()
-        .unwrap_or_else(|| current.plugins.clone());
-    modules.push(DeclaredModule {
-        relative_path,
-        artifact_id: current.artifact_id.unwrap_or_else(|| {
-            directory
-                .file_name()
-                .and_then(|value| value.to_str())
-                .unwrap_or("module")
-                .to_string()
-        }),
-        packaging: current.packaging,
-        plugins: effective_plugins,
-        source_roots: current_source_roots,
-    });
+    paths.push(relative_path);
     for raw_path in &current.module_paths {
         let Some(relative) = normalize_relative_path(raw_path) else {
             continue;
@@ -960,7 +650,7 @@ fn collect_modules(
             continue;
         };
         visited.push(child.clone());
-        collect_modules(root, &child, child_descriptor, modules, visited, resolved);
+        collect_module_paths(root, &child, &child_descriptor, paths, visited);
     }
 }
 
@@ -1679,12 +1369,10 @@ fn path_has_suffix(path: &str, suffix: &str) -> bool {
             .is_some_and(|prefix| prefix.ends_with('/'))
 }
 
-/// The reactor resolves inheritance through `<parent>`, so the parent's full
-/// coordinates have to survive parsing -- they are what proves which reactor POM
-/// a module inherits from. The parent's values also become the module's own
-/// `groupId`/`version` when it declares neither, so this asserts both readings.
+/// A module that declares neither `groupId` nor `version` takes the ones its
+/// `<parent>` names, which is the identity Maven resolves for it.
 #[test]
-fn descriptor_keeps_the_parent_coordinates() {
+fn descriptor_inherits_missing_coordinates_from_the_parent() {
     let dir = std::env::temp_dir().join(format!("lithe-descriptor-parent-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let pom = dir.join("pom.xml");
@@ -1695,25 +1383,9 @@ fn descriptor_keeps_the_parent_coordinates() {
     .unwrap();
 
     let parsed = descriptor(&pom).unwrap().expect("descriptor");
+    assert_eq!(parsed.group_id.as_deref(), Some("com.example"));
     assert_eq!(parsed.artifact_id.as_deref(), Some("the-child"));
-    assert_eq!(
-        parsed.parent_key(),
-        Some((
-            "com.example".to_string(),
-            "the-parent".to_string(),
-            "1".to_string()
-        ))
-    );
-    // The module declares neither value itself, so its effective coordinates are
-    // the parent's pair plus its own `artifactId`.
-    assert_eq!(
-        parsed.coordinates(),
-        Some((
-            "com.example".to_string(),
-            "the-child".to_string(),
-            "1".to_string()
-        ))
-    );
+    assert_eq!(parsed.version.as_deref(), Some("1"));
 
     std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -2122,24 +1794,16 @@ fn descriptor(path: &Path) -> Result<Option<Descriptor>, CoreError> {
                     "project/groupId" => value.group_id = non_empty(text.clone()),
                     "project/artifactId" => value.artifact_id = non_empty(text.clone()),
                     "project/version" => value.version = non_empty(text.clone()),
-                    // `<parent>` coordinates are recorded separately from the
-                    // module's own. Maven identifies a parent by all three, so a
-                    // shared `artifactId` alone cannot prove the relationship, and
-                    // they also become the module's own `groupId`/`version` when it
-                    // declares neither -- the effective coordinates Maven resolves.
+                    // A module that declares no `groupId` or `version` of its own
+                    // takes the one its `<parent>` names, as Maven resolves it.
                     "project/parent/groupId" => {
-                        value.parent_group_id = non_empty(text.clone());
                         if value.group_id.is_none() {
-                            value.group_id = value.parent_group_id.clone();
+                            value.group_id = non_empty(text.clone());
                         }
                     }
-                    "project/parent/artifactId" => {
-                        value.parent_artifact_id = non_empty(text.clone())
-                    }
                     "project/parent/version" => {
-                        value.parent_version = non_empty(text.clone());
                         if value.version.is_none() {
-                            value.version = value.parent_version.clone();
+                            value.version = non_empty(text.clone());
                         }
                     }
                     "project/packaging" => {
@@ -2227,11 +1891,6 @@ fn descriptor(path: &Path) -> Result<Option<Descriptor>, CoreError> {
                             plugin.artifact_id = non_empty(text.clone());
                         }
                     }
-                    "project/build/plugins/plugin/inherited" => {
-                        if let Some(plugin) = pending_build_plugin.as_mut() {
-                            plugin.inherited = Some(text.eq_ignore_ascii_case("true"));
-                        }
-                    }
                     "project/build/plugins/plugin" => {
                         if let Some(plugin) = pending_build_plugin.take() {
                             if let Some(artifact_id) = plugin.artifact_id {
@@ -2261,11 +1920,6 @@ fn descriptor(path: &Path) -> Result<Option<Descriptor>, CoreError> {
                                     }
                                     _ => {}
                                 }
-                                value.plugins.push(BuildPlugin {
-                                    group_id,
-                                    inherited: plugin.inherited.unwrap_or(true),
-                                    artifact_id,
-                                });
                             }
                         }
                     }
