@@ -4,9 +4,9 @@
 // until both native products can consume the same versioned contract.
 mod changelists;
 mod command_trace;
+mod commit_message_context;
 mod commit_selection;
 mod commit_state;
-mod commit_message_context;
 mod deleted_selection;
 pub(crate) mod workspace_commit;
 pub use commit_state::{inspect as commit_state, GitCommitGitlink, GitCommitState};
@@ -46,8 +46,8 @@ pub use setup::{
 };
 
 pub(crate) use changelists::changelists_command;
-pub(crate) use commit_selection::prepare_commit_selection_command;
 pub(crate) use commit_message_context::commit_message_context_command;
+pub(crate) use commit_selection::prepare_commit_selection_command;
 pub(crate) use deleted_selection::reconcile_deleted_selection_command;
 pub use history::{
     close_history_cursor, history, history_page, references, GitHistoryCursorCloseRequest,
