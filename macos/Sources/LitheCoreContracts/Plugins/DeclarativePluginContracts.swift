@@ -71,7 +71,7 @@ public struct DeclarativeLanguageServer: Equatable, Sendable {
     public let stateRetention: StateRetention?
 
     /// The bounds a plugin puts on the per-workspace state of its server.
-    public struct StateRetention: Equatable, Sendable {
+    public struct StateRetention: Hashable, Sendable {
         public let maxEntries: Int
         public let maxAgeDays: Int
 
@@ -136,19 +136,24 @@ public struct DeclarativeLanguageServerLaunchSource: Hashable, Sendable {
     /// True when the plugin's backend names the process at each start
     /// (`serverProcess` 3), so the host has no executable to look up first.
     public let resolvesLaunchWithBackend: Bool
+    /// How long the server's per-workspace state is kept, or nil when the
+    /// plugin declares no bounds and the host deletes nothing.
+    public let stateRetention: DeclarativeLanguageServer.StateRetention?
 
     public init(
         pluginID: String,
         languageID: String,
         manifest: Data,
         packageURL: URL,
-        resolvesLaunchWithBackend: Bool = false
+        resolvesLaunchWithBackend: Bool = false,
+        stateRetention: DeclarativeLanguageServer.StateRetention? = nil
     ) {
         self.pluginID = pluginID
         self.languageID = languageID
         self.manifest = manifest
         self.packageURL = packageURL
         self.resolvesLaunchWithBackend = resolvesLaunchWithBackend
+        self.stateRetention = stateRetention
     }
 }
 

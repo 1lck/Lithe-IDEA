@@ -219,6 +219,12 @@ final class MacServiceContainer {
                 try logStore?.pluginFilesDirectory(pluginID: pluginID)
             }
         )
+        // What the plugins' language servers keep per workspace: pruned by
+        // each plugin's own retention, and discarded on the user's request.
+        let pluginWorkspaceState = MacPluginLanguageServerWorkspaceState(
+            directories: MacPluginStateDirectories(fileStorage: fileStorage),
+            planner: declarativePluginOperations
+        )
         let debugExecutableResolver = MacPluginDebugExecutableResolver(
             planner: declarativePluginOperations,
             settings: pluginSettings
@@ -572,7 +578,8 @@ final class MacServiceContainer {
                     // the application's backends.
                     let backendLaunches = MacPluginBackendLaunchPreparer(
                         backends: pluginBackends, contexts: .shared, resolver: pluginLaunchResolver,
-                        tools: providerTools, runtime: runtimeService, core: rustCore
+                        tools: providerTools, runtime: runtimeService, core: rustCore,
+                        workspaceState: pluginWorkspaceState
                     )
                     let runtimeFactory = StdioLanguageProviderRuntimeFactory(
                         runtimeService: runtimeService,
@@ -628,6 +635,13 @@ final class MacServiceContainer {
                         },
                         workspaceStateResetter: { descriptor, workspaceRootURL, fingerprint in
                             guard !remoteWorkspaces.contains(workspaceRootURL) else { throw CocoaError(.featureUnsupported) }
+                            // A server without a native integration keeps its
+                            // state where the host created it for the plugin.
+                            if let launch = descriptor.languageServerLaunch, launch.hostIntegrationID == nil,
+                               let source = launch.launchSource {
+                                try pluginWorkspaceState.reset(source, workspaceRootURL: workspaceRootURL)
+                                return
+                            }
                             try languageServerHostIntegrations.resetWorkspaceState(
                                 for: descriptor,
                                 workspaceRootURL: workspaceRootURL,
@@ -1466,7 +1480,8 @@ final class MacServiceContainer {
                         languageID: server.languageID,
                         manifest: descriptor.normalizedManifest,
                         packageURL: installed.packageURL,
-                        resolvesLaunchWithBackend: server.backendLaunch != nil
+                        resolvesLaunchWithBackend: server.backendLaunch != nil,
+                        stateRetention: server.stateRetention
                     )
                     : nil
                 // An unexpandable probe is left empty, so the server is found

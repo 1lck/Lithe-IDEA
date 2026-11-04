@@ -50,11 +50,16 @@ struct MacPluginStateDirectories: Sendable {
         pluginDirectory(pluginID: pluginID).appendingPathComponent(languageID, isDirectory: true)
     }
 
+    /// Holds one `${workspaceStateDir}` per workspace of one language server.
+    func workspaceStatesDirectory(pluginID: String, languageID: String) -> URL {
+        stateDirectory(pluginID: pluginID, languageID: languageID)
+            .appendingPathComponent("workspaces", isDirectory: true)
+    }
+
     /// `${workspaceStateDir}`: keyed by the workspace root so two projects
     /// never share an index, without putting the user's path in a file name.
     func workspaceStateDirectory(pluginID: String, languageID: String, workspaceRootURL: URL) -> URL {
-        stateDirectory(pluginID: pluginID, languageID: languageID)
-            .appendingPathComponent("workspaces", isDirectory: true)
+        workspaceStatesDirectory(pluginID: pluginID, languageID: languageID)
             .appendingPathComponent(Self.workspaceDigest(workspaceRootURL), isDirectory: true)
     }
 
@@ -255,6 +260,7 @@ struct MacPluginLanguageServerLaunchResolver {
         } catch {
             // The caller gets no question to clean up after, so the
             // directory the plan may already have created goes here.
+            // log-exempt: 清理只是尽力而为，调用方要处理的是上面抛出的原始错误
             try? fileManager.removeItem(at: scratch)
             throw error
         }

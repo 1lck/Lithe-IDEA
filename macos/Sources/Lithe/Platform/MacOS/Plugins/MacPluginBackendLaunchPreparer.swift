@@ -36,6 +36,7 @@ final class MacPluginBackendLaunchPreparer {
     private let tools: any BuildToolResolving
     private let runtime: any LanguageToolRuntimePort
     private let core: any LanguageServerRuntimeCore
+    private let workspaceState: MacPluginLanguageServerWorkspaceState?
 
     init(
         backends: any PluginBackendRequesting,
@@ -43,7 +44,8 @@ final class MacPluginBackendLaunchPreparer {
         resolver: MacPluginLanguageServerLaunchResolver,
         tools: any BuildToolResolving,
         runtime: any LanguageToolRuntimePort,
-        core: any LanguageServerRuntimeCore
+        core: any LanguageServerRuntimeCore,
+        workspaceState: MacPluginLanguageServerWorkspaceState? = nil
     ) {
         self.backends = backends
         self.contexts = contexts
@@ -51,6 +53,7 @@ final class MacPluginBackendLaunchPreparer {
         self.tools = tools
         self.runtime = runtime
         self.core = core
+        self.workspaceState = workspaceState
     }
 
     func prepare(
@@ -61,6 +64,7 @@ final class MacPluginBackendLaunchPreparer {
             throw PrepareError.workspaceNotOpen
         }
         let question = try resolver.backendLaunchQuestion(for: source, workspaceRootURL: workspaceURL)
+        maintainState(of: source, workspaceURL: workspaceURL)
         do {
             let process = try await decide(source, question: question, context: context)
             let target = try await resolveTarget(of: process.program, workspaceURL: workspaceURL)
@@ -134,11 +138,31 @@ final class MacPluginBackendLaunchPreparer {
         return Target(url: resolved.executableURL, environment: resolved.environment)
     }
 
+    /// Marks this workspace's state as used and deletes the state of
+    /// workspaces the plugin's retention lets go. Removing an old index can
+    /// take long, so it runs in the background and never delays the start. It
+    /// only frees disk space, so a failure does not stop the server either.
+    private func maintainState(of source: DeclarativeLanguageServerLaunchSource, workspaceURL: URL) {
+        guard let workspaceState else { return }
+        let open = contexts.contexts
+            .filter { $0.authority == .local }
+            .flatMap { $0.folders.map(\.localURL) } + [workspaceURL]
+        Task.detached(priority: .utility) {
+            do {
+                try workspaceState.markUsed(source, workspaceRootURL: workspaceURL)
+                try workspaceState.prune(source, openWorkspaceURLs: open)
+            } catch {
+                // log-exempt: 状态清理只回收磁盘空间，失败不影响本次启动，下次启动会重新清理
+            }
+        }
+    }
+
     private func ensureCurrent(_ context: PluginWorkspaceContext) throws {
         guard case .success = contexts.resolve(context.reference) else { throw CancellationError() }
     }
 
     private nonisolated static func removeScratch(_ directory: URL) {
+        // log-exempt: 临时目录位于系统临时区，删不掉只占用磁盘，系统会自行回收
         try? FileManager.default.removeItem(at: directory)
     }
 }
