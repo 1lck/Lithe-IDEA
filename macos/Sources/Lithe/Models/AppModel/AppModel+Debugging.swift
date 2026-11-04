@@ -29,6 +29,19 @@ extension AppModel {
         }
     }
 
+    /// The plugin of the active session declared how to apply changed code, so the host saves
+    /// the open documents and asks the adapter to apply them.
+    func applyDeclaredDebugCodeChanges() {
+        guard let feature = genericDebugFeatureIfActive, let identity = currentWorkspaceIdentity,
+              feature.canApplyDeclaredCodeChanges else { return }
+        Task { [weak self] in
+            await feature.applyDeclaredCodeChanges {
+                guard let self, self.isCurrentWorkspace(identity), await self.saveAllDocuments(),
+                      self.isCurrentWorkspace(identity) else { throw CancellationError() }
+            }
+        }
+    }
+
     func restartUpdatedDebugService() {
         guard let feature = genericDebugFeatureIfActive, let identity = currentWorkspaceIdentity,
               let sessionID = feature.activeSessionID else { return }

@@ -488,6 +488,61 @@ struct DebugModuleTests {
     }
 
     @Test
+    func anAdapterThatDeclaredHotCodeReplaceOffersApplyingChangesAndSendsItAfterPreparing() async {
+        let session = DeferredInspectionDebugSession()
+        session.declaredBehavior = DebugAdapterDeclaredBehavior(
+            features: .init(hotCodeReplace: .init(request: "script.reload"))
+        )
+        let feature = makeDeclaredFeature(session: session, rootPath: "/workspace/declared-reload")
+        defer { feature.stop() }
+        #expect(feature.canApplyDeclaredCodeChanges)
+        var prepared = false
+
+        await feature.applyDeclaredCodeChanges {
+            #expect(session.redefineCount == 0)
+            prepared = true
+        }
+
+        #expect(prepared)
+        #expect(session.redefineCount == 1)
+        #expect(session.executionCommands.isEmpty)
+        #expect(feature.serviceUpdateFailed == false)
+        #expect(feature.updatingServiceSessionID == nil)
+    }
+
+    @Test
+    func anAdapterThatDeclaredNothingOffersNoApplyChangesAction() async {
+        let session = DeferredInspectionDebugSession()
+        let feature = makeDeclaredFeature(session: session, rootPath: "/workspace/undeclared-reload")
+        defer { feature.stop() }
+        #expect(!feature.canApplyDeclaredCodeChanges)
+
+        await feature.applyDeclaredCodeChanges { Issue.record("Nothing was declared, so nothing is prepared") }
+
+        #expect(session.redefineCount == 0)
+        #expect(feature.serviceUpdateMessage == nil)
+    }
+
+    @Test
+    func aFailedPreparationNeverAsksTheAdapterToApplyChanges() async {
+        let session = DeferredInspectionDebugSession()
+        session.declaredBehavior = DebugAdapterDeclaredBehavior(
+            features: .init(hotCodeReplace: .init(request: "script.reload"))
+        )
+        let feature = makeDeclaredFeature(session: session, rootPath: "/workspace/declared-reload-failure")
+        defer { feature.stop() }
+
+        await feature.applyDeclaredCodeChanges {
+            throw NSError(domain: "test", code: 1, userInfo: [NSLocalizedDescriptionKey: "Save failed"])
+        }
+
+        #expect(session.redefineCount == 0)
+        #expect(feature.serviceUpdateFailed)
+        #expect(feature.serviceUpdateMessage?.contains("Save failed") == true)
+        #expect(feature.updatingServiceSessionID == nil)
+    }
+
+    @Test
     func debuggeeOutputPreservesSGRButDiscardsTerminalControlSequences() {
         let manager = DebugAdapterSessionManager(providers: []) { _, _ in nil }
         let feature = GenericDebugFeatureModel(sessions: manager)
@@ -5031,6 +5086,22 @@ struct DebugModuleTests {
         return feature
     }
 
+    private func makeDeclaredFeature(
+        session: DeferredInspectionDebugSession,
+        rootPath: String
+    ) -> GenericDebugFeatureModel {
+        let descriptor = DebugProviderDescriptor(id: "example-dap", displayName: "Example", fileExtensions: ["ex"])
+        let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in session }
+        let feature = GenericDebugFeatureModel(sessions: manager)
+        let root = URL(fileURLWithPath: rootPath, isDirectory: true)
+        precondition(feature.start(
+            fileURL: root.appendingPathComponent("main.ex"),
+            rootURL: root,
+            configuration: DebugLaunchConfiguration(name: "main", request: .launch, arguments: [:])
+        ))
+        return feature
+    }
+
     // MARK: Declarative adapter start
 
     @Test
@@ -5429,6 +5500,7 @@ private struct RecordingDebugVariablePageRequest: Equatable {
 @MainActor
 private final class DeferredInspectionDebugSession: DebugAdapterControllingSession, DebugAdapterRunInTerminalSession {
     private(set) var redefineCount = 0
+    var declaredBehavior: DebugAdapterDeclaredBehavior = .none
     func redefineClasses(_ completion: @escaping (Result<[String], Error>) -> Void) {
         redefineCount += 1
         completion(.success(["example.Main"]))
