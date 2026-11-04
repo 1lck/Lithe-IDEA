@@ -8,6 +8,9 @@ pub mod editor_actions;
 pub(crate) mod executables;
 pub(crate) mod grammar;
 pub(crate) mod keymap_import;
+/// Session fields of plugin-owned language servers and the launch their
+/// backend resolves.
+pub(crate) mod language_server_sessions;
 pub mod marketplace;
 pub(crate) mod native_ui;
 pub(crate) mod settings;
