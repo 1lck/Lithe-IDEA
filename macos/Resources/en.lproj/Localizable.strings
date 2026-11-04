@@ -689,6 +689,7 @@
 "Choose one of the offered values." = "Choose one of the offered values.";
 "Choose path" = "Choose path";
 "Choose services to run" = "Choose services to run";
+"Choose the start and end dates, then edit hours, minutes and seconds. Times use your local time zone; Apply includes the entire final second. The range also applies to live logs and intersects with other filters. Dragging the histogram selects a range too; Clear time range removes it." = "Choose the start and end dates, then edit hours, minutes and seconds. Times use your local time zone; Apply includes the entire final second. The range also applies to live logs and intersects with other filters. Dragging the histogram selects a range too; Clear time range removes it.";
 "Choose two branches" = "Choose two branches";
 "Choose what Pull does when your branch and the remote branch have diverged." = "Choose what Pull does when your branch and the remote branch have diverged.";
 "Choose what happens to programs started in Lithe when you quit or close a terminal. Programs started outside Lithe are never shown or stopped." = "Choose what happens to programs started in Lithe when you quit or close a terminal. Programs started outside Lithe are never shown or stopped.";
@@ -736,6 +737,7 @@
 "Clear debug output" = "Clear debug output";
 "Clear log search" = "Clear log search";
 "Clear only the display; log files are kept" = "Clear only the display; log files are kept";
+"Clear only the selected server's visible logs. Collected diagnostic logs are kept." = "Clear only the selected server's visible logs. Collected diagnostic logs are kept.";
 "Clear path filter" = "Clear path filter";
 "Clear run output" = "Clear run output";
 "Clear search" = "Clear search";
@@ -748,6 +750,7 @@
 "Clear user filter" = "Clear user filter";
 "Clear view" = "clear view";
 "Clearing…" = "Clearing…";
+"Click a channel to select it. Command-click adds or removes a channel; Shift-click selects a range. Selected channels are combined with OR, then intersected with level, time and text filters. All channels clears the channel restriction." = "Click a channel to select it. Command-click adds or removes a channel; Shift-click selects a range. Selected channels are combined with OR, then intersected with level, time and text filters. All channels clears the channel restriction.";
 "Click the editor gutter to add a breakpoint" = "Click the editor gutter to add a breakpoint";
 "Click the folded options to expand; right-click for command details." = "Click the folded options to expand; right-click for command details.";
 "Click to jump · drag for time range" = "click to jump · drag for time range";
@@ -1446,6 +1449,7 @@
 "End This Terminal" = "End This Terminal";
 "End all" = "End all";
 "End on next launch" = "End on next launch";
+"End time" = "End time";
 "End without asking" = "End without asking";
 "English" = "English";
 "Enlarge image" = "Enlarge image";
@@ -2069,6 +2073,7 @@
 "Korean characters" = "Korean characters";
 "Kotlin Support" = "Kotlin Support";
 "LSP" = "LSP";
+"LSP Logs" = "LSP Logs";
 "Labels" = "Labels";
 "Labels and assignees" = "Labels and assignees";
 "Language" = "Language";
@@ -2183,6 +2188,7 @@
 "Lithe: prune stale branches" = "Lithe: prune stale branches";
 "Little Endian" = "Little Endian";
 "Live follow" = "tail -f";
+"Live follow appends logs in their recorded order and scrolls to the latest record. The writer delivers short batches; bursts reflect real activity. Scrolling up pauses automatic scrolling while collection continues. Resume to return to the latest logs." = "Live follow appends logs in their recorded order and scrolls to the latest record. The writer delivers short batches; bursts reflect real activity. Scrolling up pauses automatic scrolling while collection continues. Resume to return to the latest logs.";
 "Load" = "Load";
 "Load %lld more" = "Load %lld more";
 "Load Disk Version" = "Load Disk Version";
@@ -2377,6 +2383,7 @@
 "Method Breakpoints" = "Method Breakpoints";
 "Microphone in use" = "Microphone in use";
 "Minimap" = "Minimap";
+"Minimum level" = "Minimum level";
 "Minimum version" = "Minimum version";
 "Missing" = "Missing";
 "Mixed Reset (Keep Changes Unstaged)" = "Mixed Reset (Keep Changes Unstaged)";
@@ -2595,6 +2602,7 @@
 "No matching commits in the loaded history." = "No matching commits in the loaded history.";
 "No matching conversations" = "No matching conversations";
 "No matching items" = "No matching items";
+"No matching language server logs" = "No matching language server logs";
 "No matching messages" = "No matching messages";
 "No matching plugins" = "No matching plugins";
 "No matching skills." = "No matching skills.";
@@ -3669,6 +3677,7 @@
 "Sensitive files are not sent to an AI provider." = "Sensitive files are not sent to an AI provider.";
 "Separate arguments with spaces; quote an argument that contains spaces." = "Separate arguments with spaces; quote an argument that contains spaces.";
 "Server" = "Server";
+"Server Logs" = "Server Logs";
 "Server URL" = "Server URL";
 "Server address" = "Server address";
 "Server default" = "Server default";
@@ -3793,6 +3802,7 @@
 "Showing available matches." = "Showing available matches.";
 "Showing the previous Java entries while the Java language service prepares the project." = "Showing the previous Java entries while the Java language service prepares the project.";
 "Shown across the entire workbench, including toolbars, project tree, editor, tabs, terminals, and status bar." = "Shown across the entire workbench, including toolbars, project tree, editor, tabs, terminals, and status bar.";
+"Shows the selected server's session events, stderr and server messages from the redacted diagnostic logs. Server Trace and RPC message capture are not available. Application logs are in Logs and Diagnostics." = "Shows the selected server's session events, stderr and server messages from the redacted diagnostic logs. Server Trace and RPC message capture are not available. Application logs are in Logs and Diagnostics.";
 "Side-by-side" = "Side-by-side";
 "Side-by-side view" = "Side-by-side view";
 "Sign in again" = "Sign in again";
@@ -3872,6 +3882,7 @@
 "Source Repository" = "Source Repository";
 "Source Roots" = "Source Roots";
 "Sources Root" = "Sources Root";
+"Spaces combine conditions with AND. level>=warn includes WARN and ERROR; level:info is exact. event:, channel: and op: match prefixes. server:jdtls and key:value match field substrings. /regex/ searches messages, ignoring case; - excludes a condition. Use double quotes around values containing spaces. Channel, level and time controls also intersect with the expression. Invalid expressions keep the last valid results." = "Spaces combine conditions with AND. level>=warn includes WARN and ERROR; level:info is exact. event:, channel: and op: match prefixes. server:jdtls and key:value match field substrings. /regex/ searches messages, ignoring case; - excludes a condition. Use double quotes around values containing spaces. Channel, level and time controls also intersect with the expression. Invalid expressions keep the last valid results.";
 "Speed" = "Speed";
 "Spring Boot" = "Spring Boot";
 "Spring Endpoints" = "Spring Endpoints";
@@ -3920,6 +3931,7 @@
 "Start the discussion or submit the first review." = "Start the discussion or submit the first review.";
 "Start the session by sending a message" = "Start the session by sending a message";
 "Start this configuration to see its output here." = "Start this configuration to see its output here.";
+"Start time" = "Start time";
 "Start with an action verb, without a type prefix" = "Start with an action verb, without a type prefix";
 "Started in Claude Desktop" = "Started in Claude Desktop";
 "Starting" = "Starting";
@@ -4169,6 +4181,7 @@
 "The bundled JDT LS manifest is invalid at %@." = "The bundled JDT LS manifest is invalid at %@.";
 "The bundled JDT LS version could not be determined." = "The bundled JDT LS version could not be determined.";
 "The bundled palette is an approximation; custom theme colors are not imported." = "The bundled palette is an approximation; custom theme colors are not imported.";
+"The call chain lists records sharing an operation ID in time order. +N ms is the offset from the first record, not its execution duration. The bar shows that offset across the operation span. Click a record to locate it in the log table." = "The call chain lists records sharing an operation ID in time order. +N ms is the offset from the first record, not its execution duration. The bar shows that offset across the operation span. Click a record to locate it in the log table.";
 "The checkout directory no longer exists. Repair moved worktree metadata or prune the stale Git record." = "The checkout directory no longer exists. Repair moved worktree metadata or prune the stale Git record.";
 "The checkout path does not exist" = "The checkout path does not exist";
 "The chosen file is missing or not executable." = "The chosen file is missing or not executable.";
@@ -4215,6 +4228,7 @@
 "The downloaded update failed its SHA-256 verification. Do not install it; retry or use the Release page." = "The downloaded update failed its SHA-256 verification. Do not install it; retry or use the Release page.";
 "The downloaded update failed its checksum verification." = "The downloaded update failed its checksum verification.";
 "The edit stop changed. Refresh the session before amending." = "The edit stop changed. Refresh the session before amending.";
+"The end time must be after the start time." = "The end time must be after the start time.";
 "The environment snapshot could not be read. Refresh to try again." = "The environment snapshot could not be read. Refresh to try again.";
 "The expression does not hold an address" = "The expression does not hold an address";
 "The featured MCP catalog could not be loaded." = "The featured MCP catalog could not be loaded.";
@@ -4549,6 +4563,7 @@
 "Threads" = "Threads";
 "Threads & Variables" = "Threads & Variables";
 "Time" = "Time";
+"Time range" = "Time range";
 "Time to exit" = "Time to exit";
 "Timed Out" = "Timed Out";
 "Timeout (seconds)" = "Timeout (seconds)";
@@ -5163,6 +5178,12 @@
 "logs.filter.regexTooLong" = "Regular expression is too long";
 "logs.filter.unterminatedQuote" = "Close the quoted value";
 "logs.filter.unterminatedRegex" = "Close the regular expression with /";
+"logs.language.clearHelp" = "Clear only the selected server's visible logs. Collected diagnostic logs are kept.";
+"logs.language.empty" = "No matching language server logs";
+"logs.language.minimumLevel" = "Minimum level";
+"logs.language.outputHelp" = "Shows the selected server's session events, stderr and server messages from the redacted diagnostic logs. Server Trace and RPC message capture are not available. Application logs are in Logs and Diagnostics.";
+"logs.language.outputTitle" = "Server Logs";
+"logs.language.tabTitle" = "LSP Logs";
 "logs.window.absoluteTime" = "absolute time";
 "logs.window.allChannels" = "all channels";
 "logs.window.autoOffIn" = "Auto-off in %1$@";
@@ -5171,6 +5192,7 @@
 "logs.window.category" = "Category: %1$@";
 "logs.window.changeDirectory" = "Change Log Directory…";
 "logs.window.channel" = "Channel";
+"logs.window.channelHelp" = "Click a channel to select it. Command-click adds or removes a channel; Shift-click selects a range. Selected channels are combined with OR, then intersected with level, time and text filters. All channels clears the channel restriction.";
 "logs.window.clearOnlyTheDisplayLogFilesAreKept" = "Clear only the display; log files are kept";
 "logs.window.clearStorage" = "Clear Logs (used %1$@)…";
 "logs.window.clearTimeRange" = "Clear time range";
@@ -5189,6 +5211,7 @@
 "logs.window.disableDiagnostics" = "stop";
 "logs.window.droppedLld" = "dropped %1$lld";
 "logs.window.enableDiagnostics" = "Enable";
+"logs.window.endTime" = "End time";
 "logs.window.event" = "Event";
 "logs.window.eventsOverTime" = "events over time";
 "logs.window.export" = "Export";
@@ -5196,7 +5219,9 @@
 "logs.window.fields" = "Fields";
 "logs.window.filterChannel" = "filter channel";
 "logs.window.filterErrorAtLldLld" = "Filter error at %1$lld–%2$lld: %3$@";
+"logs.window.filterHelp" = "Spaces combine conditions with AND. level>=warn includes WARN and ERROR; level:info is exact. event:, channel: and op: match prefixes. server:jdtls and key:value match field substrings. /regex/ searches messages, ignoring case; - excludes a condition. Use double quotes around values containing spaces. Channel, level and time controls also intersect with the expression. Invalid expressions keep the last valid results.";
 "logs.window.filterServerJdtlsLevelWarnEventLspTraceReceivedRegexOpC0ffee" = "Filter: server:jdtls  level>=warn  -event:lsp.trace.received  /regex/  op:c0ffee";
+"logs.window.followHelp" = "Live follow appends logs in their recorded order and scrolls to the latest record. The writer delivers short batches; bursts reflect real activity. Scrolling up pauses automatic scrolling while collection continues. Resume to return to the latest logs.";
 "logs.window.following" = "Following";
 "logs.window.hideThisEvent" = "Hide this event";
 "logs.window.histogramTooltip" = "%1$@ · ERROR %2$lld · WARN %3$lld · other %4$lld";
@@ -5217,6 +5242,7 @@
 "logs.window.repeatedLldTimesLast" = "Repeated %1$lld times · last %2$@";
 "logs.window.restoreDirectory" = "Restore Default Directory";
 "logs.window.revealDirectory" = "Reveal Log Directory in Finder";
+"logs.window.reversedTime" = "The end time must be after the start time.";
 "logs.window.saveCurrentFilter" = "Save current filter…";
 "logs.window.savedFilters" = "saved filters";
 "logs.window.selected" = "δ selected";
@@ -5226,9 +5252,13 @@
 "logs.window.showOnlyThisChannel" = "Show only this channel";
 "logs.window.showOnlyThisEvent" = "Show only this event";
 "logs.window.sourceLine" = "line %1$lld";
+"logs.window.startTime" = "Start time";
 "logs.window.tailing" = "tailing";
 "logs.window.thisRecordHasNoOpId" = "This record has no op id";
 "logs.window.time" = "Time";
+"logs.window.timeHelp" = "Choose the start and end dates, then edit hours, minutes and seconds. Times use your local time zone; Apply includes the entire final second. The range also applies to live logs and intersects with other filters. Dragging the histogram selects a range too; Clear time range removes it.";
+"logs.window.timeRange" = "Time range";
+"logs.window.traceHelp" = "The call chain lists records sharing an operation ID in time order. +N ms is the offset from the first record, not its execution duration. The bar shows that offset across the operation span. Click a record to locate it in the log table.";
 "logs.window.traceOperation" = "trace operation";
 "logs.window.traceThisOperation" = "Trace this operation";
 "logs.window.unreadErrors" = "Unread errors";

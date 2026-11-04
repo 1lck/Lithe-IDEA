@@ -45,8 +45,9 @@ struct CoreRequestTraceTests {
         }
 
         let writer = MacLogStore(defaultDirectory: root.appendingPathComponent("logs"))
-        RustCoreBridge.onCoreEventsPending = { [weak writer] in writer?.scheduleCoreDrain() }
-        defer { RustCoreBridge.onCoreEventsPending = nil }
+        // This child process has no application writer, so the test writer owns
+        // Core's pending-fact waker until finishSession removes it.
+        writer.observeCoreFacts()
         let stream = try await writer.subscribe()
         let buffer = LineBuffer()
         let traced = TestGate()
@@ -62,7 +63,7 @@ struct CoreRequestTraceTests {
         }
         defer { consumer.cancel() }
 
-        // No flush: Core's pending flag alone must schedule the drain.
+        // No flush: Core's pending-fact waker schedules the drain.
         let action = try #require(UserActionTrace.run("vcs.commit", surface: .button, sink: writer) { () -> UserAction? in
             #expect(core.gitCommand(at: repository, arguments: ["commit", "--allow-empty", "-m", "secret subject"])?.exitCode == 0)
             return UserActionContext.current

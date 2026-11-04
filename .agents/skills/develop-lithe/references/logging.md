@@ -111,7 +111,7 @@ let _ = stream.shutdown(Shutdown::Both);
 | 没有服务容器的用户操作入口（AppKit 菜单、通知动作） | `UserActionTrace.applicationSink`，启动时安装一次；测试传入自己的 sink |
 | Swift 侧的 Rust Core 桥接 | `RustCoreBridge.coreLogSink` |
 | Rust Core 的请求处理 | 请求事件流携带的目录事件 |
-| Rust Core 的执行轨迹和没有请求上下文的代码（析构、后台清理） | `diagnostics::core_events` 进程级有界队列；宿主在写入批次、flush 和退出时排空，响应带 `coreEventsPending` 时再安排一次排空 |
+| Rust Core 的执行轨迹和没有请求上下文的代码（析构、后台清理） | `diagnostics::core_events` 进程级有界队列；宿主在写入批次、flush 和退出时排空，Core 唤醒回调再安排一次排空 |
 | 链接进 Core 的辅助 crate（agent-host、git-host、ide-host、lithe-remote 客户端） | 本 crate 的 `failure_log` 模块；sink 由 Core 的 `diagnostics::helper_failures::install()` 注入 |
 
 规则：
@@ -194,7 +194,7 @@ sink.emit(GitFetchNoticeFailed(remote: remote, error: error, operationID: op))
 
 - Core 在入队前丢弃宿主没有开启的 DEBUG 事实：宿主通过 `diagnostics.configureCoreEvents { debug, roots }` 告诉 Core 详细诊断是否开启、开启哪些通道根，默认关闭。`MacLogStore` 在详细诊断状态变化时调用它。只在宿主侧过滤会让后台 DEBUG 占满 256 条的 Core 队列；队列满时新事实只计入丢弃数，之后的 WARN 和 ERROR 会因此丢失。
 - 构造字段前先调用 `core_events::accepts(level, root)`，被拒绝的事实只花一次分支判断。
-- Core 队列里有未取走的事实时，每个响应信封都带 `coreEventsPending: true`；桥接层据此调用 `MacLogStore.scheduleCoreDrain()`，合并成一次 100 毫秒后的排空。不得为 Core 队列增加空闲轮询定时器。
+- 只有应用写入器调用 `MacLogStore.observeCoreFacts()` 安装 Core 唤醒回调。记录事实或增加丢弃数后，Core 在两次排空之间最多回调一次；回调只安排 100 毫秒后的单次排空，不在回调里直接排空。结束会话先移除回调再做最后一次排空。不得为 Core 队列增加空闲轮询定时器，也不得在响应信封里再加待取标记。
 
 ## 八、字段选择与隐私
 

@@ -1,39 +1,6 @@
 import AppKit
 import SwiftUI
 
-struct LogChannelRow: View {
-    let row: LogWindowView.ChannelRow
-    let selected: Bool
-    let unread: Bool
-    let action: () -> Void
-    @State private var hovered = false
-    private var shortName: String {
-        var parts = row.id.split(separator: "/").map(String.init)
-        if parts.count > 1 { parts.removeFirst() }
-        if parts.count > 1 && parts.last == "host" { parts.removeLast() }
-        return parts.joined(separator: "/")
-    }
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 7) {
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(row.id.isEmpty ? Color.clear : Color(LogWindowPalette.channel(row.id)))
-                    .overlay { if row.id.isEmpty { RoundedRectangle(cornerRadius: 2).stroke(Color(LogWindowPalette.tx2)) } }
-                    .frame(width: 8, height: 8)
-                if row.id.isEmpty { Text("All channels") } else { Text(verbatim: shortName) }
-                if unread { Circle().fill(Color(LogWindowPalette.red)).frame(width: 7, height: 7).accessibilityLabel(Text("Unread errors")) }
-                Spacer(minLength: 0)
-                Text(verbatim: row.count.formatted(.number.locale(Locale(identifier: "en_US"))))
-                    .font(LitheTheme.uiFont(size: 11, design: .monospaced)).foregroundStyle(Color(LogWindowPalette.tx3))
-            }.padding(.leading, 12).padding(.trailing, 12).frame(height: 25)
-                .foregroundStyle(Color(selected ? LogWindowPalette.tx : LogWindowPalette.tx2))
-                .background(Color(selected ? LogWindowPalette.hl : hovered ? LogWindowPalette.bg3 : LogWindowPalette.bg2))
-                .overlay(alignment: .leading) { if selected { Color(LogWindowPalette.blu).frame(width: 2) } }
-                .contentShape(Rectangle())
-        }.buttonStyle(.plain).onHover { hovered = $0 }
-    }
-}
-
 struct LogFollowingPulse: View {
     @State private var dimmed = false
     var body: some View {

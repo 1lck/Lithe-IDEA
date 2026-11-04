@@ -271,7 +271,10 @@ mod tests {
     fn source_prefers_explicit_origin_then_git_policy() {
         use Source::*;
         assert_eq!(effective_source(Some(User), Some(Background)), User);
-        assert_eq!(effective_source(Some(Unknown), Some(Background)), Background);
+        assert_eq!(
+            effective_source(Some(Unknown), Some(Background)),
+            Background
+        );
         assert_eq!(effective_source(None, Some(User)), User);
         assert_eq!(effective_source(None, None), Unknown);
     }

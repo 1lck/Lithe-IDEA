@@ -394,6 +394,63 @@ backend are `plugin.launch.unavailable`. Core never creates or
 reads any of these paths. The command also serves API 1
 manifests, whose arguments are returned unchanged.
 
+#### Structured plugin diagnostics (logging protocol 1)
+
+Every plugin-owned process may negotiate `capabilities.experimental.litheLogging`:
+the host offers `{ "versions": [1] }` in `initialize`, and the SDK answers
+`{ "version": 1 }`. The current official SDKs require that offer. This protocol
+is independent of function, build, VCS, and toolchain protocol versions.
+
+After successful initialization, the backend sends a JSON-RPC notification
+`lithe/log`. Its params contain only these fields; unknown fields are rejected:
+
+| Field | Meaning |
+| --- | --- |
+| `kind` | `operationFinished`, `operationFailed`, `degraded`, or `recovered`. These select INFO, ERROR, WARN, and WARN catalog events respectively. |
+| `operation` | A registered function ID (up to 64 bytes), `function-call` for a longer registered ID, a supported `lithe/build/*` or `lithe/vcs/*` request method, `lithe/keymap/import`, or the SDK-owned stages `initialize`, `shutdown`, `notification`, `result-encoding`. Arbitrary display labels and user input are refused. |
+| `durationMs` | Required for finished/failed, absent for degraded/recovered. Monotonic elapsed integer milliseconds, 0 through 9007199254740991. |
+| `code` | Required except for finished. Stable category, 1–64 ASCII bytes from letters, digits, `._:/-$`; never an exception message, command line, query, or response body. |
+| `count` | Optional affected item count, a nonnegative JSON safe integer. |
+| `operationId` | Optional originating wire operation ID, 1–128 ASCII token bytes. The SDK obtains it from the call context. Core resolves a still-active wire request to its host operation; unknown or retired IDs provide no correlation. |
+
+The notification must precede the corresponding RPC response so its wire ID
+still belongs to the active host operation. Cancellation is an expected result
+and does not produce an operation failure. The SDK owns automatic function and
+domain request terminal facts; plugin handlers must not duplicate them. A
+handler records a warning only when it actually recovers or returns a degraded
+result. Frequently repeated read/preview/poll functions suppress successful
+terminal facts; their failures remain observable.
+
+Core supplies the installed plugin ID and routes these facts to
+`plugins/<id>/host`. Plugins cannot provide an event ID, channel, severity,
+message, arbitrary fields, error body, or writer path. The fixed catalog events
+are `plugins.operation.finished`, `plugins.operation.failed`,
+`plugins.operation.fallback_selected`, and `plugins.operation.recovery_finished`.
+Malformed or unnegotiated input produces one category-only
+`plugins.diagnostics.rejected` warning per process session, without retaining
+the rejected payload. Ingress admits at most 600 facts per minute per session,
+then uses the existing bounded Core handoff to the host's single writer;
+overload increments its dropped counter. No polling timer or extra writer is
+created. Fixture: `fixtures/plugin-logging.json`.
+
+Severity follows the actual result. An operation that failed for the user is
+ERROR, a recovery or fallback is WARN, and a useful successful user operation
+is INFO. The source stream is not a severity: unclassified stderr is DEBUG
+evidence, while standard `window/logMessage`/`window/showMessage` types retain
+their explicit error/warning/info/detail semantics through separate catalog
+events. Raw stdout is reserved for protocol frames. Source code, credentials,
+SQL, HTTP headers/bodies, terminal history, protocol payloads, and command
+output must never be included in diagnostic fields.
+
+Native upstream files may use `${logDir}` only when the host supplies the
+current local writable session directory. They remain separate files, not
+structured catalog events. Keep metadata and caches in `${stateDir}` or
+`${workspaceStateDir}`, and never infer a writable log path from `${pluginDir}`.
+These runtime files do not modify installed resources or participate in build
+resource reuse. Hosts without a local `logDirectory` reject launches requiring
+`${logDir}`. The current macOS writer persists v2; Windows's writer migration
+remains a separate platform task.
+
 #### Plugin settings (API 2)
 
 A plugin may declare options the user can change, one set per plugin and

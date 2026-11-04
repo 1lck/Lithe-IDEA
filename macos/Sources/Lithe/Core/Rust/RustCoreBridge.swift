@@ -59,26 +59,15 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         }
     }
 
-    /// Core marks every response while its process-wide event queue holds facts.
-    /// The bridge is a value copied everywhere, so the drain hook is process-wide.
-    private static let pendingLock = NSLock()
-    private nonisolated(unsafe) static var pendingHandler: (@Sendable () -> Void)?
-    static var onCoreEventsPending: (@Sendable () -> Void)? {
-        get { pendingLock.withLock { pendingHandler } }
-        set { pendingLock.withLock { pendingHandler = newValue } }
-    }
-
     private struct Envelope<Data: Decodable>: Decodable {
         let ok: Bool
         let data: Data?
         let error: ErrorPayload?
-        let coreEventsPending: Bool
 
         private enum CodingKeys: String, CodingKey {
             case ok
             case data
             case error
-            case coreEventsPending
         }
 
         init(from decoder: Decoder) throws {
@@ -86,7 +75,6 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             ok = try container.decode(Bool.self, forKey: .ok)
             data = container.contains(.data) ? try container.decode(Data.self, forKey: .data) : nil
             error = try container.decodeIfPresent(ErrorPayload.self, forKey: .error)
-            coreEventsPending = try container.decodeIfPresent(Bool.self, forKey: .coreEventsPending) ?? false
         }
     }
 
@@ -4702,9 +4690,6 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 details: nil
             ))
         }
-        // Failure envelopes carry the flag too; the drain itself only schedules
-        // another one-shot drain, never a synchronous recursion.
-        if envelope.coreEventsPending { Self.onCoreEventsPending?() }
         guard envelope.ok else {
             let error = envelope.error ?? ErrorPayload(
                 code: "unknown",

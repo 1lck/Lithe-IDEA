@@ -80,13 +80,15 @@ Swift 的事件值是**未经脱敏的内存输入**，不能自行序列化落�
 - Rust 侧没有请求事件流可用的事实（执行轨迹、析构、后台清理、辅助 crate 失败）进入 `diagnostics::core_events` 的进程级有界队列，最多 256 条。`record` 校验 owner、规范化并脱敏字段后入队，不做文件 I/O。队列满时新事实只计入丢弃数；同一批次里事件、通道、字段和 op 都相同的事实只保留一条，其余计入丢弃数。
 - DEBUG 事实在入队前过滤：宿主通过 `diagnostics.configureCoreEvents { debug, roots }` 告诉 Core 详细诊断是否开启、开启哪些通道根，`roots` 省略表示全部根，默认关闭。未开启的 DEBUG 事实直接返回成功，不入队、不计入丢弃数。构造字段前先调用 `core_events::accepts(level, root)`，被拒绝的事实只花一次分支判断。
 - `MacLogStore` 在详细诊断状态变化时调用 `configureCoreEvents`，只在开关或通道根集合变化时发送；调用失败时记录一次 `app.logging.diagnostics_failed`。
-- 队列中有未取走的事实或丢弃计数时，每个响应信封都带 `coreEventsPending: true`。桥接层据此调用 `MacLogStore.scheduleCoreDrain()`，合并成一次 100 毫秒后的排空。写入器在每次写入批次、flush 和退出时也排空一次。不得为 Core 队列增加空闲轮询或独立写入器。
+- 写入器在每次写入批次、flush 和退出时排空一次。没有其他宿主活动时，由 Core 的唤醒回调安排排空：drain 之后的第一条事实或第一次丢弃计数触发一次回调，同一个 drain 周期内的后续变化合并。只有组合根创建的应用写入器调用 `MacLogStore.observeCoreFacts()` 安装回调，回调复用宿主事件已有的 100 毫秒单次排空调度；`finishSession` 先移除回调，再做最后一次排空。回调不得重入 Core。不得为 Core 队列增加空闲轮询或独立写入器。
 - 排空得到的 `CoreLogRecord` 原样交给统一的 `LogSink`：保留 `ts` 和 `op`，由写入器分配 `seq`，继续以 `validateCatalog: true` 写入。
 
 ## 七、引擎宿主
 
 - 启动者显式声明 role、真实 `pluginId` 和 VCS `logSubject`；宿主不解析 providerID。
 - stderr 读取器限制每行 4 KiB、每秒 200 行，之后再走 `text` 的 1 KiB 脱敏规范化。与 v1 相比唯一的兼容变化是从任意 trim 的读取块改为逐行文本：保留行内空格，移除 LF 和末尾 CR，并应用已声明的长度上限和限流。
+- 上游明确给出的严重度通过独立的目录事件保留：`window/logMessage` 和 `window/showMessage` 的 type 1/2/3/4 分别为 ERROR/WARN/INFO/DEBUG，未知类型为 DEBUG。未分类的 stderr 是 DEBUG 排障证据，流名称不表示警告；实际的进程或协议失败由 `*.session.failed` 记录 ERROR，正常关闭仍是生命周期状态。
+- 插件自身使用独立协商的 `litheLogging` 1 和 `lithe/log`，由 Core 把四种受控事实映射到插件目录事件，不能再用 stderr 或任意自由消息代替。协议字段、op、限额和 fixture 以 [插件契约](../contracts/plugins/v1/README.md#structured-plugin-diagnostics-logging-protocol-1) 为准。
 - 上游 trace 默认关闭。宿主通过 `lsp.setDetailedDiagnostics` 对活动会话和新会话显式开启，15 分钟后单次到期关闭。详细诊断类别与通道根的对应为 `lsp` → language、`vcs` → git、`plugins` → plugins。
 - 详细诊断只接纳 `$/logTrace.message` 摘要；`verbose` 可能包含原始 RPC 载荷和文档源码，禁止进入 v2 `text`。凭据脱敏和 1 KiB 限长不代表源码可以落盘。`initialized` 之前收到的开关只保存目标状态，Core 在 `initialized` 之后发送通知。
 - v1 的 detail、message、level 保持兼容原文；v2 字段通过独立的 `EngineLogInput` 传递，禁止从 detail 反解。原始通知 JSON、`projectCount=N` 和 navigation 格式不变。macOS 日志窗口统一读取 v2 会话文件和写入器的实时批次，不写 v1 文件。

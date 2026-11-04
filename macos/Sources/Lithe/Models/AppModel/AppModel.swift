@@ -209,6 +209,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     var runtimeFeature: RuntimeSettingsFeatureModel { featureGraph.runtime }
     var toolchainSettingsFeature: ToolchainSettingsFeatureModel { featureGraph.toolchainSettings }
     var languageToolingFeature: LanguageToolingFeatureModel { featureGraph.languageTooling }
+    var languageServerLogsFeature: LanguageServerLogsModel? { featureGraph.languageServerLogs }
     let debugLaunchConfigurationResolver: DebugLaunchConfigurationResolver
     let debugPortAvailabilityChecker: any DebugPortAvailabilityChecking
     var workspaceFeature: WorkspaceFeatureModel { featureGraph.workspace }

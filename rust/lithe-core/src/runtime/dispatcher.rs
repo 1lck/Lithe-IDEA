@@ -45,26 +45,12 @@ use serde_json::json;
 pub fn execute_json(request: &str) -> String {
     crate::diagnostics::helper_failures::install();
     let response = execute(request);
-    encode(&response, crate::diagnostics::core_events::has_pending())
-}
-
-/// Encodes one envelope. `coreEventsPending` appears only while Core facts wait,
-/// so the host schedules a drain from the response instead of polling.
-fn encode(response: &CoreResponse, events_pending: bool) -> String {
-    let fallback = || {
-        CoreResponse::failure(
+    serde_json::to_string(&response).unwrap_or_else(|_| {
+        serde_json::to_string(&CoreResponse::failure(
             None,
             CoreError::new(ErrorCode::Unknown, "Could not encode core response"),
-        )
-    };
-    let mut value = serde_json::to_value(response).unwrap_or_else(|_| {
-        serde_json::to_value(fallback()).expect("fallback response should encode")
-    });
-    if events_pending {
-        value["coreEventsPending"] = serde_json::Value::Bool(true);
-    }
-    serde_json::to_string(&value).unwrap_or_else(|_| {
-        serde_json::to_string(&fallback()).expect("fallback response should encode")
+        ))
+        .expect("fallback response should encode")
     })
 }
 
@@ -3749,16 +3735,6 @@ mod tests {
     use serde_json::{json, Value};
 
     #[test]
-    fn envelope_flags_pending_core_events_only_when_some_wait() {
-        let response = crate::protocol::CoreResponse::success(Some("1".into()), json!({}));
-        let pending: Value = serde_json::from_str(&super::encode(&response, true)).unwrap();
-        assert_eq!(pending["coreEventsPending"], true);
-        assert_eq!(pending["ok"], true);
-        let idle: Value = serde_json::from_str(&super::encode(&response, false)).unwrap();
-        assert!(idle.get("coreEventsPending").is_none());
-    }
-
-    #[test]
     fn configure_core_events_sets_the_debug_gate_and_rejects_unknown_fields() {
         use crate::diagnostics::core_events::{accepts, configure};
         use crate::diagnostics::record::LogLevel;
@@ -3770,7 +3746,10 @@ mod tests {
             .unwrap()
         };
         assert_eq!(send(json!({"debug": true, "roots": ["vcs"]}))["ok"], true);
-        let scoped = (accepts(LogLevel::Debug, "vcs"), accepts(LogLevel::Debug, "app"));
+        let scoped = (
+            accepts(LogLevel::Debug, "vcs"),
+            accepts(LogLevel::Debug, "app"),
+        );
         let rejected = send(json!({"debug": true, "level": "debug"}));
         // Restore the process default before asserting so a failure cannot leak DEBUG.
         configure(false, None);

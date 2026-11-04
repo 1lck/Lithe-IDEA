@@ -61,6 +61,151 @@
       },
       "rate": 60,
       "owner": "Lithe"
+    },
+    {
+      "id": "debug.process.started",
+      "channel": "debug/{adapter}",
+      "level": "info",
+      "message": "Debug adapter session created",
+      "fields": {
+        "adapter": {
+          "type": "id",
+          "required": true,
+          "description": "Validated DAP adapter identity selected by the debug session; unsafe names use a stable SHA-256 segment"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "debug.session.initialized",
+      "channel": "debug/{adapter}",
+      "level": "info",
+      "message": "Debug adapter session ready",
+      "fields": {
+        "adapter": {
+          "type": "id",
+          "required": true,
+          "description": "Validated DAP adapter identity selected by the debug session; unsafe names use a stable SHA-256 segment"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "debug.session.finished",
+      "channel": "debug/{adapter}",
+      "level": "info",
+      "message": "Debug adapter session terminated",
+      "fields": {
+        "adapter": {
+          "type": "id",
+          "required": true,
+          "description": "Validated DAP adapter identity selected by the debug session; unsafe names use a stable SHA-256 segment"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "debug.session.state_changed",
+      "channel": "debug/{adapter}",
+      "level": "debug",
+      "message": "Debug adapter state changed",
+      "fields": {
+        "adapter": {
+          "type": "id",
+          "required": true,
+          "description": "Validated DAP adapter identity selected by the debug session; unsafe names use a stable SHA-256 segment"
+        },
+        "state": {
+          "type": "token",
+          "required": true,
+          "description": "Core DAP lifecycle state reduced from the protocol, such as initializing, ready, running or terminated"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "debug.session.failed",
+      "channel": "debug/{adapter}",
+      "level": "error",
+      "message": "Debug adapter session failed",
+      "fields": {
+        "adapter": {
+          "type": "id",
+          "required": true,
+          "description": "Validated DAP adapter identity selected by the debug session; unsafe names use a stable SHA-256 segment"
+        },
+        "failure_code": {
+          "type": "token",
+          "required": true,
+          "description": "Controlled session failure category, protocol or adapter_rejected; no adapter response text"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "debug.operation.failed",
+      "channel": "debug/{adapter}",
+      "level": "error",
+      "message": "Debug adapter operation failed",
+      "fields": {
+        "adapter": {
+          "type": "id",
+          "required": true,
+          "description": "Validated DAP adapter identity selected by the debug session; unsafe names use a stable SHA-256 segment"
+        },
+        "failure_code": {
+          "type": "token",
+          "required": true,
+          "description": "Stable Core operation failure classification, adapter_rejected or timed_out; no adapter message"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "debug.operation.cancelled",
+      "channel": "debug/{adapter}",
+      "level": "debug",
+      "message": "Debug adapter operation discarded",
+      "fields": {
+        "adapter": {
+          "type": "id",
+          "required": true,
+          "description": "Validated DAP adapter identity selected by the debug session; unsafe names use a stable SHA-256 segment"
+        },
+        "failure_code": {
+          "type": "token",
+          "required": true,
+          "description": "Expected terminal classification, cancelled or stale_reference; no protocol payload"
+        }
+      },
+      "rate": 120,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "debug.transport.failed",
+      "channel": "debug",
+      "level": "error",
+      "message": "Debug adapter transport failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Native failure stage, process-start, initialization-timeout, transport-exit or transport-receive"
+        },
+        "exit_code": {
+          "type": "int",
+          "required": false,
+          "description": "Native adapter process exit status when available; absent for startup, timeout and receive failures"
+        }
+      },
+      "rate": 60,
+      "owner": "LitheDebugModule"
     }
   ]
 }

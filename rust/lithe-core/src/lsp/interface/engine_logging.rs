@@ -77,6 +77,11 @@ impl SessionLogIdentity {
         }
     }
 
+    /// Safe catalog identity shared by typed plugin facts and process lifecycle facts.
+    pub(super) fn segment(&self) -> &str {
+        &self.subject
+    }
+
     fn event(&self, suffix: &str) -> String {
         let prefix = match self.role {
             SessionRole::LanguageServer => "lsp",
@@ -273,6 +278,20 @@ impl EngineLog {
             Self::MessageLogged | Self::MessageShown => {
                 copy(&mut fields, "diagnostic", &input, "diagnostic");
                 copy(&mut fields, "severity", &input, "severity");
+                let severity = match input["severity"].as_str() {
+                    Some("error") => Some("error"),
+                    Some("warning") => Some("warning"),
+                    Some("info") => None,
+                    _ => Some("detail"),
+                };
+                if let Some(severity) = severity {
+                    let outcome = if matches!(self, Self::MessageLogged) {
+                        "logged"
+                    } else {
+                        "shown"
+                    };
+                    id = identity.event(&format!("message.{severity}.{outcome}"));
+                }
             }
             Self::TraceReceived => {
                 copy(&mut fields, "diagnostic", &input, "diagnostic");
@@ -282,6 +301,10 @@ impl EngineLog {
             }
             Self::SessionUpdated | Self::MavenTaskUpdated => {
                 copy(&mut fields, "state", &input, "state");
+                if matches!(self, Self::SessionUpdated) && input["state"] == "failed" {
+                    id = identity.event("session.failed");
+                    fields.insert("code".into(), json!(code));
+                }
             }
             Self::ConfigurationCleaned => {
                 fields.insert(
@@ -576,6 +599,48 @@ impl StderrLines {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn upstream_severity_follows_explicit_type_and_unclassified_stderr_is_detail() {
+        let identity = SessionLogIdentity::new(SessionRole::LanguageServer, "go", None, None);
+        for method in ["window/logMessage", "window/showMessage"] {
+            for (kind, level) in [
+                (1, "ERROR"),
+                (2, "WARN"),
+                (3, "INFO"),
+                (4, "DEBUG"),
+                (99, "DEBUG"),
+            ] {
+                let (event, input) = EngineLog::notification(
+                    method,
+                    &json!({"type":kind,"message":"upstream fact"}),
+                );
+                let (id, fields) = event.fact(&identity, &input, None);
+                crate::diagnostics::catalog::validate_fields(&id, &fields).unwrap();
+                assert_eq!(
+                    crate::diagnostics::catalog::event_by_id(&id)
+                        .unwrap()
+                        .level
+                        .label(),
+                    level
+                );
+            }
+        }
+        assert_eq!(
+            crate::diagnostics::catalog::event_by_id("lsp.stderr.received")
+                .unwrap()
+                .level
+                .label(),
+            "DEBUG"
+        );
+        let plugin = SessionLogIdentity::new(
+            SessionRole::Backend,
+            "provider",
+            Some("unsafe:plugin"),
+            None,
+        );
+        assert!(plugin.segment().starts_with("invalid-"));
+    }
 
     #[test]
     fn diagnostics_resolve_engine_subject_matches_startup_and_rejects_invalid_arguments() {

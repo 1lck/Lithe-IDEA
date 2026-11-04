@@ -34,6 +34,10 @@ final class MacLogStore: ApplicationLogging, LogWindowLogging, LogSink, @uncheck
     private var diagnosticCategory: String?
     private var diagnosticRoots: Set<String>?
     private var stopped = false
+    // Serializes Core waker install/removal; never held while taking `lock`
+    // from the callback path, and never acquired by the callback itself.
+    private let wakeLock = NSLock()
+    private var coreWake: Unmanaged<CoreLogWakeTarget>?
     // Everything below is owned by the serial I/O queue.
     private var diagnosticExpiry: DispatchWorkItem?
     private var logSessions: [String: String] = [:]
@@ -92,6 +96,7 @@ final class MacLogStore: ApplicationLogging, LogWindowLogging, LogSink, @uncheck
     }
 
     deinit {
+        stopObservingCoreFacts()
         closeHandles()
         for value in subscribers.values { value.finish() }
     }
@@ -121,10 +126,46 @@ final class MacLogStore: ApplicationLogging, LogWindowLogging, LogSink, @uncheck
             return 0
         }
         if action == 2 { queue.async { [weak self] in self?.drainSafely() } }
-        if action == 1 {
-            // One-shot only while work exists; no idle polling timer.
-            queue.asyncAfter(deadline: .now() + .milliseconds(100)) { [weak self] in self?.drainSafely() }
+        if action == 1 { scheduleOneShotDrain() }
+    }
+
+    /// One-shot only while work exists; no idle polling timer.
+    private func scheduleOneShotDrain() {
+        queue.asyncAfter(deadline: .now() + .milliseconds(100)) { [weak self] in self?.drainSafely() }
+    }
+
+    /// Opts the process application writer into Core's pending-fact signal, so
+    /// facts recorded with no host activity (plugin `lithe/log`, Core recovery)
+    /// still reach disk and live subscribers. Other stores keep the activity
+    /// cadence and never take this writer's facts. Must not hold `lock`:
+    /// installation signals synchronously when facts are already waiting.
+    func observeCoreFacts() {
+        wakeLock.withLock {
+            guard coreWake == nil, !lock.withLock({ stopped }) else { return }
+            let target = Unmanaged.passRetained(CoreLogWakeTarget(self))
+            coreWake = target
+            RustCoreBridge.installCoreLogWaker(coreLogWake, context: target.toOpaque())
         }
+    }
+
+    /// Detaches before teardown; once removal returns no callback can use the target.
+    private func stopObservingCoreFacts() {
+        wakeLock.withLock {
+            guard let target = coreWake else { return }
+            coreWake = nil
+            RustCoreBridge.removeCoreLogWaker(context: target.toOpaque())
+            target.release()
+        }
+    }
+
+    /// Core-thread entry: reuses the enqueue one-shot, so a burst of facts and
+    /// host events shares one drain. The drain itself never runs on Core's thread.
+    fileprivate func scheduleCoreDrain() {
+        let schedule = lock.withLock { () -> Bool in
+            guard !stopped, !scheduled else { return false }
+            scheduled = true; return true
+        }
+        if schedule { scheduleOneShotDrain() }
     }
 
     /// Called only with the channel Core returned at startup. The serial writer
@@ -136,19 +177,6 @@ final class MacLogStore: ApplicationLogging, LogWindowLogging, LogSink, @uncheck
         queue.async { [self] in logSessions.removeValue(forKey: id); diagnosticAttempts.removeValue(forKey: id) }
     }
     private struct CoreGate: Equatable { let debug: Bool; let roots: [String]? }
-
-    /// Core responses flag queued facts; this joins the same one-shot drain
-    /// cadence as host events instead of adding a timer or a second writer.
-    func scheduleCoreDrain() {
-        let schedule = lock.withLock { () -> Bool in
-            guard !stopped, !scheduled else { return false }
-            scheduled = true
-            return true
-        }
-        if schedule {
-            queue.asyncAfter(deadline: .now() + .milliseconds(100)) { [weak self] in self?.drainSafely() }
-        }
-    }
 
     private func updateSessionDiagnostics() {
         let state = lock.withLock { (!stopped && diagnosticNow() < diagnosticUntil, diagnosticRoots) }
@@ -717,6 +745,8 @@ final class MacLogStore: ApplicationLogging, LogWindowLogging, LogSink, @uncheck
     }
     func finishSession() async {
         lock.withLock { stopped = true }
+        // The final drain below still collects facts already handed to Core.
+        stopObservingCoreFacts()
         // Termination bypasses the four-control admission limit and task cancellation.
         // Cleanup always runs on the I/O owner, including when draining fails.
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
@@ -768,6 +798,18 @@ final class MacLogStore: ApplicationLogging, LogWindowLogging, LogSink, @uncheck
             }
         } onCancel: { token.cancel() }
     }
+}
+
+/// Retained by the Core registration; holds the store weakly so the waker
+/// never extends the writer's lifetime.
+private final class CoreLogWakeTarget: @unchecked Sendable {
+    weak var store: MacLogStore?
+    init(_ store: MacLogStore) { self.store = store }
+}
+
+private let coreLogWake: RustCoreBridge.CoreLogWaker = { context in
+    guard let context else { return }
+    Unmanaged<CoreLogWakeTarget>.fromOpaque(context).takeUnretainedValue().store?.scheduleCoreDrain()
 }
 
 private final class LogOperation: @unchecked Sendable {

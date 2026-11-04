@@ -139,7 +139,10 @@ impl Trace {
         if outcome == Outcome::Failed {
             if let Some(error) = error {
                 let code = serde_json::to_value(&error.code).expect("Core error codes encode");
-                fields.insert("error".into(), json!(execution_events::redact(&error.message)));
+                fields.insert(
+                    "error".into(),
+                    json!(execution_events::redact(&error.message)),
+                );
                 fields.insert("error_code".into(), code);
                 fields.insert("error_domain".into(), json!("core"));
             }
@@ -182,7 +185,10 @@ pub(super) fn exit_is_answer(arguments: &[String], code: i32) -> bool {
         return false;
     };
     let rest = &arguments[index + 1..];
-    let has = |flags: &[&str]| rest.iter().any(|argument| flags.contains(&argument.as_str()));
+    let has = |flags: &[&str]| {
+        rest.iter()
+            .any(|argument| flags.contains(&argument.as_str()))
+    };
     match (arguments[index].as_str(), code) {
         ("config", 1) => has(&["--get", "--get-all", "--get-regexp"]),
         ("merge-base", 1) => has(&["--is-ancestor"]),
@@ -364,12 +370,18 @@ mod tests {
     fn documented_answer_statuses_are_not_failures() {
         for (arguments, code) in [
             (args(&["config", "--get", "remote.origin.url"]), 1),
-            (args(&["-c", "a=b", "merge-base", "--is-ancestor", "a", "b"]), 1),
+            (
+                args(&["-c", "a=b", "merge-base", "--is-ancestor", "a", "b"]),
+                1,
+            ),
             (args(&["diff", "--quiet"]), 1),
             (args(&["diff-files", "--exit-code"]), 1),
             (args(&["rev-parse", "--verify", "--quiet", "HEAD"]), 1),
             (args(&["symbolic-ref", "--quiet", "HEAD"]), 1),
-            (args(&["show-ref", "--verify", "--quiet", "refs/heads/x"]), 1),
+            (
+                args(&["show-ref", "--verify", "--quiet", "refs/heads/x"]),
+                1,
+            ),
             (args(&["show-ref", "--exists", "refs/heads/x"]), 2),
             (args(&["check-ignore", "-q", "file"]), 1),
             (args(&["ls-remote", "--exit-code", "origin"]), 2),
@@ -396,12 +408,21 @@ mod tests {
         let start = CoreError::new(ErrorCode::ProcessStartFailed, "Could not start Git");
         use Outcome::*;
         use Source::*;
-        assert_eq!(outcome(&checkout, None, Some(&cancelled), true, User), Cancelled);
-        assert_eq!(outcome(&checkout, None, Some(&start), false, Background), Failed);
+        assert_eq!(
+            outcome(&checkout, None, Some(&cancelled), true, User),
+            Cancelled
+        );
+        assert_eq!(
+            outcome(&checkout, None, Some(&start), false, Background),
+            Failed
+        );
         assert_eq!(outcome(&checkout, Some(0), None, true, User), Succeeded);
         assert_eq!(outcome(&checkout, Some(1), None, true, User), Failed);
         assert_eq!(outcome(&checkout, Some(1), None, false, User), Failed);
-        assert_eq!(outcome(&checkout, Some(1), None, false, Background), Succeeded);
+        assert_eq!(
+            outcome(&checkout, Some(1), None, false, Background),
+            Succeeded
+        );
         assert_eq!(outcome(&checkout, None, None, true, User), Failed);
         let probe = args(&["config", "--get", "user.name"]);
         assert_eq!(outcome(&probe, Some(1), None, true, User), Succeeded);

@@ -10040,7 +10040,22 @@
     "logs.window.restoreDirectory": "恢复默认目录",
     "logs.window.maintenance": "日志目录与清理",
     "logs.window.clearStorage": "清理日志（已用 {size}）…",
-    "logs.window.enableDiagnostics": "开启"
+    "logs.window.enableDiagnostics": "开启",
+    "logs.window.filterHelp": "空格分隔的条件同时满足（AND）。level>=warn 包含 WARN 和 ERROR；level:info 精确匹配级别。event:、channel: 和 op: 按前缀匹配；server:jdtls 和 key:value 匹配字段中的文本。/正则/ 搜索消息，忽略大小写；前置 - 排除该条件。含空格的值用双引号包住。左侧通道、级别按钮和时间范围与表达式取交集；语法错误时保留上一次有效结果。",
+    "logs.window.channelHelp": "点击选择一个通道；按住 ⌘ 点击可添加或移除通道，按住 Shift 点击可连续选择。选中的通道之间是“或”，再与级别、时间和文本条件取交集。“全部通道”清除通道限制。",
+    "logs.window.traceHelp": "调用链按时间顺序列出同一操作 ID 的日志。+N ms 是距离首条日志的时间差，不是该事件的执行耗时；右侧条形表示它在整个操作时间跨度中的位置。点击记录可定位到上方表格。",
+    "logs.window.timeHelp": "选择开始与结束日期，再编辑时、分、秒。界面使用本地时区；点击“应用”后包含结束秒内的全部记录。范围同样限制实时日志，并与其他条件取交集。也可拖动事件分布选择范围；“清除时间范围”移除限制。",
+    "logs.window.followHelp": "实时跟随按记录顺序追加日志并滚动到最新记录。写入器按短批次交付，突发日志反映实际活动。向上滚动会暂停自动跟随，日志收集继续；恢复跟随可回到最新记录。",
+    "logs.window.timeRange": "时间范围",
+    "logs.window.startTime": "开始时间",
+    "logs.window.endTime": "结束时间",
+    "logs.window.reversedTime": "结束时间不能早于开始时间。",
+    "logs.language.tabTitle": "LSP 日志",
+    "logs.language.minimumLevel": "最低级别",
+    "logs.language.outputHelp": "显示所选服务器的会话事件、stderr 和服务器消息，来自已脱敏的诊断日志。不提供 Server Trace 和 RPC 消息捕获。应用日志在“日志与诊断”中查看。",
+    "logs.language.clearHelp": "仅清空所选服务器的可见日志，保留已采集的诊断日志。",
+    "logs.language.outputTitle": "服务器日志",
+    "logs.language.empty": "没有匹配的语言服务器日志"
   },
   "overrides": {
     "macos": {

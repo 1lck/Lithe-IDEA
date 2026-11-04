@@ -28,7 +28,10 @@ fn repository(label: &str) -> PathBuf {
 
 fn send(request: Value) -> (Value, Vec<CoreEvent>) {
     let (response, events) = capture::run(false, || execute_json(&request.to_string()));
-    (serde_json::from_str(&response).expect("Core response should be JSON"), events)
+    (
+        serde_json::from_str(&response).expect("Core response should be JSON"),
+        events,
+    )
 }
 
 fn git_command(root: &Path, origin: Value, arguments: &[&str]) -> Value {
@@ -41,7 +44,10 @@ fn git_command(root: &Path, origin: Value, arguments: &[&str]) -> Value {
 }
 
 fn only<'a>(events: &'a [CoreEvent], id: &str) -> &'a CoreEvent {
-    let matching = events.iter().filter(|event| event.event == id).collect::<Vec<_>>();
+    let matching = events
+        .iter()
+        .filter(|event| event.event == id)
+        .collect::<Vec<_>>();
     assert_eq!(matching.len(), 1, "{id} in {events:?}");
     matching[0]
 }
@@ -66,7 +72,10 @@ fn user_git_command_records_redacted_argv_under_the_action_operation() {
     assert_eq!(git.fields["source"], "user");
     assert_eq!(git.fields["exit_code"], 0);
     let arguments = git.fields["arguments"].as_str().unwrap();
-    assert!(arguments.contains("commit --allow-empty -m <message>"), "{arguments}");
+    assert!(
+        arguments.contains("commit --allow-empty -m <message>"),
+        "{arguments}"
+    );
     assert!(!git.fields.contains_key("stderr"));
 
     let request = only(&events, "app.core.request.finished");
@@ -77,7 +86,10 @@ fn user_git_command_records_redacted_argv_under_the_action_operation() {
 
     let serialized = serde_json::to_string(&events).unwrap();
     assert!(!serialized.contains("secret"), "{serialized}");
-    assert!(!serialized.contains(&*root.to_string_lossy()), "{serialized}");
+    assert!(
+        !serialized.contains(&*root.to_string_lossy()),
+        "{serialized}"
+    );
     fs::remove_dir_all(root).expect("temporary repository should be removable");
 }
 
@@ -97,7 +109,9 @@ fn failing_git_command_warns_with_exit_code_and_stderr_tail() {
     assert_eq!(git.level, LogLevel::Warn);
     assert_eq!(git.op.as_deref(), Some("request-1"));
     assert_eq!(git.fields["command"], "checkout");
-    assert!(git.fields["exit_code"].as_i64().is_some_and(|code| code != 0));
+    assert!(git.fields["exit_code"]
+        .as_i64()
+        .is_some_and(|code| code != 0));
     let stderr = git.fields["stderr"].as_str().unwrap();
     assert!(stderr.contains("missing-ref"), "{stderr}");
     assert!(!git.fields.contains_key("error"));

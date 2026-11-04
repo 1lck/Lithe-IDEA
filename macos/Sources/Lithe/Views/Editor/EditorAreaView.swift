@@ -178,6 +178,7 @@ struct EditorAreaView: View {
 
 
     private var activeItem: EditorTabItem? {
+        if model.editorTabOrderFeature.focusedItem == .languageLogs { return .languageLogs }
         if let tab = model.focusedAgentEditorTab { return .agentConversation(tab) }
         if let id = model.selectedRepositoryDiffID { return .repositoryDiff(id) }
         return model.activeEditorTerminalSession.map { .terminal($0.id) }
@@ -209,6 +210,10 @@ struct EditorAreaView: View {
     }
     private var paneDiffSelected: Bool { paneDiffID != nil }
     private func focusRepositoryDiffPaneIfNeeded() {
+        if groupID != nil, paneItem == .languageLogs, model.editorTabOrderFeature.focusedItem != .languageLogs {
+            model.selectLanguageServerLogsTab()
+            return
+        }
         guard groupID != nil, let id = paneDiffID, model.selectedRepositoryDiffID != id else { return }
         model.selectRepositoryDiffTab(id)
     }
@@ -341,6 +346,8 @@ struct EditorAreaView: View {
         ForEach(displayedTabItems) { item in
             Group {
                 switch item {
+                case .languageLogs:
+                    languageServerLogsTab
                 case .agentConversation(let tab):
                     agentConversationTab(tab)
                 case .repositoryDiff(let id):
@@ -401,6 +408,28 @@ struct EditorAreaView: View {
                 .accessibilityAddTraits(.isButton)
                 .accessibilityAction { model.selectEditorTab(item) }
             LitheToolWindowTabCloseButton { model.closeAgentEditorTab(tab) }
+                .opacity(selected || hoveredTabItem == item ? 1 : 0)
+                .allowsHitTesting(selected || hoveredTabItem == item)
+        }
+        .foregroundStyle(selected ? LitheTheme.primaryText : LitheTheme.secondaryText)
+        .modifier(LitheToolWindowTabStyle(isSelected: selected, isActive: editorGroupIsActive))
+        .padding(.horizontal, 4).padding(.vertical, 4)
+        .onHover { updateHoveredTab(item, isHovering: $0) }
+        .background { editorTabFrameReader(for: item) }
+        .zIndex(tabDragState.draggedItem == item ? 1 : 0)
+    }
+
+    private var languageServerLogsTab: some View {
+        let item = EditorTabItem.languageLogs
+        let selected = paneItem == item
+        return HStack(spacing: 0) {
+            Text("LSP Logs")
+                .font(LitheTheme.uiFont(size: 13))
+                .padding(.leading, 8).frame(height: 28).contentShape(Rectangle())
+                .onTapGesture { model.selectEditorTab(item) }
+                .accessibilityAddTraits(.isButton)
+                .accessibilityAction { model.selectEditorTab(item) }
+            LitheToolWindowTabCloseButton { model.closeLanguageServerLogsTab() }
                 .opacity(selected || hoveredTabItem == item ? 1 : 0)
                 .allowsHitTesting(selected || hoveredTabItem == item)
         }
@@ -750,6 +779,7 @@ struct EditorAreaView: View {
 
     private func closeEditorTab(_ item: EditorTabItem) {
         switch item {
+        case .languageLogs: model.closeLanguageServerLogsTab()
         case .agentConversation(let tab): model.closeAgentEditorTab(tab)
         case .repositoryDiff(let id):
             model.closeRepositoryDiffTab(id)
@@ -793,6 +823,7 @@ struct EditorAreaView: View {
     @ViewBuilder
     private func tabDragLabel(_ item: EditorTabItem) -> some View {
         switch item {
+        case .languageLogs: Text("LSP Logs")
         case .agentConversation(let tab): AgentEditorTabTitle(model: model, tab: tab)
         case .document(let id):
             if let document = model.openDocuments.first(where: { $0.id == id }) {
@@ -1126,7 +1157,9 @@ struct EditorAreaView: View {
                         .allowsHitTesting(paneDiffID == id)
                         .accessibilityHidden(paneDiffID != id)
                 }
-                if case .agentConversation(let tab) = paneItem {
+                if paneItem == .languageLogs, let logs = model.languageServerLogsFeature {
+                    LanguageServerLogsView(feature: logs)
+                } else if case .agentConversation(let tab) = paneItem {
                     if tab == model.focusedAgentEditorTab {
                         AgentConversationView(model: model, isEditor: true)
                     } else {

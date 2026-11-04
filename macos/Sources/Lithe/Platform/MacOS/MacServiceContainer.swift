@@ -57,7 +57,10 @@ final class MacServiceContainer {
     }
 
     static func makeApplicationLogWriter(onDirectoryFallback: @escaping @Sendable () -> Void = {}) -> MacLogStore {
-        MacLogStore(onDirectoryFallback: onDirectoryFallback)
+        let writer = MacLogStore(onDirectoryFallback: onDirectoryFallback)
+        // Only the process writer owns Core's pending-fact signal.
+        writer.observeCoreFacts()
+        return writer
     }
 
     static func makeDiagnosticsExportService(
@@ -101,11 +104,6 @@ final class MacServiceContainer {
         let gitExecutionJournal = GitExecutionJournal()
         let remoteWorkspaces = RemoteWorkspaceRegistry()
         let logStore = applicationLogging as? MacLogStore
-        // Core writes Git process and request facts into its own queue; any
-        // response that reports pending facts schedules the store's drain.
-        if let logStore {
-            RustCoreBridge.onCoreEventsPending = { [weak logStore] in logStore?.scheduleCoreDrain() }
-        }
         let rustCore = RustCoreBridge(coreLogSink: logSink,
                                       registerLogSession: { id, channel in logStore?.registerSession(id, channel: channel) },
                                       releaseLogSession: { id in logStore?.releaseSession(id) },

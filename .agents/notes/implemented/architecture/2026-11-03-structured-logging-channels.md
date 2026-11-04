@@ -87,9 +87,13 @@ DEBUG 在入队前过滤。`MacLogStore` 在详细诊断开关或通道根集合
 排空时机：
 
 - 写入器在每次写入批次、flush 和退出时排空一次。
-- 队列里还有事实或丢弃计数时，每个响应信封都带 `coreEventsPending: true`，桥接层据此调用 `scheduleCoreDrain()`，合并成一次 100 毫秒后的排空。
+- 没有其他宿主活动时，由 Core 的唤醒回调安排排空。插件 `lithe/log` 事实、后台 Git 轨迹、析构和后台清理都可能在没有宿主事件时产生；只靠写入器自己的节奏，它们会一直留在内存里，既不落盘，也不推给日志窗口。
 
-没有用户操作就没有新的 Core 请求，所以 `coreEventsPending` 足以覆盖后台线程留下的事实，不需要空闲轮询定时器。排空得到的 `CoreLogRecord` 只含标量，保留 event、目录级别、channel、op 和源 ts；`MacLogStore`、`LogScope` 和测试用的 `TypedLogRecorder` 都实现了它。同一个 writer 分配 seq，并以 `validateCatalog: true` 写入。相同的失败状态只记录一次 `app.logging.diagnostics_failed`，避免出现“drain → 失败日志 → drain”的循环；目标状态改变后允许重试。
+Core 在队列旁保留一个唤醒回调槽位。drain 之后的第一条事实或第一次丢弃计数触发一次回调，同一个 drain 周期内的后续变化合并，不再回调。drain 在队列锁内清除请求标记，之后入队的事实一定会再次触发；安装回调时已有待取事实，也立即回调。回调在持有槽位锁时同步执行，移除也取这把锁，所以移除返回后 Core 不会再使用宿主的 context，宿主可以释放它。回调不得重入 Core，只安排宿主已有的 drain。这个槽位属于已有的进程队列，不是新的日志单例：它不写文件、不持有 sink，服务的日志依赖仍从构造器注入。
+
+每个进程只有组合根创建的应用 writer 调用 `observeCoreFacts()` 安装回调。回调复用宿主事件已有的 100 ms 单次排空调度，已有调度时不重复安排，不增加空闲轮询或第二个 writer。测试和其他临时 `MacLogStore` 不安装，避免两个 writer 争抢同一个进程队列；只有在独立子进程里验证 Core 落盘的测试自己安装。`finishSession` 先停止接纳并移除回调，再做最后一次排空。
+
+排空得到的 `CoreLogRecord` 只含标量，保留 event、目录级别、channel、op 和源 ts；`MacLogStore`、`LogScope` 和测试用的 `TypedLogRecorder` 都实现了它。同一个 writer 分配 seq，并以 `validateCatalog: true` 写入。相同的失败状态只记录一次 `app.logging.diagnostics_failed`，避免出现“drain → 失败日志 → drain”的循环；目标状态改变后允许重试。
 
 ### 入队、批量和资源上限
 
@@ -158,7 +162,7 @@ DEBUG 在入队前过滤。`MacLogStore` 在详细诊断开关或通道根集合
 
 stderr 是唯一的明确行为变化。读取状态最多保留 4 KiB 的半行，按 LF 切分、去掉末尾 CR、忽略空行，在 EOF 时冲刷残余；每个单调秒接纳 200 行，后续读取跨过窗口或结束时汇总丢弃计数。v1 detail 保留该行文本和行内空格，v2 再做脱敏和 1 KiB 限长。新增的丢弃事实只用 `count=N`，不以 JSON 冒充旧的结构化 detail。测试直接传毫秒值，不装计时器，也不等真实的一秒。
 
-`window/logMessage` 和 `window/showMessage` 记为 `*.message.logged` 和 `*.message.shown`；其他通知只记录方法，不把协议正文变成 text。上游 trace 默认关闭。显式开关和发往上游的 `$/setTrace` 共用一把有序写锁，成功写入后才改变采集状态。只接纳限长并脱敏的 message 摘要，排除可能含 RPC 原始载荷和源码的 verbose：凭据脱敏和截断无法把源码变成可以落盘的诊断。详细诊断已开启时，新会话的注册可能早于初始化响应。Core 此时只保存最新的开关值，等握手完成后把 `$/setTrace` 排在 `initialized` 之后；初始化前关闭会撤销待发送的启用。不要在注册时立即发通知，否则严格遵循 LSP 的服务器会丢弃它，宿主却以为已经开启。
+`window/logMessage` 和 `window/showMessage` 按上游明确给出的严重度选择独立的目录事件：error 为 ERROR，warning 为 WARN，info 为 INFO，详细或未知类型为 DEBUG。未分类的 stderr 只是 DEBUG 级别的排障证据，不能因为输出在标准错误流就标成警告；进程或协议的最终失败在实际失败的边界记录 ERROR。其他通知只记录方法，不把协议正文变成 text。上游 trace 默认关闭。显式开关和发往上游的 `$/setTrace` 共用一把有序写锁，成功写入后才改变采集状态。只接纳限长并脱敏的 message 摘要，排除可能含 RPC 原始载荷和源码的 verbose：凭据脱敏和截断无法把源码变成可以落盘的诊断。详细诊断已开启时，新会话的注册可能早于初始化响应。Core 此时只保存最新的开关值，等握手完成后把 `$/setTrace` 排在 `initialized` 之后；初始化前关闭会撤销待发送的启用。不要在注册时立即发通知，否则严格遵循 LSP 的服务器会丢弃它，宿主却以为已经开启。
 
 详细诊断的分类不在宿主另写：会话通道根按 `diagnostics.resolveLogChannel` 返回的 category 归入当前开关（lsp → language、vcs → git、plugins → plugins），与持久化 DEBUG 的准入共用 `diagnosticRoots`。类别开关变化、新会话注册和 15 分钟的单次到期，都向活动会话发送 `setDetailedDiagnostics`，退出时关闭。
 
@@ -172,6 +176,14 @@ Core 拥有会话生命周期状态。`*.session.updated` 直接附到已有的 
 
 存储不可用（包括目录适配器抛出真实 I/O 错误）时，宿主省略 `logDirectory`，由 Core 检查模板是否依赖 `${logDir}`，依赖时按既有的 `invalidRequest` 拒绝。不使用该变量的插件照常启动，可选的日志目录不能变成全部语言服务、构建、VCS、后端和调试器的前置条件。远程进程无法写本机日志目录，同样省略并拒绝该变量。安装阶段只用未创建的占位目录校验展开。
 
+### 官方插件通过新的类型化协议交付事实
+
+官方 Node、Java、Rust SDK 使用独立协商的 `litheLogging` 1，通过 `lithe/log` 把操作结果交给 Core。插件只提供注册过的操作、稳定类别、计数和单调耗时；Core 从已安装插件的身份选择通道和目录事件。成功终态为 INFO，实际失败为 ERROR，回退和真实恢复为 WARN。高频成功可以在注册时或当前调用上抑制，失败始终可见；取消不是失败。
+
+采用新协议，是因为 stderr 无法可靠表达处理后的结果、原操作身份和字段边界。给自由消息加 `[ERROR]` 解决不了这个问题，还会把错误正文和用户内容带进日志。正确做法：SDK 在结果边界发送一条类型化终态，处理函数只补它真正拥有的降级。不要这样做：先记录错误再返回同一次错误，或把 SQL、HTTP 正文、构建输出写进诊断。
+
+Core 只接纳协商成功、字段符合封闭契约的事实，每个进程会话每分钟最多 600 条，使用现有的 256 条队列和单一宿主写入器。非法输入每个会话只告警一次，不回显被拒内容；超出限额只计丢弃数。SDK 在初始化阶段最多缓存八条类型化事实，capability 响应后再交出；正常终态在 RPC 响应之前发出，使 Core 能把 wire 请求编号映射到真实的宿主 op。协议和 fixture 以共享插件契约为准，不再维护自由文本日志 API。
+
 ### 辅助 crate 经注入的函数指针进入 Core 队列
 
 agent-host、git-host、ide-host 和 lithe-remote 的客户端链接进 Core。Core 依赖它们，它们不能反过来依赖 `core_events`，否则形成循环依赖。因此每个辅助 crate 只带一个 `failure_log` 模块：公开本 crate 用到的事件 ID 列表和一个安装函数，内部只保存一个先装先得的函数指针，调用点只交出事件 ID 和标量字段。Core 的 `diagnostics::helper_failures::install()` 用一次性初始化把四个指针都指向同一个转换函数，转换函数把字段交给 `core_events::record`，失败时计入丢弃。这些事件在共享目录里以 `lithe-core` 为 owner 声明，校验、脱敏和通道推导与 Core 自己的事件完全相同。
@@ -183,6 +195,19 @@ agent-host、git-host、ide-host 和 lithe-remote 的客户端链接进 Core。C
 Core 的目录遍历和 scratch 清理使用 `app.search.directory_skipped`、`app.workspace.directory_skipped` 和 `app.workspace.scratch_cleanup_failed`；error 只含固定消息、稳定类别和固定 domain，不含绝对路径、scratch 名或远程地址。远程进程和上传按 `ClientError` 的变体映射为 timeout、closed、transport、spawn、protocol 或 `remote_<协议码>`，不保留正文。
 
 日志门禁覆盖这四个 crate。运行在远端主机上的 `lithe-remote-server`（`rust/lithe-remote/src/server/`、`src/bin/`）和 ide-host 的独立可执行文件不链接进本机 Core，没有可注入的 sink，暂时排除在门禁外；远端服务端日志回传和 Monaco 控制台转发在 Issue #1680 中跟踪。
+
+### DAP：记录状态与失败，保留程序内容边界
+
+调试适配器协议（DAP，调试器与宿主交换控制消息的协议）的共享状态由 Core 持有，
+因此会话开始、初始化完成、结束和操作失败都由 `debug/engine.rs` 在真实转换点记录。
+通道使用校验后的适配器身份；不适合路径的身份使用稳定 SHA-256 摘要，不能让项目路径或显示名称进入通道。
+生命周期关键里程碑为 INFO，暂停、运行等内部状态为 DEBUG，超时与适配器拒绝为 ERROR。
+取消和过期引用仅为 DEBUG，不把正常取消写成产品故障；已有失败操作记录时，随后会话 Failed 不重复记录。
+
+原生宿主只补自己拥有的启动失败、初始化超时和异常进程退出，以固定阶段与退出码传给生成事件。
+正确做法是 Core 根据 `OperationFailed.code` 记录稳定分类；不要把 adapter stderr、DAP 响应 message、
+调试变量、内存、源码或被调试程序输出塞入 text/error。原始 stderr 继续属于调试控制台，不代表持久化。
+共享 Core 队列复用宿主既有 drain 和队列唤醒回调，不创建第二个 writer、轮询或应用退出后仍持有的缓存。
 
 ### 保留以完整会话为主，Core 只计算删除计划
 
@@ -203,7 +228,9 @@ Core 的目录遍历和 scratch 清理使用 `app.search.directory_skipped`、`a
 - **继续在 Swift 记录 Git 生命周期**：Swift 不知道 Core 最终传给进程的参数、退出码和 stderr，只能覆盖经过它的那部分操作，远程工作区和 Core 内部发起的 Git 调用都会漏掉。在执行点记录只需一处，所有调用方自动覆盖。
 - **只记录失败**：失败日志无法回答“用户点了之后到底执行了什么”。成功轨迹按来源分级：用户操作的成功是 INFO，后台的成功是 DEBUG，平时不落盘。
 - **在 Swift 的每个 Core 调用点记录请求**：需要逐个改调用点，新调用点很容易漏掉，而且同一请求在 Swift 和 Core 各有一份时间和结果。改为在 Core 分发处记录一次，宿主只传 `origin`。
-- **为 Core 队列增加空闲轮询定时器**：会在应用空闲时持续唤醒。事实只会在请求处理期间或请求留下的后台线程里产生，`coreEventsPending` 加上写入器原有的排空时机已经足够。
+- **宿主定时轮询 Core 队列**：应用空闲时也持续唤醒，落盘延迟取决于轮询周期。改为 Core 有事实时合并唤醒宿主。
+- **在每个响应信封里标记待取事实**：只在有请求返回时生效，插件 `lithe/log`、析构和后台线程留下的事实要等下一次无关请求才落盘。唤醒回调覆盖所有来源，因此响应里不再携带标记。
+- **每条事实回调一次，或在回调里直接 drain**：突发事实会产生大量跨语言调用；在记录线程里 drain 会把磁盘 I/O 带到 Core 调用方的线程，还要重入 Core。回调只安排宿主已有的单次排空。
 - **只在宿主侧过滤 DEBUG**：后台 DEBUG 会先占满 256 条的 Core 队列，之后的 WARN 和 ERROR 被丢弃，因此必须在入队前过滤。
 - **Core 轨迹的失败直接记 ERROR**：Core 不知道宿主会不会重试或降级，ERROR 会把可恢复的失败误报成用户请求失败；同一次失败再由宿主记录还会产生两条终态。
 
@@ -246,6 +273,7 @@ Core 的目录遍历和 scratch 清理使用 `app.search.directory_skipped`、`a
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core diagnostics`
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core core_request_traces`
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core command_trace`
+- `cargo test --manifest-path rust/Cargo.toml -p lithe-core --test core_log_waker`
 - `./scripts/rust-core/verify-rust-core-comments.sh`
 - `./scripts/architecture/verify-shared-contracts.sh`
 - `./scripts/windows/verify/verify-windows-boundaries.sh`
@@ -260,6 +288,7 @@ fixture 覆盖往返、转义、非法输入、路径段、轮转与保留、共
 - `rust/lithe-core/src/git/command_trace.rs`
 - `rust/lithe-core/src/runtime/dispatcher.rs`
 - `rust/lithe-core/src/tests/core_request_traces.rs`
+- `rust/lithe-core/src/debug/engine.rs`
 - `rust/lithe-agent-host/src/failure_log.rs`
 - `rust/lithe-git-host/src/failure_log.rs`
 - `rust/lithe-ide-host/src/failure_log.rs`
