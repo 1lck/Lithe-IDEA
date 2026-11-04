@@ -891,6 +891,33 @@ fn execute_parsed(parsed: CoreRequest) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::WorkspaceReplaceText => {
+            match serde_json::from_value::<project::ReplacementTextRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid text replacement request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(project::replace_text)
+            {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::WorkspaceSearchTextBatch => {
+            match serde_json::from_value::<project::SearchTextBatchRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid text search request")
+                        .with_details(error.to_string())
+                })
+                .and_then(project::search_text_batch)
+            {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::FileRead => match serde_json::from_value::<FileReadRequest>(parsed.payload)
             .map_err(|error| {
                 CoreError::new(ErrorCode::InvalidRequest, "Invalid file read request")

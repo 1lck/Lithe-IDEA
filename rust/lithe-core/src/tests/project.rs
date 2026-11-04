@@ -1102,6 +1102,58 @@ fn search_everywhere_and_replacement_preview_are_shared() {
 }
 
 #[test]
+fn search_pages_apply_path_filters_before_the_page_limit() {
+    let root = temporary_root("search-filtered-pages");
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    fs::create_dir_all(&root).unwrap();
+    for file in ["a-skip-keep.txt", "b-keep.txt", "c-keep.txt"] {
+        fs::write(root.join(file), "  😀needle\n").unwrap();
+    }
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/search/text-snapshot-v1.json"
+    ))
+    .unwrap();
+    let case = &fixture["filteredPage"];
+    let mut payload = case["payload"].clone();
+    payload["root"] = serde_json::json!(root);
+    let call = |payload: &Value| -> Value {
+        serde_json::from_str(&execute_json(
+            &serde_json::json!({"id": "page", "command": case["command"], "payload": payload})
+                .to_string(),
+        ))
+        .unwrap()
+    };
+    let first = call(&payload);
+    assert_eq!(first["ok"], true, "{first}");
+    assert_eq!(
+        first["data"]["matches"][0]["path"],
+        case["expected"]["firstPath"]
+    );
+    assert_eq!(
+        first["data"]["matches"][0]["sourceLine"],
+        case["expected"]["sourceLine"]
+    );
+    assert_eq!(
+        first["data"]["matches"][0]["contentMatchRanges"],
+        case["expected"]["contentMatchRanges"]
+    );
+    payload["cursor"] = first["data"]["nextCursor"].clone();
+    assert!(payload["cursor"].is_string());
+    let second = call(&payload);
+    assert_eq!(
+        second["data"]["matches"][0]["path"],
+        case["expected"]["nextPath"]
+    );
+    assert!(second["data"]["nextCursor"].is_null());
+}
+
+#[test]
 fn file_mask_limits_search_to_matching_extensions() {
     let root = temporary_root("file-mask");
     fs::create_dir_all(root.join("src")).expect("fixture directory should be creatable");

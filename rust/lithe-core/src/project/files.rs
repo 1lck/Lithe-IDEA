@@ -187,6 +187,18 @@ pub struct SearchRequest {
     /// Comma-separated file masks such as `*.java, *.kt`; empty means no filter.
     #[serde(default)]
     pub file_mask: String,
+    /// Case-insensitive glob fragments that a candidate path must match.
+    #[serde(default)]
+    pub include_path_patterns: Vec<String>,
+    /// Case-insensitive glob fragments that exclude matching candidate paths.
+    #[serde(default)]
+    pub exclude_path_patterns: Vec<String>,
+    /// Optional root prefix used solely for include/exclude matching.
+    #[serde(default)]
+    pub path_filter_prefix: String,
+    /// Include untrimmed lines and UTF-16 ranges for content matches.
+    #[serde(default)]
+    pub include_content_ranges: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -258,6 +270,167 @@ pub struct ReplacementPreviewRequest {
     pub hidden_directory_names: Vec<String>,
     #[serde(default)]
     pub hidden_file_patterns: Vec<String>,
+}
+
+/// Non-mutating replacement against an already captured text snapshot.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplacementTextRequest {
+    /// Original content; the host retains its identity and controls any write.
+    pub text: String,
+    /// Search expression interpreted identically to workspace search.
+    pub query: String,
+    /// Replacement text, including capture expansion for regex searches.
+    pub replacement: String,
+    /// Whether letter case must match exactly.
+    #[serde(default)]
+    pub case_sensitive: bool,
+    /// Require the shared word-boundary rules for literal searches.
+    #[serde(default)]
+    pub whole_words: bool,
+    /// Treat the query as a regular expression.
+    #[serde(default)]
+    pub regular_expression: bool,
+    /// When present, replace one match touching or following this location.
+    pub from: Option<ReplacementTextPosition>,
+}
+
+/// A one-based source line and UTF-16 column.
+#[derive(Debug, Deserialize)]
+pub struct ReplacementTextPosition {
+    /// One-based line index.
+    pub line: usize,
+    /// One-based UTF-16 column.
+    pub column: usize,
+}
+
+/// Computes replacement text without touching storage or editor state.
+pub fn replace_text(request: ReplacementTextRequest) -> Result<serde_json::Value, CoreError> {
+    let query = request.query.trim();
+    if query.is_empty() {
+        return Ok(serde_json::json!({"text": request.text, "count": 0}));
+    }
+    let matcher = Matcher::new(
+        query,
+        request.case_sensitive,
+        request.whole_words,
+        request.regular_expression,
+    )?;
+    let mut count = 0usize;
+    let mut lines = Vec::new();
+    for (index, line) in request.text.split('\n').enumerate() {
+        crate::protocol::cancellation::check()?;
+        if let Some(position) = &request.from {
+            if count == 0 && index + 1 >= position.line.max(1) {
+                let column = if index + 1 == position.line.max(1) {
+                    position.column.saturating_sub(1)
+                } else {
+                    0
+                };
+                if let Some(replaced) =
+                    matcher.replace_first_from(line, &request.replacement, column)
+                {
+                    lines.push(replaced);
+                    count = 1;
+                    continue;
+                }
+            }
+            lines.push(line.to_string());
+        } else {
+            let (replaced, occurrences) =
+                matcher.replace_with_options(line, &request.replacement, false);
+            count += occurrences;
+            lines.push(replaced);
+        }
+    }
+    Ok(serde_json::json!({"text": lines.join("\n"), "count": count}))
+}
+
+/// Provider-supplied snapshots for content search without filesystem access.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchTextBatchRequest {
+    /// User query, interpreted with the same rules as workspace search.
+    pub query: String,
+    /// Whether case must match exactly.
+    #[serde(default)]
+    pub case_sensitive: bool,
+    /// Restrict literal queries to shared word boundaries.
+    #[serde(default)]
+    pub whole_words: bool,
+    /// Interpret the query as a regular expression.
+    #[serde(default)]
+    pub regular_expression: bool,
+    /// Adjacent lines supplied for each displayed result.
+    #[serde(default)]
+    pub context_lines: usize,
+    /// Bounded host-read batch; Core does not resolve these opaque paths.
+    pub files: Vec<SearchTextSnapshot>,
+}
+
+/// One provider-owned path and its captured content.
+#[derive(Debug, Deserialize)]
+pub struct SearchTextSnapshot {
+    /// Opaque identity returned without modification.
+    pub path: String,
+    /// Text read by the provider.
+    pub text: String,
+}
+
+/// Applies workspace matching to provider snapshots in one bounded request.
+pub fn search_text_batch(request: SearchTextBatchRequest) -> Result<serde_json::Value, CoreError> {
+    if request.files.len() > 32
+        || request
+            .files
+            .iter()
+            .any(|file| file.text.len() > MAX_FILE_SIZE as usize)
+        || request
+            .files
+            .iter()
+            .map(|file| file.text.len())
+            .sum::<usize>()
+            > 16 * 1024 * 1024
+    {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Text search batch is too large",
+        ));
+    }
+    let query = request.query.trim();
+    if query.is_empty() {
+        return Ok(serde_json::json!({"files": []}));
+    }
+    let matcher = Matcher::new(
+        query,
+        request.case_sensitive,
+        request.whole_words,
+        request.regular_expression,
+    )?;
+    let context = request.context_lines.min(20);
+    let mut files = Vec::new();
+    for file in request.files {
+        crate::protocol::cancellation::check()?;
+        if file.text.contains('\0') {
+            continue;
+        }
+        let lines: Vec<_> = file.text.split('\n').collect();
+        let mut matches = Vec::new();
+        for (index, line) in lines.iter().enumerate() {
+            if !matcher.matches(line) {
+                continue;
+            }
+            let ranges = matcher.content_ranges(line);
+            matches.push(
+                serde_json::json!({"line": index + 1, "lineText": line, "ranges": ranges,
+                "contextBefore": &lines[index.saturating_sub(context)..index],
+                "contextAfter": &lines[index + 1..(index + 1 + context).min(lines.len())]}),
+            );
+        }
+        if !matches.is_empty() {
+            files.push(serde_json::json!({"path": file.path, "matches": matches}));
+        }
+    }
+    Ok(serde_json::json!({"files": files}))
 }
 
 #[derive(Debug, Deserialize)]
@@ -464,6 +637,11 @@ fn search_with_index(
         request.regular_expression,
     )?;
     let masks = parse_file_mask(&request.file_mask);
+    let path_filters = SearchPathFilters::new(
+        &request.include_path_patterns,
+        &request.exclude_path_patterns,
+        &request.path_filter_prefix,
+    )?;
     let limit = request.max_results.max(1).min(10_000);
     let file_limit = request.max_file_results.unwrap_or(limit).min(limit);
     let content_limit = request.max_content_results.unwrap_or(limit).min(limit);
@@ -479,7 +657,10 @@ fn search_with_index(
             continue;
         };
         let path = &indexed_file.path;
-        if !scope_allows(&request.scope_paths, path) || !file_mask_allows(&masks, path) {
+        if !scope_allows(&request.scope_paths, path)
+            || !file_mask_allows(&masks, path)
+            || !path_filters.allows(path)
+        {
             continue;
         }
         if matcher.matches(path) {
@@ -490,6 +671,8 @@ fn search_with_index(
                 preview: path.clone(),
                 symbol_name: None,
                 name_match_ranges: Vec::new(),
+                source_line: None,
+                content_match_ranges: Vec::new(),
                 matching_degree: None,
                 is_ignored: None,
             });
@@ -514,6 +697,7 @@ fn search_with_index(
         if page.is_some_and(|page| !page.accepts_path(path))
             || !scope_allows(&request.scope_paths, path)
             || !file_mask_allows(&masks, path)
+            || !path_filters.allows(path)
         {
             continue;
         }
@@ -531,6 +715,12 @@ fn search_with_index(
                     preview: line.trim().to_string(),
                     symbol_name: None,
                     name_match_ranges: Vec::new(),
+                    source_line: request.include_content_ranges.then(|| line.to_string()),
+                    content_match_ranges: if request.include_content_ranges {
+                        matcher.content_ranges(line)
+                    } else {
+                        Vec::new()
+                    },
                     matching_degree: None,
                     is_ignored: None,
                 };
@@ -579,6 +769,11 @@ pub(crate) fn search_everywhere_with_page(
         request.regular_expression,
     )?;
     let masks = parse_file_mask(&request.file_mask);
+    let path_filters = SearchPathFilters::new(
+        &request.include_path_patterns,
+        &request.exclude_path_patterns,
+        &request.path_filter_prefix,
+    )?;
     let limit = request.max_results.max(1).min(10_000);
     let file_limit = if page.as_ref().is_some_and(|page| page.exhausted("file")) {
         0
@@ -627,6 +822,7 @@ pub(crate) fn search_everywhere_with_page(
             let Some(file) = names.file(id) else { continue };
             if !scope_allows(&request.scope_paths, &file.path)
                 || !file_mask_allows(&masks, &file.path)
+                || !path_filters.allows(&file.path)
             {
                 continue;
             }
@@ -638,6 +834,8 @@ pub(crate) fn search_everywhere_with_page(
                 preview: file.path.clone(),
                 symbol_name: None,
                 name_match_ranges: Vec::new(),
+                source_line: None,
+                content_match_ranges: Vec::new(),
                 matching_degree: None,
                 is_ignored: None,
             };
@@ -705,6 +903,7 @@ pub(crate) fn search_everywhere_with_page(
             let Some(file) = index.file(id) else { continue };
             if !scope_allows(&request.scope_paths, &file.path)
                 || !file_mask_allows(&masks, &file.path)
+                || !path_filters.allows(&file.path)
             {
                 continue;
             }
@@ -1674,6 +1873,64 @@ fn apply_case_pattern(matched: &str, replacement: &str) -> String {
     replacement.to_string()
 }
 
+/// Include/exclude fragments are compiled once and applied before page caps.
+struct SearchPathFilters {
+    includes: Vec<Regex>,
+    excludes: Vec<Regex>,
+    prefix: String,
+}
+
+impl SearchPathFilters {
+    fn new(includes: &[String], excludes: &[String], prefix: &str) -> Result<Self, CoreError> {
+        fn compile(patterns: &[String]) -> Result<Vec<Regex>, CoreError> {
+            patterns
+                .iter()
+                .filter(|pattern| !pattern.trim().is_empty())
+                .map(|pattern| {
+                    let mut source = String::new();
+                    let mut chars = pattern.trim().chars().peekable();
+                    while let Some(character) = chars.next() {
+                        match character {
+                            '*' if chars.peek() == Some(&'*') => {
+                                chars.next();
+                                source.push_str(".*");
+                            }
+                            '*' => source.push_str("[^/]*"),
+                            '?' => source.push_str("[^/]"),
+                            other => source.push_str(&regex::escape(&other.to_string())),
+                        }
+                    }
+                    RegexBuilder::new(&source)
+                        .case_insensitive(true)
+                        .build()
+                        .map_err(|error| {
+                            CoreError::new(ErrorCode::InvalidRequest, "Invalid search path filter")
+                                .with_details(error.to_string())
+                        })
+                })
+                .collect()
+        }
+        Ok(Self {
+            includes: compile(includes)?,
+            excludes: compile(excludes)?,
+            prefix: prefix.trim_end_matches('/').to_string(),
+        })
+    }
+
+    fn allows(&self, path: &str) -> bool {
+        if self.includes.is_empty() && self.excludes.is_empty() {
+            return true;
+        }
+        let path = if self.prefix.is_empty() {
+            path.to_string()
+        } else {
+            format!("{}/{}", self.prefix, path)
+        };
+        (self.includes.is_empty() || self.includes.iter().any(|filter| filter.is_match(&path)))
+            && !self.excludes.iter().any(|filter| filter.is_match(&path))
+    }
+}
+
 /// Splits a mask list such as `*.java, *.kt`; an empty list disables filtering.
 fn parse_file_mask(mask: &str) -> Vec<String> {
     mask.split(',')
@@ -1732,6 +1989,32 @@ struct Matcher {
 }
 
 impl Matcher {
+    /// Projects original byte ranges into the editor's UTF-16 coordinate space.
+    fn content_ranges(&self, text: &str) -> Vec<crate::protocol::SearchNameRange> {
+        let ranges = if let Some(regex) = &self.regex {
+            regex
+                .find_iter(text)
+                .map(|item| (item.start(), item.end()))
+                .collect::<Vec<_>>()
+        } else {
+            self.literal_match_ranges(text)
+        };
+        let (mut offset, mut units) = (0, 0);
+        ranges
+            .into_iter()
+            .map(|(start, end)| {
+                units += text[offset..start].encode_utf16().count();
+                let first = units;
+                units += text[start..end].encode_utf16().count();
+                offset = end;
+                crate::protocol::SearchNameRange {
+                    start: first,
+                    length: units - first,
+                }
+            })
+            .collect()
+    }
+
     fn new(
         query: &str,
         case_sensitive: bool,
@@ -1783,18 +2066,8 @@ impl Matcher {
         })
     }
 
-    /// Preserve Case applies only to literal replacements. Regex replacements
-    /// can contain captures such as `$1`, whose meaning case rewriting breaks.
-    fn replace_with_options(
-        &self,
-        text: &str,
-        replacement: &str,
-        preserve_case: bool,
-    ) -> (String, usize) {
-        if let Some(regex) = &self.regex {
-            let count = regex.find_iter(text).count();
-            return (regex.replace_all(text, replacement).into_owned(), count);
-        }
+    /// Finds literal matches in the original line, preserving UTF-8 boundaries.
+    fn literal_match_ranges(&self, text: &str) -> Vec<(usize, usize)> {
         let haystack = if self.case_sensitive {
             text.to_string()
         } else {
@@ -1806,7 +2079,7 @@ impl Matcher {
             self.plain_query.to_lowercase()
         };
         if needle.is_empty() {
-            return (text.to_string(), 0);
+            return Vec::new();
         }
         let ranges = haystack
             .match_indices(&needle)
@@ -1823,9 +2096,26 @@ impl Matcher {
                 Some((start, end))
             })
             .collect::<Vec<_>>();
-        if ranges.is_empty() {
-            return (text.to_string(), 0);
+        // Lowercase expansions can change byte offsets relative to the original.
+        if self.case_sensitive {
+            ranges
+        } else {
+            original_ranges_for_lowercase_matches(text, &ranges)
         }
+    }
+
+    /// Preserve Case applies only to literal replacements; regex keeps captures.
+    fn replace_with_options(
+        &self,
+        text: &str,
+        replacement: &str,
+        preserve_case: bool,
+    ) -> (String, usize) {
+        if let Some(regex) = &self.regex {
+            let count = regex.find_iter(text).count();
+            return (regex.replace_all(text, replacement).into_owned(), count);
+        }
+        let ranges = self.literal_match_ranges(text);
         let mut result = String::with_capacity(text.len());
         let mut cursor = 0;
         for (start, end) in &ranges {
@@ -1840,6 +2130,77 @@ impl Matcher {
         result.push_str(&text[cursor..]);
         (result, ranges.len())
     }
+
+    /// Finds the first replacement touching or following a UTF-16 column.
+    fn replace_first_from(&self, text: &str, replacement: &str, column: usize) -> Option<String> {
+        let mut utf16 = 0usize;
+        let mut column_byte = text.len();
+        for (index, character) in text.char_indices() {
+            if utf16 + character.len_utf16() > column {
+                column_byte = index;
+                break;
+            }
+            utf16 += character.len_utf16();
+        }
+        let follows = |start: usize, end: usize| {
+            start >= column_byte || (column_byte >= start && column_byte < end)
+        };
+        let (start, end, value) = if let Some(regex) = &self.regex {
+            let captures = regex.captures_iter(text).find(|capture| {
+                capture
+                    .get(0)
+                    .is_some_and(|matched| follows(matched.start(), matched.end()))
+            })?;
+            let matched = captures.get(0)?;
+            let mut value = String::new();
+            captures.expand(replacement, &mut value);
+            (matched.start(), matched.end(), value)
+        } else {
+            let (start, end) = self
+                .literal_match_ranges(text)
+                .into_iter()
+                .find(|(start, end)| follows(*start, *end))?;
+            (start, end, replacement.to_string())
+        };
+        Some(format!("{}{}{}", &text[..start], value, &text[end..]))
+    }
+}
+
+/// Maps ordered lowercase-match byte ranges to complete original characters.
+fn original_ranges_for_lowercase_matches(
+    text: &str,
+    ranges: &[(usize, usize)],
+) -> Vec<(usize, usize)> {
+    let mut chars = text.char_indices();
+    let (mut source_start, mut source_end, mut folded_end) = (0, 0, 0);
+    let mut result: Vec<(usize, usize)> = Vec::with_capacity(ranges.len());
+    for &(start, end) in ranges {
+        while folded_end <= start {
+            let Some((index, character)) = chars.next() else {
+                break;
+            };
+            source_start = index;
+            source_end = index + character.len_utf8();
+            folded_end += character.to_lowercase().map(char::len_utf8).sum::<usize>();
+        }
+        let original_start = source_start;
+        while folded_end < end {
+            let Some((index, character)) = chars.next() else {
+                break;
+            };
+            source_end = index + character.len_utf8();
+            folded_end += character.to_lowercase().map(char::len_utf8).sum::<usize>();
+        }
+        if let Some(previous) = result
+            .last_mut()
+            .filter(|previous| original_start < previous.1)
+        {
+            previous.1 = previous.1.max(source_end);
+        } else {
+            result.push((original_start, source_end));
+        }
+    }
+    result
 }
 
 pub(crate) struct JavaSymbol {
@@ -1958,6 +2319,128 @@ mod event_filter_tests {
     use super::*;
 
     #[test]
+    fn path_filters_match_the_displayed_relative_root_before_limits() {
+        let filter =
+            SearchPathFilters::new(&["src/**".into()], &["/test/".into()], "module").unwrap();
+        assert!(filter.allows("src/main/a.ts"));
+        assert!(!filter.allows("src/test/a.ts"));
+        assert!(!filter.allows("other/a.ts"));
+        let rooted = SearchPathFilters::new(&["module/src".into()], &[], "module").unwrap();
+        assert!(rooted.allows("src/a.ts"));
+    }
+
+    #[test]
+    fn replacement_text_command_uses_search_boundaries_and_line_semantics() {
+        let call = |payload: serde_json::Value| -> serde_json::Value {
+            serde_json::from_str(&crate::execute_json(
+                &serde_json::json!({
+                    "id": "replace", "command": "workspace.replaceText", "payload": payload
+                })
+                .to_string(),
+            ))
+            .unwrap()
+        };
+        let whole = call(serde_json::json!({"text": "$foo foo\nfoo!", "query": "foo",
+            "replacement": "bar", "wholeWords": true}));
+        assert_eq!(
+            whole["data"],
+            serde_json::json!({"text": "$foo bar\nbar!", "count": 2})
+        );
+        let lines = call(
+            serde_json::json!({"text": "foo 1\nfoo 2", "query": "^foo (\\d)",
+            "replacement": "bar $1", "regularExpression": true}),
+        );
+        assert_eq!(
+            lines["data"],
+            serde_json::json!({"text": "bar 1\nbar 2", "count": 2})
+        );
+        let single = call(
+            serde_json::json!({"text": "😀 foo foo\nfoo", "query": "foo",
+            "replacement": "bar", "from": {"line": 1, "column": 9}}),
+        );
+        assert_eq!(
+            single["data"],
+            serde_json::json!({"text": "😀 foo bar\nfoo", "count": 1})
+        );
+        let adjacent = call(serde_json::json!({"text": "foofoo", "query": "foo",
+            "replacement": "bar", "from": {"line": 1, "column": 4}}));
+        assert_eq!(
+            adjacent["data"],
+            serde_json::json!({"text": "foobar", "count": 1})
+        );
+    }
+
+    #[test]
+    fn provider_batch_search_uses_same_unicode_and_word_boundaries_as_replacement() {
+        let response: serde_json::Value = serde_json::from_str(&crate::execute_json(
+            &serde_json::json!({
+                "id": "provider", "command": "workspace.searchTextBatch", "payload": {
+                    "query": "foo", "wholeWords": true, "contextLines": 1,
+                    "files": [{"path": "wsl://fixture/a", "text": "before\n😀 $foo foo\nafter"}]
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(response["ok"], true, "{response}");
+        let found = &response["data"]["files"][0]["matches"][0];
+        assert_eq!(found["line"], 2);
+        assert_eq!(
+            found["ranges"],
+            serde_json::json!([{"start": 8, "length": 3}])
+        );
+        assert_eq!(found["contextBefore"], serde_json::json!(["before"]));
+        assert_eq!(found["contextAfter"], serde_json::json!(["after"]));
+        let too_many: Vec<_> = (0..33)
+            .map(|index| serde_json::json!({"path": index.to_string(), "text": ""}))
+            .collect();
+        let rejected: serde_json::Value = serde_json::from_str(&crate::execute_json(&serde_json::json!({
+            "id": "provider-limit", "command": "workspace.searchTextBatch", "payload": {"query": "x", "files": too_many}
+        }).to_string())).unwrap();
+        assert_eq!(rejected["ok"], false);
+    }
+
+    #[test]
+    fn shared_text_snapshot_contract_fixture() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../shared/fixtures/search/text-snapshot-v1.json"
+        ))
+        .unwrap();
+        for case in fixture["cases"].as_array().unwrap() {
+            let request = serde_json::json!({
+                "id": "fixture", "command": case["command"], "payload": case["payload"]
+            });
+            let response: serde_json::Value =
+                serde_json::from_str(&crate::execute_json(&request.to_string())).unwrap();
+            assert_eq!(response["ok"], true, "{}: {response}", case["name"]);
+            assert_eq!(response["data"], case["expected"], "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn literal_replacement_uses_original_offsets_after_unicode_case_folding() {
+        let matcher = Matcher::new("x", false, false, false).unwrap();
+        assert_eq!(
+            matcher.replace_with_options("İx", "y", false),
+            ("İy".into(), 1)
+        );
+        assert_eq!(
+            matcher.replace_with_options("Kxİx", "y", false),
+            ("Kyİy".into(), 2)
+        );
+        let partial = Matcher::new("i", false, false, false).unwrap();
+        assert_eq!(
+            partial.replace_with_options("İ", "z", false),
+            ("z".into(), 1)
+        );
+        let combining = Matcher::new("\u{307}", false, false, false).unwrap();
+        assert_eq!(
+            combining.replace_with_options("İ", "z", false),
+            ("z".into(), 1)
+        );
+    }
+
+    #[test]
     fn search_snapshots_merge_at_100ms_and_keep_the_best_bounded_candidates() {
         use std::sync::{Arc, Mutex};
         use std::time::{Duration, Instant};
@@ -1978,6 +2461,8 @@ mod event_filter_tests {
                     preview: name.into(),
                     symbol_name: None,
                     name_match_ranges: vec![],
+                    source_line: None,
+                    content_match_ranges: Vec::new(),
                     matching_degree: Some(degree),
                     is_ignored: None,
                 };

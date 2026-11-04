@@ -1162,6 +1162,8 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `workspace.search` | Search visible file names and UTF-8 text files |
 | `workspace.searchEverywhere` | Search visible file names, Java types/methods, and UTF-8 text files |
 | `workspace.replacePreview` | Return deterministic replacement lines and complete replacement text |
+| `workspace.replaceText` | Plan replacement against a host-captured text snapshot without writing |
+| `workspace.searchTextBatch` | Search provider-captured text snapshots using workspace matching rules |
 | `file.read` | Read a UTF-8 file using a workspace-relative path |
 | `file.write` | Write a UTF-8 file using a workspace-relative path |
 | `document.lifecycle` | Reduce a shared document save, external-change, or conflict event without reading text or disk |
@@ -2430,6 +2432,12 @@ Name/symbol continuation scans the existing index to select the next ranked page
 text pages follow path/line order and stop after the lookahead match. Pages observe
 the live index: edits inserting a match before the cursor require a fresh query.
 Requests without pageSize retain the legacy capped response and schema.
+Optional `includePathPatterns`, `excludePathPatterns`, and `pathFilterPrefix`
+filter paths before the page limit. Patterns are case-insensitive glob fragments:
+`*` excludes separators, `**` crosses them, and `?` matches one non-separator.
+When `includeContentRanges` is true, content matches also return the original
+`sourceLine` and `contentMatchRanges` in UTF-16 units; existing callers keep the
+trimmed `preview` and do not pay for those fields.
 
 Observed `workspace.searchEverywhere` calls may emit
 `{ "type": "searchResults", "operationId": "…", "results": { "matches": […] } }`
@@ -2506,6 +2514,19 @@ keyed by relative path, and visibility fields. It returns `{ "files": [] }`
 where each file contains replacement matches and the complete
 `replacementText` to write. The command never writes files; callers can record
 history before using `file.write` for the selected files.
+
+`workspace.replaceText` accepts a host-captured `text`, `query`, `replacement`,
+the same case, whole-word and regex options, and an optional one-based `{line,
+column}` UTF-16 `from` position. It returns `{text, count}` after replacing all
+matches or the first match at or after that position. Matching is per line, and
+the command never writes. The host must verify the captured workspace and buffer
+or disk identity before publishing a result. `workspace.searchTextBatch` applies
+the same matcher to at most 32 host-read `{path, text}` snapshots (at most 2 MiB
+per file and 16 MiB in total) and returns
+unmodified paths, matching lines, UTF-16 ranges and requested surrounding lines.
+The host owns provider I/O and controls continuation between batches.
+Examples for these commands and filtered content pages live in
+`shared/fixtures/search/text-snapshot-v1.json`.
 
 `lsp.applyTextEdits` accepts `{ "text": string, "edits": [] }`, where each edit
 has an LSP range with zero-based `line` and UTF-16 `utf16Column` fields plus
