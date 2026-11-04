@@ -64,5 +64,74 @@
       "provider": "git",
       "state": "ready"
     }
-  }
+  },
+  "hostOperations": [
+    {
+      "payload": {
+        "pluginId": "io.github.lithe-idea.go-support",
+        "operation": "languageServer/start",
+        "outcome": "finished",
+        "durationMs": 412,
+        "operationId": "0F8E1C2A-7B5D-4E61-9A3C-2D4B6F8E0A1C"
+      },
+      "event": "plugins.operation.finished",
+      "channel": "plugins/io.github.lithe-idea.go-support/host"
+    },
+    {
+      "payload": {
+        "pluginId": "io.github.lithe-idea.go-support",
+        "operation": "languageServer/start",
+        "outcome": "failed",
+        "stage": "resolve",
+        "durationMs": 3
+      },
+      "event": "plugins.operation.failed",
+      "channel": "plugins/io.github.lithe-idea.go-support/host",
+      "code": "host.executableUnavailable"
+    },
+    {
+      "payload": {
+        "pluginId": "io.github.lithe-idea.lldb-debug",
+        "operation": "debugAdapter/start",
+        "outcome": "failed",
+        "stage": "timeout",
+        "durationMs": 10000
+      },
+      "event": "plugins.operation.failed",
+      "channel": "plugins/io.github.lithe-idea.lldb-debug/host",
+      "code": "host.timedOut"
+    },
+    {
+      "payload": {
+        "pluginId": "io.github.lithe-idea.gradle-build",
+        "operation": "lithe/build/model",
+        "outcome": "failed",
+        "stage": "exit",
+        "durationMs": 5210
+      },
+      "event": "plugins.operation.failed",
+      "channel": "plugins/io.github.lithe-idea.gradle-build/host",
+      "code": "host.commandFailed"
+    },
+    {
+      "payload": {
+        "pluginId": "io.github.lithe-idea.go-support",
+        "operation": "languageServer/start",
+        "outcome": "failed",
+        "stage": "decode",
+        "durationMs": 2
+      },
+      "rejected": -32064
+    },
+    {
+      "payload": {
+        "pluginId": "io.github.lithe-idea.go-support",
+        "operation": "languageServer/start",
+        "outcome": "finished",
+        "durationMs": 2,
+        "message": "gopls: GOPROXY=https://user:secret@proxy"
+      },
+      "rejected": -32064
+    }
+  ]
 }

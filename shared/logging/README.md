@@ -89,6 +89,16 @@ Swift 的事件值是**未经脱敏的内存输入**，不能自行序列化落�
 - stderr 读取器限制每行 4 KiB、每秒 200 行，之后再走 `text` 的 1 KiB 脱敏规范化。与 v1 相比唯一的兼容变化是从任意 trim 的读取块改为逐行文本：保留行内空格，移除 LF 和末尾 CR，并应用已声明的长度上限和限流。
 - 上游明确给出的严重度通过独立的目录事件保留：`window/logMessage` 和 `window/showMessage` 的 type 1/2/3/4 分别为 ERROR/WARN/INFO/DEBUG，未知类型为 DEBUG。未分类的 stderr 是 DEBUG 排障证据，流名称不表示警告；实际的进程或协议失败由 `*.session.failed` 记录 ERROR，正常关闭仍是生命周期状态。
 - 插件自身使用独立协商的 `litheLogging` 1 和 `lithe/log`，由 Core 把四种受控事实映射到插件目录事件，不能再用 stderr 或任意自由消息代替。协议字段、op、限额和 fixture 以 [插件契约](../contracts/plugins/v1/README.md#structured-plugin-diagnostics-logging-protocol-1) 为准。
+- 声明式贡献没有插件进程，不能发 `lithe/log`。实际执行它的一方通过 `diagnostics.recordPluginOperation` 代记每次尝试的一条终态，事件和通道与 SDK 插件相同：`plugins.operation.finished` 或 `plugins.operation.failed`，写入 `plugins/{plugin}/host`。平台层只上报观察到的阶段和耗时，级别和 `host.*` 失败类别只由 Core 按阶段决定；取消、停止和过期结果不记录。宿主当前代记下表四种贡献，唯一来源是 `rust/lithe-core/src/diagnostics/plugin_operations.rs` 的 `CONTRIBUTIONS`；输入、阶段到类别的对应和 -32064 见 [Rust Core API](../contracts/rust-core-api.md#engine-logging-v2-handoff-pr3)。
+
+  | operation | 声明来源 | 记录方 | 可能的失败阶段 |
+  | --- | --- | --- | --- |
+  | `languageServer/start` | `languageServers[]` | macOS 宿主记启动前的失败；进入启动后用 `lsp.startServer.startupOperation` 交给 Core，Core 记录唯一结果 | resolve、launch、exit、initialize、timeout |
+  | `debugAdapter/start` | `debugAdapters[]` | macOS 宿主；op 为调试会话 ID，Core 拒绝建会话不记录 | resolve、launch、exit、initialize、timeout |
+  | `lithe/build/model` | `buildSystems[]` 的命令式模型 | macOS 宿主；计划由插件后端提供时由 SDK 记录 | plan、resolve、launch、timeout、exit、decode |
+  | `lithe/build/dependencies` | `buildSystems[]` 的命令式依赖树 | macOS 宿主；计划由插件后端提供时由 SDK 记录 | plan、resolve、launch、timeout、exit、decode |
+
+  新增一种声明式贡献时，在同一次改动里给 `CONTRIBUTIONS` 加一行，在执行方开始和结束一次 attempt，并更新本表；不新增事件、通道或错误码。
 - 上游 trace 默认关闭。宿主通过 `lsp.setDetailedDiagnostics` 对活动会话和新会话显式开启，15 分钟后单次到期关闭。详细诊断类别与通道根的对应为 `lsp` → language、`vcs` → git、`plugins` → plugins。
 - 详细诊断只接纳 `$/logTrace.message` 摘要；`verbose` 可能包含原始 RPC 载荷和文档源码，禁止进入 v2 `text`。凭据脱敏和 1 KiB 限长不代表源码可以落盘。`initialized` 之前收到的开关只保存目标状态，Core 在 `initialized` 之后发送通知。
 - v1 的 detail、message、level 保持兼容原文；v2 字段通过独立的 `EngineLogInput` 传递，禁止从 detail 反解。原始通知 JSON、`projectCount=N` 和 navigation 格式不变。macOS 日志窗口统一读取 v2 会话文件和写入器的实时批次，不写 v1 文件。

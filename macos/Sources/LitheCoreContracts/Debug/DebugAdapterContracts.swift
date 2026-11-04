@@ -20,6 +20,17 @@ public protocol DebugAdapterTransport: AnyObject {
     func stop()
 }
 
+/// A transport that resolves a declared launch when it starts. It owns the
+/// session's start attempt until the adapter is reachable: `resolve` until the
+/// launch is known, then `launch`, then `initialize` once the adapter can take
+/// the handshake, or `timeout` when its own startup deadline ends the launch.
+/// A transport that connects after `start` returns keeps the attempt it was
+/// lent until then; the session ends the attempt and never moves it back.
+@MainActor
+public protocol DebugAdapterLaunchResolvingTransport: DebugAdapterTransport {
+    var startupAttempt: PluginOperationAttempt? { get set }
+}
+
 /// Optional bounded best-effort flush for the final DAP disconnect frame.
 /// This ends the transport, never the external server; `stop` still aborts now.
 @MainActor

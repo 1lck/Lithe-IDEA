@@ -25,7 +25,7 @@ impl ServerHandler for Ide {
         })?;
         let connection: Connection = serde_json::from_slice(&bytes)
             .map_err(|_| ErrorData::internal_error("Invalid IDE connection descriptor", None))?;
-        let tools = catalog::exposed_tools(&connection.tool_exposure)
+        let tools = catalog::served_tools(connection.tool_exposure.as_deref())
             .map_err(|_| ErrorData::internal_error("Invalid IDE capability declaration", None))?
             .into_iter()
             .map(serde_json::from_value)

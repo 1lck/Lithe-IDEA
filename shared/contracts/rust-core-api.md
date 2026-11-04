@@ -4505,6 +4505,7 @@ are unchanged:
 | -32061 | Invalid histogram bucket count |
 | -32062 | Log copy input exceeds budget |
 | -32063 | Expected canonical redacted log record |
+| -32064 | Invalid host plugin operation |
 
 Diagnostic previews freeze the selected redacted bytes before confirmation.
 Windows returns a `snapshotId` from `preview_diagnostic_bundle`; export consumes
@@ -5300,9 +5301,9 @@ Fixtures live in `shared/fixtures/process-lifecycle/settle-v1.json`.
 `lithe-ide-host` adapter. This local host command is not remotely exposed. See
 [IDE API v1](ide-api/v1.md) for the allowlisted plugin/MCP capabilities, connection
 ownership, authorization, output cursors and shutdown semantics.
-Native `open` requires a `toolExposure` selection of canonical tools and optional
-argument names. This selection is stored with the connection and enforced before
-requests enter its queue. It can only narrow known schemas; it cannot define tool
+Native `open` accepts a `toolExposure` selection of canonical tools and optional
+argument names; a host that omits it serves the whole catalog. A selection is stored
+with the connection and enforced before requests enter its queue. It can only narrow known schemas; it cannot define tool
 types or permissions. Both MCP discovery and native plugin validation use it.
 Native Rust hosts can attach an owner-checked, connection-lifetime callback using
 `attach_ide_request_dispatcher`; this is separate from the request-scoped Git/Agent
@@ -5847,6 +5848,80 @@ are always admitted. Producers that build expensive fields check the gate first.
 
 ```json
 {"id":null,"ok":true,"data":{}}
+```
+
+`diagnostics.recordPluginOperation` records one terminal result of a declarative
+plugin contribution: work a plugin declares in its manifest that the host or a
+Core engine executes, so no plugin process can report it through `lithe/log`. It
+accepts `{pluginId,operation,outcome,stage?,durationMs,operationId?}` with no other
+keys and returns `data:{result:{}}` once the fact is queued, or
+`data:{error:{code:-32064,reason}}`. `outcome` is `finished|failed`; `stage` is
+required for `failed` and forbidden for `finished`. `durationMs` is monotonic
+milliseconds up to 2^53-1. `operationId` follows the SDK `operationId` grammar
+(1-128 bytes of ASCII letters, digits and `._:/-$`). The fact becomes
+`plugins.operation.finished` or `plugins.operation.failed` on
+`plugins/{plugin}/host`, the same events and channel an SDK-backed plugin writes,
+with fields `plugin`, `operation`, `duration_ms` and, for failures, `code`.
+Cancellation is never recorded. No plugin output, path or error text is accepted.
+
+Each accepted `operation` is one row of Core's contribution table. The row's
+lifecycle decides which stages exist and which `host.*` code each stage means, so
+a code has one meaning across every contribution with that lifecycle:
+
+| `operation` | Contribution | Lifecycle |
+| --- | --- | --- |
+| `languageServer/start` | `languageServers[]` | process start |
+| `debugAdapter/start` | `debugAdapters[]` | process start |
+| `lithe/build/model` | `buildSystems[].model` command source | command run |
+| `lithe/build/dependencies` | `buildSystems[].dependencies` command source | command run |
+
+| `stage` | Process start | Command run |
+| --- | --- | --- |
+| `plan` | rejected | `host.planFailed` |
+| `resolve` | `host.executableUnavailable` | `host.executableUnavailable` |
+| `launch` | `host.launchFailed` | `host.launchFailed` |
+| `initialize` | `host.initializeFailed` | rejected |
+| `timeout` | `host.timedOut` | `host.timedOut` |
+| `exit` | `host.exitedEarly` | `host.commandFailed` |
+| `decode` | rejected | `host.outputInvalid` |
+
+An unknown operation, a stage the lifecycle cannot reach, an unknown key, an
+explicit `null` for an optional key, an invalid operation ID or an out-of-range
+duration all return -32064. Whoever executes the attempt records it. The host
+records debug adapter starts and build commands itself. A debug adapter start
+uses the debug session ID as `operationId`, so it correlates with that session's
+own debug records. It stays at `launch` until the adapter is reachable: a stdio
+process once it runs, a language server hosted adapter once its socket connects.
+A failure before then is `launch`, or `timeout` when the hosted adapter's
+discovery deadline fires. `exit` applies only to an adapter that was reached.
+Core refusing the debug session is a host outcome and is not recorded.
+
+A declarative language server is resolved by the host and supervised by Core.
+The host records failures before launch, including plugin API 1 servers that
+launch as host-owned processes. Otherwise it passes
+`startupOperation:{pluginId,operationId,elapsedMs}` on `lsp.startServer`. Core
+accepts the handoff only for the language server role, and only when the
+request's `pluginId` is absent or equals the handoff's `pluginId`; it ignores the
+handoff otherwise. Core then records exactly one result:
+
+- `launch` when `lsp.startServer` fails for any reason other than cancellation,
+  including a failure to write the `initialize` request to the started process;
+- `exit` when the process exits before `initialize` succeeds;
+- `initialize` for any other terminal failure before then;
+- `timeout` at the initialize deadline;
+- `finished` when the `initialize` result succeeds.
+
+A start that a newer indexing policy retires is cancelled and records nothing,
+even after its process started. `durationMs` adds the host's `elapsedMs` to Core's own monotonic
+time. Stopping before a result records nothing. A fact the engine cannot queue
+increments the `dropped` counter.
+
+```json
+{"version":1,"command":"diagnostics.recordPluginOperation","payload":{"pluginId":"io.example.go","operation":"debugAdapter/start","outcome":"failed","stage":"resolve","durationMs":12,"operationId":"7c0d1f0e-3f6b-4a52-9d5e-0b7c2b0b9a11"}}
+```
+
+```json
+{"id":null,"ok":true,"data":{"result":{}}}
 ```
 
 `plugins.declarative.languageServerLaunchPlan.request.logDirectory` is an

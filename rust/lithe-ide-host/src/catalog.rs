@@ -62,6 +62,12 @@ pub fn exposed_tools(exposure: &[ToolExposure]) -> Result<Vec<Value>, String> {
     Ok(result)
 }
 
+/// The tools a host serves. A host that declares no selection serves the whole
+/// catalog, so a platform keeps its tools until it declares what it implements.
+pub fn served_tools(exposure: Option<&[ToolExposure]>) -> Result<Vec<Value>, String> {
+    exposure.map_or_else(|| Ok(tools()), exposed_tools)
+}
+
 /// Authorization is granted by the IDE settings UI, never by tool arguments.
 #[derive(Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -128,7 +134,17 @@ pub fn validate_exposed(
     permissions: &Permissions,
     exposure: &[ToolExposure],
 ) -> Result<(), Value> {
-    let tools = exposed_tools(exposure)
+    validate_served(name, args, permissions, Some(exposure))
+}
+
+/// Validates against what the host serves; see [`served_tools`].
+pub fn validate_served(
+    name: &str,
+    args: &Value,
+    permissions: &Permissions,
+    exposure: Option<&[ToolExposure]>,
+) -> Result<(), Value> {
+    let tools = served_tools(exposure)
         .map_err(|_| failure("NOT_SUPPORTED", "Invalid IDE capability declaration"))?;
     validate_catalog(name, args, permissions, &tools)
 }

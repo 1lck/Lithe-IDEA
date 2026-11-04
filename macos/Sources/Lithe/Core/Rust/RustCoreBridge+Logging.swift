@@ -3,6 +3,17 @@ import LitheModuleAPI
 import LitheRustCore
 
 extension RustCoreBridge {
+    func recordPluginOperation(_ observation: PluginOperationObservation) {
+        do {
+            let response: LogDomainResult<EmptyPluginOperationResult> = try executeResult(
+                command: "diagnostics.recordPluginOperation", payload: observation).get()
+            _ = try response.get()
+        } catch {
+            coreLogSink?.emit(AppLoggingDiagnosticsFailed(error: error))
+        }
+    }
+    private struct EmptyPluginOperationResult: Decodable {}
+
     typealias LogScalar = CoreLogScalar
     struct LogInput: Encodable, Sendable {
         var ts: String
@@ -28,7 +39,7 @@ extension RustCoreBridge {
         var previousEvent: LogInput? = nil
         var headers: [LogHeader] = []
     }
-    struct LogFailure: Decodable, Error, Sendable { let code: Int; let message: String }
+    struct LogFailure: Decodable, Error, Sendable { let code: Int; let reason: String }
     struct LogEncoded: Decodable, Sendable { let line: String?; let channel: String?; let error: LogFailure? }
     struct LogBatchResult: Decodable { let results: [LogEncoded]; let headers: [LogEncoded]; let sessionPath: String? }
     struct LogDomainResult<T: Decodable>: Decodable {

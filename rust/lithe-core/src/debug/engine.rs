@@ -8,11 +8,11 @@ use super::projection_v2::{
 };
 use super::protocol::{frame_message, parse_messages};
 use super::types::*;
+use crate::diagnostics::channel::identity_segment;
 use crate::protocol::{CoreError, ErrorCode};
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
 use serde_json::{json, Map, Value};
-use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::{Mutex, OnceLock};
 
@@ -144,7 +144,8 @@ pub(crate) fn create_session(
     }
     let mut session = DebugSession {
         id: request.session_id.clone(),
-        log_adapter: debug_log_adapter(&request.adapter_id),
+        // Same mapping as plugin facts, so one adapter id names one channel.
+        log_adapter: identity_segment(&request.adapter_id),
         logged_terminal_failure: false,
         adapter_id: request.adapter_id,
         root_path: request.root_path,
@@ -1946,14 +1947,6 @@ impl DebugSession {
     }
 }
 
-fn debug_log_adapter(adapter: &str) -> String {
-    if crate::diagnostics::channel::validate_segment(adapter).is_ok() {
-        adapter.to_owned()
-    } else {
-        format!("invalid-{:x}", Sha256::digest(adapter.as_bytes()))[..40].to_owned()
-    }
-}
-
 impl PendingRequest {
     fn command(&self) -> &'static str {
         match self {
@@ -3152,9 +3145,9 @@ mod tests {
     #[test]
     fn dap_logging_keeps_catalog_identity_and_cancellation_private() {
         let adapter = "lldb+private-adapter";
-        let subject = debug_log_adapter(adapter);
+        let subject = identity_segment(adapter);
         assert!(subject.starts_with("invalid-"));
-        assert_eq!(subject, debug_log_adapter(adapter));
+        assert_eq!(subject, identity_segment(adapter));
         assert!(!subject.contains("private"));
         let mut fact = crate::diagnostics::record::StructuredLogEvent {
             ts: "2026-11-04T00:00:00.000Z".into(),

@@ -1,11 +1,10 @@
 //! Catalog identities, role routing, and bounded stderr framing for managed engines.
 
 use super::engine::LspRuntimeError;
-use crate::diagnostics::channel::validate_segment;
+use crate::diagnostics::channel::{digest_segment, identity_segment, validate_segment};
 use crate::lsp::languages::jdt::MavenProfileProjectResult;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
 type Fields = BTreeMap<String, Value>;
@@ -46,16 +45,11 @@ impl SessionLogIdentity {
             _ => plugin,
         };
         // Language IDs such as c++ are valid process identities but unsafe path
-        // segments. Never reject startup or drop evidence: use a stable sha256
-        // prefix of the original identity (or provider for an absent subject).
-        // The prefix plus 32 hex digits is valid and does not expose raw input.
-        let subject = match raw.filter(|id| validate_segment(id).is_ok()) {
-            Some(id) => id.to_owned(),
-            None => format!(
-                "invalid-{:x}",
-                Sha256::digest(raw.unwrap_or(provider).as_bytes())
-            )[..40]
-                .to_owned(),
+        // segments. Never reject startup or drop evidence: an invalid identity, or
+        // the provider when the subject is absent, becomes a stable digest segment.
+        let subject = match raw {
+            Some(id) => identity_segment(id),
+            None => digest_segment(provider),
         };
         debug_assert!(validate_segment(&subject).is_ok());
         Self { role, subject }

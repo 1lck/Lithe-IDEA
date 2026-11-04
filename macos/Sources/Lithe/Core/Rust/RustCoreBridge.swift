@@ -14,6 +14,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     var logRole: LanguageServerLogRole = .languageServer
     var logSubject: String? = nil
     var logPluginID: String? = nil
+    var startupOperation: PluginOperationHandoff? = nil
     var coreLogSink: (any LogSink)? = nil
     var registerLogSession: (@Sendable (String, String) -> Void)? = nil
     var releaseLogSession: (@Sendable (String) -> Void)? = nil
@@ -1786,6 +1787,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let providerId: String
         /// The plugin that owns the process; nil for host-owned servers.
         let pluginId: String?
+        /// A declarative start attempt whose result Core records.
+        let startupOperation: PluginOperationHandoff?
         let executablePath: String
         let arguments: [String]
         let environment: [String: String]
@@ -3696,6 +3699,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 role: logRole.rawValue, logSubject: logSubject,
                 providerId: providerID,
                 pluginId: pluginID ?? logPluginID,
+                startupOperation: startupOperation,
                 executablePath: executableURL.standardizedFileURL.path,
                 arguments: arguments,
                 environment: environment,

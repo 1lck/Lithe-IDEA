@@ -655,6 +655,8 @@ pub enum CoreCommand {
     DiagnosticsDrainCoreEvents,
     /// Selects which DEBUG Core facts the host will write (`diagnostics.configureCoreEvents`).
     DiagnosticsConfigureCoreEvents,
+    /// Records host-observed declarative contribution outcomes (`diagnostics.recordPluginOperation`).
+    DiagnosticsRecordPluginOperation,
     /// Merges structured and legacy log evidence (`diagnostics.queryLogsV2`).
     DiagnosticsQueryLogsV2,
     /// Parses filter terms and UTF-16 diagnostics (`diagnostics.parseLogFilter`).
@@ -984,6 +986,7 @@ impl CoreCommand {
             "diagnostics.redactText" => Some(Self::DiagnosticsRedactText),
             "diagnostics.prepareLogEvent" => Some(Self::DiagnosticsPrepareLogEvent),
             "diagnostics.queryLogs" => Some(Self::DiagnosticsQueryLogs),
+            "diagnostics.recordPluginOperation" => Some(Self::DiagnosticsRecordPluginOperation),
             "diagnostics.drainCoreEvents" => Some(Self::DiagnosticsDrainCoreEvents),
             "diagnostics.configureCoreEvents" => Some(Self::DiagnosticsConfigureCoreEvents),
             "diagnostics.encodeLogBatch" => Some(Self::DiagnosticsEncodeLogBatch),

@@ -433,6 +433,32 @@ then uses the existing bounded Core handoff to the host's single writer;
 overload increments its dropped counter. No polling timer or extra writer is
 created. Fixture: `fixtures/plugin-logging.json`.
 
+Declarative contributions have no plugin process to send `lithe/log`, so whoever
+executes the declared work records the same `plugins.operation.finished` and
+`plugins.operation.failed` events on the same `plugins/<id>/host` channel. A
+declarative plugin writes no logging code. Each start of a `languageServers[]` or
+`debugAdapters[]` entry is one `languageServer/start` or `debugAdapter/start`
+operation, from launch resolution until `initialize` succeeds. Each run of a
+`buildSystems[]` model or dependencies command source is one `lithe/build/model` or
+`lithe/build/dependencies` operation, using the SDK request names. A failure
+carries one `code`:
+
+| Code | Meaning |
+| --- | --- |
+| `host.planFailed` | The declared command could not be planned |
+| `host.executableUnavailable` | The declared executable or launch input could not be resolved |
+| `host.launchFailed` | The resolved process could not be started |
+| `host.initializeFailed` | A started server or adapter failed its `initialize` handshake |
+| `host.timedOut` | The attempt exceeded its deadline |
+| `host.exitedEarly` | A server or adapter exited before `initialize` succeeded |
+| `host.commandFailed` | A build command exited unsuccessfully |
+| `host.outputInvalid` | A build command's output is not a valid document |
+
+User cancellation and superseded attempts record nothing. Plugin output, paths,
+and error text never appear in these facts. The executing owner and the
+host-facing command are specified as `diagnostics.recordPluginOperation` in
+[`rust-core-api.md`](https://github.com/1lck/Lithe-IDEA/blob/preview/shared/contracts/rust-core-api.md).
+
 Severity follows the actual result. An operation that failed for the user is
 ERROR, a recovery or fallback is WARN, and a useful successful user operation
 is INFO. The source stream is not a severity: unclassified stderr is DEBUG

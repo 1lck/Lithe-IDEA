@@ -72,6 +72,8 @@ package struct LanguageServerLaunchDescriptor: Hashable, Sendable {
     package let initializationOptions: ToolingJSONValue?
     /// See `LanguageServerExtensionConfiguration.launchSource`.
     package let launchSource: DeclarativeLanguageServerLaunchSource?
+    /// See `LanguageServerExtensionConfiguration.pluginID`.
+    package let pluginID: String?
     /// See `LanguageServerExtensionConfiguration.executableVersionRequirement`.
     package let executableVersionRequirement: LanguageServerExecutableVersionRequirement?
     /// Native host integration the provider declares, such as `jdt`.
@@ -88,6 +90,7 @@ package struct LanguageServerLaunchDescriptor: Hashable, Sendable {
         executableURL: URL? = nil,
         initializationOptions: ToolingJSONValue? = nil,
         launchSource: DeclarativeLanguageServerLaunchSource? = nil,
+        pluginID: String? = nil,
         executableVersionRequirement: LanguageServerExecutableVersionRequirement? = nil,
         hostIntegrationID: String? = nil,
         launchRuntimeTool: String? = nil
@@ -100,6 +103,7 @@ package struct LanguageServerLaunchDescriptor: Hashable, Sendable {
         self.executableURL = executableURL
         self.initializationOptions = initializationOptions
         self.launchSource = launchSource
+        self.pluginID = pluginID ?? launchSource?.pluginID
         self.executableVersionRequirement = executableVersionRequirement
         self.hostIntegrationID = hostIntegrationID
         self.launchRuntimeTool = launchRuntimeTool
@@ -843,6 +847,10 @@ package enum WorkspaceConfigurationUpdateResult: Sendable {
 
 @MainActor
 package protocol LanguageServerSession: AnyObject {
+    /// The declarative start attempt this session continues: it fails the
+    /// attempt before launch or hands it to Core with the start request.
+    /// Sessions that never start a declarative process ignore it.
+    func observePluginStartup(_ attempt: PluginOperationAttempt)
     var onProjectPreparation: ((ProjectPreparationSnapshot) -> Void)? { get set }
     var onMavenProfileTask: ((String) -> Void)? { get set }
     var onMavenProfileProject: ((MavenProfileProjectResult) -> Void)? { get set }
@@ -1006,6 +1014,8 @@ package protocol LanguageServerSession: AnyObject {
 }
 
 package extension LanguageServerSession {
+    func observePluginStartup(_ attempt: PluginOperationAttempt) {}
+
     func stopAndWait() async -> Bool {
         stop()
         let deadline = ContinuousClock.now.advanced(by: .seconds(5))

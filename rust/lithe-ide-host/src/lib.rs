@@ -71,7 +71,8 @@ struct Broker {
     enabled: AtomicBool,
     token: String,
     permissions: Permissions,
-    tool_exposure: Vec<catalog::ToolExposure>,
+    /// The host's declared tool selection; `None` serves the whole catalog.
+    tool_exposure: Option<Vec<catalog::ToolExposure>>,
     pending: Mutex<BTreeMap<String, Pending>>,
     last_poll: Mutex<Instant>,
     dispatcher: Mutex<Option<RequestDispatcher>>,
@@ -136,7 +137,9 @@ fn runtime() -> Result<&'static tokio::runtime::Runtime, String> {
 pub struct Connection {
     pub endpoint: String,
     pub token: String,
-    pub tool_exposure: Vec<catalog::ToolExposure>,
+    /// The tools the helper lists; absent when the host declared no selection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_exposure: Option<Vec<catalog::ToolExposure>>,
 }
 
 fn private_file(path: &std::path::Path, truncate: bool) -> std::io::Result<File> {
@@ -161,7 +164,10 @@ struct Open {
     workspace_key: String,
     helper_path: PathBuf,
     permissions: Permissions,
-    tool_exposure: Vec<catalog::ToolExposure>,
+    /// Optional so a host that has not declared its native workflows keeps the
+    /// whole catalog; a declared selection is checked before anything opens.
+    #[serde(default)]
+    tool_exposure: Option<Vec<catalog::ToolExposure>>,
     #[serde(default)]
     owner_id: String,
 }
@@ -169,7 +175,7 @@ struct Open {
 fn open(args: Value) -> Result<Value, String> {
     use sha2::{Digest, Sha256};
     let args: Open = serde_json::from_value(args).map_err(|e| e.to_string())?;
-    catalog::exposed_tools(&args.tool_exposure)?;
+    catalog::served_tools(args.tool_exposure.as_deref())?;
     if !args.directory.is_absolute()
         || !args.helper_path.is_absolute()
         || args.workspace_key.is_empty()
@@ -357,11 +363,11 @@ async fn call(
             )),
         );
     }
-    if let Err(error) = catalog::validate_exposed(
+    if let Err(error) = catalog::validate_served(
         &request.name,
         &request.arguments,
         &broker.permissions,
-        &broker.tool_exposure,
+        broker.tool_exposure.as_deref(),
     ) {
         return response(error);
     }
@@ -714,6 +720,50 @@ mod tests {
             assert_eq!(result.0["error"]["code"], code);
             assert!(broker.pending.lock().unwrap().is_empty());
         }
+    }
+
+    #[test]
+    fn a_host_without_a_declaration_opens_and_serves_the_whole_catalog() {
+        let root = std::env::temp_dir().join(format!("lithe-ide-undeclared-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let helper = root.join("helper");
+        std::fs::write(&helper, b"read-only").unwrap();
+        let mut fixture = SessionFixture {
+            root: root.clone(),
+            id: String::new(),
+        };
+        let opened = open(
+            json!({"directory":root.join("data"),"workspaceKey":"fixture",
+            "helperPath":helper,"permissions":{"configure":true,"execute":true},
+            "ownerId":"fixture-owner"}),
+        )
+        .expect("a host that declares no selection still opens");
+        fixture.id = opened["hostID"].as_str().unwrap().into();
+        let (broker, connection) = {
+            let hosts = hosts().lock().unwrap();
+            let host = &hosts[&fixture.id];
+            (host.broker.clone(), host.connection.clone())
+        };
+        assert!(broker.tool_exposure.is_none());
+        let descriptor: Value =
+            serde_json::from_slice(&std::fs::read(connection).unwrap()).unwrap();
+        assert!(descriptor.get("toolExposure").is_none());
+        let served: Connection = serde_json::from_value(descriptor).unwrap();
+        assert_eq!(
+            catalog::served_tools(served.tool_exposure.as_deref()).unwrap(),
+            catalog::tools()
+        );
+        let permissions = catalog::Permissions {
+            configure: true,
+            execute: true,
+        };
+        assert!(catalog::validate_served(
+            "lithe_maven_execute",
+            &json!({"goals":["verify"]}),
+            &permissions,
+            None
+        )
+        .is_ok());
     }
 
     async fn notification(rx: &mut tokio::sync::mpsc::UnboundedReceiver<String>) -> Option<String> {
