@@ -142,6 +142,12 @@ test("pure ChangeList projection bypasses Git events and execution settings", as
   expect(tauriInvoke).toHaveBeenCalledWith("platform_invoke", { command: "git.changelists", args }, undefined);
 });
 
+test("repository color pages bypass Git events and execution settings", async () => {
+  const args = { offset: 0, totalCount: 1, repositoryIds: ["C:/repo"] };
+  await invoke("git.repositoryColorAssignments", args);
+  expect(tauriInvoke).toHaveBeenCalledWith("platform_invoke", { command: "git.repositoryColorAssignments", args }, undefined);
+});
+
 test("explicit automatic provenance is forwarded separately from native invoke options", async () => {
   await invoke("git_status", { repoPath: "C:/fixture/project", operationId: "background-fixture" }, { gitExecutionSource: "background" });
   const calls = tauriInvoke.mock.calls as unknown as [string, { gitExecution?: { source?: string }; gitEvents?: unknown }, unknown][];

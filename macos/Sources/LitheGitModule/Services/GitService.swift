@@ -43,6 +43,7 @@ package protocol GitOperations: Sendable {
     /// Immediate files and subdirectory summaries of an untracked directory summary.
     func untrackedDirectoryChildren(of directory: GitChange, repositoryRoots: [URL]) -> [GitChange]?
     func repositories(in workspaceURL: URL) -> [URL]
+    func repositoryColorAssignments(_ request: GitRepositoryColorPageRequest) -> GitRepositoryColorPage?
     func watchContext(at rootURL: URL) -> GitWatchContext?
     func worktrees(at rootURL: URL) -> [GitWorktree]?
 
@@ -341,6 +342,7 @@ package extension GitOperations {
     func repositories(in workspaceURL: URL) -> [URL] {
         snapshot(at: workspaceURL).map { [$0.repositoryRoot] } ?? []
     }
+    func repositoryColorAssignments(_ request: GitRepositoryColorPageRequest) -> GitRepositoryColorPage? { nil }
 
     func references(at rootURL: URL, operationID: String) -> GitReferenceSnapshot? {
         guard let snapshot = history(at: rootURL, reference: nil, limit: 1) else { return nil }
@@ -436,6 +438,7 @@ private actor GitHistoryCache {
 /// process execution live behind the shared Rust operations port.
 package struct GitService: Sendable {
     private static let historyDateBatchSize = 4096
+    private static let repositoryColorPageSize = 128
     private let operations: any GitOperations
     private let historyCache = GitHistoryCache()
     private let performanceLogger: any GitPerformanceLogger
@@ -518,6 +521,33 @@ package struct GitService: Sendable {
 
     func repositories(in workspace: URL) async -> [URL] {
         await read(priority: .utility) { $0.repositories(in: workspace) } ?? []
+    }
+
+    /// Build the presentation cache off the main actor, sending only bounded pages.
+    package func repositoryColors(_ roots: [URL]) async -> GitRepositoryColors? {
+        await read(priority: .utility) { operations in
+            let pageSize = Self.repositoryColorPageSize
+            var slots: [String: Int] = [:]
+            var firstPage: GitRepositoryColorPage?
+            var offset = 0
+            repeat {
+                guard !Task.isCancelled else { return nil }
+                let end = min(offset + pageSize, roots.count)
+                let ids = roots[offset..<end].map { $0.standardizedFileURL.path }
+                let request = GitRepositoryColorPageRequest(offset: offset, totalCount: roots.count, repositoryIds: ids)
+                guard let page = operations.repositoryColorAssignments(request),
+                      page.assignments.count == ids.count,
+                      page.fallbackSlot >= 0,
+                      zip(page.assignments, ids).allSatisfy({ $0.id == $1 && $0.slot >= 0 }),
+                      firstPage.map({ $0.fallbackSlot == page.fallbackSlot && $0.showColors == page.showColors }) ?? true
+                else { return nil }
+                if firstPage == nil { firstPage = page }
+                for assignment in page.assignments { slots[assignment.id] = assignment.slot }
+                offset = end
+            } while offset < roots.count
+            guard let firstPage else { return nil }
+            return GitRepositoryColors(slots: slots, fallbackSlot: firstPage.fallbackSlot, showColors: firstPage.showColors)
+        }
     }
 
     func changelistProjection(_ request: GitChangelistCoreRequest) async -> GitChangelistCoreProjection? {

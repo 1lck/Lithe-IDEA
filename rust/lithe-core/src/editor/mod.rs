@@ -7,6 +7,7 @@
 //! are the canonical reference for that migration.
 
 pub(crate) mod line_edit;
+pub(crate) mod navigation_input;
 
 pub(crate) use line_edit::{
     line_comment_token, line_edit, LineCommentTokenRequest, LineEditRequest,
