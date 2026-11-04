@@ -1,0 +1,95 @@
+{
+  "protocolVersion": 1,
+  "operation": "createTag",
+  "target": "0123456789abcdef0123456789abcdef01234567",
+  "cases": [
+    {
+      "name": "legacy lightweight tag when no message is supplied",
+      "request": {"message": null, "lightweight": null, "signed": null},
+      "arguments": ["tag", "v1.0", "0123456789abcdef0123456789abcdef01234567"]
+    },
+    {
+      "name": "legacy annotated tag when a message is present",
+      "request": {"message": "release", "lightweight": null, "signed": null},
+      "arguments": [
+        "tag",
+        "-a",
+        "--cleanup=verbatim",
+        "v1.0",
+        "-m",
+        "release",
+        "0123456789abcdef0123456789abcdef01234567"
+      ]
+    },
+    {
+      "name": "explicit lightweight overrides tag.gpgSign",
+      "request": {"message": null, "lightweight": true, "signed": false},
+      "arguments": [
+        "tag",
+        "--no-sign",
+        "v1.0",
+        "0123456789abcdef0123456789abcdef01234567"
+      ]
+    },
+    {
+      "name": "explicit lightweight ignores a whitespace-only message",
+      "request": {"message": "  ", "lightweight": true, "signed": null},
+      "arguments": [
+        "tag",
+        "--no-sign",
+        "v1.0",
+        "0123456789abcdef0123456789abcdef01234567"
+      ]
+    },
+    {
+      "name": "explicit non-lightweight keeps the annotated form",
+      "request": {"message": "release", "lightweight": false, "signed": false},
+      "arguments": [
+        "tag",
+        "-a",
+        "--cleanup=verbatim",
+        "v1.0",
+        "-m",
+        "release",
+        "0123456789abcdef0123456789abcdef01234567"
+      ]
+    },
+    {
+      "name": "signed lightweight tag without a message",
+      "request": {"message": null, "lightweight": null, "signed": true},
+      "arguments": ["tag", "-s", "v1.0", "0123456789abcdef0123456789abcdef01234567"]
+    },
+    {
+      "name": "signed annotated tag with a message",
+      "request": {"message": "release", "lightweight": null, "signed": true},
+      "arguments": [
+        "tag",
+        "-s",
+        "-a",
+        "--cleanup=verbatim",
+        "v1.0",
+        "-m",
+        "release",
+        "0123456789abcdef0123456789abcdef01234567"
+      ]
+    }
+  ],
+  "rejectedCases": [
+    {
+      "name": "lightweight tag with a message",
+      "request": {"message": "release", "lightweight": true, "signed": null},
+      "error": {
+        "code": "invalid_request",
+        "message": "Lightweight tags cannot include a message or signature"
+      }
+    },
+    {
+      "name": "lightweight tag with a signature",
+      "request": {"message": null, "lightweight": true, "signed": true},
+      "error": {
+        "code": "invalid_request",
+        "message": "Lightweight tags cannot include a message or signature"
+      }
+    }
+  ]
+}

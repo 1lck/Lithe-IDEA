@@ -7,9 +7,10 @@ use crate::community::{
 };
 use crate::diagnostics::{BuildManifestRequest, RedactTextRequest};
 use crate::git::{
-    self, GitApplyRequest, GitBlameRequest, GitCheckoutPreflightRequest, GitCommandRequest,
-    GitCommitFilesRequest, GitCommitRequest, GitComparisonRequest, GitConflictMarkerRequest,
-    GitDiffRequest, GitHistoryCursorCloseRequest, GitHistoryPageRequest, GitHistoryRequest,
+    self, GitApplyRequest, GitBlameRequest, GitBranchNamePreviewRequest,
+    GitCheckoutPreflightRequest, GitCommandRequest, GitCommitFilesRequest, GitCommitRequest,
+    GitComparisonRequest, GitConflictMarkerRequest, GitDiffRequest, GitHistoryCursorCloseRequest,
+    GitHistoryLocateRequest, GitHistoryPageRequest, GitHistoryRequest,
     GitHistoryRewritePreviewRequest, GitIntegrationPreflightRequest, GitLineHistoryRequest,
     GitOperationStateRequest, GitPullPreflightRequest, GitPullRequestContextRequest,
     GitPushPreviewRequest, GitRebaseControlRequest, GitRebasePreviewRequest,
@@ -3376,6 +3377,43 @@ fn execute_parsed(parsed: CoreRequest) -> CoreResponse {
                     id,
                     serde_json::to_value(data)
                         .expect("Git history cursor close response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitHistoryLocate => {
+            match serde_json::from_value::<GitHistoryLocateRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Git history locate request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(git::history_locate)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Git history locate response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitBranchNamePreview => {
+            match serde_json::from_value::<GitBranchNamePreviewRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Git branch name preview request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(git::branch_name_preview)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data)
+                        .expect("Git branch name preview response should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }

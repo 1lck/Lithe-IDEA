@@ -1302,6 +1302,8 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `git.historyPage` | Return one bounded commit page, author date, UTC offset, optional Unix timestamp, and an opaque continuation cursor |
 | `git.historyQuery` | Compare bounded commit date identities with explicit absolute time bounds |
 | `git.historyCursorClose` | Release an unfinished incremental history cursor and its Git process |
+| `git.historyLocate` | Append bounded history pages until one commit is found and report the budget, window cursor, and exhaustion |
+| `git.branchNamePreview` | Clean and validate a new branch name against already loaded references without running Git |
 | `git.pushPreview` | Resolve a local branch push destination and the bounded commits not present on that remote base |
 | `git.commit` | Return one structured commit by revision with its full message body |
 | `git.commitFiles` | Return files changed by one commit |
@@ -1845,7 +1847,7 @@ same status and races after the last check are not an atomic snapshot guarantee.
 `fetch`, `pull`, `push`, `checkout`, `checkoutAndRebase`, `checkoutRevision`, `clone`, `stashPush`,
 `stashApply`, `stashPop`, `stashDrop`, `deleteRemoteBranch`, `operationContinue`,
 `operationAbort`, `operationSkip`, `createTag`, and `deleteTag`. Optional fields are `paths`, `reference`, `referenceKind`,
-`gitReference`, `revision`, `revisions`, `name`, `message`, `remote`, `destination`, `mode`,
+`gitReference`, `revision`, `revisions`, `name`, `message`, `lightweight`, `signed`, `remote`, `destination`, `mode`,
 `includeUntracked`, `checkout`, `amend`, `force`, `pushTags`, `expectedPush`, `autoStash`,
 `worktreeMode`, `noCheckout`, `expectedBranch`, and `expectedState`. The four history actions require the reviewed `expectedState`
 described below; earlier unreviewed history-write callers must migrate.
@@ -2127,7 +2129,16 @@ empty value), it creates an annotated tag (`git tag -a`); an absent field
 creates a lightweight tag. UI callers trim new user-entered messages. Core
 passes the supplied annotation with verbatim cleanup so restore preserves
 CRLF and trailing blank lines, and an explicit empty value preserves an empty
-annotated tag. Tag names must satisfy the `git check-ref-format` refname rules and must not
+annotated tag. Two optional typed fields refine that legacy choice:
+`lightweight: true` forces a lightweight tag with `--no-sign`, overriding
+`tag.gpgSign`, and rejects a non-blank `message` or `signed: true` with
+`invalid_request` and the stable message
+`Lightweight tags cannot include a message or signature` before any
+subprocess; `signed: true` adds `-s`, which creates a signed annotated tag
+when a message is present. Omitting both fields preserves the existing
+behavior, so callers that predate the fields are unaffected. The argument
+matrix is pinned by `shared/fixtures/git/tag-write-v1.json`.
+Tag names must satisfy the `git check-ref-format` refname rules and must not
 begin with a dash; `shared/fixtures/git/tag-names.json` pins the boundary cases
 for Core and host-side validation. Before invoking Git, `createTag` probes the
 repository so a duplicate tag (`A tag named '<name>' already exists`) and an unresolvable
@@ -2271,6 +2282,52 @@ For compatibility, a request that explicitly contains the deprecated numeric
 `nextOffset`; it honors the same optional `order`. New clients must omit
 `offset`; repository size does not select
 between the two protocols.
+
+`git.historyLocate` accepts `root`, nullable `reference`, nullable opaque
+`cursor`, optional `order` (`"topo"` or `"date"`), a complete 40-character
+`target` commit hash, `limit` (`1..=500`, default `300`), and `maxPages`
+(`1..=100`, default `20`). It reads pages from the platform's current window
+cursor until `target` is found, the page budget is spent, or the history ends,
+and returns `{ "found": boolean, "commits": GitCommitResponse[], "nextCursor":
+string?, "hasMore": boolean, "pagesLoaded": number }`. `commits` lists every
+commit read in reading order, including the complete page that contains
+`target`, so hosts append them after hash deduplication without leaving a gap
+before the returned cursor. A hit stops reading and returns that page's
+`nextCursor` and `hasMore`. Exhausted history returns `found: false`, a null
+cursor, and `hasMore: false`; a spent budget returns `found: false`, the last
+page's cursor, and `hasMore: true` so the host can continue later. A `limit`,
+`maxPages`, or `target` outside the contract fails with `invalid_request`
+before any Git process starts. Git read failures keep their stable error codes
+instead of becoming "not found". Core owns the intermediate stream and only
+returns a cursor the host can continue; a failed read releases it. Requests
+without a cursor start at the first page and continuations must repeat the same
+`root`, `reference`, and `order`. Portable request and response examples are in
+`shared/fixtures/git/history-locate-v1.json`.
+
+`git.branchNamePreview` is pure: it never starts Git and only reads the
+reference facts the host already loaded. It accepts `rawName` (at most 1,024
+characters; longer input is `invalid_request`), `requireName` (`true` on submit,
+where an empty name is an error, and `false` while typing), `references`
+(loaded `{ "kind": "local" | "remote" | "tag", "shortName": string }` facts),
+and an optional `reference` describing the base reference. The response is
+`{ "typingCleanedName": string, "cleanedName": string, "initialName": string,
+"error": null | { "code": string, "name"?: string, "branch"?: string } }`.
+`typingCleanedName` mirrors IDEA's `GitRefNameValidator` typing cleanup: it
+drops characters that cannot appear in a branch refname, drops a leading `.`,
+`-`, or `/`, drops one slash of a doubled slash, keeps only the last dot of a
+dot run, drops dots next to slashes and `@{` sequences, and replaces space runs
+and ASCII control characters with `-`. `cleanedName` is the submit-time form:
+the same cleanup plus removal of one trailing `.`, `/`, or `.lock`, trimmed at
+the edges. `initialName` is the loaded base reference's short name, or that name
+without its first remote segment when the reference is remote; it is empty
+without a reference. `error.code` is one of `empty`, `head`,
+`clashesWithRemote`, `clashesWithDirectory`, `alreadyExists`, or
+`clashesWithBranchPrefix`, checked in IDEA's order; `empty` appears only when
+`requireName` is true. The conflict codes carry the candidate `name`, and
+`clashesWithBranchPrefix` also carries the existing local `branch` that occupies
+one of the candidate's slash prefixes. Refname validity itself stays with
+`git check-ref-format` when the branch is created. Portable examples are in
+`shared/fixtures/git/branch-name-preview-v1.json`.
 
 `git.commit` accepts `root` and a revision, returning one `commit` object with
 the same fields as a history page entry and a `body` string. `body` is the

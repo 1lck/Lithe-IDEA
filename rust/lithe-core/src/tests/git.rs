@@ -6608,3 +6608,380 @@ fn reconcile_deleted_selection_works_before_the_first_commit() {
     assert_eq!(response["data"]["unstaged"], serde_json::json!(["new.txt"]));
     assert_eq!(history_git(&root, &["ls-files"]).stdout, b"keep.txt\n");
 }
+
+// ---------------------------------------------------------------------------
+// git.branchNamePreview
+// ---------------------------------------------------------------------------
+
+#[test]
+fn git_branch_name_preview_matches_the_shared_fixture() {
+    let fixture: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../shared/fixtures/git/branch-name-preview-v1.json"
+    )))
+    .expect("branch name preview fixture should be valid JSON");
+    for case in fixture["cases"].as_array().expect("fixture cases") {
+        let request = serde_json::json!({
+            "id": case["name"],
+            "command": "git.branchNamePreview",
+            "payload": case["request"],
+        });
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::to_string(&request).expect("preview request should encode"),
+        ))
+        .expect("preview response should be JSON");
+        assert_eq!(response["ok"], true, "{}: {response}", case["name"]);
+        assert_eq!(response["data"], case["response"], "{}", case["name"]);
+    }
+
+    // The dialog limit applies before any cleanup work.
+    let oversized = serde_json::json!({
+        "id": "oversized",
+        "command": "git.branchNamePreview",
+        "payload": {"rawName": "a".repeat(1025)},
+    });
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&oversized).expect("oversized request should encode"),
+    ))
+    .expect("preview response should be JSON");
+    assert_eq!(response["ok"], false, "{response}");
+    assert_eq!(response["error"]["code"], "invalid_request");
+    assert_eq!(
+        response["error"]["message"],
+        "Git branch name input is too long"
+    );
+
+    // Reference facts are typed: an unknown namespace is a request error, not a
+    // silently ignored conflict source.
+    let unknown_kind = serde_json::json!({
+        "id": "unknown-kind",
+        "command": "git.branchNamePreview",
+        "payload": {
+            "rawName": "topic",
+            "references": [{"kind": "stash", "shortName": "topic"}],
+        },
+    });
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&unknown_kind).expect("unknown kind request should encode"),
+    ))
+    .expect("preview response should be JSON");
+    assert_eq!(response["ok"], false, "{response}");
+    assert_eq!(response["error"]["code"], "invalid_request");
+}
+
+// ---------------------------------------------------------------------------
+// git.historyLocate
+// ---------------------------------------------------------------------------
+
+#[test]
+fn git_history_locate_appends_bounded_pages_and_reports_budget() {
+    struct LocateFixture {
+        root: std::path::PathBuf,
+        cursors: Vec<String>,
+    }
+
+    impl Drop for LocateFixture {
+        fn drop(&mut self) {
+            for cursor in &self.cursors {
+                let request = serde_json::json!({
+                    "command": "git.historyCursorClose",
+                    "payload": {"root": self.root, "cursor": cursor},
+                });
+                let _ = execute_json(&request.to_string());
+            }
+            let _ = fs::remove_dir_all(&self.root);
+        }
+    }
+
+    let root = temporary_root("git-history-locate");
+    let mut fixture = LocateFixture {
+        root: root.clone(),
+        cursors: Vec::new(),
+    };
+    fs::create_dir_all(&root).expect("temporary repository should be creatable");
+    git_text(&root, &["init", "-q"]);
+    git_text(&root, &["config", "user.email", "test@example.invalid"]);
+    git_text(&root, &["config", "user.name", "Lithe Test"]);
+    for index in 0..12 {
+        git_text(
+            &root,
+            &[
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                &format!("commit {index}"),
+            ],
+        );
+    }
+    git_text(&root, &["branch", "-M", "main"]);
+    let newest_first = git_text(&root, &["rev-list", "HEAD"])
+        .lines()
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    assert_eq!(newest_first.len(), 12);
+
+    let locate = |payload: Value| -> Value {
+        let request = serde_json::json!({
+            "id": "history-locate",
+            "command": "git.historyLocate",
+            "timeoutMilliseconds": 10_000,
+            "payload": payload,
+        });
+        serde_json::from_str(&execute_json(
+            &serde_json::to_string(&request).expect("locate request should encode"),
+        ))
+        .expect("locate response should be JSON")
+    };
+    let hashes = |response: &Value| -> Vec<String> {
+        response["data"]["commits"]
+            .as_array()
+            .expect("locate commits")
+            .iter()
+            .map(|commit| commit["hash"].as_str().expect("commit hash").to_string())
+            .collect()
+    };
+
+    // Three pages reach the eighth-newest commit. Whole pages are returned so
+    // the continuation cursor and the platform window stay aligned.
+    let first = locate(serde_json::json!({
+        "root": root,
+        "reference": "refs/heads/main",
+        "target": newest_first[7],
+        "limit": 3,
+        "maxPages": 5,
+    }));
+    assert_eq!(first["ok"], true, "{first}");
+    assert_eq!(first["data"]["found"], true);
+    assert_eq!(first["data"]["pagesLoaded"], 3);
+    assert_eq!(hashes(&first), newest_first[..9].to_vec());
+    assert_eq!(first["data"]["hasMore"], true);
+    let cursor = first["data"]["nextCursor"]
+        .as_str()
+        .expect("locate should return a continuation cursor")
+        .to_string();
+    fixture.cursors.push(cursor.clone());
+
+    // Continuing from that cursor appends the rest of the window and reports
+    // the end of history with a null cursor.
+    let second = locate(serde_json::json!({
+        "root": root,
+        "reference": "refs/heads/main",
+        "target": newest_first[9],
+        "cursor": cursor,
+        "limit": 3,
+        "maxPages": 5,
+    }));
+    assert_eq!(second["ok"], true, "{second}");
+    assert_eq!(second["data"]["found"], true);
+    assert_eq!(second["data"]["pagesLoaded"], 1);
+    assert_eq!(hashes(&second), newest_first[9..].to_vec());
+    assert_eq!(second["data"]["hasMore"], false);
+    assert_eq!(second["data"]["nextCursor"], Value::Null);
+
+    // A spent budget returns the cursor of the last page, and that cursor is
+    // still consumable by the next locate call.
+    let budgeted = locate(serde_json::json!({
+        "root": root,
+        "reference": "refs/heads/main",
+        "target": newest_first[5],
+        "limit": 2,
+        "maxPages": 1,
+    }));
+    assert_eq!(budgeted["ok"], true, "{budgeted}");
+    assert_eq!(budgeted["data"]["found"], false);
+    assert_eq!(budgeted["data"]["pagesLoaded"], 1);
+    assert_eq!(hashes(&budgeted), newest_first[..2].to_vec());
+    assert_eq!(budgeted["data"]["hasMore"], true);
+    let budget_cursor = budgeted["data"]["nextCursor"]
+        .as_str()
+        .expect("a spent budget should return its last cursor")
+        .to_string();
+    fixture.cursors.push(budget_cursor.clone());
+    let resumed = locate(serde_json::json!({
+        "root": root,
+        "reference": "refs/heads/main",
+        "target": newest_first[5],
+        "cursor": budget_cursor,
+        "limit": 2,
+        "maxPages": 10,
+    }));
+    assert_eq!(resumed["ok"], true, "{resumed}");
+    assert_eq!(resumed["data"]["found"], true);
+    assert_eq!(resumed["data"]["pagesLoaded"], 2);
+    assert_eq!(hashes(&resumed), newest_first[2..6].to_vec());
+
+    // A full history read without a hit ends cleanly and returns no cursor.
+    let exhausted = locate(serde_json::json!({
+        "root": root,
+        "reference": "refs/heads/main",
+        "target": "0123456789abcdef0123456789abcdef01234567",
+        "limit": 5,
+        "maxPages": 10,
+    }));
+    assert_eq!(exhausted["ok"], true, "{exhausted}");
+    assert_eq!(exhausted["data"]["found"], false);
+    assert_eq!(exhausted["data"]["pagesLoaded"], 3);
+    assert_eq!(hashes(&exhausted), newest_first);
+    assert_eq!(exhausted["data"]["hasMore"], false);
+    assert_eq!(exhausted["data"]["nextCursor"], Value::Null);
+
+    // Hosts may forward the selected hash verbatim from a case-preserving UI.
+    let uppercase = locate(serde_json::json!({
+        "root": root,
+        "reference": "refs/heads/main",
+        "target": newest_first[0].to_uppercase(),
+        "limit": 5,
+        "maxPages": 5,
+    }));
+    assert_eq!(uppercase["ok"], true, "{uppercase}");
+    assert_eq!(uppercase["data"]["found"], true);
+    assert_eq!(uppercase["data"]["pagesLoaded"], 1);
+
+    // Request validation happens before any Git read.
+    for payload in [
+        serde_json::json!({"target": newest_first[0], "limit": 0}),
+        serde_json::json!({"target": newest_first[0], "limit": 501}),
+        serde_json::json!({"target": newest_first[0], "maxPages": 0}),
+        serde_json::json!({"target": newest_first[0], "maxPages": 101}),
+        serde_json::json!({"target": "abc1234"}),
+        serde_json::json!({"target": format!("z{}", &newest_first[0][1..])}),
+    ] {
+        let mut payload = payload;
+        payload["root"] = serde_json::json!(root);
+        payload["reference"] = serde_json::json!("refs/heads/main");
+        let rejected = locate(payload);
+        assert_eq!(rejected["ok"], false, "{rejected}");
+        assert_eq!(rejected["error"]["code"], "invalid_request", "{rejected}");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// git.write / createTag typed form
+// ---------------------------------------------------------------------------
+
+#[test]
+fn git_create_tag_applies_the_explicit_lightweight_form() {
+    struct Cleanup(std::path::PathBuf);
+
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    let root = temporary_root("git-create-tag-lightweight");
+    let _cleanup = Cleanup(root.clone());
+    fs::create_dir_all(&root).expect("temporary repository should be creatable");
+    git_text(&root, &["init", "-q"]);
+    git_text(&root, &["config", "core.autocrlf", "false"]);
+    git_text(&root, &["config", "user.email", "test@example.invalid"]);
+    git_text(&root, &["config", "user.name", "Lithe Test"]);
+    fs::write(root.join("example.txt"), "initial\n").expect("file should be writable");
+    git_text(&root, &["add", "example.txt"]);
+    git_text(&root, &["commit", "-q", "-m", "initial"]);
+    let head = git_text(&root, &["rev-parse", "HEAD"]);
+
+    let write = |operation: &str, payload: Value| -> Value {
+        let request = serde_json::json!({
+            "id": operation,
+            "command": "git.write",
+            "payload": payload,
+        });
+        serde_json::from_str(&execute_json(
+            &serde_json::to_string(&request).expect("write request should encode"),
+        ))
+        .expect("write response should be JSON")
+    };
+    let create_tag_payload = |extra: Value| -> Value {
+        let mut payload = serde_json::json!({
+            "root": root,
+            "operation": "createTag",
+            "revision": head,
+        });
+        if let Value::Object(extra) = extra {
+            for (key, value) in extra {
+                payload[key.as_str()] = value;
+            }
+        }
+        payload
+    };
+
+    // The legacy restore path still creates an annotated tag from a message
+    // alone. It runs before tag.gpgSign is enabled, because signing policy
+    // intentionally applies to annotated tags.
+    let annotated = write(
+        "createTag",
+        create_tag_payload(serde_json::json!({"name": "legacy/annotated", "message": "release"})),
+    );
+    assert_eq!(annotated["ok"], true, "{annotated}");
+    assert_eq!(
+        git_text(&root, &["cat-file", "-t", "refs/tags/legacy/annotated"]),
+        "tag"
+    );
+
+    // An explicit lightweight tag overrides tag.gpgSign without running a
+    // signer or an editor, which the fake gpg program and signing policy prove.
+    git_text(&root, &["config", "tag.gpgSign", "true"]);
+    git_text(&root, &["config", "gpg.program", "lithe-gpg-must-not-run"]);
+    let lightweight = write(
+        "createTag",
+        create_tag_payload(serde_json::json!({
+            "name": "review/lightweight",
+            "lightweight": true,
+            "signed": false,
+        })),
+    );
+    assert_eq!(lightweight["ok"], true, "{lightweight}");
+    assert_eq!(lightweight["data"]["exitCode"], 0, "{lightweight}");
+    assert_eq!(
+        lightweight["data"]["arguments"],
+        serde_json::json!(["tag", "--no-sign", "review/lightweight", head])
+    );
+    assert_eq!(
+        git_text(&root, &["cat-file", "-t", "refs/tags/review/lightweight"]),
+        "commit"
+    );
+    assert_eq!(
+        git_text(&root, &["rev-parse", "refs/tags/review/lightweight"]),
+        head
+    );
+    assert_eq!(git_text(&root, &["config", "tag.gpgSign"]), "true");
+
+    // A lightweight tag cannot carry an annotation or a signature. The request
+    // fails before any subprocess, so nothing is left in the repository.
+    for (name, extra) in [
+        (
+            "review/annotated-lightweight",
+            serde_json::json!({"lightweight": true, "message": "release"}),
+        ),
+        (
+            "review/signed-lightweight",
+            serde_json::json!({"lightweight": true, "signed": true}),
+        ),
+    ] {
+        let mut payload = extra;
+        payload["name"] = serde_json::json!(name);
+        let rejected = write("createTag", create_tag_payload(payload));
+        assert_eq!(rejected["ok"], false, "{rejected}");
+        assert_eq!(rejected["error"]["code"], "invalid_request");
+        assert_eq!(
+            rejected["error"]["message"],
+            "Lightweight tags cannot include a message or signature"
+        );
+        assert_ne!(
+            history_git(
+                &root,
+                &[
+                    "rev-parse",
+                    "--verify",
+                    "--quiet",
+                    &format!("refs/tags/{name}")
+                ]
+            )
+            .status
+            .code(),
+            Some(0)
+        );
+    }
+}

@@ -15607,7 +15607,8 @@
       "id": "git.log.branchNameAlreadyExists",
       "description": "Windows UI: git.log.branchNameAlreadyExists",
       "platforms": [
-        "windows"
+        "windows",
+        "macos"
       ],
       "parameters": {
         "name": "string"
@@ -15617,18 +15618,20 @@
       "id": "git.log.branchNameClashesWithBranchPrefix",
       "description": "Windows UI: git.log.branchNameClashesWithBranchPrefix",
       "platforms": [
-        "windows"
+        "windows",
+        "macos"
       ],
       "parameters": {
-        "branch": "string",
-        "name": "string"
+        "name": "string",
+        "branch": "string"
       }
     },
     {
       "id": "git.log.branchNameClashesWithDirectory",
       "description": "Windows UI: git.log.branchNameClashesWithDirectory",
       "platforms": [
-        "windows"
+        "windows",
+        "macos"
       ],
       "parameters": {
         "name": "string"
@@ -15638,7 +15641,8 @@
       "id": "git.log.branchNameClashesWithRemote",
       "description": "Windows UI: git.log.branchNameClashesWithRemote",
       "platforms": [
-        "windows"
+        "windows",
+        "macos"
       ],
       "parameters": {
         "name": "string"
@@ -15648,14 +15652,16 @@
       "id": "git.log.branchNameEmpty",
       "description": "Windows UI: git.log.branchNameEmpty",
       "platforms": [
-        "windows"
+        "windows",
+        "macos"
       ]
     },
     {
       "id": "git.log.branchNameHead",
       "description": "Windows UI: git.log.branchNameHead",
       "platforms": [
-        "windows"
+        "windows",
+        "macos"
       ]
     },
     {

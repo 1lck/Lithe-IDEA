@@ -1205,6 +1205,61 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         }
     }
 
+    struct GitHistoryLocatePayload: Decodable, Sendable {
+        let found: Bool
+        let commits: [GitHistoryPayload.Commit]
+        let nextCursor: String?
+        let hasMore: Bool
+        let pagesLoaded: Int
+
+        func makeResult() -> GitHistoryLocateResult {
+            GitHistoryLocateResult(
+                found: found,
+                commits: commits.map { commit in
+                    GitCommit(
+                        hash: commit.hash,
+                        shortHash: commit.shortHash,
+                        parentHashes: commit.parentHashes,
+                        authorName: commit.authorName,
+                        authorEmail: commit.authorEmail,
+                        date: commit.date,
+                        dateUtcOffsetMinutes: commit.dateUtcOffsetMinutes,
+                        dateUnixSeconds: commit.dateUnixSeconds,
+                        subject: commit.subject,
+                        decorations: commit.decorations
+                    )
+                },
+                nextCursor: nextCursor,
+                hasMore: hasMore,
+                pagesLoaded: pagesLoaded
+            )
+        }
+    }
+
+    struct GitBranchNamePreviewPayload: Decodable, Sendable {
+        struct ValidationError: Decodable, Sendable {
+            let code: GitBranchNameErrorCode
+            let name: String?
+            let branch: String?
+        }
+
+        let typingCleanedName: String
+        let cleanedName: String
+        let initialName: String
+        let error: ValidationError?
+
+        func makeModel() -> GitBranchNamePreview {
+            GitBranchNamePreview(
+                typingCleanedName: typingCleanedName,
+                cleanedName: cleanedName,
+                initialName: initialName,
+                error: error.map {
+                    GitBranchNameError(code: $0.code, name: $0.name, branch: $0.branch)
+                }
+            )
+        }
+    }
+
     struct GitCommitPayload: Decodable, Sendable {
         let commit: GitHistoryPayload.Commit
 
@@ -2295,6 +2350,28 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let order: String?
     }
 
+    private struct GitHistoryLocateRequest: Encodable {
+        let root: String
+        let reference: String?
+        let order: String?
+        let target: String
+        let cursor: String?
+        let limit: Int
+        let maxPages: Int
+    }
+
+    private struct GitBranchNamePreviewRequest: Encodable {
+        struct Reference: Encodable {
+            let kind: String
+            let shortName: String
+        }
+
+        let rawName: String
+        let requireName: Bool
+        let references: [Reference]
+        let reference: Reference?
+    }
+
     private struct GitHistoryCursorCloseRequest: Encodable {
         let root: String
         let cursor: String
@@ -3378,6 +3455,33 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         )
     }
 
+    func gitBranchNamePreview(
+        rawName: String,
+        requireName: Bool,
+        references: [GitReference],
+        reference: GitReference?
+    ) -> GitBranchNamePreviewPayload? {
+        execute(
+            command: "git.branchNamePreview",
+            payload: GitBranchNamePreviewRequest(
+                rawName: rawName,
+                requireName: requireName,
+                references: references.map {
+                    GitBranchNamePreviewRequest.Reference(
+                        kind: $0.kind.rawValue,
+                        shortName: $0.shortName
+                    )
+                },
+                reference: reference.map {
+                    GitBranchNamePreviewRequest.Reference(
+                        kind: $0.kind.rawValue,
+                        shortName: $0.shortName
+                    )
+                }
+            )
+        )
+    }
+
     func gitHistoryPage(
         at rootURL: URL,
         reference: String?,
@@ -3394,6 +3498,31 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 cursor: cursor,
                 limit: limit,
                 order: order
+            ),
+            operationID: operationID
+        )
+    }
+
+    func gitHistoryLocate(
+        at rootURL: URL,
+        reference: String?,
+        order: String?,
+        target: String,
+        cursor: String?,
+        limit: Int,
+        maxPages: Int,
+        operationID: String
+    ) -> GitHistoryLocatePayload? {
+        execute(
+            command: "git.historyLocate",
+            payload: GitHistoryLocateRequest(
+                root: rootURL.standardizedFileURL.path,
+                reference: reference,
+                order: order,
+                target: target,
+                cursor: cursor,
+                limit: limit,
+                maxPages: maxPages
             ),
             operationID: operationID
         )

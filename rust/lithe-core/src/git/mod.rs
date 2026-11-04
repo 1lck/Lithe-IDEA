@@ -2,6 +2,7 @@
 
 // The initial projection/routing IR is deliberately not command- or host-facing
 // until both native products can consume the same versioned contract.
+mod branch_names;
 mod changelists;
 mod command_trace;
 mod commit_message_context;
@@ -35,6 +36,9 @@ mod setup;
 mod shelf;
 mod untracked_directories;
 
+// The response and reference types stay owned by the module; callers consume
+// them through the command contract instead of naming more shared types.
+pub use branch_names::{preview as branch_name_preview, GitBranchNamePreviewRequest};
 pub use fetch::{plan as fetch_plan, GitFetchOptions, GitFetchPlanRequest};
 // Re-exported for the cfg(test) integration tests only; production code reads the
 // threshold inside `untracked_directories` itself.
@@ -52,8 +56,9 @@ pub(crate) use commit_message_context::commit_message_context_command;
 pub(crate) use commit_selection::prepare_commit_selection_command;
 pub(crate) use deleted_selection::reconcile_deleted_selection_command;
 pub use history::{
-    close_history_cursor, history, history_page, references, GitHistoryCursorCloseRequest,
-    GitHistoryPageRequest, GitHistoryRequest, GitReferencesRequest,
+    close_history_cursor, history, history_locate, history_page, references,
+    GitHistoryCursorCloseRequest, GitHistoryLocateRequest, GitHistoryPageRequest,
+    GitHistoryRequest, GitReferencesRequest,
 };
 pub(crate) use history_query::query_command as history_query_command;
 pub use patch_exchange::{
@@ -509,6 +514,14 @@ pub struct GitWriteRequest {
     pub name: Option<String>,
     #[serde(default)]
     pub message: Option<String>,
+    /// `createTag`: create an explicitly lightweight tag, overriding `tag.gpgSign`.
+    /// Omission keeps the legacy message-based annotated/lightweight choice.
+    #[serde(default)]
+    pub lightweight: Option<bool>,
+    /// `createTag`: sign the annotated tag with the configured GPG key.
+    /// Omission keeps the legacy unsigned form.
+    #[serde(default)]
+    pub signed: Option<bool>,
     #[serde(default)]
     pub remote: Option<String>,
     #[serde(default)]
@@ -1541,6 +1554,13 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
         "createTag" => {
             let name = validated_tag_name(request.name.as_deref())?;
             let requested_target = validated_revision(request.revision.as_deref())?;
+            // Reject an impossible tag form before probing the repository; the
+            // typed fields only refine the legacy message-based tag choice.
+            validate_create_tag_form(
+                request.message.as_deref(),
+                request.lightweight,
+                request.signed,
+            )?;
             // Existence and resolvability probes run before Git so a duplicate
             // or unresolvable target fails with a stable message instead of
             // leaving the caller to parse localized `git tag` stderr.
@@ -1559,21 +1579,13 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
                     format!("Could not resolve tag target '{requested_target}'"),
                 ));
             };
-            // An explicit message field (even an empty one) selects the
-            // annotated form. Verbatim cleanup keeps restored CRLF and trailing
-            // blank lines intact; UIs trim newly entered messages before send.
-            arguments = match request.message.as_deref() {
-                Some(message) => vec![
-                    "tag".into(),
-                    "-a".into(),
-                    "--cleanup=verbatim".into(),
-                    name,
-                    "-m".into(),
-                    message.to_string(),
-                    target,
-                ],
-                None => vec!["tag".into(), name, target],
-            };
+            arguments = create_tag_arguments(
+                &name,
+                &target,
+                request.message.as_deref(),
+                request.lightweight,
+                request.signed,
+            );
         }
         "deleteTag" => return delete_tag(&root, request.name.as_deref()),
         "clone" => {
@@ -5693,6 +5705,70 @@ fn resolved_commit_target(root: &str, target: &str) -> Result<Option<String>, Co
     Ok((probe.exit_code == 0).then(|| probe.stdout.trim().to_string()))
 }
 
+/// Rejects tag-form combinations Git cannot represent.
+///
+/// An explicitly lightweight tag cannot also be annotated or signed; the
+/// message rules match the previous Windows host behavior, including allowing a
+/// whitespace-only message that the lightweight form ignores.
+fn validate_create_tag_form(
+    message: Option<&str>,
+    lightweight: Option<bool>,
+    signed: Option<bool>,
+) -> Result<(), CoreError> {
+    if lightweight == Some(true)
+        && (signed == Some(true) || message.is_some_and(|message| !message.trim().is_empty()))
+    {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Lightweight tags cannot include a message or signature",
+        ));
+    }
+    Ok(())
+}
+
+/// Builds the `git tag` argument vector for an already validated form and a
+/// target resolved to a commit id.
+///
+/// `lightweight: true` always adds `--no-sign`, so an explicit lightweight tag
+/// stays independent of `tag.gpgSign`. `signed: true` adds `-s`; with a message
+/// this becomes a signed annotated tag. Omitted fields keep the legacy
+/// message-selects-annotated behavior.
+fn create_tag_arguments(
+    name: &str,
+    target: &str,
+    message: Option<&str>,
+    lightweight: Option<bool>,
+    signed: Option<bool>,
+) -> Vec<String> {
+    if lightweight == Some(true) {
+        return vec![
+            "tag".to_string(),
+            "--no-sign".to_string(),
+            name.to_string(),
+            target.to_string(),
+        ];
+    }
+    let mut arguments = vec!["tag".to_string()];
+    if signed == Some(true) {
+        arguments.push("-s".to_string());
+    }
+    match message {
+        // An explicit message field (even an empty one) selects the annotated
+        // form. Verbatim cleanup keeps restored CRLF and trailing blank lines
+        // intact; UIs trim newly entered messages before send.
+        Some(message) => arguments.extend([
+            "-a".to_string(),
+            "--cleanup=verbatim".to_string(),
+            name.to_string(),
+            "-m".to_string(),
+            message.to_string(),
+            target.to_string(),
+        ]),
+        None => arguments.extend([name.to_string(), target.to_string()]),
+    }
+    arguments
+}
+
 /// Deletes one tag and returns a structured deletion record so the host can
 /// offer a restore. The probes run before the deletion because `git tag -d`
 /// diagnostics are localized prose that cannot be mapped to stable errors.
@@ -9018,6 +9094,86 @@ mod tests {
             annotation_message_from_tag_object(raw).as_deref(),
             Some("release\r\n\r\n")
         );
+    }
+
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct TagWriteFixture {
+        target: String,
+        cases: Vec<TagWriteArgumentCase>,
+        rejected_cases: Vec<TagWriteRejectedCase>,
+    }
+
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct TagWriteArgumentCase {
+        name: String,
+        request: TagWriteFields,
+        arguments: Vec<String>,
+    }
+
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct TagWriteFields {
+        message: Option<String>,
+        lightweight: Option<bool>,
+        signed: Option<bool>,
+    }
+
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct TagWriteRejectedCase {
+        name: String,
+        request: TagWriteFields,
+        error: TagWriteRejectedError,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct TagWriteRejectedError {
+        code: String,
+        message: String,
+    }
+
+    #[test]
+    fn create_tag_arguments_follow_the_lightweight_and_signature_matrix() {
+        // The fixture pins the argument matrix shared with the Windows host,
+        // including the combinations that must fail before any subprocess.
+        let fixture: TagWriteFixture = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../shared/fixtures/git/tag-write-v1.json"
+        )))
+        .expect("tag write fixture should be valid JSON");
+        for case in &fixture.cases {
+            super::validate_create_tag_form(
+                case.request.message.as_deref(),
+                case.request.lightweight,
+                case.request.signed,
+            )
+            .unwrap_or_else(|error| panic!("{}: {}", case.name, error.message));
+            assert_eq!(
+                super::create_tag_arguments(
+                    "v1.0",
+                    &fixture.target,
+                    case.request.message.as_deref(),
+                    case.request.lightweight,
+                    case.request.signed,
+                ),
+                case.arguments,
+                "{}",
+                case.name
+            );
+        }
+        for case in &fixture.rejected_cases {
+            let error = super::validate_create_tag_form(
+                case.request.message.as_deref(),
+                case.request.lightweight,
+                case.request.signed,
+            )
+            .expect_err(&case.name);
+            let encoded = serde_json::to_value(&error).expect("tag form error should encode");
+            assert_eq!(encoded["code"], case.error.code, "{}", case.name);
+            assert_eq!(error.message, case.error.message, "{}", case.name);
+        }
     }
 
     #[cfg(target_os = "windows")]
