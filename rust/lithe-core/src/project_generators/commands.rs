@@ -184,9 +184,7 @@ fn tool_providers(
             Some(json!({
                 "fieldID": field.id,
                 "tool": tool,
-                "providers": providers(&|candidate| {
-                    candidate.tool_definition_ids().any(|id| id == tool)
-                }),
+                "providers": providers(&|candidate| candidate.declares_tool(tool)),
             }))
         })
         .collect()

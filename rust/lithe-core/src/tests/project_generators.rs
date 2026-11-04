@@ -203,6 +203,29 @@ fn catalog_names_the_plugins_that_define_each_tool() {
         entries[1]["tools"],
         json!([{"fieldID": "node", "tool": "node", "providers": []}])
     );
+    // A third-party definition is addressed as `<pluginID>:<id>`; that spelling
+    // names the same declaration, but another plugin's prefix does not.
+    for (tool, provider_count) in [
+        ("dev.lithe.fixture.java-support:java", 1),
+        ("dev.lithe.fixture.other:java", 0),
+    ] {
+        let mut generators = json(TOOL_FIELD_FIXTURE);
+        generators["projectGenerators"][0]["fields"][0]["tool"] = json!(tool);
+        let qualified = project_generator_catalog_command(json!({
+            "plugins": [
+                {"manifest": generators, "enabled": true},
+                {"manifest": json(TOOL_DEFINITION_FIXTURE), "enabled": true},
+            ],
+            "hostCapabilities": host(),
+        }))
+        .unwrap();
+        let providers = &qualified["catalog"]["generators"][0]["tools"][0]["providers"];
+        assert_eq!(
+            providers.as_array().unwrap().len(),
+            provider_count,
+            "{tool}"
+        );
+    }
     // Version 1 generators have no tool fields.
     let version_1 = project_generator_catalog_command(json!({
         "plugins": [{"manifest": json(FIXTURE), "enabled": true}],
