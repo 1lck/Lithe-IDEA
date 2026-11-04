@@ -133,7 +133,7 @@ struct PluginEditorActionTests {
         let fixture = try contractFixture("editor-actions-v2.json")
         let host = try #require(fixture.member("host"))
         let options = PluginEditorHostOptions(
-            actionIcons: try #require(host.member("actionIcons")?.elements.compactMap(\.textValue)),
+            actionIcons: try #require(host.member("actionIcons")).elements.compactMap(\.textValue),
             actionSourceBytes: try #require(host.member("actionSourceBytes")?.integerValue),
             providerTypes: PluginEditorHostOptions.macOS.providerTypes)
         #expect(options == .macOS, "the fixture describes the host the macOS app declares")

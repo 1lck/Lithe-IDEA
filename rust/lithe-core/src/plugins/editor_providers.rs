@@ -146,6 +146,11 @@ fn registration(value: Value, types: &[String]) -> Result<Value, CoreError> {
             "An editor provider registration has an id and 1 to 32 literal selector entries.",
         ));
     }
+    // The contract matches every selector entry case-insensitively, so the
+    // host only ever compares lowercased language IDs.
+    for language in selector.languages.iter_mut() {
+        *language = language.to_lowercase();
+    }
     selector.languages.sort();
     selector.languages.dedup();
     normalize_names(&mut selector.file_extensions, &mut selector.file_names)?;
@@ -636,12 +641,13 @@ mod tests {
     fn registrations_normalize_selectors_and_report_budgets() {
         // A second tool: resource-key navigation in `.properties` and template files.
         let decoded = decode_command(json!({"kind":"registration","types":types(),"value":{
-            "id":"keys","selector":{"languages":["html"],"fileExtensions":[".Properties"],"fileNames":["Messages"]},
+            "id":"keys","selector":{"languages":["HTML","html"],"fileExtensions":[".Properties"],"fileNames":["Messages"]},
             "providers":{"definition":{"function":"keys.definition"},
                 "completion":{"function":"keys.complete","triggerCharacters":["."]},
                 "semanticTokens":{"function":"keys.tokens","legend":{"tokenTypes":["property"],"tokenModifiers":["declaration"]}}}
         }})).unwrap();
         let registration = &decoded["registration"];
+        assert_eq!(registration["selector"]["languages"], json!(["html"]));
         assert_eq!(
             registration["selector"]["fileExtensions"],
             json!(["properties"])

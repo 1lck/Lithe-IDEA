@@ -338,7 +338,7 @@ struct PluginEditorProviderTests {
     func contractFixtureRegistrationsAndResultsMatchCore() throws {
         let fixture = try contractFixture("editor-providers.json")
         let operations = DeclarativePluginTestSupport.operations
-        let types = try #require(fixture.member("host")?.member("providerTypes")?.elements.compactMap(\.textValue))
+        let types = try #require(fixture.member("host")?.member("providerTypes")).elements.compactMap(\.textValue)
 
         for entry in try #require(fixture.member("registrations")).elements {
             let name = entry.member("name")?.textValue ?? "registration"
