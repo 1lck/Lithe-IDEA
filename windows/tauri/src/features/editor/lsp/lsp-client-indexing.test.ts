@@ -162,7 +162,9 @@ test("reopening waits for close and a second opener synchronizes its newer text"
     events.push(`${command}:${args?.content ?? ""}`);
     if (command === "lsp_document_close") await closing;
     if (command === "lsp_document_open") await opening;
-    return undefined as never;
+    return (command === "lsp_document_open" || command === "lsp_document_change"
+      ? { documentVersion: command === "lsp_document_open" ? 8 : 9, changed: true }
+      : undefined) as never;
   });
   const close = client.notifyDocumentClose(file, "owner");
   const first = client.notifyDocumentOpen(file, "before", "owner");
@@ -172,7 +174,7 @@ test("reopening waits for close and a second opener synchronizes its newer text"
     finishClose(); await close;
     finishOpen(); await Promise.all([first, second]);
     expect(events).toEqual(["lsp_document_close:", "lsp_document_open:before", "lsp_document_change:newer"]);
-    expect(documents.get(key)?.content).toBe("newer");
+    expect(documents.get(key)).toMatchObject({ content: "newer", version: 9 });
   } finally {
     finishClose(); finishOpen(); await Promise.allSettled([close, first, second]); invoke.mockRestore();
   }
