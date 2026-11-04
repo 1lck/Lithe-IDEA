@@ -2750,14 +2750,16 @@ in the Run tool window, or a debug session on one of the plugin's own adapters.
 The backend decides what to start; the host owns the process, the console, the
 Stop button and the end of the session. A Run session adds host presentation
 (a Run window entry the user can stop, the console, the exit status) on top of
-what `process.run` already allows; it grants no other capability. All three
-methods take `context: {contextID, generation}` and the permission shown.
+what `process.run` already allows; it grants no other capability. `run/start`
+and `debug/start` take `context: {contextID, generation}` and the permission
+shown. `run/stop` takes no `context`, so a run can still be stopped after the
+context it started in has closed.
 
-| Method (prefix `lithe/host/`) | Permission | Params in addition to `context` | Result |
+| Method (prefix `lithe/host/`) | Permission | Params | Result |
 | --- | --- | --- | --- |
-| `run/start` | `run.start` | `label, process, temporaryFiles?, debug?, rerun?` | `{runID}` |
+| `run/start` | `run.start` | `context, label, process, temporaryFiles?, debug?, rerun?` | `{runID}` |
 | `run/stop` | `run.start` | `{runID}` or `{sessionID}` | `null` |
-| `debug/start` | `debug.start` | `label, adapter, request, configuration` | `{sessionID}` |
+| `debug/start` | `debug.start` | `context, label, adapter, request, configuration` | `{sessionID}` |
 
 `run/start`:
 
