@@ -3020,6 +3020,14 @@ session's child process, stdin/stdout/stderr, framing buffer, JSON-RPC request
 IDs, document versions, pending deadlines, capabilities, diagnostics, and
 graceful/forced termination.
 
+If ordinary `lsp.startServer` fails after process creation, Core retains any
+incomplete disposal in an internal cleanup backlog, since no session identity
+was returned to the caller. A subsequent explicit startup attempt retries at
+most one bounded disposal and refuses to launch another process while cleanup
+remains incomplete. The original startup error is preserved. Native owners
+using the in-process registration callback retain their registered identity
+even when startup returns an error and retry `lsp.destroyServer` themselves.
+
 JDT LS remains `initializing` until `language/status: ServiceReady`. During this
 phase Rust reduces changed `$/progress` notifications into throttled JSON log
 details containing the current phase, percentage, project, observed project
@@ -3341,7 +3349,11 @@ and an empty diagnostic context. The round-trip fixture is
 `javaEntrypoints` invokes Java Debug Server's
 `vscode.java.resolveMainClass` for the session workspace and returns schema
 version 1 with deterministic workspace-relative `{ sourcePath, mainClass,
-projectName? }` entries plus diagnostics for unusable upstream records. Discovery
+projectName? }` entries plus diagnostics for unusable upstream records.
+Discovery queries all entries in the owned JDT session, then filters source
+paths against the opened workspace and its resolved location. This includes
+plain folders represented by invisible projects in JDT's writable cache;
+unrelated workspace sources remain excluded. Discovery
 waits behind pending Maven profile updates and JDT project-configuration jobs,
 using the same configuration barrier as the following Java build. Up to 128
 waiting discovery operations are allowed per session. Their deadlines include
