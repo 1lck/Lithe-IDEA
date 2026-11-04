@@ -226,7 +226,7 @@ done
   functions = JSON.parse(File.read(File.join(root, "fixtures", "function-protocol.json")))
   abort "function protocol fixture schema must be 1" unless functions.fetch("schemaVersion") == 1
   abort "function protocol fixture must describe litheFunctions" unless functions.fetch("protocol") == "litheFunctions"
-  function_sections = %w[negotiation registration invocations outcomes progress backendRequests hostRequests]
+  function_sections = %w[negotiation registration invocations outcomes progress backendRequests hostRequests invocationCallers relayErrors]
   function_names = function_sections.flat_map { |section| functions.fetch(section).map { |item| item.fetch("name") } }
   abort "function protocol case names must be unique" unless function_names.uniq.length == function_names.length
   function_codes = []
@@ -238,6 +238,11 @@ done
   functions.fetch("outcomes").each { |item| function_codes << item.fetch("expected").fetch("error", {})["code"] }
   functions.fetch("backendRequests").each { |item| function_codes << item.fetch("expected")["code"] }
   functions.fetch("hostRequests").each { |item| function_codes << item.fetch("expected")["code"] }
+  functions.fetch("relayErrors").each { |item| function_codes << item.fetch("code") }
+  relay_numbers = functions.fetch("relayErrors").map { |item| [item.fetch("code"), item.fetch("rpcCode")] }.uniq
+  abort "relay error codes must each have one number" unless relay_numbers.map(&:first).uniq.length == relay_numbers.length
+  new_relay_numbers = relay_numbers.select { |code, _| code.start_with?("plugin.function.") && code != "plugin.function.failed" }.map(&:last)
+  abort "each new plugin.function relay code needs its own number" unless new_relay_numbers.uniq.length == new_relay_numbers.length
   function_codes.compact.uniq.each do |code|
     abort "function protocol fixture uses an undocumented code #{code}" unless documented.include?(code)
   end
