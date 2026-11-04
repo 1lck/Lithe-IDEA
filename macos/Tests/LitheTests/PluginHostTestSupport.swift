@@ -44,6 +44,7 @@ final class FakePluginHostWindow: PluginHostWindowPort {
 
     var snapshot: PluginHostWindowSnapshot?
     var hostDocumentService: (any EditorDocumentServicing)?
+    var hostLanguageServers: (any PluginLanguageServerRouting)?
     var htmlPreviewOnly: [String: Bool] = [:]
     func hostSetHTMLPresentation(at url: URL, previewOnly: Bool) throws {
         htmlPreviewOnly[url.path] = previewOnly
