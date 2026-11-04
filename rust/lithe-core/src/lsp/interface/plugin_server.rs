@@ -67,8 +67,8 @@ pub struct SessionPolicy {
     pub gates: Vec<Gate>,
     /// Retention of the server's state directories. The host keeps and
     /// prunes the directories, so the engine only accepts the field.
-    #[serde(default)]
-    pub state: Option<Value>,
+    #[serde(default, rename = "state")]
+    _state: Option<serde::de::IgnoredAny>,
 }
 
 impl SessionPolicy {
