@@ -383,7 +383,9 @@ struct GitModuleTests {
         let list = try #require(scoped.changelists.lists.last?.id)
         await scoped.moveChanges([change, primaryChange], toChangelist: list)
         #expect(scoped.changelists.listID(for: change) == list)
-        #expect(scoped.changelists.listID(for: primaryChange) == GitLocalChangelists.defaultID)
+        // The other checkout was never projected into this scoped model; an
+        // unknown membership must not silently become permission to commit it.
+        #expect(scoped.changelists.listID(for: primaryChange).isEmpty)
         #expect(scoped.changelistCommitError != nil)
         #expect(await !scoped.commitStagedChanges(message: "wrong list", amend: false))
         #expect(probe.requests.isEmpty)
@@ -471,6 +473,7 @@ struct GitModuleTests {
         await feature.refreshGit()
         await feature.refreshWorktrees()
         let scoped = feature.commitFeature(for: worktree)
+        await scoped.changelistProjectionTask?.value
         var succeeded = false
         let commit = Task { succeeded = await scoped.commitStagedChanges(message: "commit", amend: false) }
         defer { releasePreparation.open(); commit.cancel(); feature.reset() }
@@ -3125,6 +3128,7 @@ struct GitModuleTests {
         await feature.refreshGit()
         await feature.toggleUntrackedDirectory(directory)
         await feature.selectChange(change)
+        await feature.changelistProjectionTask?.value
         let readCount = probe.snapshotRoots.count, metadataCount = metadataReads.paths.count
         if action == "rollback" { feature.requestRollbackChanges([change], included: [change]) }
         let selection = feature.pendingRollbackSelection
