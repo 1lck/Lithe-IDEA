@@ -1308,6 +1308,10 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `git.apply` | Apply or check a patch in `stage`, `unstage`, `discard`, or Shelf restore mode |
 | `git.history` | Return the legacy combined reference snapshot and first bounded commit page |
 | `git.references` | Return deterministic refs, recent local branches, ahead/behind state, and effective Git identity without scanning commit history |
+| `git.remotes` | Return configured fetch remote names and URLs |
+| `git.tags` | Return tag names, tag object IDs, target IDs, dates, and annotations |
+| `git.parseCheckoutMetadata` | Interpret bounded HEAD text without filesystem access |
+| `git.parseGitdirPointer` | Interpret a bounded gitdir pointer without filesystem access |
 | `git.historyPage` | Return one bounded commit page, author date, UTC offset, optional Unix timestamp, and an opaque continuation cursor |
 | `git.historyQuery` | Compare bounded commit date identities with explicit absolute time bounds |
 | `git.historyCursorClose` | Release an unfinished incremental history cursor and its Git process |
@@ -2250,6 +2254,16 @@ It returns the normal Git process result. `restoreIndex` applies a saved
 index patch to both the index and worktree; `worktree` applies only to the
 worktree. Pathspecs must be workspace-relative and must not contain absolute
 paths or `..` components.
+
+`git.remotes` returns `{remotes: [{name, url}]}` for fetch entries. `git.tags`
+returns `{tags: [{name, objectId, targetId, message, date, isAnnotated}]}`;
+names come from full `refs/tags/` identities even when a branch has the same
+name, and `targetId` is the dereferenced object when Git reports one. These
+commands own Git output parsing and return errors for malformed output.
+`git.parseCheckoutMetadata` and `git.parseGitdirPointer` each accept `{text}`
+of at most 4096 UTF-8 bytes and return `{branch}` or `{path}`, respectively;
+the host reads files and resolves relative paths. Examples live in
+`shared/fixtures/git/remote-tag-catalog-v1.json` and `checkout-metadata-v1.json`.
 
 `git.history` accepts `root`, an optional full `reference`, and `limit` (the
 core clamps it to `1...5000`). It remains the compatibility command that

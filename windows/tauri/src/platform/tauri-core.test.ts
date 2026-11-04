@@ -17,6 +17,23 @@ beforeEach(() => {
   tauriInvoke.mockClear();
 });
 
+test("Git remote and tag adapters consume typed Core catalogs", async () => {
+  tauriInvoke.mockImplementationOnce((async () => ({
+    remotes: [{ name: "origin", url: "https://example.invalid/team path" }],
+  })) as never);
+  expect(await invoke<unknown>("git_get_remotes", { repoPath: "C:/repo" })).toEqual([
+    { name: "origin", url: "https://example.invalid/team path" },
+  ]);
+  tauriInvoke.mockImplementationOnce((async () => ({
+    tags: [{ name: "shared", objectId: "tag-oid", targetId: "commit-oid",
+      message: "release", date: "2026-11-04", isAnnotated: true }],
+  })) as never);
+  expect(await invoke<unknown>("git_get_tags", { repoPath: "C:/repo" })).toEqual([
+    { name: "shared", commit: "commit-oid", object_id: "tag-oid", message: "release",
+      date: "2026-11-04", is_annotated: true },
+  ]);
+});
+
 test("Java index maintenance routes directly to the Tauri host", async () => {
   const args = {
     workspacePath: "C:/fixture/project",

@@ -2893,6 +2893,22 @@ fn execute_parsed(parsed: CoreRequest) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::GitRemotes
+        | CoreCommand::GitTags
+        | CoreCommand::GitParseCheckoutMetadata
+        | CoreCommand::GitParseGitdirPointer => {
+            let operation = match command {
+                CoreCommand::GitRemotes => "remotes",
+                CoreCommand::GitTags => "tags",
+                CoreCommand::GitParseCheckoutMetadata => "checkout",
+                CoreCommand::GitParseGitdirPointer => "gitdir",
+                _ => unreachable!(),
+            };
+            match git::catalog::command(operation, parsed.payload) {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::GitRebasePreview => {
             match serde_json::from_value::<GitRebasePreviewRequest>(parsed.payload)
                 .map_err(|error| {

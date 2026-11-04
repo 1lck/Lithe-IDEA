@@ -246,6 +246,7 @@ export interface GitStash {
 export interface GitTag {
   name: string;
   commit: string;
+  object_id?: string;
   message?: string;
   date: string;
   is_annotated: boolean;

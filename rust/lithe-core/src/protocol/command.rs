@@ -591,6 +591,14 @@ pub enum CoreCommand {
     GitConfigureIdentity,
     /// Reviews a local history mutation and its immutable checkout snapshot (`git.historyRewritePreview`).
     GitHistoryRewritePreview,
+    /// Lists configured fetch remotes.
+    GitRemotes,
+    /// Lists tags with object and target identities.
+    GitTags,
+    /// Parses a bounded HEAD snapshot without filesystem access.
+    GitParseCheckoutMetadata,
+    /// Parses a bounded gitdir pointer without filesystem access.
+    GitParseGitdirPointer,
     /// Resolves action eligibility against the actual checkout history.
     GitHistoryActionCapabilities,
     /// Preview a linear local range after an unchanged base commit.
@@ -970,6 +978,10 @@ impl CoreCommand {
             "remote.uploadFile" => Some(Self::RemoteUploadFile),
             "remote.hostInfo" => Some(Self::RemoteHostInfo),
             "git.historyRewritePreview" => Some(Self::GitHistoryRewritePreview),
+            "git.remotes" => Some(Self::GitRemotes),
+            "git.tags" => Some(Self::GitTags),
+            "git.parseCheckoutMetadata" => Some(Self::GitParseCheckoutMetadata),
+            "git.parseGitdirPointer" => Some(Self::GitParseGitdirPointer),
             "git.historyActionCapabilities" => Some(Self::GitHistoryActionCapabilities),
             "git.rebasePreview" => Some(Self::GitRebasePreview),
             "git.repositorySetup" => Some(Self::GitRepositorySetup),
