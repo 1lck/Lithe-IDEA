@@ -2,10 +2,43 @@ import Foundation
 import AppKit
 import SwiftUI
 import Testing
+import LitheModuleAPI
 @testable import Lithe
 
 @Suite("Editor settings import")
 struct EditorSettingsImportTests {
+    @Test @MainActor func importLogsFailuresAndWarningCountsWithoutSourceContents() async throws {
+        let sink = TypedLogRecorder()
+        let settings = AppSettings(store: ImportTestStore())
+        let source = EditorSettingsImportSource(directory: URL(fileURLWithPath: "/fixture/private"),
+            title: "Private source", revision: "one", values: ["tabSize": "2"], warnings: ["private warning"])
+        var shouldFail = false
+        let feature = EditorSettingsImportFeatureModel(settings: settings, chooseDirectory: { nil }, scan: { _ in
+            if shouldFail { throw EditorSettingsImportError.changed }
+            return [source]
+        }, logSink: sink)
+        #expect(await feature.scan())
+        let warning = try #require(sink.events.first)
+        #expect(type(of: warning).id == "editor.settings_import.warnings_shown")
+        #expect(Set(warning.fields.keys) == ["source_count", "warning_count"])
+        shouldFail = true
+        #expect(await feature.apply() == false)
+        let failure = try #require(sink.events.last)
+        #expect(type(of: failure).id == "editor.settings_import.failed")
+        if case .token(let stage) = failure.fields["stage"] { #expect(stage == "apply") }
+        else { Issue.record("The failed import did not retain its operation stage") }
+        if case .error(let error) = failure.fields["error"], let safe = error as? LogFailure {
+            #expect(safe.domain == "editor.settings_import" && safe.code == "changed")
+        } else { Issue.record("The import error classification is missing") }
+        #expect(sink.events.count == 2)
+        let privateError = NSError(domain: "plugin.private-content", code: 9,
+                                   userInfo: [NSLocalizedDescriptionKey: "/private/source.json contents"])
+        let classified = EditorSettingsImportError.logFailure(privateError)
+        #expect(classified.domain == "editor.settings_import" && classified.code == "source_failure")
+        let native = EditorSettingsImportError.logFailure(NSError(domain: NSPOSIXErrorDomain, code: 13))
+        #expect(native.domain == NSPOSIXErrorDomain && native.code == "13")
+    }
+
     @Test @MainActor func detectedIndentationBelongsToEachDocumentAndRejectsInvalidWidths() {
         let first = EditorDocument(url: URL(fileURLWithPath: "/fixture/first.js"), text: "", modificationDate: nil)
         let second = EditorDocument(url: URL(fileURLWithPath: "/fixture/second.js"), text: "", modificationDate: nil)
@@ -39,41 +72,6 @@ struct EditorSettingsImportTests {
         #expect(AppSettings(store: store).editorAppearance.tabSize == 3)
     }
 
-    @Test(arguments: [false, true])
-    func laterUnsupportedKeybindingShadowsEarlierUserMapping(includeDefaults: Bool) throws {
-        let supported = #"{"key":"ctrl+alt+cmd+b","command":"workbench.action.navigateBack"}"#
-        for later in [
-            #"{"key":"ctrl+alt+cmd+b","command":"extension.other"}"#,
-            #"{"key":"ctrl+alt+cmd+b","command":"workbench.action.navigateForward","when":"editorTextFocus"}"#,
-            #"{"key":"ctrl+alt+cmd+b","command":"extension.other","when":"editorTextFocus"}"#,
-        ] {
-            let parsed = try MacImportedKeybindings.parseVSCode(Data("[\(supported),\(later)]".utf8), includeDefaults: includeDefaults)
-            #expect(parsed["navigate-back"] == nil)
-        }
-        let reversed = try MacImportedKeybindings.parseVSCode(Data("[{\"key\":\"ctrl+alt+cmd+b\",\"command\":\"extension.other\"},\(supported)]".utf8), includeDefaults: includeDefaults)
-        #expect(reversed["navigate-back"] == [.keyPress(key: "b", modifiers: [.control, .option, .command])])
-    }
-
-    @Test(arguments: [false, true])
-    func laterChordShadowsItsFirstKeyWithoutBecomingASingleKeyBinding(includeDefaults: Bool) throws {
-        let supported = #"{"key":"ctrl+alt+cmd+b","command":"workbench.action.navigateBack"}"#
-        for chord in [
-            #"{"key":"ctrl+alt+cmd+b ctrl+c","command":"extension.other"}"#,
-            #"{"key":"ctrl+alt+cmd+b ctrl+c","command":"extension.other","when":"editorTextFocus"}"#,
-            #"{"key":"ctrl+alt+cmd+b ctrl+c","command":"workbench.action.navigateForward"}"#,
-        ] {
-            let parsed = try MacImportedKeybindings.parseVSCode(Data("[\(supported),\(chord)]".utf8), includeDefaults: includeDefaults)
-            #expect(parsed["navigate-back"] == nil)
-            #expect(!parsed.values.flatMap { $0 }.contains(.keyPress(key: "c", modifiers: .control)))
-            if chord.contains("workbench.action.navigateForward") { #expect(parsed["navigate-forward"] == nil) }
-            let reversed = try MacImportedKeybindings.parseVSCode(Data("[\(chord),\(supported)]".utf8), includeDefaults: includeDefaults)
-            #expect(reversed["navigate-back"] == [.keyPress(key: "b", modifiers: [.control, .option, .command])])
-        }
-        let defaults = try MacImportedKeybindings.parseVSCode(Data(#"[{"key":"ctrl+- ctrl+c","command":"extension.other"}]"#.utf8), includeDefaults: includeDefaults)
-        #expect(defaults["navigate-back"] == nil)
-        #expect((defaults["settings"] != nil) == includeDefaults)
-    }
-
     @Test @MainActor func vscodeDefaultsOverridesAndShadowedKeys() throws {
         let defaults = try MacEditorSettingsImportReader.parseVSCode(Data("{}".utf8), fonts: [], includeAppearanceDefaults: true).0
         #expect(defaults["tabSize"] == "4" && defaults["insertSpaces"] == "true")
@@ -82,9 +80,6 @@ struct EditorSettingsImportTests {
         let explicit = try MacEditorSettingsImportReader.parseVSCode(Data(#"{"editor.tabSize":2,"editor.insertSpaces":false,"editor.wordWrap":"on","editor.minimap.enabled":null}"#.utf8), fonts: [], includeAppearanceDefaults: true).0
         #expect(explicit["tabSize"] == "2" && explicit["insertSpaces"] == "false")
         #expect(explicit["softWrap"] == "true" && explicit["minimap"] == nil)
-        let keys = try MacImportedKeybindings.parseVSCode(Data(#"[{"key":"cmd+s","command":"extension.save"},{"key":"cmd+shift+s","command":"workbench.action.files.save","when":"editorTextFocus"},{"key":"cmd+g","command":"-workbench.action.gotoLine"}]"#.utf8), includeDefaults: true)
-        #expect(keys["save"] == nil && keys["go-to-line"] == nil)
-        #expect(keys["settings"] != nil)
         let palette = try MacEditorSettingsImportReader.parseVSCode(Data(##"{"editor.tokenColorCustomizations":{"comments":"#aa00ff"},"workbench.colorCustomizations":{"editor.background":"#121212"}}"##.utf8), fonts: [], includeAppearanceDefaults: true).0
         let theme = try #require(palette["customTheme"].flatMap(ImportedEditorTheme.decode))
         #expect(theme.tokens["comment"]?.foreground == "#aa00ff")
@@ -212,13 +207,13 @@ struct EditorSettingsImportTests {
         })
         active = feature
         await feature.scan()
-        feature.chooseSource(source.id)
+        await feature.chooseSource(source.id)
         feature.selected = ["fontSize"]
         #expect(await feature.apply())
         #expect(feature.importResult?.applied == 1 && feature.importResult?.unselected == 2)
         #expect(!feature.isImporting && !feature.isBusy)
         #expect(settings.themePreference == .dark && !settings.editorSoftWrapEnabled)
-        feature.chooseSource(source.id)
+        await feature.chooseSource(source.id)
         #expect(feature.importResult == nil)
         #expect(await feature.apply())
         #expect(feature.importResult?.applied == 2 && feature.importResult?.unselected == 0)
@@ -276,7 +271,7 @@ struct EditorSettingsImportTests {
             if let directory = ProcessInfo.processInfo.environment["LITHE_POPUP_CAPTURE_DIR"] {
                 let view = try #require(parent.contentView)
                 for page in ["sources", "settings"] {
-                    if page == "settings" { feature.chooseSource(source.id) }
+                    if page == "settings" { await feature.chooseSource(source.id) }
                     view.layoutSubtreeIfNeeded()
                     let bitmap = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
                     view.cacheDisplay(in: view.bounds, to: bitmap)
@@ -320,14 +315,14 @@ struct EditorSettingsImportTests {
         let feature = EditorSettingsImportFeatureModel(settings: settings, chooseDirectory: { nil }, scan: { _ in [source] })
         await feature.scan()
         #expect(!feature.isChoosingSettings)
-        feature.chooseSource("missing")
+        await feature.chooseSource("missing")
         #expect(!feature.isChoosingSettings)
-        feature.chooseSource(source.id)
+        await feature.chooseSource(source.id)
         #expect(feature.isChoosingSettings && feature.selected.contains("fontSize"))
         #expect(settings.editorFontSize == 13)
         feature.backToSources()
         #expect(!feature.isChoosingSettings && settings.editorFontSize == 13)
-        feature.chooseSource(source.id)
+        await feature.chooseSource(source.id)
         let applied = await feature.apply()
         #expect(applied && settings.editorFontSize == 16)
     }
@@ -461,7 +456,7 @@ struct EditorSettingsImportTests {
         let skipFrame = try #require(skip.accessibilityFrame?())
         let scanFrame = try #require(scan.accessibilityFrame?())
         #expect(scanFrame.minY > skipFrame.maxY && scanFrame.minX > skipFrame.maxX)
-        feature.chooseSource(current.id)
+        await feature.chooseSource(current.id)
         _ = try #require(await button("editor-import-back"))
         #expect(!elements(host).contains { $0.accessibilityIdentifier?() == "editor-import-apply" })
         if let directory = ProcessInfo.processInfo.environment["LITHE_POPUP_CAPTURE_DIR"] {
@@ -504,7 +499,7 @@ struct EditorSettingsImportTests {
         #expect(settings.didOfferEditorSettingsImport == startup)
         #expect(!settings.canUndoEditorSettingsImport)
         // The same native controls also complete a real isolated import and undo.
-        feature.chooseSource(current.id)
+        await feature.chooseSource(current.id)
         let apply = try #require(await button("editor-import-apply"))
         #expect(apply.accessibilityPerformPress?() == true)
         _ = try #require(await button("editor-import-result"))
@@ -676,7 +671,7 @@ struct EditorSettingsImportTests {
         #expect(feature.sources.map(\.title) == ["VS Code", "Cursor"])
         for source in feature.sources {
             let categories = Set(EditorSettingsImportField.allCases.filter { source.values[$0.rawValue] != nil }.map(\.category))
-            #expect(categories == Set(["appearance", "keymap", "code", "preferences"]))
+            #expect(categories == Set(["appearance", "code", "preferences"]))
         }
         #expect(feature.sources.allSatisfy { $0.settingsFileMissing && !$0.readFailed && !$0.values.isEmpty && !$0.defaultFields.isEmpty })
         #expect(feature.sourceStatusMessage == nil)
@@ -823,22 +818,7 @@ struct EditorSettingsImportTests {
         #expect(AppSettings(store: store).editorFontSize == 13)
         #expect(store.data(forKey: "settings.editorImportJournal.v1") == nil)
     }
-    @Test func explicitKeymapsAndGlobalCodeSettings() throws {
-        let keys = try MacImportedKeybindings.parseVSCode(Data(#"""
-        [ // Conditions and duplicate/removal rules must never become unconditional bindings.
-          {"key":"cmd+alt+s","command":"workbench.action.files.save"},
-          {"key":"cmd+f","command":"workbench.action.findInFiles","when":"editorTextFocus"},
-          {"key":"cmd+k cmd+s","command":"workbench.action.openSettings"},
-          {"key":"cmd+b","command":"workbench.action.navigateBack"},
-          {"key":"cmd+b","command":"-workbench.action.navigateBack"},
-        ]
-        """#.utf8))
-        #expect(Set(keys.keys) == ["save"])
-        #expect(keys["save"] == [.keyPress(key: "s", modifiers: [.command, .option])])
-        #expect(MacImportedKeybindings.binding("cmd+delete", idea: false) == nil)
-        #expect(MacImportedKeybindings.binding("meta BACK_SPACE", idea: true) == .keyPress(key: "delete", modifiers: .command))
-        #expect(MacImportedKeybindings.vscode.values.allSatisfy { LitheCommandCatalog.command(id: $0) != nil })
-        #expect(MacImportedKeybindings.idea.values.allSatisfy { LitheCommandCatalog.command(id: $0) != nil })
+    @Test func globalCodeSettings() throws {
         let code = try MacEditorSettingsImportReader.parseVSCode(Data(#"{"editor.tabSize":2,"editor.insertSpaces":false,"editor.detectIndentation":false}"#.utf8), fonts: [])
         #expect(code.0["tabSize"] == "2" && code.0["insertSpaces"] == "false" && code.0["detectIndentation"] == "false")
         let distinctIndent = try MacEditorSettingsImportReader.parseVSCode(Data(#"{"editor.tabSize":4,"editor.indentSize":2}"#.utf8), fonts: [])
@@ -846,15 +826,79 @@ struct EditorSettingsImportTests {
         let invalid = try MacEditorSettingsImportReader.parseVSCode(Data(#"{"editor.tabSize":true,"editor.insertSpaces":1,"editor.detectIndentation":"true"}"#.utf8), fonts: [])
         #expect(invalid.0["tabSize"] == nil && invalid.0["insertSpaces"] == nil && invalid.0["detectIndentation"] == nil)
         let files = [
-            "options/keymap.xml": "<application><component name='KeymapManager'><active_keymap name='Mine'/></component></application>",
-            "keymaps/custom.xml": "<keymap name='Mine' parent='Mac OS X'><action id='Back'><keyboard-shortcut first-keystroke='meta alt B'/></action><action id='Forward'><keyboard-shortcut first-keystroke='meta K' second-keystroke='meta S'/></action></keymap>",
             "options/code.style.schemes.xml": "<application><component name='CodeStyleSchemeSettings'><option name='CURRENT_SCHEME_NAME' value='Mine'/></component></application>",
             "codestyles/custom.xml": "<code_scheme name='Mine'><option name='AUTODETECT_INDENTS' value='false'/><option name='OTHER_INDENT_OPTIONS'><value><option name='TAB_SIZE' value='2'/><option name='INDENT_SIZE' value='2'/><option name='USE_TAB_CHARACTER' value='true'/></value></option><codeStyleSettings language='JAVA'><indentOptions><option name='TAB_SIZE' value='8'/></indentOptions></codeStyleSettings></code_scheme>"
         ].mapValues { Data($0.utf8) }
         let idea = try MacEditorSettingsImportReader.parseIDEA(files, fonts: [])
-        let map = try #require(idea.0["keymap"].flatMap(EditorImportKeymap.decode))
-        #expect(Set(map.commands.keys) == ["navigate-back"])
         #expect(idea.0["tabSize"] == "2" && idea.0["insertSpaces"] == "false" && idea.0["detectIndentation"] == "false")
+    }
+
+    @Test @MainActor func selectingSourceLoadsShortcutsAndApplyRechecksTheSource() async throws {
+        let settings = AppSettings(store: ImportTestStore())
+        let map = EditorImportKeymap(preset: "", commands: ["toggle-breakpoint": [.keyPress(key: "f9", modifiers: [])]])
+        var source = EditorSettingsImportSource(directory: URL(fileURLWithPath: "/fixture"), title: "Fixture", revision: "initial",
+            values: ["tabSize": "2"], warnings: [])
+        var reads = 0
+        let feature = EditorSettingsImportFeatureModel(settings: settings, chooseDirectory: { nil }, scan: { directory in
+            if directory != nil { reads += 1; source.values["keymap"] = map.encoded; source.revision = "keymap-revision" }
+            return [source]
+        }, loadKeymapOnSelection: true)
+        await feature.scan()
+        #expect(reads == 0 && feature.source?.values["keymap"] == nil)
+        await feature.chooseSource(source.id)
+        #expect(reads == 1 && feature.source?.values["keymap"] != nil)
+        #expect(settings.keyboardShortcutOverrides.isEmpty)
+        feature.selected = ["tabSize"]
+        #expect(await feature.apply())
+        #expect(reads == 2)
+    }
+
+    @Test @MainActor func cancelledSourceSelectionDiscardsLateResults() async throws {
+        let settings = AppSettings(store: ImportTestStore())
+        let source = EditorSettingsImportSource(directory: URL(fileURLWithPath: "/fixture"), title: "Fixture", revision: "before",
+            values: ["tabSize": "2"], warnings: [])
+        let entered = TestGate(), release = TestGate()
+        defer { release.open() }
+        let feature = EditorSettingsImportFeatureModel(settings: settings, chooseDirectory: { nil }, scan: { directory in
+            guard directory != nil else { return [source] }
+            entered.open()
+            _ = await release.waitUntilOpen(timeout: .seconds(5))
+            var late = source
+            late.revision = "late"
+            return [late]
+        }, loadKeymapOnSelection: true)
+        await feature.scan()
+        let task = Task { await feature.chooseSource(source.id) }
+        try #require(await entered.waitUntilOpen())
+        task.cancel()
+        await task.value
+        #expect(!feature.isBusy && feature.source?.revision == "before")
+        #expect(feature.message == nil && settings.editorImportValues()["tabSize"] != "2")
+    }
+
+    @Test @MainActor func importedBindingDisplacesOnlyDefaultsAndPreservesUserOverrides() async throws {
+        let store = ImportTestStore(), settings = AppSettings(store: store)
+        let incoming = EditorImportKeymap(preset: "", commands: ["toggle-breakpoint": [.keyPress(key: "f9", modifiers: [])]])
+        let source = EditorSettingsImportSource(directory: URL(fileURLWithPath: "/fixture"), title: "Fixture", revision: "1",
+            values: ["keymap": incoming.encoded], warnings: [])
+        let core = RustKeymapImportOperations(core: RustCoreBridge())
+        let feature = EditorSettingsImportFeatureModel(settings: settings, chooseDirectory: { nil }, scan: { _ in [source] },
+            planKeymap: { try core.planBindings(current: $0, incoming: $1) })
+        await feature.scan()
+        #expect(feature.keymapConflict == nil)
+        #expect(await feature.apply())
+        #expect(settings.keyboardShortcutOverrides["toggle-breakpoint"] == [.keyPress(key: "f9", modifiers: [])])
+        #expect(settings.keyboardShortcutOverrides["debug-resume"] == [])
+        try settings.undoEditorSettingsImport()
+        #expect(settings.keyboardShortcutOverrides.isEmpty)
+
+        settings.setKeyboardShortcutOverrides(["debug-resume": [.keyPress(key: "f9", modifiers: [])]])
+        let custom = EditorSettingsImportFeatureModel(settings: settings, chooseDirectory: { nil }, scan: { _ in [source] },
+            planKeymap: { try core.planBindings(current: $0, incoming: $1) })
+        await custom.scan()
+        #expect(custom.keymapConflict != nil)
+        #expect(await custom.apply() == false)
+        #expect(settings.keyboardShortcutOverrides["debug-resume"] == [.keyPress(key: "f9", modifiers: [])])
     }
 
     @Test @MainActor func keymapAndIndentImportMergePersistUndoAndConflict() async throws {
@@ -888,60 +932,6 @@ struct EditorSettingsImportTests {
             try restored.importEditorSettings(["keymap": EditorImportKeymap(preset: "macOS", commands: map.commands).encoded], baseline: before)
         }
         #expect(restored.editorImportValues() == before)
-    }
-
-    @Test @MainActor func keymapOnlyDirectoryIsReadOnlyAndDetectsSourceChanges() async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let file = directory.appendingPathComponent("keybindings.json")
-        let data = Data(#"[{"key":"ctrl+alt+cmd+b","command":"workbench.action.navigateBack"}]"#.utf8)
-        try data.write(to: file)
-        let settings = AppSettings(store: ImportTestStore())
-        let feature = EditorSettingsImportFeatureModel(settings: settings, chooseDirectory: { nil }, scan: { _ in
-            try MacEditorSettingsImportReader.scan(home: directory, directory: directory, fonts: [])
-        })
-        await feature.scan()
-        #expect(feature.source?.values["keymap"] != nil)
-        #expect(try Data(contentsOf: file) == data)
-        try Data(#"[{"key":"ctrl+alt+cmd+n","command":"workbench.action.navigateBack"}]"#.utf8).write(to: file)
-        #expect(await feature.apply() == false)
-        #expect(settings.keyboardShortcutOverrides.isEmpty)
-        await feature.scan()
-        #expect(await feature.apply())
-        #expect(settings.keyboardShortcutOverrides["navigate-back"] == [.keyPress(key: "n", modifiers: [.control, .option, .command])])
-    }
-
-    @Test @MainActor func ideaDefaultsImportWithoutCustomFilesAndPreserveInheritance() async throws {
-        let parsed = try MacEditorSettingsImportReader.parseIDEA([:], fonts: [], includeAppearanceDefaults: true)
-        #expect(parsed.0["tabSize"] == "4" && parsed.0["insertSpaces"] == "true" && parsed.0["detectIndentation"] == "true")
-        let defaults = try #require(parsed.0["keymap"].flatMap(EditorImportKeymap.decode))
-        #expect(MacImportedKeybindings.ideaDefaults("Mac OS X")?["go-to-line"] == [.keyPress(key: "g", modifiers: .command)])
-        #expect(defaults.commands["run"] == [.keyPress(key: "r", modifiers: .control)])
-        #expect(defaults.commands["settings"] == [.keyPress(key: ",", modifiers: .command)])
-        let settings = AppSettings(store: ImportTestStore())
-        let source = EditorSettingsImportSource(directory: URL(fileURLWithPath: "/fixture/IDEA"), title: "IDEA", revision: "default", values: parsed.0, warnings: [])
-        let feature = EditorSettingsImportFeatureModel(settings: settings, chooseDirectory: { nil }, scan: { _ in [source] })
-        await feature.scan()
-        #expect(feature.keymapConflict == nil)
-        #expect(await feature.apply())
-        #expect(settings.keyboardShortcutOverrides["run"] == defaults.commands["run"])
-        try settings.undoEditorSettingsImport()
-        #expect(settings.keyboardShortcutOverrides.isEmpty)
-        let files = [
-          "options/keymap.xml": "<application><component name='KeymapManager'><active_keymap name='Mine'/></component></application>",
-          "keymaps/mine.xml": "<keymap name='Mine' parent='Mac OS X 10.5+'><action id='Run'><keyboard-shortcut first-keystroke='meta alt R'/></action><action id='Debug'><keyboard-shortcut first-keystroke='meta K' second-keystroke='meta D'/></action></keymap>"
-        ].mapValues { Data($0.utf8) }
-        let inherited = try MacEditorSettingsImportReader.parseIDEA(files, fonts: [], includeAppearanceDefaults: true)
-        let map = try #require(inherited.0["keymap"].flatMap(EditorImportKeymap.decode))
-        #expect(map.commands["settings"] == defaults.commands["settings"])
-        #expect(map.commands["run"] == [.keyPress(key: "r", modifiers: [.command, .option])])
-        #expect(map.commands["debug"] == nil)
-        let unknown = try MacEditorSettingsImportReader.parseIDEA(["options/keymap.xml": Data("<application><component name='KeymapManager'><active_keymap name='Unknown'/></component></application>".utf8)], fonts: [], includeAppearanceDefaults: true)
-        #expect(unknown.0["keymap"] == nil)
-        var cyclic = files
-        cyclic["keymaps/mine.xml"] = Data("<keymap name='Mine' parent='Mine'/>".utf8)
-        #expect(throws: EditorSettingsImportError.self) { try MacEditorSettingsImportReader.parseIDEA(cyclic, fonts: [], includeAppearanceDefaults: true) }
     }
 
     @Test @MainActor func importedThemeInheritsPurpleCommentsPersistsAndUndoes() async throws {

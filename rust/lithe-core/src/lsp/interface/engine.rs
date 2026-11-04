@@ -73,6 +73,8 @@ const MAX_BUILD_PROVIDER_TIMEOUT_MS: u64 = 60 * 60_000;
 const MAX_VCS_PROVIDER_TIMEOUT_MS: u64 = 60 * 60_000;
 /// Longest toolchain query a host may ask for; queries only read manager state.
 const MAX_TOOLCHAIN_QUERY_TIMEOUT_MS: u64 = 60_000;
+/// Bounds one provider request; the host can cancel sooner when a snapshot expires.
+const MAX_KEYMAP_IMPORT_TIMEOUT_MS: u64 = 60_000;
 const MONITOR_INTERVAL_MS: u64 = 10;
 /// JSON-RPC method carrying Java Debug Server build commands.
 const JAVA_BUILD_METHOD: &str = "workspace/executeCommand";
@@ -125,6 +127,9 @@ pub struct StartServerRequest {
     /// session with some is offered `litheToolchains`.
     #[serde(default)]
     pub toolchain_providers: Vec<String>,
+    /// Shortcut import providers declared by this plugin's verified manifest.
+    #[serde(default)]
+    pub keymap_import_providers: Vec<String>,
     pub executable_path: String,
     #[serde(default)]
     pub arguments: Vec<String>,
@@ -465,6 +470,26 @@ pub struct ToolchainProviderRequest {
     /// Query parameters; `toolchains.decodeReply` validates them with the reply.
     pub params: Value,
     /// Deadline of this request, capped at `MAX_TOOLCHAIN_QUERY_TIMEOUT_MS`.
+    #[serde(default)]
+    pub timeout_milliseconds: Option<u64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// One shortcut import operation against an opaque, host-owned snapshot.
+pub struct KeymapImportProviderRequest {
+    /// Plugin-owned session which negotiated the provider.
+    pub session_id: String,
+    /// Optional correlation identity for cancellation and completion events.
+    #[serde(default)]
+    pub operation_id: Option<String>,
+    /// Plugin-local identity of the selected provider.
+    #[serde(rename = "providerID")]
+    pub provider_id: String,
+    /// Host-owned snapshot reference, scoped to this import operation.
+    #[serde(rename = "snapshotID")]
+    pub snapshot_id: String,
+    /// Requested deadline in milliseconds, bounded by the runtime.
     #[serde(default)]
     pub timeout_milliseconds: Option<u64>,
 }
@@ -1611,6 +1636,20 @@ pub fn toolchain_provider_request(
     Ok(OperationResponse { operation_id })
 }
 
+/// Sends a shortcut import request only to a negotiated plugin provider.
+pub fn keymap_import_provider_request(
+    request: KeymapImportProviderRequest,
+) -> Result<OperationResponse, CoreError> {
+    let operation_id = request
+        .operation_id
+        .clone()
+        .unwrap_or_else(|| engine().next_operation_id());
+    engine()
+        .session(&request.session_id)?
+        .keymap_import_request(request, operation_id.clone())?;
+    Ok(OperationResponse { operation_id })
+}
+
 /// Sends one VCS-provider request to a session that negotiated the protocol.
 pub fn vcs_provider_request(request: VcsProviderRequest) -> Result<OperationResponse, CoreError> {
     let operation_id = request
@@ -1989,6 +2028,11 @@ impl LspEngine {
                 state: LspClientState {
                     offered_toolchain_providers: if request.plugin_id.is_some() {
                         request.toolchain_providers.iter().cloned().collect()
+                    } else {
+                        Default::default()
+                    },
+                    offered_keymap_import_providers: if request.plugin_id.is_some() {
+                        request.keymap_import_providers.iter().cloned().collect()
                     } else {
                         Default::default()
                     },
@@ -2752,6 +2796,91 @@ impl RuntimeSession {
                     kind: PendingKind::Feature,
                     operation_id: Some(operation_id.clone()),
                     method: request.method,
+                    document_uri: None,
+                    document_version: None,
+                    created_at: now,
+                    deadline: now + timeout,
+                },
+            );
+            state
+                .request_by_operation
+                .insert(operation_id, request_id.clone());
+            (response.messages, request_id)
+        };
+        self.send_request_or_fail(&outbound_order, messages, &request_id)
+    }
+
+    fn keymap_import_request(
+        &self,
+        request: KeymapImportProviderRequest,
+        operation_id: String,
+    ) -> Result<(), CoreError> {
+        // A snapshot reference is an opaque token, never a filesystem path.
+        // The future host service must separately enforce its session ownership.
+        if request.snapshot_id.is_empty()
+            || request.snapshot_id.len() > 128
+            || !request
+                .snapshot_id
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+        {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Invalid import snapshot reference.",
+            ));
+        }
+        let outbound_order = self.lock_outbound_order()?;
+        let (messages, request_id) = {
+            let mut state = self.lock_state()?;
+            if state.lifecycle != LspLifecycleState::Ready || !state.client.initialized {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Plugin backend is not ready.",
+                ));
+            }
+            if state.request_by_operation.contains_key(&operation_id)
+                || state.java_builds.contains(&operation_id)
+            {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "The operation ID is already pending.",
+                ));
+            }
+            if !state
+                .client
+                .keymap_import_providers
+                .contains(&request.provider_id)
+            {
+                return Err(CoreError::new(
+                    ErrorCode::NotSupported,
+                    "The plugin did not negotiate this import provider.",
+                )
+                .with_details("plugin.keymapImport.providerUnavailable"));
+            }
+            let timeout = request
+                .timeout_milliseconds
+                .map(|milliseconds| {
+                    Duration::from_millis(milliseconds.clamp(1, MAX_KEYMAP_IMPORT_TIMEOUT_MS))
+                })
+                .unwrap_or(
+                    state
+                        .request_timeout
+                        .min(Duration::from_millis(MAX_KEYMAP_IMPORT_TIMEOUT_MS)),
+                );
+            let response = allocate_raw_request(
+                state.client.clone(),
+                super::keymap_provider::IMPORT_METHOD,
+                json!({"providerID": request.provider_id, "snapshotID": request.snapshot_id}),
+            )?;
+            let request_id = (response.state.next_request_id - 1).to_string();
+            let now = Instant::now();
+            state.client = response.state;
+            state.pending.insert(
+                request_id.clone(),
+                PendingRequest {
+                    kind: PendingKind::Feature,
+                    operation_id: Some(operation_id.clone()),
+                    method: super::keymap_provider::IMPORT_METHOD.to_string(),
                     document_uri: None,
                     document_version: None,
                     created_at: now,
@@ -4033,6 +4162,48 @@ impl RuntimeSession {
                 }
                 Some(PendingKind::Feature)
                     if pending_before.as_ref().is_some_and(|pending| {
+                        pending.method == super::keymap_provider::IMPORT_METHOD
+                    }) =>
+                {
+                    if let Some(pending) = pending_before.as_ref() {
+                        if let Some(operation_id) = &pending.operation_id {
+                            let (result, error) = if value.to_string().len()
+                                > super::keymap_provider::MAX_REPLY_BYTES
+                            {
+                                (
+                                    None,
+                                    Some(runtime_error(
+                                        self,
+                                        "plugin.keymapImport.replyTooLarge",
+                                        "request",
+                                        Some(&pending.method),
+                                        None,
+                                        "The shortcut import provider reply is too large.",
+                                        None,
+                                        None,
+                                    )),
+                                )
+                            } else {
+                                (
+                                    Some(
+                                        json!({"value": {"id": value.get("id"), "response": value}}),
+                                    ),
+                                    None,
+                                )
+                            };
+                            push_request_event(
+                                self,
+                                &mut state,
+                                operation_id,
+                                &pending.method,
+                                result,
+                                error,
+                            );
+                        }
+                    }
+                }
+                Some(PendingKind::Feature)
+                    if pending_before.as_ref().is_some_and(|pending| {
                         pending.method == super::toolchain_provider::QUERY_METHOD
                     }) =>
                 {
@@ -4717,10 +4888,18 @@ impl RuntimeSession {
                 } else if event.kind == super::vcs_provider::NEGOTIATED_EVENT {
                     push_vcs_provider_event(self, &mut state, event.result.unwrap_or_default());
                 } else if event.kind == super::toolchain_provider::NEGOTIATED_EVENT {
-                    push_toolchain_provider_event(
+                    push_negotiated_provider_event(
                         self,
                         &mut state,
                         event.result.unwrap_or_default(),
+                        "toolchainProviders",
+                    );
+                } else if event.kind == super::keymap_provider::NEGOTIATED_EVENT {
+                    push_negotiated_provider_event(
+                        self,
+                        &mut state,
+                        event.result.unwrap_or_default(),
+                        "keymapImportProviders",
                     );
                 } else if event.kind == "diagnostics" {
                     if let Some(uri) = event.uri.as_deref() {
@@ -6967,17 +7146,18 @@ fn push_vcs_provider_event(session: &RuntimeSession, state: &mut SessionState, r
 }
 
 /// Publishes the providers a backend selected, so the host queries only those.
-fn push_toolchain_provider_event(
+fn push_negotiated_provider_event(
     session: &RuntimeSession,
     state: &mut SessionState,
     result: Value,
+    kind: &str,
 ) {
     let sequence = take_sequence(state);
     enqueue_runtime_event(
         session,
         state,
         LspRuntimeEvent {
-            kind: "toolchainProviders".to_string(),
+            kind: kind.to_string(),
             channel: None,
             plugin_id: None,
             role: None,
@@ -7821,6 +8001,7 @@ fn clear_runtime_state(session: &RuntimeSession, state: &mut SessionState) {
     clear_function_registry(session, state);
     state.client.vcs_provider = None;
     state.client.toolchain_providers.clear();
+    state.client.keymap_import_providers.clear();
     state.linked_document_paths = LinkedDocumentPaths::default();
     state.java_navigation_marker_batches.clear();
     state.java_navigation_marker_cache.clear();
@@ -7951,6 +8132,7 @@ mod tests {
             plugin_id: None,
             host_services: Vec::new(),
             toolchain_providers: Vec::new(),
+            keymap_import_providers: Vec::new(),
             executable_path: "/usr/bin/scripted-server".to_string(),
             arguments: vec!["--stdio".to_string()],
             environment: BTreeMap::new(),
@@ -12971,6 +13153,7 @@ public class Main {
                 plugin_id: None,
                 host_services: Vec::new(),
                 toolchain_providers: Vec::new(),
+                keymap_import_providers: Vec::new(),
                 executable_path,
                 arguments: Vec::new(),
                 environment: BTreeMap::from([(
@@ -13733,6 +13916,7 @@ public class Main {
             plugin_id: None,
             host_services: Vec::new(),
             toolchain_providers: Vec::new(),
+            keymap_import_providers: Vec::new(),
             executable_path: "/bin/server".to_string(),
             arguments: Vec::new(),
             environment: BTreeMap::new(),
@@ -14685,6 +14869,189 @@ public class Main {
             Some("requestTimeout")
         );
         assert!(harness.server.await_notification("$/cancelRequest"));
+    }
+
+    #[test]
+    fn keymap_import_negotiation_is_available_only_to_plugin_owned_sessions() {
+        for plugin_owned in [false, true] {
+            let mut harness = Harness::start(|request| {
+                request.keymap_import_providers = vec!["fixture".to_string()];
+                if plugin_owned {
+                    request.plugin_id = Some("dev.lithe.fixture.import".to_string());
+                }
+            });
+            harness.server.complete_initialize(json!({"experimental": {
+                "litheKeymapImport": {"version": 1, "providers": ["fixture"]}
+            }}));
+            harness.await_state(LspLifecycleState::Ready);
+            let initialize = harness
+                .server
+                .messages()
+                .into_iter()
+                .find(|message| message["method"] == "initialize")
+                .unwrap();
+            let offer =
+                initialize["params"]["capabilities"]["experimental"].get("litheKeymapImport");
+            assert_eq!(offer.is_some(), plugin_owned);
+            if plugin_owned {
+                assert_eq!(
+                    offer,
+                    Some(&json!({"versions": [1], "providers": ["fixture"]}))
+                );
+            }
+            let event = harness
+                .events
+                .iter()
+                .find(|event| event.kind == "keymapImportProviders");
+            assert_eq!(event.is_some(), plugin_owned);
+            if let Some(event) = event {
+                assert_eq!(event.result, Some(json!({"providers": ["fixture"]})));
+            }
+        }
+    }
+
+    #[test]
+    fn keymap_import_provider_cannot_select_an_undeclared_identity() {
+        let mut harness = Harness::start(|request| {
+            request.plugin_id = Some("dev.lithe.fixture.import".to_string());
+            request.keymap_import_providers = vec!["fixture".to_string()];
+        });
+        harness.server.complete_initialize(json!({"experimental": {
+            "litheKeymapImport": {"version": 1, "providers": ["fixture", "other"]}
+        }}));
+        harness.await_state(LspLifecycleState::Ready);
+        assert!(harness
+            .events
+            .iter()
+            .all(|event| event.kind != "keymapImportProviders"));
+    }
+
+    #[test]
+    fn keymap_import_request_only_reaches_its_negotiated_provider() {
+        let mut harness = Harness::start(|request| {
+            request.plugin_id = Some("dev.lithe.fixture.import".to_string());
+            request.keymap_import_providers = vec!["fixture".to_string()];
+        });
+        harness.server.complete_initialize(json!({"experimental": {
+            "litheKeymapImport": {"version": 1, "providers": ["fixture"]}
+        }}));
+        harness.await_state(LspLifecycleState::Ready);
+        let request = |provider: &str| KeymapImportProviderRequest {
+            session_id: harness.session_id.clone(),
+            operation_id: None,
+            provider_id: provider.to_string(),
+            snapshot_id: "snapshot-1".to_string(),
+            timeout_milliseconds: Some(1_000),
+        };
+        assert!(harness
+            .session()
+            .keymap_import_request(request("other"), "refused".to_string())
+            .is_err());
+        assert!(harness
+            .server
+            .messages()
+            .iter()
+            .all(|message| message["method"] != "lithe/keymap/import"));
+        harness
+            .session()
+            .keymap_import_request(request("fixture"), "import-1".to_string())
+            .unwrap();
+        let id = harness.server.await_request("lithe/keymap/import").unwrap();
+        let wire_id: u64 = id.parse().unwrap();
+        let sent = harness.written_request(&id);
+        assert_eq!(
+            sent["params"],
+            json!({"providerID": "fixture", "snapshotID": "snapshot-1"})
+        );
+        let response = json!({"jsonrpc": "2.0", "id": wire_id, "result": {"bindings": []}});
+        harness.server.send(response.clone());
+        let event = harness.await_event(|event| {
+            event.kind == "requestCompleted" && event.operation_id.as_deref() == Some("import-1")
+        });
+        assert_eq!(
+            event.result,
+            Some(json!({"value": {"id": wire_id, "response": response}}))
+        );
+    }
+
+    #[test]
+    fn keymap_import_request_rejects_paths_and_can_be_cancelled() {
+        let mut harness = Harness::start(|request| {
+            request.plugin_id = Some("dev.lithe.fixture.import".to_string());
+            request.keymap_import_providers = vec!["fixture".to_string()];
+        });
+        harness.server.complete_initialize(json!({"experimental": {
+            "litheKeymapImport": {"version": 1, "providers": ["fixture"]}
+        }}));
+        harness.await_state(LspLifecycleState::Ready);
+        let mut request = KeymapImportProviderRequest {
+            session_id: harness.session_id.clone(),
+            operation_id: None,
+            provider_id: "fixture".to_string(),
+            snapshot_id: "../private".to_string(),
+            timeout_milliseconds: None,
+        };
+        assert!(harness
+            .session()
+            .keymap_import_request(request.clone(), "invalid".to_string())
+            .is_err());
+        assert!(harness
+            .server
+            .messages()
+            .iter()
+            .all(|message| message["method"] != "lithe/keymap/import"));
+        request.snapshot_id = "snapshot-1".to_string();
+        harness
+            .session()
+            .keymap_import_request(request, "import-2".to_string())
+            .unwrap();
+        harness.server.await_request("lithe/keymap/import").unwrap();
+        harness.session().cancel_operation("import-2").unwrap();
+        assert!(harness.server.await_notification("$/cancelRequest"));
+        let event = harness.await_event(|event| {
+            event.kind == "requestCompleted" && event.operation_id.as_deref() == Some("import-2")
+        });
+        assert_eq!(
+            event.error.as_ref().map(|error| error.code.as_str()),
+            Some("requestCancelled")
+        );
+        assert!(event.result.is_none());
+    }
+
+    #[test]
+    fn keymap_import_request_rejects_oversized_provider_replies() {
+        let mut harness = Harness::start(|request| {
+            request.plugin_id = Some("dev.lithe.fixture.import".to_string());
+            request.keymap_import_providers = vec!["fixture".to_string()];
+        });
+        harness.server.complete_initialize(json!({"experimental": {
+            "litheKeymapImport": {"version": 1, "providers": ["fixture"]}
+        }}));
+        harness.await_state(LspLifecycleState::Ready);
+        let request = KeymapImportProviderRequest {
+            session_id: harness.session_id.clone(),
+            operation_id: None,
+            provider_id: "fixture".to_string(),
+            snapshot_id: "snapshot-1".to_string(),
+            timeout_milliseconds: Some(5_000),
+        };
+        harness
+            .session()
+            .keymap_import_request(request, "import-3".to_string())
+            .unwrap();
+        let id = harness.server.await_request("lithe/keymap/import").unwrap();
+        harness
+            .server
+            .send(json!({"jsonrpc": "2.0", "id": id.parse::<u64>().unwrap(),
+            "result": {"data": "x".repeat(super::super::keymap_provider::MAX_REPLY_BYTES)}}));
+        let event = harness.await_event(|event| {
+            event.kind == "requestCompleted" && event.operation_id.as_deref() == Some("import-3")
+        });
+        assert_eq!(
+            event.error.as_ref().map(|error| error.code.as_str()),
+            Some("plugin.keymapImport.replyTooLarge")
+        );
+        assert!(event.result.is_none());
     }
 
     // Toolchain providers against a scripted backend. Only a plugin-owned

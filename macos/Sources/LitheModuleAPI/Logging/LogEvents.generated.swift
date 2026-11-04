@@ -1174,6 +1174,29 @@ public struct DebugSessionCleanupFailed: LogEvent {
     }
 }
 
+public struct DebugShortcutDecisionFailed: LogEvent {
+    public static let id = "debug.shortcut.decision_failed"
+    public static let level: LogLevel = .error
+    public static let messageTemplate = "Debug shortcut state decision failed"
+    public static let ratePerMinute = 60
+    public static let owner = "Lithe"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
+
+    public init(`error`: any Error, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.debug, segments: [])
+        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["error"] = .error(`error`)
+        self.fields = _logValues
+    }
+}
+
 public struct EditorDocumentHeaderFailed: LogEvent {
     public static let id = "editor.document.header_failed"
     public static let level: LogLevel = .warn
@@ -1385,6 +1408,54 @@ public struct EditorPreviewUpdateFailed: LogEvent {
         var _logValues: [String: LogFieldValue] = [:]
         _logValues["error"] = .error(`error`)
         _logValues["stage"] = .token(`stage`)
+        self.fields = _logValues
+    }
+}
+
+public struct EditorSettingsImportFailed: LogEvent {
+    public static let id = "editor.settings_import.failed"
+    public static let level: LogLevel = .error
+    public static let messageTemplate = "Editor settings import failed at {stage}"
+    public static let ratePerMinute = 60
+    public static let owner = "Lithe"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
+
+    public init(`error`: any Error, `stage`: String, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.editor, segments: [])
+        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["error"] = .error(`error`)
+        _logValues["stage"] = .token(`stage`)
+        self.fields = _logValues
+    }
+}
+
+public struct EditorSettingsImportWarningsShown: LogEvent {
+    public static let id = "editor.settings_import.warnings_shown"
+    public static let level: LogLevel = .warn
+    public static let messageTemplate = "Editor settings import has unsupported source settings"
+    public static let ratePerMinute = 60
+    public static let owner = "Lithe"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
+
+    public init(`sourceCount`: Int64, `warningCount`: Int64, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.editor, segments: [])
+        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["source_count"] = .int(`sourceCount`)
+        _logValues["warning_count"] = .int(`warningCount`)
         self.fields = _logValues
     }
 }

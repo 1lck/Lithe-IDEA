@@ -3,6 +3,46 @@
   "root": "editor",
   "events": [
     {
+      "id": "editor.settings_import.failed",
+      "channel": "editor",
+      "level": "error",
+      "message": "Editor settings import failed at {stage}",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Import workflow boundary that failed: source-read, scan, apply, or undo"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Import or native I/O error classification; source paths, configuration contents and provider prose are omitted"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "editor.settings_import.warnings_shown",
+      "channel": "editor",
+      "level": "warn",
+      "message": "Editor settings import has unsupported source settings",
+      "fields": {
+        "source_count": {
+          "type": "int",
+          "required": true,
+          "description": "Number of discovered sources with warnings shown in this scan"
+        },
+        "warning_count": {
+          "type": "int",
+          "required": true,
+          "description": "Total number of source warnings shown in this scan"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
       "id": "editor.document.header_failed",
       "channel": "editor",
       "level": "warn",

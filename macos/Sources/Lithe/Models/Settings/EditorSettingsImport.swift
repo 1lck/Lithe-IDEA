@@ -6,7 +6,7 @@ struct EditorSettingsImportSource: Identifiable, Equatable, Sendable {
     var id: String { directory.path }
     let directory: URL
     let title: String
-    let revision: String
+    var revision: String
     var values: [String: String]
     var warnings: [String]
     var lineHeightFontSize: String? = nil
@@ -94,7 +94,29 @@ struct EditorSettingsImportJournal: Codable {
 
 enum EditorSettingsImportError: Error, LocalizedError {
     case changed, invalid, storage, read, fontSizeDependency
+    case ambiguousShortcutProviders
     case shortcutConflict(String)
+    /// Keep source paths and provider-supplied prose out of diagnostic fields.
+    static func logFailure(_ error: any Error) -> LogFailure {
+        if let failure = error as? EditorSettingsImportError {
+            let code: String
+            switch failure {
+            case .changed: code = "changed"
+            case .invalid: code = "invalid"
+            case .storage: code = "storage"
+            case .read: code = "read"
+            case .fontSizeDependency: code = "font_size_dependency"
+            case .ambiguousShortcutProviders: code = "ambiguous_providers"
+            case .shortcutConflict: code = "shortcut_conflict"
+            }
+            return LogFailure(domain: "editor.settings_import", code: code)
+        }
+        let native = error as NSError
+        if [NSCocoaErrorDomain, NSPOSIXErrorDomain].contains(native.domain) {
+            return LogFailure(domain: native.domain, code: String(native.code))
+        }
+        return LogFailure(domain: "editor.settings_import", code: "source_failure")
+    }
     var errorDescription: String? {
         if case .shortcutConflict(let command) = self {
             return String(format: L10n.string("Keyboard shortcut conflicts with %@. Adjust your keymap before importing."), L10n.string(key: command))
@@ -103,6 +125,7 @@ enum EditorSettingsImportError: Error, LocalizedError {
     }
     private var messageKey: String {
         switch self {
+        case .ambiguousShortcutProviders: "More than one plugin can import shortcuts from this source. Disable duplicate providers and scan again."
         case .shortcutConflict: "Keyboard shortcuts"
         case .fontSizeDependency: "Select the source font size together with pixel line height, or keep the current line height."
         case .changed: "Settings changed. Scan again before importing or restoring."

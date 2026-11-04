@@ -641,6 +641,18 @@ pub static EVENTS: &[EventMetadata] = &[
         owner: "LitheDebugModule",
     },
     EventMetadata {
+        id: "debug.shortcut.decision_failed",
+        channel: "debug",
+        level: LogLevel::Error,
+        message: "Debug shortcut state decision failed",
+        fields: &[
+            FieldMetadata { name: "error", field_type: FieldType::Error, required: true, description: "Core failure while choosing whether the requested debug shortcut should start or continue", reason: None },
+        ],
+        span: None,
+        rate: 60,
+        owner: "Lithe",
+    },
+    EventMetadata {
         id: "editor.document.header_failed",
         channel: "editor",
         level: LogLevel::Warn,
@@ -754,6 +766,32 @@ pub static EVENTS: &[EventMetadata] = &[
         ],
         span: None,
         rate: 30,
+        owner: "Lithe",
+    },
+    EventMetadata {
+        id: "editor.settings_import.failed",
+        channel: "editor",
+        level: LogLevel::Error,
+        message: "Editor settings import failed at {stage}",
+        fields: &[
+            FieldMetadata { name: "error", field_type: FieldType::Error, required: true, description: "Import or native I/O error classification; source paths, configuration contents and provider prose are omitted", reason: None },
+            FieldMetadata { name: "stage", field_type: FieldType::Token, required: true, description: "Import workflow boundary that failed: source-read, scan, apply, or undo", reason: None },
+        ],
+        span: None,
+        rate: 60,
+        owner: "Lithe",
+    },
+    EventMetadata {
+        id: "editor.settings_import.warnings_shown",
+        channel: "editor",
+        level: LogLevel::Warn,
+        message: "Editor settings import has unsupported source settings",
+        fields: &[
+            FieldMetadata { name: "source_count", field_type: FieldType::Int, required: true, description: "Number of discovered sources with warnings shown in this scan", reason: None },
+            FieldMetadata { name: "warning_count", field_type: FieldType::Int, required: true, description: "Total number of source warnings shown in this scan", reason: None },
+        ],
+        span: None,
+        rate: 60,
         owner: "Lithe",
     },
     EventMetadata {

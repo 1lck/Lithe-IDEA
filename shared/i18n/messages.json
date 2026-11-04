@@ -14,6 +14,42 @@
       "macos": {"key": "Lithe uses this field for commit requests. Choose max_tokens for older gateways.", "arguments": []}
     },
     {
+      "id": "native.keymapImportAmbiguous",
+      "description": "More than one plugin matched a selected shortcut source; ask the user to disable duplicates before retrying.",
+      "platforms": ["macos"],
+      "macos": {
+        "key": "More than one plugin can import shortcuts from this source. Disable duplicate providers and scan again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.keymapImportSourceReadPermission",
+      "description": "Plugin permission for scoped reads of the selected shortcut import source.",
+      "platforms": ["macos"],
+      "macos": {
+        "key": "Read declared shortcut files from the editor you select for import",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.keymapImportProviderPermission",
+      "description": "Plugin permission for offering shortcut mappings during import.",
+      "platforms": ["macos"],
+      "macos": {
+        "key": "Offer shortcut mappings for import",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.keymapImportRuntimeUnavailable",
+      "description": "Shortcut import is unavailable in this runtime; suggest updating the application and plugin.",
+      "platforms": ["macos"],
+      "macos": {
+        "key": "Shortcut import is unavailable. Update Lithe and the editor import plugin, then try again.",
+        "arguments": []
+      }
+    },
+    {
       "id": "debugger.breakpointRelocationFailed",
       "description": "Breakpoint relocation failed; reset unsafe source anchors before debugging.",
       "platforms": [
@@ -34390,6 +34426,28 @@
       ],
       "macos": {
         "key": "Debug",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.debugStartOrContinue",
+      "description": "Native UI: Debug: Start or Continue",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Debug: Start or Continue",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.startDebuggingOrContinuePausedSession",
+      "description": "Native UI: Start debugging or continue the paused session",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Start debugging or continue the paused session",
         "arguments": []
       }
     },
@@ -95274,7 +95332,7 @@
         "macos"
       ],
       "macos": {
-        "key": "Reference shortcuts are merged with supported user overrides. Conditional rules, chords and removals suppress the affected mappings; extension keymaps are skipped.",
+        "key": "Reference shortcuts are merged with supported user overrides. Conditional bindings and chords may suppress mappings; conditional removals and extension keymaps are skipped.",
         "arguments": []
       }
     },

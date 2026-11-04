@@ -13,6 +13,7 @@ This directory is the cross-platform source of truth:
 | `plugin-manifest.schema.json` | JSON shape of `plugin.json` |
 | `fixtures/*.plugin.json` | Valid example manifests, named after the capability they exercise rather than a published plugin: `language-*` (packaged, system-command, and host-integration language servers; `node-runtime` for a discovered runtime), `hello-lithe` and `web-panel` (UI), `settings-v2`, and `build-*` (level 3 build systems and the two forms of a build provider) |
 | `fixtures/tool-definition.plugin.json`, `fixtures/toolchain-provider.plugin.json` | Production-shape Core fixtures for tool definitions and a packaged toolchain provider; require explicit new host capabilities, not yet supplied by native products |
+| `fixtures/keymap-import-provider.plugin.json` | Two independent shortcut import providers sharing one packaged backend; native source access is not implemented yet |
 | `fixtures/invalid-manifests.json` | Edits to a valid manifest and the rejection code every host must report |
 | `fixtures/command-plans.json` | Golden run/test command expansions and language-server launch plans |
 | `fixtures/runtime-versions.json` | Golden outcomes of the launch runtime version check |
@@ -65,6 +66,69 @@ unsupported, and current Java/Maven/Build/Run selection is unchanged. Version-ma
 implementations such as mise belong to their own plugin packages. Proposal
 envelopes remain separate from production manifests. See [the implemented slice](toolchains.md).
 
+## Shortcut import providers (Core foundation)
+
+`keymapImportProviders` contains one to eight `{id, displayName, recognition, inputs}` entries.
+IDs are unique within the plugin, start with a lowercase letter, contain only
+lowercase ASCII letters, digits and hyphens, and are at most 64 bytes. The
+plugin requires `keymapImportProviders: 1`, `backend: 2`, `serverProcess: 1`,
+`backend.launch`, `keymaps.provide` and `keymaps.readSelectedSources`. Its backend starts from a packaged
+executable or packaged runtime without discovered runtime dependencies. The
+host starts it for an explicit import; it is not a startup or workspace-open
+activation event. The permission permits offering mappings; it grants no file
+access on its own. `keymaps.readSelectedSources` authorizes only the provider's
+declared inputs under the source directory the user explicitly selected for this
+import, and only for the lifetime of that import.
+
+`recognition` lists one to sixteen distinct metadata-only probes. A
+`{kind: "file" | "directory", path}` probe matches an entry of that kind
+beneath the selected root, using the input path restrictions and refusing
+symlinks. A `{kind: "root", base: "userConfig", components}` probe matches
+the selected directory's exact path beneath the platform's user configuration
+directory (macOS Application Support, Windows roaming AppData). Components
+contain one to eight safe literal names and may end in one `*`, matching
+exactly one directory component; the first component must be literal. The
+source matches any probe. Recognition never authorizes reading file contents
+or discloses the absolute path to the provider. A host may use probes without
+launching backends, and must recheck them on import.
+
+`inputs` lists one to sixteen unique selectors. `{kind: "file", path}` selects
+one relative file; `{kind: "directory", path, extension}` selects immediate
+children of that directory with the exact lowercase alphanumeric extension,
+never recursive descendants. Paths have at most 256 characters, contain no
+empty, `.` or `..` segments, backslashes, colons, wildcards, control characters,
+or segments ending in a dot or space. Directory selectors have at most 64
+matches after scanning at most 4096 directory entries. The native reader must reject symlinks and paths escaping the
+selected root, bound each file to 1 MiB and the snapshot to 8 MiB, and expose
+only scoped opaque handles in chunks of at most 128 KiB. A manifest cannot
+authorize arbitrary paths or access an unselected source.
+
+Core offers `experimental.litheKeymapImport: {versions: [1], providers}` only
+to a plugin-owned session with declared providers. The backend selects a
+nonempty duplicate-free subset as `{version: 1, providers}`. A request to an
+unselected provider is refused. `lithe/keymap/import` carries only
+`{providerID, snapshotID}`. The snapshot is an opaque host-owned reference;
+the provider never interprets it as a path. Core bounds the operation and
+validates normalized results against the host's action catalog. Providers own
+source formats and must not silently promote conditional or multi-stroke rules
+to global shortcuts. The exact Core commands, limits and fixtures are in the
+[Rust Core API](https://github.com/1lck/Lithe-IDEA/blob/preview/shared/contracts/rust-core-api.md#normalized-shortcut-import-validation).
+
+When granted individually, protocol 3 methods `lithe/host/keymapImport/listInputs`
+and `lithe/host/keymapImport/readChunk` take `snapshotID` and `providerID`.
+Listing returns `{files: [{id, path, byteCount}]}`; a read additionally takes
+`fileID`, a nonnegative `offset` and `maximumBytes` from 1 through 131072 and
+returns `{data}` containing base64 bytes. Paths are relative to the selected
+root and file IDs are opaque. The host binds snapshots to their plugin, session
+and provider, revokes them when the import or session ends, and rejects files
+replaced or changed after capture. A new snapshot for that provider revokes the
+previous one. Errors never disclose absolute paths.
+
+This is a foundation, not an available product extension: macOS implements the
+scoped reader, but provider discovery, the product import workflow and Windows
+source access are not implemented. Hosts must not advertise this capability
+until they implement the complete workflow. No existing SDK advertises it.
+
 ## Package layout
 
 ```text
@@ -99,6 +163,7 @@ symbolic links. A host treats an installed package as read-only.
 | `buildSystems` | Project-level build tools (level 3). |
 | `toolDefinitions` | Plugin-owned tool policy ([Core foundation](toolchains.md)); requires `toolDefinitions: 1` and `executableResolution: 2`; macOS hosts read-only discovery. |
 | `toolchainProviders` | Backend fact-provider declarations ([Core foundation](toolchains.md)); requires `toolchainProviders: 1`, backend/server-process capabilities and `toolchains.provide`. |
+| `keymapImportProviders` | Independent shortcut import providers; requires `keymapImportProviders: 1`, `backend: 2`, `serverProcess: 1` and `keymaps.provide`. macOS provides access to explicitly selected sources; Windows does not yet advertise this capability. |
 
 Unknown fields are refused (`plugin.manifest.invalid`) so an older host
 rejects a package instead of ignoring part of it. At levels 1 and 2 a new
@@ -605,6 +670,8 @@ Rules for publishing across levels and capability versions:
 | `ui.contribute` | `ui` is declared |
 | `ui.web` | a tool window shows [web content](#web-content-ui-2) |
 | `backend.launch` | `backend` is declared |
+| `keymaps.provide` | `keymapImportProviders` is nonempty; permits offering mappings, not reading files by itself |
+| `keymaps.readSelectedSources` | `keymapImportProviders` is nonempty; permits reading only declared files in an explicitly selected import source |
 | `credentials.store` | the backend uses the [credentials host service](#host-services-protocol-version-2); refused without a `backend` |
 | `workspace.metadata` | the backend uses the [workspace host service](#workspace-contexts-and-capability-discovery-protocol-version-3); refused without `backend` 2 |
 | `editor.actions` | the backend registers independent editor actions; requires `backend` 2 and `documents.read`, grants only `editor/registerActions`, not document edits or domain execution |

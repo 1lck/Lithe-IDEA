@@ -57,6 +57,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     private let hostServices: [String]
     /// Manifest providers this backend is offered during `initialize`.
     private let offeredToolchainProviders: [String]
+    private let offeredKeymapImportProviders: [String]
 
     private var sessionID: String?
     private var startupGeneration: UUID?
@@ -140,6 +141,8 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     package private(set) var vcsNegotiation: VcsProviderNegotiation?
     /// Providers the backend selected, from the `toolchainProviders` event.
     package private(set) var toolchainProviders: [String] = []
+    /// Shortcut import providers selected by this backend during initialization.
+    package private(set) var keymapImportProviders: [String] = []
     package var onServerInfoChange: ((LanguageServerInfo?) -> Void)?
     package var javaTestRunnerURL: URL? {
         hostIntegrationLaunch?.coreLaunch?.jdtlsLaunchResources?.javaTestRunnerURL
@@ -165,7 +168,8 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         role: LanguageServerLogRole = .languageServer,
         logSubject: String? = nil,
         hostServices: [String] = [],
-        toolchainProviders: [String] = []
+        toolchainProviders: [String] = [],
+        keymapImportProviders: [String] = []
     ) {
         self.providerID = providerID
         self.executableURL = executableURL
@@ -186,6 +190,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         self.pluginID = pluginID
         self.hostServices = hostServices
         self.offeredToolchainProviders = toolchainProviders
+        self.offeredKeymapImportProviders = keymapImportProviders
     }
 
     /// Derived from the last lifecycle state Rust published: there is no local
@@ -299,6 +304,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         let pluginID = pluginID
         let hostServices = hostServices
         let offeredToolchainProviders = offeredToolchainProviders
+        let offeredKeymapImportProviders = offeredKeymapImportProviders
         let providerID = providerID
         let executableURL = executableURL
         let environment = environment
@@ -311,7 +317,15 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         let resolvedOptions = initializationOptions
         let resolvedConfiguration = workspaceConfiguration
         let launch: @Sendable () -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> = {
-            if let pluginID, !offeredToolchainProviders.isEmpty {
+            if let pluginID, !offeredKeymapImportProviders.isEmpty {
+                core.startPluginKeymapImportBackend(
+                    pluginID: pluginID, providerID: providerID, executableURL: executableURL,
+                    arguments: resolvedArguments, environment: environment, rootURL: normalizedRoot,
+                    initializationOptions: resolvedOptions, hostServices: hostServices,
+                    toolchainProviders: offeredToolchainProviders, keymapImportProviders: offeredKeymapImportProviders,
+                    initializeTimeout: initializeTimeout, requestTimeout: requestTimeout, shutdownTimeout: shutdownTimeout
+                )
+            } else if let pluginID, !offeredToolchainProviders.isEmpty {
                 core.startPluginToolchainBackend(
                     pluginID: pluginID,
                     providerID: providerID,
@@ -973,6 +987,38 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         }
     }
 
+    /// Requests an import from this session; cancellation reaches the backend.
+    package func keymapImportRequest(providerID: String, snapshotID: String, timeout: TimeInterval) async throws -> ToolingJSONValue {
+        guard let sessionID, state == .ready else {
+            throw LanguageServerRuntimeSessionError.notReady
+        }
+        let started: LanguageServerRuntimeOperation
+        switch await send(timeout: timeout, { core in
+            core.requestKeymapImportProvider(sessionID: sessionID, providerID: providerID, snapshotID: snapshotID, timeout: timeout)
+        }) {
+        case .success(let operation): started = operation
+        case .failure(let error):
+            sendsInFlight -= 1
+            try Task.checkCancellation()
+            throw LanguageServerRuntimeSessionError.requestRejected(error.userMessage)
+        }
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                registerPendingOperation(started, name: "lithe/keymap/import") { result in
+                    continuation.resume(with: result.flatMap { event in
+                        guard case .object(let object)? = event.result, let value = object["value"] else {
+                            return .failure(LanguageServerRuntimeSessionError.missingResult)
+                        }
+                        return .success(value)
+                    })
+                }
+                sendsInFlight -= 1
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.cancelOffMain(started.operationID) }
+        }
+    }
+
     /// Invokes a plugin function of the plugin that owns this session. Core
     /// checks ownership and registration; a refusal or a failed call throws
     /// `PluginFunctionFailure`, and cancelling the task cancels the call.
@@ -1573,6 +1619,13 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
                 }
             }
             return false
+        case "keymapImportProviders":
+            if case .object(let object)? = event.result, case .array(let providers)? = object["providers"] {
+                keymapImportProviders = providers.compactMap {
+                    if case .string(let provider) = $0 { provider } else { nil }
+                }
+            }
+            return false
         case "featuresChanged":
             updateFeatures(capabilityNames: event.capabilities ?? [])
             return false
@@ -1676,6 +1729,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         }
         vcsNegotiation = nil
         toolchainProviders = []
+        keymapImportProviders = []
         let released = onReleased
         onReleased = nil
         released?()

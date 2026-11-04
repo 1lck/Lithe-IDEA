@@ -162,6 +162,12 @@ pub struct LspClientState {
     /// The offered providers the backend selected; empty until negotiated.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub toolchain_providers: Vec<String>,
+    /// Manifest providers offered under `litheKeymapImport` for this session.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub offered_keymap_import_providers: BTreeSet<String>,
+    /// The shortcut import providers selected by the backend.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub keymap_import_providers: Vec<String>,
 }
 
 impl Default for LspClientState {
@@ -185,6 +191,8 @@ impl Default for LspClientState {
             vcs_provider: None,
             offered_toolchain_providers: BTreeSet::new(),
             toolchain_providers: Vec::new(),
+            offered_keymap_import_providers: BTreeSet::new(),
+            keymap_import_providers: Vec::new(),
         }
     }
 }

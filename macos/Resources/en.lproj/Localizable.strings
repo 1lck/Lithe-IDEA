@@ -1175,6 +1175,7 @@
 "Debug support is not available for %@" = "Debug support is not available for %@";
 "Debug target" = "Debug target";
 "Debug: Resume" = "Debug: Resume";
+"Debug: Start or Continue" = "Debug: Start or Continue";
 "Debug: Step Into" = "Debug: Step Into";
 "Debug: Step Out" = "Debug: Step Out";
 "Debug: Step Over" = "Debug: Step Over";
@@ -2401,6 +2402,7 @@
 "More information" = "More information";
 "More paths changed than are shown." = "More paths changed than are shown.";
 "More session settings" = "More session settings";
+"More than one plugin can import shortcuts from this source. Disable duplicate providers and scan again." = "More than one plugin can import shortcuts from this source. Disable duplicate providers and scan again.";
 "Move" = "Move";
 "Move %lld items to Trash?" = "Move %lld items to Trash?";
 "Move Earlier" = "Move Earlier";
@@ -2710,6 +2712,7 @@
 "Octal" = "Octal";
 "Off" = "Off";
 "Off for this project" = "Off for this project";
+"Offer shortcut mappings for import" = "Offer shortcut mappings for import";
 "Official" = "Official";
 "Official MCP Registry" = "Official MCP Registry";
 "Official plugin %@ declares a signature policy that does not match the host trust policy." = "Official plugin %@ declares a signature policy that does not match the host trust policy.";
@@ -3135,6 +3138,7 @@
 "Read Memory at Address" = "Read Memory at Address";
 "Read Memory at Value" = "Read Memory at Value";
 "Read again" = "Read again";
+"Read declared shortcut files from the editor you select for import" = "Read declared shortcut files from the editor you select for import";
 "Read result" = "Read result";
 "Read, write and search files only in the directories you allow. Requires Node.js 24 or later." = "Read, write and search files only in the directories you allow. Requires Node.js 24 or later.";
 "Read-only" = "Read-only";
@@ -3177,7 +3181,7 @@
 "Reference changes could not be inspected" = "Reference changes could not be inspected";
 "Reference default" = "Reference default";
 "Reference list truncated; total updated: %lld, deleted: %lld" = "Reference list truncated; total updated: %lld, deleted: %lld";
-"Reference shortcuts are merged with supported user overrides. Conditional rules, chords and removals suppress the affected mappings; extension keymaps are skipped." = "Reference shortcuts are merged with supported user overrides. Conditional rules, chords and removals suppress the affected mappings; extension keymaps are skipped.";
+"Reference shortcuts are merged with supported user overrides. Conditional bindings and chords may suppress mappings; conditional removals and extension keymaps are skipped." = "Reference shortcuts are merged with supported user overrides. Conditional bindings and chords may suppress mappings; conditional removals and extension keymaps are skipped.";
 "Refresh" = "Refresh";
 "Refresh All" = "Refresh All";
 "Refresh Files" = "Refresh Files";
@@ -3710,6 +3714,7 @@
 "Shelve and Continue" = "Shelve and Continue";
 "Shelving saves these changes in Lithe, runs the operation, then restores them. If conflicts stop the operation, the shelf stays saved until you finish it." = "Shelving saves these changes in Lithe, runs the operation, then restores them. If conflicts stop the operation, the shelf stays saved until you finish it.";
 "Ships with Lithe" = "Ships with Lithe";
+"Shortcut import is unavailable. Update Lithe and the editor import plugin, then try again." = "Shortcut import is unavailable. Update Lithe and the editor import plugin, then try again.";
 "Shortcut is already assigned to this command" = "Shortcut is already assigned to this command";
 "Shortcut needs Command, Control, or Option" = "Shortcut needs Command, Control, or Option";
 "Show" = "Show";
@@ -3904,6 +3909,7 @@
 "Start a local Java debug session to view performance." = "Start a local Java debug session to view performance.";
 "Start a new conversation after saving to load the updated instructions. Project instructions still apply." = "Start a new conversation after saving to load the updated instructions. Project instructions still apply.";
 "Start debugging" = "Start debugging";
+"Start debugging or continue the paused session" = "Start debugging or continue the paused session";
 "Start debugging the current Java file" = "Start debugging the current Java file";
 "Start from" = "Start from";
 "Start in new conversation" = "Start in new conversation";
@@ -5232,7 +5238,7 @@
 "mac.editorImport.extended1" = "Insert spaces";
 "mac.editorImport.extended2" = "Detect indentation";
 "mac.editorImport.extended3" = "Code settings";
-"mac.editorImport.extended4" = "Reference shortcuts are merged with supported user overrides. Conditional rules, chords and removals suppress the affected mappings; extension keymaps are skipped.";
+"mac.editorImport.extended4" = "Reference shortcuts are merged with supported user overrides. Conditional bindings and chords may suppress mappings; conditional removals and extension keymaps are skipped.";
 "mac.editorImport.extended5" = "Only global indentation is imported. Language-specific code styles and formatter rules are skipped.";
 "mac.editorImport.extended6" = "Keyboard shortcut conflicts with %1$@. Adjust your keymap before importing.";
 "mac.editorImport.extended7" = "Appearance defaults are labeled separately. Workspace and language overrides, formatters, extensions and account data are skipped.";
@@ -6202,6 +6208,7 @@
 "native.debugResume" = "Debug: Resume";
 "native.debugSelectedTest" = "Debug selected test";
 "native.debugSessions" = "Debug sessions";
+"native.debugStartOrContinue" = "Debug: Start or Continue";
 "native.debugStepInto" = "Debug: Step Into";
 "native.debugStepOut" = "Debug: Step Out";
 "native.debugStepOver" = "Debug: Step Over";
@@ -7124,6 +7131,10 @@
 "native.kernel" = "Kernel";
 "native.keychainErrorLld" = "Keychain error %1$@: %2$@";
 "native.keymap" = "Keymap…";
+"native.keymapImportAmbiguous" = "More than one plugin can import shortcuts from this source. Disable duplicate providers and scan again.";
+"native.keymapImportProviderPermission" = "Offer shortcut mappings for import";
+"native.keymapImportRuntimeUnavailable" = "Shortcut import is unavailable. Update Lithe and the editor import plugin, then try again.";
+"native.keymapImportSourceReadPermission" = "Read declared shortcut files from the editor you select for import";
 "native.koreanCharacters" = "Korean characters";
 "native.kotlinSupport" = "Kotlin Support";
 "native.labels" = "Labels";
@@ -8881,6 +8892,7 @@
 "native.startANewConversationAfterSavingToLoadTheUpdatedInstructionsProjectInstructionsStillApply" = "Start a new conversation after saving to load the updated instructions. Project instructions still apply.";
 "native.startDebugging" = "Start Debugging";
 "native.startDebugging.variant2" = "Start debugging";
+"native.startDebuggingOrContinuePausedSession" = "Start debugging or continue the paused session";
 "native.startDebuggingTheCurrentJavaFile" = "Start debugging the current Java file";
 "native.startFrom" = "Start from";
 "native.startInNewConversation" = "Start in new conversation";

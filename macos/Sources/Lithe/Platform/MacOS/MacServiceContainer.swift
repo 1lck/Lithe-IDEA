@@ -1181,7 +1181,30 @@ final class MacServiceContainer {
                 plugins: pluginManager?.snapshots.filter { $0.isEnabled }.map(\.id.rawValue) ?? [])
         }
         services.logSink = applicationLogging as? any LogSink
-        services.editorSettingsImportScan = { try await MacEditorSettingsImportReader.scan(directory: $0, logSink: logSink) }
+        services.debugStartOrContinue = { active, paused, pending in
+            try rustCore.debugStartOrContinue(active: active, paused: paused, requestPending: pending)
+        }
+        let keymapImport = MacEditorKeymapImportService(
+            find: { try await pluginBackends.matchingKeymapProviders(root: $0) },
+            importProvider: { provider, root in
+                try await pluginBackends.importKeymap(provider.id, selectedRoot: root, ofPlugin: provider.pluginID, timeout: 30)
+            },
+            operations: RustKeymapImportOperations(core: rustCore)
+        )
+        services.editorSettingsImportScan = { directory in
+            let sources = try await MacEditorSettingsImportReader.scan(directory: directory, logSink: logSink)
+            guard directory != nil else { return sources }
+            var imported: [EditorSettingsImportSource] = []
+            for source in sources {
+                try Task.checkCancellation()
+                imported.append(source.readFailed ? source : try await keymapImport.importing(source))
+            }
+            return imported
+        }
+        services.editorSettingsImportLoadKeymapOnSelection = true
+        services.editorSettingsImportKeymapPlan = { current, incoming in
+            try RustKeymapImportOperations(core: rustCore).planBindings(current: current, incoming: incoming)
+        }
         services.ideCapabilityRegistry = ideCapabilityRegistry
         services.pluginRegistrationChanges = livePlugins.changes
         // Static editor resources follow their own enablement; ordinary tool
@@ -1306,7 +1329,7 @@ final class MacServiceContainer {
                         manifest: plugin.descriptor.normalizedManifest,
                         isEnabled: enabled.contains(plugin.descriptor.id),
                         // Short tool IDs need an official catalog entry installed through a verified channel.
-                        verifiedOfficial: OfficialPluginCatalog.entry(for: plugin.descriptor.id) != nil
+                        verifiedOfficial: OfficialPluginCatalog.trustPolicy(for: plugin.descriptor.id) != nil
                             && [.bundled, .marketplace].contains(plugin.installation.origin)
                     )
                 }

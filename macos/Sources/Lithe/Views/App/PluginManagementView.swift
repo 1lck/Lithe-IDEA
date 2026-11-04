@@ -485,7 +485,7 @@ private struct InstalledPluginsView: View {
         let isEnabled = effectiveEnabledState(for: plugin)
         // Built-in feature groups are listed as bundled too, but only an
         // official plugin package can be removed.
-        let canUninstall = plugin.origin != .bundled || OfficialPluginCatalog.entry(for: plugin.id) != nil
+        let canUninstall = plugin.origin != .bundled || OfficialPluginCatalog.trustPolicy(for: plugin.id) != nil
         return PluginDetailActions(
             toggleEnabled: { stageEnabledState(!isEnabled, for: plugin) },
             update: update.map { update in { performPackageAction { await feature.install(update) } } },
@@ -664,7 +664,7 @@ struct PluginManagementListContent {
     /// plugin, so only official plugins and installed packages are listed.
     init(plugins: [PluginManagementSnapshot]) {
         self.plugins = plugins.filter {
-            OfficialPluginCatalog.entry(for: $0.id) != nil || $0.origin != .bundled
+            OfficialPluginCatalog.trustPolicy(for: $0.id) != nil || $0.origin != .bundled
         }
     }
 

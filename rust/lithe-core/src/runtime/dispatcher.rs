@@ -296,6 +296,27 @@ fn execute(request: &str) -> CoreResponse {
             parsed.payload,
             crate::plugins::editor_actions::decode_command,
         ),
+        CoreCommand::KeymapDecodeImport => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::keymap_import::decode_command,
+        ),
+        CoreCommand::KeymapPlanImportSources => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::keymap_import::plan_sources_command,
+        ),
+        CoreCommand::KeymapPlanImportBindings => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::keymap_import::plan_bindings_command,
+        ),
+        CoreCommand::DebugStartOrContinue => {
+            match crate::debug::start_or_continue(parsed.payload) {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::ToolchainsRegistry => {
             plugin_response(id, parsed.payload, crate::toolchain::registry_command)
         }
@@ -2039,6 +2060,21 @@ fn execute(request: &str) -> CoreResponse {
                 Ok(data) => CoreResponse::success(
                     id,
                     serde_json::to_value(data).expect("Toolchain response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::LspKeymapImportRequest => {
+            match serde_json::from_value::<crate::lsp::KeymapImportProviderRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid shortcut import request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::keymap_import_provider_request)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Shortcut import response should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }

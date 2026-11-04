@@ -106,6 +106,7 @@ pub(crate) const HOST_PERMISSIONS: &[&str] = &[
     "browser.open",
     "window.messages",
     "terminal.create",
+    "keymaps.readSelectedSources",
 ];
 
 const CREDENTIALS_GET: &str = "lithe/host/credentials/get";
@@ -430,7 +431,10 @@ pub(crate) fn parse_progress(params: Option<&Value>) -> Option<FunctionProgress>
 /// requesting backend, whose handler would then wait on itself; host
 /// capabilities are offered per protocol version, and version 1 offers none.
 pub(crate) fn refused_backend_request(method: &str) -> Option<&'static str> {
-    if method == INVOKE_METHOD || method.starts_with("lithe/build/") {
+    if method == INVOKE_METHOD
+        || method.starts_with("lithe/build/")
+        || method.starts_with("lithe/keymap/")
+    {
         Some(codes::RECURSIVE_CALL)
     } else if method.starts_with("lithe/host/") {
         Some(codes::HOST_UNAVAILABLE)
@@ -472,6 +476,8 @@ pub(crate) enum HostParams {
     Subscription,
     /// Exactly `{ context }`, a well-formed context reference.
     Context,
+    /// Snapshot source listing or one bounded chunk from a selected source.
+    KeymapSnapshot { chunk: bool },
     /// Any object whose `context`, when present, is a well-formed
     /// reference. The service checks the rest and answers
     /// `plugin.host.invalidParams` or, for a field it does not know,
@@ -500,6 +506,20 @@ pub(crate) struct HostMethod {
 /// service adds its rows here, its grant to `GRANTABLE_HOST_SERVICES` and
 /// the manifest permission, and its handler to the host's dispatcher.
 pub(crate) const HOST_METHODS: &[HostMethod] = &[
+    HostMethod {
+        method: "lithe/host/keymapImport/listInputs",
+        service: "keymapImport",
+        permission: Some("keymaps.readSelectedSources"),
+        since: CONTEXT_VERSION,
+        params: HostParams::KeymapSnapshot { chunk: false },
+    },
+    HostMethod {
+        method: "lithe/host/keymapImport/readChunk",
+        service: "keymapImport",
+        permission: Some("keymaps.readSelectedSources"),
+        since: CONTEXT_VERSION,
+        params: HostParams::KeymapSnapshot { chunk: true },
+    },
     HostMethod {
         method: "lithe/host/terminal/reopen",
         service: "terminal",
@@ -1034,6 +1054,14 @@ fn check_host_params(
         HostParams::Credential { with_secret: false } => &["key"],
         HostParams::Subscription => &["subscriptionID"],
         HostParams::Context => &["context"],
+        HostParams::KeymapSnapshot { chunk: false } => &["snapshotID", "providerID"],
+        HostParams::KeymapSnapshot { chunk: true } => &[
+            "snapshotID",
+            "providerID",
+            "fileID",
+            "offset",
+            "maximumBytes",
+        ],
         HostParams::Object => {
             return match params.get("context") {
                 Some(context) if !is_context_reference(context) => {
@@ -1089,6 +1117,42 @@ fn check_host_params(
         HostParams::Context => {
             if !params.get("context").is_some_and(is_context_reference) {
                 return Err(invalid(CONTEXT_REFERENCE_MESSAGE));
+            }
+        }
+        HostParams::KeymapSnapshot { chunk } => {
+            let opaque_id = |key: &str| {
+                params.get(key).and_then(Value::as_str).is_some_and(|id| {
+                    !id.is_empty()
+                        && id.len() <= 128
+                        && id
+                            .bytes()
+                            .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
+                })
+            };
+            let provider = params
+                .get("providerID")
+                .and_then(Value::as_str)
+                .is_some_and(crate::plugins::keymap_import::valid_provider_id);
+            let valid_chunk = !chunk
+                || (opaque_id("fileID")
+                    && params
+                        .get("offset")
+                        .and_then(Value::as_u64)
+                        .is_some_and(|offset| {
+                            offset <= crate::plugins::keymap_import::MAX_INPUT_FILE_BYTES as u64
+                        })
+                    && params
+                        .get("maximumBytes")
+                        .and_then(Value::as_u64)
+                        .is_some_and(|size| {
+                            size > 0
+                                && size
+                                    <= crate::plugins::keymap_import::MAX_INPUT_CHUNK_BYTES as u64
+                        }));
+            if !opaque_id("snapshotID") || !provider || !valid_chunk {
+                return Err(invalid(
+                    "Snapshot source parameters are malformed or exceed their bounds.",
+                ));
             }
         }
         HostParams::Empty | HostParams::Object => {}
@@ -1684,6 +1748,44 @@ mod tests {
                 .code,
             codes::HOST_INVALID_PARAMS
         );
+    }
+
+    /// Snapshot reads are separately granted and may name only bounded opaque references.
+    #[test]
+    fn keymap_snapshot_host_requests_require_grants_and_bounded_references() {
+        let method = "lithe/host/keymapImport/readChunk";
+        let granted = BTreeSet::from([method.to_string()]);
+        let valid = json!({ "snapshotID": "abc-123", "providerID": "editor", "fileID": "file-1", "offset": 0, "maximumBytes": 131072 });
+        assert!(matches!(
+            host_request(method, Some(&valid), 3, &granted),
+            Ok(HostRoute::Forward("keymapImport"))
+        ));
+        assert!(host_request(method, Some(&valid), 2, &granted).is_err());
+        assert!(host_request(method, Some(&valid), 3, &BTreeSet::new()).is_err());
+        for invalid in [
+            json!({ "snapshotID": "../private", "providerID": "editor", "fileID": "file-1", "offset": 0, "maximumBytes": 1 }),
+            json!({ "snapshotID": "abc", "providerID": "editor", "fileID": "file-1", "offset": 0, "maximumBytes": 131073 }),
+            json!({ "snapshotID": "abc", "providerID": "editor", "fileID": "file-1", "offset": -1, "maximumBytes": 1 }),
+            json!({ "snapshotID": "abc", "providerID": "editor", "fileID": "file-1", "offset": 0, "maximumBytes": 1, "path": "/private" }),
+        ] {
+            assert!(host_request(method, Some(&invalid), 3, &granted).is_err());
+        }
+        let list = "lithe/host/keymapImport/listInputs";
+        let list_grant = BTreeSet::from([list.to_string()]);
+        assert!(host_request(
+            list,
+            Some(&json!({ "snapshotID": "abc", "providerID": "editor" })),
+            3,
+            &list_grant
+        )
+        .is_ok());
+        assert!(host_request(
+            list,
+            Some(&json!({ "snapshotID": "abc", "providerID": "editor", "path": "secret" })),
+            3,
+            &list_grant
+        )
+        .is_err());
     }
 
     /// A message over the bound is cut at a character boundary, never inside

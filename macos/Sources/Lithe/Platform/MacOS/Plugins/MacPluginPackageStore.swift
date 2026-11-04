@@ -921,7 +921,7 @@ final class MacPluginPackageStore {
     }
 
     private func validateOfficialTrustPolicy(_ manifest: PluginManifest) throws {
-        guard let trusted = OfficialPluginCatalog.entry(for: manifest.id) else { return }
+        guard let trusted = OfficialPluginCatalog.trustPolicy(for: manifest.id) else { return }
         guard manifest.vendor.signatureRequirement == trusted.signatureRequirement,
               manifest.vendor.bundledSignatureRequirement == trusted.bundledSignatureRequirement else {
             throw PluginPackageStoreError.officialSignatureRequirementMismatch(manifest.id)
@@ -1021,7 +1021,7 @@ struct MacOfficialPluginSignatureVerifier: PluginPackageSignatureVerifying {
     /// The host's trust policy wins over the package's own declaration, so an
     /// official plugin cannot downgrade the signature it must carry.
     static func signatureRequirement(for manifest: PluginManifest) -> PluginSignatureRequirement {
-        OfficialPluginCatalog.entry(for: manifest.id)?.signatureRequirement
+        OfficialPluginCatalog.trustPolicy(for: manifest.id)?.signatureRequirement
             ?? manifest.vendor.signatureRequirement
     }
 
@@ -1050,7 +1050,7 @@ struct MacOfficialPluginSignatureVerifier: PluginPackageSignatureVerifying {
         if manifest.vendor.signatureRequirement == .unsigned || origin == .community {
             guard manifest.vendor.signatureRequirement == .unsigned,
                   origin == .community,
-                  OfficialPluginCatalog.entry(for: manifest.id) == nil else {
+                  OfficialPluginCatalog.trustPolicy(for: manifest.id) == nil else {
                 throw PluginPackageStoreError.unsignedPackageNotAllowed(manifest.id)
             }
             if Self.hasPackageSignature(at: packageURL) {
@@ -1075,7 +1075,7 @@ struct MacOfficialPluginSignatureVerifier: PluginPackageSignatureVerifying {
         let usesHostSeal = origin == .bundled
             && packagePath.hasPrefix(hostBundlePath)
             && manifest.vendor.bundledSignatureRequirement == .sameTeamAsHost
-            && OfficialPluginCatalog.entry(for: manifest.id)?.bundledSignatureRequirement == .sameTeamAsHost
+            && OfficialPluginCatalog.trustPolicy(for: manifest.id)?.bundledSignatureRequirement == .sameTeamAsHost
         if (signatureRequirement == .publisherPackage && !usesHostSeal) || Self.hasPackageSignature(at: packageURL) {
             try verifyPublisherPackageSignature(packageAt: packageURL, manifest: manifest)
         }

@@ -7,6 +7,134 @@ import Testing
 
 @MainActor
 struct RustLanguageServerLaunchTests {
+    @Test
+    func keymapProviderReadsOnlyItsSelectedSnapshotThroughRealSession() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("keymap-source-session-\(UUID().uuidString)")
+        let source = root.appendingPathComponent("source")
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data("bindings".utf8).write(to: source.appendingPathComponent("bindings.json"))
+        let executable = root.appendingPathComponent("server.py")
+        try Self.keymapSourceServer.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        let methods = ["lithe/host/keymapImport/listInputs", "lithe/host/keymapImport/readChunk"]
+        let dispatcher = PluginHostServiceDispatcher(contexts: PluginWorkspaceContexts())
+        let service = MacKeymapImportHostService()
+        dispatcher.register(service)
+        let pluginID = "dev.lithe.fixture.import"
+        let hostSession = dispatcher.beginSession(pluginID: pluginID, hostServices: methods)
+        let session = LanguageServerRuntimeSession(providerID: "fixture", executableURL: executable,
+            arguments: [], environment: [:], initializeTimeout: 5, shutdownTimeout: 0.1,
+            core: RustCoreBridge(), pluginID: pluginID, role: .backend, hostServices: methods,
+            keymapImportProviders: ["first"])
+        defer { session.stop(); dispatcher.endSession(pluginID: pluginID) }
+        session.onHostRequest = { [weak session] request in
+            dispatcher.handle(request, pluginID: pluginID, sessionID: hostSession) { result in
+                session?.respond(to: request.id, with: result)
+            }
+        }
+        session.onHostRequestCancelled = { requestID in
+            dispatcher.cancel(hostRequestID: requestID, pluginID: pluginID, sessionID: hostSession)
+        }
+        let ready = TestGate()
+        session.onStateChange = { state in if case .ready = state { ready.open() } }
+        try session.start(rootURL: root, workspaceFingerprint: nil)
+        try #require(await ready.waitUntilOpen(timeout: .seconds(5)))
+        let manifestURL = DeclarativePluginTestSupport.repositoryRoot
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/keymap-import-provider.plugin.json")
+        let plan = try RustKeymapImportOperations(core: RustCoreBridge()).planSources(
+            manifest: Data(contentsOf: manifestURL), providerID: "first")
+        let snapshot = try MacKeymapImportSnapshot(root: source, plan: plan)
+        let token = service.snapshots.insert(snapshot, pluginID: pluginID, sessionID: hostSession, providerID: "first")
+        let response = try await session.keymapImportRequest(providerID: "first", snapshotID: token, timeout: 5)
+        guard case .object(let value) = response, case .object(let raw)? = value["response"],
+              case .object(let payload)? = raw["result"] else {
+            Issue.record("Provider response was not returned")
+            return
+        }
+        #expect(payload["bindings"] == .array([.object([
+            "commandID": .string("find-next"), "keys": .array([.object(["key": .string("f3"), "modifiers": .array([])])])
+        ])]))
+        #expect(await session.stopAndWait())
+        dispatcher.endSession(pluginID: pluginID)
+        let fileID = try #require(snapshot.files.first?.id)
+        #expect(throws: (any Error).self) { try snapshot.read(fileID: fileID, offset: 0, maximumBytes: 1) }
+    }
+
+    @Test
+    func shortcutImportRunsThroughManagedPluginSession() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("keymap-managed-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let executable = root.appendingPathComponent("server.py")
+        try Self.server.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        let session = LanguageServerRuntimeSession(providerID: "fixture", executableURL: executable,
+            arguments: [], environment: [:], initializeTimeout: 5, shutdownTimeout: 0.1,
+            core: RustCoreBridge(), pluginID: "dev.lithe.fixture.import", role: .backend,
+            keymapImportProviders: ["fixture"])
+        defer { session.stop() }
+        let ready = TestGate()
+        session.onStateChange = { state in if case .ready = state { ready.open() } }
+        try session.start(rootURL: root, workspaceFingerprint: nil)
+        try #require(await ready.waitUntilOpen(timeout: .seconds(5)))
+        #expect(session.keymapImportProviders == ["fixture"])
+        let response = try await session.keymapImportRequest(providerID: "fixture", snapshotID: "snapshot-1", timeout: 2)
+        guard case .object(let value) = response, case .object(let raw)? = value["response"],
+              case .object(let payload)? = raw["result"] else {
+            Issue.record("Provider response was not returned")
+            return
+        }
+        #expect(payload["bindings"] == .array([]))
+        #expect(await session.stopAndWait())
+    }
+
+    @Test
+    func shortcutImportUsesNegotiatedPluginSessionThroughRustBridge() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("keymap-bridge-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let executable = root.appendingPathComponent("server.py")
+        try Self.server.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        let core = RustCoreBridge()
+        let started = try core.lspStartServer(providerID: "fixture", pluginID: "dev.lithe.fixture.import",
+            executableURL: executable, arguments: [], environment: [:], rootURL: root,
+            workingDirectoryURL: root, keymapImportProviders: ["fixture"],
+            initializeTimeout: 5, requestTimeout: 5, shutdownTimeout: 0.1).get()
+        defer { core.stopLanguageServer(sessionID: started.sessionId); core.destroyLanguageServer(sessionID: started.sessionId) }
+        var selected = false
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while ContinuousClock.now < deadline && !selected {
+            for event in core.pollLanguageServerEvents(sessionID: started.sessionId) where event.type == "keymapImportProviders" {
+                if case .object(let object)? = event.result, case .array(let ids)? = object["providers"] {
+                    selected = ids == [.string("fixture")]
+                }
+            }
+            await Task.yield()
+        }
+        try #require(selected, "Plugin did not negotiate the declared import provider")
+        if case .success = core.lspKeymapImportRequest(sessionID: started.sessionId, providerID: "other", snapshotID: "snapshot-1", timeout: 1) {
+            Issue.record("Core accepted an unnegotiated provider")
+        }
+        let operation = try core.lspKeymapImportRequest(sessionID: started.sessionId, providerID: "fixture", snapshotID: "snapshot-1", timeout: 1).get()
+        var received = false
+        let responseDeadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while ContinuousClock.now < responseDeadline && !received {
+            for event in core.pollLanguageServerEvents(sessionID: started.sessionId)
+                where event.type == "requestCompleted" && event.operationID == operation.operationId {
+                guard case .object(let result)? = event.result, case .object(let value)? = result["value"],
+                      case .object(let response)? = value["response"], case .object(let payload)? = response["result"] else { continue }
+                received = payload["bindings"] == .array([])
+            }
+            await Task.yield()
+        }
+        #expect(received)
+        let sent = try #require(read("keymap-import", root) as? [String: Any])
+        let params = try #require(sent["params"] as? [String: String])
+        #expect(params == ["providerID": "fixture", "snapshotID": "snapshot-1"])
+    }
+
     @Test(arguments: [false, true])
     func startupMapsIdentityConfigurationServicesAndJdtContextThroughCore(useJdt: Bool) async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("plugin-core-launch-\(UUID().uuidString)")
@@ -217,6 +345,42 @@ struct RustLanguageServerLaunchTests {
 
     // macOS developer tools already provide Python; this explicit integration
     // fixture speaks framed JSON-RPC and accepts the JVM argv without a JDK.
+    private static let keymapSourceServer = #"""
+#!/usr/bin/python3
+import json, sys
+def send(value):
+    body = json.dumps(value).encode()
+    sys.stdout.buffer.write(('Content-Length: %d\r\n\r\n' % len(body)).encode() + body)
+    sys.stdout.buffer.flush()
+while True:
+    headers = {}
+    while True:
+        line = sys.stdin.buffer.readline()
+        if not line: sys.exit(0)
+        if line == b'\r\n': break
+        key, value = line.decode().split(':', 1)
+        headers[key.lower()] = value.strip()
+    message = json.loads(sys.stdin.buffer.read(int(headers['content-length'])))
+    method = message.get('method')
+    if method == 'initialize':
+        send({'jsonrpc':'2.0','id':message['id'],'result':{'capabilities':{'experimental':{
+            'litheFunctions':{'version':3,'functions':[]},
+            'litheKeymapImport':{'version':1,'providers':['first']}}}}})
+    elif method == 'lithe/keymap/import':
+        request_id = message['id']
+        params = message['params']
+        send({'jsonrpc':'2.0','id':'list','method':'lithe/host/keymapImport/listInputs','params':params})
+    elif message.get('id') == 'list':
+        files = message['result']['files']
+        send({'jsonrpc':'2.0','id':'read','method':'lithe/host/keymapImport/readChunk','params':{
+            **params, 'fileID':files[0]['id'], 'offset':0, 'maximumBytes':8}})
+    elif message.get('id') == 'read':
+        keys = [{'key':'f3','modifiers':[]}] if message['result']['data'] == 'YmluZGluZ3M=' else []
+        send({'jsonrpc':'2.0','id':request_id,'result':{'bindings':[{'commandID':'find-next','keys':keys}]}})
+    elif method == 'exit': break
+    elif method and 'id' in message: send({'jsonrpc':'2.0','id':message['id'],'result':None})
+"""#
+
     private static let server = #"""
 #!/usr/bin/python3
 import json, pathlib, sys
@@ -245,9 +409,15 @@ while True:
     method = message.get('method')
     if method == 'initialize':
         record('initialize', message)
-        send({'jsonrpc':'2.0','id':message['id'],'result':{'capabilities':{'experimental':{'litheFunctions':{'version':2,'functions':[{'id':'snapshot.refresh'}]}}}}})
+        experimental = {'litheFunctions':{'version':2,'functions':[{'id':'snapshot.refresh'}]}}
+        offered = message.get('params', {}).get('capabilities', {}).get('experimental', {}).get('litheKeymapImport')
+        if offered: experimental['litheKeymapImport'] = {'version':1, 'providers':offered['providers']}
+        send({'jsonrpc':'2.0','id':message['id'],'result':{'capabilities':{'experimental':experimental}}})
     elif method == '$/setTrace':
         record('trace', message['params']['value'])
+    elif method == 'lithe/keymap/import':
+        record('keymap-import', message)
+        send({'jsonrpc':'2.0','id':message['id'],'result':{'bindings':[]}})
     elif method == 'initialized':
         send({'jsonrpc':'2.0','method':'window/logMessage','params':{'type':3,'message':'fixture diagnostic'}})
         send({'jsonrpc':'2.0','method':'language/status','params':{'type':'ServiceReady'}})
