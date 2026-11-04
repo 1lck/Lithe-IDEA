@@ -2333,6 +2333,9 @@ impl LspEngine {
         self.lock_sessions()?
             .insert(session_id.clone(), session.clone());
         if let Err(error) = check_indexing() {
+            // A retired start is cancelled, not a handshake failure. Abandon
+            // the attempt before `fail` or the process exit can record it.
+            plugin_operations::abandon(attempt);
             session.fail(
                 "indexingChanged",
                 "initialize",
@@ -2341,8 +2344,6 @@ impl LspEngine {
                 None,
             );
             session.active.store(false, Ordering::Release);
-            // A retired start is cancelled; the process exit must not record it.
-            plugin_operations::abandon(attempt);
             session.kill_process();
             // No native identity has been published yet. Forget the session
             // only after disposal proves that its process tree has exited.
@@ -2375,6 +2376,9 @@ impl LspEngine {
         }
 
         if let Err(error) = check_indexing() {
+            // The readers already run; abandon before `fail` and the kill so
+            // neither the failure nor the observed exit records the cancel.
+            plugin_operations::abandon(attempt);
             session.fail(
                 "indexingChanged",
                 "initialize",
@@ -2383,9 +2387,6 @@ impl LspEngine {
                 None,
             );
             session.active.store(false, Ordering::Release);
-            // The readers already run; abandon before the kill so the exit
-            // they observe finds no attempt to record.
-            plugin_operations::abandon(attempt);
             session.kill_process();
             // The native owner already holds this identity. Keep it until
             // destroy verifies disposal and returns a positive receipt.
@@ -11689,6 +11690,7 @@ mod tests {
 
     #[test]
     fn indexing_startup_cancels_when_policy_changes_during_process_launch() {
+        const CANCELLED_PLUGIN: &str = "io.example.indexing-cancel-launch";
         struct RetireOnLaunch {
             inner: Arc<dyn LspProcessLauncher>,
             root: PathBuf,
@@ -11766,6 +11768,11 @@ mod tests {
             request.provider_id = "python".into();
             request.root_uri = url::Url::from_directory_path(&root).unwrap().to_string();
             request.working_directory = root.to_string_lossy().into_owned();
+            request.startup_operation = Some(AttemptHandoff {
+                plugin_id: CANCELLED_PLUGIN.to_string(),
+                operation_id: "indexing-cancel-before-registration".to_string(),
+                elapsed_ms: 5,
+            });
             let mut registered = None;
             let result = if native_owner {
                 engine.start_server_owned(request, |id| registered = Some(id.to_owned()))
@@ -11808,11 +11815,16 @@ mod tests {
                 server.input_was_closed(),
                 "the cancelled startup owns process termination"
             );
+            assert!(
+                plugin_operations::test_capture::take(CANCELLED_PLUGIN).is_empty(),
+                "a cancelled start records no plugin operation result"
+            );
         }
     }
 
     #[test]
     fn native_owner_retains_indexing_cancellation_after_registration() {
+        const CANCELLED_PLUGIN: &str = "io.example.indexing-cancel-registered";
         let workspace = TemporaryMavenWorkspace::recursive("indexing-owned-startup");
         let root = workspace.root.canonicalize().unwrap();
         let mut policy = IndexingPolicyFixture::new(root.clone());
@@ -11823,6 +11835,11 @@ mod tests {
         request.provider_id = "python".into();
         request.root_uri = url::Url::from_directory_path(&root).unwrap().to_string();
         request.working_directory = root.to_string_lossy().into_owned();
+        request.startup_operation = Some(AttemptHandoff {
+            plugin_id: CANCELLED_PLUGIN.to_string(),
+            operation_id: "indexing-cancel-after-registration".to_string(),
+            elapsed_ms: 5,
+        });
         let mut registered = None;
         let result = engine.start_server_owned(request, |id| {
             registered = Some(id.to_owned());
@@ -11838,6 +11855,10 @@ mod tests {
             .destroy(&id)
             .expect("native owner confirms process disposal");
         assert!(engine.session(&id).is_err());
+        assert!(
+            plugin_operations::test_capture::take(CANCELLED_PLUGIN).is_empty(),
+            "a cancelled start records no plugin operation result"
+        );
     }
 
     #[test]

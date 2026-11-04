@@ -142,11 +142,14 @@ fn instance(
 // Detection historically accepts absent/non-directory roots as an empty view.
 // Keep that boundary local: scans of real directories must still report I/O
 // failures, and the shared run scanner retains its required-root semantics.
+// The check goes through workspace I/O so a remote root, including one opened
+// through a host symbolic link, is examined on the owning host rather than in
+// the unmaterialized local projection.
 fn scan_directory_root(
     root: &Path,
     scan: impl FnOnce(&Path) -> Result<Vec<crate::execution::DirectoryContext>, CoreError>,
 ) -> Validation<Vec<crate::execution::DirectoryContext>> {
-    match std::fs::metadata(root) {
+    match crate::remote::workspace_io::metadata(root) {
         Ok(metadata) if !metadata.is_dir() => return Ok(Vec::new()),
         Err(error) if matches!(error.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory) => {
             return Ok(Vec::new());

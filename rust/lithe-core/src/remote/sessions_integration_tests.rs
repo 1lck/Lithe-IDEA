@@ -161,6 +161,42 @@ fn remote_build_detects_host_models_normalizes_diagnostics_and_invalidates_sync(
     assert_eq!(std::fs::read_dir(placeholder).unwrap().count(), 0);
 }
 
+/// A remote root opened through a host symbolic link resolves outside the
+/// local placeholder; the empty-root boundary must ask the host, not the
+/// unmaterialized local projection, before scanning.
+#[test]
+fn remote_build_detects_a_root_opened_through_a_host_symbolic_link() {
+    let host = HostFixture::new();
+    let root = host.root.join("host");
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(root.join("src/main.rs"), "fn main() {}\n").unwrap();
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"linked-host\"\nversion = \"1.0.0\"\n",
+    )
+    .unwrap();
+    let link = host.root.join("opened-link");
+    std::os::unix::fs::symlink(&root, &link).unwrap();
+    let manifest: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../shared/contracts/plugins/v1/fixtures/build-static-file.plugin.json"
+    )))
+    .unwrap();
+    let detection = host.request_at(
+        &link,
+        "build.detect",
+        json!({"workspaceRoot": host.root.join("placeholder"),
+        "plugins": [{"manifest": manifest}], "options": {}}),
+    );
+    assert_eq!(detection["status"], "ok", "{detection}");
+    let instance = &detection["detection"]["instances"][0];
+    assert_eq!(instance["id"], "cargo:.", "{detection}");
+    assert_eq!(
+        instance["model"]["projects"][0]["name"], "linked-host",
+        "{detection}"
+    );
+}
+
 #[test]
 fn remote_maven_build_reads_reactor_and_current_host_test_reports() {
     let host = HostFixture::new();
