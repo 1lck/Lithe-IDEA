@@ -45,6 +45,7 @@
 "%@ keeps no workspace state that Lithe can reset." = "%@ keeps no workspace state that Lithe can reset.";
 "%@ language server (inside the plugin)" = "%@ language server (inside the plugin)";
 "%@ language server (installed on this Mac)" = "%@ language server (installed on this Mac)";
+"%@ language server (started by the plugin)" = "%@ language server (started by the plugin)";
 "%@ memory" = "%@ memory";
 "%@ now follows your local %@ configuration." = "%@ now follows your local %@ configuration.";
 "%@ of %@ is handled by %@." = "%@ of %@ is handled by %@.";
@@ -859,6 +860,7 @@
 "Comma-separated glob patterns. Empty searches every file." = "Comma-separated glob patterns. Empty searches every file.";
 "Command" = "Command";
 "Command Palette Actions" = "Command Palette Actions";
+"Command chosen by: %@" = "Command chosen by: %@";
 "Command details" = "Command details";
 "Commands an AI Agent started that are still running, for example a deployment, a database migration or a dev server. Each one is asked about separately because ending one halfway can leave data or services inconsistent. What the Agent needs for itself, such as its MCP servers, always ends with the Agent." = "Commands an AI Agent started that are still running, for example a deployment, a database migration or a dev server. Each one is asked about separately because ending one halfway can leave data or services inconsistent. What the Agent needs for itself, such as its MCP servers, always ends with the Agent.";
 "Comment" = "Comment";
@@ -3984,6 +3986,7 @@
 "Start this configuration to see its output here." = "Start this configuration to see its output here.";
 "Start time" = "Start time";
 "Start with an action verb, without a type prefix" = "Start with an action verb, without a type prefix";
+"Started by the plugin" = "Started by the plugin";
 "Started in Claude Desktop" = "Started in Claude Desktop";
 "Starting" = "Starting";
 "Starting Interactive Rebase" = "Starting Interactive Rebase";
@@ -6054,6 +6057,7 @@
 "native.commaSeparatedGlobPatternsEGJavaKt" = "Comma-separated glob patterns, e.g. *.java, *.kt";
 "native.commaSeparatedGlobPatternsEmptySearchesEveryFile" = "Comma-separated glob patterns. Empty searches every file.";
 "native.command" = "Command";
+"native.commandChosenBy" = "Command chosen by: %1$@";
 "native.commandDetails" = "Command details";
 "native.commandPaletteActions" = "Command Palette Actions";
 "native.commandsAnAIAgentStartedThatAreStillRunningForExampleADeploymentADatabaseMigradd876f8a4a" = "Commands an AI Agent started that are still running, for example a deployment, a database migration or a dev server. Each one is asked about separately because ending one halfway can leave data or services inconsistent. What the Agent needs for itself, such as its MCP servers, always ends with the Agent.";
@@ -7313,6 +7317,7 @@
 "native.languageServerReturnedOverlappingTextEdits" = "Language server returned overlapping text edits.";
 "native.languageServerSessionStoppedBeforeTheRequestCompleted" = "Language server session stopped before the request completed.";
 "native.languageServerSettingsAction" = "Language Server Settings...";
+"native.languageServerStartedByThePlugin" = "%1$@ language server (started by the plugin)";
 "native.languageServerStillStopping" = "The language server is still stopping. Try again after it has stopped.";
 "native.languageServerToolConfigurationChanged" = "Language server tool configuration changed";
 "native.languageServers" = "Language servers";
@@ -9077,6 +9082,7 @@
 "native.startThisConfigurationToSeeItsOutputHere" = "Start this configuration to see its output here.";
 "native.startWithAnActionVerbWithoutATypePrefix" = "Start with an action verb, without a type prefix";
 "native.startedATaskThatIsStillRunning" = "%1$@ started a task that is still running";
+"native.startedByThePlugin" = "Started by the plugin";
 "native.startedInClaudeDesktop" = "Started in Claude Desktop";
 "native.starting" = "Starting";
 "native.startingCommitOptional" = "Starting commit (optional)";

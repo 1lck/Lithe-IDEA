@@ -814,6 +814,13 @@ enum PluginMarketplacePresentation {
                 String(format: localized("%@ language server (installed on this Mac)", locale: locale), language),
                 serverDetail([program.commands.joined(separator: " | ")])
             )
+        case .backendLanguageServer:
+            // The command line is the plugin's to choose at every start, so
+            // the approval shows who chooses it, not a fixed command.
+            return (
+                String(format: localized("%@ language server (started by the plugin)", locale: locale), language),
+                labeled("Command chosen by: %@", [program.function ?? ""])
+            )
         case .runtime:
             return (
                 localized("Runtime used by the language server (installed on this Mac)", locale: locale),

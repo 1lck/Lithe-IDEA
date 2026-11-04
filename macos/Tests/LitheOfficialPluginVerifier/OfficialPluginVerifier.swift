@@ -59,7 +59,9 @@ struct OfficialPluginVerifier {
                 if let directory = packagedRuntime.split(separator: "/").first {
                     runtimeDirectories.append(String(directory))
                 }
-            case .systemCommand:
+            case .systemCommand, .backend:
+                // The backend chooses the command when the server starts, so
+                // there is no file to check in the package yet.
                 continue
             }
         }

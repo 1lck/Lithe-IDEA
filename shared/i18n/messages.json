@@ -31475,6 +31475,22 @@
       }
     },
     {
+      "id": "native.commandChosenBy",
+      "description": "Native UI: Command chosen by: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Command chosen by: %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
       "id": "native.commandDetails",
       "description": "Native UI: Command details",
       "platforms": [
@@ -42148,6 +42164,22 @@
       "macos": {
         "key": "Language server log level",
         "arguments": []
+      }
+    },
+    {
+      "id": "native.languageServerStartedByThePlugin",
+      "description": "Native UI: %@ language server (started by the plugin)",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ language server (started by the plugin)",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
       }
     },
     {
@@ -57825,6 +57857,17 @@
       },
       "parameters": {
         "arg1": "string"
+      }
+    },
+    {
+      "id": "native.startedByThePlugin",
+      "description": "Native UI: Started by the plugin",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Started by the plugin",
+        "arguments": []
       }
     },
     {

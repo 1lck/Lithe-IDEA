@@ -45,6 +45,7 @@
 "%@ keeps no workspace state that Lithe can reset." = "%@ 没有 Lithe 可以重置的工作区状态。";
 "%@ language server (inside the plugin)" = "%@ 语言服务器（插件内置）";
 "%@ language server (installed on this Mac)" = "%@ 语言服务器（本机已安装）";
+"%@ language server (started by the plugin)" = "%@ 语言服务器（由插件启动）";
 "%@ memory" = "%@ 内存";
 "%@ now follows your local %@ configuration." = "%@ 现在跟随你本机的 %@ 配置。";
 "%@ of %@ is handled by %@." = "%2$@ 的 %1$@ 由 %3$@ 处理。";
@@ -859,6 +860,7 @@
 "Comma-separated glob patterns. Empty searches every file." = "以逗号分隔的 glob 模式。留空则搜索所有文件。";
 "Command" = "命令";
 "Command Palette Actions" = "命令面板入口";
+"Command chosen by: %@" = "命令由 %@ 决定";
 "Command details" = "命令详情";
 "Commands an AI Agent started that are still running, for example a deployment, a database migration or a dev server. Each one is asked about separately because ending one halfway can leave data or services inconsistent. What the Agent needs for itself, such as its MCP servers, always ends with the Agent." = "AI Agent 启动后仍在运行的命令，例如部署、数据库迁移或开发服务器。由于中途结束可能导致数据或服务不一致，每个任务都会单独确认。Agent 自身需要的进程（例如它的 MCP 服务）总是随 Agent 一起结束。";
 "Comment" = "评论";
@@ -3984,6 +3986,7 @@
 "Start this configuration to see its output here." = "启动此配置后，输出将显示在这里。";
 "Start time" = "开始时间";
 "Start with an action verb, without a type prefix" = "以动作动词开头，不添加类型前缀";
+"Started by the plugin" = "由插件启动";
 "Started in Claude Desktop" = "已在 Claude Desktop 中开始";
 "Starting" = "正在启动";
 "Starting Interactive Rebase" = "正在开始交互式变基";
@@ -6054,6 +6057,7 @@
 "native.commaSeparatedGlobPatternsEGJavaKt" = "以逗号分隔的 glob 模式，例如 *.java、*.kt";
 "native.commaSeparatedGlobPatternsEmptySearchesEveryFile" = "以逗号分隔的 glob 模式。留空则搜索所有文件。";
 "native.command" = "命令";
+"native.commandChosenBy" = "命令由 %1$@ 决定";
 "native.commandDetails" = "命令详情";
 "native.commandPaletteActions" = "命令面板入口";
 "native.commandsAnAIAgentStartedThatAreStillRunningForExampleADeploymentADatabaseMigradd876f8a4a" = "AI Agent 启动后仍在运行的命令，例如部署、数据库迁移或开发服务器。由于中途结束可能导致数据或服务不一致，每个任务都会单独确认。Agent 自身需要的进程（例如它的 MCP 服务）总是随 Agent 一起结束。";
@@ -7313,6 +7317,7 @@
 "native.languageServerReturnedOverlappingTextEdits" = "语言服务器返回了重叠的文本编辑。";
 "native.languageServerSessionStoppedBeforeTheRequestCompleted" = "语言服务器会话在请求完成前已停止。";
 "native.languageServerSettingsAction" = "语言服务器设置...";
+"native.languageServerStartedByThePlugin" = "%1$@ 语言服务器（由插件启动）";
 "native.languageServerStillStopping" = "语言服务器仍在停止。请在停止完成后重试。";
 "native.languageServerToolConfigurationChanged" = "语言服务器工具配置已更改";
 "native.languageServers" = "语言服务器";
@@ -9077,6 +9082,7 @@
 "native.startThisConfigurationToSeeItsOutputHere" = "启动此配置后，输出将显示在这里。";
 "native.startWithAnActionVerbWithoutATypePrefix" = "以动作动词开头，不添加类型前缀";
 "native.startedATaskThatIsStillRunning" = "%1$@ 启动的任务仍在运行";
+"native.startedByThePlugin" = "由插件启动";
 "native.startedInClaudeDesktop" = "已在 Claude Desktop 中开始";
 "native.starting" = "正在启动";
 "native.startingCommitOptional" = "起始提交（可选）";

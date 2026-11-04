@@ -570,6 +570,7 @@ struct MacPluginLanguageServerLaunchResolver {
             case .log: request.logDirectory
             case .state: request.stateDirectory
             case .workspaceState: request.workspaceStateDirectory
+            case .temporary: request.temporaryDirectory
             }
             guard let url else {
                 throw DeclarativePluginRejection(

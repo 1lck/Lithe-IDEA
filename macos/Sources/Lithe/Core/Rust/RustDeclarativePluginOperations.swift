@@ -117,6 +117,52 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
         ))
     }
 
+    func decodeLaunch(
+        manifest: Data,
+        languageID: String,
+        request: DeclarativeLanguageServerLaunchRequest,
+        result: ToolingJSONValue
+    ) throws -> DeclarativeLanguageServerLaunchPlan {
+        let outcome: Outcome<LaunchPlanResult> = try execute(
+            "plugins.languageServers.decodeLaunch",
+            payload: DecodeLaunchPayload(
+                manifest: try Self.json(manifest),
+                languageID: languageID,
+                request: LaunchRequest(request),
+                result: result
+            )
+        )
+        return try Self.launchPlan(from: outcome.value.plan)
+    }
+
+    func expiredLanguageServerStateNames(
+        retention: DeclarativeLanguageServer.StateRetention,
+        nowUnixSeconds: Int,
+        entries: [LanguageServerStateEntry],
+        activeNames: [String]
+    ) throws -> [String] {
+        // This command answers with its data only, without a status.
+        let result: Result<StateRetentionResult, CoreCallError> = core.executeResult(
+            command: "plugins.languageServers.stateRetention",
+            payload: StateRetentionPayload(
+                retention: .init(maxEntries: retention.maxEntries, maxAgeDays: retention.maxAgeDays),
+                nowUnixSeconds: nowUnixSeconds,
+                entries: entries.map {
+                    .init(name: $0.name, lastModifiedUnixSeconds: $0.lastModifiedUnixSeconds)
+                },
+                activeNames: activeNames
+            )
+        )
+        do {
+            return try result.get().expiredNames
+        } catch {
+            throw DeclarativePluginRejection(
+                code: "plugin.launch.invalidRequest",
+                message: "Lithe could not select the expired language server state: \(error.localizedDescription)"
+            )
+        }
+    }
+
     func buildProviderLaunchPlan(
         manifest: Data,
         buildSystemID: String,
@@ -236,7 +282,12 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
             "plugins.declarative.languageServerLaunchPlan",
             payload: payload
         )
-        let plan = outcome.value.plan
+        return try Self.launchPlan(from: outcome.value.plan)
+    }
+
+    /// Maps Core's wire plan, from either step of a launch, to the plan the
+    /// host works with.
+    private static func launchPlan(from plan: LaunchPlan) throws -> DeclarativeLanguageServerLaunchPlan {
         var result = DeclarativeLanguageServerLaunchPlan(
             arguments: plan.arguments,
             validationArguments: plan.validationArguments,
@@ -271,6 +322,9 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
             }
         )
         result.workspaceConfiguration = plan.workspaceConfiguration
+        result.backendResolution = plan.backendResolution
+        result.resolvedLaunch = plan.resolvedLaunch
+        result.sessionPolicy = plan.sessionPolicy
         result.vcsProvider = plan.vcsProvider.map {
             .init(
                 vcs: $0.vcs,
@@ -442,6 +496,8 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
 
     private struct LaunchRequest: Encodable {
         let logDirectory: String?
+        /// Omitted unless the plugin backend resolves the launch.
+        let temporaryDirectory: String?
         let pluginDirectory: String
         let stateDirectory: String
         /// Omitted for a process bound to no workspace.
@@ -452,6 +508,7 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
 
         init(_ request: DeclarativeLanguageServerLaunchRequest) {
             logDirectory = request.logDirectory?.path
+            temporaryDirectory = request.temporaryDirectory?.path
             pluginDirectory = request.pluginDirectory.path
             stateDirectory = request.stateDirectory.path
             workspaceStateDirectory = request.workspaceStateDirectory?.path
@@ -476,6 +533,9 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
             let packagedRuntime: String?
             let minimumVersion: String?
             let versionArguments: [String]?
+            /// `backend` launches: the function to call and its timeout.
+            let function: String?
+            let timeoutMilliseconds: Int?
 
             var executable: DeclarativeLanguageServerLaunchPlan.Executable? {
                 switch kind {
@@ -528,6 +588,36 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
         let vcsProvider: VcsProvider?
         let backend: Backend?
         let debugAdapter: DebugAdapter?
+        /// First step of a backend-resolved launch.
+        let resolveParams: [String: ToolingJSONValue]?
+        /// Second step of a backend-resolved launch.
+        let environment: [String: String]?
+        let writablePaths: [String]?
+        let sessionPolicy: ToolingJSONValue?
+
+        /// The question of the first step, when the plan asks one.
+        var backendResolution: DeclarativeLanguageServerLaunchPlan.BackendResolution? {
+            guard launch.kind == "backend", let function = launch.function, let resolveParams else { return nil }
+            return .init(
+                function: function,
+                timeoutMilliseconds: launch.timeoutMilliseconds ?? 30_000,
+                resolveParams: resolveParams
+            )
+        }
+
+        /// The answer the second step decoded, when the plan holds one. Only
+        /// a decoded answer carries `writablePaths`, which tells it apart
+        /// from the ordinary plan of a packaged server.
+        var resolvedLaunch: DeclarativeLanguageServerLaunchPlan.ResolvedLaunch? {
+            guard let writablePaths else { return nil }
+            let program: DeclarativeLanguageServerLaunchPlan.ResolvedLaunch.Program
+            switch (launch.kind, launch.path, launch.tool) {
+            case ("packaged", let path?, _): program = .packaged(path)
+            case ("tool", _, let tool?): program = .tool(tool)
+            default: return nil
+            }
+            return .init(program: program, environment: environment ?? [:], writablePaths: writablePaths)
+        }
 
         struct DebugAdapter: Decodable {
             struct Selector: Decodable {
@@ -622,6 +712,34 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
         /// Selects the plugin backend; omitted for every other process.
         var backend: Bool? = nil
         let request: LaunchRequest
+    }
+
+    private struct DecodeLaunchPayload: Encodable {
+        let manifest: ToolingJSONValue
+        let languageID: String
+        let request: LaunchRequest
+        let result: ToolingJSONValue
+    }
+
+    private struct StateRetentionPayload: Encodable {
+        struct Retention: Encodable {
+            let maxEntries: Int
+            let maxAgeDays: Int
+        }
+
+        struct Entry: Encodable {
+            let name: String
+            let lastModifiedUnixSeconds: Int
+        }
+
+        let retention: Retention
+        let nowUnixSeconds: Int
+        let entries: [Entry]
+        let activeNames: [String]
+    }
+
+    private struct StateRetentionResult: Decodable {
+        let expiredNames: [String]
     }
 
     private struct DebugStartArgumentsPayload: Encodable {
