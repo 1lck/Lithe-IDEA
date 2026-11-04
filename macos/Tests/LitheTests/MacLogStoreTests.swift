@@ -31,8 +31,8 @@ struct MacLogStoreTests {
         #expect(throws: (any Error).self) { try writer.pluginFilesDirectory(pluginID: "dev.lithe.fixture") }
         #expect(throws: (any Error).self) { try writer.pluginFilesDirectory(pluginID: "../escape") }
         let stamp = "2026-11-03T00:00:00.000Z"
-        writer.emit(CoreLogRecord(event: "vcs.stderr.received", level: "WARN", channel: "vcs/git", op: "fixture-op",
-            fields: ["provider": .string("git"), "diagnostic": .string("fixture diagnostic"), "truncated": .bool(false)], ts: stamp))
+        writer.emit(CoreLogRecord(event: "vcs.message.warning.logged", level: "WARN", channel: "vcs/git", op: "fixture-op",
+            fields: ["provider": .string("git"), "diagnostic": .string("fixture diagnostic"), "severity": .string("warn")], ts: stamp))
         writer.emit(CoreLogRecord(event: "plugins.host.message.logged", level: "INFO", channel: "plugins/dev.lithe.fixture/host",
             fields: ["plugin": .string("dev.lithe.fixture"), "diagnostic": .string("backend diagnostic"), "severity": .string("info")]))
         let collection = try await writer.collect(query: .init(session: "all"))
@@ -43,34 +43,45 @@ struct MacLogStoreTests {
         await writer.finishSession()
     }
 
-    @Test
-    func flushDrainsRealWorkspaceFailureFromCoreOnlyOnce() async throws {
-        // Core's pending facts belong to the process. Run this real Core-to-file
-        // boundary alone so another store's scheduled drain cannot steal them.
-        if ProcessInfo.processInfo.environment["LITHE_CORE_LOG_DRAIN_CHILD"] != "1" {
-            let image = try #require(Bundle(for: CoreLogDrainBundleMarker.self).executableURL)
-            var environment = ProcessInfo.processInfo.environment
-            environment["LITHE_CORE_LOG_DRAIN_CHILD"] = "1"
-            let result = try await TestProcess.run(
-                executableURL: URL(fileURLWithPath: CommandLine.arguments[0]),
-                arguments: ["--test-bundle-path", image.path, "--testing-library", "swift-testing", "--filter",
-                    "LitheTests.MacLogStoreTests/flushDrainsRealWorkspaceFailureFromCoreOnlyOnce"],
-                currentDirectoryURL: FileManager.default.temporaryDirectory,
-                environment: environment, timeout: .seconds(10))
-            #expect(result.terminationStatus == 0, "Isolated Core drain failed: \(String(decoding: result.output, as: UTF8.self))")
-            #expect(String(decoding: result.output, as: UTF8.self).contains("Test run with 1 test in 1 suite passed"))
-            return
-        }
+    /// Core's pending facts and waker belong to the process. Real Core-to-file
+    /// boundaries run alone in a child test process so another store's drain
+    /// cannot steal their facts. Returns true only inside that child.
+    private func runsInIsolatedCoreProcess(_ test: String) async throws -> Bool {
+        if ProcessInfo.processInfo.environment["LITHE_CORE_LOG_DRAIN_CHILD"] == test { return true }
+        let image = try #require(Bundle(for: CoreLogDrainBundleMarker.self).executableURL)
+        var environment = ProcessInfo.processInfo.environment
+        environment["LITHE_CORE_LOG_DRAIN_CHILD"] = test
+        let result = try await TestProcess.run(
+            executableURL: URL(fileURLWithPath: CommandLine.arguments[0]),
+            arguments: ["--test-bundle-path", image.path, "--testing-library", "swift-testing", "--filter",
+                "LitheTests.MacLogStoreTests/\(test)"],
+            currentDirectoryURL: FileManager.default.temporaryDirectory,
+            environment: environment, timeout: .seconds(10))
+        #expect(result.terminationStatus == 0, "Isolated Core drain failed: \(String(decoding: result.output, as: UTF8.self))")
+        #expect(String(decoding: result.output, as: UTF8.self).contains("Test run with 1 test in 1 suite passed"))
+        return false
+    }
+
+    /// A workspace whose unreadable child makes a real snapshot record
+    /// `app.workspace.directory_skipped` in Core's process queue.
+    private func unreadableWorkspace() throws -> (root: URL, workspace: URL, cleanup: () -> Void) {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let workspace = root.appendingPathComponent("workspace")
         let hidden = workspace.appendingPathComponent("inaccessible")
         try FileManager.default.createDirectory(at: hidden, withIntermediateDirectories: true)
-        defer {
-            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: hidden.path)
-            try? FileManager.default.removeItem(at: root)
-        }
         try Data("evidence".utf8).write(to: hidden.appendingPathComponent("file"))
         try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: hidden.path)
+        return (root, workspace, {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: hidden.path)
+            try? FileManager.default.removeItem(at: root)
+        })
+    }
+
+    @Test
+    func flushDrainsRealWorkspaceFailureFromCoreOnlyOnce() async throws {
+        guard try await runsInIsolatedCoreProcess("flushDrainsRealWorkspaceFailureFromCoreOnlyOnce") else { return }
+        let (root, workspace, cleanup) = try unreadableWorkspace()
+        defer { cleanup() }
         let writer = MacLogStore(defaultDirectory: root.appendingPathComponent("logs"))
         _ = try RustCoreBridge().snapshot(at: workspace)
         try await writer.flush()
@@ -82,6 +93,38 @@ struct MacLogStoreTests {
         let again = try await writer.collect(query: .init(session: "all"))
         #expect(again.content.components(separatedBy: "event=app.workspace.directory_skipped").count == count)
         await writer.finishSession()
+    }
+
+    @Test
+    func coreFactsReachDiskAndSubscribersWithoutHostActivity() async throws {
+        guard try await runsInIsolatedCoreProcess("coreFactsReachDiskAndSubscribersWithoutHostActivity") else { return }
+        let (root, workspace, cleanup) = try unreadableWorkspace()
+        defer { cleanup() }
+        let logs = root.appendingPathComponent("logs")
+        let writer = MacLogStore(defaultDirectory: logs)
+        writer.observeCoreFacts()
+        let stream = try await writer.subscribe()
+        let first = TestGate(), second = TestGate()
+        let consumer = Task {
+            var deliveries = 0
+            for await batch in stream where batch.contains(where: { $0.line.contains("event=app.workspace.directory_skipped") }) {
+                deliveries += 1
+                if deliveries == 1 { first.open() } else { second.open(); break }
+            }
+        }
+        defer { consumer.cancel() }
+        // No emit, flush or collect follows: only Core's signal can start these
+        // drains. The second fact proves the signal re-arms after each drain.
+        _ = try RustCoreBridge().snapshot(at: workspace)
+        #expect(await first.waitUntilOpen())
+        _ = try RustCoreBridge().snapshot(at: workspace)
+        #expect(await second.waitUntilOpen())
+        let files = FileManager.default.enumerator(at: logs, includingPropertiesForKeys: nil)?.allObjects as? [URL] ?? []
+        let disk = try files.filter { $0.pathExtension == "log" }
+            .map { try String(contentsOf: $0, encoding: .utf8) }.joined()
+        #expect(disk.components(separatedBy: "event=app.workspace.directory_skipped").count - 1 >= 2)
+        await writer.finishSession()
+        await consumer.value
     }
 
     @Test
@@ -342,7 +385,7 @@ extension MacLogStoreTests {
         try Data("old evidence".utf8).write(to: expired.appendingPathComponent("app.log"))
         for index in 0..<35 {
             let server = try #require(LogSegment("server-\(index)"))
-            writer.emit(LspStderrReceived(diagnostic: "upstream warning", server: server))
+            writer.emit(LspMessageWarningLogged(diagnostic: "upstream warning", server: server, severity: "warn"))
         }
         let snapshot = try await writer.collect(query: .init())
         #expect(!FileManager.default.fileExists(atPath: expired.path))
@@ -441,9 +484,10 @@ extension MacLogStoreTests {
         let writer = MacLogStore(fileLimit: 550)
         try writer.redirect(to: root)
         let foo = LogSegment("foo")!, dotted = LogSegment("foo.1")!
-        writer.emit(LspStderrReceived(diagnostic: "dotted-before", server: dotted))
-        for index in 0..<4 { writer.emit(LspStderrReceived(diagnostic: "foo-\(index)", server: foo)) }
-        writer.emit(LspStderrReceived(diagnostic: "dotted-after", server: dotted))
+        // WARN facts persist without diagnostic mode; stderr is DEBUG detail.
+        writer.emit(LspMessageWarningLogged(diagnostic: "dotted-before", server: dotted, severity: "warn"))
+        for index in 0..<4 { writer.emit(LspMessageWarningLogged(diagnostic: "foo-\(index)", server: foo, severity: "warn")) }
+        writer.emit(LspMessageWarningLogged(diagnostic: "dotted-after", server: dotted, severity: "warn"))
         let snapshot = try await writer.collect(query: .init())
         #expect(snapshot.writeFailures == 0)
         #expect(snapshot.content.contains("dotted-before"))

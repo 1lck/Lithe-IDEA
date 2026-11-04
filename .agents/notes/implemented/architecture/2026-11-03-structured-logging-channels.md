@@ -111,6 +111,8 @@ Core 拥有会话生命周期状态。`*.session.updated` 直接附到已有 `ty
 
 六处非 LSP 直接打印改为进程级 Core 队列：只接纳 owner 为 lithe-core 的目录事实，入队前规范化，最多 256 条，重复待取事实与超额计数，由宿主一次 drain 取走并重置。队列没有文件 writer、后台任务或独立持久化；遍历只记相对路径和稳定错误类别，远程清理只记类别，不记录地址、scratch 名称或输出。现有请求事件流只覆盖单个请求，无法覆盖析构和后台清理，因此选择独立有界 handoff（交给宿主写入的内存队列）。
 
+只靠宿主 drain 取走时，没有其他宿主活动就没有人来取：插件 `lithe/log` 事实、析构和后台清理事实会一直留在内存，既不落盘，也不推给日志窗口。因此 Core 在队列旁保留一个唤醒回调槽位。drain 之后第一条事实或第一次丢弃计数触发一次回调，同一 drain 周期内的后续变化合并，不再回调；drain 在队列锁内清除请求标记，之后入队的事实一定会再次触发。安装时已有待取事实也立即回调。回调在持有槽位锁时同步执行，移除也取这把锁，所以移除返回后 Core 不会再使用宿主的 context，宿主可以释放它。回调不得重入 Core，只负责安排宿主已有的 drain。这个槽位属于已有的进程队列，不是新的日志单例：它不写文件、不持有 sink，服务的日志依赖仍从构造器注入。
+
 `${logDir}` 从启动上下文的绝对 `logDirectory` 展开，共用语言服务与后端启动路径；宿主创建当前应用会话的插件 files 目录。Core 只拼接文本，不创建目录，不从插件安装位置推导可写位置。这些文件属于运行状态，不跨 worktree 复用，不改变签名或 Sparkle delta 源基线。macOS 当前日志会话目录由统一存储器提供，Core plugin_files_path 决定相对部分。平台以 mkdirat/openat/O_NOFOLLOW 逐段创建 0700 目录并拒绝符号链接，避免检查与创建之间被换成越界链接。存储不可用时省略路径；使用变量的模板由 Core 按既有 invalidRequest 拒绝。远程进程无法写本机日志目录，同样省略并拒绝该变量。安装阶段只用未创建的占位目录校验展开。静态只读边界验证与组件测试不等于真实应用 bundle hash smoke。
 
 目录适配器抛出的真实 I/O 错误也按存储不可用处理，由 Core 检查模板是否依赖 `${logDir}`。不使用该变量的插件继续启动；不能把可选日志目录变成全部语言服务、构建、VCS、后端和调试器的前置条件。
@@ -129,7 +131,7 @@ v1 的 detail/message/level 是兼容边界，必须保持原字节：例如 pro
 
 Core 的目录遍历和 scratch 清理复用 PR1 已声明的 app.search.directory_skipped、app.workspace.directory_skipped 和 app.workspace.scratch_cleanup_failed；error 只含固定消息、稳定类别与固定 domain，不含绝对路径、scratch 名或远程地址。删除重复 app.project.directory_skipped、remote.scratch.cleanup_failed。remote process/upload 按 ClientError 变体映射 timeout、closed、transport、spawn、protocol 或 remote_<协议码>，不保留正文。
 
-CoreLogRecord 只接受标量，保留 event、目录 level、channel、op 和源 ts。LogSink 的 MacLogStore、LogScope 和测试 TypedLogRecorder 三个实现均支持它。MacLogStore 在原 drain/flush/finishSession 节奏批量调用一次 drainCoreEvents，由同一个 writer 分配 seq 并 validateCatalog:true；丢弃汇总转为 app 的 log.dropped，不增加空闲轮询或独立 writer。
+CoreLogRecord 只接受标量，保留 event、目录 level、channel、op 和源 ts。LogSink 的 MacLogStore、LogScope 和测试 TypedLogRecorder 三个实现均支持它。MacLogStore 每次 drain、flush 和 finishSession 都批量调用一次 drainCoreEvents，由同一个 writer 分配 seq 并 validateCatalog:true；丢弃汇总转为 app 的 log.dropped。每个进程只有组合根创建的应用 writer 安装 Core 唤醒回调；回调只复用宿主事件已有的 100 ms 单次 drain 调度，已有调度时不重复安排，不增加空闲轮询或独立 writer。测试和其他临时 MacLogStore 不安装，避免两个 writer 争抢同一个进程队列。finishSession 先停止接纳并移除回调，再做最后一次 drain。
 
 详细诊断不在宿主另写分类：会话通道根按 Core `diagnostics.resolveLogChannel` 返回的 category 归入当前开关（lsp→language、vcs→git、plugins→plugins），与持久化 DEBUG 的准入共用 `diagnosticRoots`。当前类别开关、新会话注册和 15 分钟单次到期向活动会话发送 setDetailedDiagnostics，退出时关闭。相同失败状态只记录一次 app.logging.diagnostics_failed，避免 drain→失败日志→drain 循环；改变目标状态允许重试。
 
@@ -156,7 +158,7 @@ agent-host、git-host、ide-host 和 lithe-remote 客户端被链接进 Core，�
 原生宿主只补自己拥有的启动失败、初始化超时和异常进程退出，以固定阶段与退出码传给生成事件。
 正确做法是 Core 根据 `OperationFailed.code` 记录稳定分类；不要把 adapter stderr、DAP 响应 message、
 调试变量、内存、源码或被调试程序输出塞入 text/error。原始 stderr 继续属于调试控制台，不代表持久化。
-共享 Core 队列复用宿主既有 drain，不创建第二个 writer、轮询或应用退出后仍持有的缓存。
+共享 Core 队列复用宿主既有 drain 和队列唤醒回调，不创建第二个 writer、轮询或应用退出后仍持有的缓存。
 
 ## 考虑过的备选方案
 
@@ -168,6 +170,8 @@ agent-host、git-host、ide-host 和 lithe-remote 客户端被链接进 Core，�
 - 现在删除 v1：会破坏仍直接使用旧 Rust API 的 Windows。保留兼容入口，迁移完成后再单独评估删除。
 - 辅助 crate 依赖 Core 直接记录：形成循环依赖。把事件队列拆成第三个公共 crate 可以解开循环，但目录校验和脱敏都在 Core，拆出去要么复制规则，要么只搬一个空壳队列，不如注入一个函数指针简单。
 - 辅助 crate 未注入时回退到 stderr：askpass 等入口的输出是协议的一部分，回退会污染协议，也让门禁不得不为每个 crate 开 allowlist。
+- 宿主定时轮询 drainCoreEvents：空闲时也持续唤醒，落盘延迟取决于周期，违背不增加空闲轮询的约束。改为 Core 有事实时合并唤醒。
+- 每条事实回调一次，或在回调里直接 drain：突发事实会产生大量跨语言调用；在记录线程里 drain 会把磁盘 I/O 带到 Core 调用方线程，还要重入 Core。回调只安排宿主已有的单次 drain。
 
 ## 后果
 
@@ -183,6 +187,7 @@ agent-host、git-host、ide-host 和 lithe-remote 客户端被链接进 Core，�
 - `node scripts/logging/verify-log-usage.mjs`
 - `node --test --test-timeout=60000 scripts/logging/test-log-events.mjs`
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core diagnostics`
+- `cargo test --manifest-path rust/Cargo.toml -p lithe-core --test core_log_waker`
 - `./scripts/rust-core/verify-rust-core-comments.sh`
 - `./scripts/architecture/verify-shared-contracts.sh`
 - `./scripts/windows/verify/verify-windows-boundaries.sh`

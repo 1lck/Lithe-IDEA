@@ -1,5 +1,6 @@
 import Foundation
 import LitheModuleAPI
+import LitheRustCore
 
 extension RustCoreBridge {
     typealias LogScalar = CoreLogScalar
@@ -163,6 +164,21 @@ extension RustCoreBridge {
     struct CoreLogDrain: Decodable { let events: [CoreLogRecord]; let dropped: UInt64 }
     func drainCoreLogEvents() throws -> CoreLogDrain {
         try executeResult(command: "diagnostics.drainCoreEvents", payload: [String: String]()).get()
+    }
+
+    /// Core calls `callback` at most once per drain cycle, from any thread, while
+    /// it owns the installation. The callback must only schedule host work.
+    typealias CoreLogWaker = @convention(c) (UnsafeMutableRawPointer?) -> Void
+    /// Replaces the process writer's pending-fact callback. Facts already
+    /// waiting signal synchronously, so callers must not hold a lock the
+    /// callback takes. `context` must stay valid until removal returns.
+    static func installCoreLogWaker(_ callback: CoreLogWaker, context: UnsafeMutableRawPointer) {
+        lithe_bridge_install_log_waker(callback, context)
+    }
+    /// After return Core never invokes the callback with `context` again.
+    @discardableResult
+    static func removeCoreLogWaker(context: UnsafeMutableRawPointer) -> Bool {
+        lithe_bridge_remove_log_waker(context) == 1
     }
 
     func encodeLogs(_ request: LogBatch) throws -> LogBatchResult {

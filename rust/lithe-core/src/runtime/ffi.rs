@@ -160,6 +160,35 @@ pub unsafe extern "C" fn lithe_core_execute_json_with_events(
     response_pointer(&crate::execute_json_with_events(&request, sink))
 }
 
+/// Installs the host log writer's callback for pending Core diagnostic facts,
+/// replacing any earlier writer. Core calls it at most once per drain cycle,
+/// after a fact or overflow count is queued, so the host can schedule its
+/// existing drain instead of polling. A null callback is ignored.
+///
+/// # Safety
+///
+/// `callback` may run on any Core thread, must not unwind, and must not call
+/// back into Core synchronously; it should only schedule host work. `context`
+/// is passed back unchanged and must remain valid until
+/// [`lithe_core_remove_log_waker`] returns for it or another install replaces it.
+#[no_mangle]
+pub unsafe extern "C" fn lithe_core_install_log_waker(
+    callback: Option<unsafe extern "C" fn(*mut std::ffi::c_void)>,
+    context: *mut std::ffi::c_void,
+) {
+    if let Some(callback) = callback {
+        crate::diagnostics::core_events::install_waker(callback, context as usize);
+    }
+}
+
+/// Removes the log waker installed with `context`. Returns 1 when it was the
+/// current waker. After return, Core never invokes the callback with `context`,
+/// so the host may release it.
+#[no_mangle]
+pub extern "C" fn lithe_core_remove_log_waker(context: *mut std::ffi::c_void) -> i32 {
+    crate::diagnostics::core_events::remove_waker(context as usize) as i32
+}
+
 /// Runs the native authentication helper without initializing the application.
 ///
 /// # Safety
