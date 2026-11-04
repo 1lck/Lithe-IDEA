@@ -319,12 +319,18 @@ mod tests {
 
     #[test]
     fn fields_keep_valid_tokens_and_omit_invalid_ones() {
+        // Windows paths are only absolute with a drive prefix.
+        let root = if cfg!(windows) {
+            r"C:\project"
+        } else {
+            "/tmp/project"
+        };
         let ((), events) = capture::run(false, || {
             let trace = Request::begin(&request(json!({
                 "id": "request-1",
                 "command": "git.write",
                 "origin": {"source": "user", "trigger": "vcs.fetch", "operation": "action-7"},
-                "payload": {"operation": "fetch", "root": "/tmp/project", "path": "/ignored"}
+                "payload": {"operation": "fetch", "root": root, "path": "/ignored"}
             })));
             assert_eq!(current().op.as_deref(), Some("action-7"));
             assert_eq!(current().source, Source::User);

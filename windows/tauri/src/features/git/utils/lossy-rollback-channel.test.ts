@@ -49,6 +49,7 @@ mock.module("@/platform/tauri-core", () => ({ ...core, invoke: async (command: s
     mutate?.();
     return diff;
   }
+  if (command === "git.resolveFileContext") return { root: current.root, path: "file.txt", ownership: "git" };
   throw new Error(`Unexpected command: ${command}`);
 } }));
 const { getWorkingTreePathDiff, isWorktreeWritePatchCurrent } = await import("@/features/git/api/git-diff-api");
