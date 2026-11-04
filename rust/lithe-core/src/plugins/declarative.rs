@@ -1072,6 +1072,11 @@ impl DeclarativePluginManifest {
                 debug_adapters: &self.debug_adapters,
                 plugin_api_version: self.plugin_api_version,
                 build_systems_version: self.requires.get("buildSystems").copied().unwrap_or(1),
+                executable_resolution_version: self
+                    .requires
+                    .get("executableResolution")
+                    .copied()
+                    .unwrap_or(0),
                 build_providers_version: self.requires.get("buildProviders").copied().unwrap_or(1),
                 model_inputs_version: self.requires.get("buildModelInputs").copied().unwrap_or(0),
                 official: is_official_namespace(&self.id),
@@ -1264,12 +1269,32 @@ impl DeclarativePluginManifest {
     }
 
     fn validate_toolchains(&self) -> Validation<()> {
+        let build_toolchains = self.build_systems.iter().any(|system| {
+            system
+                .invocation
+                .executables
+                .iter()
+                .chain(
+                    system
+                        .invocation
+                        .runtime_dependencies
+                        .iter()
+                        .flat_map(|runtime| &runtime.executables),
+                )
+                .any(|candidate| {
+                    matches!(
+                        candidate.source,
+                        super::executables::ExecutableSource::Toolchain { .. }
+                    )
+                })
+        });
         if self.tool_definitions.is_empty()
+            && !build_toolchains
             && self.requires.get(capabilities::EXECUTABLE_RESOLUTION) == Some(&2)
         {
             return Err(invalid(
                 "requires.executableResolution",
-                "Executable resolution 2 is reserved to tool definitions.",
+                "Executable resolution 2 requires tool definitions or build toolchain candidates.",
             ));
         }
         if self.tool_definitions.is_empty() && self.toolchain_providers.is_empty() {

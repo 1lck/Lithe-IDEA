@@ -11,6 +11,8 @@
       "required": ["fingerprint"],
       "properties": {
         "fingerprint": { "type": "string", "pattern": "^sha256:" },
+        "providerFingerprint": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "providerRunFingerprint": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
         "unreadablePaths": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
         "inputs": {
           "type": "object",
@@ -24,6 +26,7 @@
       "type": "object",
       "description": "Machine-local project toolchain defaults. Stored only in the local layer; non-empty per-configuration paths override matching defaults.",
       "properties": {
+        "preferences": { "$ref": "toolchain-consumer-preferences-v1.schema.json" },
         "java": {
           "type": "object",
           "properties": {
@@ -38,6 +41,21 @@
             "javaHomePath": { "type": "string" }
           },
           "additionalProperties": false
+        },
+        "pathOverrides": {
+          "type": "object",
+          "description": "Machine-local subproject selections, keyed by normalized workspace-relative root. Empty fields inherit project defaults. Hosts preserve the map when saving individual run configurations.",
+          "maxProperties": 256,
+          "propertyNames": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^(?!/)(?!.*//)(?!.*/$)(?!.*(?:^|/)(?:\\.|\\.\\.)(?:/|$))[^\\\\:\\x00-\\x1f\\x7f]+$" },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "javaHomePath": { "type": "string", "maxLength": 4096 },
+              "mavenExecutablePath": { "type": "string", "maxLength": 4096 },
+              "mavenJavaHomePath": { "type": "string", "maxLength": 4096 }
+            }
+          }
         }
       },
       "additionalProperties": false
@@ -48,6 +66,17 @@
     }
   },
   "$defs": {
+    "buildProjectReference": {
+      "type": "object", "additionalProperties": false,
+      "description": "Read-only current model owner; generated ownership cannot be overridden by document layers.",
+      "required": ["pluginID", "buildSystemID", "root", "projectID"],
+      "properties": {
+        "pluginID": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "buildSystemID": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "root": { "$ref": "#/$defs/relativePath" },
+        "projectID": { "type": "string", "minLength": 1, "maxLength": 256 }
+      }
+    },
     "relativePath": {
       "type": "string",
       "pattern": "^(?!/)(?!.*(^|/)\\.\\.(?:/|$)).*$"
@@ -63,6 +92,7 @@
         "targetID"
       ],
       "properties": {
+        "execution": { "enum": ["application", "service", "task"] },
         "pluginID": {
           "type": "string",
           "minLength": 1,
@@ -102,6 +132,75 @@
       },
       "additionalProperties": false
     },
+    "fixedToolSelection": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "home"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "home": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "description": "Absolute native path; Core rejects traversal and control characters before use."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "executable"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "executable": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "description": "Absolute native path; Core rejects traversal and control characters before use."
+            }
+          }
+        }
+      ]
+    },
+    "buildProviderRunOptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "runtimeArguments": {
+          "type": "array",
+          "maxItems": 1024,
+          "items": {
+            "type": "string",
+            "maxLength": 65536,
+            "pattern": "^[^\\u0000]*$"
+          }
+        },
+        "entrypoint": {
+          "type": "string",
+          "maxLength": 4096,
+          "pattern": "^[^\\u0000]*$"
+        },
+        "options": {
+          "type": "object",
+          "maxProperties": 64,
+          "description": "Opaque declared Build option values, bounded to 64 KiB UTF-8 JSON by Core; validated against the current declaration during preparation.",
+          "propertyNames": {
+            "pattern": "^[A-Za-z0-9._-]{1,200}$"
+          }
+        },
+        "tools": {
+          "type": "object",
+          "maxProperties": 64,
+          "description": "Per-Run fixed tools, bounded to 64 KiB UTF-8 JSON by Core. Entries merge by tool ID; null clears an inherited Run choice and resumes directory policy.",
+          "propertyNames": { "pattern": "^(?:[a-z0-9]+(?:[.-][a-z0-9]+)*:)?[a-z][a-z0-9-]{0,63}$", "maxLength": 192 },
+          "additionalProperties": { "oneOf": [{ "$ref": "#/$defs/fixedToolSelection" }, { "type": "null" }] }
+        }
+      }
+    },
     "configuration": {
       "type": "object",
       "required": ["id", "provider"],
@@ -136,6 +235,13 @@
         "extensions": {
           "type": "object",
           "propertyNames": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+          "properties": {
+            "java": { "type": "object", "properties": {
+              "build": { "$ref": "#/$defs/buildProjectReference" },
+              "module": { "type": "string" },
+              "mainClass": { "type": ["string", "null"] }
+            } }
+          },
           "additionalProperties": { "type": "object" }
         },
         "disabled": { "type": "boolean" },
@@ -147,15 +253,16 @@
         "then": {
           "required": ["extensions"],
           "properties": {
-            "execution": { "const": "application" },
+            "execution": { "enum": ["application", "service", "task"] },
             "command": false,
-            "args": { "maxItems": 0 },
-            "env": { "maxProperties": 0 },
             "toolchains": { "maxProperties": 0 },
             "debug": false,
             "extensions": {
               "required": ["build"],
-              "properties": { "build": { "$ref": "#/$defs/buildProviderReference" } }
+              "properties": {
+                "build": { "$ref": "#/$defs/buildProviderReference" },
+                "build-run": { "$ref": "#/$defs/buildProviderRunOptions" }
+              }
             }
           }
         }

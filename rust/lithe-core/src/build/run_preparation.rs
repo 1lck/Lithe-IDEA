@@ -3,15 +3,154 @@
 //! bounded arguments, executable references, and workspace path containment.
 
 use super::decode::{self, Workspace};
-use super::manifest::{BuildSystemDeclaration, TaskSource};
+use super::manifest::{BuildExecution, BuildSystemDeclaration, TaskSource};
 use super::plans::{self, OutputPlanRequest, SelectedEntity};
-use crate::plugins::declarative::{is_bare_command, is_identifier, Validation};
-use serde::Deserialize;
+use crate::plugins::declarative::{is_bare_command, is_identifier, is_plugin_id, Validation};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::BTreeMap;
 
 const MAX_ARGUMENTS: usize = 1024;
 const MAX_ARGUMENT_BYTES: usize = 65536;
 const MAX_ENVIRONMENT: usize = 64;
+
+/// Resolved user choices; only the owning provider interprets runtime semantics.
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct LaunchOptions {
+    execution: BuildExecution,
+    runtime_arguments: Vec<String>,
+    arguments: Vec<String>,
+    environment: BTreeMap<String, String>,
+    #[serde(
+        default,
+        deserialize_with = "optional_launch_string",
+        skip_serializing_if = "Option::is_none"
+    )]
+    working_directory: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "optional_launch_string",
+        skip_serializing_if = "Option::is_none"
+    )]
+    entrypoint: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "optional_runtime_debug",
+        skip_serializing_if = "Option::is_none"
+    )]
+    debug: Option<RuntimeDebug>,
+}
+
+/// The host selects a current DebugAdapter Registry entry and a local debuggee endpoint.
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RuntimeDebug {
+    /// Qualified registry identity selected and revalidated by the native host.
+    #[serde(rename = "adapterID")]
+    adapter_id: String,
+    /// Public alias matching the selected run's declaration.
+    configuration_type: String,
+    /// Host-owned endpoint of the suspended service, not the adapter transport.
+    target: ConnectionTarget,
+}
+
+/// A debuggee connection, independent of language and adapter transport.
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct ConnectionTarget {
+    kind: String,
+    host: String,
+    port: u16,
+}
+
+/// Registry aliases remain opaque names, with bounded non-control text.
+pub(crate) fn valid_configuration_type(value: &str) -> bool {
+    !value.trim().is_empty() && value.len() <= 256 && !value.chars().any(char::is_control)
+}
+
+/// Omitted debug means Run; explicit null must never silently discard Debug.
+fn optional_runtime_debug<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<RuntimeDebug>, D::Error> {
+    RuntimeDebug::deserialize(deserializer).map(Some)
+}
+
+/// Optional means absent; an explicitly null launch choice is malformed.
+fn optional_launch_string<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<String>, D::Error> {
+    String::deserialize(deserializer).map(Some)
+}
+
+impl LaunchOptions {
+    /// Bounds wire values and verifies an explicit directory in the host workspace.
+    fn validate(&self, workspace_root: Option<&str>) -> Validation<()> {
+        let invalid = || plans::invalid_selection("Invalid provider launch options.");
+        if self.debug.as_ref().is_some_and(|debug| {
+            debug.target.kind != "connection"
+                || debug.target.host != "127.0.0.1"
+                || debug.target.port == 0
+                || self.execution != BuildExecution::Service
+                || !valid_configuration_type(&debug.configuration_type)
+                || !debug
+                    .adapter_id
+                    .split_once('/')
+                    .is_some_and(|(plugin, adapter)| {
+                        is_plugin_id(plugin)
+                            && plugin.len() <= 128
+                            && is_identifier(adapter)
+                            && adapter.len() <= 64
+                    })
+        }) {
+            return Err(invalid());
+        }
+        for arguments in [&self.runtime_arguments, &self.arguments] {
+            if arguments.len() > MAX_ARGUMENTS
+                || arguments
+                    .iter()
+                    .any(|arg| arg.len() > MAX_ARGUMENT_BYTES || arg.contains('\0'))
+            {
+                return Err(invalid());
+            }
+        }
+        if self.environment.len() > MAX_ENVIRONMENT
+            || self.environment.iter().any(|(key, value)| {
+                !valid_environment_key(key)
+                    || value.len() > MAX_ARGUMENT_BYTES
+                    || value.contains('\0')
+            })
+            || self
+                .entrypoint
+                .as_ref()
+                .is_some_and(|value| value.is_empty() || value.len() > 4096 || value.contains('\0'))
+        {
+            return Err(invalid());
+        }
+        if let Some(cwd) = &self.working_directory {
+            if cwd.is_empty()
+                || cwd.len() > 4096
+                || decode::request_path(cwd, "workingDirectory")? != *cwd
+            {
+                return Err(invalid());
+            }
+            let workspace = Workspace::new(workspace_root.ok_or_else(invalid)?)?;
+            if !workspace.read_path(cwd).is_some_and(|path| path.is_dir()) {
+                return Err(invalid());
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Portable environment names shared by user inputs and returned launch plans.
+fn valid_environment_key(key: &str) -> bool {
+    !key.is_empty()
+        && key.len() <= 128
+        && key.bytes().enumerate().all(|(index, byte)| {
+            byte == b'_' || byte.is_ascii_alphabetic() || index > 0 && byte.is_ascii_digit()
+        })
+}
 
 /// Host-selected model target and the run declaration that can prepare it.
 #[derive(Debug, Deserialize)]
@@ -23,18 +162,57 @@ pub(crate) struct PrepareRunRequest {
     pub(crate) target: SelectedEntity,
     #[serde(default)]
     pub(crate) user_arguments: Vec<String>,
+    #[serde(default)]
+    pub(crate) workspace_root: Option<String>,
+    #[serde(default)]
+    pub(crate) launch_options: Option<LaunchOptions>,
 }
 
 /// Builds the public request without inferring language-specific launch facts.
 pub(crate) fn plan(
     build_system: &BuildSystemDeclaration,
     request: &PrepareRunRequest,
+    protocol_version: u32,
 ) -> Validation<Value> {
     let declaration = build_system
         .run
         .iter()
         .find(|run| run.id == request.run && run.source == TaskSource::Provider)
         .ok_or_else(|| plans::unavailable(build_system, "this provider run"))?;
+    let execution = declaration.execution.unwrap_or(BuildExecution::Application);
+    match &request.launch_options {
+        Some(options) => {
+            if options.debug.is_some() && protocol_version < 11 {
+                return Err(plans::invalid_selection(
+                    "Runtime debug options require buildProviders 11.",
+                ));
+            }
+            if protocol_version < 10 || options.execution != execution {
+                return Err(plans::invalid_selection(
+                    "Launch options require buildProviders 10 and the declared execution kind.",
+                ));
+            }
+            options.validate(request.workspace_root.as_deref())?;
+            if let Some(debug) = &options.debug {
+                if declaration
+                    .debug
+                    .as_ref()
+                    .and_then(|binding| binding.configuration_type.as_ref())
+                    != Some(&debug.configuration_type)
+                {
+                    return Err(plans::invalid_selection(
+                        "The selected registry type must match this run's debug declaration.",
+                    ));
+                }
+            }
+        }
+        None if execution != BuildExecution::Application => {
+            return Err(plans::invalid_selection(
+                "Service and task runs require launch options.",
+            ));
+        }
+        None => {}
+    }
     if request.base.output_file.is_some() {
         return Err(plans::invalid_selection(
             "Provider run preparation does not use an output file.",
@@ -66,6 +244,9 @@ pub(crate) fn plan(
     let mut params = plans::provider_hints(&request.base)?;
     params.insert("run".to_string(), json!(declaration.id));
     params.insert("userArguments".to_string(), json!(request.user_arguments));
+    if let Some(options) = &request.launch_options {
+        params.insert("launchOptions".to_string(), json!(options));
+    }
     for (name, selected) in [("project", project), ("target", target)] {
         params.insert(
             name.to_string(),
@@ -92,12 +273,15 @@ pub(crate) struct DecodeRunPreparationRequest {
     pub(crate) workspace_root: String,
     pub(crate) root: String,
     pub(crate) result: Value,
+    #[serde(default)]
+    pub(crate) launch_options: Option<LaunchOptions>,
 }
 
 /// Validates all launch data before a platform executable resolver sees it.
 pub(crate) fn decode(
     build_system: &BuildSystemDeclaration,
     request: &DecodeRunPreparationRequest,
+    protocol_version: u32,
 ) -> Validation<Value> {
     if !build_system
         .run
@@ -107,6 +291,17 @@ pub(crate) fn decode(
         return Err(plans::unavailable(build_system, "run preparation"));
     }
     let invalid = || decode::invalid_output("Invalid provider run preparation result.");
+    if request.launch_options.is_some() && protocol_version < 10 {
+        return Err(invalid());
+    }
+    if request
+        .launch_options
+        .as_ref()
+        .is_some_and(|options| options.debug.is_some())
+        && protocol_version < 11
+    {
+        return Err(invalid());
+    }
     let value = &request.result;
     if serde_json::to_vec(value).map_or(usize::MAX, |bytes| bytes.len()) > decode::MAX_OUTPUT_BYTES
     {
@@ -115,9 +310,8 @@ pub(crate) fn decode(
     let executable = value.get("executable").ok_or_else(invalid)?;
     let kind = executable["kind"].as_str().ok_or_else(invalid)?;
     let name = executable["value"].as_str().ok_or_else(invalid)?;
-    if name.len() > 120
-        || !(kind == "command" && is_bare_command(name)
-            || kind == "toolchain" && is_identifier(name))
+    if !(kind == "command" && name.len() <= 120 && is_bare_command(name)
+        || kind == "toolchain" && crate::toolchain::definitions::tool_id(name))
     {
         return Err(invalid());
     }
@@ -152,11 +346,24 @@ pub(super) fn process_fields(request: &DecodeRunPreparationRequest) -> Validatio
         .read_path(&root)
         .filter(|path| path.is_dir())
         .ok_or_else(invalid)?;
-    if !decode::contains(&root, &cwd)
-        || !workspace
-            .read_path(&cwd)
-            .is_some_and(|path| path.is_dir() && path.starts_with(&instance))
-    {
+    let override_cwd = request
+        .launch_options
+        .as_ref()
+        .and_then(|options| options.working_directory.as_deref());
+    if let Some(options) = &request.launch_options {
+        options
+            .validate(Some(&request.workspace_root))
+            .map_err(|_| invalid())?;
+    }
+    let permitted = if let Some(expected) = override_cwd {
+        cwd == expected && workspace.read_path(&cwd).is_some_and(|path| path.is_dir())
+    } else {
+        decode::contains(&root, &cwd)
+            && workspace
+                .read_path(&cwd)
+                .is_some_and(|path| path.is_dir() && path.starts_with(&instance))
+    };
+    if !permitted {
         return Err(invalid());
     }
     let environment = value["environment"]
@@ -164,12 +371,7 @@ pub(super) fn process_fields(request: &DecodeRunPreparationRequest) -> Validatio
         .filter(|env| env.len() <= MAX_ENVIRONMENT)
         .ok_or_else(invalid)?;
     for (key, value) in environment {
-        let valid_key = !key.is_empty()
-            && key.len() <= 128
-            && key.bytes().enumerate().all(|(index, byte)| {
-                byte == b'_' || byte.is_ascii_alphabetic() || index > 0 && byte.is_ascii_digit()
-            });
-        if !valid_key
+        if !valid_environment_key(key)
             || !value
                 .as_str()
                 .is_some_and(|text| text.len() <= MAX_ARGUMENT_BYTES && !text.contains('\0'))

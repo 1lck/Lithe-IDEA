@@ -169,6 +169,7 @@
 "A Java project with no build tool, Maven, or Gradle." = "不使用构建工具，或使用 Maven、Gradle 的 Java 项目。";
 "A Spring Boot project from Spring Initializr." = "由 Spring Initializr 生成的 Spring Boot 项目。";
 "A basic project with a free structure." = "具有自由结构的基本项目。";
+"A build operation is already active" = "已有构建操作正在运行";
 "A custom Agent can follow either your Codex or your Claude configuration." = "自定义 Agent 可以跟随你本机的 Codex 或 Claude 配置。";
 "A detailed message with a clear subject and body" = "带有清晰标题和正文的详细说明";
 "A host name, an IP address, or a Host alias from ~/.ssh/config. Settings from that file, such as ProxyJump and IdentityFile, still apply." = "主机名、IP 地址，或 ~/.ssh/config 中的 Host 别名。该文件里的 ProxyJump、IdentityFile 等设置仍然生效。";
@@ -181,6 +182,7 @@
 "A rebase cannot start with any uncommitted changes, including these unrelated to '%@':" = "变基无法在存在任何未提交更改时开始，包括下列与“%@”无关的更改：";
 "A removed Hook cannot be saved." = "无法保存已移除的 Hook。";
 "A running local JVM and its JDK jstat tool are required." = "需要运行中的本地 JVM 及其 JDK jstat 工具。";
+"A saved input is revalidated by the existing toolchain resolver when the consumer runs. It is not a verified current installation." = "使用方运行时会由现有工具链解析器重新校验此输入。它不代表已验证的当前安装。";
 "A secure connection to %@ could not be established. Check TLS inspection, proxy, VPN, or system certificate settings." = "无法与 %@ 建立安全连接。请检查 TLS 检查、代理、VPN 或系统证书设置。";
 "A secure connection to GitHub could not be established. Check TLS inspection, proxy, VPN, or system certificate settings." = "无法与 GitHub 建立安全连接。请检查 TLS 检查、代理、VPN 或系统证书设置。";
 "A secure connection to the MCP Registry could not be established. Check the proxy or retry directly." = "无法与 MCP Registry 建立安全连接。请检查代理，或使用直连重试。";
@@ -248,6 +250,7 @@
 "Add a memory usage indicator to the status bar" = "在状态栏添加内存占用指示器";
 "Add an AI provider in AI Providers first." = "请先在“AI 服务商”中添加服务商。";
 "Add another account" = "添加另一个账号";
+"Add argument" = "添加参数";
 "Add at least one absolute allowed folder path after the Filesystem package argument." = "请在 Filesystem 包参数后至少添加一个允许访问的文件夹绝对路径。";
 "Add at least one absolute folder path after the package argument, one per line. Filesystem can read and write only in the folders you allow. Requires Node.js 24 or later." = "在包参数后至少添加一个文件夹的绝对路径，每行一个。Filesystem 只可读写你允许的文件夹。需要 Node.js 24 或更高版本。";
 "Add clickable actions beside document text" = "在文档文本旁添加可点击的操作";
@@ -315,6 +318,7 @@
 "Agents run on the Node.js installed on this Mac. Install or update Node.js yourself, then check again." = "Agent 运行在这台 Mac 上已安装的 Node.js 之上。请自行安装或升级 Node.js，然后重新检测。";
 "All" = "全部";
 "All Branches" = "全部分支";
+"All Build consumers" = "所有构建使用方";
 "All References" = "所有引用";
 "All Repositories" = "全部仓库";
 "All Users" = "所有用户";
@@ -453,6 +457,7 @@
 "Automatic" = "自动";
 "Automatic discovery" = "自动检测";
 "Automatic query ×%lld, identical results" = "自动查询 %lld 次，结果相同";
+"Automatic selection" = "自动选择";
 "Automatic tries your SSH agent and keys first, then asks for a password. Lithe asks in a dialog whenever the server needs an answer, such as a password, a passphrase, or a verification code." = "“自动”会先尝试 SSH Agent 和密钥，再询问密码。服务器需要回答时（例如密码、私钥口令或验证码），Lithe 会弹窗询问。";
 "Automatic uses a project mvnw first, then detected Maven, then mvnd." = "自动模式会优先使用项目 mvnw，其次使用检测到的 Maven，最后使用 mvnd。";
 "Automatically accept all file edits" = "自动批准文件编辑，其他操作仍按权限规则处理。";
@@ -522,9 +527,15 @@
 "Build System" = "构建系统";
 "Build files changed." = "构建文件已更改。";
 "Build files changed. Reload the model to pick up the changes." = "构建文件已更改，请重新加载模型以应用更改。";
+"Build launch did not start" = "构建未能启动";
+"Build option migration could not be verified. The previous configuration has been retained. Reload the build instance to retry." = "无法验证构建选项迁移结果，已保留原配置。请重新加载构建实例以重试。";
+"Build options changed on disk. Reload before saving; your changes have been kept." = "构建选项已在磁盘上变更，请重新加载后保存；你的更改已保留。";
 "Build output" = "构建输出";
+"Build plugins are unavailable" = "构建插件不可用";
 "Build provider" = "构建 Provider";
+"Build provider model changed. Regenerate Run configurations before running." = "构建 Provider 模型已更改。请重新生成运行配置后再运行。";
 "Build system" = "构建系统";
+"Build tool defaults" = "构建工具默认值";
 "Build, Execution, Deployment" = "构建、执行、部署";
 "Build-system language import is still preparing. Retry when project loading completes." = "构建系统的语言导入仍在准备中。请在项目加载完成后重试。";
 "Build-system language import preparation timed out. Retry project loading." = "构建系统的语言导入准备超时。请重新加载项目。";
@@ -665,7 +676,9 @@
 "Choose a color theme and whether Lithe follows the system appearance." = "选择配色主题，并设置是否跟随系统外观。";
 "Choose a commit format" = "选择提交格式";
 "Choose a database connection and then a table from the sidebar." = "请先选择数据库连接，再从侧边栏选择一个表。";
+"Choose a declared build task" = "请选择插件声明的构建任务";
 "Choose a default web browser in System Settings, then retry." = "请在系统设置中选择默认网页浏览器，然后重试。";
+"Choose a detected build instance" = "请选择已检测到的构建实例";
 "Choose a directory inside the project" = "请选择项目内的目录";
 "Choose a language-server executable." = "请选择语言服务器可执行文件。";
 "Choose a local or custom provider in the Agent panel settings." = "请在设置窗口的 Agent 页面中选择本机配置或自定义供应商。";
@@ -952,6 +965,7 @@
 "Connection timeout" = "连接超时";
 "Connections: %lld" = "连接：%lld";
 "Console" = "控制台";
+"Consumer" = "使用方";
 "Consumers" = "使用方";
 "Content" = "内容";
 "Content SHA-256" = "内容 SHA-256";
@@ -1090,6 +1104,7 @@
 "Could not start the Java test result listener: %@" = "无法启动 Java 测试结果监听器：%@";
 "Could not start the MCP command. Check its executable and runtime." = "无法启动 MCP 命令，请检查程序及所需运行时。";
 "Could not verify the commit outcome. Review before retrying." = "无法确认提交结果，请检查后再重试。";
+"Could not verify the saved project environment settings. The previous preferences have been kept when possible." = "无法核对已保存的项目环境设置。已尽可能保留原偏好。";
 "Could not write %@." = "无法写入 %@。";
 "Could not write %@. The previous contents were kept in %@." = "无法写入 %@。之前的内容已保留在 %@。";
 "Could not write Java launch argument file at %@: %@" = "无法在 %@ 写入 Java 启动参数文件：%@";
@@ -1198,6 +1213,7 @@
 "Default options" = "默认参数";
 "Default push behavior" = "默认 Push 行为";
 "Default shell" = "默认 Shell";
+"Defaults" = "默认值";
 "Defaults for ordinary Fetch in every project. A repository's own Git configuration above still wins where it is set." = "所有项目普通获取的默认值。仓库自身的 Git 配置一旦设置，仍以其为准。";
 "Definition" = "定义";
 "Definition not found" = "没有找到定义";
@@ -1366,6 +1382,7 @@
 "Each built-in preset includes a preview of the generated message." = "三个内置预设都会显示生成信息示例。";
 "Each repository has its own commit. Completed steps are kept if another repository fails." = "每个仓库会分别提交。某个仓库失败时，已完成的步骤仍会保留。";
 "Each row explains the setting, the value Git is actually using, and where that value comes from." = "每一行都会说明设置用途、Git 实际采用的值，以及这个值来自哪里。";
+"Each row is one argument. Spaces, quotes and empty values are preserved." = "每行是一个独立参数，空格、引号和空值会原样保留。";
 "Each submodule is pushed before its parent." = "先推送子模块，再推送父仓库。";
 "Each tool uses the first source that has a value: a fixed version, then project version files, then global defaults, then automatic discovery. Installed versions are checked by running each tool's own version command. Enabled version managers report what version files ask for." = "每个工具采用第一个有值的来源，依次为固定版本、项目版本文件、全局默认、自动检测。已安装的版本通过运行该工具自己的版本命令来检查。已启用的版本管理器会报告版本文件所要求的版本。";
 "Earlier" = "更早";
@@ -1389,6 +1406,7 @@
 "Edit Shortcuts" = "编辑快捷键";
 "Edit Watch" = "编辑监视";
 "Edit configuration text" = "编辑配置文本";
+"Edit defaults" = "编辑默认值";
 "Edit exception breakpoint" = "编辑异常断点";
 "Edit files and stage the changes you want to include. Amend and Continue updates this commit; Continue keeps the existing commit." = "修改文件并暂存需要包含的更改。“修订并继续”会更新当前提交；“继续”会保留现有提交。";
 "Edit message" = "编辑消息";
@@ -1492,6 +1510,7 @@
 "Enter the new symbol name." = "输入新的符号名称。";
 "Enter the next function call" = "进入下一个函数调用";
 "Enter the one-time code" = "输入一次性代码";
+"Entry point" = "入口";
 "Environment" = "环境变量";
 "Environment variable and header names must be unique." = "环境变量名和 Header 名不能重复。";
 "Environment variables" = "环境变量";
@@ -1518,6 +1537,7 @@
 "Excluded from indexing by a parent directory" = "继承父目录的索引排除";
 "Exclusion list" = "排除列表";
 "Executable" = "可执行文件";
+"Executable file" = "可执行文件";
 "Execute Maven Goal" = "执行 Maven 目标";
 "Execute Maven goal" = "执行 Maven 目标";
 "Execute the next source line" = "执行下一行源代码";
@@ -1687,6 +1707,7 @@
 "Found automatically" = "已自动找到";
 "Frames are not available" = "当前无可用栈帧";
 "Frames rendered per second" = "每秒渲染帧数";
+"Framework service debugging is not available in remote workspaces yet." = "远程工作区暂不支持框架服务调试。";
 "Free space" = "剩余空间";
 "From %@" = "来自 %@";
 "Frontend and other non-Java roots keep the workspace editor and terminal settings. Java and Maven SDKs only apply to the backends listed on the left." = "前端和其他非 Java 根目录沿用工作区的编辑器和终端设置。Java 与 Maven SDK 只作用于左侧列出的后端项目。";
@@ -1958,6 +1979,7 @@
 "Install the selected channel" = "安装所选渠道版本";
 "Install the tool on the remote host, add it to the login PATH, and refresh the available runtimes." = "请在远程主机上安装工具并加入登录环境的 PATH，然后刷新可用运行环境。";
 "Installation" = "安装来源";
+"Installation directory" = "安装目录";
 "Installation: %@" = "安装来源：%@";
 "Installations found in the locations this tool's plugin declares. Each version comes from the tool's own version command, and the highest one is used. Installations inside the project are never run." = "在插件为该工具声明的位置中找到的安装。每个版本来自该工具自己的版本命令，使用其中最高的版本。项目内的安装永远不会运行。";
 "Installations of %@ could not be checked." = "无法检查 %@ 的安装。";
@@ -2143,6 +2165,7 @@
 "Linked this conversation to a pull request" = "已将此对话关联到拉取请求";
 "Linked worktree" = "关联工作树";
 "Listed in" = "所在插件仓库";
+"Lists the project root and directories with version files, fixed versions or saved tool preferences, together with their parents." = "列出项目根目录、具有版本文件、固定版本或已保存工具偏好的目录，以及它们的父目录。";
 "Lists the project root and each directory with its own version file or fixed version. A fixed version also applies to the directories below it." = "列出项目根目录，以及自带版本文件或固定版本的目录。固定版本也作用于其下的子目录。";
 "Lithe" = "Lithe";
 "Lithe Agent" = "Lithe Agent";
@@ -2447,6 +2470,12 @@
 "Name and email are written to this repository's Git configuration and override the global values. Existing commits do not change." = "姓名和邮箱写入当前仓库的 Git 配置并覆盖全局值，已有提交不会改变。";
 "Name for this filter" = "给这个过滤起个名字";
 "Name:" = "名称：";
+"Native configuration" = "原生配置";
+"Native configuration changed on disk. Reload before saving; your draft has been kept." = "磁盘上的原生配置已更改。请重新加载后再保存；已保留你的草稿。";
+"Native configuration changed. Reload before saving; your draft has been kept." = "原生配置已更改。请重新加载后再保存；已保留你的草稿。";
+"Native configuration is busy. Wait for the current operation to finish." = "原生配置正在处理中。请等待当前操作完成。";
+"Native configuration is unavailable." = "原生配置不可用。";
+"Native configuration was saved, but its current effective values could not be verified. Reload before editing again." = "原生配置已保存，但无法核实当前生效值。请重新加载后再编辑。";
 "Native installer" = "原生安装器";
 "Native instruction file" = "原生指令文件";
 "Navigate" = "导航";
@@ -2492,6 +2521,7 @@
 "New terminal session" = "新建终端会话";
 "New terminal with shell" = "使用 Shell 新建终端";
 "New window" = "新窗口";
+"Next Build input" = "下次构建输入";
 "Next File" = "下一个文件";
 "Next Match" = "下一个匹配项";
 "Next console expression" = "下一条表达式";
@@ -2608,6 +2638,7 @@
 "No matching skills." = "没有匹配的技能。";
 "No matching users" = "没有匹配的用户";
 "No models available" = "暂无可用模型";
+"No native configuration has been read." = "尚未读取原生配置。";
 "No navigation results" = "没有导航结果";
 "No new commits. Pushing creates the remote branch." = "没有新的提交。推送会创建远程分支。";
 "No notifications" = "暂无通知";
@@ -2812,6 +2843,7 @@
 "Open a project to configure its run configurations." = "打开项目后即可编辑运行配置。";
 "Open a project to let connected agents inspect and control it." = "打开项目后，已连接的 Agent 才能检查和控制它。";
 "Open a project to manage its skills." = "请先打开项目，再管理项目技能。";
+"Open a project to read its native configuration." = "打开项目以读取其原生配置。";
 "Open a project to see how much space its history uses." = "打开项目后可查看其历史占用的空间。";
 "Open a project to see its language service." = "打开项目后可查看其语言服务。";
 "Open a project to use Git" = "请打开项目以使用 Git";
@@ -3043,6 +3075,8 @@
 "Project default" = "项目默认值";
 "Project defaults (This Mac)" = "项目默认运行环境（本机）";
 "Project environment" = "项目环境";
+"Project environment settings are being saved. Wait before saving again." = "正在保存项目环境设置，请等待完成后再保存。";
+"Project environment settings changed on disk. Reload before saving; your draft has been kept." = "项目环境设置已被外部修改。请重新加载后再保存；你的草稿已保留。";
 "Project files" = "项目文件";
 "Project identification complete" = "项目识别完成";
 "Project identification did not produce a run configuration." = "项目识别没有生成运行配置。";
@@ -3148,6 +3182,7 @@
 "Read again" = "重新读取";
 "Read declared shortcut files from the editor you select for import" = "读取所选编辑器中声明的快捷键配置文件以供导入";
 "Read result" = "读取结果";
+"Read using project tool" = "使用项目工具读取";
 "Read, write and search files only in the directories you allow. Requires Node.js 24 or later." = "读写、搜索你允许的目录中的文件。需要 Node.js 24 或更高版本。";
 "Read-only" = "只读";
 "Read-only file preview" = "只读文件预览";
@@ -3155,6 +3190,7 @@
 "Reading Git configuration…" = "正在读取 Git 配置…";
 "Reading changes and recent commits." = "正在读取文件更改和最近提交。";
 "Reading changes…" = "正在读取更改…";
+"Reading configuration with this project tool requires an explicit action." = "读取配置需要显式运行此项目工具。";
 "Reading memory…" = "正在读取内存…";
 "Reading project…" = "正在读取项目…";
 "Reading registered checkouts." = "正在读取 Git 中注册的检出目录。";
@@ -3241,6 +3277,7 @@
 "Reload Range" = "重新加载范围";
 "Reload from disk" = "从磁盘重新加载";
 "Reload the Core preview and reset the step plan" = "重新加载预览并重置操作计划";
+"Reload the build model before selecting a project, target or model task" = "选择项目、目标或模型任务前，请重新加载构建模型";
 "Reload the project model" = "重新加载项目模型";
 "Reload this Agent before synchronizing instructions." = "请重新加载此 Agent 的指令后再同步。";
 "Reload tool settings" = "重新加载工具设置";
@@ -3513,6 +3550,7 @@
 "Runtime" = "运行时长";
 "Runtime Environment" = "运行环境";
 "Runtime Environment — Isolated Preview" = "运行环境 — 隔离预览";
+"Runtime arguments" = "运行时参数";
 "Runtime discovery failed" = "运行环境探测失败";
 "Runtime used by the language server (installed on this Mac)" = "语言服务器使用的运行时（本机已安装）";
 "Rust Core cache-retention planning is unavailable." = "Rust Core 的缓存保留规划不可用。";
@@ -3570,6 +3608,7 @@
 "Saved in .lithe/run/configurations.json for the whole team. Local JDK paths are never shared." = "保存在 .lithe/run/configurations.json，供整个团队使用。本机 JDK 路径不会共享。";
 "Saved in .lithe/run/local.json and excluded from Git." = "保存在 .lithe/run/local.json，并已从 Git 中排除。";
 "Saved in Keychain" = "已保存在钥匙串中";
+"Saved input" = "已保存的输入";
 "Saved only for this project on this computer in .lithe/run/local.json and excluded from Git." = "仅为这台电脑上的此项目保存在 .lithe/run/local.json，并已从 Git 中排除。";
 "Saved to %@" = "已保存到 %@";
 "Saved, not verified" = "已保存，未验证";
@@ -3872,6 +3911,7 @@
 "Some installation versions were not checked in time." = "部分安装的版本未能及时检查。";
 "Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations." = "部分项目目录无法读取，已有运行配置已保留。请恢复访问权限后重新识别运行配置。";
 "Some repositories could not be refreshed. Displayed changes may be out of date." = "部分仓库无法刷新，显示的更改可能已过期。";
+"Some saved run configurations cannot be migrated yet. Keep the existing files and retry after updating Lithe and its build plugin." = "部分已保存的运行配置暂时无法迁移。请保留现有文件，在更新 Lithe 及其构建插件后重试。";
 "Some selected diffs could not be read. Refresh Git changes and retry." = "部分勾选文件的差异读取失败，请刷新 Git 更改后重试。";
 "Some selected files belong to another version control root. Refresh and select them again." = "部分所选文件属于其他版本控制根目录。请刷新后重新选择。";
 "Some settings have unsupported values and were skipped." = "部分设置值不受支持，已跳过。";
@@ -4172,10 +4212,14 @@
 "The branch could not be published" = "无法发布该分支";
 "The branch now contains the completed plan. Its original history remains available through the recovery reference." = "操作计划已执行完成。仍可通过恢复引用查看分支的原始历史。";
 "The breakdown needs Model call statistics (on by default). After turning it on, reconnect and send a message." = "分项需要开启“模型调用统计”（默认开启）。开启后请重新连接并发送消息。";
+"The build option is no longer available. Reload the build instance." = "此构建选项已不可用。请重新加载构建实例。";
+"The build option value is invalid. Inspect its current kind and choices." = "构建选项值无效。请查看其当前类型和可选值。";
+"The build options could not be saved or verified. Reload before retrying." = "无法保存或验证构建选项，请重新加载后重试。";
 "The build provider failed to start." = "构建 Provider 启动失败。";
 "The build provider returned an invalid launch plan." = "构建提供方返回了无效的启动计划。";
 "The build provider stopped before it was ready." = "构建 Provider 在就绪前已停止。";
 "The build provider's debug program or adapter is unavailable. Build it again and check that the plugin is enabled." = "构建插件的调试程序或适配器不可用。请重新构建，并检查插件是否已启用。";
+"The build selection is no longer available" = "所选构建项已不可用";
 "The build tool exited with code %lld." = "构建工具已退出，退出码 %lld。";
 "The build tool output is too large or not UTF-8." = "构建工具的输出过大或不是 UTF-8 编码。";
 "The build tool timed out." = "构建工具超时。";
@@ -4249,6 +4293,7 @@
 "The file or its hard links changed while saving. Your edits are still unsaved. Check the file and save again." = "保存期间文件或硬链接发生了变化。编辑内容尚未保存，请检查文件后重新保存。";
 "The file system that holds the home directory." = "主目录所在的文件系统。";
 "The file will be created when you save." = "保存时将创建此文件。";
+"The framework did not open its JVM debug port before the deadline. Check the Run output." = "框架未在期限内开放 JVM 调试端口，请查看运行输出。";
 "The function call was cancelled." = "函数调用已取消。";
 "The generated message will replace the text currently in the editor." = "生成的提交信息将替换编辑器中的当前文本。";
 "The generated title or description would replace text you already entered." = "生成的标题或描述可能会替换你已经输入的内容。";
@@ -4284,6 +4329,7 @@
 "The name of the artifact the build produces." = "构建产物的名称。";
 "The native Hook configuration must be valid JSON. Existing contents were kept." = "原生 Hook 配置必须是有效 JSON，已有内容已保留。";
 "The native Hook event must contain an array. Existing contents were kept." = "原生 Hook 事件必须是数组，已有内容已保留。";
+"The native configuration must be a writable file smaller than 2 MB." = "原生配置必须是小于 2 MB 的可写文件。";
 "The native hooks field must be a JSON object. Existing contents were kept." = "原生 hooks 字段必须是 JSON 对象，已有内容已保留。";
 "The native panel state exceeds 64 KiB." = "原生面板状态超过 64 KiB。";
 "The official Lithe plugin repository cannot be removed. Disable it instead." = "官方 Lithe 插件仓库无法移除，请改为停用。";
@@ -4374,6 +4420,8 @@
 "The resource names a root this window does not offer." = "资源指定的根目录不在此窗口提供的范围内。";
 "The resource path must be relative, use \"/\" separators, and not contain \".\" or \"..\"." = "资源路径必须是相对路径，使用“/”分隔，且不能包含“.”或“..”。";
 "The response stopped at the model's token limit." = "回复已达到模型的 token 上限，已停止。";
+"The saved build option could not be verified. Reload before editing again." = "无法核实已保存的构建选项。请重新加载后再编辑。";
+"The saved build options are invalid. The original configuration has been kept." = "已保存的构建选项无效，原配置已保留。";
 "The saved provider run configuration is unavailable." = "已保存的提供方运行配置不可用。";
 "The saved toolchain settings are invalid." = "已保存的工具链设置无效。";
 "The selected AI provider has an invalid API URL or model." = "所选 AI 服务商的 API 地址或模型无效。";
@@ -4394,6 +4442,7 @@
 "The selected language-server path is not executable: %@" = "所选语言服务器路径不可执行：%@";
 "The selected table has no columns to display." = "所选表没有可显示的列。";
 "The selected test identifier is invalid." = "所选测试标识符无效。";
+"The selected toolchain is unavailable." = "所选工具链不可用。";
 "The selected versions match" = "所选版本相同";
 "The server asked again. Check the previous answer." = "服务器再次提问，请检查上一次的回答。";
 "The server rejected the credentials. Check the user name and the authentication method." = "服务器拒绝了凭据，请检查用户名和认证方式。";
@@ -4459,6 +4508,7 @@
 "These choices apply to this Fetch only. Git configuration and credentials remain unchanged." = "这些选项仅用于本次获取。Git 配置和凭据保持不变。";
 "These defaults apply only to this project on this computer. Run configurations inherit them unless overridden. Use the Project save scope in a run configuration to share settings with your team." = "这些默认设置仅作用于这台电脑上的此项目。运行配置默认继承，单独设置时可覆盖。需要与团队共享的设置，请在运行配置中选择“项目”保存范围。";
 "These files will be moved to the macOS Trash." = "这些文件将移到 macOS 废纸篓。";
+"These machine-local choices apply to Build providers and their Run configurations on the next operation. Saving does not probe or execute a tool. Inherited choices follow later default changes." = "这些本机选择会在构建提供者及其运行配置的下一次操作中生效。保存不会探测或执行工具。继承项会随默认值的后续变化更新。";
 "These overrides affect only this run configuration. Clear a path to inherit the project environment." = "以下覆盖值仅影响当前运行配置。清空路径可恢复继承项目环境。";
 "These processes left their terminal or tool to keep running in the background, like daemons and dev servers. Checked items end when Lithe quits; unchecked items keep running." = "这些进程已脱离所在的终端或工具，在后台独立运行，例如守护进程和开发服务器。勾选的项目会在 Lithe 退出时结束；未勾选的项目继续运行。";
 "These programs were started in Lithe before it closed unexpectedly. Checked items are ended now; unchecked items keep running and are not tracked anymore." = "这些程序是 Lithe 意外关闭前在 Lithe 中启动的。勾选的项目会立即结束；未勾选的项目继续运行，Lithe 之后不再管理它们。";
@@ -4515,6 +4565,7 @@
 "This folder cannot be read." = "无法读取此文件夹。";
 "This folder is empty" = "此文件夹为空";
 "This host cannot receive a compatible plugin package. Update the remote server." = "此主机无法接收兼容的插件包，请更新远程服务。";
+"This native configuration source is read-only. Installed applications and plugin packages cannot be edited." = "此原生配置来源为只读。不能编辑已安装的应用和插件包。";
 "This page" = "此页面";
 "This panel needs exactly one matching plugin instance in the workspace." = "此面板要求工作区中恰好有一个匹配的插件实例。";
 "This permanently deletes uncommitted and untracked files in '%@'. The branch itself is kept." = "这会永久删除“%@”中的未提交文件和未跟踪文件，但会保留对应分支。";
@@ -4530,6 +4581,7 @@
 "This plugin sent messages too quickly." = "此插件发送消息过快。";
 "This preview contains changes that have not been officially released and may be unstable." = "此预览版包含尚未正式发布的改动，可能不稳定。";
 "This project" = "此项目";
+"This project has no matching build-system instance." = "此项目没有匹配的构建系统实例。";
 "This project is not a Git repository" = "当前项目不是 Git 仓库";
 "This project window is no longer available." = "此项目窗口已不可用。";
 "This rebase session is no longer active in the current repository." = "此变基会话在当前仓库中已失效。";
@@ -4606,6 +4658,7 @@
 "Toolbar Actions" = "工具栏操作";
 "Toolchain Sources" = "环境来源";
 "Toolchain settings are not available for remote workspaces yet." = "远程工作区暂不支持工具链设置。";
+"Toolchain settings changed while loading. Refresh and try again." = "加载期间工具链设置发生变化。请刷新后重试。";
 "Tools" = "工具";
 "Tools sent" = "发送的工具";
 "Total" = "总计";
@@ -4732,6 +4785,7 @@
 "Update source" = "更新源";
 "Update sources must use https://. http:// is only allowed for this Mac (localhost)." = "更新源必须使用 https://；http:// 只允许用于本机（localhost）。";
 "Update status" = "更新状态";
+"Update the Maven Build plugin before generating Run configurations." = "请先更新 Maven Build 插件，再生成运行配置。";
 "Update this CLI using its original installer, then check again." = "请使用原安装器更新此 CLI，然后重新检测。";
 "Update to" = "可更新至";
 "Update to %@" = "更新到 %@";
@@ -4759,6 +4813,7 @@
 "Use AI worktree directory (/private/tmp)" = "使用 AI 工作树目录（/private/tmp）";
 "Use AutoBuild" = "使用 AutoBuild";
 "Use AutoBuild Rolling?" = "使用 AutoBuild 滚动版？";
+"Use Build execute to start another build" = "请使用构建执行工具开始新的构建";
 "Use Default Messages" = "使用默认消息";
 "Use Git configuration" = "使用 Git 配置";
 "Use Git from PATH" = "使用 PATH 中的 Git";
@@ -4771,11 +4826,14 @@
 "Use a valid file or directory name" = "请输入有效的文件或目录名称";
 "Use an Agent in your project" = "在项目中使用 Agent";
 "Use automatic value" = "使用自动值";
+"Use consumer default" = "使用方的工作区默认值";
 "Use credential helper" = "使用凭据助手";
 "Use detected JDK" = "使用检测到的 JDK";
+"Use directory tool default" = "使用当前目录的工具默认值";
 "Use fast processing" = "使用快速处理模式";
 "Use form" = "使用表单";
 "Use full HTTP path for credentials" = "凭据使用完整 HTTP 路径";
+"Use inherited choice" = "沿用继承选择";
 "Use letters, digits, dots, dashes or underscores. The name must start with a letter or digit." = "只能使用字母、数字、点、短横线或下划线，且必须以字母或数字开头。";
 "Use local configuration or add your own provider." = "使用本机配置或添加自定义供应商。";
 "Use mvnw or detected Maven" = "使用 mvnw 或检测到的 Maven";
@@ -4794,6 +4852,7 @@
 "Use the standard response speed" = "使用标准响应速度";
 "Use this when a repository or Git default needs a one-off adjustment." = "仅在需要临时调整仓库或 Git 默认值时使用。";
 "Use up to 64 lowercase letters, digits and single hyphens for the skill name." = "技能名称最多 64 个字符，请使用小写字母、数字和单个连字符。";
+"Use workspace default" = "使用工作区默认值";
 "Use your local ChatGPT account. No API key or URL is needed." = "使用本机已登录的 ChatGPT 账号，无需 API Key 或 URL。";
 "Used" = "已用";
 "Used %@" = "已使用 %@";
@@ -4991,6 +5050,7 @@
 "aiCommit.outputTokenFieldInfo" = "Lithe 使用此字段发送提交信息请求。旧网关请选择 max_tokens。";
 "avg" = "平均";
 "basic Latin letters" = "基本拉丁字母";
+"build.window.addArgument" = "添加参数";
 "characters used by the interface and your files" = "界面和文件用到的字符";
 "chars" = "字符";
 "checkout" = "检出";
@@ -5126,6 +5186,14 @@
 "git.unifiedView" = "统一视图";
 "history.clearFailed" = "无法清空此项目的本地历史。请检查存储目录权限后重试。";
 "https://github.com/owner/repository" = "https://github.com/owner/repository";
+"ide.build.busy" = "已有构建操作正在运行";
+"ide.build.chooseInstance" = "请选择已检测到的构建实例";
+"ide.build.chooseTask" = "请选择插件声明的构建任务";
+"ide.build.launchFailed" = "构建未能启动";
+"ide.build.reloadSelection" = "选择项目、目标或模型任务前，请重新加载构建模型";
+"ide.build.restart" = "请使用构建执行工具开始新的构建";
+"ide.build.selectionExpired" = "所选构建项已不可用";
+"ide.build.unavailable" = "构建插件不可用";
 "indexing.autoGit" = "根据 Git 忽略规则自动排除目录";
 "indexing.cancelExclusion" = "取消排除";
 "indexing.configureFailed" = "无法应用项目索引排除策略，请重新打开项目后重试。";
@@ -5294,6 +5362,9 @@
 "mac.workbench.unhide" = "取消隐藏";
 "macOS could not prepare the update disk image. Download the release manually and try again." = "macOS 无法准备更新磁盘映像，请手动下载版本后重试。";
 "macOS could not prepare the update disk image. Open the Release page and install it manually." = "macOS 无法准备更新磁盘映像。请打开 Release 页面手动安装。";
+"macos.buildProvider.jvmDebugPortTimeout" = "框架未在期限内开放 JVM 调试端口，请查看运行输出。";
+"macos.buildProvider.jvmDebugRemoteUnavailable" = "远程工作区暂不支持框架服务调试。";
+"macos.native.savedRunMigrationNeedsUpdate" = "部分已保存的运行配置暂时无法迁移。请保留现有文件，在更新 Lithe 及其构建插件后重试。";
 "main Java" = "主代码";
 "main resources" = "主资源";
 "markdown.plantumlRenderFailed" = "PlantUML 无法渲染此图表，已显示源码。";
@@ -5653,6 +5724,12 @@
 "native.buildFilesChanged" = "%1$@ 构建文件已更改";
 "native.buildFilesChanged.variant2" = "构建文件已更改。";
 "native.buildFilesChangedReloadTheModelToPickUpTheChanges" = "构建文件已更改，请重新加载模型以应用更改。";
+"native.buildOptionInvalid" = "构建选项值无效。请查看其当前类型和可选值。";
+"native.buildOptionMigrationCouldNotBeVerified" = "无法验证构建选项迁移结果，已保留原配置。请重新加载构建实例以重试。";
+"native.buildOptionReadBackFailed" = "无法核实已保存的构建选项。请重新加载后再编辑。";
+"native.buildOptionUnavailable" = "此构建选项已不可用。请重新加载构建实例。";
+"native.buildOptionsConflict" = "构建选项已在磁盘上变更，请重新加载后保存；你的更改已保留。";
+"native.buildOptionsSaveFailed" = "无法保存或验证构建选项，请重新加载后重试。";
 "native.buildOutput" = "构建输出";
 "native.buildOutput.variant2" = "构建输出";
 "native.buildOutputs" = "构建产物";
@@ -6165,6 +6242,7 @@
 "native.couldNotSaveTheConnections" = "无法保存连接：%1$@";
 "native.couldNotStartTheJavaTestResultListener" = "无法启动 Java 测试结果监听器：%1$@";
 "native.couldNotStartTheMcpCommandCheckItsExecutableAndRuntime" = "无法启动 MCP 命令，请检查程序及所需运行时。";
+"native.couldNotVerifySavedProjectEnvironment" = "无法核对已保存的项目环境设置。已尽可能保留原偏好。";
 "native.couldNotVerifyTheCommitOutcomeReviewBeforeRetrying" = "无法确认提交结果，请检查后再重试。";
 "native.couldNotWrite" = "无法写入 %1$@。";
 "native.couldNotWriteJavaLaunchArgumentFileAt" = "无法在 %1$@ 写入 Java 启动参数文件：%2$@";
@@ -7606,6 +7684,19 @@
 "native.name.variant2" = "名称：";
 "native.nameAndEmailAreWrittenToTheGlobalGitConfigurationExistingCommitsDoNotChange" = "姓名和邮箱写入全局 Git 配置，已有提交不会改变。";
 "native.nameAndEmailAreWrittenToThisRepositorySGitConfigurationAndOverrideTheGlobalVal4aca07ef08" = "姓名和邮箱写入当前仓库的 Git 配置并覆盖全局值，已有提交不会改变。";
+"native.nativeConfigurationBusy" = "原生配置正在处理中。请等待当前操作完成。";
+"native.nativeConfigurationDiskConflict" = "磁盘上的原生配置已更改。请重新加载后再保存；已保留你的草稿。";
+"native.nativeConfigurationExplicitRead" = "读取配置需要显式运行此项目工具。";
+"native.nativeConfigurationFileRequired" = "原生配置必须是小于 2 MB 的可写文件。";
+"native.nativeConfigurationNoInstance" = "此项目没有匹配的构建系统实例。";
+"native.nativeConfigurationNotRead" = "尚未读取原生配置。";
+"native.nativeConfigurationOpenProject" = "打开项目以读取其原生配置。";
+"native.nativeConfigurationReadBackFailed" = "原生配置已保存，但无法核实当前生效值。请重新加载后再编辑。";
+"native.nativeConfigurationReadUsingProjectTool" = "使用项目工具读取";
+"native.nativeConfigurationSourceReadOnly" = "此原生配置来源为只读。不能编辑已安装的应用和插件包。";
+"native.nativeConfigurationStale" = "原生配置已更改。请重新加载后再保存；已保留你的草稿。";
+"native.nativeConfigurationTitle" = "原生配置";
+"native.nativeConfigurationUnavailable" = "原生配置不可用。";
 "native.nativeInstaller" = "原生安装器";
 "native.nativeInstructionFile" = "原生指令文件";
 "native.navigate" = "导航";
@@ -8141,6 +8232,8 @@
 "native.projectDefault" = "项目默认值";
 "native.projectDefaultsThisMac" = "项目默认运行环境（本机）";
 "native.projectEnvironment" = "项目环境";
+"native.projectEnvironmentSaveInProgress" = "正在保存项目环境设置，请等待完成后再保存。";
+"native.projectEnvironmentSettingsChangedOnDisk" = "项目环境设置已被外部修改。请重新加载后再保存；你的草稿已保留。";
 "native.projectErrors" = "项目错误";
 "native.projectFiles" = "项目文件";
 "native.projectIdentificationComplete" = "项目识别完成";
@@ -8620,6 +8713,7 @@
 "native.saveTitle" = "保存标题";
 "native.saved" = "已保存";
 "native.savedBreakpointsCouldNotBeRead" = "无法读取已保存的断点。";
+"native.savedBuildOptionsInvalid" = "已保存的构建选项无效，原配置已保留。";
 "native.savedDebuggerSteppingFiltersCouldNotBeRead" = "无法读取已保存的调试器步进过滤器。";
 "native.savedInKeychain" = "已保存在钥匙串中";
 "native.savedInLitheRunConfigurationsJsonForTheWholeTeamLocalJDKPathsAreNeverShared" = "保存在 .lithe/run/configurations.json，供整个团队使用。本机 JDK 路径不会共享。";
@@ -8718,6 +8812,7 @@
 "native.selectedDirectory" = "当前选择的目录";
 "native.selectedFromDiskThePublisherAndRepositoryHaveNotBeenVerified" = "从本地磁盘选择，尚未验证发布者与源码仓库。";
 "native.selectedRuntime" = "已选择";
+"native.selectedToolchainUnavailable" = "所选工具链不可用。";
 "native.selectedVersion" = "已选版本";
 "native.selfUpdateIsOnlyAvailableWhenLitheIsRunningFromAPackagedLitheApp" = "只有从打包后的 Lithe.app 运行时才支持自动覆盖更新。";
 "native.send" = "发送";
@@ -8932,6 +9027,7 @@
 "native.staged.variant2" = "已暂存";
 "native.stagedChanges" = "已暂存更改";
 "native.stagedFilesChangedBeforeGenerationFinished" = "生成完成前，已暂存的文件发生了变化";
+"native.staleProviderRunGeneration" = "构建 Provider 模型已更改。请重新生成运行配置后再运行。";
 "native.staleRecord" = "陈旧记录";
 "native.standard" = "标准";
 "native.startADebugSessionToRunDebuggerCommands" = "启动调试会话后即可运行调试器命令";
@@ -9524,6 +9620,24 @@
 "native.toolWindow" = "工具窗口";
 "native.toolWindows" = "工具窗口";
 "native.toolbarActions" = "工具栏操作";
+"native.toolchainPreferences.allBuildConsumers" = "所有构建使用方";
+"native.toolchainPreferences.automaticSelection" = "自动选择";
+"native.toolchainPreferences.buildToolDefaults" = "构建工具默认值";
+"native.toolchainPreferences.consumer" = "使用方";
+"native.toolchainPreferences.defaultsBadge" = "默认值";
+"native.toolchainPreferences.editDefaults" = "编辑默认值";
+"native.toolchainPreferences.executableFile" = "可执行文件";
+"native.toolchainPreferences.installationDirectory" = "安装目录";
+"native.toolchainPreferences.localBuildPreferencesInfo" = "这些本机选择会在构建提供者及其运行配置的下一次操作中生效。保存不会探测或执行工具。继承项会随默认值的后续变化更新。";
+"native.toolchainPreferences.nextBuildInput" = "下次构建输入";
+"native.toolchainPreferences.preferenceDirectoriesInfo" = "列出项目根目录、具有版本文件、固定版本或已保存工具偏好的目录，以及它们的父目录。";
+"native.toolchainPreferences.savedInput" = "已保存的输入";
+"native.toolchainPreferences.savedInputInfo" = "使用方运行时会由现有工具链解析器重新校验此输入。它不代表已验证的当前安装。";
+"native.toolchainPreferences.sourceChangedDuringLoad" = "加载期间工具链设置发生变化。请刷新后重试。";
+"native.toolchainPreferences.useConsumerDefault" = "使用方的工作区默认值";
+"native.toolchainPreferences.useDirectoryToolDefault" = "使用当前目录的工具默认值";
+"native.toolchainPreferences.useInheritedChoice" = "沿用继承选择";
+"native.toolchainPreferences.useWorkspaceDefault" = "使用工作区默认值";
 "native.toolchainSettings.answeredIn" = "%1$lld 毫秒内已回答";
 "native.toolchainSettings.automaticDiscovery" = "自动检测";
 "native.toolchainSettings.automaticStepInfo" = "在插件为该工具声明的位置中找到的安装。每个版本来自该工具自己的版本命令，使用其中最高的版本。项目内的安装永远不会运行。";
@@ -9725,6 +9839,7 @@
 "native.updateCurrentBranch" = "更新当前分支";
 "native.updateLitheToUseThisConfigurationVersion" = "请更新 Lithe 以使用此版本的配置。";
 "native.updateLog" = "更新日志";
+"native.updateMavenBeforeRunGeneration" = "请先更新 Maven Build 插件，再生成运行配置。";
 "native.updateNow" = "立即更新";
 "native.updateParentRepositoryReferences" = "更新父仓库引用";
 "native.updateProject" = "更新项目";
@@ -9999,6 +10114,9 @@
 "run configuration" = "运行配置";
 "run.incompleteProjectScanMessage" = "部分项目目录无法读取，已有运行配置已保留。请恢复访问权限后重新识别运行配置。";
 "run.incompleteProjectScanTitle" = "项目扫描不完整";
+"run.provider.entrypoint" = "入口";
+"run.provider.runtimeArguments" = "运行时参数";
+"run.provider.runtimeArgumentsHint" = "每行是一个独立参数，空格、引号和空值会原样保留。";
 "running for %@" = "已运行 %@";
 "scope managed from %@" = "依赖管理前 scope 为 %@";
 "scope not updated to %@" = "未提升为 %@ scope";

@@ -5,7 +5,7 @@
 //! Run marker beside each test method, the latter two switching to a passed or
 //! failed icon once a run recorded an outcome. Which declarations qualify is
 //! decided upstream by JDT (`javaMainMethods`) and the Java Test extension
-//! (`javaTestItems`); outcomes come from `maven.testResults` reports. This
+//! (`javaTestItems`); outcomes come from canonical build-provider reports. This
 //! module only combines those answers, so the two platforms cannot drift on
 //! placement, labels, or how method outcomes roll up into a class outcome.
 //!
@@ -33,8 +33,8 @@ pub struct JavaRunMarkersRequest {
     /// list when they cannot run tests for this file.
     #[serde(default)]
     pub test_items: Vec<TestItemInput>,
-    /// Recorded `maven.testResults` `testCases`; entries for other classes
-    /// are ignored.
+    /// Canonical report cases (`suite`, `case`, `status`); entries for other
+    /// classes are ignored. Legacy `className`/`method` remain accepted.
     #[serde(default)]
     pub test_cases: Vec<TestCaseInput>,
 }
@@ -84,9 +84,11 @@ impl RangeInput {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-/// One `maven.testResults` test case.
+/// One canonical test case, with legacy field aliases for older consumers.
 pub struct TestCaseInput {
+    #[serde(alias = "suite")]
     pub class_name: String,
+    #[serde(alias = "case")]
     pub method: String,
     pub status: String,
 }

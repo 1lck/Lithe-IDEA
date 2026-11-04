@@ -47,14 +47,12 @@ struct ProjectRuntimeSettings: Codable, Hashable, Sendable {
     var mavenHomePath = ""
     /// Empty means use the project JDK, then the detected system JDK.
     var mavenJavaHomePath = ""
-    var mavenSettingsPath = ""
-    var mavenLocalRepositoryPath = ""
     /// Per-subproject JDK and Maven overrides for monorepos.
     var moduleOverrides: [ProjectModuleRuntimeOverride] = []
 
     enum CodingKeys: String, CodingKey {
         case javaHomePath, mavenHomeSelection, mavenHomePath, mavenJavaHomePath
-        case mavenSettingsPath, mavenLocalRepositoryPath, moduleOverrides
+        case moduleOverrides
     }
 
     init(
@@ -62,16 +60,12 @@ struct ProjectRuntimeSettings: Codable, Hashable, Sendable {
         mavenHomeSelection: MavenHomeSelection = .automatic,
         mavenHomePath: String = "",
         mavenJavaHomePath: String = "",
-        mavenSettingsPath: String = "",
-        mavenLocalRepositoryPath: String = "",
         moduleOverrides: [ProjectModuleRuntimeOverride] = []
     ) {
         self.javaHomePath = javaHomePath
         self.mavenHomeSelection = mavenHomeSelection
         self.mavenHomePath = mavenHomePath
         self.mavenJavaHomePath = mavenJavaHomePath
-        self.mavenSettingsPath = mavenSettingsPath
-        self.mavenLocalRepositoryPath = mavenLocalRepositoryPath
         self.moduleOverrides = moduleOverrides
     }
 
@@ -84,11 +78,6 @@ struct ProjectRuntimeSettings: Codable, Hashable, Sendable {
         ) ?? .automatic
         mavenHomePath = try container.decodeIfPresent(String.self, forKey: .mavenHomePath) ?? ""
         mavenJavaHomePath = try container.decodeIfPresent(String.self, forKey: .mavenJavaHomePath) ?? ""
-        mavenSettingsPath = try container.decodeIfPresent(String.self, forKey: .mavenSettingsPath) ?? ""
-        mavenLocalRepositoryPath = try container.decodeIfPresent(
-            String.self,
-            forKey: .mavenLocalRepositoryPath
-        ) ?? ""
         moduleOverrides = try container.decodeIfPresent(
             [ProjectModuleRuntimeOverride].self,
             forKey: .moduleOverrides
@@ -181,8 +170,34 @@ struct ProjectRuntimeSettings: Codable, Hashable, Sendable {
         ProjectToolchainSelection(
             javaHomePath: javaHomePath.trimmingCharacters(in: .whitespacesAndNewlines),
             mavenExecutablePath: mavenExecutableOverride,
-            mavenJavaHomePath: mavenJavaHomePath.trimmingCharacters(in: .whitespacesAndNewlines)
+            mavenJavaHomePath: mavenJavaHomePath.trimmingCharacters(in: .whitespacesAndNewlines),
+            pathOverrides: Dictionary(moduleOverrides.filter(\.hasOverride).map { value in
+                (value.path, ProjectToolchainSelection.PathOverride(
+                    javaHomePath: value.javaHomePath.trimmingCharacters(in: .whitespacesAndNewlines),
+                    mavenExecutablePath: value.mavenExecutablePath.trimmingCharacters(in: .whitespacesAndNewlines),
+                    mavenJavaHomePath: value.mavenJavaHomePath.trimmingCharacters(in: .whitespacesAndNewlines)))
+            }, uniquingKeysWith: { _, last in last })
         )
+    }
+
+    mutating func applyProjectToolchain(_ selection: ProjectToolchainSelection) {
+        javaHomePath = selection.javaHomePath
+        mavenJavaHomePath = selection.mavenJavaHomePath
+        moduleOverrides = selection.pathOverrides.sorted { $0.key < $1.key }.map { path, value in
+            ProjectModuleRuntimeOverride(path: path, javaHomePath: value.javaHomePath,
+                mavenExecutablePath: value.mavenExecutablePath, mavenJavaHomePath: value.mavenJavaHomePath)
+        }
+        let maven = selection.mavenExecutablePath
+        if maven.isEmpty {
+            mavenHomeSelection = .automatic
+            mavenHomePath = ""
+        } else if maven == "mvnw" || maven == "./mvnw" || maven.hasSuffix("/mvnw") {
+            mavenHomeSelection = .wrapper
+            mavenHomePath = ""
+        } else {
+            mavenHomeSelection = .custom
+            mavenHomePath = maven
+        }
     }
 
     static func normalizedRelativePath(_ path: String?) -> String {

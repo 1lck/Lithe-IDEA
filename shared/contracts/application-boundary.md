@@ -173,7 +173,7 @@ These presentation actions do not add Agent Host commands or persist chat histor
 | GitHub | remote parsing, trusted request plans, normalized branch comparisons and pull requests/reviews/comments, deterministic ordering, and stable errors | OAuth configuration, HTTPS, browser opening, and operating-system credential storage |
 | [AI commit messages](ai-commit.md) | provider configuration parsing, commit rules, bounded diff evidence, request plans, and response text | local configuration discovery, credentials, HTTP, cancellation, and draft UI |
 | Agent conversation (ACP) | supported-agent catalog, Node.js/npm detection, adapter install with the user's npm and numbers-only live download progress, CLI provenance and owner-preserving updates, per-agent API-key and model delivery over ACP stdio (Codex gateway authentication; Claude public session options), explicit Codex subscription authentication via the installed CLI, bounded official App Server quota reads with account checks, ACP v1 connection per workspace and agent, agent-owned session history (list/load), session config options, user-selected file references as ACP resource links, streamed tool evidence, permission decisions, acknowledged cancellation with bounded recovery, and process-tree lifecycle in the shared Rust host | provider and agent settings, API-key storage, credential-independent local default-model reading through AI configuration ports, data directory, workspace selection, module enablement, conversation UI and compact subscription quota presentation, workspace/Agent-scoped local history annotations (favorites, title overrides and recoverable hidden rows), and user-selected Markdown export destinations |
-| [IDE capability API / MCP](ide-api/v1.md) | tool catalog, permission/argument validation, stable execution IDs, bounded output cursors and errors | explicit project authorization, live environment/Maven/Run application actions, helper discovery and writable connection storage |
+| [IDE capability API / MCP](ide-api/v1.md) | canonical tool schemas, narrowing host selection, permission/argument validation, stable execution IDs, bounded output cursors and errors | implemented workflow inventory, explicit project authorization, live environment/Build/Run application actions, helper discovery and writable connection storage |
 | Runtime | Java/Maven requirements, normalized candidates, and effective toolchain references | JDK/Maven probing and executable paths |
 | Language tooling | provider catalog, local fallback results, complete LSP process/session runtime, capabilities, diagnostics, UTF-16 edits, and normalized feature results | executable/environment discovery and UI provider routing |
 | Java/Maven/Spring | deterministic Maven-root selection, project structure, modules and profiles, bounded dependency-tree normalization; compiler diagnostic parsing; Java source structure, symbols, code vision, run-configuration detection, Spring configuration/bean/endpoint indexing, and JDTLS/Java Debug adapter policy | JDK/Maven discovery, local dependency-repository selection, Java/Maven child processes, and sockets |
@@ -896,6 +896,34 @@ queries keep one execution identity. Stop targets the owned preparation ID befor
 launch and the owned native process ID afterward. Missing or stale references fail without a CLI or old domain fallback.
 A Provider application's native output remains visible even without generated
 Run configurations. See `../fixtures/run-configuration/build-provider.json`.
+
+Windows native preparation returns `resolvedExecutables`, binding directly
+launchable definition IDs to this operation's checked native executable paths. Provider Run accepts a
+toolchain reference only when that ID is present; it hands the bound path and
+selected environment to the native process resolver. Saved legacy runtime paths
+and language-import fields cannot replace a missing binding. Conflicting roots
+for one ID fail instead of selecting by iteration order. The host-only JSON shape
+is exercised by Rust serialization and the TypeScript Run workflow using
+`../fixtures/build/native-tool-context.json`; it is not a persisted launch permit.
+
+Automatic Provider run discovery uses the current public declaration/target pairs,
+independently of language imports. The host projects generic selectors and upstream
+labels; Core owns stable Run IDs, layering and snapshot freshness. Neither layer
+interprets framework IDs or reconstructs commands/toolchains from those selectors.
+The existing Java ownership projection remains separate during the remaining migration.
+
+Portable Provider user choices live in Run v2 `extensions.build-run`, separately
+from `extensions.build` selector identity. Hosts preserve exact runtime argument
+arrays, opaque entrypoints and declared build-option values; the current Provider
+model/declaration validates them during preparation. This reuses protocol 10 rather
+than adding tool-specific persistence fields. Migrating old domain formats remains
+an explicit temporary adapter responsibility, with conflict-protected storage.
+
+Complete persisted Build references retain opaque Run IDs across format migrations;
+the prefix does not confer authority. Core deduplicates only the generated counterpart
+of the effective saved selector and validates it before use. Prepared team/local Run
+layers can be resolved without filesystem publication; native adapters own cancellation,
+source checks, metadata-preserving conditional writes, rollback and readback.
 
 ### Project Java runtime and language-server runtime
 

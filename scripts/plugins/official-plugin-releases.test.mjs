@@ -39,6 +39,16 @@ test("plans carry the actual API and capability metadata plus every architecture
   assert.equal(plan([sample], () => false, readManifest).length, 1);
 });
 
+test("API 4 adapter packages retain capability requirements in plans and indexes", () => {
+  const api4 = { ...manifest, pluginAPIVersion: 4, requires: { debugAdapters: 1, languageServers: 1 } };
+  const release = releaseFor(sample, () => api4);
+  assert.equal(release.pluginAPIVersion, 4);
+  assert.deepEqual(release.requires, api4.requires);
+  assert.deepEqual(list(empty(), release).plugins[0].versions[0].requires, api4.requires);
+  assert.throws(() => releaseFor(sample, () => ({ ...api4, requires: undefined })));
+  assert.throws(() => releaseFor(sample, () => ({ ...api4, pluginAPIVersion: 5 })));
+});
+
 test("rejects inconsistent manifest, overlapping platforms, assets and missing capability metadata", () => {
   assert.throws(() => releaseFor(sample, () => ({ ...manifest, id: "wrong" })));
   assert.throws(() => releaseFor(sample, () => ({ ...manifest, version: "1.0" })));

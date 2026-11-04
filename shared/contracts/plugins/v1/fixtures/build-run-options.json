@@ -1,0 +1,37 @@
+{
+  "format": "litheBuildRunOptions",
+  "version": 1,
+  "launchOptions": {
+    "execution": "service",
+    "runtimeArguments": [
+      "-Dmessage=hello world",
+      "-Dquote=\"value\"",
+      "-Dpath=C:\\Users\\example"
+    ],
+    "arguments": [
+      "--message=hello world",
+      "雪",
+      ""
+    ],
+    "environment": {
+      "EXAMPLE": "hello world"
+    },
+    "workingDirectory": "tools",
+    "entrypoint": "example.Main"
+  },
+  "result": {
+    "executable": {
+      "kind": "toolchain",
+      "value": "project-maven"
+    },
+    "arguments": [
+      "--file",
+      "app/pom.xml",
+      "framework:run"
+    ],
+    "workingDirectory": "tools",
+    "environment": {
+      "EXAMPLE": "hello world"
+    }
+  }
+}

@@ -71,6 +71,7 @@ struct PluginSettingsContributions: Equatable, Sendable {
     struct BuildSystem: Equatable, Sendable {
         let id: String
         let displayName: String
+        var nativeConfiguration = false
     }
 
     var languages: [DeclarativePluginLanguage] = []

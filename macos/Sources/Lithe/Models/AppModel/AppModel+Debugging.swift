@@ -194,6 +194,10 @@ extension AppModel {
             }
             return
         }
+        if selectedConfiguration.usesProviderConnectionDebug {
+            await startProviderServiceDebug(selectedConfiguration, identity: identity, run: runFeature)
+            return
+        }
         if selectedConfiguration.buildProvider != nil {
             guard await saveAllDocuments(), isCurrentWorkspace(identity), !Task.isCancelled,
                   let feature = buildSystemsFeatureIfActive else { return }
@@ -216,6 +220,10 @@ extension AppModel {
             configurations: runFeature.configurations
         )
         runFeature.select(configuration)
+        if configuration.usesProviderConnectionDebug {
+            await startProviderServiceDebug(configuration, identity: identity, run: runFeature)
+            return
+        }
 
         let sourceResolution = runWorkflowCoordinator.resolveDebugSource(
             configuration: configuration,
@@ -256,33 +264,10 @@ extension AppModel {
         await startGenericDebuggingAfterActivation(fileURL: sourceURL, document: document)
     }
 
-    func debugBuildProviderApplication(entryID: String, request: BuildRunRequest, title: String) {
-        runWorkflowCoordinator.startModuleOperation { [weak self] in
-            guard let self, let identity = currentWorkspaceIdentity,
-                  await saveAllDocuments(), isCurrentWorkspace(identity),
-                  await activateDebugModule() != nil, isCurrentWorkspace(identity),
-                  !Task.isCancelled, let feature = buildSystemsFeatureIfActive else { return }
-            if feature.debugApplication(entryID, request: request, title: title, launch: { [weak self] source, preparation in
-                guard let self, self.isCurrentWorkspace(identity), !Task.isCancelled else { throw CancellationError() }
-                try self.launchPreparedProviderDebug(source: source, preparation: preparation, workspaceURL: identity.url, title: title)
-            }) != nil { showToolWindow(.buildOutput) }
-        }
-    }
-
-    private func launchPreparedProviderDebug(source: BuildSystemPluginSource, preparation: BuildDebugPreparation,
-                                            workspaceURL: URL, title: String) throws {
-        guard let feature = genericDebugFeatureIfActive else { throw CancellationError() }
-        let configuration = try debugLaunchConfigurationResolver.resolveProvider(source: source, preparation: preparation,
-                                                                                 workspaceURL: workspaceURL, title: title)
-        guard feature.startAdditional(fileURL: workspaceURL.appendingPathComponent(preparation.program),
-                                      rootURL: workspaceURL, configuration: configuration) else {
-            throw NSError(domain: "BuildProviderDebug", code: 1, userInfo: [NSLocalizedDescriptionKey: feature.errorMessage
-                ?? L10n.string("The build provider's debug program or adapter is unavailable. Build it again and check that the plugin is enabled.")])
-        }
-        showToolWindow(.debug)
-    }
-
     func stopDebugging() {
+        if providerDebugSession == nil || providerDebugSession?.session == genericDebugFeatureIfActive?.activeSessionID {
+            runFeatureIfActive?.stopProviderDebug()
+        }
         buildSystemsFeatureIfActive?.cancelDebugPreparation()
         runWorkflowCoordinator.cancelModuleOperation()
         cancelJavaTestDebugLaunch()
@@ -495,7 +480,6 @@ extension AppModel {
         }
         guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
         let selectedConfiguration = runFeature.selectedConfiguration
-        let mavenContext = mavenFeatureIfActive?.launchContext
         // Debug is the second execution mode for the Run selection. Re-apply
         // the selection here so its project-scoped Java runtime override is
         // active even when the Run panel was never opened in this session.
@@ -505,7 +489,14 @@ extension AppModel {
         }
         var javaUpdateTarget: JavaDebugLaunchTarget?
         let configuration: DebugLaunchConfiguration
+        let buildInputs: UInt64?
+        let javaImport: JavaLanguageImportConfiguration?
         do {
+            if let selectedConfiguration { try await prepareCurrentProviderGeneration(configuration: selectedConfiguration, identity: identity) }
+            if let selectedConfiguration, selectedConfiguration.usesJavaProjectPreparation {
+                javaImport = try await prepareJavaBuildResources(configuration: selectedConfiguration, fileURL: fileURL, identity: identity)
+            } else { try await prepareBuildLanguageImport(); javaImport = nil }
+            buildInputs = buildSystemsFeatureIfActive?.inputRevision
             configuration = try await featureGraph.debugLaunchPreparation.prepare(
                 provider: provider,
                 fileURL: fileURL,
@@ -516,18 +507,26 @@ extension AppModel {
                 resolveJavaTarget: { [weak self] in
                     guard let self else { return nil }
                     try await self.saveJavaWorkspaceForLaunch(identity: identity)
+                    let operation = self.buildSystemsFeatureIfActive?.operation?.id
                     let sessions = try await self.languageSessionsForWorkspaceMaintenance(for: identity)
-                    let preparation = try await sessions.prepareJavaRunLaunchTarget(
-                        fileURL: fileURL,
-                        rootURL: workspaceURL,
-                        mainClass: selectedConfiguration?.mainClass
-                    )
+                    let preparation: JavaLaunchPreparation
+                    if let javaImport {
+                        preparation = try await sessions.prepareJavaRunLaunchTarget(fileURL: fileURL, rootURL: workspaceURL, languageImport: javaImport, mainClass: selectedConfiguration?.mainClass)
+                    } else {
+                        preparation = try await sessions.prepareJavaRunLaunchTarget(fileURL: fileURL, rootURL: workspaceURL, mainClass: selectedConfiguration?.mainClass)
+                    }
+                    let javaRevision = sessions.javaImportRevision
                     let target = try await self.resolveJavaLaunchPreparation(
                         preparation,
                         identity: identity
                     )
-                    javaUpdateTarget = target
-                    return target
+                    guard !Task.isCancelled, self.isCurrentWorkspace(identity), self.buildSystemsFeatureIfActive?.operation?.id == operation,
+                          sessions.javaImportRevision == javaRevision else { throw CancellationError() }
+                    let prepared = JavaDebugLaunchTarget(mainClass: target.mainClass, projectName: target.projectName,
+                        modulePaths: target.modulePaths, classPaths: target.classPaths,
+                        buildPrepared: selectedConfiguration?.usesJavaProjectPreparation == true)
+                    javaUpdateTarget = prepared
+                    return prepared
                 }
             )
         // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
@@ -539,7 +538,7 @@ extension AppModel {
             return
         }
         guard isCurrentWorkspace(identity), !Task.isCancelled,
-              mavenFeatureIfActive?.launchContext == mavenContext,
+              buildSystemsFeatureIfActive?.inputRevision == buildInputs,
               runFeature.selectedConfiguration == selectedConfiguration else { return }
         guard featureGraph.debugLaunchPreparation.start(
             configuration: configuration,

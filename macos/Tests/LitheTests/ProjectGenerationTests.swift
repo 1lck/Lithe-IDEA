@@ -345,11 +345,15 @@ struct ProjectGenerationTests {
         }
         var language = manifest
         language["projectGenerators"] = nil
-        language["permissions"] = ["languageServer.launch"]
+        // The language half keeps the debug adapter it declares, so it keeps
+        // the debug permissions that adapter needs.
+        language["permissions"] = ["languageServer.launch", "debug.launch", "debug.attach"]
         languageRequires["projectGenerators"] = nil
         language["requires"] = languageRequires
         var templates = manifest
-        for key in ["languages", "languageServers", "settings"] { templates[key] = nil }
+        // The template half requires only projectGenerators, so every other
+        // capability contribution leaves with its requirement.
+        for key in ["languages", "languageServers", "settings", "debugAdapters", "toolDefinitions"] { templates[key] = nil }
         templates["id"] = templatesPluginID.rawValue
         templates["displayName"] = "Java Templates"
         templates["permissions"] = ["project.generate"]

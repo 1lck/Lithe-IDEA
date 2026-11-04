@@ -1,6 +1,102 @@
 import LitheModuleAPI
 import Foundation
 
+/// Exact owner of a current build-model project, independent of build semantics.
+package struct RunBuildProjectReference: Codable, Equatable, Hashable, Sendable {
+    package let pluginID: String
+    package let buildSystemID: String
+    package let root: String
+    package let projectID: String
+    package init(pluginID: String, buildSystemID: String, root: String, projectID: String) {
+        self.pluginID = pluginID; self.buildSystemID = buildSystemID
+        self.root = root; self.projectID = projectID
+    }
+}
+
+/// Read-only ownership projected from the current Provider model and import.
+/// Run generation must not reconstruct these facts from build descriptors.
+package struct RunProjectOwnership: Codable, Equatable, Sendable {
+    package struct SourceRoot: Codable, Equatable, Sendable {
+        package let path: String
+        package let kind: String
+        package init(path: String, kind: String) { self.path = path; self.kind = kind }
+    }
+    package let path: String
+    package let name: String?
+    package let minimumJavaVersion: String?
+    package let build: RunBuildProjectReference?
+    package let contentRoots: [SourceRoot]
+    package init(path: String, build: RunBuildProjectReference?, contentRoots: [SourceRoot], name: String? = nil, minimumJavaVersion: String? = nil) {
+        self.minimumJavaVersion = minimumJavaVersion
+        self.name = name
+        self.path = path; self.build = build; self.contentRoots = contentRoots
+    }
+}
+
+/// Revokes user-document and native-state publication when generation loses its owner.
+package final class RunConfigurationGenerationLease: @unchecked Sendable {
+    private let lock = NSLock()
+    private var current = true
+    package init() {}
+    package func invalidate() { lock.lock(); current = false; lock.unlock() }
+    package var isCurrent: Bool { lock.lock(); defer { lock.unlock() }; return current }
+    package func check() throws { if !isCurrent { throw CancellationError() } }
+}
+
+/// An inert per-operation tool choice. Core verifies files and versions before use.
+package enum FixedToolchainSelection: Codable, Hashable, Sendable {
+    case installation(home: String)
+    case executable(path: String)
+    private enum CodingKeys: String, CodingKey { case home, executable }
+    package init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        guard values.allKeys.count == 1 else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Expected one explicit tool choice"))
+        }
+        if values.contains(.home) { self = .installation(home: try values.decode(String.self, forKey: .home)) }
+        else { self = .executable(path: try values.decode(String.self, forKey: .executable)) }
+    }
+    package func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .installation(let home): try values.encode(home, forKey: .home)
+        case .executable(let path): try values.encode(path, forKey: .executable)
+        }
+    }
+}
+
+/// Portable user choices stored apart from the current target selector.
+package struct BuildProviderRunOptions: Codable, Hashable, Sendable {
+    package var runtimeArguments: [String]
+    /// Empty clears an inherited entrypoint without naming a runtime.
+    package var entrypoint: String
+    package var options: [String: ToolingJSONValue]
+    package var tools: [String: FixedToolchainSelection?]
+    package init(runtimeArguments: [String] = [], entrypoint: String = "", options: [String: ToolingJSONValue] = [:],
+                 tools: [String: FixedToolchainSelection?] = [:]) {
+        self.runtimeArguments = runtimeArguments; self.entrypoint = entrypoint; self.options = options
+        self.tools = tools
+    }
+    private enum CodingKeys: CodingKey { case runtimeArguments, entrypoint, options, tools }
+    package init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        runtimeArguments = try values.decodeIfPresent([String].self, forKey: .runtimeArguments) ?? []
+        entrypoint = try values.decodeIfPresent(String.self, forKey: .entrypoint) ?? ""
+        options = try values.decodeIfPresent([String: ToolingJSONValue].self, forKey: .options) ?? [:]
+        tools = try values.decodeIfPresent([String: FixedToolchainSelection?].self, forKey: .tools) ?? [:]
+    }
+}
+
+/// A current model target matched to a public run declaration; no tool semantics.
+package struct RunProviderConfiguration: Codable, Equatable, Sendable {
+    package let projectPath: String
+    package let name: String
+    package let reference: BuildProviderRunReference
+    package init(projectPath: String, name: String, reference: BuildProviderRunReference) {
+        self.projectPath = projectPath; self.name = name; self.reference = reference
+    }
+}
+
 package enum ProjectRunConfigurationStatus: Equatable, Sendable {
     case missing
     case ready
@@ -59,6 +155,7 @@ package struct ProjectRunConfigurationInspection: Equatable, Sendable {
     /// Project defaults saved in the machine-local run layer. `nil` means that
     /// layer holds no defaults yet, which differs from explicitly automatic ones.
     package var projectToolchain: ProjectToolchainSelection? = nil
+    package var hasSavedToolchainPathOverrides = false
 
     package init(
         status: ProjectRunConfigurationStatus,
@@ -66,7 +163,9 @@ package struct ProjectRunConfigurationInspection: Equatable, Sendable {
         recoveryAction: RunConfigurationRecoveryAction = .none,
         recoveryPath: String? = nil,
         projectToolchain: ProjectToolchainSelection? = nil,
+        hasSavedToolchainPathOverrides: Bool = false,
         requiresGeneration: Bool = false
+
     ) {
         self.status = status
         self.requiresGeneration = requiresGeneration
@@ -74,6 +173,7 @@ package struct ProjectRunConfigurationInspection: Equatable, Sendable {
         self.recoveryAction = recoveryAction
         self.recoveryPath = recoveryPath
         self.projectToolchain = projectToolchain
+        self.hasSavedToolchainPathOverrides = hasSavedToolchainPathOverrides
     }
 }
 
@@ -283,26 +383,108 @@ package protocol RunConfigurationDocumentMutating: Sendable {
 }
 
 package struct ProjectToolchainSelection: Codable, Equatable, Sendable {
+    package struct PathOverride: Codable, Equatable, Sendable {
+        package var javaHomePath: String
+        package var mavenExecutablePath: String
+        package var mavenJavaHomePath: String
+        package init(javaHomePath: String = "", mavenExecutablePath: String = "", mavenJavaHomePath: String = "") {
+            self.javaHomePath = javaHomePath
+            self.mavenExecutablePath = mavenExecutablePath
+            self.mavenJavaHomePath = mavenJavaHomePath
+        }
+        package init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            javaHomePath = try values.decodeIfPresent(String.self, forKey: .javaHomePath) ?? ""
+            mavenExecutablePath = try values.decodeIfPresent(String.self, forKey: .mavenExecutablePath) ?? ""
+            mavenJavaHomePath = try values.decodeIfPresent(String.self, forKey: .mavenJavaHomePath) ?? ""
+        }
+        private enum CodingKeys: String, CodingKey { case javaHomePath, mavenExecutablePath, mavenJavaHomePath }
+    }
     package var javaHomePath = ""
     package var mavenExecutablePath = ""
     package var mavenJavaHomePath = ""
+    package var pathOverrides: [String: PathOverride] = [:]
 
     package init(
         javaHomePath: String = "",
         mavenExecutablePath: String = "",
-        mavenJavaHomePath: String = ""
+        mavenJavaHomePath: String = "",
+        pathOverrides: [String: PathOverride] = [:]
     ) {
         self.javaHomePath = javaHomePath
         self.mavenExecutablePath = mavenExecutablePath
         self.mavenJavaHomePath = mavenJavaHomePath
+        self.pathOverrides = pathOverrides
+    }
+
+    package init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        javaHomePath = try values.decodeIfPresent(String.self, forKey: .javaHomePath) ?? ""
+        mavenExecutablePath = try values.decodeIfPresent(String.self, forKey: .mavenExecutablePath) ?? ""
+        mavenJavaHomePath = try values.decodeIfPresent(String.self, forKey: .mavenJavaHomePath) ?? ""
+        pathOverrides = try values.decodeIfPresent([String: PathOverride].self, forKey: .pathOverrides) ?? [:]
+    }
+
+    private enum CodingKeys: String, CodingKey { case javaHomePath, mavenExecutablePath, mavenJavaHomePath, pathOverrides }
+}
+
+/// Core resolves document layers without assembling the provider's command line.
+package struct ProviderLaunchInputs: Decodable, Equatable, Sendable {
+    package let reference: BuildProviderRunReference?
+    package let buildSystemID: String
+    package let provider: String
+    package let projectPath: String
+    package let launchOptions: BuildLaunchOptions
+    package let optionOverrides: [String: ToolingJSONValue]
+    package let tools: [String: FixedToolchainSelection]
+
+    /// Saved applications carry opaque Provider arguments from protocol 4.
+    /// Reclassifying them as opt-in version-10 launch options breaks old SDKs.
+    package var opaqueReferenceArguments: [String]? {
+        guard let reference, (reference.execution ?? .application) == .application,
+              launchOptions.execution == .application, launchOptions.runtimeArguments.isEmpty,
+              launchOptions.environment.isEmpty, launchOptions.workingDirectory == nil,
+              launchOptions.entrypoint == nil, launchOptions.debug == nil,
+              launchOptions.arguments == reference.userArguments else { return nil }
+        return reference.userArguments
+    }
+
+    package init(buildSystemID: String, provider: String, projectPath: String, launchOptions: BuildLaunchOptions,
+                 optionOverrides: [String: ToolingJSONValue] = [:], reference: BuildProviderRunReference? = nil,
+                 tools: [String: FixedToolchainSelection] = [:]) {
+        self.reference = reference
+        self.buildSystemID = buildSystemID; self.provider = provider; self.projectPath = projectPath
+        self.launchOptions = launchOptions; self.optionOverrides = optionOverrides
+        self.tools = tools
+    }
+
+    private enum CodingKeys: CodingKey { case reference, buildSystemID, provider, projectPath, launchOptions, optionOverrides, tools }
+    package init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        reference = try values.decodeIfPresent(BuildProviderRunReference.self, forKey: .reference)
+        buildSystemID = try values.decode(String.self, forKey: .buildSystemID)
+        provider = try values.decode(String.self, forKey: .provider)
+        projectPath = try values.decode(String.self, forKey: .projectPath)
+        launchOptions = try values.decode(BuildLaunchOptions.self, forKey: .launchOptions)
+        optionOverrides = try values.decodeIfPresent([String: ToolingJSONValue].self, forKey: .optionOverrides) ?? [:]
+        tools = try values.decodeIfPresent([String: FixedToolchainSelection].self, forKey: .tools) ?? [:]
     }
 }
 
 package protocol RunConfigurationOperations: Sendable {
+    func providerLaunchInputs(at projectURL: URL, configurationID: String, providerRoot: String) throws -> ProviderLaunchInputs
     func saveBuildProviderConfiguration(_ reference: BuildProviderRunReference, name: String, at projectURL: URL) throws -> String
     /// Saves project defaults without modifying any service or requiring generated configurations.
     func saveProjectToolchain(_ toolchain: ProjectToolchainSelection, at projectURL: URL) throws
     func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection
+    /// Checks generated facts against the current Provider snapshot without hashing source files.
+    func inspectProviderGeneration(at projectURL: URL, projectOwnership: [RunProjectOwnership]) -> ProjectRunConfigurationInspection
+    func inspectProviderGeneration(at projectURL: URL, projectOwnership: [RunProjectOwnership], providerRuns: [RunProviderConfiguration]) -> ProjectRunConfigurationInspection
+    func generate(at projectURL: URL, files: [URL], modulePaths: [String], javaEntrypoints: JavaEntrypoints?,
+                  projectOwnership: [RunProjectOwnership]?, providerRuns: [RunProviderConfiguration]) throws -> RunConfigurationGenerationResult
+    func generate(at projectURL: URL, files: [URL], modulePaths: [String], javaEntrypoints: JavaEntrypoints?,
+                  projectOwnership: [RunProjectOwnership]?, providerRuns: [RunProviderConfiguration],
+                  models: [BuildModel], lease: RunConfigurationGenerationLease) throws -> RunConfigurationGenerationResult
     /// `checkFingerprint: false` validates the documents without reading project
     /// inputs. `javaEntrypoints`, JDT's current answer, additionally reports
     /// whether the generated Java entries still match it.
@@ -317,7 +499,8 @@ package protocol RunConfigurationOperations: Sendable {
         at projectURL: URL,
         files: [URL],
         modulePaths: [String],
-        javaEntrypoints: JavaEntrypoints?
+        javaEntrypoints: JavaEntrypoints?,
+        projectOwnership: [RunProjectOwnership]?
     ) throws -> RunConfigurationGenerationResult
     func resolve(
         at projectURL: URL,
@@ -359,6 +542,36 @@ package protocol RunConfigurationOperations: Sendable {
 }
 
 package extension RunConfigurationOperations {
+    func generate(at projectURL: URL, files: [URL], modulePaths: [String], javaEntrypoints: JavaEntrypoints?,
+                  projectOwnership: [RunProjectOwnership]?, providerRuns: [RunProviderConfiguration],
+                  models: [BuildModel], lease: RunConfigurationGenerationLease) throws -> RunConfigurationGenerationResult {
+        try lease.check()
+        return try generate(at: projectURL, files: files, modulePaths: modulePaths, javaEntrypoints: javaEntrypoints,
+            projectOwnership: projectOwnership, providerRuns: providerRuns)
+    }
+    func inspectProviderGeneration(at projectURL: URL, projectOwnership: [RunProjectOwnership], providerRuns: [RunProviderConfiguration]) -> ProjectRunConfigurationInspection {
+        guard providerRuns.isEmpty else {
+            return .init(status: .invalid(L10n.string("Load the current build model and enable its provider before running this configuration.")), diagnostics: [])
+        }
+        return inspectProviderGeneration(at: projectURL, projectOwnership: projectOwnership)
+    }
+    func generate(at projectURL: URL, files: [URL], modulePaths: [String], javaEntrypoints: JavaEntrypoints?,
+                  projectOwnership: [RunProjectOwnership]?, providerRuns: [RunProviderConfiguration]) throws -> RunConfigurationGenerationResult {
+        guard providerRuns.isEmpty else { throw RunConfigurationOperationFailure(message: L10n.string("Load the current build model and enable its provider before running this configuration.")) }
+        return try generate(at: projectURL, files: files, modulePaths: modulePaths, javaEntrypoints: javaEntrypoints, projectOwnership: projectOwnership)
+    }
+
+    func providerLaunchInputs(at projectURL: URL, configurationID: String, providerRoot: String) throws -> ProviderLaunchInputs {
+        throw RunConfigurationOperationFailure(message: L10n.string("Load the current build model and enable its provider before running this configuration."))
+    }
+
+    func inspectProviderGeneration(at projectURL: URL, projectOwnership: [RunProjectOwnership]) -> ProjectRunConfigurationInspection {
+        inspect(at: projectURL, checkFingerprint: false, javaEntrypoints: nil)
+    }
+    func generate(at projectURL: URL, files: [URL], modulePaths: [String], javaEntrypoints: JavaEntrypoints?) throws -> RunConfigurationGenerationResult {
+        try generate(at: projectURL, files: files, modulePaths: modulePaths,
+            javaEntrypoints: javaEntrypoints, projectOwnership: nil)
+    }
     func saveBuildProviderConfiguration(_: BuildProviderRunReference, name: String, at _: URL) throws -> String {
         throw RunConfigurationOperationFailure(message: L10n.string("Saving build provider run configurations is unavailable."))
     }

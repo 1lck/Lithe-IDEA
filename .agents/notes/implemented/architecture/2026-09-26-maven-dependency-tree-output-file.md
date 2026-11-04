@@ -4,15 +4,15 @@
 
 ## 先说结论
 
-Maven 工具窗口的依赖树以前是从 Maven 进程的整段控制台输出里解析出来的。
-依赖树和普通日志共用 500,000 字符的上限，大型项目（例如 6,000 个依赖节点，
-约 700 KB 文本）会报 `Maven dependency output exceeded the supported limit.`，
-依赖根本打不开（#890）。
+Windows 现存 Maven 依赖树继续通过独立输出文件读取，避免控制台日志挤掉合法依赖数据。
+macOS 在 #1495 阶段 D 已改用工作区 Maven Provider，删除旧 Maven 专属依赖进程、
+临时输出 adapter 和 Swift 文本树命令桥。通用 Build 树读取插件的上游依赖结果；
+Java 依赖导航使用 JDT 返回的实际类路径与虚拟文档，不再根据 Maven 坐标拼接 JAR 路径。
 
-现在依赖树由 `maven-dependency-plugin` 通过 `-DoutputFile` 写进一个平台临时
-文件，Rust Core 从文件读取并解析。控制台输出只当日志，不再参与数据解析。
-开发者以后要记住：**依赖数据走文件，日志走控制台，两条通道不能再合并**；
-临时文件由平台创建和删除，Core 只负责校验和解析。
+下面的文本树协议和 Windows 文件生命周期仍是当前契约；只有 Windows 消费者也切换
+后才能移除共享 Core 解析器。macOS 的通用 Provider 生命周期以
+[构建系统插件契约](2026-10-17-build-system-plugin-contract.md) 和
+[原生 Provider 执行](2026-10-26-build-provider-task-execution.md) 为准。
 
 ## 问题
 
@@ -62,10 +62,7 @@ Maven 工具窗口的依赖树以前是从 Maven 进程的整段控制台输出�
   `maven-dependency-trees/` 下，以会话 ID 命名；应用是单实例，启动时清空
   整个目录。前端 `maven.store.ts` 的所有结束路径（读完、取消、超时、失败、
   配置失效、被新请求取代）都经过 `releaseDependencySession`。
-- **macOS**：端口 `MavenDependencyOutputStoring`（`LitheCoreContracts`）由
-  `MacMavenDependencyOutputStore` 实现。允许多个 Lithe 同时运行，所以每个
-  进程使用以 PID 命名的子目录，创建时只删除进程已退出的目录。`MavenService`
-  的结束路径统一经过 `releaseDependencyOutputFile`。
+- **macOS**：该专属端口、adapter 和服务结束路径已删除。Provider 使用自己的工作区状态目录与上游扩展，宿主通用服务负责取消、过期结果和会话释放，不再分配旧树文本文件。
 - 两端都在 Core 读完之后才删除文件；一次读取开始后，新的请求或取消不会删掉
   正在被读取的文件。
 
@@ -135,10 +132,12 @@ m2e 内嵌的 Maven，而不是用户配置的 Maven 或 mvnd，违反“依赖�
 - Windows 前端：在 `windows/tauri` 运行
   `bun test --preload ./src/test-utils/vite-assets.ts src/features/maven`，覆盖
   每条结束路径都删除临时文件、读完才删除、删除失败只记日志。
-- macOS：`./scripts/macos/test/test-macos.sh`，其中 `ExecutionModuleTests` 覆盖服务生命周期，
-  `MavenRuntimeTests` 验证 fixture 解码与 PID 目录清理。普通 Swift 单测不链接
-  Core，`MavenDependencyTreeBridgeTests` 在 `./scripts/rust-core/verify-rust-core.sh` 的
-  Core 链接测试中通过真实 Core 规划并读取树文件。
+- macOS：`BuildSystemServiceTests` 验证 Provider 依赖结果、失败、取消和过期输出；
+  `RustBuildSystemOperationsTests` 验证公共 `build.*` 计划和解码；
+  `LanguageIntelligenceModuleTests` 与 `DependencyProviderTests` 验证语言后端解析根和虚拟文档。
+  `MacNativeBuildProviderIntegrationTests` 可用显式开发包、工具路径与真实多模块工程复验。
+  旧 PID 目录清理、Swift Maven 文本树 DTO 与文本树命令桥的测试随被替代实现删除；
+  Windows/Core 文本树 fixture 继续在其拥有者的测试中验证。
 
 ## 适用范围
 
@@ -148,5 +147,4 @@ m2e 内嵌的 Maven，而不是用户配置的 Maven 或 mvnd，违反“依赖�
 - `shared/fixtures/maven/dependency-tree-v2.json`
 - `windows/tauri/src-tauri/src/maven.rs`
 - `windows/tauri/src/features/maven/`
-- `macos/Sources/LitheExecutionModule/Services/MavenService.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Persistence/MacMavenDependencyOutputStore.swift`
+- `macos/Sources/LitheExecutionModule/Services/BuildSystemService.swift`

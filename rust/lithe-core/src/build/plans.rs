@@ -121,6 +121,11 @@ pub(crate) struct TestPlanRequest {
     /// workspace run collects reports from each of them.
     #[serde(default)]
     pub(crate) projects: Vec<String>,
+    /// One declared public namespace; values remain opaque to Core.
+    #[serde(default)]
+    pub(crate) selector_kind: Option<String>,
+    #[serde(default)]
+    pub(crate) selectors: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -152,6 +157,9 @@ pub(crate) struct ProviderTool {
     /// Absolute path of the executable, after the host applied wrappers,
     /// environment variables, `PATH`, and the user's override.
     pub(crate) executable: String,
+    /// Selected runtime inputs, independent of the backend process's own JDK.
+    #[serde(default)]
+    pub(crate) environment: BTreeMap<String, String>,
 }
 
 /// Validates what the host adds to a provider request and returns the
@@ -177,6 +185,20 @@ pub(crate) fn provider_hints(request: &OutputPlanRequest) -> Validation<Map<Stri
             ));
         }
         params.insert("tool".to_string(), json!({ "executable": executable }));
+        if tool.environment.len() > 64
+            || tool.environment.iter().any(|(key, value)| {
+                !super::manifest::is_environment_name(key)
+                    || value.len() > 32768
+                    || value.contains('\0')
+            })
+        {
+            return Err(invalid_selection(
+                "The resolved tool environment is invalid or too large.",
+            ));
+        }
+        if !tool.environment.is_empty() {
+            params.insert("environment".to_string(), json!(tool.environment));
+        }
     }
     Ok(params)
 }
@@ -380,10 +402,17 @@ impl<'a> PlanContext<'a> {
         params.insert("root".to_string(), json!(self.root));
         params.insert("options".to_string(), json!(self.option_values));
         params.insert("optionArguments".to_string(), json!(option_arguments));
-        params.insert(
-            "environment".to_string(),
-            json!(self.contribution.environment),
+        let mut environment = params
+            .remove("environment")
+            .and_then(|value| value.as_object().cloned())
+            .unwrap_or_default();
+        environment.extend(
+            self.contribution
+                .environment
+                .iter()
+                .map(|(key, value)| (key.clone(), json!(value))),
         );
+        params.insert("environment".to_string(), json!(environment));
         if let Some(inputs) = &self.model_inputs {
             params.insert("modelInputs".into(), inputs.clone());
         }
@@ -639,6 +668,24 @@ pub(crate) fn test_plan(
     } else {
         check_user_arguments(&request.user_arguments, &test.arguments)?;
     }
+    if let Some(kind) = &request.selector_kind {
+        if !test.selector_kinds.contains(kind)
+            || request.suite.is_some()
+            || request.case.is_some()
+            || request.selectors.len() > 64
+            || request.selectors.iter().any(|value| {
+                value.is_empty() || value.len() > 4096 || value.chars().any(char::is_control)
+            })
+        {
+            return Err(invalid_selection(
+                "Unsupported, conflicting or invalid opaque test selectors.",
+            ));
+        }
+    } else if !request.selectors.is_empty() {
+        return Err(invalid_selection(
+            "Opaque test selectors need their declared namespace.",
+        ));
+    }
     check_test_text(&request.suite, "test suite")?;
     check_test_text(&request.case, "test case")?;
     for (requested, filter) in [
@@ -741,12 +788,21 @@ pub(crate) fn test_plan(
             "reports": reports(globs),
         }),
         Some(TestResultsSource::HostIntegration) => json!({ "decoder": "hostIntegration" }),
+        Some(TestResultsSource::Provider) => json!({ "decoder": "provider" }),
     };
     let mut extra = Map::new();
     extra.insert("results".to_string(), results);
     if test.source == TaskSource::Provider {
         let mut params = Map::new();
         params.insert("userArguments".to_string(), json!(request.user_arguments));
+        if let Some(kind) = &request.selector_kind {
+            params.insert("selectorKind".to_string(), json!(kind));
+            params.insert("selectors".to_string(), json!(request.selectors));
+        }
+
+        if matches!(test.results, Some(TestResultsSource::Provider)) {
+            params.insert("testResults".to_string(), json!(true));
+        }
         // Filters stay separate values; the owning backend interprets them
         // using its upstream test engine, never a host-generated CLI string.
         for (name, value) in [("suite", &request.suite), ("case", &request.case)] {

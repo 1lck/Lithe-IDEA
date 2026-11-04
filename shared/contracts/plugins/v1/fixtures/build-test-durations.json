@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "sum",
+      "values": [
+        10,
+        20
+      ],
+      "durationMillis": 30
+    },
+    {
+      "name": "zero",
+      "values": [
+        0,
+        0
+      ],
+      "durationMillis": 0
+    },
+    {
+      "name": "missing-first",
+      "values": [
+        null,
+        20
+      ],
+      "durationMillis": null
+    },
+    {
+      "name": "missing-second",
+      "values": [
+        10,
+        null
+      ],
+      "durationMillis": null
+    },
+    {
+      "name": "unsafe-total",
+      "values": [
+        9007199254740990,
+        2
+      ],
+      "durationMillis": null
+    }
+  ]
+}

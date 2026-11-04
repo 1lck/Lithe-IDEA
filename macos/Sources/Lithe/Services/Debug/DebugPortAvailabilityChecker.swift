@@ -6,6 +6,17 @@ import Foundation
 @MainActor
 protocol DebugPortAvailabilityChecking: AnyObject {
     func isPortAvailable(_ port: Int) -> Bool
+    func unusedLoopbackPort() throws -> UInt16
+    func waitForLoopbackListener(_ port: UInt16, processID: @escaping @MainActor () -> Int32?, isCurrent: @escaping @MainActor () -> Bool) async throws
+}
+
+extension DebugPortAvailabilityChecking {
+    func unusedLoopbackPort() throws -> UInt16 {
+        throw DebugLaunchConfigurationResolutionError.providerDebugUnavailable
+    }
+    func waitForLoopbackListener(_ port: UInt16, processID: @escaping @MainActor () -> Int32?, isCurrent: @escaping @MainActor () -> Bool) async throws {
+        throw DebugLaunchConfigurationResolutionError.providerDebugUnavailable
+    }
 }
 
 @MainActor

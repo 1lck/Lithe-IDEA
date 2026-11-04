@@ -116,11 +116,24 @@ const MINIMUM_ARGFILE_JAVA_VERSION: u32 = 9;
 /// Hosts pass the result to [`plan_launch_command`], which needs it to know
 /// whether an argument file is supported. Encoding is the host's responsibility.
 pub fn java_feature_version_from_release(contents: &str) -> Option<u32> {
+    let value = java_version_from_release(contents)?;
+    release_feature_version(value)
+}
+
+/// Borrows the full version from JDK-owned release metadata without running Java.
+/// Native discovery uses this value with the shared runtime candidate ordering;
+/// absent or unrecognized metadata must not trigger an implicit process probe.
+pub fn java_version_from_release(contents: &str) -> Option<&str> {
     let value = contents
         .lines()
         .find_map(|line| line.trim().strip_prefix("JAVA_VERSION="))?
         .trim()
         .trim_matches('"');
+    release_feature_version(value)?;
+    Some(value)
+}
+
+fn release_feature_version(value: &str) -> Option<u32> {
     let mut parts = value.split(['.', '_', '-', '+']);
     let first = parts.next()?.parse::<u32>().ok()?;
     if first == 1 {
@@ -512,6 +525,14 @@ mod tests {
 
     #[test]
     fn the_release_file_reports_the_feature_version() {
+        for version in ["21.0.2", "1.8.0_392", "25-ea+35", "17.0.12+7"] {
+            let release = format!("IMPLEMENTOR=\"fixture\"\nJAVA_VERSION=\"{version}\"\n");
+            assert_eq!(java_version_from_release(&release), Some(version));
+        }
+        assert_eq!(
+            java_version_from_release("JAVA_VERSION=\"unknown\"\n"),
+            None
+        );
         assert_eq!(
             java_feature_version_from_release("IMPLEMENTOR=\"x\"\nJAVA_VERSION=\"21.0.2\"\n"),
             Some(21)

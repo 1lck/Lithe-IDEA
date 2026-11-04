@@ -7,7 +7,7 @@
 //! projects without running a build tool.
 
 use super::decode::Workspace;
-use super::manifest::{BuildSystemDeclaration, ModelSource, Nesting};
+use super::manifest::{BuildSystemDeclaration, ModelSource, Nesting, OptionKind, OptionScope};
 use super::options;
 use super::outputs::{model_value, read_model, source_marker};
 use crate::plugins::declarative::{validate_manifest_value, PluginRejection, Validation};
@@ -25,6 +25,17 @@ pub(crate) struct DetectRequest {
     /// Stored option values by build-system ID, for run entries.
     #[serde(default)]
     pub(crate) options: BTreeMap<String, BTreeMap<String, Value>>,
+    /// Values by build-system ID and normalized instance root. Only options
+    /// declared with instance scope may read this map.
+    #[serde(default)]
+    pub(crate) instance_options: BTreeMap<String, BTreeMap<String, BTreeMap<String, Value>>>,
+    /// Team-owned defaults for instance-scoped options, before root overrides.
+    #[serde(default)]
+    pub(crate) instance_defaults: BTreeMap<String, BTreeMap<String, Value>>,
+    /// Explicit per-root empty workspace multi-selections, preserving values
+    /// needed by sibling models. Unknown or changed option kinds ignore markers.
+    #[serde(default)]
+    pub(crate) empty_selections: BTreeMap<String, BTreeMap<String, BTreeSet<String>>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -117,6 +128,10 @@ fn instance(
         }
     }
     let resolved = options::resolve(declaration, stored, model_values.as_ref());
+    // Hosts must not recreate scope/default/root merging when handing this
+    // exact instance to a provider. Explicit empty selections remain chosen.
+    instance["options"] = json!(resolved.chosen_values);
+    instance["droppedOptions"] = json!(resolved.dropped);
     instance["optionFingerprint"] = json!(options::fingerprint(declaration, &resolved));
     instance
 }
@@ -186,7 +201,38 @@ pub(crate) fn detect(request: DetectRequest) -> Validation<Value> {
         let stored = request.options.get(&owner.declaration.id).unwrap_or(&empty);
         for (root, markers) in roots(owner.declaration, &directories) {
             if seen.insert((owner.declaration.id.clone(), root.clone())) {
-                instances.push(instance(owner, &workspace, &root, markers, stored));
+                let local = request
+                    .instance_options
+                    .get(&owner.declaration.id)
+                    .and_then(|roots| roots.get(&root));
+                let mut values = BTreeMap::new();
+                for option in &owner.declaration.options {
+                    let value = match option.scope {
+                        OptionScope::Workspace => stored.get(&option.id),
+                        OptionScope::Instance => {
+                            local.and_then(|values| values.get(&option.id)).or_else(|| {
+                                request
+                                    .instance_defaults
+                                    .get(&owner.declaration.id)
+                                    .and_then(|values| values.get(&option.id))
+                            })
+                        }
+                    };
+                    if let Some(value) = value {
+                        values.insert(option.id.clone(), value.clone());
+                    }
+                    if option.scope == OptionScope::Workspace
+                        && option.kind == OptionKind::MultiSelect
+                        && request
+                            .empty_selections
+                            .get(&owner.declaration.id)
+                            .and_then(|roots| roots.get(&root))
+                            .is_some_and(|ids| ids.contains(&option.id))
+                    {
+                        values.insert(option.id.clone(), json!([]));
+                    }
+                }
+                instances.push(instance(owner, &workspace, &root, markers, &values));
             }
         }
     }

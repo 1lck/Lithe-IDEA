@@ -62,6 +62,14 @@ enum DebugJavaRuntime: Equatable {
     }
 }
 
+/// The adapter registry owns the binding throughout process preparation and attach.
+@MainActor
+struct PreparedProviderConnectionDebug {
+    let options: BuildLaunchOptions.Debug
+    let configuration: DebugLaunchConfiguration
+    let isCurrent: @MainActor @Sendable () -> Bool
+}
+
 /// Maps an editor target and the language-neutral run model into adapter launch
 /// arguments. It contains no process or UI code, so platform composition can
 /// supply only the Java runtime and plugin launch capabilities.
@@ -74,6 +82,7 @@ struct DebugLaunchConfigurationResolver {
     /// when no adapter serves the language.
     private let pluginLaunch: (@MainActor (_ languageID: String, _ documentURL: URL, _ workspaceURL: URL) throws -> DebugLaunchConfiguration?)?
 
+    private let providerConnection: (@MainActor (String, String?, UInt16) throws -> PreparedProviderConnectionDebug)?
     private let providerLaunch: (@MainActor (BuildSystemPluginSource, BuildDebugPreparation, URL, String) throws -> DebugLaunchConfiguration)?
 
     @MainActor
@@ -83,12 +92,20 @@ struct DebugLaunchConfigurationResolver {
         return try providerLaunch(source, preparation, workspaceURL, title)
     }
 
+    @MainActor
+    func resolveProviderConnection(configurationType: String, adapterID: String?, port: UInt16) throws -> PreparedProviderConnectionDebug {
+        guard let providerConnection else { throw DebugLaunchConfigurationResolutionError.providerDebugUnavailable }
+        return try providerConnection(configurationType, adapterID, port)
+    }
+
     init(
         javaTestLaunchResolver: (any JavaTestDebugLaunchResolving)? = nil,
+        providerConnection: (@MainActor (String, String?, UInt16) throws -> PreparedProviderConnectionDebug)? = nil,
         providerLaunch: (@MainActor (BuildSystemPluginSource, BuildDebugPreparation, URL, String) throws -> DebugLaunchConfiguration)? = nil,
         javaExecutablePath: (@MainActor (DebugJavaRuntime) -> String?)? = nil,
         pluginLaunch: (@MainActor (String, URL, URL) throws -> DebugLaunchConfiguration?)? = nil
     ) {
+        self.providerConnection = providerConnection
         self.providerLaunch = providerLaunch
         self.pluginLaunch = pluginLaunch
         self.javaTestLaunchResolver = javaTestLaunchResolver
@@ -181,7 +198,8 @@ struct DebugLaunchConfigurationResolver {
             arguments: [
                 "hostName": .string(normalizedHost),
                 "port": .integer(port)
-            ]
+            ],
+            adapterProviderID: "java"
         )
     }
 

@@ -185,6 +185,10 @@ launch already succeeds there.
 Strings returned by the core are UTF-8 JSON allocated by Rust. The caller must
 release response strings with `lithe_core_free_string`.
 
+Rust native adapters may call `execution::java_version_from_release` to read the
+full JDK version from bounded host-read `release` metadata, then reuse Core's
+runtime candidate ordering. Passive Build discovery never falls back to running
+Java when that metadata is missing or invalid; explicit tool execution owns probes.
 ### Localized action search
 
 `search.actions` accepts `{query, candidates: [{texts: [string]}]}` and returns
@@ -1208,7 +1212,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `lsp.startServer` | Start one Rust-owned process/session and begin initialization |
 | `lsp.jdtWorkspaceKey` | Derive the deterministic JDT LS workspace-state directory key |
 | `java.workspacePolicy` | Decide Java workspace activation and classify changed paths |
-| `java.runMarkers` | Project JDT main/test discovery and Maven test outcomes into editor Run markers |
+| `java.runMarkers` | Project JDT main/test discovery and canonical build test outcomes into editor Run markers |
 | `java.jdtWorkspaceFingerprint` | Reduce platform build-file observations to the portable JDT LS workspace fingerprint |
 | `java.jdtCacheRetention` | Select expired inactive JDT LS workspace-state keys from platform metadata |
 | `lsp.stopServer` | Gracefully shut down a session, with a bounded force-stop fallback |
@@ -1244,9 +1248,11 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `mybatis.index` | Build a deterministic MyBatis mapper-interface and XML statement index |
 | `runConfig.selectJava` | Select a project-compatible automatic JDK from platform-probed candidates |
 | `runConfig.inspect` | Inspect `.lithe` run documents, versions, and staleness without writing files |
+| `runConfig.projectToolchain` | Read saved project tool paths for one Provider root, with the nearest path override |
 | `runConfig.generate` | Generate deterministic Java/Maven configurations and toolchain requirements |
 | `runConfig.resolve` | Merge generated, project, and local layers and return diagnostics |
 | `runConfig.updateOptions` | Apply typed option edits and return an updated project or local document |
+| `runConfig.updateToolPreferences` | Replace only generic preferences in a captured local Run document, preserving legacy defaults and unrelated metadata |
 | `runConfig.saveEditorChanges` | Prepare the local and optional project documents for one editor save |
 | `runConfig.createUserConfiguration` | Validate a typed user configuration and return an updated document |
 | `runConfig.createLaunchPlan` | Project one effective configuration into a platform-neutral Run or Debug plan |
@@ -1340,6 +1346,8 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `toolchains.decodeReply` | Validate an inert toolchain query/reply pair against bound provider identity, generation, declared tools and host-native filesystem evidence; no transport or native I/O |
 | `toolchains.failureReply` | Build the JSON-RPC error reply for a query that missed its deadline or found no backend, so the host passes it to `toolchains.decodeReply` like a provider's own error; cancellation has none |
 | `toolchains.resolvePins` | Validate a captured local document and find the nearest ancestor directory pin, retaining dormant and legacy entries without probing or writing |
+| `toolchains.resolveConsumerPreferences` | Validate an inert consumer preference document and resolve one tool's explicit Run, consumer, directory or workspace choice while keeping workspace/consumer inheritance symbolic; no native files or launch authority |
+| `toolchains.editConsumerPreferences` | Edit or reset one exact consumer/directory tool preference; return the document and effective input without native writes |
 | `toolchains.resolve` | Resolve the fixed/project/global/automatic layers from one generation-bound snapshot, retaining unmet requirements, unavailable providers with their cause, conflicts and terminal fixed-value failures |
 | `toolchains.checkVersion` | Match captured output with an enabled plugin definition's version expression and compare generic numeric components with an optional minimum; never starts a probe |
 | `toolchains.discoveryPlan` | Return platform-filtered definition-owned scan declarations, layouts, probes, PATH entries, login-shell home variables and budgets; never scans native directories |
@@ -1347,16 +1355,22 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `plugins.declarative.decodeGrammar` | Validate independent static editor resources (`languages` 2) |
 | `plugins.editorActions.decode` | Validate independent action registration or collection results |
 | `build.detect` | Find every build-system instance the enabled plugins declare in a workspace, with models that need no process |
+| `build.resolveStoredOptions` | `{ document, local: { version: 1, document, emptySelections?: { <systemID>: { <root>: [optionID] } } } }`, without a manifest | `storage: { document, local, emptySelections }`: checked team/local merge; local values override matching keys, unrelated systems/roots/choices stay intact. No filesystem I/O. Local documents are machine/workspace preferences, not team files or plugin-native configuration. Their storage syntax is [build-local-options-v1.schema.json](build-local-options-v1.schema.json), with additional cross-field membership and byte limits checked by Core. |
+| `build.editStoredOption` | `{ document, local, root, optionID, value, modelValues? }` in the standard manifest/build-system envelope | `edit: { local, options }`: changes one declared local preference. `null` removes the local override and restores team/declaration inheritance. Invalid or partially accepted edits reject before persistence. Workspace multi-selections preserve sibling-only values; explicit per-root empty markers apply only to workspace multi-select declarations. Platforms compare both native source revisions, atomically write only the local document and read back. |
 | `build.invocationPlan` | List a build system's executable candidates, runtime dependencies, and version probe for one platform |
 | `build.checkToolVersion` | Decide whether a build tool's or runtime's version output meets the declared minimum |
 | `build.resolveModelInputs` | Validate enabled producer facts and project a bounded public model snapshot for a declared consumer |
 | `build.resolveOptions` | Check stored build options against the declaration and return effective values, choices, and the fingerprint |
+| `build.configurationPlan` | Plan a read of the provider's non-sensitive native configuration (v7) |
+| `build.decodeConfiguration` | Validate native source identities, raw/effective values and XML bindings |
+| `build.configurationEditPlan` | Plans format-independent provider editing into private host staging |
+| `build.decodeConfigurationEdit` | Validates the receipt without native document bytes |
 | `build.modelPlan` | Expand the command that prints a command-sourced build model, or the request a build provider answers |
 | `build.taskPlan` | Expand one declared or model task for a workspace, project, or target |
 | `build.testPlan` | Plan a test run for a scope, suite, or case and say where its reports will be |
 | `build.testDiscoveryPlan` | Plan opt-in Provider test discovery for an instance |
 | `build.decodeTestDiscovery` | Validate, deduplicate and order Provider test selectors |
-| `build.prepareRunPlan` | Plan Provider-owned application preparation from a model target |
+| `build.prepareRunPlan` | Plan Provider-owned application/service/task preparation from a model target |
 | `build.decodeRunPreparation` | Validate portable launch data before the native Run host starts a process |
 | `build.prepareDebugPlan` | Plan same-plugin native debug preparation (Provider v5) |
 | `build.decodeDebugPreparation` | Validate an existing instance-contained native debug program and bounded process facts |
@@ -3076,7 +3090,9 @@ workspaces or older structural states.
 `java.runMarkers` accepts `{ mainMethods, testItems, testCases }`: the
 `methods` of one file's `javaMainMethods` answer, the `items` of its
 `javaTestItems` answer (empty when the platform cannot run tests for the file),
-and recorded `maven.testResults` `testCases`. It returns `{ markers }` ordered by
+and canonical build-provider report cases (`suite`, `case`, `status`). The older
+`className`/`method` field names remain accepted for Windows compatibility.
+It returns `{ markers }` ordered by
 zero-based `line`, then `kind` (`main`, `testClass`, `testMethod`). `endLine`
 is the last line of the declaration as reported upstream: the end of the body for
 test classes and methods, and the name line for `main`. Each marker
@@ -3180,6 +3196,11 @@ provider-sourced `build.taskPlan`/`build.testPlan`, `build.testDiscoveryPlan`, o
 execution lifecycle and `lithe/build/discoverTests` with the raw result lifecycle.
 Version 4 adds `lithe/build/prepareRun`, with execution progress but a raw launch
 plan passed to `build.decodeRunPreparation` before native process startup. Version 5 adds `lithe/build/prepareDebug`: raw native executable facts pass through `build.decodeDebugPreparation` and the existing DebugAdapter Registry, not private functions or a second DAP engine.
+Version 10 adds typed `launchOptions` for this run method and host-owned service/task
+preparation. These options require explicit version-10 negotiation before a
+request is written. The decoder accepts a workspace cwd outside the instance
+only when it matches the same host-validated explicit option. Native debug
+preparation retains its existing application contract.
 Other methods are `invalid_request`; tasks on version 1
 and tests on versions 1/2 or run preparation on versions 1/2/3 are `not_supported`.
 Every session offers
@@ -3320,7 +3341,16 @@ and an empty diagnostic context. The round-trip fixture is
 `javaEntrypoints` invokes Java Debug Server's
 `vscode.java.resolveMainClass` for the session workspace and returns schema
 version 1 with deterministic workspace-relative `{ sourcePath, mainClass,
-projectName? }` entries plus diagnostics for unusable upstream records.
+projectName? }` entries plus diagnostics for unusable upstream records. Discovery
+waits behind pending Maven profile updates and JDT project-configuration jobs,
+using the same configuration barrier as the following Java build. Up to 128
+waiting discovery operations are allowed per session. Their deadlines include
+configuration waiting and the eventual upstream query, bounded by the session's
+Java build timeout. Cancellation before dispatch completes that operation without
+writing a JSON-RPC discovery request or cancellation; shutdown/failure settles
+every waiter. A completed profile update must precede discovery of source roots
+introduced by that profile.
+
 `javaTestItems` requires a file URI, invokes Java Test's
 `vscode.java.test.findTestTypesAndMethods`, and returns schema version 1 with a
 typed class/method tree. Each item carries the upstream identity, label, fully
@@ -3598,6 +3628,27 @@ Windows `run_resolve_toolchains` includes an optional `warning` on resolved
 JDKs, including inherited Maven JDKs. This warning remains visible even when no
 run configuration exists to carry a scoped `toolchainVersionMismatch` diagnostic.
 
+`runConfig.projectToolchain` reads `{root,path,localDocument?,configurationId?}` and returns
+`{toolchain:{javaHomePath,mavenExecutablePath,mavenJavaHomePath,runtimeExecutablePaths}}`, even without
+generated Run configurations. `path` is the current Provider's normalized,
+workspace-relative project/reactor root (`.` for the workspace). The nearest
+`toolchain.pathOverrides` entry owns all three fields; its empty/missing fields
+inherit workspace defaults, not another ancestor override. Matching uses path
+segments, so `app` never owns `app2`. Malformed stored paths/documents fail
+without changing source bytes. The command does not discover, probe or run any
+tool, inspect project descriptors, or write files. `runtimeExecutablePaths`
+comes from the existing `.lithe/toolchains/local.json`; platforms resolve the selected
+paths through their existing toolchain adapters. Shared examples are in
+`shared/fixtures/run-configuration/project-toolchain-selection.json`.
+When `configurationId` is supplied, explicit Java/Maven paths from that current
+Run configuration override the canonical project/reactor selection. Core reuses
+the existing team/local configuration merge without projecting global defaults
+as explicit configuration choices. Empty configuration fields inherit the
+canonical selection; missing, disabled, mismatched-root or malformed choices fail
+instead of falling back. No generated layer is required for an explicitly saved
+Provider reference. Shared cases are in
+`shared/fixtures/run-configuration/configuration-toolchain-selection.json`.
+
 `runConfig.inspect` also returns the local document-level `toolchain`, including
 when no generated configuration exists (`status: "missing"`). Settings,
 toolchain-only callers, and initial run-panel presentation may send
@@ -3641,8 +3692,67 @@ toolchain payload with an empty `configurationId`; service overrides are untouch
 The `runConfig.*` commands implement the versioned project protocol described
 by the JSON Schemas in this directory. `runConfig.inspect` accepts `root` and
 never writes files. `runConfig.generate` accepts `root`, relative Java `paths`,
-relative `modulePaths`, and optional schema-versioned `javaEntrypoints` from the
-current `lsp.request` result. When Java tooling is still preparing, omission
+relative `modulePaths`, optional schema-versioned `javaEntrypoints` from the
+current `lsp.request` result, and optional `projectOwnership`. The latter is a
+host projection of current enabled Provider projects: `{ path,
+name?, build?: { pluginID, buildSystemID, root, projectID }, minimumJavaVersion?, contentRoots: [{ path, kind }] }`, using workspace-relative
+paths and the model's `source`/`testSource`/generated-source roles. Core validates
+project/root containment, unique project paths, roles and bounds (2,000 projects,
+10,000 content roots). When supplied, including `[]`, these facts own Java
+project membership and source sets: `modulePaths` and ancestor POM inference
+do not supplement them. `build` is an exact current model identity, not a build
+semantic tag. Generated Java entries store it under `extensions.java.build`,
+with Java-owned `module` and `mainClass`; they contain no Maven extension or
+Maven tool binding. Its root stays independent of editable cwd and document
+layers cannot replace generated build ownership. An omitted snapshot retains the current
+Windows generator's legacy ownership path. A supplied ownership snapshot disables
+legacy Maven framework detection. Framework selection is not an ownership field;
+run discovery uses the independent generic snapshot described below.
+`minimumJavaVersion` is an optional normalized Java feature version (1–999),
+owned by the upstream compiler model, including before entrypoint discovery
+returns any sources. When the snapshot is supplied, Core uses
+the highest known project floor and never parses POM compiler properties; a
+platform Java version file can raise but cannot lower that floor. Missing means
+unknown, not permission to infer. Build-tool versions and wrapper paths are not
+ownership fields. With provider ownership Core emits no Maven requirement and
+never reads wrapper properties or scripts to supplement it. Installed tool
+definitions/providers own these choices. Native Java preparation routes by the
+exact enabled package, declaration, instance and project identity. Legacy
+consumers that omit provider ownership retain their old Maven launch path until
+they migrate; those fields are not accepted in the new ownership projection. See `fixtures/run-configuration/provider-project-ownership.json`.
+The generated document records optional `generator.providerFingerprint`, a
+SHA-256 identity of the validated projection, with projects and roots sorted.
+It covers project labels, ownership, source roles and requirement
+facts, but never environment values or native configuration secrets.
+`runConfig.inspect` accepts the same optional `projectOwnership` and emits
+`staleProviderModel` when current facts differ or a legacy generated document
+has no provider identity. `checkFingerprint: false` skips file hashing only;
+this model comparison remains active. Explicit `[]` represents disabled/missing
+providers, while omission preserves existing Windows callers. A return to the
+same semantic facts matches again; asynchronous host publication still needs
+its independent monotonic operation revision to reject ABA replies.
+
+`runConfig.generate` and `runConfig.inspect` also accept optional `providerRuns`:
+a complete list of `{projectPath,name,reference}`. The native host matches current
+model targets against enabled public run declarations; `reference` has exactly the
+`extensions.build` selector shape below, with empty model `userArguments`. This
+snapshot is independent of Java entrypoints and language imports. Core validates
+at most 10,000 unique selectors, provider-root/project containment and bounded labels,
+then creates `build.provider` entries without interpreting target IDs, tool names,
+frameworks, commands or debug adapters. An explicit `[]` withdraws generated runs;
+omission preserves older callers. It also disables the legacy framework detector.
+IDs hash plugin/build/root/run/project/target identity, so changed labels or execution
+kind retain user overrides. Current declarations still validate the execution kind
+before preparation. `generator.providerRunFingerprint` hashes the complete sorted
+snapshot; changed or missing metadata yields `staleProviderModel`, including when
+file fingerprinting is disabled. Withdrawn entries cannot be restored from cached
+configurations; unmatched overrides stay in their user-owned layer and are diagnosed.
+See `fixtures/run-configuration/provider-project-ownership.json`. macOS supplies this
+snapshot; Windows retains its existing generator until its Provider host is migrated.
+
+Java configurations with the same class and module name in independent reactors
+remain distinct; a common reactor retains its existing configuration IDs.
+ When Java tooling is still preparing, omission
 retains the previous generated entrypoint facts instead of running a local
 scanner or replacing them with an empty list. Those previous facts come from
 this process's last generation, else from the optional `cacheDirectory` (an
@@ -3654,8 +3764,10 @@ layer for `inspect`, `resolve`, and `selectJava`; nothing is written into the
 workspace. `inspect` returns `requiresGeneration: true` while this process has
 no detected layer. Hosts identify the workspace when this flag is true or the
 status is `missing`; a saved provider task can make `status` be `ready` before
-detection, and must not suppress discovery of the remaining entries. Maven root
+detection, and must not suppress discovery of the remaining entries. Without
+`projectOwnership`, legacy Maven root
 discovery checks `pom.xml` along each supplied path's ancestor chain, so a
+
 reactor nested below the opened workspace does not depend on the platform
 including build descriptors in `paths`. Maven ownership is resolved per Java
 entry: standalone sources keep the JDK launch path, while entries from
@@ -3665,13 +3777,17 @@ detector revision; either changing marks the detected layer stale and requires
 regeneration.
 
 `runConfig.resolve` accepts `root`, optional local `toolchainCandidates`, and
-optional `localDocument`. When `localDocument` is present, Core uses that JSON
-object as the local layer instead of reading `.lithe/run/local.json`. It merges
+optional `localDocument` / `teamDocument`. A supplied document replaces that layer
+for this read-only resolution; omitted layers come from `.lithe/run/local.json` /
+`.lithe/run/configurations.json`. Hosts can preflight a complete two-file transaction
+against the current detected layer without publishing either file. Core never writes
+these documents; hosts still own source-identity checks, cancellation, conditional
+publication and readback. It merges
 configurations by stable ID using this precedence:
 `local.json > configurations.json > detected layer`. Scalars and arrays are
 replaced by the higher layer, while toolchain maps merge by key. It returns
 effective configurations, their source, the default (the team default from
-`.lithe/project.json`, else the first detected framework service, else the first
+`.lithe/project.json`, else the first detected service, else the first
 detected entry other than Current File), structured
 diagnostics for stale, orphaned, missing, disabled, and toolchain mismatch
 states, the effective global `toolchain`, and the machine-local
@@ -3736,18 +3852,77 @@ per-configuration toolchain path overrides the corresponding project default.
 
 Provider applications can be explicitly saved with `runConfig.createUserConfiguration`
 using `{root,scope:"local",name,type:"buildProvider",build:{pluginID,buildSystemID,
-root,run,projectID,targetID,userArguments?}}`. Core upserts the existing local
-reference by selector identity and retains its `user:` ID, unrelated configurations
+root,run,projectID,targetID,userArguments?,execution?}}`. Core upserts the existing local
+reference by selector identity and retains its existing ID (new references use `user:` IDs), unrelated configurations
 and project toolchain defaults. `extensions.build` in Run v2 holds the typed
-reference; process commands, top-level args/environment/toolchains/debug are
-refused for `build.provider`. Current model membership is revalidated by the
+reference; optional execution is application/service/task and must match the current
+declaration before preparing (omitted older references mean application). The saved
+configuration retains that execution kind when reopened. Process commands, toolchain
+bindings and cached debug adapters are refused for `build.provider`. Generic args,
+environment and cwd overrides are user choices forwarded through typed launch options;
+explicit args replace older reference userArguments, including an empty array.
+An implicit selector-root cwd remains omitted from launch options for v4 compatibility. Current model membership is revalidated by the
 native build workflow before every preparation. No generated document is needed:
-`runConfig.inspect` recognizes explicit saved local references and `runConfig.resolve`
+`runConfig.inspect` recognizes explicit saved team/local references and `runConfig.resolve`
 merges them against an empty generated layer. A workspace without generated data
 or an explicit saved Provider reference retains the existing missing state.
+Complete saved `build.provider` entries (name, provider, selector and matching execution)
+can retain any existing Run ID, including IDs imported from older formats; a prefix
+does not grant launch authority. Sparse unknown-ID patches remain orphaned. Such an
+entry also makes a team-only workspace runnable before generation, while still returning
+`requiresGeneration: true`. Current declaration/target validation remains mandatory.
+When generation contains that selector, resolution suppresses its duplicate automatic
+entry, retains all explicitly saved configurations, and resolves defaults through the
+same effective selector. Local selector patches update the effective claim, so an
+older team target does not accidentally hide a different auto entry. Detection
+fingerprints and the detected document remain unchanged by user-layer resolution.
+See `fixtures/run-configuration/build-provider-stable-identities.json`.
+
 The platform guards the source snapshot, atomically writes only the local layer,
 then re-reads the result. `shared/fixtures/run-configuration/build-provider.json`
 is the canonical persistence example.
+
+`extensions.build-run` stores portable user choices separately from the selector:
+`{runtimeArguments?: string[], entrypoint?: string, options?: object, tools?: object}`. Runtime arguments
+retain exact argv boundaries (at most 1,024 elements, each at most 65,536 UTF-8 bytes).
+The opaque entrypoint is at most 4,096 bytes; an empty string explicitly clears an
+inherited entrypoint. `options` holds at most 64 declared Build option values, within
+64 KiB of UTF-8 JSON; keys are bounded portable identifiers. Core does not interpret
+the values. The native Build service validates every value against the current
+selected declaration/model before preparation, including explicit `false` and `[]`.
+`tools` maps at most 64 definition IDs to `{home:absolutePath}` or
+`{executable:absolutePath}`, or null. Its total UTF-8 JSON is bounded to 64 KiB;
+paths are at most 4,096 bytes, with the toolchain lexical path checks. Entries merge
+by tool ID across team/local layers. Null clears an inherited Run choice and resumes
+directory policy; omission or an empty map preserves existing tool entries. The
+native host resolves each active choice against an enabled, referenced definition,
+current filesystem facts and version probes. It never changes a directory pin.
+Commands, cached executable evidence and debug adapters are not fields in this namespace.
+
+`runConfig.updateOptions` and `runConfig.saveEditorChanges` accept optional
+`providerRunOptions` in this shape for a `build.provider` configuration. Omission
+preserves that namespace for older callers; explicit null is rejected. A supplied
+snapshot replaces each of its fields in the selected layer, normalizing omitted fields
+to `runtimeArguments:[]`, `entrypoint:""`, `options:{}` so reset can clear inherited
+choices. `tools` instead uses the per-entry inheritance and null-clearing rules above.
+Other extension namespaces and the selector remain intact. Re-saving the
+same selector preserves its working-directory override and portable choices.
+The production macOS store, Windows editor and preference copies carry the typed snapshot unchanged.
+See `fixtures/run-configuration/build-provider-options.json`; no new Provider RPC or
+SDK protocol version is needed, because preparation reuses accepted v10 launch options. Editor argument text uses quoting/escaping without expansion or execution; empty quoted tokens remain empty argv items. `fixtures/run-configuration/argument-text.json` is shared by Core and both editors.
+
+`runConfig.providerLaunchInputs` takes `{root,configurationId,providerRoot,localDocument?}`
+and requires a complete `build.provider` selector. Unmigrated tool-specific records are rejected; only an isolated host import may translate their retired format. It resolves the same document layers for one preparation. It returns bounded typed
+`launchOptions`, explicit build-option overrides and project identity without planning
+a tool command. For `build.provider`, `extensions.build-run.runtimeArguments` and its
+non-empty entrypoint populate launch options, and its `options` populate optionOverrides.
+Active fixed choices are returned separately in `tools`, and in `definedTools` by
+`runConfig.projectToolchain` for the matching configuration/provider root. They are
+host-only resolution inputs and are never forwarded as Provider launch options.
+Saved selectors additionally return the exact typed `reference`; the native Build service revalidates its plugin, instance, run, project,
+target and execution against the current enabled model. Parameters must be read again
+before process launch, and an invalidated configuration or operation rejects late replies.
+
 
 `runConfig.updateOptions` and `runConfig.createUserConfiguration` are pure
 document transformations. They validate scope, paths, supported types, stable
@@ -3770,6 +3945,18 @@ When `updateOptions` carries a `toolchain` object (`javaHomePath`,
 `mavenExecutablePath`, `mavenJavaHomePath`), it writes the document-level
 global toolchain into the local layer instead of patching a configuration;
 project scope rejects this payload because toolchain paths are machine-local.
+
+The project toolchain may also carry `pathOverrides`, a map of normalized
+workspace-relative subproject roots to `{ javaHomePath?, mavenExecutablePath?,
+mavenJavaHomePath? }`. The map has at most 256 entries; roots reject absolute,
+parent, dot, empty-segment, drive, backslash and control-character forms. Empty
+fields inherit project defaults. This map lives only in `.lithe/run/local.json`
+and is returned by inspection/resolution; hosts preserve it when saving a run
+configuration or project defaults. An absent map identifies a document predating
+subproject migration; a saved empty map is an explicit choice. Old platform
+preferences are copied and read back before cleanup, with already saved choices
+remaining authoritative. See `shared/fixtures/run-configuration/subproject-toolchains.json`.
+
 
 `runConfig.saveEditorChanges` accepts the normal option-edit payload plus the
 required `toolchain` object. In addition to Java and Maven paths, that object
@@ -3821,7 +4008,13 @@ framework arguments, including `-am` for selected reactor modules. A
 project-owned `java.main` caller, or a `spring-boot.maven` caller whose generated
 configuration records a Java entry source, instead supplies `javaLaunch` with
 the exact JDT LS-selected `mainClass` plus structured `classPaths` and
-`modulePaths`. Core then produces a direct `project-jdk` launch; it never
+`modulePaths`. An optional `javaLaunch.buildPrepared: true` is a host receipt
+that the current build provider resource task completed before JDT launch
+resolution. Core then omits its legacy Maven resource pre-launch step and does
+not inspect POMs for that step. The host must recheck workspace/configuration
+generation and cancellation before handing off the launch; it cannot reuse a
+receipt from another operation. Missing/false retains compatibility for current
+Windows callers. See `fixtures/run-configuration/provider-prepared-java.json`. Core then produces a direct `project-jdk` launch; it never
 projects those Java entry points into a reactor-wide Maven launch goal. A Spring
 Boot configuration without a resolved Java entry source retains its Maven-goal
 compatibility path. It
@@ -4523,7 +4716,7 @@ a host advertises each only after implementing its lifecycle and requests.
 macOS advertises all six and routes provider tasks, tests and run preparation through
 the existing workspace session. Prepared applications use the existing native Run host. Windows does not yet advertise Provider lifecycle support.
 
-Except `build.detect`, every command accepts
+Except `build.detect`, `build.projectOptions` and `build.resolveStoredOptions`, every command accepts
 `{ manifest, buildSystemID, request }`, revalidates the manifest, and answers
 `plugin.build.unavailable` for an undeclared build system or operation.
 Results use the `plugins.declarative.*` envelope under the key named below;
@@ -4555,18 +4748,23 @@ and the directories are absolute host paths used only as substitution text.
 
 | Command | Request | Result |
 | --- | --- | --- |
-| `build.detect` | `{ workspaceRoot, plugins: [{ manifest }], options?: { <buildSystemID>: { <optionID>: value } } }` | `detection`: `{ instances, rejected: [{ index, error }], shadowed: [{ pluginID, buildSystemID, by }] }`; each instance is `{ id, pluginID, buildSystemID, displayName, root, markers, modelSource, optionFingerprint }` plus `model` or `modelError` for `static` and `hostIntegration` sources; a `provider` source has neither |
+| `build.detect` | `{ workspaceRoot, plugins: [{ manifest }], options?: { <buildSystemID>: { <optionID>: value } }, instanceOptions?: { <buildSystemID>: { <root>: { <optionID>: value } } }, instanceDefaults?: { <buildSystemID>: { <optionID>: value } }, emptySelections?: { <buildSystemID>: { <root>: [optionID] } } }` | `detection`: `{ instances, rejected: [{ index, error }], shadowed: [{ pluginID, buildSystemID, by }] }`; each instance is `{ id, pluginID, buildSystemID, displayName, root, markers, modelSource, optionFingerprint, options, droppedOptions }` plus `model` or `modelError` for `static` and `hostIntegration` sources; a `provider` source has neither. `options` contains accepted stored values after Core scope/root merging, including explicit empty selections; `droppedOptions` names rejected stored values without rewriting the source document. |
+| `build.projectOptions` | `{ document }`, host-read persisted v1 Build options, without a manifest | `document`: validated storage with version 1 and systems; options, instance defaults, root values, explicit empty selections and saved custom choices are retained. Missing system fields normalize to empty maps; malformed, unsupported or oversized documents reject with `plugin.build.invalidOptionsDocument`. This pure operation never reads or writes a file and does not replace declared option resolution. |
 | `build.invocationPlan` | `{ root, platform: "macos" \| "linux" \| "windows" }` | `invocation`: `{ buildSystemID, root, executables, environmentInputs, runtimeDependencies, version, minimumVersion }` with project-file paths joined to `root`; every runtime dependency with a known probe, host-managed ones included, carries `version: { arguments }` |
 | `build.checkToolVersion` | `{ runtime?, output }` | `version`: `{ satisfied, version? }`; `runtime` checks that runtime dependency instead of the tool |
 | `build.resolveModelInputs` | `{revision, sources: [{manifest, instances: [{buildSystemID, root, state, model?, options?}]}]}` from installed enabled current-workspace sources | `modelInputs`: version 1 public snapshot with exact optional producer slots, state, normalized projects/targets/content roots, configuration fingerprint and explicitly shared options; no tasks/run/settings/private functions; see the [plugin contract](https://github.com/1lck/Lithe-IDEA/blob/preview/shared/contracts/plugins/v1/README.md#optional-read-only-model-inputs-buildmodelinputs-1) |
-| `build.resolveOptions` | `{ options, modelValues? }` | `options`: `{ options: [{ id, displayName, kind, value, source, choices, allowCustom }], dropped, fingerprint }` |
+| `build.resolveOptions` | `{ options, modelValues? }` | `options`: `{ options: [{ id, displayName, kind, scope?, value, source, choices, allowCustom }], dropped, fingerprint }` |
+| `build.configurationPlan` | plan fields and optional host-selected `tool` | `plan.provider` for `lithe/build/configuration` (v7); no mutation, project or output-file parameters |
+| `build.decodeConfiguration` | `{ result }` | `configuration`: bounded `litheBuildConfiguration` v1 native sources/fields; see the plugin contract |
+| `build.configurationEditPlan` | `{ root, options?, workspaceStateDirectory, outputFile, snapshot, edits: { sourceID, revision, values }, tool? }` | Provider request `lithe/build/editConfiguration`; existing private staging only, no document bytes |
+| `build.decodeConfigurationEdit` | `{ snapshot, edits, result }` | `edit: { sourceID, revision, changed }`; validates bounded receipt and exact draft/source identity; native adapter verifies staged hash and publishes atomically |
 | `build.modelPlan`, `build.dependencyPlan` | plan fields plus `project?` (dependencies), `outputFile?`, and for provider sources `refresh?` (boolean) and `tool?: { executable }` (absolute path) | `plan`: `{ buildSystemID, root, arguments, environment, workingDirectory, execution, optionFingerprint, output, decoder, executesProjectCode, mayUseNetwork }`; for a `provider` source `{ buildSystemID, root, provider: { method, params }, decoder, executesProjectCode, mayUseNetwork, optionFingerprint }`, where `method` is `lithe/build/model` or `lithe/build/dependencies` and `params` is `{ buildSystemID, root, options, optionArguments, environment, project?, refresh?, tool? }`; `refresh` appears only when `true` and `tool` only when the host sent it |
 | `build.taskPlan` | plan fields plus `task`, `project?`, `target?`, `modelTask?`, `userArguments?` | command `plan` with `arguments`, `environment`, `workingDirectory`, `execution`, and `optionFingerprint`; a provider task instead returns `provider: {method: "lithe/build/execute", params}` with effective options, selected task/entities, user arguments and effect metadata |
 | `build.testPlan` | plan fields plus `project?`, `target?`, `suite?`, `case?`, `userArguments?`, `projects?` (the model's project directories) | command plan or `provider: {method: "lithe/build/test", params}` (buildProviders 3), plus `results`: `null`, `{ decoder, reports }` with workspace-relative globs (for the selected project, or for the root and every listed project when none is selected), or command-only `{ decoder: "hostIntegration" }`. Command filters that templates cannot place, such as a case without its suite when the tool only addresses `Suite#case`, are `plugin.build.invalidSelection`; Provider filters remain separate typed values and must be declared supported |
 | `build.testDiscoveryPlan` | common plan fields plus `refresh?`, `tool?`; no project/output file | `plan.provider` for `lithe/build/discoverTests`, only with `test.discovery: true` (Provider v3), using the same effective options and effect metadata |
 | `build.decodeTestDiscovery` | common plan fields plus canonical `result` | `discovery.tests` with validated `{id, suite, case, project?, target?}` selectors; bounded at 10,000 items/32 MiB, deterministic and exactly runnable; malformed replies reject in full |
-| `build.prepareRunPlan` | common plan fields, `run`, required `project`/`target`, `userArguments?`; no output file | `plan.provider` for `lithe/build/prepareRun` (Provider v4), selected declaration/tags/paths/options validated |
-| `build.decodeRunPreparation` | `workspaceRoot`, instance `root`, raw `result` | `launch` with portable `{executable:{kind,value},arguments,workingDirectory,environment}`; bounded strings and workspace directory containment, `plugin.build.invalidOutput` on invalid result |
+| `build.prepareRunPlan` | common plan fields, `run`, required `project`/`target`, `userArguments?`, `launchOptions?`, `workspaceRoot?` (required for an explicit launch cwd); no output file | `plan.provider` for `lithe/build/prepareRun` (Provider v4), selected declaration/tags/paths/options validated; typed launch options and service/task execution require v10 |
+| `build.decodeRunPreparation` | `workspaceRoot`, instance `root`, raw `result`, same optional `launchOptions` | `launch` with portable `{executable:{kind,value},arguments,workingDirectory,environment}`; bounded strings and workspace directory containment, `plugin.build.invalidOutput` on invalid result |
 | `build.prepareDebugPlan` | same selected fields as `build.prepareRunPlan`; run declares same-plugin `debug.adapter` | `plan.provider` for `lithe/build/prepareDebug` (v5); no cross-package reference |
 | `build.decodeDebugPreparation` | `workspaceRoot`, instance `root`, selected `run`, raw `result` | `preparation` with declaration-owned `adapter`, normalized `root`, `program`, `arguments`, `workingDirectory`, `environment`; program is an existing regular file contained in the instance after canonicalization |
 | `build.decodeModel` | `{ workspaceRoot, root, output?, outputFile?, result?, options? }`; `result` is the provider's JSON answer | `model`: `{ projects, targets, tasks, contentRoots, optionValues, run }`; `run` entries carry `buildSystem: { id, root, projectID, targetID?, optionFingerprint }` |
@@ -4575,6 +4773,16 @@ and the directories are absolute host paths used only as substitution text.
 | `build.decodeDependencies` | `{ workspaceRoot, root, project?, output?, outputFile?, result? }` | `dependencies`: `{ project, dependencies: [{ name, group?, version?, scope?, properties?, children }], truncated }` |
 | `build.syncFingerprint` | `{ workspaceRoot, root, projects, options? }` | `sync`: `{ fingerprint, watch }` |
 | `build.languageImport` | `{ workspaceRoot, root, options?, executablePath? }` | `languageImport`: `null` without a `languageImport` declaration; `{ kind: "maven", mavenContext: { version, reactorPath, profiles, settingsPath?, localRepositoryPath?, mavenExecutablePath? } }` for `lsp.startServer.mavenContext` and `lsp.updateMavenConfiguration`; or `{ kind: "gradle", javaGradle: { wrapperPresent, offline, userHome? } }` for `lsp.startServer.javaGradle`, where `wrapperPresent` reports `gradle/wrapper/gradle-wrapper.properties` under `root` |
+
+`executableResolution: 2` adds `{ kind: "toolchain", toolchainID, root }` invocation
+candidates. Hosts resolve them through the same canonical project/subproject
+selection used by Run, preserving terminal failure and project-code identity.
+The optional plan hint `tool.environment` is a bounded string map (64 entries,
+valid environment names, 32768 bytes per value, no NUL). It merges into Provider
+`environment` before option contributions, for models, dependencies and native
+configuration; task/test hosts apply the same selected environment. Only selected
+lookup/runtime inputs cross this boundary, never the full process environment.
+
 
 `outputFile` is an absolute host-allocated path the host creates fresh for
 each run and removes afterwards; a command whose declaration writes to a
@@ -5093,6 +5301,10 @@ Fixtures live in `shared/fixtures/process-lifecycle/settle-v1.json`.
 `lithe-ide-host` adapter. This local host command is not remotely exposed. See
 [IDE API v1](ide-api/v1.md) for the allowlisted plugin/MCP capabilities, connection
 ownership, authorization, output cursors and shutdown semantics.
+Native `open` accepts a `toolExposure` selection of canonical tools and optional
+argument names; a host that omits it serves the whole catalog. A selection is stored
+with the connection and enforced before requests enter its queue. It can only narrow known schemas; it cannot define tool
+types or permissions. Both MCP discovery and native plugin validation use it.
 Native Rust hosts can attach an owner-checked, connection-lifetime callback using
 `attach_ide_request_dispatcher`; this is separate from the request-scoped Git/Agent
 progress callback. It forwards notification IDs only. `ideHost.control` action
@@ -5254,6 +5466,29 @@ reveal, creation and import. It keeps native loading separate from management
 and rejects stale results after project changes. Windows can use the same Core
 operations; the settings UI and Windows runtime validation remain pending.
 
+
+Team Build options use `shared/contracts/build-project-options-v1.schema.json`
+at `.lithe/build/options.json`. `options` holds workspace-scoped values;
+`instanceDefaults` applies to every detected root's instance-scoped options;
+`instances` overrides those defaults by normalized root. Platform-local values
+then override that root. Storage writes local differences only; passive detection
+never rewrites the shared document. Explicit local reset reveals the shared value.
+Malformed, unsupported, or inaccessible documents fail instead of becoming empty
+options. Source documents stay read-only during resolution; the host only writes
+one through guarded publication for an explicit edit or activation migration.
+`build.detect.instanceDefaults` receives this same team default snapshot before
+static model/run generation; hosts use the same merge in every subsequent plan.
+
+`savedChoices` preserves unselected custom choices. Hosts display them only when
+the resolved option permits custom values; they never change selection or upstream
+model facts. Storage validates bounded documents and preserves invalid originals.
+
+`build.decodeTestResults.request.result` accepts a canonical inline report only
+for `test.results.decoder=provider` (buildProviders 8). Provider replies carry
+`testResults` with the same execution. Core validates bounded case fields and
+workspace-relative paths and aggregates by optional project/suite/case identity;
+the host does not read tool-specific report directories for this decoder.
+
 ### Project JDK supplied to JDT LS
 
 `lsp.startServer.javaRuntimes` entries contain `homePath`, `version`, and optional
@@ -5353,6 +5588,46 @@ workspace root set changes. Removing a nested root restores parent scanning.
 An unavailable non-current root does not fail a scoped request for an accessible
 root; a missing descendant retains its ownership boundary until removed by the host.
 
+### Consumer tool preferences (development)
+
+`toolchains.resolveConsumerPreferences` accepts `{document, directory, consumer?, tool, fixed?}`.
+The document follows `toolchain-consumer-preferences-v1.schema.json`; `directory` is workspace-relative
+and `consumer` is an inert `pluginID/contributionID` identity. A non-null explicit Run `fixed` value
+wins. Otherwise the nearest consumer choice precedes general directory/workspace choices.
+`inherit: workspace` reads the workspace tool afresh; `inherit: consumer` in a directory reads that
+consumer's workspace preference and then the workspace tool. A consumer's `inherit: tool` reads
+the general tool at the original requested directory, including its nearest general override;
+following a workspace consumer reference preserves that original directory. General tool entries
+cannot refer back to consumers or to themselves, so the reference graph cannot form cycles.
+An absent general choice returns `fixed: null`,
+which means the normal toolchain resolver still owns automatic/project/global selection.
+
+The response is `{status: ok, preferences: {fixed, source, inheritance, stored}}`, or the standard rejected
+`plugin.toolchain.invalidParams` / `plugin.toolchain.limitExceeded` envelope. Fixed values remain
+inert inputs to the existing resolver; this command cannot register a tool, prove package trust,
+resolve a version, write preferences or grant permission to run a program. Native consumers must
+recheck their source bytes and active definitions after discovery. The shared fixture is
+`shared/fixtures/toolchains/consumer-preferences.json`. The machine-local Run document stores it at `toolchain.preferences`. Run editor updates omit to
+preserve, or pass an empty v1 document to reset. `runConfig.projectToolchain` returns the inert
+`toolPreferences` alongside existing fields. The native host supplies the current
+installed plugin/build-system contribution identity; both native Build consumers read these preferences
+before the existing proof pipeline and recheck their bytes afterwards. `stored` is the value at exactly
+the requested scope, or null when that scope inherits. It is separate from the resolved `fixed` input.
+
+`toolchains.editConsumerPreferences` accepts `{document, directory, consumer?, tool, value}`.
+`value` is required: null removes only that scope's override; otherwise it is a fixed selection or
+an allowed symbolic inheritance reference. The command validates both the original and edited
+documents, preserves siblings, prunes empty containers along the edited path, and returns
+`{status: ok, edit: {document, preferences}}`. Resetting an absent value is a no-op.
+
+`runConfig.updateToolPreferences` accepts `{localDocument, preferences}` and returns
+`{document}` containing the replacement local Run JSON. It replaces only `toolchain.preferences`;
+it does not materialize legacy language/build defaults, migrate v1 Run entries or modify other fields.
+The captured `localDocument` is required; this command performs no native I/O. Unknown document
+versions are rejected without numeric narrowing. The native adapter owns bounded reads, cancellation,
+read-only package boundaries, optimistic comparison, metadata-preserving atomic replacement and
+read-back. No editor command discovers or executes tools. Global defaults and complete one-time
+legacy migration remain incomplete; these APIs alone do not complete Stage D.
 
 ### Windows source-breakpoint relocation
 

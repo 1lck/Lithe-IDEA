@@ -6,7 +6,7 @@ import Testing
 @MainActor
 struct MacDebugPortAvailabilityCheckerTests {
     @Test
-    func reportsAListeningPortAsUnavailableAndAReleasedPortAsAvailable() throws {
+    func reportsAListeningPortAsUnavailableAndAReleasedPortAsAvailable() async throws {
         var descriptor = socket(AF_INET, SOCK_STREAM, 0)
         #expect(descriptor >= 0)
         guard descriptor >= 0 else { return }
@@ -39,9 +39,21 @@ struct MacDebugPortAvailabilityCheckerTests {
         #expect(port > 0)
 
         let checker = MacDebugPortAvailabilityChecker()
+        let unused = try checker.unusedLoopbackPort()
+        #expect(unused > 0 && checker.isPortAvailable(Int(unused)))
         #expect(!checker.isPortAvailable(port))
+        try await checker.waitForLoopbackListener(UInt16(port), processID: { getpid() }, isCurrent: { true })
+        var checks = 0
+        do {
+            try await checker.waitForLoopbackListener(UInt16(port), processID: { Int32.max }, isCurrent: { checks += 1; return checks == 1 })
+            Issue.record("A listening port owned by another process was accepted")
+        } catch is CancellationError { }
         #expect(close(descriptor) == 0)
         descriptor = -1
         #expect(checker.isPortAvailable(port))
+        do {
+            try await checker.waitForLoopbackListener(UInt16(port), processID: { getpid() }, isCurrent: { false })
+            Issue.record("A stopped debug operation waited for a listener")
+        } catch is CancellationError { }
     }
 }

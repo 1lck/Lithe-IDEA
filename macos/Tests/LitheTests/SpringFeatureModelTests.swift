@@ -211,8 +211,6 @@ private final class SpringTestOperations: JavaMavenOperations, @unchecked Sendab
         lock.unlock()
         return makeResult(files)
     }
-    func scanMavenProject(at rootURL: URL, files: [URL]) -> MavenProject? { nil }
-    func mavenDiagnostics(output: String, projectRoot: URL) -> [MavenBuildIssue] { [] }
     func codeVision(at rootURL: URL, targetPath: String, paths: [String]) -> [JavaCodeVisionValue] { [] }
     func className(source: String, simpleName: String) -> String? { nil }
     func sourceDefinition(source: String, declarationName: String, memberName: String?) -> (line: Int, utf16Column: Int)? { nil }

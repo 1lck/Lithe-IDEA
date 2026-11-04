@@ -189,6 +189,25 @@ struct RunLaunchEnvironmentTests {
         #expect(resolved.environment["PATH"] == "\(tools.path):/usr/bin:/bin:/fixture-node/bin")
     }
 
+    @Test @MainActor
+    func definedToolLaunchReturnsAnOperationValueWithoutAmbientLaunchPermission() async throws {
+        let runtime = ProjectRuntimeService(runtimeLocator: RunLaunchPathRuntimeLocator(
+            environmentValues: ["PATH": "/fixture/bin"], executablePath: "/unused"), store: RunLaunchPathStore())
+        let defined = DefinedRunToolFixture()
+        let resolver = RunExecutableResolver(runtimeService: runtime, environmentResolver: RustCoreBridge(), definedTools: defined)
+        let plan = SharedLaunchPlan(executable: .toolchain("compiler"), arguments: [], workingDirectory: "apps/example")
+        let options = RunOptions()
+        #expect(throws: RunExecutableResolutionError.self) { try resolver.resolve(plan, projectURL: projectURL, options: options) }
+        let first = try #require(await resolver.prepare(plan, projectURL: projectURL, options: options))
+        let second = try #require(await resolver.prepare(plan, projectURL: projectURL, options: options))
+        #expect(defined.calls == ["compiler:apps/example", "compiler:apps/example"])
+        #expect(first.executableURL.path == "/fixture/compiler/bin/worker")
+        #expect(first.environment["COMPILER_HOME"] == "/fixture/compiler")
+        #expect(first.executableURL == second.executableURL)
+        // No shared slot survives preparation; another Run cannot borrow its permission.
+        #expect(throws: RunExecutableResolutionError.self) { try resolver.resolve(plan, projectURL: projectURL, options: options) }
+    }
+
     @Test(arguments: [false, true])
     @MainActor
     func resolverAppliesTheInterpreterDirectoryToNodeToolchains(missingPath: Bool) throws {
@@ -231,6 +250,19 @@ private struct RunLaunchPathRuntimeLocator: RuntimeLocator {
     func systemMavenExecutable() -> URL? { nil }
     func mavenExecutable(forHomePath path: String) -> URL? { nil }
     func mavenRuntime(at executableURL: URL) -> MavenRuntimeCandidate? { nil }
+}
+
+@MainActor
+private final class DefinedRunToolFixture: DefinedToolchainResolving {
+    var calls: [String] = []
+    func resolve(tool: String, directory: String, workspace: URL, environment: [String: String],
+                 minimumVersion: String?, projectCodeAllowed: Bool) async throws -> ResolvedDefinedToolchain? {
+        #expect(projectCodeAllowed)
+        calls.append(tool + ":" + directory)
+        return ResolvedDefinedToolchain(executable: URL(fileURLWithPath: "/fixture/compiler/bin/worker"),
+            environment: environment.merging(["COMPILER_HOME": "/fixture/compiler"]) { _, new in new },
+            projectCode: false, version: "1")
+    }
 }
 
 private final class RunLaunchPathStore: KeyValueStore {

@@ -60,6 +60,7 @@ fn candidates(
                 ExecutableSource::Environment { variable, path } => json!({ "kind": "environment", "variable": variable, "path": path }),
                 ExecutableSource::Command { command } => json!({ "kind": "command", "command": command }),
                 ExecutableSource::Runtime { runtime } => json!({ "kind": "runtime", "runtime": runtime }),
+                ExecutableSource::Toolchain { toolchain_id } => json!({ "kind": "toolchain", "toolchainID": toolchain_id, "root": root }),
                 ExecutableSource::Setting { setting_id } => json!({ "kind": "setting", "settingID": setting_id,
                     "path": manifest.executable_setting_value(setting_id, settings)? }),
             })

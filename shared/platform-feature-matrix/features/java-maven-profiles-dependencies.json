@@ -2,14 +2,14 @@
   "id": "java-maven-profiles-dependencies",
   "area": "Java",
   "group": "Java/Maven",
-  "capability": "Profile 与依赖树",
+  "capability": "Profile 与 Provider 依赖树；Java 导航使用 JDT 解析的依赖快照",
   "macos": {
     "evidence": [
-      "macos/Sources/Lithe/Views/Run",
-      "macos/Sources/Lithe/Services/Java",
-      "macos/Sources/LitheExecutionModule/Services/MavenService.swift",
-      "macos/Sources/Lithe/Platform/MacOS/Persistence/MacMavenDependencyOutputStore.swift",
-      "rust/lithe-core/src/project/maven_dependency_tree.rs"
+      "macos/Sources/Lithe/Views/Run/BuildSystemToolWindowView.swift",
+      "macos/Sources/LitheExecutionModule/Services/BuildSystemService.swift",
+      "macos/Sources/Lithe/Platform/MacOS/MacServiceContainer.swift",
+      "macos/Tests/LitheTests/MacNativeBuildProviderIntegrationTests.swift",
+      "macos/Sources/LitheLanguageIntelligenceModule/Services/LanguageToolingSessionManager.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -24,5 +24,5 @@
     "verificationStatus": "pending"
   },
   "owner": "Java / Maven",
-  "verification": "切换 Maven profile 并刷新依赖树，确认模块归属、顺序、版本冲突/重复/依赖管理标注和错误边界；在依赖节点超过 6,000 个的项目中确认依赖树完整加载。 Windows 在 Maven 面板展开「依赖项」应直接加载依赖树，失败时显示宿主返回的真实原因，而不是通用的“无法加载 Maven 依赖”（#970）。"
+  "verification": "切换 Maven profile 并刷新依赖树，确认模块归属、顺序、版本冲突/重复/依赖管理标注和错误边界；在依赖节点超过 6,000 个的项目中确认依赖树完整加载。 Windows 在 Maven 面板展开「依赖项」应直接加载依赖树，失败时显示宿主返回的真实原因，而不是通用的“无法加载 Maven 依赖”（#970）。 macOS 已删除旧 MavenService 的依赖进程、临时树 adapter、Swift Maven 依赖命令桥及坐标拼接 JAR 路径 fallback。Build 树从工作区 Maven Provider 读取依赖；Dependencies 导航只消费语言 Provider 的真实类路径/虚拟文档和用户显式路径，不从旧 Maven 树回填。Windows 的现存 Core 命令和 adapter 仍保留，后续迁移完成前不得删共享实现。"
 }

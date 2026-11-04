@@ -169,6 +169,7 @@
 "A Java project with no build tool, Maven, or Gradle." = "A Java project with no build tool, Maven, or Gradle.";
 "A Spring Boot project from Spring Initializr." = "A Spring Boot project from Spring Initializr.";
 "A basic project with a free structure." = "A basic project with a free structure.";
+"A build operation is already active" = "A build operation is already active";
 "A custom Agent can follow either your Codex or your Claude configuration." = "A custom Agent can follow either your Codex or your Claude configuration.";
 "A detailed message with a clear subject and body" = "A detailed message with a clear subject and body";
 "A host name, an IP address, or a Host alias from ~/.ssh/config. Settings from that file, such as ProxyJump and IdentityFile, still apply." = "A host name, an IP address, or a Host alias from ~/.ssh/config. Settings from that file, such as ProxyJump and IdentityFile, still apply.";
@@ -181,6 +182,7 @@
 "A rebase cannot start with any uncommitted changes, including these unrelated to '%@':" = "A rebase cannot start with any uncommitted changes, including these unrelated to '%@':";
 "A removed Hook cannot be saved." = "A removed Hook cannot be saved.";
 "A running local JVM and its JDK jstat tool are required." = "A running local JVM and its JDK jstat tool are required.";
+"A saved input is revalidated by the existing toolchain resolver when the consumer runs. It is not a verified current installation." = "A saved input is revalidated by the existing toolchain resolver when the consumer runs. It is not a verified current installation.";
 "A secure connection to %@ could not be established. Check TLS inspection, proxy, VPN, or system certificate settings." = "A secure connection to %@ could not be established. Check TLS inspection, proxy, VPN, or system certificate settings.";
 "A secure connection to GitHub could not be established. Check TLS inspection, proxy, VPN, or system certificate settings." = "A secure connection to GitHub could not be established. Check TLS inspection, proxy, VPN, or system certificate settings.";
 "A secure connection to the MCP Registry could not be established. Check the proxy or retry directly." = "A secure connection to the MCP Registry could not be established. Check the proxy or retry directly.";
@@ -248,6 +250,7 @@
 "Add a memory usage indicator to the status bar" = "Add a memory usage indicator to the status bar";
 "Add an AI provider in AI Providers first." = "Add an AI provider in AI Providers first.";
 "Add another account" = "Add another account";
+"Add argument" = "Add argument";
 "Add at least one absolute allowed folder path after the Filesystem package argument." = "Add at least one absolute allowed folder path after the Filesystem package argument.";
 "Add at least one absolute folder path after the package argument, one per line. Filesystem can read and write only in the folders you allow. Requires Node.js 24 or later." = "Add at least one absolute folder path after the package argument, one per line. Filesystem can read and write only in the folders you allow. Requires Node.js 24 or later.";
 "Add clickable actions beside document text" = "Add clickable actions beside document text";
@@ -315,6 +318,7 @@
 "Agents run on the Node.js installed on this Mac. Install or update Node.js yourself, then check again." = "Agents run on the Node.js installed on this Mac. Install or update Node.js yourself, then check again.";
 "All" = "All";
 "All Branches" = "All Branches";
+"All Build consumers" = "All Build consumers";
 "All References" = "All References";
 "All Repositories" = "All Repositories";
 "All Users" = "All Users";
@@ -453,6 +457,7 @@
 "Automatic" = "Automatic";
 "Automatic discovery" = "Automatic discovery";
 "Automatic query ×%lld, identical results" = "Automatic query ×%lld, identical results";
+"Automatic selection" = "Automatic selection";
 "Automatic tries your SSH agent and keys first, then asks for a password. Lithe asks in a dialog whenever the server needs an answer, such as a password, a passphrase, or a verification code." = "Automatic tries your SSH agent and keys first, then asks for a password. Lithe asks in a dialog whenever the server needs an answer, such as a password, a passphrase, or a verification code.";
 "Automatic uses a project mvnw first, then detected Maven, then mvnd." = "Automatic uses a project mvnw first, then detected Maven, then mvnd.";
 "Automatically accept all file edits" = "Automatically approve file edits; other actions follow permission rules.";
@@ -522,9 +527,15 @@
 "Build System" = "Build System";
 "Build files changed." = "Build files changed.";
 "Build files changed. Reload the model to pick up the changes." = "Build files changed. Reload the model to pick up the changes.";
+"Build launch did not start" = "Build launch did not start";
+"Build option migration could not be verified. The previous configuration has been retained. Reload the build instance to retry." = "Build option migration could not be verified. The previous configuration has been retained. Reload the build instance to retry.";
+"Build options changed on disk. Reload before saving; your changes have been kept." = "Build options changed on disk. Reload before saving; your changes have been kept.";
 "Build output" = "Build output";
+"Build plugins are unavailable" = "Build plugins are unavailable";
 "Build provider" = "Build provider";
+"Build provider model changed. Regenerate Run configurations before running." = "Build provider model changed. Regenerate Run configurations before running.";
 "Build system" = "Build system";
+"Build tool defaults" = "Build tool defaults";
 "Build, Execution, Deployment" = "Build, Execution, Deployment";
 "Build-system language import is still preparing. Retry when project loading completes." = "Build-system language import is still preparing. Retry when project loading completes.";
 "Build-system language import preparation timed out. Retry project loading." = "Build-system language import preparation timed out. Retry project loading.";
@@ -665,7 +676,9 @@
 "Choose a color theme and whether Lithe follows the system appearance." = "Choose a color theme and whether Lithe follows the system appearance.";
 "Choose a commit format" = "Choose a commit format";
 "Choose a database connection and then a table from the sidebar." = "Choose a database connection and then a table from the sidebar.";
+"Choose a declared build task" = "Choose a declared build task";
 "Choose a default web browser in System Settings, then retry." = "Choose a default web browser in System Settings, then retry.";
+"Choose a detected build instance" = "Choose a detected build instance";
 "Choose a directory inside the project" = "Choose a directory inside the project";
 "Choose a language-server executable." = "Choose a language-server executable.";
 "Choose a local or custom provider in the Agent panel settings." = "Choose a local or custom provider in Settings > AI > Agents.";
@@ -952,6 +965,7 @@
 "Connection timeout" = "Connection timeout";
 "Connections: %lld" = "Connections: %lld";
 "Console" = "Console";
+"Consumer" = "Consumer";
 "Consumers" = "Consumers";
 "Content" = "Content";
 "Content SHA-256" = "Content SHA-256";
@@ -1090,6 +1104,7 @@
 "Could not start the Java test result listener: %@" = "Could not start the Java test result listener: %@";
 "Could not start the MCP command. Check its executable and runtime." = "Could not start the MCP command. Check its executable and runtime.";
 "Could not verify the commit outcome. Review before retrying." = "Could not verify the commit outcome. Review before retrying.";
+"Could not verify the saved project environment settings. The previous preferences have been kept when possible." = "Could not verify the saved project environment settings. The previous preferences have been kept when possible.";
 "Could not write %@." = "Could not write %@.";
 "Could not write %@. The previous contents were kept in %@." = "Could not write %@. The previous contents were kept in %@.";
 "Could not write Java launch argument file at %@: %@" = "Could not write Java launch argument file at %@: %@";
@@ -1198,6 +1213,7 @@
 "Default options" = "Default options";
 "Default push behavior" = "Default push behavior";
 "Default shell" = "Default shell";
+"Defaults" = "Defaults";
 "Defaults for ordinary Fetch in every project. A repository's own Git configuration above still wins where it is set." = "Defaults for ordinary Fetch in every project. A repository's own Git configuration above still wins where it is set.";
 "Definition" = "Definition";
 "Definition not found" = "Definition not found";
@@ -1366,6 +1382,7 @@
 "Each built-in preset includes a preview of the generated message." = "Each built-in preset includes a preview of the generated message.";
 "Each repository has its own commit. Completed steps are kept if another repository fails." = "Each repository has its own commit. Completed steps are kept if another repository fails.";
 "Each row explains the setting, the value Git is actually using, and where that value comes from." = "Each row explains the setting, the value Git is actually using, and where that value comes from.";
+"Each row is one argument. Spaces, quotes and empty values are preserved." = "Each row is one argument. Spaces, quotes and empty values are preserved.";
 "Each submodule is pushed before its parent." = "Each submodule is pushed before its parent.";
 "Each tool uses the first source that has a value: a fixed version, then project version files, then global defaults, then automatic discovery. Installed versions are checked by running each tool's own version command. Enabled version managers report what version files ask for." = "Each tool uses the first source that has a value: a fixed version, then project version files, then global defaults, then automatic discovery. Installed versions are checked by running each tool's own version command. Enabled version managers report what version files ask for.";
 "Earlier" = "Earlier";
@@ -1389,6 +1406,7 @@
 "Edit Shortcuts" = "Edit Shortcuts";
 "Edit Watch" = "Edit Watch";
 "Edit configuration text" = "Edit configuration text";
+"Edit defaults" = "Edit defaults";
 "Edit exception breakpoint" = "Edit exception breakpoint";
 "Edit files and stage the changes you want to include. Amend and Continue updates this commit; Continue keeps the existing commit." = "Edit files and stage the changes you want to include. Amend and Continue updates this commit; Continue keeps the existing commit.";
 "Edit message" = "Edit message";
@@ -1492,6 +1510,7 @@
 "Enter the new symbol name." = "Enter the new symbol name.";
 "Enter the next function call" = "Enter the next function call";
 "Enter the one-time code" = "Enter the one-time code";
+"Entry point" = "Entry point";
 "Environment" = "Environment";
 "Environment variable and header names must be unique." = "Environment variable and header names must be unique.";
 "Environment variables" = "Environment variables";
@@ -1518,6 +1537,7 @@
 "Excluded from indexing by a parent directory" = "Excluded from indexing by a parent directory";
 "Exclusion list" = "Exclusion list";
 "Executable" = "Executable";
+"Executable file" = "Executable file";
 "Execute Maven Goal" = "Execute Maven Goal";
 "Execute Maven goal" = "Execute Maven goal";
 "Execute the next source line" = "Execute the next source line";
@@ -1687,6 +1707,7 @@
 "Found automatically" = "Found automatically";
 "Frames are not available" = "Frames are not available";
 "Frames rendered per second" = "Frames rendered per second";
+"Framework service debugging is not available in remote workspaces yet." = "Framework service debugging is not available in remote workspaces yet.";
 "Free space" = "Free space";
 "From %@" = "From %@";
 "Frontend and other non-Java roots keep the workspace editor and terminal settings. Java and Maven SDKs only apply to the backends listed on the left." = "Frontend and other non-Java roots keep the workspace editor and terminal settings. Java and Maven SDKs only apply to the backends listed on the left.";
@@ -1958,6 +1979,7 @@
 "Install the selected channel" = "Install the selected channel";
 "Install the tool on the remote host, add it to the login PATH, and refresh the available runtimes." = "Install the tool on the remote host, add it to the login PATH, and refresh the available runtimes.";
 "Installation" = "Installation";
+"Installation directory" = "Installation directory";
 "Installation: %@" = "Installation: %@";
 "Installations found in the locations this tool's plugin declares. Each version comes from the tool's own version command, and the highest one is used. Installations inside the project are never run." = "Installations found in the locations this tool's plugin declares. Each version comes from the tool's own version command, and the highest one is used. Installations inside the project are never run.";
 "Installations of %@ could not be checked." = "Installations of %@ could not be checked.";
@@ -2143,6 +2165,7 @@
 "Linked this conversation to a pull request" = "Linked this conversation to a pull request";
 "Linked worktree" = "Linked worktree";
 "Listed in" = "Listed in";
+"Lists the project root and directories with version files, fixed versions or saved tool preferences, together with their parents." = "Lists the project root and directories with version files, fixed versions or saved tool preferences, together with their parents.";
 "Lists the project root and each directory with its own version file or fixed version. A fixed version also applies to the directories below it." = "Lists the project root and each directory with its own version file or fixed version. A fixed version also applies to the directories below it.";
 "Lithe" = "Lithe";
 "Lithe Agent" = "Lithe Agent";
@@ -2447,6 +2470,12 @@
 "Name and email are written to this repository's Git configuration and override the global values. Existing commits do not change." = "Name and email are written to this repository's Git configuration and override the global values. Existing commits do not change.";
 "Name for this filter" = "Name for this filter";
 "Name:" = "Name:";
+"Native configuration" = "Native configuration";
+"Native configuration changed on disk. Reload before saving; your draft has been kept." = "Native configuration changed on disk. Reload before saving; your draft has been kept.";
+"Native configuration changed. Reload before saving; your draft has been kept." = "Native configuration changed. Reload before saving; your draft has been kept.";
+"Native configuration is busy. Wait for the current operation to finish." = "Native configuration is busy. Wait for the current operation to finish.";
+"Native configuration is unavailable." = "Native configuration is unavailable.";
+"Native configuration was saved, but its current effective values could not be verified. Reload before editing again." = "Native configuration was saved, but its current effective values could not be verified. Reload before editing again.";
 "Native installer" = "Native installer";
 "Native instruction file" = "Native instruction file";
 "Navigate" = "Navigate";
@@ -2492,6 +2521,7 @@
 "New terminal session" = "New terminal session";
 "New terminal with shell" = "New terminal with shell";
 "New window" = "New window";
+"Next Build input" = "Next Build input";
 "Next File" = "Next File";
 "Next Match" = "Next Match";
 "Next console expression" = "Next console expression";
@@ -2608,6 +2638,7 @@
 "No matching skills." = "No matching skills.";
 "No matching users" = "No matching users";
 "No models available" = "No models available";
+"No native configuration has been read." = "No native configuration has been read.";
 "No navigation results" = "No navigation results";
 "No new commits. Pushing creates the remote branch." = "No new commits. Pushing creates the remote branch.";
 "No notifications" = "No notifications";
@@ -2812,6 +2843,7 @@
 "Open a project to configure its run configurations." = "Open a project to configure its run configurations.";
 "Open a project to let connected agents inspect and control it." = "Open a project to let connected agents inspect and control it.";
 "Open a project to manage its skills." = "Open a project to manage its skills.";
+"Open a project to read its native configuration." = "Open a project to read its native configuration.";
 "Open a project to see how much space its history uses." = "Open a project to see how much space its history uses.";
 "Open a project to see its language service." = "Open a project to see its language service.";
 "Open a project to use Git" = "Open a project to use Git";
@@ -3043,6 +3075,8 @@
 "Project default" = "Project default";
 "Project defaults (This Mac)" = "Project defaults (This Mac)";
 "Project environment" = "Project environment";
+"Project environment settings are being saved. Wait before saving again." = "Project environment settings are being saved. Wait before saving again.";
+"Project environment settings changed on disk. Reload before saving; your draft has been kept." = "Project environment settings changed on disk. Reload before saving; your draft has been kept.";
 "Project files" = "Project files";
 "Project identification complete" = "Project identification complete";
 "Project identification did not produce a run configuration." = "Project identification did not produce a run configuration.";
@@ -3148,6 +3182,7 @@
 "Read again" = "Read again";
 "Read declared shortcut files from the editor you select for import" = "Read declared shortcut files from the editor you select for import";
 "Read result" = "Read result";
+"Read using project tool" = "Read using project tool";
 "Read, write and search files only in the directories you allow. Requires Node.js 24 or later." = "Read, write and search files only in the directories you allow. Requires Node.js 24 or later.";
 "Read-only" = "Read-only";
 "Read-only file preview" = "Read-only file preview";
@@ -3155,6 +3190,7 @@
 "Reading Git configuration…" = "Reading Git configuration…";
 "Reading changes and recent commits." = "Reading changes and recent commits.";
 "Reading changes…" = "Reading changes…";
+"Reading configuration with this project tool requires an explicit action." = "Reading configuration with this project tool requires an explicit action.";
 "Reading memory…" = "Reading memory…";
 "Reading project…" = "Reading project…";
 "Reading registered checkouts." = "Reading registered checkouts.";
@@ -3241,6 +3277,7 @@
 "Reload Range" = "Reload Range";
 "Reload from disk" = "Reload from disk";
 "Reload the Core preview and reset the step plan" = "Reload the Core preview and reset the step plan";
+"Reload the build model before selecting a project, target or model task" = "Reload the build model before selecting a project, target or model task";
 "Reload the project model" = "Reload the project model";
 "Reload this Agent before synchronizing instructions." = "Reload this Agent before synchronizing instructions.";
 "Reload tool settings" = "Reload tool settings";
@@ -3513,6 +3550,7 @@
 "Runtime" = "Runtime";
 "Runtime Environment" = "Runtime Environment";
 "Runtime Environment — Isolated Preview" = "Runtime Environment — Isolated Preview";
+"Runtime arguments" = "Runtime arguments";
 "Runtime discovery failed" = "Runtime discovery failed";
 "Runtime used by the language server (installed on this Mac)" = "Runtime used by the language server (installed on this Mac)";
 "Rust Core cache-retention planning is unavailable." = "Rust Core cache-retention planning is unavailable.";
@@ -3570,6 +3608,7 @@
 "Saved in .lithe/run/configurations.json for the whole team. Local JDK paths are never shared." = "Saved in .lithe/run/configurations.json for the whole team. Local JDK paths are never shared.";
 "Saved in .lithe/run/local.json and excluded from Git." = "Saved in .lithe/run/local.json and excluded from Git.";
 "Saved in Keychain" = "Saved in Keychain";
+"Saved input" = "Saved input";
 "Saved only for this project on this computer in .lithe/run/local.json and excluded from Git." = "Saved only for this project on this computer in .lithe/run/local.json and excluded from Git.";
 "Saved to %@" = "Saved to %@";
 "Saved, not verified" = "Saved, not verified";
@@ -3872,6 +3911,7 @@
 "Some installation versions were not checked in time." = "Some installation versions were not checked in time.";
 "Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations." = "Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations.";
 "Some repositories could not be refreshed. Displayed changes may be out of date." = "Some repositories could not be refreshed. Displayed changes may be out of date.";
+"Some saved run configurations cannot be migrated yet. Keep the existing files and retry after updating Lithe and its build plugin." = "Some saved run configurations cannot be migrated yet. Keep the existing files and retry after updating Lithe and its build plugin.";
 "Some selected diffs could not be read. Refresh Git changes and retry." = "Some selected diffs could not be read. Refresh Git changes and retry.";
 "Some selected files belong to another version control root. Refresh and select them again." = "Some selected files belong to another version control root. Refresh and select them again.";
 "Some settings have unsupported values and were skipped." = "Some settings have unsupported values and were skipped.";
@@ -4172,10 +4212,14 @@
 "The branch could not be published" = "The branch could not be published";
 "The branch now contains the completed plan. Its original history remains available through the recovery reference." = "The branch now contains the completed plan. Its original history remains available through the recovery reference.";
 "The breakdown needs Model call statistics (on by default). After turning it on, reconnect and send a message." = "The breakdown needs Model call statistics (on by default). After turning it on, reconnect and send a message.";
+"The build option is no longer available. Reload the build instance." = "The build option is no longer available. Reload the build instance.";
+"The build option value is invalid. Inspect its current kind and choices." = "The build option value is invalid. Inspect its current kind and choices.";
+"The build options could not be saved or verified. Reload before retrying." = "The build options could not be saved or verified. Reload before retrying.";
 "The build provider failed to start." = "The build provider failed to start.";
 "The build provider returned an invalid launch plan." = "The build provider returned an invalid launch plan.";
 "The build provider stopped before it was ready." = "The build provider stopped before it was ready.";
 "The build provider's debug program or adapter is unavailable. Build it again and check that the plugin is enabled." = "The build provider's debug program or adapter is unavailable. Build it again and check that the plugin is enabled.";
+"The build selection is no longer available" = "The build selection is no longer available";
 "The build tool exited with code %lld." = "The build tool exited with code %lld.";
 "The build tool output is too large or not UTF-8." = "The build tool output is too large or not UTF-8.";
 "The build tool timed out." = "The build tool timed out.";
@@ -4249,6 +4293,7 @@
 "The file or its hard links changed while saving. Your edits are still unsaved. Check the file and save again." = "The file or its hard links changed while saving. Your edits are still unsaved. Check the file and save again.";
 "The file system that holds the home directory." = "The file system that holds the home directory.";
 "The file will be created when you save." = "The file will be created when you save.";
+"The framework did not open its JVM debug port before the deadline. Check the Run output." = "The framework did not open its JVM debug port before the deadline. Check the Run output.";
 "The function call was cancelled." = "The function call was cancelled.";
 "The generated message will replace the text currently in the editor." = "The generated message will replace the text currently in the editor.";
 "The generated title or description would replace text you already entered." = "The generated title or description would replace text you already entered.";
@@ -4284,6 +4329,7 @@
 "The name of the artifact the build produces." = "The name of the artifact the build produces.";
 "The native Hook configuration must be valid JSON. Existing contents were kept." = "The native Hook configuration must be valid JSON. Existing contents were kept.";
 "The native Hook event must contain an array. Existing contents were kept." = "The native Hook event must contain an array. Existing contents were kept.";
+"The native configuration must be a writable file smaller than 2 MB." = "The native configuration must be a writable file smaller than 2 MB.";
 "The native hooks field must be a JSON object. Existing contents were kept." = "The native hooks field must be a JSON object. Existing contents were kept.";
 "The native panel state exceeds 64 KiB." = "The native panel state exceeds 64 KiB.";
 "The official Lithe plugin repository cannot be removed. Disable it instead." = "The official Lithe plugin repository cannot be removed. Disable it instead.";
@@ -4374,6 +4420,8 @@
 "The resource names a root this window does not offer." = "The resource names a root this window does not offer.";
 "The resource path must be relative, use \"/\" separators, and not contain \".\" or \"..\"." = "The resource path must be relative, use \"/\" separators, and not contain \".\" or \"..\".";
 "The response stopped at the model's token limit." = "The response stopped at the model's token limit.";
+"The saved build option could not be verified. Reload before editing again." = "The saved build option could not be verified. Reload before editing again.";
+"The saved build options are invalid. The original configuration has been kept." = "The saved build options are invalid. The original configuration has been kept.";
 "The saved provider run configuration is unavailable." = "The saved provider run configuration is unavailable.";
 "The saved toolchain settings are invalid." = "The saved toolchain settings are invalid.";
 "The selected AI provider has an invalid API URL or model." = "The selected AI provider has an invalid API URL or model.";
@@ -4394,6 +4442,7 @@
 "The selected language-server path is not executable: %@" = "The selected language-server path is not executable: %@";
 "The selected table has no columns to display." = "The selected table has no columns to display.";
 "The selected test identifier is invalid." = "The selected test identifier is invalid.";
+"The selected toolchain is unavailable." = "The selected toolchain is unavailable.";
 "The selected versions match" = "The selected versions match";
 "The server asked again. Check the previous answer." = "The server asked again. Check the previous answer.";
 "The server rejected the credentials. Check the user name and the authentication method." = "The server rejected the credentials. Check the user name and the authentication method.";
@@ -4459,6 +4508,7 @@
 "These choices apply to this Fetch only. Git configuration and credentials remain unchanged." = "These choices apply to this Fetch only. Git configuration and credentials remain unchanged.";
 "These defaults apply only to this project on this computer. Run configurations inherit them unless overridden. Use the Project save scope in a run configuration to share settings with your team." = "These defaults apply only to this project on this computer. Run configurations inherit them unless overridden. Use the Project save scope in a run configuration to share settings with your team.";
 "These files will be moved to the macOS Trash." = "These files will be moved to the macOS Trash.";
+"These machine-local choices apply to Build providers and their Run configurations on the next operation. Saving does not probe or execute a tool. Inherited choices follow later default changes." = "These machine-local choices apply to Build providers and their Run configurations on the next operation. Saving does not probe or execute a tool. Inherited choices follow later default changes.";
 "These overrides affect only this run configuration. Clear a path to inherit the project environment." = "These overrides affect only this run configuration. Clear a path to inherit the project environment.";
 "These processes left their terminal or tool to keep running in the background, like daemons and dev servers. Checked items end when Lithe quits; unchecked items keep running." = "These processes left their terminal or tool to keep running in the background, like daemons and dev servers. Checked items end when Lithe quits; unchecked items keep running.";
 "These programs were started in Lithe before it closed unexpectedly. Checked items are ended now; unchecked items keep running and are not tracked anymore." = "These programs were started in Lithe before it closed unexpectedly. Checked items are ended now; unchecked items keep running and are not tracked anymore.";
@@ -4515,6 +4565,7 @@
 "This folder cannot be read." = "This folder cannot be read.";
 "This folder is empty" = "This folder is empty";
 "This host cannot receive a compatible plugin package. Update the remote server." = "This host cannot receive a compatible plugin package. Update the remote server.";
+"This native configuration source is read-only. Installed applications and plugin packages cannot be edited." = "This native configuration source is read-only. Installed applications and plugin packages cannot be edited.";
 "This page" = "This page";
 "This panel needs exactly one matching plugin instance in the workspace." = "This panel needs exactly one matching plugin instance in the workspace.";
 "This permanently deletes uncommitted and untracked files in '%@'. The branch itself is kept." = "This permanently deletes uncommitted and untracked files in '%@'. The branch itself is kept.";
@@ -4530,6 +4581,7 @@
 "This plugin sent messages too quickly." = "This plugin sent messages too quickly.";
 "This preview contains changes that have not been officially released and may be unstable." = "This preview contains changes that have not been officially released and may be unstable.";
 "This project" = "This project";
+"This project has no matching build-system instance." = "This project has no matching build-system instance.";
 "This project is not a Git repository" = "This project is not a Git repository";
 "This project window is no longer available." = "This project window is no longer available.";
 "This rebase session is no longer active in the current repository." = "This rebase session is no longer active in the current repository.";
@@ -4606,6 +4658,7 @@
 "Toolbar Actions" = "Toolbar Actions";
 "Toolchain Sources" = "Toolchain Sources";
 "Toolchain settings are not available for remote workspaces yet." = "Toolchain settings are not available for remote workspaces yet.";
+"Toolchain settings changed while loading. Refresh and try again." = "Toolchain settings changed while loading. Refresh and try again.";
 "Tools" = "Tools";
 "Tools sent" = "Tools sent";
 "Total" = "Total";
@@ -4732,6 +4785,7 @@
 "Update source" = "Update source";
 "Update sources must use https://. http:// is only allowed for this Mac (localhost)." = "Update sources must use https://. http:// is only allowed for this Mac (localhost).";
 "Update status" = "Update status";
+"Update the Maven Build plugin before generating Run configurations." = "Update the Maven Build plugin before generating Run configurations.";
 "Update this CLI using its original installer, then check again." = "Update this CLI using its original installer, then check again.";
 "Update to" = "Update to";
 "Update to %@" = "Update to %@";
@@ -4759,6 +4813,7 @@
 "Use AI worktree directory (/private/tmp)" = "Use AI worktree directory (/private/tmp)";
 "Use AutoBuild" = "Use AutoBuild";
 "Use AutoBuild Rolling?" = "Use AutoBuild Rolling?";
+"Use Build execute to start another build" = "Use Build execute to start another build";
 "Use Default Messages" = "Use Default Messages";
 "Use Git configuration" = "Use Git configuration";
 "Use Git from PATH" = "Use Git from PATH";
@@ -4771,11 +4826,14 @@
 "Use a valid file or directory name" = "Use a valid file or directory name";
 "Use an Agent in your project" = "Use an Agent in your project";
 "Use automatic value" = "Use automatic value";
+"Use consumer default" = "Use consumer default";
 "Use credential helper" = "Use credential helper";
 "Use detected JDK" = "Use detected JDK";
+"Use directory tool default" = "Use directory tool default";
 "Use fast processing" = "Use fast processing";
 "Use form" = "Use form";
 "Use full HTTP path for credentials" = "Use full HTTP path for credentials";
+"Use inherited choice" = "Use inherited choice";
 "Use letters, digits, dots, dashes or underscores. The name must start with a letter or digit." = "Use letters, digits, dots, dashes or underscores. The name must start with a letter or digit.";
 "Use local configuration or add your own provider." = "Use local configuration or add your own provider.";
 "Use mvnw or detected Maven" = "Use mvnw or detected Maven";
@@ -4794,6 +4852,7 @@
 "Use the standard response speed" = "Use the standard response speed";
 "Use this when a repository or Git default needs a one-off adjustment." = "Use this when a repository or Git default needs a one-off adjustment.";
 "Use up to 64 lowercase letters, digits and single hyphens for the skill name." = "Use up to 64 lowercase letters, digits and single hyphens for the skill name.";
+"Use workspace default" = "Use workspace default";
 "Use your local ChatGPT account. No API key or URL is needed." = "Use your local ChatGPT account. No API key or URL is needed.";
 "Used" = "Used";
 "Used %@" = "Used %@";
@@ -4991,6 +5050,7 @@
 "aiCommit.outputTokenFieldInfo" = "Lithe uses this field for commit requests. Choose max_tokens for older gateways.";
 "avg" = "avg";
 "basic Latin letters" = "basic Latin letters";
+"build.window.addArgument" = "Add argument";
 "characters used by the interface and your files" = "characters used by the interface and your files";
 "chars" = "chars";
 "checkout" = "checkout";
@@ -5126,6 +5186,14 @@
 "git.unifiedView" = "Unified view";
 "history.clearFailed" = "Could not clear this project's local history. Check storage permissions and try again.";
 "https://github.com/owner/repository" = "https://github.com/owner/repository";
+"ide.build.busy" = "A build operation is already active";
+"ide.build.chooseInstance" = "Choose a detected build instance";
+"ide.build.chooseTask" = "Choose a declared build task";
+"ide.build.launchFailed" = "Build launch did not start";
+"ide.build.reloadSelection" = "Reload the build model before selecting a project, target or model task";
+"ide.build.restart" = "Use Build execute to start another build";
+"ide.build.selectionExpired" = "The build selection is no longer available";
+"ide.build.unavailable" = "Build plugins are unavailable";
 "indexing.autoGit" = "Automatically exclude Git-ignored directories";
 "indexing.cancelExclusion" = "Cancel Exclusion";
 "indexing.configureFailed" = "Could not apply project indexing exclusions. Try reopening the project.";
@@ -5294,6 +5362,9 @@
 "mac.workbench.unhide" = "Unhide";
 "macOS could not prepare the update disk image. Download the release manually and try again." = "macOS could not prepare the update disk image. Download the release manually and try again.";
 "macOS could not prepare the update disk image. Open the Release page and install it manually." = "macOS could not prepare the update disk image. Open the Release page and install it manually.";
+"macos.buildProvider.jvmDebugPortTimeout" = "The framework did not open its JVM debug port before the deadline. Check the Run output.";
+"macos.buildProvider.jvmDebugRemoteUnavailable" = "Framework service debugging is not available in remote workspaces yet.";
+"macos.native.savedRunMigrationNeedsUpdate" = "Some saved run configurations cannot be migrated yet. Keep the existing files and retry after updating Lithe and its build plugin.";
 "main Java" = "main Java";
 "main resources" = "main resources";
 "markdown.plantumlRenderFailed" = "PlantUML could not render this diagram. Showing its source instead.";
@@ -5653,6 +5724,12 @@
 "native.buildFilesChanged" = "%1$@ build files changed";
 "native.buildFilesChanged.variant2" = "Build files changed.";
 "native.buildFilesChangedReloadTheModelToPickUpTheChanges" = "Build files changed. Reload the model to pick up the changes.";
+"native.buildOptionInvalid" = "The build option value is invalid. Inspect its current kind and choices.";
+"native.buildOptionMigrationCouldNotBeVerified" = "Build option migration could not be verified. The previous configuration has been retained. Reload the build instance to retry.";
+"native.buildOptionReadBackFailed" = "The saved build option could not be verified. Reload before editing again.";
+"native.buildOptionUnavailable" = "The build option is no longer available. Reload the build instance.";
+"native.buildOptionsConflict" = "Build options changed on disk. Reload before saving; your changes have been kept.";
+"native.buildOptionsSaveFailed" = "The build options could not be saved or verified. Reload before retrying.";
 "native.buildOutput" = "Build Output";
 "native.buildOutput.variant2" = "Build output";
 "native.buildOutputs" = "Build Outputs";
@@ -6165,6 +6242,7 @@
 "native.couldNotSaveTheConnections" = "Could not save the connections: %1$@";
 "native.couldNotStartTheJavaTestResultListener" = "Could not start the Java test result listener: %1$@";
 "native.couldNotStartTheMcpCommandCheckItsExecutableAndRuntime" = "Could not start the MCP command. Check its executable and runtime.";
+"native.couldNotVerifySavedProjectEnvironment" = "Could not verify the saved project environment settings. The previous preferences have been kept when possible.";
 "native.couldNotVerifyTheCommitOutcomeReviewBeforeRetrying" = "Could not verify the commit outcome. Review before retrying.";
 "native.couldNotWrite" = "Could not write %1$@.";
 "native.couldNotWriteJavaLaunchArgumentFileAt" = "Could not write Java launch argument file at %1$@: %2$@";
@@ -7606,6 +7684,19 @@
 "native.name.variant2" = "Name:";
 "native.nameAndEmailAreWrittenToTheGlobalGitConfigurationExistingCommitsDoNotChange" = "Name and email are written to the global Git configuration. Existing commits do not change.";
 "native.nameAndEmailAreWrittenToThisRepositorySGitConfigurationAndOverrideTheGlobalVal4aca07ef08" = "Name and email are written to this repository's Git configuration and override the global values. Existing commits do not change.";
+"native.nativeConfigurationBusy" = "Native configuration is busy. Wait for the current operation to finish.";
+"native.nativeConfigurationDiskConflict" = "Native configuration changed on disk. Reload before saving; your draft has been kept.";
+"native.nativeConfigurationExplicitRead" = "Reading configuration with this project tool requires an explicit action.";
+"native.nativeConfigurationFileRequired" = "The native configuration must be a writable file smaller than 2 MB.";
+"native.nativeConfigurationNoInstance" = "This project has no matching build-system instance.";
+"native.nativeConfigurationNotRead" = "No native configuration has been read.";
+"native.nativeConfigurationOpenProject" = "Open a project to read its native configuration.";
+"native.nativeConfigurationReadBackFailed" = "Native configuration was saved, but its current effective values could not be verified. Reload before editing again.";
+"native.nativeConfigurationReadUsingProjectTool" = "Read using project tool";
+"native.nativeConfigurationSourceReadOnly" = "This native configuration source is read-only. Installed applications and plugin packages cannot be edited.";
+"native.nativeConfigurationStale" = "Native configuration changed. Reload before saving; your draft has been kept.";
+"native.nativeConfigurationTitle" = "Native configuration";
+"native.nativeConfigurationUnavailable" = "Native configuration is unavailable.";
 "native.nativeInstaller" = "Native installer";
 "native.nativeInstructionFile" = "Native instruction file";
 "native.navigate" = "Navigate";
@@ -8141,6 +8232,8 @@
 "native.projectDefault" = "Project default";
 "native.projectDefaultsThisMac" = "Project defaults (This Mac)";
 "native.projectEnvironment" = "Project environment";
+"native.projectEnvironmentSaveInProgress" = "Project environment settings are being saved. Wait before saving again.";
+"native.projectEnvironmentSettingsChangedOnDisk" = "Project environment settings changed on disk. Reload before saving; your draft has been kept.";
 "native.projectErrors" = "Project Errors";
 "native.projectFiles" = "Project files";
 "native.projectIdentificationComplete" = "Project identification complete";
@@ -8620,6 +8713,7 @@
 "native.saveTitle" = "Save title";
 "native.saved" = "Saved";
 "native.savedBreakpointsCouldNotBeRead" = "Saved breakpoints could not be read.";
+"native.savedBuildOptionsInvalid" = "The saved build options are invalid. The original configuration has been kept.";
 "native.savedDebuggerSteppingFiltersCouldNotBeRead" = "Saved debugger stepping filters could not be read.";
 "native.savedInKeychain" = "Saved in Keychain";
 "native.savedInLitheRunConfigurationsJsonForTheWholeTeamLocalJDKPathsAreNeverShared" = "Saved in .lithe/run/configurations.json for the whole team. Local JDK paths are never shared.";
@@ -8718,6 +8812,7 @@
 "native.selectedDirectory" = "Selected directory";
 "native.selectedFromDiskThePublisherAndRepositoryHaveNotBeenVerified" = "Selected from disk. The publisher and repository have not been verified.";
 "native.selectedRuntime" = "Selected runtime";
+"native.selectedToolchainUnavailable" = "The selected toolchain is unavailable.";
 "native.selectedVersion" = "selected version";
 "native.selfUpdateIsOnlyAvailableWhenLitheIsRunningFromAPackagedLitheApp" = "Self-update is only available when Lithe is running from a packaged Lithe.app.";
 "native.send" = "Send";
@@ -8932,6 +9027,7 @@
 "native.staged.variant2" = "Staged";
 "native.stagedChanges" = "Staged changes";
 "native.stagedFilesChangedBeforeGenerationFinished" = "Staged files changed before generation finished";
+"native.staleProviderRunGeneration" = "Build provider model changed. Regenerate Run configurations before running.";
 "native.staleRecord" = "Stale record";
 "native.standard" = "Standard";
 "native.startADebugSessionToRunDebuggerCommands" = "Start a debug session to run debugger commands";
@@ -9524,6 +9620,24 @@
 "native.toolWindow" = "Tool Window";
 "native.toolWindows" = "Tool Windows";
 "native.toolbarActions" = "Toolbar Actions";
+"native.toolchainPreferences.allBuildConsumers" = "All Build consumers";
+"native.toolchainPreferences.automaticSelection" = "Automatic selection";
+"native.toolchainPreferences.buildToolDefaults" = "Build tool defaults";
+"native.toolchainPreferences.consumer" = "Consumer";
+"native.toolchainPreferences.defaultsBadge" = "Defaults";
+"native.toolchainPreferences.editDefaults" = "Edit defaults";
+"native.toolchainPreferences.executableFile" = "Executable file";
+"native.toolchainPreferences.installationDirectory" = "Installation directory";
+"native.toolchainPreferences.localBuildPreferencesInfo" = "These machine-local choices apply to Build providers and their Run configurations on the next operation. Saving does not probe or execute a tool. Inherited choices follow later default changes.";
+"native.toolchainPreferences.nextBuildInput" = "Next Build input";
+"native.toolchainPreferences.preferenceDirectoriesInfo" = "Lists the project root and directories with version files, fixed versions or saved tool preferences, together with their parents.";
+"native.toolchainPreferences.savedInput" = "Saved input";
+"native.toolchainPreferences.savedInputInfo" = "A saved input is revalidated by the existing toolchain resolver when the consumer runs. It is not a verified current installation.";
+"native.toolchainPreferences.sourceChangedDuringLoad" = "Toolchain settings changed while loading. Refresh and try again.";
+"native.toolchainPreferences.useConsumerDefault" = "Use consumer default";
+"native.toolchainPreferences.useDirectoryToolDefault" = "Use directory tool default";
+"native.toolchainPreferences.useInheritedChoice" = "Use inherited choice";
+"native.toolchainPreferences.useWorkspaceDefault" = "Use workspace default";
 "native.toolchainSettings.answeredIn" = "Answered in %1$lld ms";
 "native.toolchainSettings.automaticDiscovery" = "Automatic discovery";
 "native.toolchainSettings.automaticStepInfo" = "Installations found in the locations this tool's plugin declares. Each version comes from the tool's own version command, and the highest one is used. Installations inside the project are never run.";
@@ -9725,6 +9839,7 @@
 "native.updateCurrentBranch" = "Update Current Branch";
 "native.updateLitheToUseThisConfigurationVersion" = "Update Lithe to use this configuration version.";
 "native.updateLog" = "Update log";
+"native.updateMavenBeforeRunGeneration" = "Update the Maven Build plugin before generating Run configurations.";
 "native.updateNow" = "Update Now";
 "native.updateParentRepositoryReferences" = "Update parent repository references";
 "native.updateProject" = "Update Project";
@@ -9999,6 +10114,9 @@
 "run configuration" = "run configuration";
 "run.incompleteProjectScanMessage" = "Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations.";
 "run.incompleteProjectScanTitle" = "Project scan is incomplete";
+"run.provider.entrypoint" = "Entry point";
+"run.provider.runtimeArguments" = "Runtime arguments";
+"run.provider.runtimeArgumentsHint" = "Each row is one argument. Spaces, quotes and empty values are preserved.";
 "running for %@" = "running for %@";
 "scope managed from %@" = "scope managed from %@";
 "scope not updated to %@" = "scope not updated to %@";

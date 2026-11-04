@@ -81,6 +81,15 @@ async function readRegistry() {
   // are mutable user state, never download artifacts. Runtime profile import is
   // owned by the platform startup adapters; this build reuse route always rejects
   // both original state and migration snapshots and must not gain a validator.
+  // Build Provider snapshots remain under the excluded per-workspace PluginState
+  // owner, including after removing the old macOS Maven tree output allocator.
+  // They are mutable upstream state and must never gain a download validator.
+  // User-authored Build preferences, machine-local differences and source-identity migration receipts are never reusable.
+  // Private instance defaults, Windows app-data/build-options/<workspace-digest>.json
+  // and runtime-preference migration receipts follow that same refusal route; no validator or copy stage.
+  // Per-operation Maven report snapshots have no reusable identity and must remain isolated.
+  // Native configuration probes (including their isolated repository manager), source-identity cache v2 and secret-bearing
+  // conditional replacements and private provider-written outputs/<operation-id>.json use the same explicit rejection route.
   // Plugin grammar workers use checkout-built editor assets; decoded grammars,
   // document tokens and editor action leases are memory-only, never reusable.
   // Shared logging catalogs and generated API sources also use the refusal route:
@@ -414,6 +423,8 @@ async function main() {
       // Includes mcp-registry-metadata: responses have no copy stage; featured.json
       // and McpIcons follow Git source, never a downloaded/generated resource validator.
       // Includes plugin-web-state: per-window/workspace user JSON has no build identity or copy stage.
+      // Includes build-native-configuration-state: Windows private prepare tokens
+      // and document-module temporary siblings are operation-owned, never reusable.
       // Includes remote-server-artifacts: packaging rebuilds lithe-remote's
       // server-only binary from this worktree; no validator or copy stage applies.
       // Includes remote-connection-state: SSH settings, keychain secrets and placeholder roots are user-owned.
@@ -432,6 +443,15 @@ async function main() {
       // Per-launch Codex helpers also own memory-only context replay tickets and
       // loopback capabilities; they stay on this exclusion route, never a copy stage.
       // Agent edit-and-paste state is user-owned runtime data, without a copy stage.
+      // editor-theme-assets rebuild palettes and license notices together; no build stamp permits reuse.
+      // official-plugin-packages also excludes Windows Build Provider workspace
+      // and Registry stdio debug-adapter state under platform app-data.
+      // Workspace hashes never admit a copy stage; shared language-server state
+      // is owned by the server, never copied or deleted by a Debug session.
+      // Operation-owned toolchain backends keep mutable workspace state beneath
+      // the same plugin owner; neither their state nor query facts may be reused.
+      // consumer-tool-preferences are user-owned Run data, including symbolic
+      // inheritance. No validator or copy phase can turn them into build input.
       // editor-theme-assets rebuild palettes, bundled Make/CMake/Groovy grammars and notices together.
       // editor-keymap-provider-build is worktree-local Cargo state and a sealed plugin, never a reusable cache.
       // Git-owned grammar inputs and memory-only tokenizer workers never enter a copy validator.

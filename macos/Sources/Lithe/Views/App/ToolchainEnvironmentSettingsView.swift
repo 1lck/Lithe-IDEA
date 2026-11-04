@@ -51,7 +51,7 @@ struct ToolchainEnvironmentSettingsView: View {
                 Text("Directories")
                     .font(LitheTheme.uiFont(size: 12, weight: .semibold))
                     .lineLimit(1)
-                LitheInfoTip("Lists the project root and each directory with its own version file or fixed version. A fixed version also applies to the directories below it.")
+                LitheInfoTip("Lists the project root and directories with version files, fixed versions or saved tool preferences, together with their parents.")
                 Spacer(minLength: 0)
             }
             .foregroundStyle(LitheTheme.secondaryText)
@@ -79,6 +79,8 @@ struct ToolchainEnvironmentSettingsView: View {
                     Spacer(minLength: 4)
                     if pinned.contains(directory.id) {
                         ToolchainSettingsTag("Fixed", kind: .project)
+                    } else if directory.hasToolPreferences {
+                        ToolchainSettingsTag("Defaults", kind: .project)
                     }
                 }
                 .padding(.vertical, 3)
@@ -224,7 +226,8 @@ struct ToolchainEnvironmentSettingsView: View {
                         providers: snapshot.providers.filter { $0.tools.contains(tool.id) },
                         isExpanded: feature.expandedToolIDs.contains(tool.id),
                         toggle: { feature.toggleExpanded(tool.id) },
-                        openPlugins: onOpenPlugins
+                        openPlugins: onOpenPlugins,
+                        preferences: feature.preferences, workspace: snapshot.workspaceURL
                     )
                 }
             }
@@ -243,6 +246,8 @@ private struct ToolchainToolRow: View {
     let isExpanded: Bool
     let toggle: () -> Void
     let openPlugins: () -> Void
+    let preferences: ToolchainPreferencesFeatureModel
+    let workspace: URL?
 
     private static let indent: CGFloat = 26
 
@@ -291,6 +296,11 @@ private struct ToolchainToolRow: View {
                 }
                 .padding(.leading, Self.indent)
                 .padding(.bottom, 6)
+                if let workspace, !tool.consumers.isEmpty, preferences.isAvailable {
+                    ToolchainPreferenceEditorView(editor: preferences, workspace: workspace, tool: tool)
+                        .padding(.leading, Self.indent)
+                        .padding(.bottom, 8)
+                }
             }
         }
         .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)

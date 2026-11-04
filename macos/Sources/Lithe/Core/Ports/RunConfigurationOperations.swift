@@ -18,3 +18,5 @@ typealias RunConfigurationDocumentMutating = LitheCoreContracts.RunConfiguration
 typealias ProjectToolchainSelection = LitheCoreContracts.ProjectToolchainSelection
 typealias ProjectToolchainCandidate = LitheCoreContracts.ProjectToolchainCandidate
 typealias RunConfigurationOperations = LitheCoreContracts.RunConfigurationOperations
+
+typealias RunProjectOwnership = LitheCoreContracts.RunProjectOwnership

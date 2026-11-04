@@ -148,6 +148,10 @@ pub enum CoreCommand {
     ToolchainsFailureReply,
     /// Resolves the nearest machine-local directory pin.
     ToolchainsResolvePins,
+    /// Resolves consumer defaults while keeping workspace inheritance symbolic.
+    ToolchainsResolveConsumerPreferences,
+    /// Edits one machine-local consumer preference and returns its effective input.
+    ToolchainsEditConsumerPreferences,
     /// Resolves the four toolchain layers from a captured value snapshot.
     ToolchainsResolve,
     /// Checks a plugin-defined version probe without per-tool parsing.
@@ -158,6 +162,12 @@ pub enum CoreCommand {
     ToolchainsCandidates,
     /// Finds the build-system instances of a workspace (`build.detect`).
     BuildDetect,
+    /// Validates a native team's persisted Build options (`build.projectOptions`).
+    BuildProjectOptions,
+    /// Merges checked team and machine-local Build preferences without I/O.
+    BuildResolveStoredOptions,
+    /// Edits one declared option in a machine-local Build document without I/O.
+    BuildEditStoredOption,
     /// Lists a build system's executable candidates and version probes (`build.invocationPlan`).
     BuildInvocationPlan,
     /// Compares a build tool's or runtime's version output with its minimum (`build.checkToolVersion`).
@@ -172,6 +182,14 @@ pub enum CoreCommand {
     BuildTestPlan,
     /// Plans typed provider run preparation (`build.prepareRunPlan`).
     BuildPrepareRunPlan,
+    /// Plans source-backed configuration reads (`build.configurationPlan`).
+    BuildConfigurationPlan,
+    /// Validates non-sensitive native facts (`build.decodeConfiguration`).
+    BuildDecodeConfiguration,
+    /// Plans provider-owned native configuration editing (`build.configurationEditPlan`).
+    BuildConfigurationEditPlan,
+    /// Validates a public edit receipt (`build.decodeConfigurationEdit`).
+    BuildDecodeConfigurationEdit,
     /// Resolves optional public build inputs (`build.resolveModelInputs`).
     BuildResolveModelInputs,
     /// Plans native debug preparation (`build.prepareDebugPlan`).
@@ -437,6 +455,8 @@ pub enum CoreCommand {
     LspDestroyServer,
     /// Validates layered run-configuration documents (`runConfig.inspect`).
     RunConfigInspect,
+    /// Reads effective saved tool paths for one Provider root (`runConfig.projectToolchain`).
+    RunConfigProjectToolchain,
     /// Selects an automatic project JDK (`runConfig.selectJava`).
     RunConfigSelectJava,
     /// Regenerates detected run configurations (`runConfig.generate`).
@@ -445,12 +465,16 @@ pub enum CoreCommand {
     RunConfigResolve,
     /// Persists editable run options (`runConfig.updateOptions`).
     RunConfigUpdateOptions,
+    /// Replaces generic local tool preferences while preserving existing Run data.
+    RunConfigUpdateToolPreferences,
     /// Prepares one complete run-configuration editor save (`runConfig.saveEditorChanges`).
     RunConfigSaveEditorChanges,
     /// Adds a user-authored run configuration (`runConfig.createUserConfiguration`).
     RunConfigCreateUserConfiguration,
     /// Produces the process plan for one configuration (`runConfig.createLaunchPlan`).
     RunConfigCreateLaunchPlan,
+    /// Resolves user choices for a provider-owned launch (`runConfig.providerLaunchInputs`).
+    RunConfigProviderLaunchInputs,
     /// Counts workspace uses of Java declarations (`java.codeVision`).
     JavaCodeVision,
     /// Resolves a package-qualified Java class name (`java.className`).
@@ -711,11 +735,18 @@ impl CoreCommand {
             "toolchains.decodeReply" => Some(Self::ToolchainsDecodeReply),
             "toolchains.failureReply" => Some(Self::ToolchainsFailureReply),
             "toolchains.resolvePins" => Some(Self::ToolchainsResolvePins),
+            "toolchains.resolveConsumerPreferences" => {
+                Some(Self::ToolchainsResolveConsumerPreferences)
+            }
+            "toolchains.editConsumerPreferences" => Some(Self::ToolchainsEditConsumerPreferences),
             "toolchains.resolve" => Some(Self::ToolchainsResolve),
             "toolchains.checkVersion" => Some(Self::ToolchainsCheckVersion),
             "toolchains.discoveryPlan" => Some(Self::ToolchainsDiscoveryPlan),
             "toolchains.candidates" => Some(Self::ToolchainsCandidates),
             "build.detect" => Some(Self::BuildDetect),
+            "build.projectOptions" => Some(Self::BuildProjectOptions),
+            "build.resolveStoredOptions" => Some(Self::BuildResolveStoredOptions),
+            "build.editStoredOption" => Some(Self::BuildEditStoredOption),
             "build.invocationPlan" => Some(Self::BuildInvocationPlan),
             "build.checkToolVersion" => Some(Self::BuildCheckToolVersion),
             "build.resolveOptions" => Some(Self::BuildResolveOptions),
@@ -725,6 +756,10 @@ impl CoreCommand {
             "build.prepareDebugPlan" => Some(Self::BuildPrepareDebugPlan),
             "build.decodeDebugPreparation" => Some(Self::BuildDecodeDebugPreparation),
             "build.resolveModelInputs" => Some(Self::BuildResolveModelInputs),
+            "build.configurationPlan" => Some(Self::BuildConfigurationPlan),
+            "build.configurationEditPlan" => Some(Self::BuildConfigurationEditPlan),
+            "build.decodeConfigurationEdit" => Some(Self::BuildDecodeConfigurationEdit),
+            "build.decodeConfiguration" => Some(Self::BuildDecodeConfiguration),
             "build.prepareRunPlan" => Some(Self::BuildPrepareRunPlan),
             "build.decodeRunPreparation" => Some(Self::BuildDecodeRunPreparation),
             "build.testDiscoveryPlan" => Some(Self::BuildTestDiscoveryPlan),
@@ -853,13 +888,16 @@ impl CoreCommand {
             "lsp.waitEvents" => Some(Self::LspWaitEvents),
             "lsp.destroyServer" => Some(Self::LspDestroyServer),
             "runConfig.inspect" => Some(Self::RunConfigInspect),
+            "runConfig.projectToolchain" => Some(Self::RunConfigProjectToolchain),
             "runConfig.selectJava" => Some(Self::RunConfigSelectJava),
             "runConfig.generate" => Some(Self::RunConfigGenerate),
             "runConfig.resolve" => Some(Self::RunConfigResolve),
             "runConfig.updateOptions" => Some(Self::RunConfigUpdateOptions),
+            "runConfig.updateToolPreferences" => Some(Self::RunConfigUpdateToolPreferences),
             "runConfig.saveEditorChanges" => Some(Self::RunConfigSaveEditorChanges),
             "runConfig.createUserConfiguration" => Some(Self::RunConfigCreateUserConfiguration),
             "runConfig.createLaunchPlan" => Some(Self::RunConfigCreateLaunchPlan),
+            "runConfig.providerLaunchInputs" => Some(Self::RunConfigProviderLaunchInputs),
             "java.codeVision" => Some(Self::JavaCodeVision),
             "java.className" => Some(Self::JavaClassName),
             "java.sourceDefinition" => Some(Self::JavaSourceDefinition),

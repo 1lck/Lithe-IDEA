@@ -6,6 +6,356 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
+#[test]
+fn generic_preference_edits_preserve_run_metadata_without_creating_legacy_defaults_or_files() {
+    let root = temporary_root("generic-preference-editor");
+    fs::create_dir_all(&root).unwrap();
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    let call = |command: &str, payload: Value| -> Value {
+        serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id":"generic-preference-editor", "command":command, "payload":payload
+            })
+            .to_string(),
+        ))
+        .unwrap()
+    };
+    let edited = call(
+        "toolchains.editConsumerPreferences",
+        serde_json::json!({
+            "document":{"version":1}, "directory":"services/api", "consumer":"dev.example.build/compile",
+            "tool":"dev.example.runtime:sdk", "value":{"inherit":"consumer"}
+        }),
+    );
+    assert_eq!(edited["ok"], true, "{edited}");
+    assert_eq!(
+        edited["data"]["edit"]["preferences"]["stored"],
+        serde_json::json!({"inherit":"consumer"})
+    );
+    for original in [
+        serde_json::json!({"version":2,"configurations":[]}),
+        serde_json::json!({"version":1,"configurations":[{"id":"user:legacy","type":"java.main","mainClass":"fixture.Main","workingDirectory":".","future":"preserve"}]}),
+        serde_json::json!({"version":2,"configurations":[{"id":"user:task","env":{"TOKEN":"fixture-value"},"future":[1,2]}],
+            "futureMetadata":{"keep":true},"toolchain":{"java":{"homePath":"/fixture/legacy-jdk"},"futureToolchain":{"keep":true}}}),
+    ] {
+        let result = call(
+            "runConfig.updateToolPreferences",
+            serde_json::json!({
+                "localDocument":original,"preferences":edited["data"]["edit"]["document"]
+            }),
+        );
+        assert_eq!(result["ok"], true, "{result}");
+        let saved: Value =
+            serde_json::from_str(result["data"]["document"].as_str().unwrap()).unwrap();
+        assert_eq!(
+            saved["toolchain"]["preferences"],
+            edited["data"]["edit"]["document"]
+        );
+        let mut without_preferences = saved;
+        without_preferences["toolchain"]
+            .as_object_mut()
+            .unwrap()
+            .remove("preferences");
+        if original.get("toolchain").is_none() {
+            without_preferences
+                .as_object_mut()
+                .unwrap()
+                .remove("toolchain");
+        }
+        assert_eq!(without_preferences, original);
+    }
+    assert!(!root.join(".lithe").exists());
+}
+
+#[test]
+fn generic_preference_editor_rejects_invalid_documents_and_references_without_writing() {
+    let root = temporary_root("invalid-generic-preference-editor");
+    fs::create_dir_all(&root).unwrap();
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    for (local, preferences) in [
+        (
+            serde_json::json!({"version":4294967298_u64,"configurations":[]}),
+            serde_json::json!({"version":1}),
+        ),
+        (
+            serde_json::json!({"version":999,"configurations":[]}),
+            serde_json::json!({"version":1}),
+        ),
+        (
+            serde_json::json!({"version":2,"configurations":{}}),
+            serde_json::json!({"version":1}),
+        ),
+        (
+            serde_json::json!({"version":2,"configurations":[],"toolchain":42}),
+            serde_json::json!({"version":1}),
+        ),
+        (
+            serde_json::json!({"version":2,"configurations":[]}),
+            serde_json::json!({"version":1,"workspace":{"tools":{"java":{"inherit":"workspace"}}}}),
+        ),
+    ] {
+        let result: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id":"invalid-generic-preferences", "command":"runConfig.updateToolPreferences",
+                "payload":{"localDocument":local,"preferences":preferences}
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(result["ok"], false, "{result}");
+        assert!(result["data"].is_null());
+    }
+    assert!(!root.join(".lithe").exists());
+}
+
+#[test]
+fn project_tool_preferences_preserve_symbolic_choices_across_legacy_editor_saves_and_explicit_reset(
+) {
+    let root = temporary_root("project-tool-preferences");
+    fs::create_dir_all(&root).unwrap();
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/toolchains/consumer-preferences.json"
+    ))
+    .unwrap();
+    let call = |command: &str, payload: Value| -> Value {
+        serde_json::from_str(&execute_json(
+            &serde_json::json!({"id":"preferences-store","command":command,"payload":payload})
+                .to_string(),
+        ))
+        .unwrap()
+    };
+    let document = serde_json::json!({"version":2,"configurations":[],"toolchain":{"preferences":fixture["document"]}});
+    let changed = call(
+        "runConfig.updateOptions",
+        serde_json::json!({"root":root,"scope":"local","configurationId":"","localDocument":document,
+        "toolchain":{"javaHomePath":"/fixture/changed-jdk"}}),
+    );
+    assert_eq!(changed["ok"], true, "{changed}");
+    let saved: Value = serde_json::from_str(changed["data"]["document"].as_str().unwrap()).unwrap();
+    assert_eq!(saved["toolchain"]["preferences"], fixture["document"]);
+    let inspected = call(
+        "runConfig.projectToolchain",
+        serde_json::json!({"root":root,"path":".","localDocument":saved}),
+    );
+    assert_eq!(inspected["ok"], true, "{inspected}");
+    assert_eq!(inspected["data"]["toolPreferences"], fixture["document"]);
+    let reset = call(
+        "runConfig.updateOptions",
+        serde_json::json!({"root":root,"scope":"local","configurationId":"","localDocument":saved,
+        "toolchain":{"preferences":{"version":1}}}),
+    );
+    assert_eq!(reset["ok"], true, "{reset}");
+    let reset: Value = serde_json::from_str(reset["data"]["document"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        reset["toolchain"]["preferences"],
+        serde_json::json!({"version":1})
+    );
+    assert!(!root.join(".lithe/run/local.json").exists());
+}
+
+#[test]
+fn project_tool_preferences_reject_invalid_references_in_reads_and_edits_without_clearing_sources()
+{
+    let root = temporary_root("invalid-tool-preferences");
+    fs::create_dir_all(&root).unwrap();
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    let invalid = serde_json::json!({"version":1,"workspace":{"tools":{"dev.example.runtime:sdk":{"inherit":"workspace"}}}});
+    for (command, payload) in [
+        (
+            "runConfig.projectToolchain",
+            serde_json::json!({"root":root,"path":".","localDocument":{"version":2,"configurations":[],"toolchain":{"preferences":invalid}}}),
+        ),
+        (
+            "runConfig.updateOptions",
+            serde_json::json!({"root":root,"scope":"local","configurationId":"","localDocument":{"version":2,"configurations":[]},"toolchain":{"preferences":invalid}}),
+        ),
+    ] {
+        let reply: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({"id":"invalid-preferences","command":command,"payload":payload})
+                .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(reply["ok"], false, "{reply}");
+        assert!(reply["data"].is_null());
+    }
+    assert!(!root.join(".lithe/run/local.json").exists());
+}
+
+/// Native editors format exact argv without shell expansion; an empty quoted
+/// item must survive the common document mutation path on both platforms.
+#[test]
+fn argument_editor_text_roundtrips_the_shared_argv_fixture() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/run-configuration/argument-text.json"
+    ))
+    .unwrap();
+    let root = temporary_root("run-argument-text");
+    fs::create_dir_all(&root).unwrap();
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    let document = serde_json::json!({"version":2,"configurations":[{"id":"user:arguments","name":"Arguments",
+        "provider":"build.provider","execution":"task","extensions":{"build":{"pluginID":"dev.example.engine",
+        "buildSystemID":"engine","root":".","run":"task","projectID":"project","targetID":"target","execution":"task"}}}]});
+    for case in fixture["cases"].as_array().unwrap() {
+        let reply: Value = serde_json::from_str(&execute_json(&serde_json::json!({"id":"argument-text","command":"runConfig.updateOptions",
+            "payload":{"root":root,"scope":"local","configurationId":"user:arguments","localDocument":document,"arguments":case["text"]}}).to_string())).unwrap();
+        assert_eq!(reply["ok"], true, "{reply}");
+        let result: Value =
+            serde_json::from_str(reply["data"]["document"].as_str().unwrap()).unwrap();
+        assert_eq!(result["configurations"][0]["args"], case["values"]);
+    }
+    assert!(!root.join(".lithe/run/local.json").exists());
+}
+
+#[test]
+fn configuration_toolchain_overrides_match_shared_fixture_without_writing_sources() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/run-configuration/configuration-toolchain-selection.json"
+    ))
+    .unwrap();
+    for case in fixture["cases"].as_array().unwrap() {
+        let root = temporary_root("configuration-toolchain-selection");
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(root.clone());
+        for directory in [".lithe/run", "reactor", "other"] {
+            fs::create_dir_all(root.join(directory)).unwrap();
+        }
+        let local = root.join(".lithe/run/local.json");
+        let team = root.join(".lithe/run/configurations.json");
+        let original = b"{ keep the original local document untouched }";
+        fs::write(&local, original).unwrap();
+        if let Some(generated) = case.get("generatedDocument") {
+            seed_generated(&root, generated.to_string());
+        }
+        let team_bytes = case
+            .get("teamDocument")
+            .map(|value| serde_json::to_vec(value).unwrap());
+        if let Some(bytes) = &team_bytes {
+            fs::write(&team, bytes).unwrap();
+        } else if team.exists() {
+            fs::remove_file(&team).unwrap();
+        }
+        let mut request = case["request"].clone();
+        request["root"] = serde_json::json!(root);
+        let response: Value = serde_json::from_str(&execute_json(&serde_json::json!({
+            "id":"configuration-toolchain", "command":"runConfig.projectToolchain", "payload":request
+        }).to_string())).unwrap();
+        let expected = &fixture["expected"][case["name"].as_str().unwrap()];
+        if let Some(code) = expected["errorCode"].as_str() {
+            assert_eq!(response["ok"], false, "{}: {response}", case["name"]);
+            assert_eq!(
+                response["error"]["code"], code,
+                "{}: {response}",
+                case["name"]
+            );
+        } else {
+            assert_eq!(response["ok"], true, "{}: {response}", case["name"]);
+            assert_eq!(response["data"], *expected, "{}", case["name"]);
+        }
+        assert_eq!(fs::read(&local).unwrap(), original);
+        if let Some(bytes) = team_bytes {
+            assert_eq!(fs::read(&team).unwrap(), bytes);
+        }
+    }
+}
+
+#[test]
+fn project_toolchain_selection_matches_shared_fixture_without_writing_local_data() {
+    let root = temporary_root("provider-toolchain-selection");
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    let _cleanup = Cleanup(root.clone());
+    let local = root.join(".lithe/run/local.json");
+    let original = b"{ corrupt saved document remains untouched }";
+    fs::write(&local, original).unwrap();
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/run-configuration/project-toolchain-selection.json"
+    ))
+    .unwrap();
+    for case in fixture["cases"].as_array().unwrap() {
+        let expected = &fixture["expected"][case["name"].as_str().unwrap()];
+        let mut request = case["request"].clone();
+        request["root"] = serde_json::json!(root);
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id":"project-toolchain", "command":"runConfig.projectToolchain", "payload":request
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        if let Some(code) = expected["errorCode"].as_str() {
+            assert_eq!(
+                response["error"]["code"], code,
+                "{}: {response}",
+                case["name"]
+            );
+        } else {
+            assert_eq!(response["ok"], true, "{}: {response}", case["name"]);
+            assert_eq!(response["data"], *expected, "{}", case["name"]);
+        }
+        assert_eq!(fs::read(&local).unwrap(), original);
+    }
+    let response: Value = serde_json::from_str(&execute_json(&serde_json::json!({
+        "id":"project-toolchain-disk", "command":"runConfig.projectToolchain", "payload":{"root":root,"path":"."}
+    }).to_string())).unwrap();
+    assert_eq!(response["ok"], false);
+    assert_eq!(fs::read(&local).unwrap(), original);
+    fs::create_dir_all(root.join(".lithe/toolchains")).unwrap();
+    fs::write(
+        root.join(".lithe/toolchains/local.json"),
+        r#"{"version":1,"toolchains":{"project-node":{"executable":"C:/Example Node/node.exe"}}}"#,
+    )
+    .unwrap();
+    let response: Value = serde_json::from_str(&execute_json(&serde_json::json!({
+        "id":"project-toolchain-runtimes", "command":"runConfig.projectToolchain", "payload":{"root":root,"path":".","localDocument":{"version":2,"configurations":[]}}
+    }).to_string())).unwrap();
+    assert_eq!(
+        response["data"]["toolchain"]["runtimeExecutablePaths"]["project-node"],
+        "C:/Example Node/node.exe"
+    );
+    assert_eq!(fs::read(&local).unwrap(), original);
+}
+
 /// A Maven goal is not evidence of a launchable application. Only confirmed
 /// production entries can promote that exact module to a Spring service.
 #[test]
@@ -96,6 +446,108 @@ fn spring_services_require_unique_confirmed_entries_in_their_own_module() {
         .unwrap()
         .iter()
         .any(|entry| entry["provider"] == "spring-boot.maven"));
+}
+
+#[test]
+fn subproject_toolchain_paths_roundtrip_and_reject_invalid_scope_keys() {
+    let root = temporary_root("subproject-toolchain-paths");
+    fs::create_dir_all(&root).unwrap();
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            fs::remove_dir_all(&self.0).unwrap();
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/run-configuration/subproject-toolchains.json"
+    ))
+    .unwrap();
+    let call = |command: &str, payload: Value| -> Value {
+        serde_json::from_str(&execute_json(
+            &serde_json::json!({"id":"subproject-toolchains", "command":command,"payload":payload})
+                .to_string(),
+        ))
+        .unwrap()
+    };
+    let updated = call(
+        "runConfig.updateOptions",
+        serde_json::json!({
+            "root":root,"scope":"local","configurationId":"", "toolchain":fixture["toolchain"]
+        }),
+    );
+    assert_eq!(updated["ok"], true, "{updated}");
+    let saved: Value = serde_json::from_str(updated["data"]["document"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        saved["toolchain"]["pathOverrides"],
+        fixture["expected"]["pathOverrides"]
+    );
+    let read = call(
+        "runConfig.inspect",
+        serde_json::json!({"root":root,"localDocument":saved,"checkFingerprint":false}),
+    );
+    assert_eq!(read["ok"], true, "{read}");
+    assert_eq!(
+        read["data"]["toolchain"]["pathOverrides"],
+        fixture["expected"]["pathOverrides"]
+    );
+    let changed_defaults = call(
+        "runConfig.updateOptions",
+        serde_json::json!({
+            "root":root,"scope":"local","configurationId":"", "localDocument":saved,
+            "toolchain":{"javaHomePath":"/fixture/changed-project-jdk"}
+        }),
+    );
+    assert_eq!(changed_defaults["ok"], true, "{changed_defaults}");
+    let retained: Value =
+        serde_json::from_str(changed_defaults["data"]["document"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        retained["toolchain"]["pathOverrides"],
+        fixture["expected"]["pathOverrides"]
+    );
+    let reset = call(
+        "runConfig.updateOptions",
+        serde_json::json!({
+            "root":root,"scope":"local","configurationId":"", "localDocument":retained,
+            "toolchain":{"pathOverrides":{}}
+        }),
+    );
+    assert_eq!(reset["ok"], true, "{reset}");
+    let reset: Value = serde_json::from_str(reset["data"]["document"].as_str().unwrap()).unwrap();
+    assert_eq!(reset["toolchain"]["pathOverrides"], serde_json::json!({}));
+    for invalid in fixture["invalidRoots"].as_array().unwrap() {
+        let mut toolchain = fixture["toolchain"].clone();
+        toolchain["pathOverrides"] =
+            serde_json::json!({invalid.as_str().unwrap(): {"javaHomePath":"/fixture/jdk"}});
+        let result = call(
+            "runConfig.updateOptions",
+            serde_json::json!({"root":root,"scope":"local","configurationId":"","toolchain":toolchain}),
+        );
+        assert_eq!(result["ok"], false, "{invalid}: {result}");
+        let result = call(
+            "runConfig.inspect",
+            serde_json::json!({"root":root,"localDocument":{
+            "version":2,"configurations":[],"toolchain":{"pathOverrides":toolchain["pathOverrides"]}
+        },"checkFingerprint":false}),
+        );
+        assert_eq!(result["ok"], false, "{invalid}: {result}");
+    }
+    for value in [
+        serde_json::json!(null),
+        serde_json::json!([]),
+        serde_json::json!({"a":{"javaHomePath":42}}),
+        serde_json::json!({"a":{"javaHomePath":"\n"}}),
+        serde_json::json!({"a":{"unknownField":"preserve-this-value"}}),
+    ] {
+        let result = call(
+            "runConfig.inspect",
+            serde_json::json!({"root":root,"localDocument":{
+            "version":2,"configurations":[],"toolchain":{"pathOverrides":value}
+        },"checkFingerprint":false}),
+        );
+        assert_eq!(result["ok"], false, "{result}");
+    }
+    assert!(!root.join(".lithe/run/local.json").exists());
 }
 
 #[test]
@@ -536,9 +988,9 @@ fn run_configuration_generation_uses_a_maven_project_below_the_workspace() {
         response["data"]["toolchainRequirements"]["toolchains"]["project-maven"]["wrapper"],
         "./mvnw"
     );
-    assert_eq!(
-        response["data"]["toolchainRequirements"]["toolchains"]["project-maven"]["minimumVersion"],
-        "3.9.9"
+    assert!(
+        response["data"]["toolchainRequirements"]["toolchains"]["project-maven"]["minimumVersion"]
+            .is_null()
     );
     assert!(
         response["data"]["toolchainRequirements"]["toolchains"]["project-maven"]["version"]
@@ -1253,6 +1705,29 @@ fn maven_test_source_main_uses_the_test_classpath() {
         }])
     );
 
+    // A current host receipt avoids both a second resource process and a
+    // legacy POM scan. Windows clients without the receipt retain the old plan.
+    fs::write(root.join("pom.xml"), "<broken>").unwrap();
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/run-configuration/provider-prepared-java.json"
+    ))
+    .unwrap();
+    let prepared: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id":"provider-prepared-main", "command":"runConfig.createLaunchPlan", "payload":{
+                "root":root,"configurationId":"java-main:com.example.MainTests",
+                "javaLaunch":fixture["javaLaunch"]
+            }
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(prepared["ok"], true, "{prepared}");
+    assert!(prepared["data"].get("preLaunchSteps").is_none());
+    assert_eq!(
+        prepared["data"]["arguments"],
+        fixture["expected"]["arguments"]
+    );
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -2230,9 +2705,9 @@ fn run_configuration_generation_detects_declared_toolchain_versions() {
         generated["data"]["toolchainRequirements"]["toolchains"]["project-jdk"]["preferredVendor"],
         "temurin"
     );
-    assert_eq!(
-        generated["data"]["toolchainRequirements"]["toolchains"]["project-maven"]["minimumVersion"],
-        "3.9.9"
+    assert!(
+        generated["data"]["toolchainRequirements"]["toolchains"]["project-maven"]["minimumVersion"]
+            .is_null()
     );
     assert!(
         generated["data"]["toolchainRequirements"]["toolchains"]["project-maven"]["version"]
@@ -4702,6 +5177,30 @@ fn build_provider_configurations_persist_before_generation_and_reuse_identity() 
         updated_doc["configurations"][0]["extensions"]["annotations"],
         serde_json::json!({"label":"keep user metadata"})
     );
+    for execution in fixture["executionKinds"].as_array().unwrap() {
+        let mut reference = fixture["reference"].clone();
+        reference["execution"] = execution.clone();
+        let saved_kind = save(reference);
+        assert_eq!(saved_kind["ok"], true, "{saved_kind}");
+        assert_eq!(saved_kind["data"]["id"], saved["data"]["id"]);
+        let kind_document: Value =
+            serde_json::from_str(saved_kind["data"]["document"].as_str().unwrap()).unwrap();
+        assert_eq!(kind_document["configurations"][0]["execution"], *execution);
+        fs::write(&local, kind_document.to_string()).unwrap();
+        let kind_resolved = call("runConfig.resolve", serde_json::json!({"root":root}));
+        assert_eq!(kind_resolved["ok"], true, "{kind_resolved}");
+        assert_eq!(
+            kind_resolved["data"]["configurations"][0]["execution"],
+            *execution
+        );
+        let inputs = call(
+            "runConfig.providerLaunchInputs",
+            serde_json::json!({"root":root,"configurationId":saved_kind["data"]["id"],"providerRoot":"app"}),
+        );
+        assert_eq!(inputs["ok"], true, "{inputs}");
+        assert_eq!(inputs["data"]["launchOptions"]["execution"], *execution);
+        assert_eq!(inputs["data"]["reference"]["execution"], *execution);
+    }
     for (field, value) in [
         ("root", serde_json::json!("../escape")),
         ("root", serde_json::json!("/outside")),
@@ -4734,4 +5233,889 @@ fn build_provider_configurations_persist_before_generation_and_reuse_identity() 
         call("runConfig.resolve", serde_json::json!({"root":root}))["ok"],
         false
     );
+}
+
+/// Persisted identity and selector identity serve different purposes: imported IDs
+/// retain defaults/overrides, while the selector removes only the duplicate auto entry.
+#[test]
+fn explicit_provider_references_keep_arbitrary_ids_and_shadow_only_current_selector() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/run-configuration/build-provider-stable-identities.json"
+    ))
+    .unwrap();
+    let root = temporary_root("provider-stable-identity");
+    fs::create_dir_all(root.join("app")).unwrap();
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    let call = |command: &str, payload: Value| -> Value {
+        let reply: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({"id":"stable","command":command,"payload":payload}).to_string(),
+        ))
+        .unwrap();
+        assert_eq!(reply["ok"], true, "{reply}");
+        reply["data"].clone()
+    };
+    let stable = fixture["expected"]["stableID"].clone();
+    let reference = fixture["reference"].clone();
+    let team = serde_json::json!({"version":2,"configurations":[{"id":stable,"name":"Team service","provider":"build.provider","execution":"service","cwd":"app","extensions":{"build":reference}}]});
+    let team_path = root.join(".lithe/run/configurations.json");
+    let local_path = root.join(".lithe/run/local.json");
+    fs::write(&team_path, team.to_string()).unwrap();
+    let inspected = call(
+        "runConfig.inspect",
+        serde_json::json!({"root":root,"checkFingerprint":false}),
+    );
+    assert_eq!(inspected["status"], "ready");
+    assert_eq!(inspected["requiresGeneration"], true);
+    let before = call("runConfig.resolve", serde_json::json!({"root":root}));
+    assert_eq!(before["configurations"][0]["id"], stable);
+    assert!(before["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|d| d["code"] != "orphanedOverride"));
+    let mut second = reference.clone();
+    second["targetID"] = serde_json::json!("another/opaque-target");
+    let generated = call(
+        "runConfig.generate",
+        serde_json::json!({"root":root,"paths":[],"projectOwnership":[],"providerRuns":[
+            {"projectPath":"app","name":"Auto A","reference":reference},{"projectPath":"app","name":"Auto B","reference":second}
+        ]}),
+    );
+    assert_eq!(
+        generated["generated"]["configurations"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    fs::write(
+        root.join(".lithe/project.json"),
+        serde_json::json!({"version":1,"defaultRunConfiguration":stable}).to_string(),
+    )
+    .unwrap();
+    fs::write(
+        &local_path,
+        serde_json::json!({"version":2,"configurations":[{"id":stable,"env":{"EXAMPLE":"value"}}]})
+            .to_string(),
+    )
+    .unwrap();
+    let resolved = call("runConfig.resolve", serde_json::json!({"root":root}));
+    let configs = resolved["configurations"].as_array().unwrap();
+    assert_eq!(configs.len(), 2);
+    assert_eq!(resolved["defaultRunConfiguration"], stable);
+    assert_eq!(
+        configs
+            .iter()
+            .filter(|c| c["extensions"]["build"]["targetID"] == reference["targetID"])
+            .count(),
+        1
+    );
+    assert!(resolved["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|d| d["code"] != "orphanedOverride"));
+    // A local selector patch replaces the effective claim; it must not hide
+    // the formerly claimed auto target too.
+    fs::write(&local_path,serde_json::json!({"version":2,"configurations":[{"id":stable,"extensions":{"build":{"targetID":second["targetID"]}}}]}).to_string()).unwrap();
+    let replaced = call("runConfig.resolve", serde_json::json!({"root":root}));
+    let configs = replaced["configurations"].as_array().unwrap();
+    assert_eq!(configs.len(), 2);
+    assert_eq!(
+        configs
+            .iter()
+            .filter(|c| c["extensions"]["build"]["targetID"] == second["targetID"])
+            .count(),
+        1
+    );
+    assert_eq!(
+        configs
+            .iter()
+            .filter(|c| c["extensions"]["build"]["targetID"] == reference["targetID"])
+            .count(),
+        1
+    );
+    let original_team = fs::read(&team_path).unwrap();
+    let original_local = fs::read(&local_path).unwrap();
+    let prepared = serde_json::json!({"version":2,"configurations":[{"id":"prepared:stable","name":"Prepared","provider":"build.provider","execution":"service","extensions":{"build":reference}}]});
+    let preview = call(
+        "runConfig.resolve",
+        serde_json::json!({"root":root,"teamDocument":prepared,"localDocument":{"version":2,"configurations":[]}}),
+    );
+    assert!(preview["configurations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|c| c["id"] == "prepared:stable"));
+    assert_eq!(fs::read(&team_path).unwrap(), original_team);
+    assert_eq!(fs::read(&local_path).unwrap(), original_local);
+    let mut invalid = prepared.clone();
+    invalid["configurations"][0]["extensions"]["build-run"] = serde_json::json!({"entrypoint":17});
+    let rejected:Value=serde_json::from_str(&execute_json(&serde_json::json!({"id":"invalid","command":"runConfig.resolve","payload":{"root":root,"teamDocument":invalid,"localDocument":{"version":2,"configurations":[]}}}).to_string())).unwrap();
+    assert_eq!(rejected["ok"], false);
+    assert_eq!(fs::read(&team_path).unwrap(), original_team);
+}
+
+/// Portable choices survive document edits without becoming selector identity or cached launch facts.
+#[test]
+fn provider_run_options_preserve_exact_arguments_and_layered_build_choices() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/run-configuration/build-provider-options.json"
+    ))
+    .unwrap();
+    let root = temporary_root("provider-run-options");
+    fs::create_dir_all(root.join("app/work")).unwrap();
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    let call = |command: &str, payload: Value| -> Value {
+        let reply: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({"id":"choices","command":command,"payload":payload}).to_string(),
+        ))
+        .unwrap();
+        assert_eq!(reply["ok"], true, "{reply}");
+        reply["data"].clone()
+    };
+    let save = || {
+        call(
+            "runConfig.createUserConfiguration",
+            serde_json::json!({"root":root,"scope":"local","type":"buildProvider","name":"Service","build":fixture["reference"]}),
+        )
+    };
+    let saved = save();
+    let id = saved["id"].clone();
+    let local_path = root.join(".lithe/run/local.json");
+    let team_path = root.join(".lithe/run/configurations.json");
+    fs::write(&local_path, saved["document"].as_str().unwrap()).unwrap();
+    let team = serde_json::json!({"version":2,"configurations":[{"id":id,"extensions":{"build-run":fixture["choices"]}}]});
+    fs::write(&team_path, team.to_string()).unwrap();
+    let read = || {
+        call(
+            "runConfig.providerLaunchInputs",
+            serde_json::json!({"root":root,"configurationId":id,"providerRoot":"app"}),
+        )
+    };
+    let initial = read();
+    assert_eq!(initial["tools"], fixture["choices"]["tools"]);
+    assert!(initial["launchOptions"].get("tools").is_none());
+    assert_eq!(
+        initial["buildSystemID"],
+        fixture["expected"]["buildSystemID"]
+    );
+    assert_eq!(
+        initial["launchOptions"]["execution"],
+        fixture["expected"]["execution"]
+    );
+    assert_eq!(
+        initial["launchOptions"]["runtimeArguments"],
+        fixture["choices"]["runtimeArguments"]
+    );
+    assert_eq!(
+        initial["launchOptions"]["entrypoint"],
+        fixture["choices"]["entrypoint"]
+    );
+    assert_eq!(initial["optionOverrides"], fixture["choices"]["options"]);
+    assert_eq!(
+        initial["launchOptions"]["arguments"],
+        fixture["reference"]["userArguments"]
+    );
+    let update = |choices: Option<Value>| {
+        let mut payload = serde_json::json!({"root":root,"scope":"local","configurationId":id,
+            "arguments":"--application=\"one two\" 雪","environment":fixture["environment"],"workingDirectory":fixture["workingDirectory"]});
+        if let Some(choices) = choices {
+            payload["providerRunOptions"] = choices;
+        }
+        call("runConfig.updateOptions", payload)
+    };
+    let one_tool = update(Some(
+        serde_json::json!({"tools":{"dev.example.engine:compiler":fixture["changed"]["tools"]["dev.example.engine:compiler"]}}),
+    ));
+    fs::write(&local_path, one_tool["document"].as_str().unwrap()).unwrap();
+    let inherited = read();
+    assert_eq!(
+        inherited["tools"]["dev.example.engine:compiler"],
+        fixture["changed"]["tools"]["dev.example.engine:compiler"]
+    );
+    assert_eq!(
+        inherited["tools"]["dev.example.engine:vm"],
+        fixture["choices"]["tools"]["dev.example.engine:vm"]
+    );
+    let document = update(Some(fixture["changed"].clone()));
+    fs::write(&local_path, document["document"].as_str().unwrap()).unwrap();
+    let changed = read();
+    assert_eq!(changed["tools"], fixture["expected"]["tools"]);
+    let toolchain = call(
+        "runConfig.projectToolchain",
+        serde_json::json!({"root":root,"path":"app","configurationId":id}),
+    );
+    assert_eq!(toolchain["definedTools"], changed["tools"]);
+    assert!(
+        !root.join(".lithe/local.json").exists(),
+        "Run choices must not create directory pins"
+    );
+    assert_eq!(
+        changed["launchOptions"]["runtimeArguments"],
+        fixture["changed"]["runtimeArguments"]
+    );
+    assert!(
+        changed["launchOptions"].get("entrypoint").is_none(),
+        "Explicit empty clears the team entrypoint"
+    );
+    assert_eq!(
+        changed["optionOverrides"],
+        serde_json::json!({}),
+        "An explicit empty map clears team options"
+    );
+    assert_eq!(changed["launchOptions"]["arguments"], fixture["arguments"]);
+    assert_eq!(
+        changed["launchOptions"]["environment"],
+        fixture["environment"]
+    );
+    assert_eq!(
+        changed["launchOptions"]["workingDirectory"],
+        fixture["workingDirectory"]
+    );
+    assert_eq!(changed["reference"], fixture["reference"]);
+    let omitted = update(None);
+    let omitted: Value = serde_json::from_str(omitted["document"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        omitted["configurations"][0]["extensions"]["build-run"],
+        fixture["changed"]
+    );
+    let resaved = save();
+    assert_eq!(resaved["id"], id);
+    let resaved: Value = serde_json::from_str(resaved["document"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        resaved["configurations"][0]["cwd"],
+        fixture["workingDirectory"]
+    );
+    assert_eq!(
+        resaved["configurations"][0]["extensions"]["build-run"],
+        fixture["changed"]
+    );
+    assert_eq!(
+        serde_json::from_slice::<Value>(&fs::read(&team_path).unwrap()).unwrap(),
+        team
+    );
+    assert!(!root.join(".lithe/run/generated.json").exists());
+}
+
+/// Malformed portable choices fail before a provider request; unknown fields cannot smuggle launch facts.
+#[test]
+fn provider_run_options_reject_malformed_or_oversized_values() {
+    let root = temporary_root("provider-run-options-invalid");
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    let reference = serde_json::json!({"pluginID":"dev.example","buildSystemID":"engine","root":".","run":"serve","projectID":"p","targetID":"t"});
+    let local_path = root.join(".lithe/run/local.json");
+    for choices in [
+        serde_json::json!(null),
+        serde_json::json!({"runtimeArguments":null}),
+        serde_json::json!({"runtimeArguments":["bad\u{0}"]}),
+        serde_json::json!({"runtimeArguments":vec!["a";1025]}),
+        serde_json::json!({"runtimeArguments":["a".repeat(65537)]}),
+        serde_json::json!({"entrypoint":null}),
+        serde_json::json!({"entrypoint":"a".repeat(4097)}),
+        serde_json::json!({"options":null}),
+        serde_json::json!({"options":{"bad key":true}}),
+        serde_json::json!({"options":{"opaque":"a".repeat(65536)}}),
+        serde_json::json!({"options":(0..65).map(|n|(format!("key-{n}"),serde_json::json!(false))).collect::<std::collections::BTreeMap<_,_>>()}),
+        serde_json::json!({"tools":null}),
+        serde_json::json!({"tools":{"bad key":{"home":"/kit"}}}),
+        serde_json::json!({"tools":{"dev.example:compiler":{"home":"relative/kit"}}}),
+        serde_json::json!({"tools":{"dev.example:compiler":{"executable":"/a/../b"}}}),
+        serde_json::json!({"tools":{"dev.example:compiler":{"home":"/kit","executable":"/bin/compiler"}}}),
+        serde_json::json!({"tools":{"dev.example:compiler":{"home":"/kit","version":"21"}}}),
+        serde_json::json!({"tools":(0..65).map(|n|(format!("dev.example:tool-{n}"),serde_json::json!(null))).collect::<std::collections::BTreeMap<_,_>>()}),
+        serde_json::json!({"command":"cached"}),
+        serde_json::json!({"debug":{"adapter":"cached"}}),
+    ] {
+        fs::write(&local_path, serde_json::json!({"version":2,"configurations":[{"id":"user:service","name":"Service","provider":"build.provider","execution":"application","cwd":".","extensions":{"build":reference,"build-run":choices}}]}).to_string()).unwrap();
+        let reply: Value = serde_json::from_str(&execute_json(&serde_json::json!({"id":"invalid","command":"runConfig.resolve","payload":{"root":root}}).to_string())).unwrap();
+        assert_eq!(reply["ok"], false, "Invalid choice accepted");
+    }
+    // The mutation port must reject explicit null as well as persisted null,
+    // rather than treating malformed input as an omitted legacy field.
+    fs::write(&local_path, serde_json::json!({"version":2,"configurations":[{"id":"user:service","name":"Service","provider":"build.provider","execution":"application","cwd":".","extensions":{"build":reference}}]}).to_string()).unwrap();
+    for options in [
+        serde_json::json!(null),
+        serde_json::json!({"runtimeArguments":null}),
+        serde_json::json!({"entrypoint":"bad\u{0}"}),
+    ] {
+        let reply: Value = serde_json::from_str(&execute_json(&serde_json::json!({"id":"invalid-update","command":"runConfig.updateOptions","payload":{"root":root,"scope":"local","configurationId":"user:service","providerRunOptions":options}}).to_string())).unwrap();
+        assert_eq!(reply["ok"], false, "Invalid mutation accepted");
+    }
+}
+
+/// A non-Java provider owns discovery; regenerating labels must retain user choices,
+/// while withdrawing a target must not resurrect it from the previous detected layer.
+#[test]
+fn generic_provider_runs_regenerate_without_language_facts_and_keep_stable_overrides() {
+    let root = temporary_root("generic-provider-generation");
+    fs::create_dir_all(root.join("app")).unwrap();
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    let call = |command: &str, payload: Value| -> Value {
+        let result: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({"id":"generic","command":command,"payload":payload}).to_string(),
+        ))
+        .unwrap();
+        assert_eq!(result["ok"], true, "{result}");
+        result["data"].clone()
+    };
+    let generate = |runs: Value| {
+        call(
+            "runConfig.generate",
+            serde_json::json!({
+                "root":root,"paths":[],"projectOwnership":[],"providerRuns":runs
+            }),
+        )
+    };
+    let reference = serde_json::json!({"pluginID":"dev.example.engine","buildSystemID":"engine","root":"app",
+        "run":"serve","projectID":"project/opaque:1","targetID":"target/opaque:2","execution":"service","userArguments":[]});
+    let mut runs =
+        serde_json::json!([{"projectPath":"app","name":"Initial label","reference":reference}]);
+    let first = generate(runs.clone());
+    let configuration = &first["generated"]["configurations"][0];
+    let id = configuration["id"].clone();
+    assert_eq!(configuration["provider"], "build.provider");
+    assert!(configuration["toolchains"].as_object().unwrap().is_empty());
+    assert!(configuration["extensions"].get("maven").is_none());
+    fs::write(
+        root.join(".lithe/run/local.json"),
+        serde_json::json!({"version":2,"configurations":[
+            {"id":id,"env":{"EXAMPLE":"preserved"},"args":["user choice"],"cwd":"app"}
+        ]})
+        .to_string(),
+    )
+    .unwrap();
+    let resolved = call("runConfig.resolve", serde_json::json!({"root":root}));
+    assert_eq!(resolved["defaultRunConfiguration"], id);
+    runs[0]["name"] = serde_json::json!("Renamed upstream label");
+    runs[0]["reference"]["execution"] = serde_json::json!("task");
+    let renamed = generate(runs.clone());
+    assert_eq!(renamed["generated"]["configurations"][0]["id"], id);
+    assert_ne!(
+        renamed["generated"]["generator"]["providerRunFingerprint"],
+        first["generated"]["generator"]["providerRunFingerprint"]
+    );
+    let inputs = call(
+        "runConfig.providerLaunchInputs",
+        serde_json::json!({"root":root,"configurationId":id,"providerRoot":"app"}),
+    );
+    assert_eq!(inputs["launchOptions"]["execution"], "task");
+    assert_eq!(inputs["launchOptions"]["workingDirectory"], "app");
+    assert_eq!(
+        inputs["launchOptions"]["arguments"],
+        serde_json::json!(["user choice"])
+    );
+    assert_eq!(
+        inputs["launchOptions"]["environment"],
+        serde_json::json!({"EXAMPLE":"preserved"})
+    );
+    let withdrawn = generate(serde_json::json!([]));
+    assert!(!withdrawn["generated"]["configurations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["id"] == id));
+    let resolved = call("runConfig.resolve", serde_json::json!({"root":root}));
+    assert!(resolved["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["code"] == "orphanedOverride" && item["id"] == id));
+    assert!(!resolved["configurations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["id"] == id));
+    let restored = generate(runs);
+    assert_eq!(restored["generated"]["configurations"][0]["id"], id);
+    let inputs = call(
+        "runConfig.providerLaunchInputs",
+        serde_json::json!({"root":root,"configurationId":id,"providerRoot":"app"}),
+    );
+    assert_eq!(
+        inputs["launchOptions"]["arguments"],
+        serde_json::json!(["user choice"])
+    );
+    assert!(!root.join(".lithe/run/generated.json").exists());
+}
+
+#[test]
+fn provider_project_ownership_controls_java_modules_and_source_roles_without_parsing_poms() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/run-configuration/provider-project-ownership.json"
+    ))
+    .unwrap();
+    let root = temporary_root("provider-run-ownership");
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    for (path, contents) in fixture["files"].as_object().unwrap() {
+        let path = root.join(path);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, contents.as_str().unwrap()).unwrap();
+    }
+    let generate_with_runs = |ownership: Value, runs: Value| -> Value {
+        serde_json::from_str(&execute_json(&serde_json::json!({
+            "id":"generate", "command":"runConfig.generate", "payload": {
+                "root":root,"paths":fixture["files"].as_object().unwrap().keys().collect::<Vec<_>>(),
+                "modulePaths":["incorrect-legacy-module"], "javaEntrypoints":fixture["javaEntrypoints"],
+                "projectOwnership":ownership, "providerRuns":runs
+            }
+        }).to_string())).unwrap()
+    };
+    let generate =
+        |ownership: Value| generate_with_runs(ownership, fixture["providerRuns"].clone());
+    let output = generate(fixture["projectOwnership"].clone());
+    assert_eq!(output["ok"], true, "{output}");
+    for expected in fixture["expected"]["configurations"].as_array().unwrap() {
+        let actual = output["data"]["generated"]["configurations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["id"] == expected["id"])
+            .unwrap();
+        assert_eq!(actual["cwd"], expected["cwd"]);
+        assert_eq!(actual["extensions"]["java"]["module"], expected["module"]);
+        assert!(actual["extensions"]["maven"].is_null());
+        assert_eq!(
+            actual["extensions"]["java"]["build"]["pluginID"],
+            "dev.example.engine"
+        );
+        assert_eq!(
+            actual["extensions"]["java"]["sourceSet"],
+            expected["sourceSet"]
+        );
+    }
+    for expected in fixture["expected"]["services"].as_array().unwrap() {
+        let actual = output["data"]["generated"]["configurations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["id"] == expected["id"])
+            .unwrap();
+        assert_eq!(actual["cwd"], expected["cwd"]);
+        assert_eq!(actual["execution"], "service");
+        assert_eq!(actual["provider"], "build.provider");
+        assert_eq!(actual["extensions"]["build"], expected["reference"]);
+        assert!(actual["extensions"]["maven"].is_null());
+        assert_eq!(actual["toolchains"], serde_json::json!({}));
+    }
+    assert_eq!(
+        output["data"]["toolchainRequirements"]["toolchains"]["project-jdk"]["minimumVersion"],
+        fixture["expected"]["minimumJavaVersion"]
+    );
+    // A provider's language floor is authoritative even before JDT finds sources.
+    let empty_sources: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id":"provider-floor","command":"runConfig.generate","payload":{
+                "root":root,"paths":[],"javaEntrypoints":{"schemaVersion":1,"entries":[]},
+                "projectOwnership":fixture["projectOwnership"]
+            }
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(empty_sources["ok"], true, "{empty_sources}");
+    assert_eq!(
+        empty_sources["data"]["toolchainRequirements"]["toolchains"]["project-jdk"]
+            ["minimumVersion"],
+        fixture["expected"]["minimumJavaVersion"]
+    );
+    // Build tool versions and wrappers belong to installed definitions/providers,
+    // even when exactly one imported reactor exists.
+    assert!(output["data"]["toolchainRequirements"]["toolchains"]["project-maven"].is_null());
+    let single = generate(
+        serde_json::json!([{"path":"alpha/app", "build":{"pluginID":"dev.example.engine","buildSystemID":"engine","root":"alpha","projectID":"app"}}]),
+    );
+    assert!(single["data"]["toolchainRequirements"]["toolchains"]["project-maven"].is_null());
+    // Same display names do not define identity; selectors belong to their provider.
+    assert_eq!(
+        output["data"]["generated"]["configurations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|c| c["provider"] == "build.provider")
+            .count(),
+        2
+    );
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    seed_generated(&root, output["data"]["generated"].to_string());
+    let inspect_with_runs = |projects: Option<Value>, runs: Option<Value>| -> Value {
+        let mut payload = serde_json::json!({"root":root,"checkFingerprint":false});
+        if let Some(projects) = projects {
+            payload["projectOwnership"] = projects;
+        }
+        if let Some(runs) = runs {
+            payload["providerRuns"] = runs;
+        }
+        let response: Value = serde_json::from_str(&execute_json(&serde_json::json!({"id":"inspect-provider", "command":"runConfig.inspect", "payload":payload}).to_string())).unwrap();
+        assert_eq!(response["ok"], true, "{response}");
+        response["data"]["diagnostics"].clone()
+    };
+    let inspect = |projects: Option<Value>| {
+        let runs = projects.as_ref().map(|_| fixture["providerRuns"].clone());
+        inspect_with_runs(projects, runs)
+    };
+    let stale = |diagnostics: Value| {
+        diagnostics
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["code"] == "staleProviderModel")
+    };
+    let original = fixture["projectOwnership"].clone();
+    assert!(!stale(inspect(Some(original.clone()))));
+    let mut reordered = original.as_array().unwrap().clone();
+    reordered.reverse();
+    for project in &mut reordered {
+        project["contentRoots"].as_array_mut().unwrap().reverse();
+    }
+    assert!(!stale(inspect(Some(serde_json::json!(reordered)))));
+    for (field, value) in [
+        ("name", serde_json::json!("renamed")),
+        ("minimumJavaVersion", serde_json::json!("23")),
+        (
+            "build",
+            serde_json::json!({"pluginID":"dev.example.changed","buildSystemID":"engine","root":"alpha","projectID":"alpha/app"}),
+        ),
+        ("contentRoots", serde_json::json!([])),
+    ] {
+        let mut changed = original.clone();
+        changed[1][field] = value;
+        assert!(stale(inspect(Some(changed))), "{field}");
+    }
+    let mut runs_reordered = fixture["providerRuns"].as_array().unwrap().clone();
+    runs_reordered.reverse();
+    let reordered_generation =
+        generate_with_runs(original.clone(), serde_json::json!(runs_reordered));
+    assert_eq!(
+        reordered_generation["data"]["generated"]["configurations"],
+        output["data"]["generated"]["configurations"]
+    );
+    assert!(!stale(inspect_with_runs(
+        Some(original.clone()),
+        Some(serde_json::json!(runs_reordered))
+    )));
+    let mut target_changed = fixture["providerRuns"].clone();
+    target_changed[0]["reference"]["targetID"] = serde_json::json!("new/opaque-target");
+    assert!(stale(inspect_with_runs(
+        Some(original.clone()),
+        Some(target_changed)
+    )));
+    assert!(stale(inspect_with_runs(
+        Some(original.clone()),
+        Some(serde_json::json!([]))
+    )));
+    let mut moved = original.clone();
+    moved[1]["build"]["root"] = serde_json::json!(".");
+    assert!(stale(inspect(Some(moved))));
+    assert!(stale(inspect(Some(serde_json::json!([])))));
+    assert!(
+        !stale(inspect(Some(original.clone()))),
+        "Returning from Profile B to A must match the persisted A facts"
+    );
+    let mut legacy = output["data"]["generated"].clone();
+    legacy["generator"]
+        .as_object_mut()
+        .unwrap()
+        .remove("providerFingerprint");
+    seed_generated(&root, legacy.to_string());
+    assert!(stale(inspect(Some(original.clone()))));
+    assert!(
+        !stale(inspect(None)),
+        "Legacy consumers that omit provider facts remain compatible"
+    );
+    // Generic document overrides stay separate from the opaque selector and
+    // need no Maven namespace, tool binding or framework parser.
+    seed_generated(&root, output["data"]["generated"].to_string());
+    let service = &fixture["expected"]["services"][0];
+    let local = root.join(".lithe/run/local.json");
+    let java_id = &fixture["expected"]["configurations"][0]["id"];
+    fs::write(&local, serde_json::json!({"version":2,"configurations":[{
+        "id":java_id,"cwd":"alpha/app","extensions":{"java":{"build":{
+            "pluginID":"dev.unrelated.engine","buildSystemID":"unrelated","root":"beta","projectID":"forged"
+        }}}
+    }]}).to_string()).unwrap();
+    let resolved: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id":"resolve-owner","command":"runConfig.resolve","payload":{"root":root}
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(resolved["ok"], true, "{resolved}");
+    let entry = resolved["data"]["configurations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|value| value["id"] == *java_id)
+        .unwrap();
+    assert_eq!(
+        entry["extensions"]["java"]["build"],
+        fixture["projectOwnership"][1]["build"]
+    );
+    assert_eq!(
+        entry["cwd"], "alpha/app",
+        "A cwd override cannot replace the current build owner"
+    );
+    // Replacing the complete namespace must not bypass current-model routing.
+    for namespace in [
+        Value::Null,
+        serde_json::json!("invalid-owner"),
+        serde_json::json!({}),
+    ] {
+        fs::write(
+            &local,
+            serde_json::json!({"version":2,"configurations":[{
+                "id":java_id,"extensions":{"java":namespace}
+            }]})
+            .to_string(),
+        )
+        .unwrap();
+        let resolved: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id":"resolve-null-owner","command":"runConfig.resolve","payload":{"root":root}
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(resolved["ok"], true, "{resolved}");
+        let entry = resolved["data"]["configurations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|value| value["id"] == *java_id)
+            .unwrap();
+        assert_eq!(
+            entry["extensions"]["java"]["build"],
+            fixture["projectOwnership"][1]["build"]
+        );
+    }
+    fs::remove_file(&local).unwrap();
+    fs::write(
+        &local,
+        serde_json::json!({"version":2,"configurations":[{
+            "id":service["id"],"args":["serve","雪"],"env":{"EXAMPLE":"value"},"cwd":"alpha/app"
+        }]})
+        .to_string(),
+    )
+    .unwrap();
+    let choices: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({"id":"choices","command":"runConfig.providerLaunchInputs",
+        "payload":{"root":root,"configurationId":service["id"],"providerRoot":"alpha"}})
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(choices["ok"], true, "{choices}");
+    assert_eq!(choices["data"]["reference"], service["reference"]);
+    assert_eq!(
+        choices["data"]["launchOptions"]["arguments"],
+        serde_json::json!(["serve", "雪"])
+    );
+    assert_eq!(
+        choices["data"]["launchOptions"]["environment"],
+        serde_json::json!({"EXAMPLE":"value"})
+    );
+    assert_eq!(
+        choices["data"]["launchOptions"]["workingDirectory"],
+        "alpha/app"
+    );
+    fs::remove_file(local).unwrap();
+    let first_cmd = output["data"]["generated"]["generator"]["inputs"]["alpha/mvnw.cmd"].clone();
+    assert!(first_cmd
+        .as_str()
+        .is_some_and(|value| value.starts_with("sha256:")));
+    fs::write(root.join("alpha/mvnw.cmd"), "exit /b 98").unwrap();
+    let changed = generate(fixture["projectOwnership"].clone());
+    assert_ne!(
+        changed["data"]["generated"]["generator"]["inputs"]["alpha/mvnw.cmd"],
+        first_cmd
+    );
+    assert_ne!(
+        changed["data"]["generated"]["generator"]["fingerprint"],
+        output["data"]["generated"]["generator"]["fingerprint"]
+    );
+    let empty = generate_with_runs(serde_json::json!([]), serde_json::json!([]));
+    assert_eq!(empty["ok"], true, "{empty}");
+    for configuration in empty["data"]["generated"]["configurations"]
+        .as_array()
+        .unwrap()
+    {
+        assert!(
+            configuration["toolchains"]["maven"].is_null(),
+            "An empty Provider snapshot must not revive POM-based Java ownership: {configuration}"
+        );
+    }
+    let mut duplicate_reference = fixture["providerRuns"].as_array().unwrap().clone();
+    duplicate_reference.push(duplicate_reference[0].clone());
+    assert_eq!(
+        generate_with_runs(original.clone(), serde_json::json!(duplicate_reference))["ok"],
+        false
+    );
+    for (path, value) in [
+        ("root", serde_json::json!("outside")),
+        ("projectID", serde_json::json!("")),
+        ("execution", serde_json::json!("group")),
+        ("userArguments", serde_json::json!(["not-a-model-fact"])),
+    ] {
+        let mut invalid = fixture["providerRuns"].clone();
+        invalid[0]["reference"][path] = value;
+        assert_eq!(
+            generate_with_runs(original.clone(), invalid)["ok"],
+            false,
+            "{path}"
+        );
+    }
+    for invalid in [
+        serde_json::json!([{"path":"app","minimumJavaVersion":"1.8"}]),
+        serde_json::json!([{"path":"app","minimumJavaVersion":"0"}]),
+        serde_json::json!([{"path":"app","mavenMinimumVersion":"3.*"}]),
+        serde_json::json!([{"path":"app","mavenReactorPath":"app","mavenWrapper":"other/mvnw"}]),
+        serde_json::json!([{"path":"app","mavenRunProvider":"quarkus.maven"}]),
+        serde_json::json!([{"path":"app","build":{"pluginID":"../escape","buildSystemID":"example","root":".","projectID":"app"}}]),
+        serde_json::json!([{"path":"app","build":{"pluginID":"dev.example","buildSystemID":"example","root":".","projectID":""}}]),
+        serde_json::json!([{"path":"app","build":{"pluginID":"dev.example","buildSystemID":"example","root":".","projectID":"app","framework":"invented"}}]),
+        serde_json::json!([{"path":"../escape"}]),
+        serde_json::json!([{"path":"app","build":{"pluginID":"dev.example.engine","buildSystemID":"engine","root":"other","projectID":"app"}}]),
+        serde_json::json!([{"path":"app"},{"path":"app"}]),
+        serde_json::json!([{"path":"app","contentRoots":[{"path":"/outside","kind":"source"}]}]),
+        serde_json::json!([{"path":"app","contentRoots":[{"path":"app/src","kind":"guessed"}]}]),
+        serde_json::json!((0..2001)
+            .map(|index| serde_json::json!({"path":format!("project-{index}")}))
+            .collect::<Vec<_>>()),
+    ] {
+        assert_eq!(generate(invalid)["ok"], false);
+    }
+}
+
+/// Providers receive saved typed choices; Core does not assemble a Maven goal or reread its POM.
+#[test]
+fn provider_launch_inputs_preserve_document_layers_and_current_selector() {
+    let root = temporary_root("provider-launch-inputs");
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::create_dir_all(root.join("nested/app")).unwrap();
+    fs::create_dir_all(root.join("tools")).unwrap();
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            fs::remove_dir_all(&self.0).unwrap();
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    fs::write(root.join("nested/pom.xml"), "deliberately not a POM").unwrap();
+    let generated = serde_json::json!({"version":2,"configurations":[{"id":"service","name":"Service","provider":"build.provider","execution":"service",
+        "cwd":"nested","env":{},"extensions":{"build":{"pluginID":"dev.example.engine","buildSystemID":"engine","root":"nested","run":"serve",
+        "projectID":"project","targetID":"target","execution":"service"},"build-run":{"runtimeArguments":["--message=base value"]}}}]});
+    seed_generated(&root, generated.to_string());
+    let local = serde_json::json!({"version":2,"configurations":[{"id":"service","cwd":"tools","env":{"EXAMPLE":"value"},
+        "args":["a b","雪",""],"extensions":{"build-run":{"runtimeArguments":["--message=hello world","C:\\literal"],"entrypoint":"opaque/entry:1","options":{"features":["run-feature"],"strict":false}}}}]});
+    let call = |provider_root: &str, local: Option<Value>| -> Value {
+        let request = serde_json::json!({"id":"inputs","command":"runConfig.providerLaunchInputs","payload":{
+            "root":root,"configurationId":"service","providerRoot":provider_root,"localDocument":local}});
+        serde_json::from_str(&execute_json(&request.to_string())).unwrap()
+    };
+    let inspect = || -> Value {
+        serde_json::from_str(&execute_json(
+            &serde_json::json!({"id":"inspect-launch-inputs","command":"runConfig.inspect",
+            "payload":{"root":root,"checkFingerprint":false}})
+            .to_string(),
+        ))
+        .unwrap()
+    };
+    let baseline = inspect()["data"]["generated"].clone();
+    let original = call("nested", None);
+    assert_eq!(original["ok"], true, "{original}");
+    assert_eq!(original["data"]["projectPath"], "nested");
+    assert_eq!(
+        original["data"]["launchOptions"]["runtimeArguments"],
+        serde_json::json!(["--message=base value"])
+    );
+    assert!(original["data"]["launchOptions"]
+        .get("workingDirectory")
+        .is_none());
+    let resolved = call("nested", Some(local.clone()));
+    assert_eq!(resolved["ok"], true, "{resolved}");
+    assert_eq!(resolved["data"]["provider"], "serve");
+    assert_eq!(
+        resolved["data"]["launchOptions"],
+        serde_json::json!({"execution":"service","runtimeArguments":["--message=hello world","C:\\literal"],
+        "arguments":["a b","雪",""],"environment":{"EXAMPLE":"value"},"entrypoint":"opaque/entry:1","workingDirectory":"tools"})
+    );
+    assert_eq!(
+        resolved["data"]["optionOverrides"],
+        serde_json::json!({"features":["run-feature"],"strict":false})
+    );
+    assert!(resolved["data"].get("executable").is_none());
+    assert_eq!(call(".", Some(local.clone()))["ok"], false);
+    assert_eq!(call("../outside", Some(local.clone()))["ok"], false);
+    fs::remove_dir_all(root.join("tools")).unwrap();
+    assert_eq!(call("nested", Some(local))["ok"], false);
+    assert_eq!(inspect()["data"]["generated"], baseline);
+    assert!(!root.join(".lithe/run/generated.json").exists());
+}
+
+/// Historical discriminators are data for a temporary host import, never a
+/// capability to make Core interpret profiles, frameworks or module launches.
+#[test]
+fn provider_launch_inputs_require_a_typed_reference_after_domain_migration() {
+    let root = temporary_root("unmigrated-provider-inputs");
+    fs::create_dir_all(&root).unwrap();
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    for provider in [
+        "maven.module",
+        "spring-boot.maven",
+        "quarkus.maven",
+        "micronaut.maven",
+    ] {
+        let generated = serde_json::json!({"version":2,"configurations":[{"id":"legacy","name":"Legacy",
+            "provider":provider,"execution":"task","extensions":{"maven":{"module":".","profiles":["saved"],"skipTests":false}}}]});
+        seed_generated(&root, generated.to_string());
+        let reply: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({"id":"unmigrated","command":"runConfig.providerLaunchInputs",
+            "payload":{"root":root,"configurationId":"legacy","providerRoot":"."}})
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(reply["ok"], false, "{reply}");
+        assert_eq!(reply["error"]["code"], "invalid_request");
+    }
+    assert!(!root.join(".lithe/run/local.json").exists());
 }

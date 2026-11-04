@@ -64,6 +64,8 @@ pub(crate) fn decode(
         let plan = plans::test_plan(
             build_system,
             &TestPlanRequest {
+                selector_kind: None,
+                selectors: Vec::new(),
                 base: request.base.clone(),
                 project: selector.project,
                 target: selector.target,

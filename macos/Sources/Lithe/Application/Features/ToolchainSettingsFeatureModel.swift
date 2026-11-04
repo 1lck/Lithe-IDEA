@@ -20,6 +20,7 @@ final class ToolchainSettingsFeatureModel: ObservableObject {
     @Published private(set) var isRereadingLoginShell = false
 
     private let loader: (any ToolchainSettingsLoading)?
+    let preferences: ToolchainPreferencesFeatureModel
     private let loginShellInspector: (any LoginShellEnvironmentInspecting)?
     private let inputWatcher: (any ToolchainInputWatching)?
     private let reloadDelay: Duration
@@ -31,12 +32,14 @@ final class ToolchainSettingsFeatureModel: ObservableObject {
         loader: (any ToolchainSettingsLoading)? = nil,
         loginShell: (any LoginShellEnvironmentInspecting)? = nil,
         inputWatcher: (any ToolchainInputWatching)? = nil,
-        reloadDelay: Duration = .milliseconds(350)
+        reloadDelay: Duration = .milliseconds(350),
+        preferences: (any ToolchainPreferencesStoring)? = nil
     ) {
         self.loader = loader
         self.loginShellInspector = loginShell
         self.inputWatcher = inputWatcher
         self.reloadDelay = reloadDelay
+        self.preferences = ToolchainPreferencesFeatureModel(store: preferences)
     }
 
     var selectedDirectory: ToolchainSettingsSnapshot.Directory? {
@@ -113,6 +116,7 @@ final class ToolchainSettingsFeatureModel: ObservableObject {
         let changedWorkspace = workspaceURL != workspace
         workspaceURL = workspace
         if changedWorkspace {
+            preferences.close()
             snapshot = nil
             selectedDirectoryID = "."
             expandedToolIDs = []
@@ -129,7 +133,20 @@ final class ToolchainSettingsFeatureModel: ObservableObject {
                 throw SnapshotError.workspaceMismatch
             }
             snapshot = next
+            if let address = preferences.address,
+               !next.tools.contains(where: { $0.id == address.tool && $0.directoryID == address.directory
+                   && (address.consumer == nil || $0.consumers.contains(where: { $0.id == address.consumer })) }) {
+                preferences.hide(address)
+            }
             observeInputs(of: next)
+            if let workspace, let address = preferences.address, !preferences.isSaving, !preferences.isLoading {
+                // Refresh a clean editor, or report a changed source against a
+                // dirty draft's original baseline. Never reenter an active save:
+                // its own file event must not revoke its acknowledgement.
+                await preferences.open(workspace: workspace, address: address)
+                guard generation == request else { return }
+                try Task.checkCancellation()
+            }
             if !next.directories.contains(where: { $0.id == selectedDirectoryID }) {
                 selectedDirectoryID = next.directories.first?.id ?? "."
             }
@@ -160,7 +177,13 @@ final class ToolchainSettingsFeatureModel: ObservableObject {
     }
 
     /// Revocation happens before any suspended load can return to this actor.
+    func closeAndDrain() async {
+        close()
+        await preferences.drain()
+    }
+
     func close() {
+        preferences.close()
         generation = UUID()
         reloadTask?.cancel()
         reloadTask = nil
