@@ -29,6 +29,8 @@ final class PluginNativeUIFeature: ObservableObject, PluginWebPageHandle {
     private let request: (String, ToolingJSONValue) async throws -> ToolingJSONValue
     private let endRequests: () -> Void
     private let saveState: (State) -> Void
+    private let pluginID: String
+    private let logSink: (any LogSink)?
     private var task: Task<Void, Never>?
     private var generation = UUID()
     private var isClosed = false
@@ -36,8 +38,11 @@ final class PluginNativeUIFeature: ObservableObject, PluginWebPageHandle {
     init(declaration: PluginNativeUI, state: State = .init(),
          validateNodes: @escaping (PluginNativeUI, ToolingJSONValue) throws -> [PluginNativeUI.Node],
          request: @escaping (String, ToolingJSONValue) async throws -> ToolingJSONValue,
-         close: @escaping () -> Void = {}, saveState: @escaping (State) -> Void = { _ in }) {
+         close: @escaping () -> Void = {}, saveState: @escaping (State) -> Void = { _ in },
+         pluginID: String = "", logSink: (any LogSink)? = nil) {
         self.declaration = declaration
+        self.pluginID = pluginID
+        self.logSink = logSink
         self.nodes = declaration.nodes
         var restored = state
         restored.values = state.values?.filter { id, value in
@@ -139,8 +144,13 @@ final class PluginNativeUIFeature: ObservableObject, PluginWebPageHandle {
     @discardableResult
     func perform(_ action: PluginNativeUI.Action) -> Task<Void, Never>? {
         guard canPerform(action) else { return nil }
-        return start(action.kind == .refresh ? nil : action)
+        return UserActionTrace.run(actionID(action), surface: .plugin, sink: logSink) {
+            start(action.kind == .refresh ? nil : action)
+        }
     }
+
+    /// The action log names a plugin action by its declared ids, never its title.
+    func actionID(_ action: PluginNativeUI.Action) -> String { "plugin:\(pluginID)/\(action.id)" }
 
     /// Hiding/disabling a window cancels every request; late replies cannot publish.
     func close() {

@@ -126,7 +126,7 @@ struct RunEntryPointTests {
         model.runTest(providerID: provider, scope: .testCase(identifier: "demo.ExampleTest#check()", fileURL: workspace.sourceURL))
         let scope: LanguageTestScope = fileScope ? .file(workspace.sourceURL) : .workspace
         model.runTest(providerID: provider, scope: scope)
-        WorkbenchModuleUIComposition.builtIn.performAction(id: "workbench.run-start-or-restart", model: model)
+        WorkbenchModuleUIComposition.builtIn.performAction(id: "workbench.run-start-or-restart", model: model, surface: nil)
         #expect(model.activeTestTarget?.scope == scope)
         #expect(model.activeTestTarget?.name == (fileScope ? workspace.sourceURL.lastPathComponent : String(localized: "Workspace")))
         let execution = try #require(await model.activateExecutionModule())

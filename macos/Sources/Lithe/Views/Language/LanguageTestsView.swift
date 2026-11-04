@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import SwiftUI
 import LitheExecutionModule
 
@@ -152,10 +153,10 @@ struct LanguageTestsView: View {
 
     private var testToolbar: some View {
         HStack(spacing: 4) {
-            Button {
+            Button(action: UserActionTrace.action("tests.run", surface: .toolbar) {
                 guard let item = selectedItem else { return }
                 model.runTest(providerID: item.providerID, scope: scope(for: item))
-            } label: {
+            }) {
                 LitheIDEAIcon(resourcePath: selectedItemWasRun ? "debugger/rerun.svg" : "expui/run/run.svg", size: 16,
                               fallbackSystemImage: "play", preservesOriginalColors: true, usesIDEADisabledAppearance: true)
             }
@@ -164,7 +165,7 @@ struct LanguageTestsView: View {
             .accessibilityLabel(selectedItemWasRun ? "Rerun selected test" : "Run selected test")
             .disabled(service.isRunning || selectedItem == nil || model.workspaceURL == nil)
 
-            Button(action: model.stopTests) {
+            Button(action: UserActionTrace.action("tests.stop", surface: .toolbar, model.stopTests)) {
                 LitheIDEAIcon(resourcePath: "expui/run/stop.svg", size: 16,
                               fallbackSystemImage: "stop.fill", preservesOriginalColors: true, usesIDEADisabledAppearance: true)
             }
@@ -173,9 +174,9 @@ struct LanguageTestsView: View {
             .disabled(!service.isRunning)
 
             if let item = selectedItem, item.providerID == "java", item.kind != .workspace {
-                Button {
+                Button(action: UserActionTrace.action("tests.debug", surface: .toolbar) {
                     model.debugTest(providerID: item.providerID, scope: scope(for: item))
-                } label: {
+                }) {
                     LitheIDEAIcon(resourcePath: "expui/run/debug.svg", size: 16,
                                   fallbackSystemImage: "ladybug", preservesOriginalColors: true, usesIDEADisabledAppearance: true)
                 }
@@ -184,7 +185,7 @@ struct LanguageTestsView: View {
                 .disabled(service.isRunning || item.fileURL == nil)
             }
 
-            Button(action: model.refreshTests) {
+            Button(action: UserActionTrace.action("tests.refresh", surface: .toolbar, model.refreshTests)) {
                 LitheIDEAIcon(resourcePath: "expui/general/refresh.svg", size: 16,
                               fallbackSystemImage: "arrow.clockwise", preservesOriginalColors: true, usesIDEADisabledAppearance: true)
             }

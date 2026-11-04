@@ -1,5 +1,6 @@
 import LitheCoreContracts
 import LitheExecutionModule
+import LitheModuleAPI
 import SwiftUI
 
 /// Output, diagnostics, and test results of the last plugin build-system run.
@@ -15,7 +16,7 @@ struct BuildOutputView: View {
             ) {
                 stateLabel
                 if feature.isRunning {
-                    Button(action: feature.stopRun) {
+                    Button(action: UserActionTrace.action("build.task.stop", feature.stopRun)) {
                         Image(systemName: "stop.fill")
                     }
                     .litheIconButton()

@@ -24,6 +24,34 @@
 | Maven 运行配置与准备任务 | 新 Provider 路径已改为不透明通用选择器：Core 不解释 Maven profile/reactor/framework，提供者拥有语义。准备任务已改为 `buildSystems: 4` 清单的通用用途和适用源码角色，宿主不约定固定任务 ID。自动运行配置已由声明/目标生成 `build.provider` 选择器，独立于 Java 导入，删除 `mavenRunProvider` 字段与 Core 框架名单；快照指纹、目标撤回和用户通用覆盖已接线。旧 Run v2 中可确认的服务/显式任务已保留 ID 转为通用引用并通过两层预检及冲突保护；后续已补 v1、可确认偏好、隐式模块及明确的按 Run 工具转换，当前归属投影已移除 reactor/Wrapper/版本字段；项目/全局默认的动态继承、Windows 旧生产路径与旧 Java 扩展兼容消费者仍待处理。 |
 | SDK 与版本 | 当前分支已整合公开 main 的函数协议 3、源码版本 0.2.0 与已合并 f64d262c 契约副本，Node 20/Java 8 固定组合 CI 已通过；Build 7～11 增量仍在 Draft、未正式发布。重写 v7 为提供者暂存编辑，保留 8～10 版本及处理器，v11 改为注册表连接目标，正式发行组合仍待验收。只在宿主合并后同步契约副本，正式 SDK 锁定值不变。 |
 
+### 整合最新 preview 与工具默认迁移的切片边界（2026-11-04）
+
+本分支两次合并 `preview`（`5705732d0`，随后 `4a027b10e`），共 26 个冲突文件。`MavenService`
+与 `MacMavenDependencyOutputStore` 保持删除，preview 给它们接的日志 v2 语义没有替代路径；
+生成文件由 `shared/i18n/` 合并后重新生成；功能矩阵、契约文档、资源复用清单与 Windows CI
+工作流保留两侧条目；Swift 冲突同时保留 preview 的结构化日志与本分支的 Build Provider/工具链
+接线。为满足 preview 新增的日志用法门禁，Agent 能力的 Build 选项编码失败改为记录
+`app.ide.request_failed`，Run 本机文件缺失与工具解析转 terminalFailure 两处按封闭例外标注。
+
+合并暴露了本分支最后几批提交遗留的两处陈旧测试夹具，不是合并引入：Run 文档改用保留
+元数据的替换写入（cc6fc7d8f）后，旧配置迁移测试的存储替身没有拦截该方法；JavaSupport 清单
+新增 `debugAdapters`/`toolDefinitions` 后，项目生成测试拆出的模板/语言变体分别缺 requires 与
+debug 权限，Core 目录把两者都拒绝。两处都已按新结构修正夹具，生产代码不变。
+
+验证：Core 1767 项全量通过；macOS 定向 674 项（Build/Provider/工具链/运行配置/插件设置/
+调试适配器/日志/IDE 能力）在修正夹具后通过，整批并行时出现的 `DeadlineExceeded` 在串行重跑
+261 项与 62 项时不再复现，属于负载争用；契约、服务/Windows 边界、Notes、bundle 只读、i18n、
+功能矩阵、资源复用、Core 注释与日志事件 14 项静态检查通过。Windows 实机与正式发行仍未验收。
+
+工具默认迁移的退出条件经核对不能单独在阶段 D 完成：旧 `toolchain.java.homePath` 等字段的
+空值同时表示“继承根默认”和“自动”，由 Run、Debug 与 JDT 启动（`ProjectRuntimeService`、
+`RunToolchainProviders`、`MacJdtLaunchResources`）动态求值；展开成 pin 会冻结继承，改写为
+`toolchain.preferences` 而 Java 消费端仍读旧字段则形成本计划禁止的双轨。可行切片是
+“Core 通用层 automatic 表达 + 非破坏式转换器 + Build/Run 消费端改读 preferences”为一片，
+Java/JDT/Debug 消费端与应用级全局默认存储随任务三（阶段 E）一起切换；在此之前旧字段必须
+保留，`D-MIGRATION-REMOVAL` 顺延。本轮不处理 Windows 旧 Maven 消费者，共享 `maven.*` 命令
+因此继续保留。
+
 ### 最新固定组合与 Windows Registry Debug 增量（2026-11-02）
 
 宿主 `f51968cf4c3485607ddd278e86baed82a3a69ec4` 的

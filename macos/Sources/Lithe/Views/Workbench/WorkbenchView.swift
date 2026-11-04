@@ -874,7 +874,7 @@ struct WorkbenchView: View {
             case "workbench.debug-start-or-restart": debugLaunchButton
             case "workbench.stop-execution": stopExecutionButton
             default:
-                Button { moduleUIRegistry.perform(contribution, model: model) } label: {
+                Button { moduleUIRegistry.perform(contribution, model: model, surface: .toolbar) } label: {
                     HStack(spacing: 6) {
                         moduleUIRegistry.icon(for: contribution, role: .action)
                         Text(verbatim: contribution.title)
@@ -1028,7 +1028,7 @@ struct WorkbenchView: View {
         let control = WorkbenchModuleUIComposition.mainToolbarDebugControl(for: model)
         let isRunningConfiguration = model.activeTestTarget == nil && model.runFeatureIfActive?.isSelectedConfigurationRunning == true
         return Button {
-            moduleUIRegistry.performAction(id: "workbench.run-start-or-restart", model: model)
+            moduleUIRegistry.performAction(id: "workbench.run-start-or-restart", model: model, surface: .toolbar)
         } label: {
             LitheIDEAIcon(
                 resourcePath: control.map { DebugToolbarPresentation.ideaAssetPath(for: $0) }
@@ -1056,7 +1056,7 @@ struct WorkbenchView: View {
 
     private var debugLaunchButton: some View {
         Button {
-            moduleUIRegistry.performAction(id: "workbench.debug-start-or-restart", model: model)
+            moduleUIRegistry.performAction(id: "workbench.debug-start-or-restart", model: model, surface: .toolbar)
         } label: {
             LitheIDEAIcon(
                 resourcePath: isDebugSessionActive
@@ -1078,7 +1078,7 @@ struct WorkbenchView: View {
 
     private var stopExecutionButton: some View {
         Button {
-            moduleUIRegistry.performAction(id: "workbench.stop-execution", model: model)
+            moduleUIRegistry.performAction(id: "workbench.stop-execution", model: model, surface: .toolbar)
         } label: {
             LitheIDEAIcon(
                 resourcePath: "expui/run/stop_stroke.svg",
@@ -1384,7 +1384,7 @@ struct WorkbenchView: View {
         if let entry = contribution(for: tool) {
             if !entry.hasDeclarativeContent && model.workbenchFeature.isVisible(tool) {
                 model.workbenchFeature.setVisibility(tool, isVisible: false)
-            } else { moduleUIRegistry.perform(entry, model: model) }
+            } else { moduleUIRegistry.perform(entry, model: model, surface: .button) }
         }
         else if isToolAvailable(tool) { model.workbenchFeature.toggleVisibility(tool) }
     }

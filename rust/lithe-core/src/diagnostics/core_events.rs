@@ -10,10 +10,15 @@ use serde_json::{json, Value};
 use std::collections::{BTreeMap, VecDeque};
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, MutexGuard, OnceLock};
+use std::sync::{Mutex, MutexGuard, OnceLock, RwLock};
 
 const MAX_EVENTS: usize = 256;
 static QUEUE: OnceLock<Mutex<CoreEventQueue>> = OnceLock::new();
+// DEBUG facts are evidence the host keeps only while detailed diagnostics is
+// active. Rejecting them here keeps them from occupying the bounded queue and
+// evicting WARN/ERROR facts when nobody would write them.
+static DEBUG_ENABLED: AtomicBool = AtomicBool::new(false);
+static DEBUG_ROOTS: RwLock<Option<Vec<String>>> = RwLock::new(None);
 // One process writer may own the pending-fact signal; a later install replaces it.
 static WAKER: Mutex<Option<Waker>> = Mutex::new(None);
 // Set by the first change after a drain and cleared by the next drain, so a
@@ -95,12 +100,23 @@ impl CoreEventQueue {
 
 /// Validates owner, normalizes private input, and enqueues without filesystem I/O.
 /// Invalid facts return their logging contract error and never enter the queue.
+/// DEBUG facts the host has not enabled return `Ok` without entering the queue
+/// or counting as dropped: the host asked not to receive them.
 pub fn record(
     event: &str,
     fields: BTreeMap<String, Value>,
     op: Option<String>,
 ) -> Result<(), LogError> {
+    if let Some(metadata) = event_by_id(event) {
+        if !accepts(metadata.level, channel_root(metadata.channel)) {
+            return Ok(());
+        }
+    }
     let fact = prepare(event, fields, op)?;
+    #[cfg(test)]
+    let Some(fact) = capture::divert(fact) else {
+        return Ok(());
+    };
     queue().record(fact);
     wake();
     Ok(())
@@ -157,6 +173,35 @@ pub(crate) fn remove_waker(context: usize) -> bool {
     } else {
         false
     }
+}
+
+/// Reports whether `record` would keep a fact of this level and channel root.
+/// Callers check it before building fields so rejected facts cost one branch.
+pub(crate) fn accepts(level: LogLevel, root: &str) -> bool {
+    if level != LogLevel::Debug {
+        return true;
+    }
+    #[cfg(test)]
+    if let Some(debug) = capture::debug_override() {
+        return debug;
+    }
+    DEBUG_ENABLED.load(Ordering::Acquire)
+        && DEBUG_ROOTS
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .is_none_or(|roots| roots.iter().any(|enabled| enabled == root))
+}
+
+/// Applies the host's detailed-diagnostics state; `roots: None` enables every root.
+/// The default is disabled, so a host that never calls this receives no DEBUG facts.
+pub(crate) fn configure(debug: bool, roots: Option<Vec<String>>) {
+    *DEBUG_ROOTS.write().unwrap_or_else(|e| e.into_inner()) = roots;
+    DEBUG_ENABLED.store(debug, Ordering::Release);
+}
+
+fn channel_root(channel: &str) -> &str {
+    channel.split('/').next().unwrap_or(channel)
 }
 
 pub(super) fn prepare(
@@ -314,6 +359,54 @@ impl StorageCleanup {
                 note_dropped();
             }
         }
+    }
+}
+
+/// Test-only per-thread sink: traces recorded on the capturing thread bypass the
+/// process queue, so parallel tests never observe or drain each other's facts.
+#[cfg(test)]
+pub(crate) mod capture {
+    use super::CoreEvent;
+    use std::cell::RefCell;
+
+    struct Capture {
+        debug: bool,
+        events: Vec<CoreEvent>,
+    }
+
+    thread_local! {
+        static CURRENT: RefCell<Option<Capture>> = const { RefCell::new(None) };
+    }
+
+    /// Runs `body` with this thread's facts captured; `debug` replaces the global gate.
+    pub(crate) fn run<T>(debug: bool, body: impl FnOnce() -> T) -> (T, Vec<CoreEvent>) {
+        let previous = CURRENT.with(|current| {
+            current.borrow_mut().replace(Capture {
+                debug,
+                events: Vec::new(),
+            })
+        });
+        let value = body();
+        let captured =
+            CURRENT.with(|current| std::mem::replace(&mut *current.borrow_mut(), previous));
+        (
+            value,
+            captured.map(|capture| capture.events).unwrap_or_default(),
+        )
+    }
+
+    pub(super) fn debug_override() -> Option<bool> {
+        CURRENT.with(|current| current.borrow().as_ref().map(|capture| capture.debug))
+    }
+
+    pub(super) fn divert(event: CoreEvent) -> Option<CoreEvent> {
+        CURRENT.with(|current| match current.borrow_mut().as_mut() {
+            Some(capture) => {
+                capture.events.push(event);
+                None
+            }
+            None => Some(event),
+        })
     }
 }
 

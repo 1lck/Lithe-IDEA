@@ -19,7 +19,7 @@ struct PluginInstallationGuidancePresentationTests {
         defer { feature.clear() }
         var searches: [String] = []
         feature.show("Java Support is installed separately. Install it from the Marketplace, or use Install from Disk for an offline package. Your Java settings are kept.",
-                     arguments: [], action: WorkbenchNotification.Action(title: "Open Marketplace") { searches.append("Java Support") })
+                     arguments: [], action: WorkbenchNotification.Action(id: "plugins.marketplace.open", title: "Open Marketplace") { searches.append("Java Support") })
         let notification = try #require(feature.activeNotifications.first)
         let view = WorkbenchNotificationBanner(message: notification.message, occurrenceCount: 1,
             actionTitle: notification.action?.title, performAction: { feature.perform(notification.id) },

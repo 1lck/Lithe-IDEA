@@ -280,7 +280,21 @@ export const getFullContextFileDiff = async (
   try {
     const resolved = await resolveRepositoryForFile(repoPath, filePath);
     if (!resolved) return null;
+    return await getResolvedFullContextFileDiff(resolved, staged);
+  } catch (error) {
+    if (!isNotGitRepositoryError(error) && !isNoDiffFoundError(error)) {
+      console.error("Failed to get full-context file diff:", error);
+    }
+    return null;
+  }
+};
 
+/** Reuses an ownership result already captured by the caller for this read. */
+export const getResolvedFullContextFileDiff = async (
+  resolved: { repoPath: string; filePath: string },
+  staged = false,
+): Promise<GitDiff | null> => {
+  try {
     const diff = await runGitRead(
       resolved.repoPath,
       `full-context-diff:${staged ? "staged" : "unstaged"}:${resolved.filePath}`,

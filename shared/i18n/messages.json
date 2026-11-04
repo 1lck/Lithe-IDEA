@@ -90811,6 +90811,18 @@
       }
     },
     {
+      "id": "git.status.partialRefresh",
+      "description": "Some Git repository status reads failed; displayed rows may be stale.",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Some repositories could not be refreshed. Displayed changes may be out of date.",
+        "arguments": []
+      }
+    },
+    {
       "id": "git.status.refreshFailed",
       "description": "A local Git mutation could not confirm the updated status; keep the previous rows until retry.",
       "platforms": [

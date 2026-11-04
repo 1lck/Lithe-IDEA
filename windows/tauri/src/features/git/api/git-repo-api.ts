@@ -14,6 +14,7 @@ interface WorkspaceRepositoriesResponse {
 const repoDiscoveryCache = new Map<string, RepositoryDiscoveryCacheEntry>();
 const workspaceRepoDiscoveryCache = new Map<string, { discoveredAt: number; repos: string[] }>();
 const inFlightRepoDiscoveries = new Map<string, Promise<string | null>>();
+const inFlightFileContexts = new Map<string, Promise<{ repoPath: string; filePath: string } | null>>();
 const inFlightWorkspaceDiscoveries = new Map<string, Promise<string[]>>();
 let discoveryGeneration = 0;
 
@@ -153,7 +154,31 @@ export async function resolveRepositoryForFile(
   repoPath: string,
   filePath: string,
 ): Promise<{ repoPath: string; filePath: string } | null> {
+  const normalizedRoot = normalizePath(repoPath);
   const normalizedFilePath = normalizePath(filePath);
+  // Remote workspace paths are routed by their host adapter, not the local
+  // filesystem. Keep that route until remote Core exposes file-context I/O.
+  if (!normalizedRoot.startsWith("remote://") && !normalizedRoot.startsWith("wsl://")
+      && !normalizedFilePath.startsWith("remote://") && !normalizedFilePath.startsWith("wsl://")) {
+    // Validate relative Windows components against their drive/UNC root too.
+    if (!isAbsolutePath(normalizedFilePath)) joinPath(normalizedRoot, normalizedFilePath);
+    const key = JSON.stringify([normalizedRoot, normalizedFilePath]);
+    const existing = inFlightFileContexts.get(key);
+    if (existing) return existing;
+    const request = tauriInvoke<{ root: string; path: string; ownership: string } | null>(
+      "git.resolveFileContext", { root: normalizedRoot, path: normalizedFilePath },
+    ).then((context) => {
+      if (!context) return null;
+      if (context.ownership !== "git" || !context.root || !context.path) {
+        throw new Error("Invalid Git file context");
+      }
+      return { repoPath: normalizePath(context.root), filePath: normalizePath(context.path) };
+    }).finally(() => {
+      if (inFlightFileContexts.get(key) === request) inFlightFileContexts.delete(key);
+    });
+    inFlightFileContexts.set(key, request);
+    return request;
+  }
   const absoluteFilePath = isAbsolutePath(normalizedFilePath)
     ? normalizedFilePath
     : joinPath(repoPath, normalizedFilePath);
@@ -277,5 +302,6 @@ export function clearRepositoryDiscoveryCache(): void {
   repoDiscoveryCache.clear();
   workspaceRepoDiscoveryCache.clear();
   inFlightRepoDiscoveries.clear();
+  inFlightFileContexts.clear();
   inFlightWorkspaceDiscoveries.clear();
 }

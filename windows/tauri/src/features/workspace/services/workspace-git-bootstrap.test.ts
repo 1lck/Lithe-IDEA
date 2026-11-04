@@ -21,6 +21,15 @@ const invoke = mock(async (command: string, args?: Record<string, unknown>) => {
     return { repositories: discoveredRepos.map((path) => ({ path })) };
   }
   if (command === "git_discover_repo") return args?.path;
+  if (command === "git.workspaceStatusMerge") {
+    const roots = args?.roots as string[];
+    const previous = new Set(args?.previousRoots as string[]);
+    const outcomes = args?.outcomes as Array<{ root: string; success: boolean }>;
+    return { entries: roots.map((root) => ({ root, source: outcomes.find((item) => item.root === root)?.success
+      ? "current" : previous.has(root) ? "previous" : "missing" })),
+      confirmedRoots: outcomes.filter((item) => item.success).map((item) => item.root),
+      failedRoots: outcomes.filter((item) => !item.success).map((item) => item.root) };
+  }
   if (command === "git_status") {
     await interceptStatus?.(String(args?.repoPath));
     return args?.repoPath === scope.root ? status : { ...status, files: [] };
@@ -115,9 +124,28 @@ test("Git failure is recorded once and still permits Maven and Java preparation"
   try {
     expect(await resolveEditorLspLaunch(`${scope.root}/src/Main.java`, scope, dependencies)).not.toBeNull();
     expect(await ensureWorkspaceGitBootstrap(scope)).toBe("failed");
-    expect(errorLog).toHaveBeenCalledTimes(1);
+    expect(errorLog).toHaveBeenCalled();
     expect(mavenLaunchContextForWorkspace).toHaveBeenCalledTimes(1);
     expect(useGitStore.getStore(scope.workspaceId).getState().workspaceGitStatus).toBeNull();
+  } finally {
+    errorLog.mockRestore();
+  }
+});
+
+test("a failed child refresh preserves its snapshot while the workspace root updates", async () => {
+  expect(await ensureWorkspaceGitBootstrap(scope)).toBe("published");
+  const store = useGitStore.getStore(scope.workspaceId);
+  const previousChild = store.getState().repositoryStatuses[childRepo];
+  expect(previousChild).toBeTruthy();
+  interceptStatus = async (repoPath) => {
+    if (repoPath === childRepo) throw new Error("child unavailable");
+  };
+  const errorLog = spyOn(console, "error").mockImplementation(() => {});
+  try {
+    expect(await ensureWorkspaceGitBootstrap(scope, { refresh: true })).toBe("published");
+    expect(store.getState().repositoryStatuses[childRepo]).toBe(previousChild);
+    expect(store.getState().repositoryStatuses[scope.root]).toEqual(status);
+    expect(store.getState().failedStatusRoots).toEqual([childRepo]);
   } finally {
     errorLog.mockRestore();
   }

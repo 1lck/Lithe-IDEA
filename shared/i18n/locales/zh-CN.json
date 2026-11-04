@@ -9519,6 +9519,7 @@
     "vcs.commitFiles.vcsDeleteWarning": "版本控制插件将删除这些文件并记录删除操作，文件可能不会移入废纸篓。",
     "vcs.commitFiles.ownershipChanged": "部分所选文件属于其他版本控制根目录。请刷新后重新选择。",
     "vcs.commitFiles.stagingChanged": "已暂存的文件发生了变化。请在提交前检查勾选的文件。",
+    "git.status.partialRefresh": "部分仓库无法刷新，显示的更改可能已过期。",
     "git.status.refreshFailed": "无法刷新 Git 状态。请刷新以确认更改结果。",
     "native.javaKeywordNavigationFilter": "Java 关键字不查询定义",
     "native.editorAppearanceAbsolute": "绝对行号",

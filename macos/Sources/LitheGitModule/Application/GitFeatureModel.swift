@@ -396,6 +396,9 @@ package final class GitFeatureModel: ObservableObject {
     @Published package private(set) var isPerformingBranchOperation = false
     @Published package private(set) var isCloningRepository = false
     @Published package private(set) var availableRepositoryRoots: [URL] = []
+    /// Roots whose latest status read failed; their last confirmed rows remain visible.
+    @Published package private(set) var failedStatusRepositoryRoots: Set<URL> = []
+    private var confirmedStatusBranches: [URL: String] = [:]
 
     let service: GitService
     private let executionJournal: GitExecutionJournal?
@@ -695,6 +698,8 @@ package final class GitFeatureModel: ObservableObject {
         changelistStorageFailed = false
         includeChangelistParentReferences = true
         gitChanges = []
+        confirmedStatusBranches = [:]
+        failedStatusRepositoryRoots = []
         expandedUntrackedDirectoryIDs = []
         pendingStagingStates = [:]
         changeRefreshRevision &+= 1
@@ -889,15 +894,28 @@ package final class GitFeatureModel: ObservableObject {
             self.requestedRepositoryRoot = nil
             requestedRepositoryReference = nil
         }
-        let observation = await workspaceSnapshot(workspaceURL: workspaceURL, repositoryRoots: repositoryRoots)
+        guard let observation = await workspaceSnapshot(workspaceURL: workspaceURL, repositoryRoots: repositoryRoots) else { return }
         guard !Task.isCancelled, revision == changeRefreshRevision,
               workspaceURLProvider?()?.standardizedFileURL == workspaceURL.standardizedFileURL else { return }
-        if let observation {
-            let snapshot = observation.snapshot
+        if let snapshot = observation.snapshot {
             guard !Task.isCancelled, workspaceURLProvider?()?.standardizedFileURL == workspaceURL.standardizedFileURL else { return }
-            let changes = await listingExpandedUntrackedDirectories(in: snapshot.changes,
+            let freshChanges = snapshot.changes.filter { observation.successfullyReadRepositoryRoots.contains($0.repositoryRoot.standardizedFileURL) }
+            let expanded = await listingExpandedUntrackedDirectories(in: freshChanges,
+                confirmedRoots: observation.successfullyReadRepositoryRoots,
                 isCurrent: { revision == self.changeRefreshRevision })
             guard !Task.isCancelled, revision == changeRefreshRevision else { return }
+            if failedStatusRepositoryRoots != observation.failedRoots {
+                failedStatusRepositoryRoots = observation.failedRoots
+                didChange = true
+            }
+            confirmedStatusBranches = observation.branches
+            let expandedByRoot = Dictionary(grouping: expanded) { $0.repositoryRoot.standardizedFileURL }
+            let retainedByRoot = Dictionary(grouping: snapshot.changes) { $0.repositoryRoot.standardizedFileURL }
+            var changes: [GitChange] = []
+            for root in observation.orderedRoots {
+                changes.append(contentsOf: observation.successfullyReadRepositoryRoots.contains(root)
+                    ? (expandedByRoot[root] ?? []) : (retainedByRoot[root] ?? []))
+            }
             loadChangelistsIfNeeded()
             let changesChanged = gitChanges != changes
             if gitRepositoryRoot != snapshot.repositoryRoot {
@@ -955,32 +973,36 @@ package final class GitFeatureModel: ObservableObject {
                 gitConflictFilterPaths.formIntersection(Set(changes.map(\.path)))
                 didChange = didChange || previousFilter != gitConflictFilterPaths
             }
-            let stashes = await stashesProvider(snapshot.repositoryRoot)
-            guard !Task.isCancelled, revision == changeRefreshRevision else { return }
-            if gitStashes != stashes {
-                gitStashes = stashes
-                didChange = true
-            }
-            let shelves = await shelveService?.entries(for: snapshot.repositoryRoot) ?? []
-            guard !Task.isCancelled, revision == changeRefreshRevision else { return }
-            if gitShelves != shelves {
-                gitShelves = shelves
-                didChange = true
-            }
-            let operationState = await operationStateProvider(snapshot.repositoryRoot)
-            guard !Task.isCancelled, revision == changeRefreshRevision else { return }
-            if gitOperationState != operationState {
-                gitOperationState = operationState
-                didChange = true
-            }
-            await interactiveRebase.refreshSession(at: snapshot.repositoryRoot)
-            guard !Task.isCancelled, revision == changeRefreshRevision else { return }
-            if let gitOperationState, deferredSavedChanges == nil,
-               let stash = gitStashes.first(where: { $0.message.contains("Lithe auto-stash before") }) {
-                deferredSavedChanges = GitDeferredSavedChanges(
-                    stashReference: stash.reference,
-                    operationTitle: gitOperationState.kind.title.lowercased()
-                )
+            // A retained status is not evidence that ancillary reads can safely
+            // replace stash or operation state for the failed checkout.
+            if observation.successfullyReadRepositoryRoots.contains(snapshot.repositoryRoot.standardizedFileURL) {
+                let stashes = await stashesProvider(snapshot.repositoryRoot)
+                guard !Task.isCancelled, revision == changeRefreshRevision else { return }
+                if gitStashes != stashes {
+                    gitStashes = stashes
+                    didChange = true
+                }
+                let shelves = await shelveService?.entries(for: snapshot.repositoryRoot) ?? []
+                guard !Task.isCancelled, revision == changeRefreshRevision else { return }
+                if gitShelves != shelves {
+                    gitShelves = shelves
+                    didChange = true
+                }
+                let operationState = await operationStateProvider(snapshot.repositoryRoot)
+                guard !Task.isCancelled, revision == changeRefreshRevision else { return }
+                if gitOperationState != operationState {
+                    gitOperationState = operationState
+                    didChange = true
+                }
+                await interactiveRebase.refreshSession(at: snapshot.repositoryRoot)
+                guard !Task.isCancelled, revision == changeRefreshRevision else { return }
+                if let gitOperationState, deferredSavedChanges == nil,
+                   let stash = gitStashes.first(where: { $0.message.contains("Lithe auto-stash before") }) {
+                    deferredSavedChanges = GitDeferredSavedChanges(
+                        stashReference: stash.reference,
+                        operationTitle: gitOperationState.kind.title.lowercased()
+                    )
+                }
             }
 
             for session in allDiffSessions where session.selectedChange != nil {
@@ -991,6 +1013,11 @@ package final class GitFeatureModel: ObservableObject {
                 guard !Task.isCancelled, revision == changeRefreshRevision else { return }
             }
         } else {
+            if failedStatusRepositoryRoots != observation.failedRoots {
+                failedStatusRepositoryRoots = observation.failedRoots
+                didChange = true
+            }
+            confirmedStatusBranches = observation.branches
             if gitRepositoryRoot != nil {
                 resetHistoryForRepositoryChange()
                 gitRepositoryRoot = nil
@@ -1014,35 +1041,65 @@ package final class GitFeatureModel: ObservableObject {
         }
     }
 
+    private struct WorkspaceStatusObservation {
+        let snapshot: GitSnapshot?
+        let orderedRoots: [URL]
+        let successfullyReadRepositoryRoots: Set<URL>
+        let failedRoots: Set<URL>
+        let branches: [URL: String]
+    }
+
     private func workspaceSnapshot(
         workspaceURL: URL,
         repositoryRoots: [URL]
-    ) async -> (snapshot: GitSnapshot, successfullyReadRepositoryRoots: Set<URL>)? {
+    ) async -> WorkspaceStatusObservation? {
         if repositoryRoots.isEmpty {
-            guard let snapshot = await snapshotProvider(workspaceURL, []) else { return nil }
-            return (snapshot, [snapshot.repositoryRoot.standardizedFileURL])
+            guard let snapshot = await snapshotProvider(workspaceURL, []) else {
+                return WorkspaceStatusObservation(snapshot: nil, orderedRoots: [], successfullyReadRepositoryRoots: [], failedRoots: [], branches: [:])
+            }
+            let root = snapshot.repositoryRoot.standardizedFileURL
+            return WorkspaceStatusObservation(snapshot: snapshot, orderedRoots: [root], successfullyReadRepositoryRoots: [root], failedRoots: [], branches: [root: snapshot.branch])
         }
 
-        var snapshots: [GitSnapshot] = []
-        for repositoryRoot in repositoryRoots {
+        let roots = repositoryRoots.map(\.standardizedFileURL)
+        var fresh: [URL: GitSnapshot] = [:]
+        var outcomes: [GitWorkspaceStatusOutcome] = []
+        for (requested, root) in zip(repositoryRoots, roots) {
             guard !Task.isCancelled else { return nil }
-            if let snapshot = await snapshotProvider(repositoryRoot, repositoryRoots) {
+            let snapshot = await snapshotProvider(requested, repositoryRoots)
+            if let snapshot, snapshot.repositoryRoot.standardizedFileURL == root { fresh[root] = snapshot }
+            outcomes.append(GitWorkspaceStatusOutcome(root: root.path, success: fresh[root] != nil))
+        }
+        let previousRoots = confirmedStatusBranches.keys.map(\.path).sorted()
+        guard let plan = await service.workspaceStatusPlan(roots: roots.map(\.path), previousRoots: previousRoots, outcomes: outcomes),
+              plan.entries.count == roots.count else { return nil }
+        var branches: [URL: String] = [:]
+        var snapshots: [GitSnapshot] = []
+        let previousChanges = Dictionary(grouping: gitChanges) { $0.repositoryRoot.standardizedFileURL }
+        for (root, entry) in zip(roots, plan.entries) {
+            guard entry.root == root.path else { return nil }
+            switch entry.source {
+            case "current":
+                guard let snapshot = fresh[root] else { return nil }
+                branches[root] = snapshot.branch
                 snapshots.append(snapshot)
+            case "previous":
+                guard let branch = confirmedStatusBranches[root] else { return nil }
+                let currentBranch = gitRepositoryRoot?.standardizedFileURL == root ? self.currentBranch : branch
+                branches[root] = currentBranch
+                snapshots.append(GitSnapshot(repositoryRoot: root, branch: currentBranch,
+                    changes: previousChanges[root] ?? []))
+            case "missing": break
+            default: return nil
             }
         }
-
-        guard let firstSnapshot = snapshots.first(where: {
-            $0.repositoryRoot.standardizedFileURL
-                == (requestedRepositoryRoot ?? gitRepositoryRoot)?.standardizedFileURL
-        }) ?? snapshots.first else { return nil }
-        let snapshot = GitSnapshot(
-            repositoryRoot: firstSnapshot.repositoryRoot,
-            branch: firstSnapshot.branch,
-            changes: snapshots.flatMap(\.changes)
-        )
-        // An absent path confirms a clean state only in a repository whose
-        // status was actually read; other repositories may have failed.
-        return (snapshot, Set(snapshots.map { $0.repositoryRoot.standardizedFileURL }))
+        let selected = snapshots.first(where: {
+            $0.repositoryRoot.standardizedFileURL == (requestedRepositoryRoot ?? gitRepositoryRoot)?.standardizedFileURL
+        }) ?? snapshots.first
+        let snapshot = selected.map { GitSnapshot(repositoryRoot: $0.repositoryRoot, branch: $0.branch, changes: snapshots.flatMap(\.changes)) }
+        return WorkspaceStatusObservation(snapshot: snapshot, orderedRoots: roots,
+            successfullyReadRepositoryRoots: Set(plan.confirmedRoots.map { URL(fileURLWithPath: $0).standardizedFileURL }),
+            failedRoots: Set(plan.failedRoots.map { URL(fileURLWithPath: $0).standardizedFileURL }), branches: branches)
     }
 
     /// Shows or hides the listed contents of an untracked directory summary.
@@ -1392,14 +1449,36 @@ package final class GitFeatureModel: ObservableObject {
         return saveChangesPolicy?() ?? .stash
     }
 
+    /// Every user Git operation runs here. A panel control that started it without
+    /// an outer menu, command or shortcut trace logs as `vcs.git.<caller>`, the
+    /// model method that owns the operation.
     func withGitOperation<T: Sendable>(
         title: String? = nil, plannedArguments: [String]? = nil,
         afterOperation: (@MainActor () async -> Void)? = nil,
+        caller: String = #function,
+        _ operation: () async -> T
+    ) async -> T {
+        await UserActionTrace.run(Self.operationActionID(caller), surface: .button,
+            sink: UserActionTrace.applicationSink) {
+            await runGitOperation(title: title, plannedArguments: plannedArguments,
+                afterOperation: afterOperation, caller: caller, operation)
+        }
+    }
+
+    /// `#function` reads `pushReviewed(_:to:)`; the action id keeps the name only.
+    nonisolated static func operationActionID(_ caller: String) -> String {
+        "vcs.git." + (caller.split(separator: "(", maxSplits: 1).first.map(String.init) ?? caller)
+    }
+
+    private func runGitOperation<T: Sendable>(
+        title: String?, plannedArguments: [String]?,
+        afterOperation: (@MainActor () async -> Void)?,
+        caller: String,
         _ operation: () async -> T
     ) async -> T {
         if let worktreeOperationHost {
             return await worktreeOperationHost.withGitOperation(title: title, plannedArguments: plannedArguments,
-                afterOperation: afterOperation, operation)
+                afterOperation: afterOperation, caller: caller, operation)
         }
         if GitExecutionContext.current != nil {
             let result = await operation()
@@ -1493,7 +1572,7 @@ package final class GitFeatureModel: ObservableObject {
     /// wait for unrelated repositories, stashes, history or project services.
     private func withGitChangeOperation<T: Sendable>(
         _ changes: [GitChange], additionalRoots: [URL] = [], onWorktreeSettled: @escaping @MainActor () -> Void = {},
-        _ operation: () async -> T
+        caller: String = #function, _ operation: () async -> T
     ) async -> T {
         let generation = workspaceCommitGeneration
         let workspace = workspaceURLProvider?()?.standardizedFileURL
@@ -1511,7 +1590,7 @@ package final class GitFeatureModel: ObservableObject {
             self.invalidateChangeReads(completedRequests)
             self.worktreeOperationHost?.invalidateChangeReads(completedRequests)
             await self.refreshAfterChangeMutation(requests: completedRequests, onWorktreeSettled: onWorktreeSettled)
-        }, operation)
+        }, caller: caller, operation)
     }
 
     private func invalidateChangeReads(_ requests: [URL: UUID]) {
@@ -1527,9 +1606,9 @@ package final class GitFeatureModel: ObservableObject {
     }
 
     private func recordingGitCommand(
-        _ operation: () async -> GitService.CommandResult
+        caller: String = #function, _ operation: () async -> GitService.CommandResult
     ) async -> GitService.CommandResult {
-        await withGitOperation(operation)
+        await withGitOperation(caller: caller, operation)
     }
 
     private func trimGitConsole() {
@@ -3263,6 +3342,8 @@ package final class GitFeatureModel: ObservableObject {
               request == nil || repositoryChangeRefreshes[root] == request else { return false }
         changeRefreshRevision &+= 1
         if availableRepositoryRoots.contains(root) || gitRepositoryRoot == root {
+            confirmedStatusBranches[root] = snapshot.branch
+            failedStatusRepositoryRoots.remove(root)
             // Replace only the successfully read repository, keeping failed or
             // unrelated roots and their pending checkbox state unchanged.
             var merged: [GitChange] = []

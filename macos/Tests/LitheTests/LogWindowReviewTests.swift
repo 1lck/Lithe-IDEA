@@ -39,7 +39,7 @@ struct LogWindowReviewTests {
         defer { observation.cancel() }
         feature.select("java")
         writer.emit(LspMessageLogged(diagnostic: "Java ready", server: LogSegment("java")!, severity: "info"))
-        try #require(await returned.waitUntilOpen())
+        try #require(await returned.waitUntilOpen(timeout: .logStoreQuery))
         #expect(feature.logs.query.channelPrefixes == ["lsp/java"])
         #expect(Set(feature.logs.state.records.map(LogWindowModel.recordID)).isDisjoint(with: java))
         await writer.finishSession()
@@ -53,7 +53,7 @@ struct LogWindowReviewTests {
         }
         defer { observation.cancel() }
         if feature.providerID.isEmpty { feature.open(providerID: id) } else { feature.select(id) }
-        try #require(await loaded.waitUntilOpen())
+        try #require(await loaded.waitUntilOpen(timeout: .logStoreQuery))
         #expect(feature.providerID == id)
         return Set(feature.logs.state.records.map(LogWindowModel.recordID))
     }
@@ -101,7 +101,7 @@ struct LogWindowReviewTests {
         let observation = logs.$state.sink { if !$0.records.isEmpty { loaded.open() } }
         defer { observation.cancel(); logs.stop(); export.dismiss() }
         logs.refresh()
-        try #require(await loaded.waitUntilOpen())
+        try #require(await loaded.waitUntilOpen(timeout: .logStoreQuery))
         if let selected = logs.state.records.last(where: { $0.op != nil }) {
             logs.select([LogWindowModel.recordID(selected)])
         }
@@ -140,7 +140,7 @@ struct LogWindowReviewTests {
             styleMask: [.titled, .resizable], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentView = host; window.makeKeyAndOrderFront(nil)
         defer { window.contentView = nil; window.close() }
-        try #require(await serverLoaded.waitUntilOpen())
+        try #require(await serverLoaded.waitUntilOpen(timeout: .logStoreQuery))
         host.layoutSubtreeIfNeeded()
         await Task.yield()
         try screenshot(host, output: output, name: "final-jdtls-logs.png")

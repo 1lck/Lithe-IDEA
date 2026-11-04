@@ -102,8 +102,6 @@ final class MacServiceContainer {
         let logSink = applicationLogging as? any LogSink
         let pluginWebPageLifecycle = providedPluginWebPageLifecycle ?? .shared
         let gitExecutionJournal = GitExecutionJournal()
-        let gitLifecycleLog = MacGitLifecycleLog(sink: logSink)
-        gitExecutionJournal.onLifecycleEvent = { gitLifecycleLog.receive($0) }
         let remoteWorkspaces = RemoteWorkspaceRegistry()
         let logStore = applicationLogging as? MacLogStore
         let rustCore = RustCoreBridge(coreLogSink: logSink,

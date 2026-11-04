@@ -117,6 +117,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
   const [commitTab, setCommitTab] = useState<"commit" | "stash">("commit");
   const [includeParentReferences, setIncludeParentReferences] = useState(true);
   const gitStatus = useGitStore((state) => state.gitStatus);
+  const failedStatusRoots = useGitStore((state) => state.failedStatusRoots);
   const isLoadingGitData = useGitStore((state) => state.isLoadingGitData);
   const isRefreshing = useGitStore((state) => state.isRefreshing);
   const actions = useGitStore((state) => state.actions);
@@ -818,13 +819,15 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
     );
   }
 
-  const showLoadError = hasLoadError;
+  const showLoadError = hasLoadError || failedStatusRoots.length > 0;
   const loadError = (
     <div
       role="alert"
       className="flex items-center justify-between gap-2 p-3 ui-text-sm text-destructive"
     >
-      <span>{t("git.statusLoadFailed")}</span>
+      <span title={failedStatusRoots.join("\n")}>
+        {failedStatusRoots.length > 0 ? t("git.status.partialRefresh") : t("git.statusLoadFailed")}
+      </span>
       <Button
         size="xs"
         variant="ghost"
@@ -841,6 +844,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
       <>
         <SidebarPanel>
           <SidebarTitleBar title={t("workbench.commit")}>{renderActionsButton()}</SidebarTitleBar>
+          {showLoadError && loadError}
           <GitRepositoryEmptyState
             root={activeRepoPath}
             context="changes"

@@ -47,7 +47,7 @@ struct DebugModuleCoordinatorTests {
             if sameTarget { target.resolvedName = "check()" }
             model.activeTestTarget = target
             model.clearNotifications()
-            WorkbenchModuleUIComposition.builtIn.performAction(id: "workbench.debug-start-or-restart", model: model)
+            WorkbenchModuleUIComposition.builtIn.performAction(id: "workbench.debug-start-or-restart", model: model, surface: nil)
             #expect(adapter.launchCount == (sameTarget ? 2 : 1))
             if !sameTarget {
                 // Reaching the source guard proves B entered test preparation instead of restarting A.

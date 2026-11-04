@@ -6,6 +6,16 @@ import Testing
 import LitheModuleAPI
 @testable import Lithe
 
+extension Duration {
+    /// Deadline for log-window state that arrives through a real `MacLogStore`
+    /// query. Channel lookup, filter parsing, the writer drain, file reads and the
+    /// Core query run one after another on the store's I/O queue; on a loaded
+    /// machine they can take longer than the default 2 s gate. This matches the
+    /// store's own 10 s operation lease. Gates still open on the delivered state,
+    /// so a passing test does not wait for the deadline.
+    static let logStoreQuery = Duration.seconds(10)
+}
+
 /// Uses real Core parsing/query/formatting and real native disk storage. Gates only
 /// control when an otherwise real query is delivered to the presentation model.
 private final class WindowQueryGate: LogWindowLogging, @unchecked Sendable {
@@ -235,13 +245,13 @@ struct LogWindowTests {
         }
         defer { model.stop(); observation.cancel(); try? FileManager.default.removeItem(at: directory) }
         emit(writer); model.refresh()
-        try #require(await previousLoaded.waitUntilOpen())
+        try #require(await previousLoaded.waitUntilOpen(timeout: .logStoreQuery))
         model.changeQuery { $0.session = "current" }
-        try #require(await currentLoaded.waitUntilOpen())
+        try #require(await currentLoaded.waitUntilOpen(timeout: .logStoreQuery))
         model.clearDisplay()
         writer.emit(AppNotificationOperationRejected(operation: "fixture", reason: "after_clear"))
         model.refresh()
-        try #require(await freshLoaded.waitUntilOpen())
+        try #require(await freshLoaded.waitUntilOpen(timeout: .logStoreQuery))
         #expect(model.state.records.allSatisfy { $0.event != "app.session.started" })
         await writer.finishSession()
     }
@@ -260,18 +270,18 @@ struct LogWindowTests {
         }
         defer { model.stop(); observation.cancel(); errors.cancel(); records.cancel(); try? FileManager.default.removeItem(at: directory) }
         model.start()
-        try #require(await loaded.waitUntilOpen())
-        try #require(await logging.subscribed.waitUntilOpen())
+        try #require(await loaded.waitUntilOpen(timeout: .logStoreQuery))
+        try #require(await logging.subscribed.waitUntilOpen(timeout: .logStoreQuery))
         logging.failNextBatch()
         writer.emit(AppNotificationOperationRejected(operation: "fixture", reason: "fail_batch"))
         try await writer.flush()
-        try #require(await logging.batchAttempted.waitUntilOpen())
-        try #require(await failed.waitUntilOpen())
+        try #require(await logging.batchAttempted.waitUntilOpen(timeout: .logStoreQuery))
+        try #require(await failed.waitUntilOpen(timeout: .logStoreQuery))
         #expect(!model.state.follows)
         model.resume()
         writer.emit(AppNotificationOperationRejected(operation: "fixture", reason: "recovered"))
         try await writer.flush()
-        try #require(await recovered.waitUntilOpen())
+        try #require(await recovered.waitUntilOpen(timeout: .logStoreQuery))
         #expect(model.state.follows)
         #expect(logging.subscriptionCount == 2)
         await writer.finishSession()
@@ -284,13 +294,13 @@ struct LogWindowTests {
         defer { model.stop(); observation.cancel(); try? FileManager.default.removeItem(at: directory) }
         emit(writer)
         model.refresh()
-        #expect(await loaded.waitUntilOpen())
+        #expect(await loaded.waitUntilOpen(timeout: .logStoreQuery))
         let records = model.state.records
         let invalid = TestGate()
         let parsed = model.$diagnostics.sink { if !$0.isEmpty { invalid.open() } }
         defer { parsed.cancel() }
         model.setExpression("level:invalid")
-        #expect(await invalid.waitUntilOpen())
+        #expect(await invalid.waitUntilOpen(timeout: .logStoreQuery))
         #expect(model.state.records == records)
         model.clearDisplay()
         #expect(model.state.records.isEmpty && model.state.cleared)
@@ -310,14 +320,14 @@ struct LogWindowTests {
         defer { model.stop(); logging.release.open(); delayRelease.open(); try? FileManager.default.removeItem(at: directory) }
         emit(writer)
         model.refresh()
-        #expect(await logging.entered.waitUntilOpen())
+        #expect(await logging.entered.waitUntilOpen(timeout: .logStoreQuery))
         model.setExpression("event:app.session.started")
         #expect(await delayEntered.waitUntilOpen())
         #expect(model.state.records.isEmpty)
         let (loaded, observation) = ready(model)
         defer { observation.cancel() }
         delayRelease.open()
-        #expect(await loaded.waitUntilOpen())
+        #expect(await loaded.waitUntilOpen(timeout: .logStoreQuery))
         logging.release.open()
         #expect(model.query.expression == "event:app.session.started")
         #expect(model.state.records.allSatisfy { $0.event == "app.session.started" })
@@ -325,7 +335,9 @@ struct LogWindowTests {
     }
     @Test func realtimeWatermarkCapPauseAndReference() async throws {
         let directory = root()
-        let writer = MacLogStore(defaultDirectory: directory)
+        // A fixed lease clock keeps the 10 s control deadline from depending on
+        // how fast this machine queries the three 10,000-record batches.
+        let writer = MacLogStore(defaultDirectory: directory, diagnosticNow: { 0 })
         let model = LogWindowModel(logging: writer)
         defer { model.stop(); try? FileManager.default.removeItem(at: directory) }
         let core = RustCoreBridge()
@@ -389,7 +401,7 @@ struct LogWindowTests {
         emit(writer)
         model.apply(.init(reference: .init(channel: "app", event: "app.session.started")))
         #expect(model.query.session == "current")
-        #expect(await located.waitUntilOpen())
+        #expect(await located.waitUntilOpen(timeout: .logStoreQuery))
         #expect(model.selected?.event == "app.session.started")
         #expect(model.query.channelPrefixes == ["app"])
         #expect(model.state.scrollTarget != nil)
@@ -532,7 +544,7 @@ struct LogWindowTests {
         defer { observation.cancel() }
         model.changeQuery { $0.levels = [] }
         await model.startDiagnostics()
-        try #require(await enabled.waitUntilOpen())
+        try #require(await enabled.waitUntilOpen(timeout: .logStoreQuery))
         #expect(model.state.diagnosticCategory == nil)
         #expect(model.state.directory?.resolvingSymlinksInPath().path == directory.resolvingSymlinksInPath().path)
         #expect(model.state.records.isEmpty)

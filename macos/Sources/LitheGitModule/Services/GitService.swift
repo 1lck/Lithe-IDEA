@@ -115,6 +115,8 @@ package protocol GitOperations: Sendable {
         at rootURL: URL
     ) -> GitBranchComparison?
     func stashes(at rootURL: URL) -> [GitStash]?
+    func workspaceStatusPlan(roots: [String], previousRoots: [String], outcomes: [GitWorkspaceStatusOutcome]) -> GitWorkspaceStatusPlan?
+    func resolveFileContext(fileURL: URL, relativeTo rootURL: URL) -> GitFileContext?
     func blame(at rootURL: URL, relativePath: String) -> [GitBlameLine]?
 
     func stage(_ change: GitChange) -> GitProcessResult?
@@ -219,6 +221,8 @@ package protocol GitOperations: Sendable {
 }
 
 package extension GitOperations {
+    func workspaceStatusPlan(roots: [String], previousRoots: [String], outcomes: [GitWorkspaceStatusOutcome]) -> GitWorkspaceStatusPlan? { nil }
+    func resolveFileContext(fileURL: URL, relativeTo rootURL: URL) -> GitFileContext? { nil }
     func changelistProjection(_ request: GitChangelistCoreRequest) -> GitChangelistCoreProjection? { nil }
     func historyDateMatches(_ query: GitHistoryDateQuery) -> [String]? { nil }
     func reconcileDeletedSelection(at root: URL, changes: [GitChange]) -> GitProcessResult? { nil }
@@ -507,7 +511,7 @@ package struct GitService: Sendable {
         let operations = self.operations
         let execution = GitExecutionContext.current
         return await withTaskCancellationHandler {
-            await Task.detached(priority: .userInitiated) {
+            await UserActionContext.detached(priority: .userInitiated) {
                 GitExecutionContext.$current.withValue(execution) { operation(operations) }
             }.value
         } onCancel: {
@@ -742,23 +746,23 @@ package struct GitService: Sendable {
     func executionSettings(_ request: GitConfigurationEdit, save: Bool) async -> Result<GitExecutionSettingsSnapshot, GitFetchFailure> {
         let operations = self.operations
         let context = save ? GitExecutionContext.current : nil
-        return await Task.detached(priority: .userInitiated) {
+        return await UserActionContext.detached(priority: .userInitiated) {
             GitExecutionContext.$current.withValue(context) { operations.executionSettings(request, save: save) }
         }.value
     }
     func executableResolution() async -> Result<GitExecutableResolution, GitFetchFailure> {
         let operations = self.operations
-        return await Task.detached(priority: .userInitiated) { operations.executableResolution() }.value
+        return await UserActionContext.detached(priority: .userInitiated) { operations.executableResolution() }.value
     }
     func remoteURL(at rootURL: URL, remote: String) async -> String? {
         let operations = self.operations
-        return await Task.detached(priority: .utility) {
+        return await UserActionContext.detached(priority: .utility) {
             operations.remoteURL(at: rootURL, remote: remote)
         }.value
     }
     func answerAuthentication(requestID: String, answer: String?) async -> Bool {
         let operations = self.operations
-        return await Task.detached(priority: .userInitiated) { operations.answerAuthentication(requestID: requestID, answer: answer) }.value
+        return await UserActionContext.detached(priority: .userInitiated) { operations.answerAuthentication(requestID: requestID, answer: answer) }.value
     }
 
     func repositorySetup(at root: URL, scope: GitIdentityScope) async -> Result<GitRepositorySetup, GitSetupFailure> {
@@ -777,7 +781,7 @@ package struct GitService: Sendable {
     private func setupMutation(_ operation: @escaping @Sendable (any GitOperations) -> Result<GitRepositorySetup, GitSetupFailure>) async -> Result<GitRepositorySetup, GitSetupFailure> {
         let context = GitExecutionContext.current
         let operations = self.operations
-        return await Task.detached(priority: .userInitiated) { GitExecutionContext.$current.withValue(context) { operation(operations) } }.value
+        return await UserActionContext.detached(priority: .userInitiated) { GitExecutionContext.$current.withValue(context) { operation(operations) } }.value
     }
 
     func interactiveRebaseSession(at root: URL) async -> Result<GitRebaseSession?, GitRebaseFailure> {
@@ -800,7 +804,7 @@ package struct GitService: Sendable {
         let operations = self.operations
         let execution = GitExecutionContext.current
         let response = await withTaskCancellationHandler {
-            await Task.detached(priority: .userInitiated) {
+            await UserActionContext.detached(priority: .userInitiated) {
                 GitExecutionContext.$current.withValue(execution) { operation(operations) }
             }.value
         } onCancel: {
@@ -983,13 +987,15 @@ package struct GitService: Sendable {
         } ?? DiffDocument(rows: [], hunks: [])
     }
 
+    func workspaceStatusPlan(roots: [String], previousRoots: [String], outcomes: [GitWorkspaceStatusOutcome]) async -> GitWorkspaceStatusPlan? {
+        await read(priority: .utility) { $0.workspaceStatusPlan(roots: roots, previousRoots: previousRoots, outcomes: outcomes) }
+    }
+
     func blame(fileURL: URL, at repositoryRoot: URL) async -> [GitBlameLine] {
-        let rootPath = repositoryRoot.standardizedFileURL.path
-        let filePath = fileURL.standardizedFileURL.path
-        guard filePath.hasPrefix(rootPath + "/") else { return [] }
-        let relativePath = String(filePath.dropFirst(rootPath.count + 1))
-        return await read(priority: .utility) {
-            $0.blame(at: repositoryRoot, relativePath: relativePath)
+        return await read(priority: .utility) { operations in
+            guard let context = operations.resolveFileContext(fileURL: fileURL, relativeTo: repositoryRoot),
+                  context.ownership == "git" else { return nil }
+            return operations.blame(at: URL(fileURLWithPath: context.root), relativePath: context.path)
         } ?? []
     }
 
@@ -1240,7 +1246,7 @@ package struct GitService: Sendable {
 
     package func fetchPlan(options: GitFetchOptions, at root: URL? = nil) async -> Result<GitFetchPlan, GitFetchFailure> {
         let operations = self.operations
-        return await Task.detached(priority: .userInitiated) { root.map { operations.fetchPlan(options: options, at: $0) } ?? operations.fetchPlan(options: options) }.value
+        return await UserActionContext.detached(priority: .userInitiated) { root.map { operations.fetchPlan(options: options, at: $0) } ?? operations.fetchPlan(options: options) }.value
     }
 
     package func fetch(at root: URL, options: GitFetchOptions, operationID: String) async -> CommandResult {
@@ -1305,7 +1311,7 @@ package struct GitService: Sendable {
         at repositoryRoot: URL
     ) async -> Result<GitPushPreview, GitPushFailure> {
         let operations = self.operations
-        return await Task.detached(priority: .userInitiated) {
+        return await UserActionContext.detached(priority: .userInitiated) {
             operations.pushPreview(reference, pushTarget: pushTarget, at: repositoryRoot)
         }.value
     }
@@ -1385,7 +1391,7 @@ package struct GitService: Sendable {
         let startedAt = ContinuousClock.now
         let execution = GitExecutionContext.current
         let result = await withTaskCancellationHandler {
-            await Task.detached(priority: .userInitiated) {
+            await UserActionContext.detached(priority: .userInitiated) {
                 GitExecutionContext.$current.withValue(execution) { operation(operations) }
             }.value
         } onCancel: {
@@ -1408,12 +1414,23 @@ package struct GitService: Sendable {
             branchDeletion: result?.branchDeletion,
             historyRewrite: result?.historyRewrite,
             warnings: result?.warnings ?? [],
-            logReference: execution.flatMap { executionJournal?.takeFailureReference(operationID: $0.operationID) }
+            logReference: execution.flatMap { Self.failureReference(result, execution: $0) }
         )
         performanceLogger.emit(
             PerfGitCommandFinished(duration: .milliseconds(elapsedMilliseconds(since: startedAt)), operation: String(operationName.prefix(while: { $0 != "(" })), succeeded: commandResult.succeeded)
         )
         return commandResult
+    }
+
+    /// Core records a failed Git process under the request's trace operation, and a
+    /// request that failed without one as a Core request. An operation-level failure
+    /// whose processes all exited 0 left no Core failure, so the caller records it.
+    static func failureReference(_ result: GitProcessResult?, execution: GitExecutionContext) -> LogRecordReference? {
+        if let result, result.exitCode == 0, result.operationErrorMessage == nil, result.stashRestoreConflict == nil { return nil }
+        let failedProcess = result?.invocations.contains { $0.exitCode != 0 } == true
+        if result?.exitCode == 0, !failedProcess { return nil }
+        return LogRecordReference(channel: failedProcess ? "vcs/git" : "app/core",
+            event: failedProcess ? VcsGitCommandFailed.id : AppCoreRequestFailed.id, op: execution.traceOperationID)
     }
 
     package func consolePresentation(_ request: GitConsolePresentationRequest) async -> GitConsolePresentation? {
@@ -1464,7 +1481,7 @@ package struct GitService: Sendable {
         let operations = self.operations
         let startedAt = ContinuousClock.now
         let source = GitExecutionSource.current
-        let task = Task.detached(priority: priority) {
+        let task = UserActionContext.detached(priority: priority) {
             GitExecutionSource.$current.withValue(source) { operation(operations) }
         }
         let result = await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
@@ -1497,7 +1514,7 @@ package struct GitService: Sendable {
     ) async -> T? {
         let operations = self.operations
         let source = GitExecutionSource.current
-        let task = Task.detached(priority: priority) {
+        let task = UserActionContext.detached(priority: priority) {
             GitExecutionSource.$current.withValue(source) { operation(operations) }
         }
         return await withTaskCancellationHandler {

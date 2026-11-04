@@ -12,7 +12,7 @@ extension AppModel {
         store.set(true, forKey: DatabasePluginTransition.suggestionKey)
         showNotification(
             "Database is now a plugin. Install it from the Marketplace, and your saved connections and passwords move into it.",
-            action: WorkbenchNotification.Action(title: "Open Marketplace") { [weak self] in
+            action: WorkbenchNotification.Action(id: "plugins.marketplace.open", title: "Open Marketplace") { [weak self] in
                 self?.showPluginMarketplace(searching: "Database")
             }
         )

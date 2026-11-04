@@ -4,6 +4,7 @@ mod build_project_options;
 mod build_runtime_versions;
 mod build_systems;
 mod community_build_plugins;
+mod core_request_traces;
 mod declarative_plugins;
 mod detectors;
 mod file_name_order;

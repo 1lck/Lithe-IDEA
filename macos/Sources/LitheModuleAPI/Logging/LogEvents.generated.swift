@@ -192,6 +192,30 @@ public struct AgentStatisticsDecodeFailed: LogEvent {
     }
 }
 
+public struct AppActionPerformed: LogEvent {
+    public static let id = "app.action.performed"
+    public static let level: LogLevel = .info
+    public static let messageTemplate = "User action {action} performed"
+    public static let ratePerMinute = 600
+    public static let owner = "LitheModuleAPI"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
+
+    public init(`action`: String, `surface`: String, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.app, segments: [])
+        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["action"] = .token(`action`)
+        _logValues["surface"] = .token(`surface`)
+        self.fields = _logValues
+    }
+}
+
 public struct AppActionSearchFailed: LogEvent {
     public static let id = "app.action_search.failed"
     public static let level: LogLevel = .error
@@ -259,6 +283,96 @@ public struct AppCoreFallbackSelected: LogEvent {
         var _logValues: [String: LogFieldValue] = [:]
         _logValues["error"] = .error(`error`)
         _logValues["stage"] = .token(`stage`)
+        self.fields = _logValues
+    }
+}
+
+public struct AppCoreRequestFailed: LogEvent {
+    public static let id = "app.core.request.failed"
+    public static let level: LogLevel = .warn
+    public static let messageTemplate = "Core request {method} failed"
+    public static let ratePerMinute = 600
+    public static let owner = "lithe-core"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
+
+    public init(`duration`: Duration, `error`: any Error, `method`: String, `operation`: (String)? = nil, `path`: (URL)? = nil, `remote`: (Bool)? = nil, `source`: String, `trigger`: (String)? = nil, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.app, segments: [LogSegment("core")!])
+        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["duration"] = .duration(`duration`)
+        _logValues["error"] = .error(`error`)
+        _logValues["method"] = .token(`method`)
+        if let value = `operation` { _logValues["operation"] = .token(value) }
+        if let value = `path` { _logValues["path"] = .path(value) }
+        if let value = `remote` { _logValues["remote"] = .bool(value) }
+        _logValues["source"] = .token(`source`)
+        if let value = `trigger` { _logValues["trigger"] = .token(value) }
+        self.fields = _logValues
+    }
+}
+
+public struct AppCoreRequestFinished: LogEvent {
+    public static let id = "app.core.request.finished"
+    public static let level: LogLevel = .info
+    public static let messageTemplate = "Core request {method} finished"
+    public static let ratePerMinute = 600
+    public static let owner = "lithe-core"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
+
+    public init(`cancelled`: (Bool)? = nil, `duration`: Duration, `method`: String, `operation`: (String)? = nil, `path`: (URL)? = nil, `remote`: (Bool)? = nil, `source`: String, `trigger`: (String)? = nil, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.app, segments: [LogSegment("core")!])
+        var _logValues: [String: LogFieldValue] = [:]
+        if let value = `cancelled` { _logValues["cancelled"] = .bool(value) }
+        _logValues["duration"] = .duration(`duration`)
+        _logValues["method"] = .token(`method`)
+        if let value = `operation` { _logValues["operation"] = .token(value) }
+        if let value = `path` { _logValues["path"] = .path(value) }
+        if let value = `remote` { _logValues["remote"] = .bool(value) }
+        _logValues["source"] = .token(`source`)
+        if let value = `trigger` { _logValues["trigger"] = .token(value) }
+        self.fields = _logValues
+    }
+}
+
+public struct AppCoreRequestTraced: LogEvent {
+    public static let id = "app.core.request.traced"
+    public static let level: LogLevel = .debug
+    public static let messageTemplate = "Core request {method} traced"
+    public static let ratePerMinute = 600
+    public static let owner = "lithe-core"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
+
+    public init(`cancelled`: (Bool)? = nil, `duration`: Duration, `method`: String, `operation`: (String)? = nil, `path`: (URL)? = nil, `remote`: (Bool)? = nil, `source`: String, `trigger`: (String)? = nil, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.app, segments: [LogSegment("core")!])
+        var _logValues: [String: LogFieldValue] = [:]
+        if let value = `cancelled` { _logValues["cancelled"] = .bool(value) }
+        _logValues["duration"] = .duration(`duration`)
+        _logValues["method"] = .token(`method`)
+        if let value = `operation` { _logValues["operation"] = .token(value) }
+        if let value = `path` { _logValues["path"] = .path(value) }
+        if let value = `remote` { _logValues["remote"] = .bool(value) }
+        _logValues["source"] = .token(`source`)
+        if let value = `trigger` { _logValues["trigger"] = .token(value) }
         self.fields = _logValues
     }
 }
@@ -5119,10 +5233,10 @@ public struct VcsCommitCleanupFailed: LogEvent {
 
 public struct VcsGitCommandFailed: LogEvent {
     public static let id = "vcs.git.command.failed"
-    public static let level: LogLevel = .error
+    public static let level: LogLevel = .warn
     public static let messageTemplate = "Git {command} failed"
     public static let ratePerMinute = 600
-    public static let owner = "LitheGitModule"
+    public static let owner = "lithe-core"
     public static let debugOnly = false
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
@@ -5131,16 +5245,19 @@ public struct VcsGitCommandFailed: LogEvent {
         LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
     }
 
-    public init(`command`: String, `duration`: Duration, `error`: any Error, `exitCode`: (Int64)? = nil, `failureCode`: (String)? = nil, `provider`: LogSegment, operationID: String? = nil) {
+    public init(`arguments`: String, `command`: String, `duration`: Duration, `error`: (any Error)? = nil, `exitCode`: (Int64)? = nil, `remote`: (Bool)? = nil, `repository`: (URL)? = nil, `source`: String, `stderr`: (String)? = nil, operationID: String? = nil) {
         self.operationID = operationID
-        self.channel = LogChannel(.vcs, segments: [`provider`])
+        self.channel = LogChannel(.vcs, segments: [LogSegment("git")!])
         var _logValues: [String: LogFieldValue] = [:]
+        _logValues["arguments"] = .text(`arguments`)
         _logValues["command"] = .token(`command`)
         _logValues["duration"] = .duration(`duration`)
-        _logValues["error"] = .error(`error`)
+        if let value = `error` { _logValues["error"] = .error(value) }
         if let value = `exitCode` { _logValues["exit_code"] = .int(value) }
-        if let value = `failureCode` { _logValues["failure_code"] = .token(value) }
-        _logValues["provider"] = .id(`provider`)
+        if let value = `remote` { _logValues["remote"] = .bool(value) }
+        if let value = `repository` { _logValues["repository"] = .path(value) }
+        _logValues["source"] = .token(`source`)
+        if let value = `stderr` { _logValues["stderr"] = .text(value) }
         self.fields = _logValues
     }
 }
@@ -5150,7 +5267,7 @@ public struct VcsGitCommandFinished: LogEvent {
     public static let level: LogLevel = .info
     public static let messageTemplate = "Git {command} finished"
     public static let ratePerMinute = 600
-    public static let owner = "LitheGitModule"
+    public static let owner = "lithe-core"
     public static let debugOnly = false
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
@@ -5159,51 +5276,29 @@ public struct VcsGitCommandFinished: LogEvent {
         LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
     }
 
-    public init(`command`: String, `duration`: Duration, `exitCode`: (Int64)? = nil, `failureCode`: (String)? = nil, `provider`: LogSegment, operationID: String? = nil) {
+    public init(`arguments`: String, `cancelled`: (Bool)? = nil, `command`: String, `duration`: Duration, `exitCode`: (Int64)? = nil, `remote`: (Bool)? = nil, `repository`: (URL)? = nil, `source`: String, `stderr`: (String)? = nil, operationID: String? = nil) {
         self.operationID = operationID
-        self.channel = LogChannel(.vcs, segments: [`provider`])
+        self.channel = LogChannel(.vcs, segments: [LogSegment("git")!])
         var _logValues: [String: LogFieldValue] = [:]
+        _logValues["arguments"] = .text(`arguments`)
+        if let value = `cancelled` { _logValues["cancelled"] = .bool(value) }
         _logValues["command"] = .token(`command`)
         _logValues["duration"] = .duration(`duration`)
         if let value = `exitCode` { _logValues["exit_code"] = .int(value) }
-        if let value = `failureCode` { _logValues["failure_code"] = .token(value) }
-        _logValues["provider"] = .id(`provider`)
+        if let value = `remote` { _logValues["remote"] = .bool(value) }
+        if let value = `repository` { _logValues["repository"] = .path(value) }
+        _logValues["source"] = .token(`source`)
+        if let value = `stderr` { _logValues["stderr"] = .text(value) }
         self.fields = _logValues
     }
 }
 
-public struct VcsGitCommandStarted: LogEvent {
-    public static let id = "vcs.git.command.started"
+public struct VcsGitCommandTraced: LogEvent {
+    public static let id = "vcs.git.command.traced"
     public static let level: LogLevel = .debug
-    public static let messageTemplate = "Git {command} started"
+    public static let messageTemplate = "Git {command} traced"
     public static let ratePerMinute = 600
-    public static let owner = "LitheGitModule"
-    public static let debugOnly = true
-    public let channel: LogChannel
-    public let fields: [String: LogFieldValue]
-    public let operationID: String?
-    public var reference: LogRecordReference {
-        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
-    }
-
-    public init(`command`: String, `exitCode`: (Int64)? = nil, `failureCode`: (String)? = nil, `provider`: LogSegment, operationID: String? = nil) {
-        self.operationID = operationID
-        self.channel = LogChannel(.vcs, segments: [`provider`])
-        var _logValues: [String: LogFieldValue] = [:]
-        _logValues["command"] = .token(`command`)
-        if let value = `exitCode` { _logValues["exit_code"] = .int(value) }
-        if let value = `failureCode` { _logValues["failure_code"] = .token(value) }
-        _logValues["provider"] = .id(`provider`)
-        self.fields = _logValues
-    }
-}
-
-public struct VcsGitRequestFailed: LogEvent {
-    public static let id = "vcs.git.request.failed"
-    public static let level: LogLevel = .error
-    public static let messageTemplate = "Git request {command} failed"
-    public static let ratePerMinute = 600
-    public static let owner = "LitheGitModule"
+    public static let owner = "lithe-core"
     public static let debugOnly = false
     public let channel: LogChannel
     public let fields: [String: LogFieldValue]
@@ -5212,69 +5307,19 @@ public struct VcsGitRequestFailed: LogEvent {
         LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
     }
 
-    public init(`command`: String, `duration`: Duration, `error`: any Error, `exitCode`: (Int64)? = nil, `failureCode`: (String)? = nil, `provider`: LogSegment, operationID: String? = nil) {
+    public init(`arguments`: String, `cancelled`: (Bool)? = nil, `command`: String, `duration`: Duration, `exitCode`: (Int64)? = nil, `remote`: (Bool)? = nil, `repository`: (URL)? = nil, `source`: String, `stderr`: (String)? = nil, operationID: String? = nil) {
         self.operationID = operationID
-        self.channel = LogChannel(.vcs, segments: [`provider`])
+        self.channel = LogChannel(.vcs, segments: [LogSegment("git")!])
         var _logValues: [String: LogFieldValue] = [:]
-        _logValues["command"] = .token(`command`)
-        _logValues["duration"] = .duration(`duration`)
-        _logValues["error"] = .error(`error`)
-        if let value = `exitCode` { _logValues["exit_code"] = .int(value) }
-        if let value = `failureCode` { _logValues["failure_code"] = .token(value) }
-        _logValues["provider"] = .id(`provider`)
-        self.fields = _logValues
-    }
-}
-
-public struct VcsGitRequestFinished: LogEvent {
-    public static let id = "vcs.git.request.finished"
-    public static let level: LogLevel = .info
-    public static let messageTemplate = "Git request {command} finished"
-    public static let ratePerMinute = 600
-    public static let owner = "LitheGitModule"
-    public static let debugOnly = false
-    public let channel: LogChannel
-    public let fields: [String: LogFieldValue]
-    public let operationID: String?
-    public var reference: LogRecordReference {
-        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
-    }
-
-    public init(`command`: String, `duration`: Duration, `exitCode`: (Int64)? = nil, `failureCode`: (String)? = nil, `provider`: LogSegment, operationID: String? = nil) {
-        self.operationID = operationID
-        self.channel = LogChannel(.vcs, segments: [`provider`])
-        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["arguments"] = .text(`arguments`)
+        if let value = `cancelled` { _logValues["cancelled"] = .bool(value) }
         _logValues["command"] = .token(`command`)
         _logValues["duration"] = .duration(`duration`)
         if let value = `exitCode` { _logValues["exit_code"] = .int(value) }
-        if let value = `failureCode` { _logValues["failure_code"] = .token(value) }
-        _logValues["provider"] = .id(`provider`)
-        self.fields = _logValues
-    }
-}
-
-public struct VcsGitRequestStarted: LogEvent {
-    public static let id = "vcs.git.request.started"
-    public static let level: LogLevel = .debug
-    public static let messageTemplate = "Git request {command} started"
-    public static let ratePerMinute = 600
-    public static let owner = "LitheGitModule"
-    public static let debugOnly = true
-    public let channel: LogChannel
-    public let fields: [String: LogFieldValue]
-    public let operationID: String?
-    public var reference: LogRecordReference {
-        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
-    }
-
-    public init(`command`: String, `exitCode`: (Int64)? = nil, `failureCode`: (String)? = nil, `provider`: LogSegment, operationID: String? = nil) {
-        self.operationID = operationID
-        self.channel = LogChannel(.vcs, segments: [`provider`])
-        var _logValues: [String: LogFieldValue] = [:]
-        _logValues["command"] = .token(`command`)
-        if let value = `exitCode` { _logValues["exit_code"] = .int(value) }
-        if let value = `failureCode` { _logValues["failure_code"] = .token(value) }
-        _logValues["provider"] = .id(`provider`)
+        if let value = `remote` { _logValues["remote"] = .bool(value) }
+        if let value = `repository` { _logValues["repository"] = .path(value) }
+        _logValues["source"] = .token(`source`)
+        if let value = `stderr` { _logValues["stderr"] = .text(value) }
         self.fields = _logValues
     }
 }
@@ -6038,74 +6083,6 @@ public struct RunProcessExecutionSpan: Sendable {
     public mutating func fail(_ error: any Error, `exitCode`: (Int64)? = nil, `outcome`: (String)? = nil) -> LogRecordReference? {
         guard let duration = state.end() else { return nil }
         let event = RunProcessExecutionFailed(duration: `duration`, error: `error`, executable: `executable`, exitCode: `exitCode`, outcome: `outcome`, operationID: state.operationID)
-        emit(event)
-        return event.reference
-    }
-}
-
-public struct VcsGitCommandSpan: Sendable {
-    private var state: LogSpanState
-    private let emit: @Sendable (any LogEvent) -> Void
-    private let `command`: String
-    private let `provider`: LogSegment
-
-    private init(`command`: String, `provider`: LogSegment, operationID: String, clock: LogSpanClock, emit: @escaping @Sendable (any LogEvent) -> Void) {
-        state = LogSpanState(operationID: operationID, clock: clock)
-        self.emit = emit
-        self.`command` = `command`
-        self.`provider` = `provider`
-    }
-
-    public static func begin(`command`: String, `provider`: LogSegment, operationID: String = UUID().uuidString.lowercased(), clock: LogSpanClock = .continuous, emit: @escaping @Sendable (any LogEvent) -> Void) -> Self {
-        let span = Self(command: `command`, provider: `provider`, operationID: operationID, clock: clock, emit: emit)
-        // Started is a DEBUG event; the sink drops it unless verbose diagnostics are on.
-        emit(VcsGitCommandStarted(command: `command`, provider: `provider`, operationID: operationID))
-        return span
-    }
-
-    public mutating func finish(`exitCode`: (Int64)? = nil, `failureCode`: (String)? = nil) {
-        guard let duration = state.end() else { return }
-        emit(VcsGitCommandFinished(command: `command`, duration: `duration`, exitCode: `exitCode`, failureCode: `failureCode`, provider: `provider`, operationID: state.operationID))
-    }
-
-    @discardableResult
-    public mutating func fail(_ error: any Error, `exitCode`: (Int64)? = nil, `failureCode`: (String)? = nil) -> LogRecordReference? {
-        guard let duration = state.end() else { return nil }
-        let event = VcsGitCommandFailed(command: `command`, duration: `duration`, error: `error`, exitCode: `exitCode`, failureCode: `failureCode`, provider: `provider`, operationID: state.operationID)
-        emit(event)
-        return event.reference
-    }
-}
-
-public struct VcsGitRequestSpan: Sendable {
-    private var state: LogSpanState
-    private let emit: @Sendable (any LogEvent) -> Void
-    private let `command`: String
-    private let `provider`: LogSegment
-
-    private init(`command`: String, `provider`: LogSegment, operationID: String, clock: LogSpanClock, emit: @escaping @Sendable (any LogEvent) -> Void) {
-        state = LogSpanState(operationID: operationID, clock: clock)
-        self.emit = emit
-        self.`command` = `command`
-        self.`provider` = `provider`
-    }
-
-    public static func begin(`command`: String, `provider`: LogSegment, operationID: String = UUID().uuidString.lowercased(), clock: LogSpanClock = .continuous, emit: @escaping @Sendable (any LogEvent) -> Void) -> Self {
-        let span = Self(command: `command`, provider: `provider`, operationID: operationID, clock: clock, emit: emit)
-        // Started is a DEBUG event; the sink drops it unless verbose diagnostics are on.
-        emit(VcsGitRequestStarted(command: `command`, provider: `provider`, operationID: operationID))
-        return span
-    }
-
-    public mutating func finish(`exitCode`: (Int64)? = nil, `failureCode`: (String)? = nil) {
-        guard let duration = state.end() else { return }
-        emit(VcsGitRequestFinished(command: `command`, duration: `duration`, exitCode: `exitCode`, failureCode: `failureCode`, provider: `provider`, operationID: state.operationID))
-    }
-
-    @discardableResult
-    public mutating func fail(_ error: any Error, `exitCode`: (Int64)? = nil, `failureCode`: (String)? = nil) -> LogRecordReference? {
-        guard let duration = state.end() else { return nil }
-        let event = VcsGitRequestFailed(command: `command`, duration: `duration`, error: `error`, exitCode: `exitCode`, failureCode: `failureCode`, provider: `provider`, operationID: state.operationID)
         emit(event)
         return event.reference
     }

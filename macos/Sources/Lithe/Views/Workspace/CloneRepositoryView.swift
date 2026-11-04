@@ -1,4 +1,5 @@
 import AppKit
+import LitheModuleAPI
 import SwiftUI
 
 struct CloneRepositoryView: View {
@@ -78,7 +79,7 @@ struct CloneRepositoryView: View {
             .buttonStyle(LitheActionButtonStyle())
             .disabled(model.isCloningRepository)
 
-            Button {
+            Button(action: UserActionTrace.action("workspace.clone") {
                 Task {
                     errorMessage = await model.cloneRepository(
                         remote: remoteURL,
@@ -88,7 +89,7 @@ struct CloneRepositoryView: View {
                         model.workbenchFeature.isCloneRepositoryPresented = false
                     }
                 }
-            } label: {
+            }) {
                 HStack(spacing: 7) {
                     if model.isCloningRepository {
                         ProgressView().controlSize(.small)
