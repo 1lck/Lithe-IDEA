@@ -407,7 +407,7 @@ After successful initialization, the backend sends a JSON-RPC notification
 | Field | Meaning |
 | --- | --- |
 | `kind` | `operationFinished`, `operationFailed`, `degraded`, or `recovered`. These select INFO, ERROR, WARN, and WARN catalog events respectively. |
-| `operation` | A registered function ID (up to 64 bytes), `function-call` for a longer registered ID, a supported `lithe/build/*` or `lithe/vcs/*` request method, or the SDK-owned stages `initialize`, `shutdown`, `notification`, `result-encoding`. Arbitrary display labels and user input are refused. |
+| `operation` | A registered function ID (up to 64 bytes), `function-call` for a longer registered ID, a supported `lithe/build/*` or `lithe/vcs/*` request method, `lithe/keymap/import`, or the SDK-owned stages `initialize`, `shutdown`, `notification`, `result-encoding`. Arbitrary display labels and user input are refused. |
 | `durationMs` | Required for finished/failed, absent for degraded/recovered. Monotonic elapsed integer milliseconds, 0 through 9007199254740991. |
 | `code` | Required except for finished. Stable category, 1–64 ASCII bytes from letters, digits, `._:/-$`; never an exception message, command line, query, or response body. |
 | `count` | Optional affected item count, a nonnegative JSON safe integer. |

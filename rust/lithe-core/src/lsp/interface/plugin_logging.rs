@@ -48,6 +48,7 @@ fn known_operation(operation: &str, functions: &BTreeSet<String>) -> bool {
             operation,
             "initialize" | "shutdown" | "notification" | "function-call" | "result-encoding"
         )
+        || operation == super::keymap_provider::IMPORT_METHOD
         || super::build_provider::is_build_method(operation)
         || crate::vcs::is_vcs_method(operation)
 }
@@ -194,6 +195,16 @@ mod tests {
                     "{field}"
                 );
             }
+        }
+        // Protocol requests are accepted by their wire method without a function registration.
+        for operation in [
+            "lithe/build/model",
+            "lithe/vcs/status",
+            "lithe/keymap/import",
+        ] {
+            let input = json!({"kind":"operationFinished","operation":operation,"durationMs":3});
+            let fact = decode("io.example.database", &BTreeSet::new(), &input).unwrap();
+            assert_eq!(fact.fields["operation"], operation);
         }
         assert!(negotiated(
             &json!({"experimental":{"litheLogging":{"version":1}}})
