@@ -2166,8 +2166,11 @@ process starts and what it learns about workspaces.
 
 - It may start without a page. It needs at least one way to start: a web
   tool window (first page call, as in version 1), a `ui.commands[]` entry
-  (its `onCommand:<id>` also starts the backend), or the `onWorkspaceOpen`
-  event. A backend 2 with none of them is `plugin.manifest.invalid`.
+  (its `onCommand:<id>` also starts the backend), the `onWorkspaceOpen`
+  event, or a provider the host queries: a toolchain or keymap import
+  provider, or a language server with `launch.kind: "backend"`, whose start
+  asks the backend for its command line. A backend 2 with none of them is
+  `plugin.manifest.invalid`.
 - It is still one process per plugin, shared by every open workspace and
   window, on the machine that runs Lithe, also for remote workspaces. No
   workspace is process state: each call names its workspace explicitly

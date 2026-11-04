@@ -1132,8 +1132,14 @@ impl DeclarativePluginManifest {
                     .activation_events
                     .iter()
                     .any(|event| event == super::backend::ON_WORKSPACE_OPEN),
+                // A language server the backend launches starts the backend
+                // when the host asks it for the server's command line.
                 provider_query_trigger: !self.toolchain_providers.is_empty()
-                    || !self.keymap_import_providers.is_empty(),
+                    || !self.keymap_import_providers.is_empty()
+                    || self
+                        .language_servers
+                        .iter()
+                        .any(|server| server.process.is_backend_launch()),
             })?;
         }
         self.validate_permissions()?;
