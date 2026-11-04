@@ -21,7 +21,8 @@ This directory is the cross-platform source of truth:
 | `fixtures/build-plans.json` | Golden build-system plans and decoded outputs |
 | `fixtures/function-protocol.json` | Golden plugin-function negotiation, registration, invocation, outcome, progress, and refusal cases |
 | `fixtures/project-generator.plugin.json`, `fixtures/project-generator-templates/` | Project generators: template files, a scaffolding command, and an archive download |
-| `fixtures/project-plans.json` | Golden `project.*` form evaluations, generation plans, and name checks |
+| `fixtures/project-generator-tool-field.plugin.json`, `fixtures/project-generator-templates/tool-field/` | Project generators that pick tool installations with `tool` fields (`projectGenerators` 2) |
+| `fixtures/project-plans.json` | Golden `project.*` form evaluations, generation plans, and name checks; a case's optional `manifest` names the fixture it runs against (the version 1 generator by default) |
 | `plugin-index.schema.json` | JSON shape of a marketplace source index |
 | `fixtures/marketplace/*.json` | Marketplace index, availability, source URL, and install review golden cases |
 | `toolchains.md` | Implemented Core foundation: plugin definitions/provider declarations, verified-origin registry, reply validation, directory pins, snapshot resolution, version matching and discovery plans; native hosts are not connected |
@@ -663,7 +664,7 @@ hosts. Level 3 versions each section on its own. A level 3 manifest lists in
 | `executableResolution` | Shared executable candidate ordering and strict selection; v2 canonical project/subproject toolchain registry bindings | `1`, `2` |
 | `vcsProviders` | `vcsProviders[]` | `1` |
 | `debugAdapters` | [`debugAdapters[]`](#api-level-4-debug-adapters); v2 adds target arguments/environment | `1`, `2` |
-| `projectGenerators` | [`projectGenerators[]`](#project-generators): entries of the New Project window | `1` |
+| `projectGenerators` | [`projectGenerators[]`](#project-generators): entries of the New Project window; v2 adds the [`tool` field](#tool-fields) | `1`, `2` |
 | `backend` | [`backend`](#plugin-backend): the plugin's own long-lived process | `1`, `2` (adds [start without a page and workspace contexts](#backend-2-workspace-contexts)) |
 | `toolDefinitions` | [Tool identities, layouts, discovery and four-layer candidates](toolchains.md) | `1` (Core; macOS read-only settings) |
 | `toolchainProviders` | [Provider declarations and permission-bound answer validation](toolchains.md) | `1` (Core; macOS read-only settings) |
@@ -2010,8 +2011,8 @@ process starts and what it learns about workspaces.
 
 ## Project generators
 
-`projectGenerators` (requires `projectGenerators` 1 and the `project.generate`
-permission) adds entries to the host's New Project window. The host owns the
+`projectGenerators` (requires `projectGenerators` 1 or 2 and the
+`project.generate` permission) adds entries to the host's New Project window. The host owns the
 window: the entry list and its search, the project name and location, the
 "create Git repository" option, the empty project, and the Create button. A
 generator declares only its own fields, the languages and build systems the
@@ -2054,7 +2055,8 @@ generator ID.
 | `enum` | One option | `options` (1–16 `{value, title}`), `default` (the first option otherwise), `presentation` (`segmented` or `menu`), `maximumVersion` |
 | `boolean` | `true` or `false` | `default` |
 | `multiSelect` | A list of options, kept in declaration order | `options` (1–128, each with an optional `group` heading), `default` |
-| `runtime` | A host-discovered installation | `runtime` (`java`), `minimumVersion`, `optional`. The host chooses the initial value. |
+| `runtime` | A host-discovered installation (`projectGenerators` 1 only) | `runtime` (`java`), `minimumVersion`, `optional`. The host chooses the initial value. |
+| `tool` | An installation of a [tool definition](toolchains.md), by home directory (`projectGenerators` 2 only) | `tool` (a tool definition ID), `minimumVersion`, `pinAs`, `optional`. See [Tool fields](#tool-fields). |
 
 `maximumVersion` is a template over earlier fields naming the highest version
 the value may be, compared numerically by dotted components. A target Java
@@ -2073,21 +2075,58 @@ directory name: not empty, at most 128 characters, no `/`, `\`, `:`, or
 control characters, not `.` or `..`, no leading `-`, and no surrounding
 spaces.
 
+### Tool fields
+
+A `tool` field (requires `projectGenerators` 2) lets the user pick one
+installation of any tool that a plugin declares in
+[`toolDefinitions`](toolchains.md), such as a Python interpreter, a Node.js
+runtime, or a JDK. The generator names no host feature and no language: the
+host lists installations through its generic tool discovery and the user's
+tool settings, exactly as the tool's own settings page does.
+
+```json
+{"id": "sdk", "type": "tool", "title": "Python", "tool": "python",
+ "minimumVersion": "3.11", "pinAs": "project"}
+```
+
+| Property | Meaning |
+| --- | --- |
+| `tool` | Required. A tool definition ID: the short ID of a verified official definition, otherwise `<pluginID>:<id>`. There is no closed list; a tool nobody declares has no installations. |
+| `minimumVersion` | Optional, one to three dotted numbers. An installation below it is not selectable. |
+| `pinAs` | Optional. `project` saves the selection as the created project's own tool choice (the same per-directory pin the tool's settings page edits), so the project builds and runs with the installation picked here. Without it the selection only feeds the steps. |
+| `optional` | Optional. Without a usable installation an optional field stays empty and leaves no pin; otherwise the form reports `required`. |
+
+A tool field has no `default`; the host chooses the initial value. Core picks,
+among the installations the host listed, the user's choice if it is still
+listed and otherwise the newest version (the host's first among equal
+versions). An installation below `minimumVersion` is reported as
+`toolTooOld` and is marked in the field's `installations`, so the host can
+show it disabled.
+
+A generator with `projectGenerators` 2 must not declare a `runtime` field, and
+a generator with `projectGenerators` 1 must not declare a `tool` field
+(`plugin.manifest.invalid`). Version 1 generators keep working unchanged.
+A host that lacks `projectGenerators` 2 refuses the whole manifest with
+`plugin.api.unsupported` (`requires.projectGenerators`).
+
 ### Conditions
 
 `when` and `visibleWhen` take one condition or a list that must all hold:
 `{"field": "<id>", "equals" | "notEquals": <value>}` or `{"field": "<id>",
 "oneOf": [<value>, …]}`. Values are option values for `enum`, `true`/`false`
-for `boolean`, and strings for `text` and `runtime` (`notEquals: ""` tests
-that an optional field is filled). A condition on a hidden field is false.
+for `boolean`, and strings for `text`, `runtime`, and `tool` (`notEquals: ""`
+tests that an optional field is filled; a tool field compares as its home
+directory). A condition on a hidden field is false.
 
 ### Templates
 
 Strings in the manifest use `${…}`: `${project.name}`, `${field.<id>}` (a
-text or option value, `true`/`false`, a comma-separated list, or a runtime's
-home directory), `${field.<id>.version}`, and `${field.<id>.major}` (`21` for
-`21.0.4`, `8` for `1.8.0_412`). Modifiers follow `|` and apply in order:
-`path` turns dots into `/`, `package` makes a valid package name
+text or option value, `true`/`false`, a comma-separated list, or the home
+directory of a runtime or tool), `${field.<id>.version}` and
+`${field.<id>.major}` (runtime fields only; `21` for `21.0.4`, `8` for
+`1.8.0_412`), and `${field.<id>.executable}` (tool fields only: the path of
+the tool's executable in the chosen installation). Modifiers follow `|` and
+apply in order: `path` turns dots into `/`, `package` makes a valid package name
 (`com.Example.my-app` → `com.example.myapp`), and `lower` lowercases.
 
 Template files use `{{ … }}` with the same variables, because POMs, Gradle
@@ -2117,26 +2156,43 @@ file, and 8 MiB in total; archives to 20,000 entries and 512 MiB extracted.
 
 | Command | Payload | Result |
 | --- | --- | --- |
-| `project.generatorCatalog` | `{plugins: [{manifest, enabled}], hostCapabilities?}` | `catalog: {generators: [{pluginID, pluginName, pluginEnabled, generator, requirements: [{languageID or buildSystemID, providers: [{pluginID, pluginName, enabled}]}], usesNetwork}], issues: [{pluginID, error}]}` |
-| `project.generatorForm` | `{manifest, generatorID, form}` | `form: {projectName: {problem}, fields: [{id, visible, value, problem?}], activeRequirements, valid}` |
-| `project.generationPlan` | `{manifest, generatorID, packagePath, form}` | `plan: {projectName, steps, openFiles, runtimes: [{field, runtime, home, version}], usesNetwork}` |
+| `project.generatorCatalog` | `{plugins: [{manifest, enabled}], hostCapabilities?}` | `catalog: {generators: [{pluginID, pluginName, pluginEnabled, generator, requirements: [{languageID or buildSystemID, providers: [{pluginID, pluginName, enabled}]}], tools: [{fieldID, tool, providers: [{pluginID, pluginName, enabled}]}], usesNetwork}], issues: [{pluginID, error}]}` |
+| `project.generatorForm` | `{manifest, generatorID, form}` | `form: {projectName: {problem}, fields: [{id, visible, value, problem?, installations?}], activeRequirements, valid}` |
+| `project.generationPlan` | `{manifest, generatorID, packagePath, form}` | `plan: {projectName, steps, openFiles, runtimes: [{field, runtime, home, version}], toolPins: [{field, tool, pinAs, home, executable}], usesNetwork}` |
 | `project.checkName` | `{projectName}` | `name: {problem}` |
 | `project.extractArchive` | `{archivePath, destination}` | `extracted: {files}` |
 
-`form` is `{projectName, values, edited, runtimes}`. `values` maps field IDs
-to values; a text value counts only when its ID is in `edited`, so derived
+`form` is `{projectName, values, edited, runtimes, tools}`. `values` maps field
+IDs to values; a text value counts only when its ID is in `edited`, so derived
 defaults keep following the fields they read. `runtimes` maps runtime field
-IDs to `{home, version}` of the user's selection. A field `problem` is one of
-`required`, `tooLong`, `invalidFormat`, `unsupportedValue`, `runtimeTooOld`,
-and `versionTooHigh`; hosts localize by code. Plan steps are `{kind:
+IDs to `{home, version}` of the user's selection. `tools` maps tool field IDs
+to the installations the host found for the field's tool, in the order the
+host prefers them, as `[{home, executable, version}]`; the field's `values`
+entry is the `home` of the user's choice. A tool field in the result carries
+`installations: [{home, executable, version, meetsMinimum}]`, so the host
+draws its picker from Core's answer, and its `value` is the installation Core
+selected. A field `problem` is one of `required`, `tooLong`, `invalidFormat`,
+`unsupportedValue`, `runtimeTooOld`, `toolTooOld`, and `versionTooHigh`; hosts
+localize by code. Plan steps are `{kind:
 "writeFiles", files: [{path, contents, executable}]}`, `{kind: "command",
 command, arguments, environment, collect, mayUseNetwork, timeoutSeconds}`, and
-`{kind: "archive", url, host, format: "zip"}`.
+`{kind: "archive", url, host, format: "zip"}`. `toolPins` lists, for each
+visible tool field with `pinAs` and an installation, the tool and the chosen
+`home` and `executable` that the host saves as the project's pin.
+
+The catalog entry's `tools` lists, for each tool field, the plugins that
+declare the field's tool and whether they are enabled, in the same way as
+`requirements`: the host can offer to enable one, or open the marketplace,
+when the field has no installation. Core only names declarations; whether a
+definition is trusted, and whether the tool is installed, is decided by the
+host's tool registry and discovery.
 
 After the steps, the host moves the staging directory to its final location
-(refusing an existing one), may record a `java` runtime as the project's JDK,
-creates the Git repository when asked, and opens the project. A failure or
-cancellation removes the staging directory and leaves nothing behind
+(refusing an existing one), may record a `java` runtime as the project's JDK
+(version 1 runtime fields only), saves the `toolPins` as the project's tool
+choices through the same store the tool settings page edits, creates the Git
+repository when asked, and opens the project. A failure or cancellation
+removes the staging directory and leaves nothing behind
 (`plugin.project.generationFailed`).
 
 ## Plugin functions

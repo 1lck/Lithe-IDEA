@@ -46,7 +46,7 @@
         "languageServers": { "description": "Required exactly when languageServers is non-empty. Version 2 adds languageServers[].workspaceConfiguration.", "enum": [1, 2] },
         "languages": { "description": "Version 2 adds languages[].grammar and languages[].configuration and is required exactly when one of them is used.", "enum": [1, 2] },
         "packageTrust": { "description": "Required exactly when vendor.bundledSignatureRequirement is present.", "enum": [1] },
-        "projectGenerators": { "description": "Entries of the New Project window: fields, requirements, and steps.", "enum": [1] },
+        "projectGenerators": { "description": "Entries of the New Project window: fields, requirements, and steps. Version 2 adds the tool field and retires the runtime field.", "enum": [1, 2] },
         "serverProcess": { "description": "The launch fields of language servers, of build providers that start their own process, of VCS providers, of debug adapters, and of the plugin backend. Version 2 adds runSelectedRuntime and is required exactly when a debug adapter uses it (pluginAPIVersion 4).", "enum": [1, 2] },
         "settings": { "description": "Required exactly when settings or settingActions is non-empty. Version 1 is the API level 2 section: integer, enum, and boolean options. Version 2 adds scope, effect, page, section, the multiSelect, text, file, and directory types, and settingActions.", "enum": [1, 2] },
         "toolDefinitions": { "const": 1 },
@@ -847,12 +847,12 @@
       "required": ["id", "type", "title"],
       "properties": {
         "id": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]*$" },
-        "type": { "enum": ["text", "enum", "boolean", "multiSelect", "runtime"] },
+        "type": { "enum": ["text", "enum", "boolean", "multiSelect", "runtime", "tool"], "description": "runtime needs requires.projectGenerators 1; tool needs requires.projectGenerators 2." },
         "title": { "type": "string", "minLength": 1, "maxLength": 120 },
         "description": { "type": "string", "minLength": 1, "maxLength": 480 },
         "advanced": { "type": "boolean" },
         "visibleWhen": { "$ref": "#/$defs/generatorConditions" },
-        "default": { "description": "text: a template over ${project.name} and earlier fields; enum: an option; boolean; multiSelect: options. Not allowed for runtime." },
+        "default": { "description": "text: a template over ${project.name} and earlier fields; enum: an option; boolean; multiSelect: options. Not allowed for runtime and tool." },
         "options": {
           "type": "array",
           "items": {
@@ -872,7 +872,14 @@
         "placeholder": { "type": "string", "minLength": 1, "maxLength": 120 },
         "optional": { "type": "boolean" },
         "runtime": { "enum": ["java"] },
-        "minimumVersion": { "type": "string" },
+        "tool": {
+          "description": "tool: a tool definition ID, the short ID of a verified official definition or <pluginID>:<id>.",
+          "type": "string",
+          "maxLength": 192,
+          "pattern": "^([a-z0-9]+([.-][a-z0-9]+)*:)?[a-z][a-z0-9-]{0,63}$"
+        },
+        "pinAs": { "description": "tool: project saves the selection as the created project's own tool choice.", "enum": ["project"] },
+        "minimumVersion": { "type": "string", "description": "runtime and tool: one to three dotted numbers." },
         "maximumVersion": { "type": "string", "description": "text and enum: the highest version the value may name, a template over earlier fields such as ${field.jdk.major}." }
       }
     },
