@@ -43,6 +43,7 @@ description: 在 Lithe 仓库进行实现、重构、缺陷修复、审查、调
 | 调整模块归属、依赖方向或架构边界 | `.agents/notes/implemented/architecture/` 中与该模块相关的 Note |
 | 跨平台行为或共享接口 | `shared/contracts/application-boundary.md`、`shared/contracts/rust-core-api.md` 和相关 fixture |
 | 新增插件 API，或把内置工具迁移为插件 | `.agents/notes/implemented/architecture/2026-10-31-plugin-capability-and-domain-boundaries.md` |
+| 创建插件，或为已有插件新增提供者 | `.agents/skills/create-lithe-plugin/SKILL.md` |
 | macOS 界面、控件或视觉交互 | [macOS 共享控件规范](references/macos-ui.md)，以及其中与本次改动相关的 Note |
 | 滚动列表、树、表格、日志、长文本或分页列表 | [滚动内容与连续列表](references/scrolling-content.md) |
 | 分隔条、可调整面板、连续拖动等高频交互 | `.agents/notes/implemented/architecture/2026-09-13-resizable-ui-performance-boundaries.md` |
