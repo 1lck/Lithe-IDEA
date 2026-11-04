@@ -2954,6 +2954,11 @@ package struct PluginRunEnd: Equatable {
     package let runID: String
     /// `nil` when the user stopped the run or the process was replaced before it exited.
     package let exitCode: Int32?
+
+    package init(runID: String, exitCode: Int32?) {
+        self.runID = runID
+        self.exitCode = exitCode
+    }
 }
 
 private struct PluginRunRecord {
