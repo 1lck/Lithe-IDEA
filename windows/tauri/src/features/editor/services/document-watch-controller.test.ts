@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { createDocumentWatches, type DocumentWatchDependencies } from "./document-watch-controller";
+import { DocumentWatchInputs } from "@/platform/document-watch-inputs";
 
 function harness() {
   let changed = () => {};
@@ -30,6 +31,26 @@ function harness() {
 }
 // The controller's chain is registration -> read -> completion; no native time or timers.
 async function flush() { for (let i = 0; i < 12; i++) await Promise.resolve(); }
+
+test("feature sources share editor leases, renew missing-parent registrations and retire independently", async () => {
+  const h = harness(), inputs = new DocumentWatchInputs(); let changes = 0;
+  const lease = inputs.watch(["C:/user/.m2/settings.xml"], () => { changes++; });
+  const dispose = await createDocumentWatches({ ...h.dependencies, inputs });
+  try {
+    await flush(); expect(await lease.ready).toBe(true);
+    const registered = h.registrations[h.registrations.length - 1]!;
+    expect(registered.documents).toHaveLength(2);
+    const input = registered.documents.find(document => document.id.startsWith("input:"))!;
+    h.event({ generation: registered.generation, id: input.id }); await flush();
+    expect(changes).toBe(1); expect(h.registrations[h.registrations.length - 1]!.generation).toBeGreaterThan(registered.generation);
+    h.event({ generation: registered.generation, id: input.id }); expect(changes).toBe(1);
+    h.focus(); await flush(); expect(changes).toBe(2);
+    lease.dispose(); await flush();
+    expect(h.registrations[h.registrations.length - 1]!.documents).toHaveLength(1);
+    expect(h.registrations[h.registrations.length - 1]!.documents[0]!.id).not.toContain("input:");
+  } finally { lease.dispose(); await dispose(); }
+  expect(inputs.snapshot()).toEqual([]);
+}, 5000);
 
 test("watches all stores, reconciles after registration and releases subscriptions", async () => {
   const h = harness();

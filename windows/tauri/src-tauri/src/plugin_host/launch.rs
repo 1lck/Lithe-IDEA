@@ -122,6 +122,7 @@ pub(crate) fn package_by_id(app: &AppHandle, plugin_id: &str) -> Option<ScannedP
             package.entry.status == "accepted"
                 && package.entry.enabled
                 && package.entry.plugin_id == plugin_id
+                && super::trust::current(package)
         })
 }
 
@@ -199,7 +200,7 @@ fn owning_language_id(package: &ScannedPackage, file_path: &str) -> Option<Strin
 /// Builds the Core launch-plan request with host-owned directories and
 /// architecture. Settings layers stay empty until the settings milestone;
 /// Core then falls back to declared defaults.
-fn launch_request(
+pub(super) fn launch_request(
     state_directory: &Path,
     package: &ScannedPackage,
     workspace_path: &str,
@@ -219,7 +220,7 @@ fn launch_request(
 /// Creates the host-owned directories requested by Core before the frontend
 /// starts the process. The plan only names the two directories from the
 /// shared contract; arbitrary paths are rejected at this boundary.
-fn prepare_required_directories(
+pub(super) fn prepare_required_directories(
     plan: &Value,
     state_directory: &Path,
     workspace_state_directory: &Path,
@@ -251,7 +252,7 @@ fn prepare_required_directories(
     Ok(())
 }
 
-fn resolve_launch(
+pub(super) fn resolve_launch(
     package: &ScannedPackage,
     language_id: &str,
     plan: &Value,
@@ -457,12 +458,25 @@ fn run_version_probe(command: &mut Command, tool: &str) -> Result<(Vec<u8>, Vec<
     run_process_probe(command, tool, false)
 }
 
-fn run_process_probe(
+pub(super) fn run_process_probe(
     command: &mut Command,
     tool: &str,
     require_success: bool,
 ) -> Result<(Vec<u8>, Vec<u8>), String> {
-    let deadline = Instant::now() + RUNTIME_PROBE_TIMEOUT;
+    run_process_probe_with_timeout(command, tool, require_success, RUNTIME_PROBE_TIMEOUT)
+}
+
+/// A consumer's remaining operation budget may be shorter than one probe.
+pub(super) fn run_process_probe_with_timeout(
+    command: &mut Command,
+    tool: &str,
+    require_success: bool,
+    timeout: Duration,
+) -> Result<(Vec<u8>, Vec<u8>), String> {
+    if timeout.is_zero() {
+        return Err("runtime probe deadline expired".into());
+    }
+    let deadline = Instant::now() + timeout.min(RUNTIME_PROBE_TIMEOUT);
     let stdout_bytes = Cell::new(0_usize);
     let stderr_bytes = Cell::new(0_usize);
     let exceeded = || {
@@ -832,6 +846,7 @@ mod tests {
             },
             root,
             manifest,
+            publisher: None,
         }
     }
 

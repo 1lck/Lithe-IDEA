@@ -37,7 +37,17 @@
       "windows/tauri/src/features/window/components/window-close-guard.tsx",
       "windows/tauri/src/features/window/services/run-services-exit.ts",
       "windows/tauri/src/features/window/services/run-services-exit.test.ts",
-      "windows/tauri/src/features/settings/stores/update.store.ts"
+      "windows/tauri/src/features/settings/stores/update.store.ts",
+      "windows/tauri/src/extensions/run/extension-process-owner.ts",
+      "windows/tauri/src/extensions/run/extension-process-owner.test.ts",
+      "windows/tauri/src/features/run/services/build-provider-run-launch.ts",
+      "windows/tauri/src/features/run/stores/run-provider.test.ts",
+      "windows/tauri/src/features/run/hooks/use-run-process-events.ts",
+      "windows/tauri/src/features/run/hooks/use-run-process-events.test.ts",
+      "windows/tauri/src/features/build/components/build-targets-list.tsx",
+      "windows/tauri/src/features/build/services/build-target-presentation.ts",
+      "windows/tauri/src/features/build/components/build-pane.test.tsx",
+      "windows/tauri/crates/project/src/provider_run_configuration.rs"
     ],
     "implementationStatus": "partial",
     "verificationStatus": "pending"

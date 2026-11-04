@@ -29384,7 +29384,8 @@
       "id": "native.changesAreWrittenTo",
       "description": "Native UI: Changes are written to",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "Changes are written to",
@@ -36379,7 +36380,8 @@
       "id": "native.effectiveValue",
       "description": "Native UI: Effective value",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "Effective value",
@@ -41161,7 +41163,8 @@
       "id": "native.installation",
       "description": "Native UI: Installation",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "Installation",
@@ -48167,7 +48170,8 @@
       "id": "native.off",
       "description": "Native UI: Off",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "Off",
@@ -48222,7 +48226,8 @@
       "id": "native.on",
       "description": "Native UI: On",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "On",
@@ -49330,7 +49335,8 @@
       "id": "native.override",
       "description": "Native UI: Override",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "Override",
@@ -51562,7 +51568,8 @@
       "id": "native.readOnly",
       "description": "Native UI: Read-only",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "Read-only",
@@ -52265,7 +52272,8 @@
       "id": "native.reload",
       "description": "Native UI: Reload",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "Reload",
@@ -63152,7 +63160,8 @@
       "id": "native.user",
       "description": "Native UI: User",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "User",
@@ -64226,7 +64235,8 @@
       "id": "native.workspace",
       "description": "Native UI: Workspace",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "Workspace",
@@ -85788,7 +85798,8 @@
       "id": "native.thePluginPackageSignatureIsInvalid",
       "description": "Native UI: The plugin package signature is invalid.",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "The plugin package signature is invalid.",
@@ -91609,6 +91620,16 @@
       }
     },
     {
+      "id": "ide.build.windowsUnavailable",
+      "description": "IDE Build Provider operation result",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "ide.build.windowsUnavailable"
+      }
+    },
+    {
       "id": "native.projectEnvironmentSettingsChangedOnDisk",
       "description": "Native UI: Project environment settings changed on disk. Reload before saving; your draft has been kept.",
       "platforms": [
@@ -91656,7 +91677,8 @@
       "id": "native.nativeConfigurationStale",
       "description": "Native build configuration: Native configuration changed. Reload before saving; your draft has been kept.",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "Native configuration changed. Reload before saving; your draft has been kept.",
@@ -91689,7 +91711,8 @@
       "id": "native.nativeConfigurationDiskConflict",
       "description": "Native build configuration: Native configuration changed on disk. Reload before saving; your draft has been kept.",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "Native configuration changed on disk. Reload before saving; your draft has been kept.",
@@ -91700,7 +91723,8 @@
       "id": "native.nativeConfigurationSourceReadOnly",
       "description": "Native build configuration: This native configuration source is read-only. Installed applications and plugin packages cannot be edited.",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "This native configuration source is read-only. Installed applications and plugin packages cannot be edited.",
@@ -91711,7 +91735,8 @@
       "id": "native.nativeConfigurationFileRequired",
       "description": "Native build configuration: The native configuration must be a writable file smaller than 2 MB.",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "The native configuration must be a writable file smaller than 2 MB.",
@@ -91722,7 +91747,8 @@
       "id": "native.nativeConfigurationTitle",
       "description": "Native build configuration: Native configuration",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "Native configuration",
@@ -91755,7 +91781,8 @@
       "id": "native.nativeConfigurationNotRead",
       "description": "Native build configuration: No native configuration has been read.",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "No native configuration has been read.",
@@ -91777,7 +91804,8 @@
       "id": "native.buildOptionInvalid",
       "description": "Agent build configuration: The build option value is invalid. Inspect its current kind and choices.",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "The build option value is invalid. Inspect its current kind and choices.",
@@ -91810,7 +91838,8 @@
       "id": "native.nativeConfigurationReadUsingProjectTool",
       "description": "Native build configuration: Read using project tool",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "Read using project tool",
@@ -91832,7 +91861,8 @@
       "id": "native.selectedToolchainUnavailable",
       "description": "Native UI: The selected toolchain is unavailable.",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "The selected toolchain is unavailable.",
@@ -91917,15 +91947,432 @@
       }
     },
     {
+      "id": "build.errors.inputsChanged",
+      "description": "Windows Build Provider workspace failure",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.errors.invalidExecutionResult",
+      "description": "Windows Build Provider workspace failure",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.errors.missingProject",
+      "description": "Windows Build Provider workspace failure",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.errors.incompleteModel",
+      "description": "Windows Build Provider workspace failure",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.errors.wrongPlugin",
+      "description": "Windows Build Provider workspace failure",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.errors.unsupportedSource",
+      "description": "Windows Build Provider workspace failure",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.errors.cleanupFailed",
+      "description": "Windows Build Provider workspace failure",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.errors.projectToolRequiresAction",
+      "description": "Windows native Build settings require an explicit project tool read",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.errors.invalidConfiguration",
+      "description": "Windows native Build configuration validation failure",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.window.title",
+      "description": "Windows generic Build tool window",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.window.detect",
+      "description": "Windows generic Build tool window",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.window.output",
+      "description": "Windows generic Build tool window",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.window.close",
+      "description": "Windows generic Build tool window",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.window.project",
+      "description": "Windows generic Build tool window",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.window.load",
+      "description": "Windows generic Build tool window",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.window.empty",
+      "description": "Windows generic Build tool window",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.window.tasks",
+      "description": "Windows generic Build tool window",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.window.stop",
+      "description": "Windows generic Build tool window",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.window.noOutput",
+      "description": "Windows generic Build tool window",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.phase.preparing",
+      "description": "Windows generic Build tool window",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.phase.running",
+      "description": "Windows generic Build tool window",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.phase.succeeded",
+      "description": "Windows generic Build tool window",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.phase.failed",
+      "description": "Windows generic Build tool window",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.phase.cancelled",
+      "description": "Windows generic Build tool window",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.errors.detectionFailed",
+      "description": "Windows generic Build tool window",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.window.module",
+      "description": "Windows Build task catalog and parameter dialog",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.window.workspace",
+      "description": "Windows Build task catalog and parameter dialog",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.window.runTask",
+      "description": "Windows Build task catalog and parameter dialog",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.window.argument",
+      "description": "Windows Build task catalog and parameter dialog",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "index": "integer"
+      }
+    },
+    {
       "id": "build.window.addArgument",
       "description": "Windows Build task catalog and parameter dialog",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "Add argument",
         "arguments": []
       }
+    },
+    {
+      "id": "build.group.lifecycle",
+      "description": "Windows Build task catalog and parameter dialog",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.group.build",
+      "description": "Windows Build task catalog and parameter dialog",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.group.test",
+      "description": "Windows Build task catalog and parameter dialog",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.group.run",
+      "description": "Windows Build task catalog and parameter dialog",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.group.verification",
+      "description": "Windows Build task catalog and parameter dialog",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.group.documentation",
+      "description": "Windows Build task catalog and parameter dialog",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.group.other",
+      "description": "Windows Build task catalog and parameter dialog",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.window.loadDependencies",
+      "description": "Windows canonical Build dependency tree",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.window.dependencies",
+      "description": "Windows canonical Build dependency tree",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.window.dependenciesTruncated",
+      "description": "Windows canonical Build dependency tree",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.window.noDependencies",
+      "description": "Windows canonical Build dependency tree",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.errors.testsExpired",
+      "description": "Windows canonical Build diagnostics and tests",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.results.title",
+      "description": "Windows canonical Build diagnostics and tests",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.results.summary",
+      "description": "Windows canonical Build diagnostics and tests",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "total": "integer",
+        "passed": "integer",
+        "failed": "integer",
+        "errors": "integer",
+        "skipped": "integer"
+      }
+    },
+    {
+      "id": "build.diagnostic.error",
+      "description": "Windows canonical Build diagnostics and tests",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.diagnostic.warning",
+      "description": "Windows canonical Build diagnostics and tests",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.diagnostic.information",
+      "description": "Windows canonical Build diagnostics and tests",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.diagnostic.hint",
+      "description": "Windows canonical Build diagnostics and tests",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.testStatus.passed",
+      "description": "Windows canonical Build diagnostics and tests",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.testStatus.failed",
+      "description": "Windows canonical Build diagnostics and tests",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.testStatus.error",
+      "description": "Windows canonical Build diagnostics and tests",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.testStatus.skipped",
+      "description": "Windows canonical Build diagnostics and tests",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.tests.title",
+      "description": "Windows canonical Build diagnostics and tests",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.tests.run",
+      "description": "Windows canonical Build diagnostics and tests",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.tests.discover",
+      "description": "Windows canonical Build diagnostics and tests",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.targets.title",
+      "description": "Windows Build Provider target selectors and explicit Run save",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.targets.saveAndRun",
+      "description": "Windows Build Provider target selectors and explicit Run save",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.targets.saveFailed",
+      "description": "Windows Provider Run configuration save failure",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.targets.saveConflict",
+      "description": "Windows Provider Run configuration save failure",
+      "platforms": [
+        "windows"
+      ]
     },
     {
       "id": "macos.native.savedRunMigrationNeedsUpdate",
@@ -94860,7 +95307,8 @@
       "id": "run.provider.runtimeArguments",
       "description": "Provider Run configuration editor",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "Runtime arguments",
@@ -94871,7 +95319,8 @@
       "id": "run.provider.runtimeArgumentsHint",
       "description": "Provider Run configuration editor",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "Each row is one argument. Spaces, quotes and empty values are preserved.",
@@ -94882,7 +95331,8 @@
       "id": "run.provider.entrypoint",
       "description": "Provider Run configuration editor",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "Entry point",
@@ -95003,6 +95453,76 @@
         "key": "Downloading and verifying plugin…",
         "arguments": []
       }
+    },
+    {
+      "id": "build.options.title",
+      "description": "Windows local Build option editor and native storage",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.options.local",
+      "description": "Windows local Build option editor and native storage",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.options.option",
+      "description": "Windows local Build option editor and native storage",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.options.custom",
+      "description": "Windows local Build option editor and native storage",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.options.reset",
+      "description": "Windows local Build option editor and native storage",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.options.resetHint",
+      "description": "Windows local Build option editor and native storage",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.options.conflict",
+      "description": "Windows local Build option editor and native storage",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.options.invalid",
+      "description": "Windows local Build option editor and native storage",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.targets.saveAndDebug",
+      "description": "Save a Provider target selector and start Registry connection debugging",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.debug.unavailable",
+      "description": "An installed Registry connection adapter is absent, ambiguous or unsupported",
+      "platforms": [
+        "windows"
+      ]
     },
     {
       "id": "native.toolchainPreferences.buildToolDefaults",

@@ -29,6 +29,7 @@ export function runSessionId(configuration: Pick<RunConfiguration, "id" | "execu
 export function mapCoreConfiguration(value: CoreResolvedConfiguration): RunConfiguration {
   const maven = value.extensions?.maven;
   const java = value.extensions?.java;
+  const choices = value.extensions?.["build-run"];
   const source = value.source === "project" || value.source === "local" ? value.source : "generated";
   const execution = normalizeExecution(value.execution, value.provider);
   const presentation = runConfigurationPresentation(value, execution);
@@ -36,15 +37,19 @@ export function mapCoreConfiguration(value: CoreResolvedConfiguration): RunConfi
     id: value.id,
     name: value.name,
     provider: value.provider,
+    buildProvider: value.extensions?.build ? structuredClone(value.extensions.build) : undefined,
+    buildProject: java?.build ? structuredClone(java.build) : undefined,
+    ...(choices ? { providerRunOptions: structuredClone({ runtimeArguments: choices.runtimeArguments ?? [],
+      entrypoint: choices.entrypoint ?? "", options: choices.options ?? {}, ...(choices.tools ? { tools: choices.tools } : {}) }) } : {}),
     kindTitle: presentation.title,
     iconKey: presentation.iconKey,
     execution,
     category: normalizeCategory(value.category),
     toolchains: value.toolchains ?? {},
     debugAdapter: value.debug?.adapter,
-    modulePath: maven?.module && maven.module !== "." ? maven.module : undefined,
+    modulePath: (maven?.module ?? java?.module) && (maven?.module ?? java?.module) !== "." ? (maven?.module ?? java?.module) : undefined,
     mavenReactorPath: maven?.reactorPath,
-    mainClass: maven?.mainClass,
+    mainClass: maven?.mainClass ?? java?.mainClass,
     sourcePath: java?.source,
     cwd: value.cwd && value.cwd !== "." ? value.cwd : "",
     args: value.args ?? [],
@@ -321,7 +326,19 @@ export function mergeLaunchEnvironment(
 }
 
 export function joinArguments(values: string[]): string {
-  return values.join(" ");
+  return values.map(value => value && !/[\p{White_Space}"'\\]/u.test(value) ? value
+    : `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`).join(" ");
+}
+
+/** Editor text follows Core's argv grammar; portable choices keep exact arrays. */
+export function runOptionsFromConfiguration(configuration: RunConfiguration): RunOptions {
+  return {
+    javaHomePath: configuration.javaHomePath, mavenExecutablePath: configuration.mavenExecutablePath,
+    mavenJavaHomePath: configuration.mavenJavaHomePath, mavenSkipTests: configuration.mavenSkipTests,
+    workingDirectoryPath: configuration.cwd, vmArguments: joinArguments(configuration.jvmArguments),
+    programArguments: joinArguments(configuration.programArguments), environment: structuredClone(configuration.env),
+    ...(configuration.providerRunOptions ? { providerRunOptions: structuredClone(configuration.providerRunOptions) } : {}),
+  };
 }
 
 export function mapDiagnostics(values: Array<Record<string, string>> | undefined): RunDiagnostic[] {

@@ -1,0 +1,506 @@
+use super::*;
+use std::sync::atomic::{AtomicU64, Ordering};
+static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+#[test]
+fn windows_uri_and_canonical_paths_share_identity_without_rewriting_other_namespaces() {
+    assert_eq!(
+        native_path_key(r"\\?\C:\Users\User\Stage\file.json", true),
+        native_path_key("c:/users/user/stage/file.json", true)
+    );
+    assert_eq!(
+        native_path_key(r"\\?\UNC\server\share\Stage\file.json", true),
+        native_path_key("//SERVER/share/stage/file.json", true)
+    );
+    assert_ne!(
+        native_path_key(r"\\.\C:\file.json", true),
+        native_path_key("C:/file.json", true)
+    );
+    assert_ne!(
+        native_path_key("//?/C:/file.json", false),
+        native_path_key("C:/file.json", false)
+    );
+    assert_ne!(
+        native_path_key("C:/file.json.", true),
+        native_path_key("C:/file.json", true)
+    );
+}
+
+#[test]
+fn windows_ambiguous_names_cannot_be_used_for_native_staging() {
+    for name in [
+        "settings.xml.",
+        "settings.xml ",
+        "settings.xml:stream",
+        "NUL",
+        "Con.txt",
+        "com1.log",
+        "lpt9",
+    ] {
+        assert!(windows_ambiguous_component(name), "{name}");
+    }
+    for name in ["settings.xml", ".m2", "nullish", "com10", "project"] {
+        assert!(!windows_ambiguous_component(name), "{name}");
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_dos_aliases_and_device_paths_are_refused_before_creation() {
+    let fixture = Fixture::new();
+    for suffix in [
+        "settings.xml.",
+        "settings.xml ",
+        "settings.xml:stream",
+        "NUL.txt",
+        "COM1",
+    ] {
+        assert_eq!(
+            resolve_target(&fixture.root.join(suffix)),
+            Err(NativeConfigurationError::ReadOnly)
+        );
+    }
+    assert_eq!(
+        resolve_target(Path::new(r"\\.\C:\settings.xml")),
+        Err(NativeConfigurationError::ReadOnly)
+    );
+}
+
+struct Fixture {
+    root: PathBuf,
+    path: PathBuf,
+    manifest: Value,
+}
+impl Fixture {
+    fn new() -> Self {
+        let root = std::env::temp_dir().join(format!(
+            "lithe-native-settings-{}-{}",
+            std::process::id(),
+            SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&root).unwrap();
+        // URI roundtrip uses the same native path spelling as the public source check,
+        // including Windows drive paths without a verbatim prefix.
+        let root = url::Url::from_directory_path(root.canonicalize().unwrap())
+            .unwrap()
+            .to_file_path()
+            .unwrap();
+        Self { path: root.join("user settings.xml"), root,
+            manifest: serde_json::from_str(include_str!("../../../../../../shared/contracts/plugins/v1/fixtures/build-provider-configuration.plugin.json")).unwrap() }
+    }
+    fn snapshot(&self) -> Value {
+        let bytes = fs::read(&self.path).ok();
+        let revision = bytes
+            .map(|bytes| format!("sha256:{:x}", Sha256::digest(&bytes)))
+            .unwrap_or("missing".into());
+        json!({"format":"litheBuildConfiguration","version":1,"sources":[{
+            "id":"user","scope":"user","uri":url::Url::from_file_path(&self.path).unwrap().as_str(),
+            "revision":revision,"writable":true,
+            "fields":[{"id":"localRepository","kind":"directory","value":null,"effectiveValue":"inherited",
+                "effectiveSource":"default"}]
+        }]})
+    }
+    fn prepare(
+        &self,
+        snapshot: &Value,
+        value: Value,
+        protected: &[PathBuf],
+    ) -> Result<Option<PreparedNativeConfiguration>, NativeConfigurationError> {
+        let prepared = prepare(
+            &self.manifest,
+            "gradle",
+            snapshot,
+            &json!({"sourceID":"user","revision":snapshot["sources"][0]["revision"],"values":{"localRepository":value}}),
+            protected,
+            self.root.join(format!(
+                "staged-{}.json",
+                SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            )),
+        )?;
+        if let Some(ref prepared) = prepared {
+            let existing = fs::read_to_string(&self.path).unwrap_or("<settings/>".into());
+            let inserted = format!(
+                "<localRepository>{}</localRepository>",
+                value.as_str().unwrap_or("").replace('&', "&amp;")
+            );
+            let replacement = if existing.contains("</settings>") {
+                existing.replace("</settings>", &(inserted.clone() + "</settings>"))
+            } else {
+                existing.replace(
+                    "<settings/>",
+                    &("<settings>".to_owned() + &inserted + "</settings>"),
+                )
+            };
+            fs::write(prepared.output_file(), replacement).unwrap();
+        }
+        Ok(prepared)
+    }
+    fn commit(
+        &self,
+        prepared: PreparedNativeConfiguration,
+        protected: &[PathBuf],
+    ) -> Result<bool, NativeConfigurationError> {
+        let bytes = fs::read(prepared.output_file()).unwrap();
+        let receipt = json!({"format":"litheConfigurationEdit","version":1,"sourceID":"user",
+            "revision":format!("sha256:{:x}", Sha256::digest(&bytes)),"changed":true});
+        prepared.commit(protected, &receipt)
+    }
+}
+impl Drop for Fixture {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.root);
+    }
+}
+
+#[test]
+fn arbitrary_native_json_is_private_until_a_valid_staging_receipt_is_committed() {
+    let f = Fixture::new();
+    let original =
+        r#"{"localRepository":null,"password":"fixture-private-value","other":{"keep":true}}"#;
+    fs::write(&f.path, original).unwrap();
+    let snapshot = f.snapshot();
+    let edits = json!({"sourceID":"user","revision":snapshot["sources"][0]["revision"],"values":{"localRepository":"new"}});
+    let output = f.root.join("native-stage.json");
+    let staged = prepare(
+        &f.manifest,
+        "gradle",
+        &snapshot,
+        &edits,
+        &[],
+        output.clone(),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(fs::read(&output).unwrap(), b"");
+    let replacement = original.replace("null", "\"new\"");
+    fs::write(&output, &replacement).unwrap();
+    let wrong = json!({"format":"litheConfigurationEdit","version":1,"sourceID":"user","revision":format!("sha256:{}", "b".repeat(64)),"changed":true});
+    assert_eq!(
+        staged.commit(&[], &wrong),
+        Err(NativeConfigurationError::Conflict)
+    );
+    assert!(!output.exists());
+    assert_eq!(fs::read_to_string(&f.path).unwrap(), original);
+    let staged = prepare(
+        &f.manifest,
+        "gradle",
+        &snapshot,
+        &edits,
+        &[],
+        output.clone(),
+    )
+    .unwrap()
+    .unwrap();
+    fs::write(&output, &replacement).unwrap();
+    let receipt = json!({"format":"litheConfigurationEdit","version":1,"sourceID":"user","revision":format!("sha256:{:x}", Sha256::digest(replacement.as_bytes())),"changed":true});
+    assert_eq!(staged.commit(&[], &receipt), Ok(true));
+    assert!(!output.exists());
+    assert_eq!(fs::read_to_string(&f.path).unwrap(), replacement);
+    let staged = prepare(&f.manifest, "gradle", &f.snapshot(), &json!({"sourceID":"user","revision":f.snapshot()["sources"][0]["revision"],"values":{"localRepository":"again"}}), &[], output.clone()).unwrap().unwrap();
+    drop(staged);
+    assert!(
+        !output.exists(),
+        "Cancellation/revocation drops private staging without publication"
+    );
+    assert_eq!(fs::read_to_string(&f.path).unwrap(), replacement);
+}
+
+#[test]
+fn source_checks_return_only_versions_and_paths_for_existing_or_missing_files() {
+    let f = Fixture::new();
+    let missing = f.snapshot();
+    assert_eq!(check_sources(&missing["sources"]).unwrap()["current"], true);
+    fs::write(
+        &f.path,
+        "<settings><servers>fixture-private-value</servers></settings>",
+    )
+    .unwrap();
+    assert_eq!(
+        check_sources(&missing["sources"]).unwrap()["current"],
+        false
+    );
+    let result = check_sources(&f.snapshot()["sources"]).unwrap();
+    assert_eq!(result["current"], true);
+    assert_eq!(result["paths"][0], f.path.to_string_lossy().as_ref());
+    assert!(!result.to_string().contains("fixture-private-value"));
+    assert!(!result.to_string().contains("settings>"));
+    fs::remove_file(&f.path).unwrap();
+    assert_eq!(check_sources(&missing["sources"]).unwrap()["current"], true);
+}
+
+#[test]
+fn source_checks_bound_requests_and_reject_non_files_before_opening() {
+    let f = Fixture::new();
+    let snapshot = f.snapshot();
+    let mut invalid = snapshot["sources"].clone();
+    invalid[0]["revision"] = json!("invalid");
+    assert_eq!(
+        check_sources(&invalid),
+        Err(NativeConfigurationError::Invalid)
+    );
+    assert_eq!(
+        check_sources(&json!(vec![snapshot["sources"][0].clone(); 17])),
+        Err(NativeConfigurationError::Invalid)
+    );
+    fs::create_dir(&f.path).unwrap();
+    assert_eq!(
+        check_sources(&snapshot["sources"]),
+        Err(NativeConfigurationError::Unreadable)
+    );
+}
+
+#[test]
+fn source_checks_can_observe_read_only_installation_settings_without_enabling_writes() {
+    let f = Fixture::new();
+    fs::write(&f.path, "<settings/>").unwrap();
+    let original = fs::metadata(&f.path).unwrap().permissions();
+    struct Restore(PathBuf, fs::Permissions);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            fs::set_permissions(&self.0, self.1.clone()).unwrap();
+        }
+    }
+    let _restore = Restore(f.path.clone(), original.clone());
+    let mut read_only = original;
+    read_only.set_readonly(true);
+    fs::set_permissions(&f.path, read_only).unwrap();
+    let snapshot = f.snapshot();
+    assert_eq!(
+        check_sources(&snapshot["sources"]).unwrap()["current"],
+        true
+    );
+    assert!(matches!(
+        f.prepare(&snapshot, json!("new"), &[]),
+        Err(NativeConfigurationError::ReadOnly)
+    ));
+}
+
+#[test]
+fn edits_preserve_comments_secrets_and_permissions_through_existing_atomic_publication() {
+    let f = Fixture::new();
+    fs::write(&f.path,"<settings><!--preserved--><servers><server><password>fixture-private-value</password></server></servers></settings>").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&f.path, fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    let original = fs::read(&f.path).unwrap();
+    let prepared = f
+        .prepare(&f.snapshot(), json!("selected repository"), &[])
+        .unwrap()
+        .unwrap();
+    assert_eq!(fs::read(&f.path).unwrap(), original, "prepare is read-only");
+    f.commit(prepared, &[]).unwrap();
+    let saved = fs::read_to_string(&f.path).unwrap();
+    assert!(
+        saved.contains("<!--preserved-->")
+            && saved.contains("<password>fixture-private-value</password>")
+    );
+    assert!(saved.contains("<localRepository>selected repository</localRepository>"));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            fs::metadata(&f.path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+    assert!(fs::read_dir(&f.root).unwrap().all(|entry| {
+        !entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .starts_with(".lithe-document-")
+    }));
+}
+
+#[test]
+fn utf8_bom_and_unicode_edits_keep_the_exact_read_revision() {
+    let f = Fixture::new();
+    fs::write(
+        &f.path,
+        "\u{feff}<?xml version=\"1.0\" encoding=\"UTF-8\"?><settings><!--保留--></settings>",
+    )
+    .unwrap();
+    let prepared = f
+        .prepare(&f.snapshot(), json!("仓库 & spaced value"), &[])
+        .unwrap()
+        .unwrap();
+    f.commit(prepared, &[]).unwrap();
+    let result = fs::read_to_string(&f.path).unwrap();
+    assert!(result.starts_with('\u{feff}'));
+    assert!(result.contains("<!--保留-->") && result.contains("仓库 &amp; spaced value"));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_file_made_read_only_after_prepare_cannot_be_committed() {
+    use std::os::unix::fs::PermissionsExt;
+    let f = Fixture::new();
+    fs::write(&f.path, "<settings/>").unwrap();
+    let prepared = f
+        .prepare(&f.snapshot(), json!("repository"), &[])
+        .unwrap()
+        .unwrap();
+    fs::set_permissions(&f.path, fs::Permissions::from_mode(0o400)).unwrap();
+    assert_eq!(
+        f.commit(prepared, &[]),
+        Err(NativeConfigurationError::Unreadable)
+    );
+    assert_eq!(fs::read_to_string(&f.path).unwrap(), "<settings/>");
+}
+
+#[test]
+fn unchanged_inherited_values_never_create_a_file_or_parent() {
+    let mut f = Fixture::new();
+    f.path = f.root.join("missing/parent/settings.xml");
+    assert!(
+        f.prepare(&f.snapshot(), Value::Null, &[])
+            .unwrap()
+            .is_none()
+    );
+    assert!(!f.root.join("missing").exists());
+}
+
+#[test]
+fn a_changed_missing_source_is_created_only_during_commit() {
+    let mut f = Fixture::new();
+    f.path = f.root.join("new parent/settings.xml");
+    let prepared = f
+        .prepare(&f.snapshot(), json!("repository"), &[])
+        .unwrap()
+        .unwrap();
+    assert!(!f.path.parent().unwrap().exists());
+    f.commit(prepared, &[]).unwrap();
+    assert!(
+        fs::read_to_string(&f.path)
+            .unwrap()
+            .contains("<localRepository>repository</localRepository>")
+    );
+}
+
+#[test]
+fn external_edit_between_prepare_and_commit_is_preserved_without_returning_native_text() {
+    let f = Fixture::new();
+    fs::write(&f.path, "<settings/>").unwrap();
+    let prepared = f
+        .prepare(&f.snapshot(), json!("repository"), &[])
+        .unwrap()
+        .unwrap();
+    let external = "<settings><servers><server><password>external-private-value</password></server></servers></settings>";
+    fs::write(&f.path, external).unwrap();
+    assert_eq!(
+        f.commit(prepared, &[]),
+        Err(NativeConfigurationError::Conflict)
+    );
+    assert_eq!(fs::read_to_string(&f.path).unwrap(), external);
+}
+
+#[test]
+fn a_concurrent_creator_is_never_overwritten() {
+    let f = Fixture::new();
+    let prepared = f
+        .prepare(&f.snapshot(), json!("repository"), &[])
+        .unwrap()
+        .unwrap();
+    fs::write(&f.path, "<settings><!--concurrent creator--></settings>").unwrap();
+    assert_eq!(
+        f.commit(prepared, &[]),
+        Err(NativeConfigurationError::Conflict)
+    );
+    assert!(
+        fs::read_to_string(&f.path)
+            .unwrap()
+            .contains("concurrent creator")
+    );
+}
+
+#[test]
+fn installed_and_plugin_roots_are_read_only_even_when_a_source_claims_to_be_writable() {
+    let f = Fixture::new();
+    fs::write(&f.path, "<settings/>").unwrap();
+    assert!(matches!(
+        f.prepare(&f.snapshot(), json!("repository"), &[f.root.clone()]),
+        Err(NativeConfigurationError::ReadOnly)
+    ));
+    let prepared = f
+        .prepare(&f.snapshot(), json!("repository"), &[])
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        f.commit(prepared, &[f.root.clone()]),
+        Err(NativeConfigurationError::ReadOnly)
+    );
+    let mut snapshot = f.snapshot();
+    snapshot["sources"][0]["scope"] = json!("installation");
+    assert!(matches!(
+        f.prepare(&snapshot, json!("repository"), &[]),
+        Err(NativeConfigurationError::ReadOnly)
+    ));
+}
+
+#[test]
+fn malformed_oversized_or_changed_native_sources_fail_without_rewriting() {
+    let f = Fixture::new();
+    fs::write(&f.path, "<settings/>").unwrap();
+    let snapshot = f.snapshot();
+    fs::write(&f.path, "<settings><!--external--></settings>").unwrap();
+    assert!(matches!(
+        f.prepare(&snapshot, json!("repository"), &[]),
+        Err(NativeConfigurationError::Conflict)
+    ));
+    fs::write(&f.path, [0xff, 0xfe]).unwrap();
+    assert!(matches!(
+        f.prepare(&f.snapshot(), json!("repository"), &[]),
+        Err(NativeConfigurationError::Unreadable)
+    ));
+    fs::write(&f.path, vec![b'x'; MAX_BYTES as usize + 1]).unwrap();
+    assert!(matches!(
+        f.prepare(&f.snapshot(), json!("repository"), &[]),
+        Err(NativeConfigurationError::Unreadable)
+    ));
+    let dtd = "<!DOCTYPE settings [<!ENTITY x SYSTEM 'file:///private'>]><settings/>";
+    fs::write(&f.path, dtd).unwrap();
+    // Native publication does not interpret any format. XML safety belongs to
+    // the Maven backend and is covered by its configuration-edit integration.
+    let staged = f
+        .prepare(&f.snapshot(), json!("repository"), &[])
+        .unwrap()
+        .unwrap();
+    assert_eq!(fs::read_to_string(&f.path).unwrap(), dtd);
+    drop(staged);
+}
+
+#[cfg(unix)]
+#[test]
+fn redirected_links_and_distinct_aliases_cannot_change_the_approved_source() {
+    use std::os::unix::fs::symlink;
+    let f = Fixture::new();
+    let first = f.root.join("first.xml");
+    let other = f.root.join("other.xml");
+    fs::write(&first, "<settings/>").unwrap();
+    fs::write(&other, "<settings/>").unwrap();
+    symlink(&first, &f.path).unwrap();
+    let mut snapshot = f.snapshot();
+    let prepared = f
+        .prepare(&snapshot, json!("repository"), &[])
+        .unwrap()
+        .unwrap();
+    fs::remove_file(&f.path).unwrap();
+    symlink(&other, &f.path).unwrap();
+    assert_eq!(
+        f.commit(prepared, &[]),
+        Err(NativeConfigurationError::Conflict)
+    );
+    assert_eq!(fs::read_to_string(&other).unwrap(), "<settings/>");
+    let mut alias = snapshot["sources"][0].clone();
+    alias["id"] = json!("installation");
+    alias["scope"] = json!("installation");
+    alias["writable"] = json!(false);
+    alias["uri"] = json!(url::Url::from_file_path(&other).unwrap().as_str());
+    snapshot["sources"].as_array_mut().unwrap().push(alias);
+    assert!(matches!(
+        f.prepare(&snapshot, json!("repository"), &[]),
+        Err(NativeConfigurationError::ReadOnly)
+    ));
+}

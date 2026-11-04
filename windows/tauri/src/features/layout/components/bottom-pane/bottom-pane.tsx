@@ -4,6 +4,7 @@ import { isBackendCapabilityAvailable } from "@/config/backend-capabilities";
 import DebuggerView from "@/features/debugger/components/debugger-view";
 import DiagnosticsBuffer from "@/features/diagnostics/components/diagnostics-buffer";
 import MavenRunPane from "@/features/maven/components/maven-run-pane";
+import BuildOutputPane from "@/features/build/components/build-output-pane";
 import RunPane from "@/features/run/components/run-pane";
 import SpringEndpointsPane from "@/features/spring/components/spring-endpoints-pane";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
@@ -294,6 +295,7 @@ const BottomPane = () => {
             <MavenRunPane />
           </div>
         )}
+        {bottomPaneActiveTab === "build" ? <div className="h-full"><BuildOutputPane /></div> : null}
 
         {bottomPaneActiveTab === "diagnostics" && (
           <div className="h-full">

@@ -26,7 +26,13 @@
       "windows/tauri/src/features/host-api/ide-capabilities.ts",
       "windows/tauri/src/features/host-api/mcp-settings.tsx",
       "windows/tauri/src/features/host-api/ide-capabilities.test.ts",
-      "rust/lithe-ide-host/src/lib.rs"
+      "rust/lithe-ide-host/src/lib.rs",
+      "windows/tauri/src/features/host-api/ide-tool-exposure.ts",
+      "windows/tauri/src/features/host-api/mcp-lifecycle.test.ts",
+      "shared/fixtures/ide-api/host-tool-exposure.json",
+      "windows/tauri/src/features/host-api/ide-build-capabilities.ts",
+      "windows/tauri/src/features/build/services/build-provider-workspace.ts",
+      "windows/tauri/src/features/build/services/build-provider-workspace.test.ts"
     ]
   },
   "owner": "Agent",

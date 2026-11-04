@@ -6,9 +6,9 @@
 //! the input is copied to a private snapshot first, Core's
 //! `plugins.marketplace.installReview` produces the permission and program
 //! summary the user confirms, and installation re-validates the staged bytes
-//! before they replace the active version. Package trust comes only from this
-//! explicit review; there is no signature verification in v0 (recorded gap in
-//! the declarative plugin host note).
+//! before they replace the active version. A present publisher signature is
+//! verified using the host's pinned key. The legacy unsigned review route
+//! remains separate and never proves official publisher origin.
 
 use super::scan::{core_execute, validate_manifest};
 use super::store::{self, InstallationRecord};
@@ -112,6 +112,7 @@ fn prepare_disk_install(app: AppHandle, source_path: String) -> Result<PreparedI
             ));
         }
         let manifest = read_snapshot_manifest(&snapshot)?;
+        super::trust::publisher(&snapshot, &manifest)?;
         Ok(PreparedInstall {
             session_id,
             review: review_snapshot(&manifest, None)?,
@@ -140,6 +141,12 @@ pub async fn declarative_plugins_confirm_disk_install(
     let snapshot = snapshot_path(&app, &session_id)?;
     let result = async {
         let manifest = read_snapshot_manifest(&snapshot)?;
+        let checked_snapshot = snapshot.clone();
+        let checked_manifest = manifest.clone();
+        crate::blocking::run_blocking(move || {
+            super::trust::publisher(&checked_snapshot, &checked_manifest)
+        })
+        .await?;
         if content_digest(&manifest) != manifest_digest {
             return Err("the package changed after review; the import was cancelled".to_string());
         }
@@ -164,9 +171,19 @@ pub async fn declarative_plugins_confirm_disk_install(
         // A version switch invalidates the page's package bytes and bridge
         // authorization, so destroy all owned webviews before staging starts.
         let mutation = super::lifecycle::begin(&app, &plugin_id).await?;
-        staging_install(&install_root, &plugin_id, &version, &snapshot)?;
-        write_installation_record(&install_root, &plugin_id, &version)?;
-        rescan_after_change(&app)?;
+        let (staged_plugin, staged_version, staged_snapshot) =
+            (plugin_id.clone(), version.clone(), snapshot.clone());
+        crate::blocking::run_blocking(move || {
+            staging_install(
+                &install_root,
+                &staged_plugin,
+                &staged_version,
+                &staged_snapshot,
+            )?;
+            write_installation_record(&install_root, &staged_plugin, &staged_version)
+        })
+        .await?;
+        rescan_after_change(&app).await?;
         mutation.complete(true);
         Ok(catalog_entry_of(&app, &plugin_id)
             .unwrap_or_else(|| accepted_entry_fallback(&plugin_id, &version)))
@@ -227,7 +244,7 @@ pub async fn declarative_plugins_uninstall(
         std::fs::remove_dir_all(&state_directory)
             .map_err(|error| format!("state directory could not be removed: {error}"))?;
     }
-    rescan_after_change(&app)?;
+    rescan_after_change(&app).await?;
     mutation.complete(false);
     Ok(())
 }
@@ -257,7 +274,7 @@ pub async fn declarative_plugins_set_enabled(
     )
     .map_err(|error| error.to_string())?;
     std::fs::rename(&temp_path, &record_path).map_err(|error| error.to_string())?;
-    rescan_after_change(&app)?;
+    rescan_after_change(&app).await?;
     mutation.complete(enabled);
     Ok(())
 }
@@ -294,14 +311,18 @@ pub async fn declarative_plugins_rollback(app: AppHandle, plugin_id: String) -> 
         ));
     };
     let mutation = super::lifecycle::begin(&app, &plugin_id).await?;
-    staging_install(
-        &install_root,
-        &plugin_id,
-        &previous,
-        &plugin_directory.join(&previous),
-    )?;
-    write_installation_record(&install_root, &plugin_id, &previous)?;
-    rescan_after_change(&app)?;
+    let staged_plugin = plugin_id.clone();
+    crate::blocking::run_blocking(move || {
+        staging_install(
+            &install_root,
+            &staged_plugin,
+            &previous,
+            &plugin_directory.join(&previous),
+        )?;
+        write_installation_record(&install_root, &staged_plugin, &previous)
+    })
+    .await?;
+    rescan_after_change(&app).await?;
     mutation.complete(true);
     Ok(())
 }
@@ -370,6 +391,7 @@ fn staging_validate_and_activate(
     version_directory: &Path,
 ) -> Result<(), String> {
     let staged_manifest = read_snapshot_manifest(staging_directory)?;
+    super::trust::publisher(staging_directory, &staged_manifest)?;
     validate_manifest(&staged_manifest).map_err(|rejection| rejection.message)?;
     if !version_directory.exists() {
         return std::fs::rename(staging_directory, version_directory)
@@ -597,10 +619,14 @@ fn string_list(value: &serde_json::Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn rescan_after_change(app: &AppHandle) -> Result<(), String> {
-    app.state::<PluginHostState>()
-        .refresh(|| super::scan::build_catalog(app))
-        .map(|_| ())
+async fn rescan_after_change(app: &AppHandle) -> Result<(), String> {
+    let app = app.clone();
+    crate::blocking::run_blocking(move || {
+        app.state::<PluginHostState>()
+            .refresh(|| super::scan::build_catalog(&app))
+            .map(|_| ())
+    })
+    .await
 }
 
 fn catalog_entry_of(app: &AppHandle, plugin_id: &str) -> Option<CatalogEntry> {

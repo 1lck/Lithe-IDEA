@@ -29,7 +29,10 @@
       "windows/tauri/src/features/host-api/mcp-lifecycle.test.ts",
       "windows/tauri/src/features/host-api/mcp-lifecycle.ts",
       "windows/tauri/src/platform/ide-request-events.ts",
-      "windows/tauri/src/features/host-api/mcp-events.integration.test.ts"
+      "windows/tauri/src/features/host-api/mcp-events.integration.test.ts",
+      "shared/fixtures/ide-api/host-tool-exposure.json",
+      "windows/tauri/src/features/host-api/ide-build-capabilities.ts",
+      "windows/tauri/src/features/build/services/build-workspace-controller.ts"
     ]
   },
   "owner": "Agent",

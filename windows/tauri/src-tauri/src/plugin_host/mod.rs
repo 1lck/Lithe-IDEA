@@ -8,6 +8,10 @@
 //! capability rollout are recorded in
 //! .agents/notes/implemented/architecture/2026-10-22-windows-declarative-plugin-host.md
 
+pub mod build;
+pub mod build_configuration;
+pub mod build_tools;
+pub mod debug;
 pub mod install;
 #[cfg(test)]
 mod install_tests;
@@ -19,6 +23,9 @@ pub mod settings;
 pub mod store;
 #[cfg(test)]
 mod tests;
+pub mod toolchain_preparation;
+mod toolchain_queries;
+mod trust;
 pub mod web;
 
 use serde::Serialize;
@@ -42,6 +49,13 @@ pub fn host_capabilities() -> Value {
         "settings": [1, 2],
         "ui": [1, 2],
     })
+}
+
+/// Lets the product select its migration path from actual host admission,
+/// without reading project files or starting a tool just to inspect a flag.
+#[tauri::command]
+pub fn declarative_plugins_host_capabilities() -> Value {
+    host_capabilities()
 }
 
 /// Host CPU architecture in the vocabulary Core launch templates expect
@@ -108,6 +122,8 @@ pub struct ScannedPackage {
     pub root: PathBuf,
     /// Raw manifest; plan commands are pure functions and take it every time.
     pub manifest: Value,
+    /// Exact signed content seen during the scan; absent never proves origin.
+    pub publisher: Option<lithe_project::plugin_signature::VerifiedPublisher>,
 }
 
 /// Cached scan result. The frontend rescans at startup and after installs,
@@ -115,7 +131,7 @@ pub struct ScannedPackage {
 #[derive(Default)]
 pub struct PluginHostState {
     scan_lock: Mutex<()>,
-    packages: Mutex<Vec<ScannedPackage>>,
+    packages: Mutex<(u64, Vec<ScannedPackage>)>,
 }
 
 impl PluginHostState {
@@ -136,14 +152,32 @@ impl PluginHostState {
     }
 
     pub fn set_packages(&self, packages: Vec<ScannedPackage>) {
-        *self.packages.lock().expect("plugin host catalog mutex") = packages;
+        let mut snapshot = self.packages.lock().expect("plugin host catalog mutex");
+        snapshot.0 = snapshot
+            .0
+            .checked_add(1)
+            .expect("plugin catalog generation");
+        snapshot.1 = packages;
     }
 
     pub fn packages(&self) -> Vec<ScannedPackage> {
         self.packages
             .lock()
             .expect("plugin host catalog mutex")
+            .1
             .clone()
+    }
+
+    /// Generation and packages are captured under the same publication lock.
+    pub(super) fn snapshot(&self) -> (u64, Vec<ScannedPackage>) {
+        self.packages
+            .lock()
+            .expect("plugin host catalog mutex")
+            .clone()
+    }
+
+    pub(super) fn generation(&self) -> u64 {
+        self.packages.lock().expect("plugin host catalog mutex").0
     }
 }
 

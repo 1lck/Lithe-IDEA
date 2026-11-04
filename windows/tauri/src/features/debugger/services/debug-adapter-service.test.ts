@@ -27,7 +27,7 @@ mock.module("@tauri-apps/api/event", () => ({
     };
   },
 }));
-const { applyJavaCodeChanges, startConnectedDebugLaunchSession } =
+const { applyJavaCodeChanges, startConnectedDebugLaunchSession, startRegisteredConnectionDebugSession } =
   await import("./debug-adapter-service");
 
 beforeEach(() => {
@@ -121,6 +121,16 @@ test("the real native request envelope queues breakpoints before Java attach and
   });
 });
 
+test("Registry attach preserves adapter identity, disabled capabilities and complete Core arguments",async()=>{
+  const arguments_={connect:{host:"127.0.0.1",port:51234},env:{OWNED:"kept"},program:"provider-owned",args:["","two words"]};
+  await startRegisteredConnectionDebugSession({pluginId:"dev.example.debug",adapterID:"dev.example.debug/remote",configurationType:"engine.remote",port:51234,
+    arguments:arguments_,identity:{revision:1},adapter:{adapterID:"engine-dap",transport:"tcpLanguageServer",disabledCapabilities:["supportsRestartRequest"]},
+    languageId:"engine",command:"engine.startDebug",launch:{serverPath:"fixture-server",serverArgs:[],environment:{}}},
+    4711,"Service",[],"D:/work",()=>{},()=>{});
+  expect(invoke.mock.calls[0]).toEqual(["debug_connect_session",{launch:{adapterID:"engine-dap",disabledCapabilities:["supportsRestartRequest"],workspacePath:"D:/work",port:4711}}]);
+  expect(invoke.mock.calls[1]?.[1].request).toMatchObject({command:"attach",arguments:{...arguments_,name:"Service",type:"engine.remote",request:"attach"}});
+  expect(invoke.mock.calls[2]?.[0]).toBe("debug_session_ready");
+},5000);
 
 test("Java attach waits for source edits and reads fresh breakpoint lines after the barrier", async () => {
   const { useDebuggerStore } = await import("../stores/debugger.store");

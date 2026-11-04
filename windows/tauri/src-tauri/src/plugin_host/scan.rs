@@ -52,6 +52,17 @@ fn scan_package(package: DiscoveredPackage) -> ScannedPackage {
             catalog_rejection("plugin.store.installationRecordInvalid", problem, None),
         );
     }
+    let publisher = match super::trust::publisher(&package.root, &manifest) {
+        Ok(publisher) => publisher,
+        Err(message) => {
+            return quarantined(
+                package,
+                manifest_id(&manifest).unwrap_or(fallback_id),
+                &manifest_version(&manifest).unwrap_or_default(),
+                catalog_rejection(super::trust::INVALID_SIGNATURE, message, None),
+            )
+        }
+    };
     match validate_manifest(&manifest) {
         Ok(plugin) => {
             let entry = CatalogEntry {
@@ -85,6 +96,7 @@ fn scan_package(package: DiscoveredPackage) -> ScannedPackage {
                 entry,
                 root: package.root,
                 manifest,
+                publisher,
             }
         }
         Err(rejection) => quarantined(
@@ -119,6 +131,7 @@ fn quarantined(
         },
         root: package.root,
         manifest: Value::Null,
+        publisher: None,
     }
 }
 

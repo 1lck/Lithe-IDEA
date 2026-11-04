@@ -20,7 +20,20 @@
   "windows": {
     "evidence": [
       "rust/lithe-core/src/build/model_inputs.rs",
-      "shared/contracts/plugins/v1/plugin-manifest.schema.json"
+      "shared/contracts/plugins/v1/plugin-manifest.schema.json",
+      "windows/tauri/crates/project/src/native_configuration.rs",
+      "windows/tauri/crates/project/src/document_watcher.rs",
+      "windows/tauri/src/features/build/services/build-configuration-watch.ts",
+      "windows/tauri/src/features/build/services/build-configuration-watch.test.ts",
+      "windows/tauri/src/platform/document-watch-inputs.ts",
+      "windows/tauri/src/features/editor/services/document-watch-controller.test.ts",
+      "windows/tauri/src/features/build/services/build-model-preparation-owner.ts",
+      "windows/tauri/src/features/build/services/build-model-preparation-owner.test.ts",
+      "windows/tauri/src/features/build/services/build-run-preparation.ts",
+      "windows/tauri/src-tauri/src/plugin_host/build_tools.rs",
+      "windows/tauri/src/features/run/services/build-provider-run-launch.test.ts",
+      "rust/lithe-core/src/execution/configuration/project_toolchain.rs",
+      "shared/fixtures/run-configuration/configuration-toolchain-selection.json"
     ],
     "implementationStatus": "missing",
     "verificationStatus": "not-applicable"

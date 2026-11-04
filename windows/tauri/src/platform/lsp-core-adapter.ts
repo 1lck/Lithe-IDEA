@@ -47,6 +47,7 @@ const POLL_INTERVAL_MS = 20;
 interface PendingOperation {
   resolve: (value: unknown) => void;
   reject: (reason: Error) => void;
+  progress?: (value: unknown) => void;
 }
 
 type EventPumpState =
@@ -69,6 +70,8 @@ interface Session {
   /** Provider identity used to stop all sessions owned by a plugin. */
   providerId: string;
   pluginId?: string;
+  /** Native launch inputs of this process; absent on recovered legacy state. */
+  pluginLaunchIdentity?: string;
   files: Set<string>;
   lifecycle: LspSessionLifecycle;
   eventPump: EventPumpOwner | null;
@@ -114,6 +117,7 @@ interface RuntimeError {
 
 interface RuntimeEvent {
   type: string;
+  method?: string;
   providerId?: string;
   sessionId?: string;
   state?: CoreLspSessionState;
@@ -149,6 +153,8 @@ const fileSessions = new Map<string, FileAttachment>();
 const sessionStarts = new Map<string, Promise<Session>>();
 const startOwners = new Map<string, string>();
 const providerGenerations = new Map<string, number>();
+const workspaceGenerations = new Map<string, number>();
+const buildProviderStops = new Map<string, Promise<void>>();
 const sessionStops = new Map<string, Promise<void>>();
 const stoppingSessionIds = new Set<string>();
 const pendingFileSessions = new Map<string, PendingFileAttachment>();
@@ -442,6 +448,10 @@ function isInitializationTimeout(reason: unknown): boolean {
 }
 
 async function dispatchSessionEvent(session: Session, event: RuntimeEvent): Promise<void> {
+  if (event.type === "requestProgress" && event.operationId) {
+    session.pending.get(event.operationId)?.progress?.(event.result);
+    return;
+  }
   if (event.type === "projectPreparation" && event.result && session.languageId === "java") {
     updateProjectPreparation(session.workspacePath, session.id, event.result as ProjectPreparation);
   }
@@ -508,6 +518,9 @@ async function dispatchSessionEvent(session: Session, event: RuntimeEvent): Prom
   if (event.type !== "requestCompleted" || !event.operationId) return;
   const pending = session.pending.get(event.operationId);
   if (!pending) {
+    // Build operations register before submission. A cancelled/completed
+    // operation must never retain a late reply or revive a progress stream.
+    if (event.method?.startsWith("lithe/build/") || session.languageId.startsWith("buildProvider:")) return;
     session.completed.set(event.operationId, event);
     return;
   }
@@ -525,6 +538,124 @@ async function dispatchSessionEvent(session: Session, event: RuntimeEvent): Prom
   } else {
     pending.resolve(event.result);
   }
+}
+
+export interface CoreBuildProviderTarget {
+  workspacePath: string;
+  pluginId: string;
+  buildSystemId: string;
+}
+
+function buildProviderSessionKey(target: CoreBuildProviderTarget): string {
+  return `buildProvider:${target.pluginId}:${target.buildSystemId}`;
+}
+
+/** Starts a document-free backend through the same Core process/event runtime
+ * as language servers. Native launch resolution remains the platform's job. */
+export async function startCoreBuildProvider(target: CoreBuildProviderTarget, launch: {
+  serverPath: string;
+  serverArgs: string[];
+  environment: Record<string, string>;
+  initializationOptions?: unknown;
+}): Promise<void> {
+  const key = sessionKey(target.workspacePath, buildProviderSessionKey(target));
+  if (buildProviderStops.has(key)) throw lspAdapterError("cancelled", "Build Provider is stopping.");
+  await start({ ...launch, workspacePath: target.workspacePath, pluginId: target.pluginId,
+    providerId: target.pluginId, languageId: buildProviderSessionKey(target) });
+}
+
+/** Stops only this plugin/build-system/workspace, including a late start. */
+export async function stopCoreBuildProvider(target: CoreBuildProviderTarget): Promise<void> {
+  const key = sessionKey(target.workspacePath, buildProviderSessionKey(target));
+  let stopping = buildProviderStops.get(key);
+  if (!stopping) {
+    const pending = sessionStarts.get(key);
+    stopping = (async () => {
+      const current = sessions.get(key);
+      if (current) await stopSession(current);
+      if (pending) await pending.catch(() => undefined);
+      const late = sessions.get(key);
+      if (late) await stopSession(late);
+    })().finally(() => { if (buildProviderStops.get(key) === stopping) buildProviderStops.delete(key); });
+    buildProviderStops.set(key, stopping);
+  }
+  await stopping;
+}
+
+/** Submits an already planned public Build request. The host ID is registered
+ * before IPC so progress/completion arriving before its acknowledgement is safe.
+ * Cancellation affects this operation only, preserving other workspace users. */
+export async function requestCoreBuildProvider<T>(target: CoreBuildProviderTarget, request: {
+  method: string;
+  params: unknown;
+  timeoutMilliseconds: number;
+  signal?: AbortSignal;
+  onProgress?: (value: unknown) => void;
+}): Promise<T> {
+  assertPluginActive(target.pluginId);
+  request.signal?.throwIfAborted();
+  if (!Number.isSafeInteger(request.timeoutMilliseconds) || request.timeoutMilliseconds < 1 || request.timeoutMilliseconds > 3_600_000) {
+    throw lspAdapterError("invalid_request", "Invalid Build Provider deadline.");
+  }
+  const session = sessionForWorkspace(target.workspacePath, buildProviderSessionKey(target));
+  if (buildProviderStops.has(sessionKey(target.workspacePath, session.languageId))) {
+    throw lspAdapterError("cancelled", "Build Provider is stopping.");
+  }
+  if (session.pluginId !== target.pluginId) throw lspAdapterError("invalid_request", "Build Provider ownership changed.");
+  const operationId = crypto.randomUUID();
+  return new Promise<T>((resolve, reject) => {
+    let submitted = false, cancelled = false;
+    const cancel = () => core("lsp.cancelOperation", { sessionId: session.id, operationId }, operationId)
+      .catch(reason => frontendTrace("warn", "build.lifecycle", "request:cancelFailed", {
+        sessionId: session.id, operationId, error: String(reason),
+      }));
+    const cleanup = () => {
+      session.pending.delete(operationId);
+      clearTimeout(timer);
+      request.signal?.removeEventListener("abort", abort);
+    };
+    const fail = (error: Error) => { cleanup(); reject(error); };
+    const abort = () => {
+      cancelled = true;
+      if (submitted) void cancel();
+      fail(lspAdapterError("cancelled", "Build Provider request was cancelled."));
+    };
+    const timer = setTimeout(() => {
+      cancelled = true;
+      if (submitted) void cancel();
+      fail(lspAdapterError("timed_out", "Build Provider request timed out."));
+    }, request.timeoutMilliseconds + CORE_DEADLINE_GRACE_MS);
+    session.pending.set(operationId, {
+      resolve: value => {
+        if (!value || typeof value !== "object" || !("value" in value)) {
+          fail(lspAdapterError("invalid_response", "Core returned an invalid Build response envelope."));
+          return;
+        }
+        cleanup(); resolve((value as { value: T }).value);
+      },
+      reject: fail,
+      progress: value => {
+        try { request.onProgress?.(value); }
+        catch (error) {
+          cancelled = true;
+          if (submitted) void cancel();
+          fail(error instanceof Error ? error : new Error(String(error)));
+        }
+      },
+    });
+    request.signal?.addEventListener("abort", abort, { once: true });
+    void core<{ operationId: string }>("lsp.buildRequest", {
+      sessionId: session.id, operationId, method: request.method, params: request.params,
+      timeoutMilliseconds: request.timeoutMilliseconds,
+    }, operationId).then(async result => {
+      submitted = true;
+      if (cancelled) { await cancel(); return; }
+      if (result.operationId !== operationId) {
+        await cancel();
+        fail(lspAdapterError("invalid_response", "Core returned a different Build operation identity."));
+      }
+    }).catch(error => fail(error instanceof Error ? error : new Error(String(error))));
+  });
 }
 
 /** One `textDocument/publishDiagnostics` payload as the editor receives it. */
@@ -767,10 +898,42 @@ function parseDebugServerPort(value: unknown): number {
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
     throw lspAdapterError(
       "invalid_response",
-      "The Java language service returned an invalid debug-server port.",
+      "The language service returned an invalid debug-server port.",
     );
   }
   return port;
+}
+
+/** A tcpLanguageServer endpoint belongs to the selected adapter's own plugin.
+ * Reuse its shared language session; never issue commands to a legacy session
+ * which happens to have the same language ID. Stopping Debug keeps it alive. */
+export async function requestPluginDebugEndpoint(target: {
+  pluginId: string; languageId: string; command: string; workspacePath: string;
+  launch: { serverPath: string; serverArgs: string[]; environment: Record<string, string>; initializationOptions?: unknown; workspaceConfiguration?: unknown };
+}, assertCurrent: () => void, signal?: AbortSignal): Promise<number> {
+  assertCurrent();
+  const existing = sessions.get(sessionKey(target.workspacePath, target.languageId));
+  const launchIdentity = pluginLaunchIdentity(target.launch);
+  if (existing && (existing.pluginId !== target.pluginId || existing.pluginLaunchIdentity !== launchIdentity)) {
+    throw lspAdapterError("invalid_request", "Debug language-server ownership changed.");
+  }
+  await start({ ...target.launch, workspacePath: target.workspacePath, languageId: target.languageId,
+    pluginId: target.pluginId, providerId: target.pluginId });
+  assertCurrent();
+  const session = sessionForWorkspace(target.workspacePath, target.languageId);
+  if (session.pluginId !== target.pluginId || session.pluginLaunchIdentity !== launchIdentity) {
+    throw lspAdapterError("invalid_request", "Debug language-server ownership changed.");
+  }
+  const result = normalizeCoreValue(await requestOperation(session, {
+    sessionId: session.id, operation: "executeCommand", command: { title: target.command, command: target.command, arguments: [] },
+  }, "lsp.request", LSP_REQUEST_TIMEOUT_MS, signal)) as JsonRecord;
+  assertCurrent();
+  if (sessionForWorkspace(target.workspacePath, target.languageId) !== session) throw lspAdapterError("cancelled", "Debug language-server session changed.");
+  return parseDebugServerPort(result?.value);
+}
+
+function pluginLaunchIdentity(args: JsonRecord): string {
+  return JSON.stringify([args.serverPath, args.serverArgs ?? [], args.environment ?? {}, args.initializationOptions ?? null, args.workspaceConfiguration ?? null]);
 }
 
 async function recoverSession(session: Session): Promise<Session | null> {
@@ -832,14 +995,18 @@ async function recoverSession(session: Session): Promise<Session | null> {
   }
 }
 
-async function createSession(args: JsonRecord, key: string, generation: number): Promise<Session> {
+async function createSession(args: JsonRecord, key: string, generation: number, workspaceGeneration: number): Promise<Session> {
   const workspacePath = String(args.workspacePath ?? "");
   const languageId = String(args.languageId ?? "plaintext");
   const providerId = String(args.providerId ?? languageId);
+  const workspaceKey = normalizedPathKey(workspacePath);
   const assertCurrent = () => {
     if (args.pluginId) assertPluginActive(args.pluginId);
     if ((providerGenerations.get(providerId) ?? 0) !== generation) {
       throw new Error("Language server start was cancelled by its provider.");
+    }
+    if ((workspaceGenerations.get(workspaceKey) ?? 0) !== workspaceGeneration) {
+      throw lspAdapterError("cancelled", "Workspace changed while its backend was starting.");
     }
   };
   assertCurrent();
@@ -890,6 +1057,7 @@ async function createSession(args: JsonRecord, key: string, generation: number):
     languageId,
     providerId,
     pluginId: args.pluginId,
+    pluginLaunchIdentity: args.pluginId ? pluginLaunchIdentity(args) : undefined,
     files: new Set(),
     lifecycle: createSessionLifecycle(started.state ?? "initializing", operationId),
     eventPump: null,
@@ -951,7 +1119,7 @@ async function waitForProjectedReadiness(
   }
 }
 
-async function resolveSession(args: JsonRecord, key: string, generation: number): Promise<Session> {
+async function resolveSession(args: JsonRecord, key: string, generation: number, workspaceGeneration: number): Promise<Session> {
   const stopping = sessionStops.get(key);
   if (stopping) await stopping;
 
@@ -968,7 +1136,7 @@ async function resolveSession(args: JsonRecord, key: string, generation: number)
     await stopSession(existing);
   }
 
-  return createSession(args, key, generation);
+  return createSession(args, key, generation, workspaceGeneration);
 }
 
 async function start(args: JsonRecord): Promise<void> {
@@ -1005,10 +1173,15 @@ async function start(args: JsonRecord): Promise<void> {
         const providerId = String(args.providerId ?? languageId);
         const generation = providerGenerations.get(providerId) ?? 0;
         startOwners.set(key, providerId);
-        startPromise = resolveSession(args, key, generation).then(async (resolved) => {
+        const workspaceGeneration = workspaceGenerations.get(normalizedPathKey(workspacePath)) ?? 0;
+        startPromise = resolveSession(args, key, generation, workspaceGeneration).then(async (resolved) => {
           if ((providerGenerations.get(providerId) ?? 0) !== generation) {
             await stopSession(resolved);
             throw new Error("Language server start was cancelled by its provider.");
+          }
+          if ((workspaceGenerations.get(normalizedPathKey(workspacePath)) ?? 0) !== workspaceGeneration) {
+            await stopSession(resolved);
+            throw lspAdapterError("cancelled", "Workspace changed while its backend was starting.");
           }
           return resolved;
         }).finally(() => {
@@ -1127,6 +1300,7 @@ async function requestOperation(
   payload: JsonRecord,
   command = "lsp.request",
   coreTimeoutMilliseconds = LSP_REQUEST_TIMEOUT_MS,
+  signal?: AbortSignal,
 ): Promise<unknown> {
   const started = await core<{ operationId: string }>(command, payload);
   const operation = new LspOperationLog("semanticRequest", started.operationId, {
@@ -1134,8 +1308,23 @@ async function requestOperation(
     method: command,
     documentUri: payload.uri,
   });
-  return new Promise((resolve, reject) => {
+  let cancellation: Promise<unknown> | undefined;
+  const result = new Promise<unknown>((resolve, reject) => {
+    const removeAbort = () => signal?.removeEventListener("abort", abort);
+    const abort = () => {
+      // Keep this request owned until Core acknowledges cancellation. Other
+      // users of the language server keep their session and operations.
+      cancellation = core("lsp.cancelOperation", { sessionId: session.id, operationId: started.operationId }, started.operationId)
+        .then(() => {
+          const pending = session.pending.get(started.operationId); session.pending.delete(started.operationId);
+          pending?.reject(lspAdapterError("cancelled", "Debug endpoint request was cancelled."));
+        }, error => {
+          const pending = session.pending.get(started.operationId); session.pending.delete(started.operationId);
+          pending?.reject(error instanceof Error ? error : new Error(String(error)));
+        });
+    };
     const timeout = setTimeout(() => {
+      removeAbort();
       session.pending.delete(started.operationId);
       operation.timedOut();
       void core(
@@ -1156,11 +1345,13 @@ async function requestOperation(
     }, coreTimeoutMilliseconds + CORE_DEADLINE_GRACE_MS);
     session.pending.set(started.operationId, {
       resolve: (value) => {
+        removeAbort();
         clearTimeout(timeout);
         operation.succeeded();
         resolve(value);
       },
       reject: (error) => {
+        removeAbort();
         clearTimeout(timeout);
         if ((error as Error & { code?: string }).code === "cancelled") {
           operation.cancelled(error.message);
@@ -1170,12 +1361,15 @@ async function requestOperation(
         reject(error);
       },
     });
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) abort();
     const completed = session.completed.get(started.operationId);
     if (completed) {
       session.completed.delete(started.operationId);
       void dispatchSessionEvent(session, completed);
     }
   });
+  try { return await result; } finally { await cancellation; }
 }
 
 /** A class JDT confirmed the JVM can launch, as normalized by Core. */
@@ -1565,6 +1759,9 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
     return undefined as T;
   }
   if (command === "lsp_stop") {
+    const workspaceKey = normalizedPathKey(args.workspacePath);
+    workspaceGenerations.set(workspaceKey, (workspaceGenerations.get(workspaceKey) ?? 0) + 1);
+    const pending = [...sessionStarts.entries()].filter(([key]) => key.startsWith(`${workspaceKey}:`)).map(([, promise]) => promise);
     const preparation = getProjectPreparation(args.workspacePath);
     if (preparation) clearProjectPreparation(args.workspacePath, preparation.sessionId);
     const matches = [...sessions.values()].filter(
@@ -1572,6 +1769,9 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
         normalizedPathKey(session.workspacePath) === normalizedPathKey(args.workspacePath),
     );
     await Promise.all(matches.map((session) => stopSession(session)));
+    await Promise.allSettled(pending);
+    const remaining = [...sessions.values()].filter(session => normalizedPathKey(session.workspacePath) === workspaceKey);
+    await Promise.all(remaining.map(session => stopSession(session)));
     return undefined as T;
   }
   if (command === "lsp_retry_maven_profiles") {

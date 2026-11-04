@@ -33,7 +33,9 @@
       "windows/tauri/src/platform/lsp-core-adapter.test.ts",
       "rust/lithe-core/src/lsp/interface/engine_real_jdt_tests.rs",
       "rust/lithe-core/src/execution/environment.rs",
-      "shared/fixtures/execution/launch-environment-v1.json"
+      "shared/fixtures/execution/launch-environment-v1.json",
+      "windows/tauri/src/features/run/components/provider-run-options-editor.tsx",
+      "windows/tauri/src/features/run/components/provider-run-options-editor.test.tsx"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"

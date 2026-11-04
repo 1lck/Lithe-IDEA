@@ -61,6 +61,11 @@
       "rust/lithe-core/src/execution/generated_layer.rs",
       "windows/tauri/src/features/run/stores/run-project-load.test.ts",
       "rust/lithe-core/src/tests/run_configuration.rs",
+      "windows/tauri/src/features/run/utils/run-configuration.ts",
+      "windows/tauri/src/features/run/api/run-core-api.test.ts",
+      "windows/tauri/src/features/run/services/build-provider-run-launch.test.ts",
+      "shared/fixtures/run-configuration/argument-text.json",
+      "windows/tauri/src/features/run/utils/run-configuration.test.ts",
       "windows/tauri/src/features/run/stores/run-prelaunch.test.ts",
       "windows/tauri/src/features/host-api/ide-capabilities.test.ts",
       "windows/tauri/src/features/maven/services/maven-module-debug.test.ts"

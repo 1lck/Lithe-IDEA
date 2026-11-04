@@ -23,7 +23,18 @@
   "windows": {
     "evidence": [
       "rust/lithe-core/src/build/plans.rs",
-      "shared/contracts/plugins/v1/fixtures/build-plans.json"
+      "shared/contracts/plugins/v1/fixtures/build-plans.json",
+      "windows/tauri/src/features/build/services/build-results.ts",
+      "windows/tauri/src/features/build/services/build-file-inputs.ts",
+      "windows/tauri/src/features/build/services/build-file-inputs.test.ts",
+      "windows/tauri/src/features/build/components/build-results-content.tsx",
+      "windows/tauri/src/features/build/components/build-tests-list.tsx",
+      "windows/tauri/crates/project/src/native_configuration.rs",
+      "windows/tauri/crates/project/src/document_watcher.rs",
+      "windows/tauri/src/features/build/services/build-configuration-watch.ts",
+      "windows/tauri/src/features/build/services/build-configuration-watch.test.ts",
+      "windows/tauri/src/platform/document-watch-inputs.ts",
+      "windows/tauri/src/features/editor/services/document-watch-controller.test.ts"
     ],
     "implementationStatus": "missing",
     "verificationStatus": "not-applicable"
