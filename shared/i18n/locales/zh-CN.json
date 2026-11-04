@@ -6729,7 +6729,6 @@
     "navigation.goToLinePrompt": "转到行",
     "navigation.implementation": "实现",
     "navigation.lineNumber": "行号",
-    "navigation.noOtherReferencesFound": "未找到其他引用。",
     "navigation.noReferencesFound": "未找到引用。",
     "navigation.noTargetFound": "未找到{target}。",
     "navigation.reference": "引用",

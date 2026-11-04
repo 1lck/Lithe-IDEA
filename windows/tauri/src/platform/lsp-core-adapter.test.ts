@@ -406,6 +406,10 @@ const executeCore = mock(
         data: { settingsChanged: true, projectsReloaded: false, profilesUpdating: false },
       };
     }
+    if (request.command === "lsp.syncDocument") {
+      requestPayload = request.payload;
+      return { id: request.id, ok: true as const, data: { documentVersion: 17, changed: true } };
+    }
     if (request.command === "lsp.saveDocument") {
       requestPayload = request.payload;
       return { id: request.id, ok: true as const, data: { sent: true } };
@@ -1504,6 +1508,19 @@ describe("Rust Core LSP adapter failures", () => {
     await invokeLsp("lsp_stop", { workspacePath: "C:/work" });
     expect(commands).toContain("lsp.stopServer");
     expect(commands).toContain("lsp.destroyServer");
+  });
+
+  test("returns Core's document version for open and change", async () => {
+    scenario = "capabilities";
+    const filePath = "C:/work/Main.java";
+    await invokeLsp("lsp_start_for_file", {
+      workspacePath: "C:/work", filePath, languageId: "java",
+      providerId: "java", serverPath: "C:/Lithe/jdtls.bat",
+    });
+    expect(await invokeLsp<{ documentVersion: number; changed: boolean }>("lsp_document_open", { filePath, content: "before" }))
+      .toEqual({ documentVersion: 17, changed: true });
+    expect(await invokeLsp<{ documentVersion: number; changed: boolean }>("lsp_document_change", { filePath, content: "after" }))
+      .toEqual({ documentVersion: 17, changed: true });
   });
 
   test("reports a disk save without turning it into an editor change", async () => {

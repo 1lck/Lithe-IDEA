@@ -6729,7 +6729,6 @@
     "navigation.goToLinePrompt": "Go to line",
     "navigation.implementation": "implementation",
     "navigation.lineNumber": "Line number",
-    "navigation.noOtherReferencesFound": "No other references found.",
     "navigation.noReferencesFound": "No references found.",
     "navigation.noTargetFound": "No {target} found.",
     "navigation.reference": "reference",

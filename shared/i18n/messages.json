@@ -64634,13 +64634,6 @@
       ]
     },
     {
-      "id": "navigation.noOtherReferencesFound",
-      "description": "Windows UI: navigation.noOtherReferencesFound",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
       "id": "navigation.noReferencesFound",
       "description": "Windows UI: navigation.noReferencesFound",
       "platforms": [
