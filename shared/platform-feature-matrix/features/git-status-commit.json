@@ -56,10 +56,15 @@
       "windows/tauri/src/features/git/components/git-changelist-bar.tsx",
       "windows/tauri/src/features/git/components/git-changelist-bar.test.tsx",
       "rust/lithe-core/src/git/workspace_status.rs",
-      "windows/tauri/src/features/git/api/git-status-api.test.ts"
+      "windows/tauri/src/features/git/api/git-status-api.test.ts",
+      "windows/tauri/src/features/git/runtime/git-working-tree-change-host.tsx",
+      "windows/tauri/src/features/git/runtime/git-working-tree-change-host.test.tsx",
+      "windows/tauri/src/features/git/hooks/use-git-data-controller.ts",
+      ".agents/notes/implemented/bug-fix/2026-11-04-windows-working-tree-git-refresh.md"
     ],
     "implementationStatus": "implemented",
-    "verificationStatus": "pending"
+    "verificationStatus": "pending",
+    "notes": "工作树外部变化刷新：Windows 通过 GitWorkingTreeChangeHost 把已有的工作区 file-changed 事件转发为 external-file-change 的 working-tree Git 事件，并在 use-git-data-controller 以 3 秒冷却监听窗口 focus 做全量兜底刷新，对齐 macOS 的 gitStateMayHaveChanged 批次与 resumeObservationAfterActivation；autoRefreshGitStatus 关闭时不自动刷新。"
   },
   "owner": "Git",
   "notes": "Windows Commit Diff 增加块级包含：复选框来自真实 Git 暂存区，支持相邻块独立包含/取消、部分包含三态、暂存插入后的索引坐标；Commit 仅提交已包含块，文件列表部分包含不会退回整文件暂存。包含/回退及刷新持有提交保护，关闭预览后等待已发出的写入结束才释放；回退沿用未暂存修改契约。验证两个相邻修改只勾选一块后实际提交、随后取消/继续包含、另仓库事件隔离与回退校验期间文件变化；双箭头回退对应未包含块并保留已包含内容，2026-10-17 起同样遵守「丢弃前确认」设置。新增/删除使用整文件块，重命名/二进制等保留整文件操作。目标产品端到端验收仍 pending。 Commit 单文件比较保留文件顺序，末个差异后下箭头按需打开下一文件，块包含和刷新不丢失导航；同时收紧中央行号/图标留白并使块方框居中。 审核修复：EOF/CRLF 有损显示标识阻止新旧 Diff 的块写入，保留整文件入口；HEAD 到磁盘为空时显示真实暂存区内容并标注版本，显示回退不改变写入身份。整文件三态直接读取 staged/worktree，覆盖二进制、重命名及没有安全块的情况。新旧 Diff 块级双箭头 2026-10-17 起与文件/整仓库的丢弃确认统一遵守设置，设置描述已同步更新范围。Unix 临时索引目录在创建时设置 0700，保持原子占有及错误/正常销毁清理；Windows 保持用户临时目录继承权限。 Windows 上下差异箭头补齐双向跨文件导航；Commit 列表从活动工作区预览的仓库/路径同步行选择和一次性虚拟滚动，沿用原有加载代次保护。组件回归覆盖双向边界、嵌套仓库、折叠展开、刷新及焦点/include 保持，完整原生验收 pending。 Windows 提交面板提供 Commit/Shelf 页签，Amend 默认关闭。切换页签保留提交草稿；无文件或说明为空时按钮禁用，快捷键保留校验提示。变更行支持 Ctrl/Shift 范围选择，选中与包含状态独立。Shelf 和 Stash 写操作互斥于提交、暂存和 changelist 操作。 Windows Commit 与保存改动树正文使用共同的 ui-text-sm 字号；相关 Git 刷新入口复用 RefreshIcon 对应的 IDEA refresh.svg，保持重做图标原有映射。 按当前 Swift 源码重排：41px 圆角页签标题栏、40px 操作栏在 ChangeList 之前；父仓库选项由 GitView 持有并移到选择器下方；文件按 ChangeList 统一分组，新配置默认平铺。底部包含带历史图标的 Amend last commit、11px 线框 AI、12px 暂存计数和 50px 默认等宽说明框；窄侧栏只对顶部控件有序换行，两个提交按钮与设置同行。用户原有布局偏好保留，原生视觉验收 pending。 仓库标题使用普通树行、仓库名和前置三态框；窄面板隐藏父路径。首项预览独立于行点击偏好，始终打开完整 Diff。宽度测量保留隐藏描述的零文字宽度，避免空 flex 槽触发无限扩宽。 GIT-11：共享 Core 计划成功、保留与未知三种状态；宿主按工作区版本原子发布，并以失败根限定已确认状态。两端提示可能过期，工作区关闭后不保留快照。",

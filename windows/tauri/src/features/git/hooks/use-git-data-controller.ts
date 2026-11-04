@@ -28,6 +28,16 @@ interface GitDataControllerOptions {
   isActive?: boolean;
 }
 
+/**
+ * macOS re-reads Git once when the app becomes active
+ * (`resumeObservationAfterActivation`); the WebView focus event is the Windows
+ * equivalent. Focus refreshes also recover state when a native event was lost
+ * (watch install failure, watcher overflow, a throttled background timer), so
+ * the window converges to the real repository without a manual refresh. The
+ * cooldown keeps focus flicker from re-reading Git on every bounce.
+ */
+export const WINDOW_FOCUS_GIT_REFRESH_COOLDOWN_MS = 3000;
+
 export function useGitDataController({ workspacePath, isActive }: GitDataControllerOptions) {
   const activeWorkspaceId = useActiveWorkspaceId();
   const scopedWorkspaceId = useWorkspaceStoreScopeId();
@@ -48,6 +58,7 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
   const changeRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingChangeScopesRef = useRef<GitChangeScope[] | undefined>(undefined);
   const wasActiveRef = useRef(isActive);
+  const lastWindowFocusRefreshRef = useRef(0);
 
   const loadInitialGitData = useCallback(async () => {
     if (!workspaceRuntimeRegistry.isWorkspaceReady(workspaceId)) {
@@ -266,6 +277,18 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
     }
     wasActiveRef.current = isActive;
   }, [autoRefreshGitStatus, gitStatus, isActive, refreshGitData]);
+
+  useEffect(() => {
+    if (!autoRefreshGitStatus) return;
+    const refreshOnWindowFocus = () => {
+      const now = Date.now();
+      if (now - lastWindowFocusRefreshRef.current < WINDOW_FOCUS_GIT_REFRESH_COOLDOWN_MS) return;
+      lastWindowFocusRefreshRef.current = now;
+      void refreshGitData(undefined, false, "background");
+    };
+    window.addEventListener("focus", refreshOnWindowFocus);
+    return () => window.removeEventListener("focus", refreshOnWindowFocus);
+  }, [autoRefreshGitStatus, refreshGitData]);
 
   useEffect(() => {
     if (!activeRepoPath) return;

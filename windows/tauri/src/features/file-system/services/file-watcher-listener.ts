@@ -24,9 +24,9 @@ import {
   scheduleJavaWorkspaceChange,
 } from "@/features/editor/lsp/java-workspace-change-scheduler";
 
-type FileChangeType = "opened" | "reloaded" | "deleted" | "rescan";
+export type FileChangeType = "opened" | "reloaded" | "deleted" | "rescan";
 
-interface FileChangeEvent {
+export interface FileChangeEvent {
   path: string;
   event_type: FileChangeType;
 }

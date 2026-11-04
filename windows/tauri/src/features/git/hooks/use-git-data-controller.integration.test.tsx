@@ -294,3 +294,82 @@ test("a failed initial status can recover without waiting for optional metadata"
   await act(async () => { await controller.refresh(); });
   expect(getBranches).toHaveBeenCalledTimes(1);
 });
+
+async function flushMicrotasks() {
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
+function focusWindow() {
+  window.dispatchEvent(new window.Event("focus"));
+}
+
+test("window focus triggers one background Git refresh per cooldown window", async () => {
+  const statusCalls: Array<[paths: string[], source: string | undefined]> = [];
+  spies.push(
+    spyOn(settings, "useSettingsStore").mockImplementation(
+      ((selector: (state: { settings: { autoRefreshGitStatus: boolean } }) => unknown) =>
+        selector({ settings: { autoRefreshGitStatus: true } })) as typeof settings.useSettingsStore,
+    ),
+    spyOn(statusApi, "getWorkspaceStatusRefresh").mockImplementation(
+      (async (paths: readonly string[], source?: string) => {
+        statusCalls.push([[...paths], source]);
+        const snapshot = await getWorkspaceGitStatus();
+        return {
+          statuses: Object.fromEntries(paths.map((path) => [path, snapshot])),
+          confirmedRoots: [],
+          failedRoots: [],
+        };
+      }) as typeof statusApi.getWorkspaceStatusRefresh,
+    ),
+  );
+  let now = 1_000_000;
+  spies.push(spyOn(Date, "now").mockImplementation(() => now));
+  await mount();
+  statusCalls.length = 0;
+
+  await act(async () => {
+    focusWindow();
+    await flushMicrotasks();
+  });
+  expect(statusCalls).toHaveLength(1);
+  expect(statusCalls[0]![1]).toBe("background");
+
+  // Focus flicker inside the cooldown must not re-read Git.
+  await act(async () => {
+    focusWindow();
+    await flushMicrotasks();
+  });
+  expect(statusCalls).toHaveLength(1);
+
+  // A later activation past the cooldown refreshes again.
+  now += 3001;
+  await act(async () => {
+    focusWindow();
+    await flushMicrotasks();
+  });
+  expect(statusCalls).toHaveLength(2);
+
+  // Unmount removes the listener.
+  await act(async () => {
+    root!.unmount();
+  });
+  root = undefined;
+  now += 3001;
+  statusCalls.length = 0;
+  focusWindow();
+  await flushMicrotasks();
+  expect(statusCalls).toHaveLength(0);
+});
+
+test("window focus does not refresh Git when auto refresh is disabled", async () => {
+  // beforeEach installs autoRefreshGitStatus: false.
+  await mount();
+  getWorkspaceGitStatus.mockClear();
+  await act(async () => {
+    focusWindow();
+    await flushMicrotasks();
+  });
+  expect(getWorkspaceGitStatus).not.toHaveBeenCalled();
+});

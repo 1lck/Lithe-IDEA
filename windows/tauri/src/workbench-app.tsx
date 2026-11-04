@@ -21,6 +21,7 @@ import { GitWorktreeDialogHost } from "@/features/git/components/git-worktree-di
 import { GitPatchDialogHost } from "@/features/git/components/git-patch-dialog";
 import { GitWorkspaceCommitHost } from "@/features/git/runtime/git-workspace-commit-host";
 import { GitMetadataWatchHost } from "@/features/git/runtime/git-metadata-watch-host";
+import { GitWorkingTreeChangeHost } from "@/features/git/runtime/git-working-tree-change-host";
 
 import { MainLayout } from "./features/layout/components/main-layout";
 import { NativeWindowTitleHost } from "./features/window/components/native-window-title-host";
@@ -106,6 +107,7 @@ function WorkbenchApp() {
             <GitWorktreeDialogHost />
             <GitRebaseDialogHost />
             <GitMetadataWatchHost />
+            <GitWorkingTreeChangeHost />
             <GitWorkspaceCommitHost />
             <Toaster />
             <NotificationRecorder />
