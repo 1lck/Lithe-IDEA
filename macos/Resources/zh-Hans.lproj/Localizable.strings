@@ -4737,6 +4737,7 @@
 "Use a model ID supported by your provider." = "填写该服务商支持的模型 ID。";
 "Use a persistent folder for ongoing work. Temporary checkouts may be removed by the system." = "长期工作请使用持久目录，临时检出目录可能被系统清理。";
 "Use a third-party provider" = "使用第三方服务";
+"Use a unique, nonempty name of at most 100 characters." = "请输入不重名、非空且不超过 100 个字符的名称。";
 "Use a valid file or directory name" = "请输入有效的文件或目录名称";
 "Use an Agent in your project" = "在项目中使用 Agent";
 "Use automatic value" = "使用自动值";
@@ -5071,6 +5072,7 @@
 "from JAVA_HOME" = "来自 JAVA_HOME";
 "generated main" = "生成的主代码";
 "generated test" = "生成的测试代码";
+"git.changelists.invalidName" = "请输入不重名、非空且不超过 100 个字符的名称。";
 "git.diff.repositoryPreviewEmptyTitle" = "仓库差异";
 "git.diff.repositoryPreviewTitle" = "仓库差异: %1$@";
 "git.log.olderCommitsFailed" = "无法加载更早的提交，点击刷新历史";

@@ -109,6 +109,7 @@ package final class GitFeatureModel: ObservableObject {
             gitChangedFileCount = gitChanges.reduce(0) { count, change in
                 count + (isListedUntrackedContent(change) ? 0 : change.fileCount)
             }
+            scheduleChangelistProjection()
         }
     }
     package private(set) var gitTreeStatus = GitTreeStatusProjection(changes: [])
@@ -148,7 +149,6 @@ package final class GitFeatureModel: ObservableObject {
                let scoped = worktreeCommitFeatures[URL(fileURLWithPath: inspection.worktreeID).standardizedFileURL],
                scoped.gitChanges.filter({ !scoped.isListedUntrackedContent($0) }) != inspection.changes {
                 scoped.gitChanges = inspection.changes
-                scoped.rememberChangelistRenames()
             }
         }
     }
@@ -419,17 +419,25 @@ package final class GitFeatureModel: ObservableObject {
     let changelistStorage: (any GitChangelistStorage)?
     var changelistWorkspace: URL?
     package private(set) var changelistSelectionGeneration = UUID()
+    var changelistProjectionTask: Task<Void, Never>?
+    var changelistProjectionGeneration = UUID()
+    var publishingChangelistProjection = false
+    @Published package internal(set) var changelistProjectionPending = false
     @Published package internal(set) var changelists = GitLocalChangelists() {
         didSet {
+            guard !oldValue.metadataEquals(changelists) else { return }
             if oldValue.activeID != changelists.activeID || oldValue.assignments != changelists.assignments {
                 changelistSelectionGeneration = UUID()
             }
-            // The main checkout may also be open in Commit. Keep one metadata
-            // value for that same storage key, without sharing linked roots.
+            if !publishingChangelistProjection { scheduleChangelistProjection() }
+            // Share persisted metadata across the same workspace, but each model
+            // must compute its own membership for its own status snapshot.
+            var metadata = changelists
+            metadata.projectedMembership = [:]
             if let workspace = changelistWorkspace, let host = worktreeOperationHost, host.changelistWorkspace == workspace,
-               host.changelists != changelists { host.changelists = changelists }
+               !host.changelists.metadataEquals(metadata) { host.changelists = metadata }
             for scoped in worktreeCommitFeatures.values where changelistWorkspace != nil && scoped.changelistWorkspace == changelistWorkspace {
-                if scoped.changelists != changelists { scoped.changelists = changelists }
+                if !scoped.changelists.metadataEquals(metadata) { scoped.changelists = metadata }
             }
         }
     }
@@ -647,6 +655,7 @@ package final class GitFeatureModel: ObservableObject {
             || !repositoryDiffSessions.isEmpty
             || allDiffSessions.contains { $0.isLoadingDiff || $0.isLoadingBranchComparison }
             || isRefreshingGit
+            || changelistProjectionPending
             || isCommitting
             || isRollingBackChanges
             || isPreparingCommitFiles
@@ -678,6 +687,10 @@ package final class GitFeatureModel: ObservableObject {
         interactiveRebase.reset()
         cancelGitHistoryLoading()
         changelistWorkspace = nil
+        changelistProjectionGeneration = UUID()
+        changelistProjectionTask?.cancel()
+        changelistProjectionTask = nil
+        changelistProjectionPending = false
         changelists = GitLocalChangelists()
         changelistStorageFailed = false
         includeChangelistParentReferences = true
@@ -790,6 +803,7 @@ package final class GitFeatureModel: ObservableObject {
         activeRefreshRequestIDs.insert(requestID)
         defer { activeRefreshRequestIDs.remove(requestID) }
         await fulfillGitRefreshRequest(requestID, workspaceURLProvider: workspaceURLProvider)
+        await changelistProjectionTask?.value
     }
 
     private func fulfillGitRefreshRequest(
@@ -916,7 +930,6 @@ package final class GitFeatureModel: ObservableObject {
             }
             if changesChanged {
                 gitChanges = changes
-                rememberChangelistRenames()
                 gitLineChangeMarkers = [:]
                 lineChangeHunks = [:]
                 didChange = true
@@ -1957,14 +1970,16 @@ package final class GitFeatureModel: ObservableObject {
     }
 
     package func beginToggleStaging(_ change: GitChange) -> Bool? {
-        guard !isCommitting, !isWorktreeCommitBlocked, !changelistStorageFailed, change.canToggleStaging, pendingStagingStates[change.id] == nil else { return nil }
+        guard !isCommitting, !isWorktreeCommitBlocked, !changelistStorageFailed, !changelistProjectionPending,
+              verifyChangelistStorageCurrent(), change.canToggleStaging, pendingStagingStates[change.id] == nil else { return nil }
         let staged = !change.isStaged
         pendingStagingStates[change.id] = (change.repositoryRoot.standardizedFileURL, staged)
         return staged
     }
 
     package func beginSetStaging(_ changes: [GitChange], staged: Bool, includeWorkingTreeChanges: Bool = false) -> [GitChange] {
-        guard !isCommitting, !isWorktreeCommitBlocked, !changelistStorageFailed else { return [] }
+        guard !isCommitting, !isWorktreeCommitBlocked, !changelistStorageFailed, !changelistProjectionPending,
+              verifyChangelistStorageCurrent() else { return [] }
         let pendingChanges = changes.filter {
             $0.canToggleStaging && pendingStagingStates[$0.id] == nil
                 && ($0.isStaged != staged || (staged && includeWorkingTreeChanges && $0.hasWorkingTreeChange))
@@ -2076,10 +2091,9 @@ package final class GitFeatureModel: ObservableObject {
     /// Prepare the real index, not a second UI selection. Already staged hunks
     /// in selected files remain intact; unrelated staged files are excluded.
     package func prepareCommitFiles(_ changes: [GitChange]) async -> Bool {
-        guard canPrepareCommitFiles(changes), let first = changes.first else { return false }
+        guard verifyChangelistStorageCurrent(), canPrepareCommitFiles(changes), let first = changes.first else { return false }
         let targetList = changelists.listID(for: first)
-        activateChangelist(targetList)
-        guard canPrepareCommitFiles(changes) else { return false }
+        guard await activateChangelist(targetList), canPrepareCommitFiles(changes) else { return false }
         let generation = workspaceCommitGeneration
         let workspace = workspaceURLProvider?()?.standardizedFileURL
         let selected = coveringUntrackedDirectoryContents(changes)
@@ -2109,7 +2123,8 @@ package final class GitFeatureModel: ObservableObject {
             return true
         }
         guard isCurrent() else { return false }
-        guard isCurrent(), succeeded else { return false }
+        await changelistProjectionTask?.value
+        guard isCurrent(), succeeded, !changelistProjectionPending, !changelistStorageFailed else { return false }
         let currentRoots = Set(availableRepositoryRoots.map(\.standardizedFileURL) + changes.map { $0.repositoryRoot.standardizedFileURL })
         guard currentRoots == Set(roots), changelists.activeID == targetList,
               changes.allSatisfy({ changelists.listID(for: $0) == targetList }) else {
@@ -3273,7 +3288,6 @@ package final class GitFeatureModel: ObservableObject {
             if !inserted { merged.append(contentsOf: changes) }
             if gitChanges != merged {
                 gitChanges = merged
-                rememberChangelistRenames()
                 gitLineChangeMarkers = [:]
                 lineChangeHunks = [:]
             }
@@ -3282,6 +3296,7 @@ package final class GitFeatureModel: ObservableObject {
         }
         updateWorktreeInspection(snapshot.changes, at: root, clearingError: false)
         reconcilePendingStagingStates(with: changes, successfullyReadRepositoryRoots: [root])
+        await changelistProjectionTask?.value
         return true
     }
 

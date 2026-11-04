@@ -12608,10 +12608,15 @@
     },
     {
       "id": "git.changelists.invalidName",
-      "description": "Windows UI: git.changelists.invalidName",
+      "description": "A ChangeList name must be nonempty, unique, and at most 100 characters.",
       "platforms": [
-        "windows"
-      ]
+        "windows",
+        "macos"
+      ],
+      "macos": {
+        "key": "Use a unique, nonempty name of at most 100 characters.",
+        "arguments": []
+      }
     },
     {
       "id": "git.changelists.move",
@@ -91321,9 +91326,10 @@
     },
     {
       "id": "vcs.commitFiles.stagingChanged",
-      "description": "macOS Commit file context actions, confirmations and validation.",
+      "description": "Commit selection or ChangeList scope changed before staging or committing.",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "The staged files changed. Review the checked files before committing.",

@@ -2,6 +2,7 @@
 
 // The initial projection/routing IR is deliberately not command- or host-facing
 // until both native products can consume the same versioned contract.
+mod changelists;
 mod commit_selection;
 mod commit_state;
 mod deleted_selection;
@@ -41,6 +42,7 @@ pub use setup::{
     GitConfigureIdentityRequest, GitSetupRequest,
 };
 
+pub(crate) use changelists::changelists_command;
 pub(crate) use commit_selection::prepare_commit_selection_command;
 pub(crate) use deleted_selection::reconcile_deleted_selection_command;
 pub use history::{

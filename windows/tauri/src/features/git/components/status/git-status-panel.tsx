@@ -102,9 +102,18 @@ interface GitStatusPanelProps {
   commitChangelists?: LocalChangelists;
   commitSelectionDisabled?: boolean;
   commitWorkspaceKey?: string;
-  onActivateCommitChangelist?: (id: string, files: GitFile[], roots: string[]) => boolean;
-  isCommitChangelistCurrent?: (id: string, files: GitFile[], roots: string[]) => boolean;
+  onActivateCommitChangelist?: (
+    id: string,
+    files: GitFile[],
+    roots: string[],
+  ) => boolean | Promise<boolean>;
+  isCommitChangelistCurrent?: (
+    id: string,
+    files: GitFile[],
+    roots: string[],
+  ) => boolean | Promise<boolean>;
   onMoveToChangelist?: (files: GitFile[], id: string) => void;
+  onValidateStagingMembership?: (files: GitFile[], expected: string[]) => Promise<boolean>;
   changelistsDisabled?: boolean;
   /** Settings `showGitChangelists`: renders each ChangeList as a group node, or omits the nodes. */
   showChangelistGroups?: boolean;
@@ -267,6 +276,7 @@ const GitStatusPanel = ({
   onActivateCommitChangelist,
   isCommitChangelistCurrent,
   onMoveToChangelist,
+  onValidateStagingMembership,
   changelistsDisabled = false,
   showChangelistGroups = true,
   stagingDisabled = false,
@@ -301,6 +311,8 @@ const GitStatusPanel = ({
   const [isLoading, setIsLoading] = useState(false);
   const [isPreparingCommit, setIsPreparingCommit] = useState(false);
   const commitSelectionAbort = useRef<AbortController | null>(null);
+  const liveWorkspaceKey = useRef(commitWorkspaceKey);
+  liveWorkspaceKey.current = commitWorkspaceKey;
   useEffect(() => {
     setIsPreparingCommit(false);
     return () => {
@@ -696,9 +708,22 @@ const GitStatusPanel = ({
       operations.add(operation);
       stagingOperationsRef.current.set(path, operations);
     }
-    setOptimisticStage(displayFilePaths, staged);
+    const workspaceKey = commitWorkspaceKey;
+    const expected = filesToStage.map((file) =>
+      commitChangelists ? fileChangelist(commitChangelists, file, repoPath) : DEFAULT_CHANGELIST,
+    );
     setStagePendingPaths(new Set(stagingOperationsRef.current.keys()));
     try {
+      if (
+        onValidateStagingMembership &&
+        !(await onValidateStagingMembership(filesToStage, expected))
+      ) {
+        if (liveWorkspaceKey.current === workspaceKey)
+          toast.error(t("vcs.commitFiles.stagingChanged"));
+        return false;
+      }
+      if (liveWorkspaceKey.current !== workspaceKey) return false;
+      setOptimisticStage(displayFilePaths, staged);
       // All groups must settle: a failed repository must not release another's pending UI.
       const results = await Promise.allSettled(
         repositoryGroups.map(({ repoPath: fileRepoPath, files: repositoryFiles }) =>
@@ -786,42 +811,49 @@ const GitStatusPanel = ({
     const roots = [
       ...new Set([...(repositoryPaths ?? []), ...groups.map((group) => group.repoPath)]),
     ];
-    if (onActivateCommitChangelist && !onActivateCommitChangelist(list, selected, roots)) {
-      toast.error(t("vcs.commitFiles.stagingChanged"));
-      return;
-    }
-    const repositories = roots.map((root) => ({
-      root,
-      selected: [] as Array<{ path: string; originalPath?: string; status: string }>,
-    }));
-    for (const group of groups) {
-      const target = repositories.find((repository) => repository.root === group.repoPath)!;
-      const identities = new Map<string, { path: string; originalPath?: string; status: string }>();
-      for (const file of group.files) {
-        const path = getGitFileRepositoryRelativePath(file);
-        const status = file.rawStatus!;
-        const existing = identities.get(path);
-        // A staged deletion and retained untracked copy can share a path.
-        if (!existing || (existing.status === "??" && status !== "??")) {
-          identities.set(path, {
-            path,
-            originalPath: getGitFileOriginalRepositoryRelativePath(file),
-            status,
-          });
-        }
-      }
-      target.selected = [...identities.values()];
-    }
     const controller = new AbortController();
     commitSelectionAbort.current = controller;
     setIsPreparingCommit(true);
-    let failure: unknown;
     try {
-      await prepareCommitSelection(repositories, crypto.randomUUID(), controller.signal);
-    } catch (error) {
-      failure = error;
-    }
-    try {
+      if (
+        onActivateCommitChangelist &&
+        !(await onActivateCommitChangelist(list, selected, roots))
+      ) {
+        if (!controller.signal.aborted) toast.error(t("vcs.commitFiles.stagingChanged"));
+        return;
+      }
+      if (controller.signal.aborted) return;
+      const repositories = roots.map((root) => ({
+        root,
+        selected: [] as Array<{ path: string; originalPath?: string; status: string }>,
+      }));
+      for (const group of groups) {
+        const target = repositories.find((repository) => repository.root === group.repoPath)!;
+        const identities = new Map<
+          string,
+          { path: string; originalPath?: string; status: string }
+        >();
+        for (const file of group.files) {
+          const path = getGitFileRepositoryRelativePath(file);
+          const status = file.rawStatus!;
+          const existing = identities.get(path);
+          // A staged deletion and retained untracked copy can share a path.
+          if (!existing || (existing.status === "??" && status !== "??")) {
+            identities.set(path, {
+              path,
+              originalPath: getGitFileOriginalRepositoryRelativePath(file),
+              status,
+            });
+          }
+        }
+        target.selected = [...identities.values()];
+      }
+      let failure: unknown;
+      try {
+        await prepareCommitSelection(repositories, crypto.randomUUID(), controller.signal);
+      } catch (error) {
+        failure = error;
+      }
       if (controller.signal.aborted) return;
       try {
         await onStagingRefresh();
@@ -836,10 +868,17 @@ const GitStatusPanel = ({
             ? t("vcs.commitFiles.stagingChanged")
             : t("git.operationError", { error: message }),
         );
-      } else if (isCommitChangelistCurrent && !isCommitChangelistCurrent(list, selected, roots)) {
-        toast.error(t("vcs.commitFiles.stagingChanged"));
-      } else {
-        onCommitSelection?.([...new Set(selected.map((file) => file.path))]);
+        return;
+      }
+      const current =
+        !isCommitChangelistCurrent || (await isCommitChangelistCurrent(list, selected, roots));
+      if (controller.signal.aborted) return;
+      if (!current) toast.error(t("vcs.commitFiles.stagingChanged"));
+      else onCommitSelection?.([...new Set(selected.map((file) => file.path))]);
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        const message = error instanceof Error ? error.message : String(error);
+        toast.error(t("git.operationError", { error: message }));
       }
     } finally {
       if (commitSelectionAbort.current === controller) {

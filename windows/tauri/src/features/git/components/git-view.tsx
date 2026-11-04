@@ -14,7 +14,8 @@ import {
   commitDiffWritePending,
   subscribeCommitDiffWrites,
 } from "../runtime/commit-diff-write-state";
-import { changelistCommitScope, EMPTY_CHANGELISTS, fileChangelist } from "../utils/git-changelists";
+import { EMPTY_CHANGELISTS, fileChangelist } from "../utils/git-changelists";
+import { useChangelistProjection } from "../utils/use-changelist-projection";
 import { workspaceCommitBindings } from "../utils/git-workspace-commit-bindings";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
@@ -108,6 +109,8 @@ type GitPaletteAction =
   | { type: "view-stashes" }
   | { type: "initialize-repository" }
   | { type: "refresh" };
+
+const EMPTY_GIT_FILES: GitFile[] = [];
 
 const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
   const { t } = useTranslation();
@@ -241,7 +244,29 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
   // With ChangeLists hidden every change belongs to the default list, so the active list,
   // the staged-in-another-list guard and the commit path scope no longer narrow a commit.
   // Stored assignments are kept untouched and apply again once the setting is re-enabled.
-  const changelists = showChangelists ? storedChangelists : EMPTY_CHANGELISTS;
+  const rawChangelists = showChangelists ? storedChangelists : EMPTY_CHANGELISTS;
+  const storageUnavailable = useGitChangelistsStore((state) =>
+    isChangelistsUnavailable(state, changelistWorkspace),
+  );
+  const storageFailed = useGitChangelistsStore((state) => state.unavailable);
+  const projectionFiles = gitStatus?.files ?? EMPTY_GIT_FILES;
+  const projectionBindings = useMemo(
+    () =>
+      workspaceCommitBindings(
+        changelistWorkspace,
+        repositoryPaths.length ? repositoryPaths : activeRepoPath ? [activeRepoPath] : [],
+      ),
+    [changelistWorkspace, repositoryPaths, activeRepoPath],
+  );
+  const projection = useChangelistProjection(
+    rawChangelists,
+    projectionFiles,
+    projectionBindings,
+    activeRepoPath ?? undefined,
+    showChangelists && !storageUnavailable,
+  );
+  const changelists = showChangelists ? (projection.state ?? rawChangelists) : EMPTY_CHANGELISTS;
+  const changelistsUnavailable = showChangelists && (storageUnavailable || !projection.state);
   const gitChangesFolderView = useSettingsStore((state) => state.settings.gitChangesFolderView);
   // Diff file navigation follows the rows the Commit panel actually shows.
   const orderedWorkingTreeFiles = useMemo(
@@ -254,7 +279,9 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
     [visibleGitFiles, activeRepoPath, changelists, gitChangesFolderView],
   );
   useEffect(() => {
-    const reload = () => useGitChangelistsStore.getState().loadWorkspace(changelistWorkspace);
+    const reload = () => {
+      void useGitChangelistsStore.getState().loadWorkspace(changelistWorkspace);
+    };
     const onStorage = (event: StorageEvent) => {
       if (isChangelistStorageEvent(changelistWorkspace, event.key)) reload();
     };
@@ -267,14 +294,19 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
     };
   }, [changelistWorkspace]);
   useEffect(() => {
-    useGitChangelistsStore
-      .getState()
-      .rememberRenames(changelistWorkspace, gitStatus?.files ?? [], activeRepoPath ?? undefined);
+    const files = gitStatus?.files ?? EMPTY_GIT_FILES;
+    if (
+      files.some(
+        (file) =>
+          (file.repositoryOriginalRelativePath ?? file.originalPath) &&
+          !file.rawStatus?.includes("C"),
+      )
+    ) {
+      void useGitChangelistsStore
+        .getState()
+        .rememberRenames(changelistWorkspace, files, activeRepoPath ?? undefined);
+    }
   }, [changelistWorkspace, gitStatus?.files, activeRepoPath]);
-  const storageUnavailable = useGitChangelistsStore((state) =>
-    isChangelistsUnavailable(state, changelistWorkspace),
-  );
-  const changelistsUnavailable = showChangelists && storageUnavailable;
   const workflow = useWorkspaceCommitStore((state) => state.workflow);
   const batch = useSyncExternalStore(workflow.subscribe, workflow.getState, workflow.getState);
   const diffWritePending = useSyncExternalStore(
@@ -308,13 +340,18 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
       [...currentRoots].every((root) => expectedRoots.has(root))
     );
   };
-  const commitSelectionListMatches = (id: string, files: GitFile[]) => {
-    const current = useGitChangelistsStore.getState();
-    const lists = workspaceChangelists(current, changelistWorkspace);
+  const commitSelectionListMatches = async (id: string, files: GitFile[]) => {
+    if (!showChangelists) return id === EMPTY_CHANGELISTS.activeId;
+    const projected = await useGitChangelistsStore
+      .getState()
+      .projectCurrent(changelistWorkspace, files, activeRepoPath ?? undefined);
+    const latest = useGitChangelistsStore.getState();
     return (
-      !current.unavailable &&
-      lists.activeId === id &&
-      files.every((file) => fileChangelist(lists, file, activeRepoPath ?? undefined) === id)
+      !!projected &&
+      !isChangelistsUnavailable(latest, changelistWorkspace) &&
+      workspaceChangelists(latest, changelistWorkspace) === projected.state &&
+      projected.state.activeId === id &&
+      projected.members.every((member) => member === id)
     );
   };
   const commitSelectedFiles = useMemo(
@@ -331,19 +368,9 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
       file.staged &&
       fileChangelist(changelists, file, activeRepoPath ?? undefined) !== changelists.activeId,
   );
-  const pathScope = useMemo(
-    () =>
-      changelistCommitScope(
-        changelists,
-        workspaceCommitBindings(
-          changelistWorkspace,
-          repositoryPaths.length ? repositoryPaths : activeRepoPath ? [activeRepoPath] : [],
-        ),
-        gitStatus?.files ?? [],
-        activeRepoPath ?? undefined,
-      ),
-    [changelists, changelistWorkspace, repositoryPaths, activeRepoPath, gitStatus?.files],
-  );
+  const pathScope = showChangelists
+    ? projection.state?.projection?.scope
+    : { include: false, paths: {} };
   const handleBranchDiffOpened = useCallback(() => {
     setShowBranchDiffList(false);
     setBranchDiffSearchQuery("");
@@ -921,21 +948,29 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
               }
               changelists={showChangelists ? changelists : undefined}
               commitChangelists={changelists}
-              commitSelectionDisabled={storageUnavailable || changelistsBusy}
+              commitSelectionDisabled={changelistsUnavailable || changelistsBusy}
               commitWorkspaceKey={`${scopedWorkspaceId ?? activeWorkspaceId}\0${changelistWorkspace}`}
-              onActivateCommitChangelist={(id, files, preparedRoots) => {
+              onActivateCommitChangelist={async (id, files, preparedRoots) => {
                 if (!commitSelectionRootsMatch(files, preparedRoots)) return false;
-                useGitChangelistsStore.getState().activateList(changelistWorkspace, id);
-                return commitSelectionListMatches(id, files);
+                if (
+                  showChangelists &&
+                  !(await useGitChangelistsStore.getState().activateList(changelistWorkspace, id))
+                )
+                  return false;
+                const matches = await commitSelectionListMatches(id, files);
+                return matches && commitSelectionRootsMatch(files, preparedRoots);
               }}
-              isCommitChangelistCurrent={(id, files, preparedRoots) => {
-                useGitChangelistsStore.getState().loadWorkspace(changelistWorkspace);
+              isCommitChangelistCurrent={async (id, files, preparedRoots) => {
+                if (
+                  !commitSelectionRootsMatch(files, preparedRoots) ||
+                  !(await commitSelectionListMatches(id, files))
+                )
+                  return false;
                 const gitState = useGitStore
                   .getStore(scopedWorkspaceId ?? activeWorkspaceId)
                   .getState();
                 return (
                   commitSelectionRootsMatch(files, preparedRoots) &&
-                  commitSelectionListMatches(id, files) &&
                   !!gitState.gitStatus &&
                   refreshedCommitSelectionMatches(
                     files,
@@ -947,9 +982,22 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
               showChangelistGroups={showChangelists}
               changelistsDisabled={changelistsBusy}
               stagingDisabled={changelistsUnavailable || changelistsBusy}
+              onValidateStagingMembership={async (files, expected) => {
+                if (!showChangelists) return true;
+                const projected = await useGitChangelistsStore
+                  .getState()
+                  .projectCurrent(changelistWorkspace, files, activeRepoPath ?? undefined);
+                const latest = useGitChangelistsStore.getState();
+                return (
+                  !!projected &&
+                  !isChangelistsUnavailable(latest, changelistWorkspace) &&
+                  workspaceChangelists(latest, changelistWorkspace) === projected.state &&
+                  projected.members.every((id, index) => id === expected[index])
+                );
+              }}
               onMoveToChangelist={(files, id) => {
                 if (!changelistsBusy)
-                  useGitChangelistsStore
+                  void useGitChangelistsStore
                     .getState()
                     .moveFiles(changelistWorkspace, files, id, activeRepoPath ?? undefined);
               }}
@@ -1006,15 +1054,49 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
               // A hidden option cannot be unchecked, so it counts as its default (on).
               includeParentReferences={showParentReferences ? includeParentReferences : true}
               pathScope={pathScope}
+              validateCommitScope={async () => {
+                if (!showChangelists) return true;
+                if (!pathScope || !gitStatus) return false;
+                const projected = await useGitChangelistsStore
+                  .getState()
+                  .projectCurrent(
+                    changelistWorkspace,
+                    projectionFiles,
+                    activeRepoPath ?? undefined,
+                    projectionBindings,
+                  );
+                const latest = useGitChangelistsStore.getState();
+                const currentGit = useGitStore
+                  .getStore(scopedWorkspaceId ?? activeWorkspaceId)
+                  .getState().gitStatus;
+                const currentRoots = useRepositoryStore
+                  .getStore(scopedWorkspaceId ?? activeWorkspaceId)
+                  .getState().availableRepoPaths;
+                return (
+                  !!projected &&
+                  !isChangelistsUnavailable(latest, changelistWorkspace) &&
+                  workspaceChangelists(latest, changelistWorkspace) === projected.state &&
+                  currentGit === gitStatus &&
+                  JSON.stringify(
+                    workspaceCommitBindings(
+                      changelistWorkspace,
+                      currentRoots.length ? currentRoots : activeRepoPath ? [activeRepoPath] : [],
+                    ),
+                  ) === JSON.stringify(projectionBindings) &&
+                  JSON.stringify(projected.scope) === JSON.stringify(pathScope)
+                );
+              }}
               commitScopeError={
-                changelistsUnavailable
+                showChangelists && (storageFailed || projection.failed)
                   ? t("git.changelists.unavailable")
-                  : otherListsStaged
+                  : !changelistsUnavailable && otherListsStaged
                     ? t("git.changelists.otherStaged")
                     : undefined
               }
               selectedFiles={commitSelectedFiles}
-              isStaging={isStaging || diffWritePending || savedChangesWorkspaceBusy}
+              isStaging={
+                isStaging || diffWritePending || savedChangesWorkspaceBusy || changelistsUnavailable
+              }
               workspacePath={repoPath ?? activeRepoPath ?? ""}
               repositoryPaths={
                 repositoryPaths.length ? repositoryPaths : activeRepoPath ? [activeRepoPath] : []

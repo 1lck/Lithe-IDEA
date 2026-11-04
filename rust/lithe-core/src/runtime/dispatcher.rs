@@ -2817,6 +2817,9 @@ fn execute(request: &str) -> CoreResponse {
             parsed.payload,
             crate::git::prepare_commit_selection_command,
         ),
+        CoreCommand::GitChangelists => {
+            plugin_response(id, parsed.payload, crate::git::changelists_command)
+        }
         CoreCommand::GitReconcileDeletedSelection => plugin_response(
             id,
             parsed.payload,
