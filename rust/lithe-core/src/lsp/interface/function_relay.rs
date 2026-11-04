@@ -737,10 +737,17 @@ fn answer_for(outcome: CalleeOutcome) -> Result<Value, RelayFailure> {
             message,
             plugin_error_code,
         } => Err(match code.as_str() {
-            codes::FAILED | codes::INVALID_RESULT => RelayFailure {
+            codes::FAILED => RelayFailure {
                 code: codes::FAILED,
                 message,
                 plugin_error_code,
+            },
+            // No result, or one over the engine's own bound: the provider
+            // answered, but not with a value Core can pass on.
+            codes::INVALID_RESULT => RelayFailure {
+                code: codes::INVALID_RESULT,
+                message,
+                plugin_error_code: None,
             },
             "requestTimeout" => {
                 RelayFailure::new(codes::HOST_TIMEOUT, "The plugin call timed out.")
@@ -1218,7 +1225,7 @@ mod tests {
     fn callee_failures_map_to_distinct_codes() {
         let cases = [
             ("plugin.function.failed", codes::FAILED),
-            ("plugin.function.invalidResult", codes::FAILED),
+            ("plugin.function.invalidResult", codes::INVALID_RESULT),
             ("requestTimeout", codes::HOST_TIMEOUT),
             ("plugin.function.revoked", codes::PROVIDER_UNAVAILABLE),
             ("requestCancelled", codes::PROVIDER_UNAVAILABLE),

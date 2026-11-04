@@ -1781,13 +1781,6 @@ impl DeclarativePluginManifest {
         &self.build_systems
     }
 
-    /// The validated `pluginFunctions` section, with both lists sorted by ID.
-    pub(crate) fn plugin_functions(
-        &self,
-    ) -> Option<&super::plugin_functions::PluginFunctionsDeclaration> {
-        self.plugin_functions.as_ref()
-    }
-
     /// Validated VCS providers, sorted by VCS ID.
     pub(crate) fn vcs_providers(&self) -> &[crate::vcs::VcsProviderDeclaration] {
         &self.vcs_providers

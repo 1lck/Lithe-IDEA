@@ -2837,10 +2837,12 @@ the provider; the first failing check wins:
 
 A provider's own failure keeps its meaning. The reply is a JSON-RPC error
 with `data: { "code", "details" }`; when the provider's function answered with
-an error, `code` is `plugin.function.failed` (`-32603`), `message` is the
+an error, `code` is `plugin.function.failed` (`-32070`), `message` is the
 provider's message cut to 1024 bytes, and `details.pluginErrorCode` is the
-provider's own `error.data.code`. A result over 256 KiB is
-`plugin.function.payloadTooLarge`. The relay's deadline passing is
+provider's own `error.data.code`. A reply with no `result`, or with one over
+1 MiB serialized, is `plugin.function.invalidResult` (`-32071`); any other
+result over 256 KiB is `plugin.function.payloadTooLarge`. Neither number is
+`-32603`, which stays `plugin.host.failed`, a failure inside Core. The relay's deadline passing is
 `plugin.host.timeout`. A provider whose backend exits, or that withdraws
 the function, while the call runs ends it with
 `plugin.function.providerUnavailable`; a provider that is disabled or

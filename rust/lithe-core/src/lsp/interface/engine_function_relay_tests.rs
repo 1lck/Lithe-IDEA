@@ -479,7 +479,7 @@ fn a_failing_callee_keeps_its_own_error_code() {
     go.fail(&wire_id, "Parse failed.", "go.parseFailed");
 
     let reply = python.reply("call-1");
-    assert_error(&reply, "plugin.function.failed", -32603);
+    assert_error(&reply, "plugin.function.failed", -32070);
     assert_eq!(reply["error"]["message"], "Parse failed.");
     assert_eq!(
         reply["error"]["data"]["details"]["pluginErrorCode"],

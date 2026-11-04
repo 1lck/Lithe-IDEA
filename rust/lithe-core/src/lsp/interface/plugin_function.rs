@@ -1394,6 +1394,10 @@ pub(crate) fn host_rpc_code(code: &str) -> i64 {
         codes::TOO_MANY_CALLS => -32067,
         codes::PAYLOAD_TOO_LARGE => -32068,
         codes::PROVIDER_UNAVAILABLE => -32069,
+        // A relayed call's own failure is not a host failure: the caller
+        // must tell the provider's error from Core's by the number alone.
+        codes::FAILED => -32070,
+        codes::INVALID_RESULT => -32071,
         _ => -32603,
     }
 }
@@ -1826,11 +1830,13 @@ mod tests {
         }
     }
 
-    /// Every refusal the relay adds has its own number, so a caller can
-    /// branch on either the string or the number.
+    /// Every failure a relayed call can end with has its own number, so a
+    /// caller can branch on either the string or the number.
     #[test]
     fn relay_refusals_have_distinct_numbers() {
         let relay_codes = [
+            codes::FAILED,
+            codes::INVALID_RESULT,
             codes::NOT_DECLARED,
             codes::NOT_EXPORTED,
             codes::PROVIDER_DISABLED,
