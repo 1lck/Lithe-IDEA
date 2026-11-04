@@ -138,6 +138,28 @@ function adaptDiffStats(args: JsonRecord | undefined, value: unknown): unknown {
   });
 }
 
+/** Projects one Core history commit into the Windows commit shape. */
+function adaptHistoryCommit(commit: JsonRecord) {
+  return {
+    hash: commit.hash,
+    shortHash: commit.shortHash ?? String(commit.hash ?? "").slice(0, 7),
+    parentHashes: Array.isArray(commit.parentHashes) ? commit.parentHashes : [],
+    message: commit.subject,
+    author: commit.authorName,
+    email: commit.authorEmail,
+    date: commit.date,
+    dateUtcOffsetMinutes:
+      typeof commit.dateUtcOffsetMinutes === "number" ? commit.dateUtcOffsetMinutes : undefined,
+    dateUnixSeconds:
+      typeof commit.dateUnixSeconds === "number" ? commit.dateUnixSeconds : undefined,
+    decorations: commit.decorations ?? "",
+  };
+}
+
+function adaptHistoryCommits(value: unknown) {
+  return Array.isArray(value) ? value.map((commit: JsonRecord) => adaptHistoryCommit(commit)) : [];
+}
+
 export function adaptCoreResult<T>(
   command: string,
   args: JsonRecord | undefined,
@@ -190,24 +212,7 @@ export function adaptCoreResult<T>(
               behind: typeof reference.behind === "number" ? reference.behind : 0,
             }))
           : [],
-        commits: Array.isArray(data.commits)
-          ? data.commits.map((commit: JsonRecord) => ({
-              hash: commit.hash,
-              shortHash: commit.shortHash ?? String(commit.hash ?? "").slice(0, 7),
-              parentHashes: Array.isArray(commit.parentHashes) ? commit.parentHashes : [],
-              message: commit.subject,
-              author: commit.authorName,
-              email: commit.authorEmail,
-              date: commit.date,
-              dateUtcOffsetMinutes:
-                typeof commit.dateUtcOffsetMinutes === "number"
-                  ? commit.dateUtcOffsetMinutes
-                  : undefined,
-              dateUnixSeconds:
-                typeof commit.dateUnixSeconds === "number" ? commit.dateUnixSeconds : undefined,
-              decorations: commit.decorations ?? "",
-            }))
-          : [],
+        commits: adaptHistoryCommits(data.commits),
         hasMore: Boolean(data.hasMore),
       } as T;
     case "git_references":
@@ -239,26 +244,17 @@ export function adaptCoreResult<T>(
       } as T;
     case "git_history_page":
       return {
-        commits: Array.isArray(data.commits)
-          ? data.commits.map((commit: JsonRecord) => ({
-              hash: commit.hash,
-              shortHash: commit.shortHash ?? String(commit.hash ?? "").slice(0, 7),
-              parentHashes: Array.isArray(commit.parentHashes) ? commit.parentHashes : [],
-              message: commit.subject,
-              author: commit.authorName,
-              email: commit.authorEmail,
-              date: commit.date,
-              dateUtcOffsetMinutes:
-                typeof commit.dateUtcOffsetMinutes === "number"
-                  ? commit.dateUtcOffsetMinutes
-                  : undefined,
-              dateUnixSeconds:
-                typeof commit.dateUnixSeconds === "number" ? commit.dateUnixSeconds : undefined,
-              decorations: commit.decorations ?? "",
-            }))
-          : [],
+        commits: adaptHistoryCommits(data.commits),
         nextCursor: typeof data.nextCursor === "string" ? data.nextCursor : undefined,
         hasMore: Boolean(data.hasMore),
+      } as T;
+    case "git.historyLocate":
+      return {
+        found: Boolean(data.found),
+        commits: adaptHistoryCommits(data.commits),
+        nextCursor: typeof data.nextCursor === "string" ? data.nextCursor : undefined,
+        hasMore: Boolean(data.hasMore),
+        pagesLoaded: typeof data.pagesLoaded === "number" ? data.pagesLoaded : 0,
       } as T;
     case "git_branches":
       return (

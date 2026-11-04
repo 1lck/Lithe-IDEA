@@ -5169,6 +5169,12 @@
 "git.changelists.invalidName" = "Use a unique, nonempty name of at most 100 characters.";
 "git.diff.repositoryPreviewEmptyTitle" = "Repository Diff";
 "git.diff.repositoryPreviewTitle" = "Repository Diff: %1$@";
+"git.log.branchNameAlreadyExists" = "Branch name %1$@ already exists";
+"git.log.branchNameClashesWithBranchPrefix" = "Branch name %1$@ conflicts with existing local branch %2$@";
+"git.log.branchNameClashesWithDirectory" = "Branch name %1$@ conflicts with local branch directory with the same name";
+"git.log.branchNameClashesWithRemote" = "Branch name %1$@ conflicts with remote branch with the same name";
+"git.log.branchNameEmpty" = "Specify name for the new branch";
+"git.log.branchNameHead" = "HEAD is a reserved keyword";
 "git.log.olderCommitsFailed" = "Could not load older commits. Refresh history";
 "git.rollback.confirm" = "Rollback";
 "git.rollback.deleteAdded" = "Delete local copies of added files";

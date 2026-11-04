@@ -613,6 +613,10 @@ pub enum CoreCommand {
     GitHistoryPage,
     /// Releases an incremental history cursor (`git.historyCursorClose`).
     GitHistoryCursorClose,
+    /// Locates one commit while appending bounded history pages (`git.historyLocate`).
+    GitHistoryLocate,
+    /// Cleans and validates a new branch name in loaded references (`git.branchNamePreview`).
+    GitBranchNamePreview,
     /// Resolves the destination and commits for a branch push (`git.pushPreview`).
     GitPushPreview,
     /// Resolves metadata for one commit (`git.commit`).
@@ -968,6 +972,8 @@ impl CoreCommand {
             "git.references" => Some(Self::GitReferences),
             "git.historyPage" => Some(Self::GitHistoryPage),
             "git.historyCursorClose" => Some(Self::GitHistoryCursorClose),
+            "git.historyLocate" => Some(Self::GitHistoryLocate),
+            "git.branchNamePreview" => Some(Self::GitBranchNamePreview),
             "git.pushPreview" => Some(Self::GitPushPreview),
             "git.commit" => Some(Self::GitCommit),
             "git.commitFiles" => Some(Self::GitCommitFiles),

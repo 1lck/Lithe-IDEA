@@ -231,7 +231,17 @@ struct GitLogView: View {
             feature.historyEditing.cancelActionCapabilities()
         }
         .sheet(item: $branchDialogRequest) { request in
-            GitBranchNameDialog(request: request) { name, checkout in
+            GitBranchNameDialog(
+                request: request,
+                previewBranchName: { rawName in
+                    guard request.kind == .create else { return nil }
+                    return await feature.branchNamePreview(
+                        rawName: rawName,
+                        requireName: false,
+                        reference: request.reference
+                    )
+                }
+            ) { name, checkout in
                 Task {
                     switch request.kind {
                     case .create:
@@ -2096,14 +2106,26 @@ private struct GitBranchOperationRequest: Identifiable {
 private struct GitBranchNameDialog: View {
     @Environment(\.dismiss) private var dismiss
     let request: GitBranchDialogRequest
+    /// Core-backed cleanup and conflict validation for a new branch name.
+    /// `rename` keeps its existing local behaviour and never resolves this.
+    let previewBranchName: (String) async -> GitBranchNamePreview?
     let onSubmit: (String, Bool) -> Void
 
     @State private var name: String
     @State private var checkout: Bool
+    @State private var preview: GitBranchNamePreview?
+    /// Text the stored preview describes, so a cancelled or late Core call can
+    /// never overwrite the result for the current input.
+    @State private var previewedName: String?
     @FocusState private var nameFieldFocused: Bool
 
-    init(request: GitBranchDialogRequest, onSubmit: @escaping (String, Bool) -> Void) {
+    init(
+        request: GitBranchDialogRequest,
+        previewBranchName: @escaping (String) async -> GitBranchNamePreview?,
+        onSubmit: @escaping (String, Bool) -> Void
+    ) {
         self.request = request
+        self.previewBranchName = previewBranchName
         self.onSubmit = onSubmit
         _name = State(initialValue: request.kind == .rename ? request.reference.shortName : "")
         _checkout = State(initialValue: request.kind == .create)
@@ -2120,10 +2142,31 @@ private struct GitBranchNameDialog: View {
                     .foregroundStyle(LitheTheme.secondaryText)
             }
 
-            TextField("Branch name", text: $name)
-                .textFieldStyle(.roundedBorder)
-                .focused($nameFieldFocused)
-                .onSubmit(submit)
+            VStack(alignment: .leading, spacing: 5) {
+                TextField("Branch name", text: $name)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($nameFieldFocused)
+                    .onSubmit(submit)
+
+                if request.kind == .create {
+                    if let error = currentPreview?.error {
+                        Text(verbatim: error.localizedMessage)
+                            .font(LitheTheme.uiFont(size: 11.5))
+                            .foregroundStyle(LitheTheme.error)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else if let cleanedName = cleanedNameForDisplay {
+                        // Core may clean a name the user typed verbatim (trailing
+                        // dot, slash or ".lock"); show the exact name Create sends.
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.right")
+                                .font(LitheTheme.uiFont(size: 10, weight: .semibold))
+                            Text(verbatim: cleanedName)
+                                .font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
+                        }
+                        .foregroundStyle(LitheTheme.secondaryText)
+                    }
+                }
+            }
 
             if request.kind == .create {
                 Toggle("Checkout branch after creation", isOn: $checkout)
@@ -2142,13 +2185,16 @@ private struct GitBranchNameDialog: View {
                     .lithePointer()
                     .tint(LitheTheme.accent)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(trimmedName.isEmpty)
+                    .disabled(isSubmitDisabled)
             }
         }
         .padding(20)
         .frame(width: 420)
         .background(LitheTheme.raised)
         .onAppear { nameFieldFocused = true }
+        .task(id: name) {
+            await updatePreview()
+        }
     }
 
     private var title: String {
@@ -2173,9 +2219,55 @@ private struct GitBranchNameDialog: View {
         name.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// The preview that belongs to the current field text. Replaced tasks are
+    /// cancelled by `.task(id:)`; this check also covers a result that lands
+    /// after the text already changed.
+    private var currentPreview: GitBranchNamePreview? {
+        previewedName == name ? preview : nil
+    }
+
+    /// Cleaned name Core would create, shown only when it differs from the raw
+    /// input so the dialog explains what Create will actually use.
+    private var cleanedNameForDisplay: String? {
+        guard let currentPreview else { return nil }
+        let cleanedName = currentPreview.cleanedName
+        guard !cleanedName.isEmpty, cleanedName != name else { return nil }
+        return cleanedName
+    }
+
+    /// Create sends Core's submit-time cleanup; rename keeps its existing input.
+    private var submitName: String {
+        switch request.kind {
+        case .create: currentPreview?.cleanedName ?? ""
+        case .rename: trimmedName
+        }
+    }
+
+    /// Matches Windows: Create needs a non-empty cleaned name with no Core error.
+    private var isSubmitDisabled: Bool {
+        switch request.kind {
+        case .create:
+            guard let currentPreview else { return true }
+            return currentPreview.cleanedName.isEmpty || currentPreview.error != nil
+        case .rename:
+            return trimmedName.isEmpty
+        }
+    }
+
+    private func updatePreview() async {
+        guard request.kind == .create else { return }
+        let rawName = name
+        let result = await previewBranchName(rawName)
+        guard !Task.isCancelled, name == rawName else { return }
+        preview = result
+        previewedName = rawName
+    }
+
     private func submit() {
-        guard !trimmedName.isEmpty else { return }
-        onSubmit(trimmedName, checkout)
+        guard !isSubmitDisabled else { return }
+        let submittedName = submitName
+        guard !submittedName.isEmpty else { return }
+        onSubmit(submittedName, checkout)
         dismiss()
     }
 }
