@@ -48,6 +48,8 @@ const REFERENCED = 'referenced';
 export const CI_INFRA_RULES = Object.freeze([
   // Logging scripts belong to the independent verify-logging workflow.
   { pattern: /^scripts\/logging\//, workflows: [] },
+  // The host language-specifics gate belongs to verify-host-language-specifics.yml.
+  { pattern: /^scripts\/architecture\/(verify-no-host-language-specifics(\.test)?\.mjs|language-specifics-(baseline|allowlist)\.json)$/, workflows: [] },
   { pattern: /^\.github\/(workflows|actions)\//, workflows: REFERENCED },
   // This cross-engine check runs in the Linux job on every revision.
   { pattern: /^scripts\/plugins\/plugin-settings-schema\.test\.mjs$/, workflows: [] },
