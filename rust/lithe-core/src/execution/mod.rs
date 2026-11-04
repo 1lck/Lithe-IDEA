@@ -1,5 +1,6 @@
 //! Run configuration generation, resolution, and project detectors.
 
+mod argument_text;
 mod classpath_jar;
 mod configuration;
 mod detectors;
@@ -15,6 +16,7 @@ pub use java_selection::{
 };
 mod types;
 
+pub(crate) use argument_text::{format_argument_text, ArgumentTextRequest};
 pub use classpath_jar::{
     plan_classpath_jar_launch, ClasspathJarPlan, ClasspathJarRequest, ClasspathStyle,
 };
@@ -31,5 +33,6 @@ pub use workspace_scan::{is_run_scan_excluded_directory, list_run_java_sources};
 
 mod environment;
 pub use environment::{
-    resolve_launch_environment, LaunchEnvironmentRequest, LaunchEnvironmentResponse,
+    resolve_launch_environment, resolve_search_path, LaunchEnvironmentRequest,
+    LaunchEnvironmentResponse, SearchPathCandidate, SearchPathRequest,
 };

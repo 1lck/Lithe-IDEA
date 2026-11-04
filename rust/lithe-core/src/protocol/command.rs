@@ -312,6 +312,8 @@ pub enum CoreCommand {
     ExecutionPlanLaunchCommand,
     /// Resolve environment precedence after platform tool discovery.
     ExecutionResolveEnvironment,
+    /// Resolves deterministic process search-path ordering (`execution.resolveSearchPath`).
+    ExecutionResolveSearchPath,
     /// Decides how each Lithe-owned process ends (`processLifecycle.resolve`).
     ProcessLifecycleResolve,
     /// Classifies a process snapshot into lifecycle items (`processLifecycle.inventory`).
@@ -461,6 +463,8 @@ pub enum CoreCommand {
     RunConfigSelectJava,
     /// Regenerates detected run configurations (`runConfig.generate`).
     RunConfigGenerate,
+    /// Formats argument vectors as reversible editor text (`runConfig.argumentText`).
+    RunConfigArgumentText,
     /// Merges configuration layers and toolchains (`runConfig.resolve`).
     RunConfigResolve,
     /// Persists editable run options (`runConfig.updateOptions`).
@@ -823,6 +827,7 @@ impl CoreCommand {
             "maven.scan" => Some(Self::MavenScan),
             "maven.launchPlan" => Some(Self::MavenLaunchPlan),
             "execution.resolveEnvironment" => Some(Self::ExecutionResolveEnvironment),
+            "execution.resolveSearchPath" => Some(Self::ExecutionResolveSearchPath),
             "execution.planLaunchCommand" => Some(Self::ExecutionPlanLaunchCommand),
             "processLifecycle.resolve" => Some(Self::ProcessLifecycleResolve),
             "processLifecycle.inventory" => Some(Self::ProcessLifecycleInventory),
@@ -895,6 +900,7 @@ impl CoreCommand {
             "runConfig.projectToolchain" => Some(Self::RunConfigProjectToolchain),
             "runConfig.selectJava" => Some(Self::RunConfigSelectJava),
             "runConfig.generate" => Some(Self::RunConfigGenerate),
+            "runConfig.argumentText" => Some(Self::RunConfigArgumentText),
             "runConfig.resolve" => Some(Self::RunConfigResolve),
             "runConfig.updateOptions" => Some(Self::RunConfigUpdateOptions),
             "runConfig.updateToolPreferences" => Some(Self::RunConfigUpdateToolPreferences),
