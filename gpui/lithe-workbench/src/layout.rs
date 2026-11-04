@@ -91,17 +91,23 @@ pub(crate) const CONFIRM_CLOSE_PANEL_HEIGHT: Pixels = px(180.);
 pub(crate) const MARKDOWN_TOOLBAR_HEIGHT: Pixels = px(28.);
 
 // --- 顶栏下拉菜单 ---------------------------------------------------------
-// 项目切换器和分支切换器共用同一套位置与宽度：紧贴 40pt 顶栏下方，左对齐
-// 12pt，宽 320pt。菜单在窗口根节点上绝对定位，不参与主区分栏。
+// 项目切换器固定在顶栏左侧下方；分支切换器按顶栏分支按钮的实测坐标锚定。
+// 菜单都在窗口根节点上绝对定位，不参与主区分栏。
 
-/// 顶栏菜单宽度。
+/// 顶栏菜单宽度（项目切换器）。
 pub(crate) const TOP_MENU_WIDTH: Pixels = px(320.);
+
+/// 分支弹窗宽度。
+///
+/// 对齐 macOS `LitheDropdownMetrics.branchMinimumWidth`（375pt）：分支名 +
+/// 计数 + «Current» 徽标在 320pt 里会互相挤压。弹窗左边缘锚定在顶栏分支
+/// 按钮上，不再与项目菜单共用固定位置。
+pub(crate) const BRANCH_MENU_WIDTH: Pixels = px(375.);
 
 /// 顶栏菜单距窗口左边缘的距离。
 ///
-/// 第一版先对齐项目入口的左边缘：应用图标列 38 + 组间距 4 + 汉堡 30 +
-/// 组间距 4 = 76。项目和分支菜单共用同一位置；后续改成按触发器锚定后，
-/// 这个常量会删除。
+/// 项目入口的左边缘：应用图标列 38 + 组间距 4 + 汉堡 30 + 组间距 4 = 76。
+/// 分支弹窗改为按触发器实测坐标锚定，不读这个常量。
 pub(crate) const TOP_MENU_LEFT: Pixels = px(76.);
 
 /// 顶栏菜单与顶栏之间的间隙。与 `LitheMetrics::TOP_BAR_HEIGHT`（f32）相加

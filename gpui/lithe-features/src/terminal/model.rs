@@ -101,10 +101,14 @@ impl TerminalModel {
     }
 
     /// 更新回滚行数配置。
+    ///
+    /// `alacritty_terminal` 没有单独的 setter，但 `Term::set_options` 会按新的
+    /// `scrolling_history` 重建历史长度（缩小时裁剪旧行），因此设置页改动
+    /// 能立即作用于已有会话，而不只是下一个新会话。
     pub fn set_scrollback(&mut self, scrollback: u32) {
-        // 注：目前 alacritty_terminal 没有直接修改历史深度的公开方法，
-        // 但可以通过在新创建时保证初始值正确。
-        let _ = scrollback;
+        let mut config = Config::default();
+        config.scrolling_history = scrollback as usize;
+        self.term.set_options(config);
     }
 }
 

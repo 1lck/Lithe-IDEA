@@ -1,17 +1,19 @@
-//! 输入弹窗。
+//! 输入弹窗卡片。
 //!
-//! 工作台的 New File / New Folder / New Project 共用同一个输入卡片：标题、
+//! 工作台的 New File / New Folder / New Project 共用同一张输入卡片：标题、
 //! 可选描述、单行输入框和“取消 / 确认”。组件只表达交互，不校验业务名称；
 //! 确认时总是把输入框里的原文交给调用方。
+//!
+//! 遮罩、居中、面板底色与 Escape / 焦点归工作台的覆盖层系统所有；本组件只
+//! 渲染卡片内容，避免同一渲染树里出现两套背板与重复的 `ElementId`。
 
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::{Disableable as _, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    App, AppContext as _, ClickEvent, Context, Entity, EventEmitter, FontWeight,
-    InteractiveElement as _, IntoElement, KeyDownEvent, ParentElement, Render, SharedString,
-    StatefulInteractiveElement as _, Styled, Subscription, Window, div, px,
+    App, AppContext as _, ClickEvent, Context, Entity, EventEmitter, FontWeight, IntoElement,
+    ParentElement, Render, SharedString, Styled, Subscription, Window, div, px,
 };
 
 use crate::{LitheMetrics, current_tokens, tr};
@@ -60,16 +62,10 @@ impl PromptSpec {
     }
 }
 
-/// 卡片宽度，与工作台其它确认卡片保持一致。
-const PROMPT_WIDTH: f32 = 420.0;
-/// 卡片内边距。
-const PROMPT_PADDING: f32 = 16.0;
 /// 卡片内元素间距。
 const PROMPT_GAP: f32 = 10.0;
 /// 按钮之间与右侧的间距。
 const PROMPT_BUTTON_GAP: f32 = 8.0;
-/// 键盘上下文；工作台若要追加按键绑定，可复用这个字符串。
-const PROMPT_KEY_CONTEXT: &str = "LithePrompt";
 
 impl EventEmitter<PromptEvent> for LithePrompt {}
 
@@ -133,101 +129,63 @@ impl Render for LithePrompt {
         let value = self.input.read(cx).value();
         let confirm_disabled = value.as_str().trim().is_empty();
 
+        // 卡片外壳（宽度、底色、圆角、内边距、遮罩与 Escape）由工作台的
+        // 覆盖层提供；这里只排布内容，避免双层背板与重复的 ElementId。
         div()
-            .id("lithe-prompt-overlay")
-            .absolute()
-            .inset_0()
-            .size_full()
             .flex()
-            .items_center()
-            .justify_center()
-            .occlude()
-            .key_context(PROMPT_KEY_CONTEXT)
-            // Enter 交给输入框自身的 InputEvent，Escape 在这里收口；两者都
-            // 只在弹窗获得焦点时生效，不注册全局按键绑定。
-            .on_key_down(cx.listener(|this, event: &KeyDownEvent, _window, cx| {
-                if event.keystroke.key.as_str() == "escape" {
-                    cx.stop_propagation();
-                    this.emit_cancel(cx);
-                }
-            }))
+            .flex_col()
+            .w_full()
+            .gap(px(PROMPT_GAP))
             .child(
                 div()
-                    .id("lithe-prompt-backdrop")
-                    .absolute()
-                    .inset_0()
-                    .size_full()
-                    .occlude()
-                    .bg(tokens.window.alpha(0.62))
-                    .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
-                        this.emit_cancel(cx);
-                    })),
+                    .w_full()
+                    .text_size(px(LitheMetrics::SETTINGS_FONT_SIZE))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(tokens.primary_text)
+                    .child(self.spec.title.clone()),
+            )
+            .when_some(self.spec.description.clone(), |this, description| {
+                this.child(
+                    div()
+                        .w_full()
+                        .text_size(px(LitheMetrics::SMALL_FONT_SIZE))
+                        .text_color(tokens.secondary_text)
+                        .child(description),
+                )
+            })
+            .child(
+                Input::new(&self.input)
+                    .w_full()
+                    .aria_label(self.spec.title.clone()),
             )
             .child(
                 div()
-                    .id("lithe-prompt-panel")
-                    .occlude()
                     .flex()
-                    .flex_col()
-                    .w(px(PROMPT_WIDTH))
-                    .rounded(px(LitheMetrics::PANE_RADIUS))
-                    .overflow_hidden()
-                    .bg(tokens.raised)
-                    .border_1()
-                    .border_color(tokens.panel_border)
-                    .p(px(PROMPT_PADDING))
-                    .gap(px(PROMPT_GAP))
+                    .flex_row()
+                    .justify_end()
+                    .gap(px(PROMPT_BUTTON_GAP))
                     .child(
-                        div()
-                            .w_full()
-                            .text_size(px(LitheMetrics::SETTINGS_FONT_SIZE))
-                            .font_weight(FontWeight::MEDIUM)
-                            .text_color(tokens.primary_text)
-                            .child(self.spec.title.clone()),
-                    )
-                    .when_some(self.spec.description.clone(), |this, description| {
-                        this.child(
-                            div()
-                                .w_full()
-                                .text_size(px(LitheMetrics::SMALL_FONT_SIZE))
-                                .text_color(tokens.secondary_text)
-                                .child(description),
-                        )
-                    })
-                    .child(
-                        Input::new(&self.input)
-                            .w_full()
-                            .aria_label(self.spec.title.clone()),
+                        Button::new("lithe-prompt-cancel")
+                            .ghost()
+                            .small()
+                            .tab_stop(false)
+                            .label(tr("Cancel"))
+                            .accessibility_label(tr("Cancel"))
+                            .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
+                                this.emit_cancel(cx);
+                            })),
                     )
                     .child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .justify_end()
-                            .gap(px(PROMPT_BUTTON_GAP))
-                            .child(
-                                Button::new("lithe-prompt-cancel")
-                                    .ghost()
-                                    .small()
-                                    .tab_stop(false)
-                                    .label(tr("Cancel"))
-                                    .accessibility_label(tr("Cancel"))
-                                    .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
-                                        this.emit_cancel(cx);
-                                    })),
-                            )
-                            .child(
-                                Button::new("lithe-prompt-confirm")
-                                    .primary()
-                                    .small()
-                                    .tab_stop(false)
-                                    .disabled(confirm_disabled)
-                                    .label(self.spec.confirm_label.clone())
-                                    .accessibility_label(self.spec.confirm_label.clone())
-                                    .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
-                                        this.emit_confirm(cx);
-                                    })),
-                            ),
+                        Button::new("lithe-prompt-confirm")
+                            .primary()
+                            .small()
+                            .tab_stop(false)
+                            .disabled(confirm_disabled)
+                            .label(self.spec.confirm_label.clone())
+                            .accessibility_label(self.spec.confirm_label.clone())
+                            .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
+                                this.emit_confirm(cx);
+                            })),
                     ),
             )
     }

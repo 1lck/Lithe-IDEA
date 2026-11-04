@@ -1062,10 +1062,10 @@ impl GitPanel {
                         PopupMenuItem::new(tr("Commit selected")).on_click({
                             let owner = owner.clone();
                             let commit_paths = paths.clone();
-                            move |_, _, cx| {
+                            move |_, window, cx| {
                                 let _ = owner.update(cx, |this, cx| {
                                     this.stage_paths(&commit_paths.clone(), cx);
-                                    this.focus_commit_message(cx);
+                                    this.focus_commit_message(window, cx);
                                 });
                             }
                         }),

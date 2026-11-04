@@ -20,6 +20,7 @@ pub(crate) enum PromptAction {
     NewJavaType,
     NewJavaPackage,
     GoToLine,
+    RenameTerminal,
 }
 
 impl Workbench {
@@ -166,6 +167,7 @@ impl Workbench {
         let was_open = self.prompt.take().is_some();
         self.prompt_action = None;
         self.pending_new_project_parent = None;
+        self.terminal_rename_target = None;
         if was_open {
             cx.notify();
         }
@@ -182,10 +184,20 @@ impl Workbench {
             return;
         };
         let parent = self.pending_new_project_parent.take();
+        let terminal_target = self.terminal_rename_target.take();
         let name = value.trim().to_string();
         self.close_prompt(cx);
 
         if name.is_empty() {
+            return;
+        }
+
+        // Rename Terminal 只是改显示名，不经过路径校验。
+        if action == PromptAction::RenameTerminal {
+            if let Some(id) = terminal_target {
+                self.rename_terminal_session(&id, SharedString::from(name));
+                cx.notify();
+            }
             return;
         }
 
@@ -215,6 +227,7 @@ impl Workbench {
         match action {
             // 已在上面提前处理，走到这里说明未来有人改了流程却漏了分支。
             PromptAction::GoToLine => {}
+            PromptAction::RenameTerminal => {}
             PromptAction::NewFile | PromptAction::NewFolder => {
                 let Some(root) = self.project_root.clone() else {
                     return;

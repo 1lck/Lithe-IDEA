@@ -289,8 +289,12 @@ impl ToolWindow {
     ///
     /// Search 不在此列：搜索面板自己按查询重新搜索，标题栏刷新既不对齐 Tauri
     /// 的搜索工具窗（它没有刷新/折叠按钮），也会和面板内的搜索按钮重复。
+    /// Problems 不在此列：macOS `ProblemsView.header`（`JavaProblemsView.swift:162`）
+    /// 只放 scope 切换、计数和隐藏按钮，没有刷新；JDT 按文件增量推送诊断，
+    /// 多一个刷新按钮既不对齐也会让用户以为诊断需要手动拉取。GitLog 的刷新
+    /// 在面板自己的工具条里（`GitLogView.swift:1140`），不走通用标题栏。
     fn supports_refresh(self) -> bool {
-        matches!(self, Self::Project | Self::Changes | Self::GitLog)
+        matches!(self, Self::Project | Self::Changes)
     }
 }
 
@@ -379,8 +383,19 @@ impl Workbench {
         self.set_dock_visible(anchor, true, cx);
 
         if tool == ToolWindow::Terminal {
-            let terminal = self.terminal.clone();
-            terminal.update(cx, |panel, panel_cx| panel.focus(window, panel_cx));
+            // Terminal 工具窗打开时保证至少有一个会话，再把焦点交给主 pane。
+            // 对齐 macOS `toolContent` 的 `onActivate: { model.activeToolTerminalSession?.focus() }`
+            //（WorkbenchView.swift:1525）。
+            self.ensure_terminal_session(window, cx);
+            self.terminal_focus_secondary = false;
+            if let Some(panel) = self.active_terminal_panel() {
+                panel.update(cx, |panel, panel_cx| panel.focus(window, panel_cx));
+            }
+        } else if tool == ToolWindow::Problems {
+            // macOS `ProblemsView` 每次渲染都直接读 `EditorDiagnosticsStore`
+            // 的最新快照；GPUI 的问题列表是工作台持有的事件快照，打开面板时
+            // 补一次语言服务的权威结果，去掉标题栏刷新按钮后也不会看到旧诊断。
+            self.refresh_problems(cx);
         } else if tool == ToolWindow::Agent {
             let agent = self.agent.clone();
             agent.update(cx, |panel, panel_cx| panel.focus(window, panel_cx));
@@ -436,18 +451,31 @@ impl Workbench {
         }
     }
 
+    /// 提交分栏组的最新宽度。
+    ///
+    /// 两侧工具窗都是 `fixed` panel（见 `render_top_row`），拖动某个 handle
+    /// 时 gpui-kit 只会改动紧邻它的 panel，未拖动的一侧保持原值，因此
+    /// 这里按索引读回的宽度不会把另一侧带偏。写入前仍按各自区间夹紧：右侧
+    /// panel 被向左拖过编辑区最小宽度时，gpui-kit 会把它撑到 `size_range`
+    /// 之外，夹紧后持久化下来的仍是合法宽度。
     pub(super) fn commit_horizontal_sizes(&mut self, sizes: &[Pixels], cx: &mut Context<Self>) {
         let mut index = 0;
         if self.left_visible {
             if let Some(width) = sizes.get(index) {
-                self.left_width = width.as_f32();
+                self.left_width = width.as_f32().clamp(
+                    layout::LEFT_PANEL_MIN_WIDTH.as_f32(),
+                    layout::LEFT_PANEL_MAX_WIDTH.as_f32(),
+                );
             }
             index += 1;
         }
         index += 1; // editor
         if self.notifications_visible || self.right_visible {
             if let Some(width) = sizes.get(index) {
-                self.right_width = width.as_f32();
+                self.right_width = width.as_f32().clamp(
+                    layout::RIGHT_PANEL_MIN_WIDTH.as_f32(),
+                    layout::RIGHT_PANEL_MAX_WIDTH.as_f32(),
+                );
             }
         }
         self.persist_layout();
@@ -555,20 +583,39 @@ impl Workbench {
             return;
         };
         let layout = workspace_layout::load(&root);
-        if let Some(tool) = ToolWindow::from_id(&layout.active_left) {
-            self.active_left = tool;
-        }
+        // 与 `apply_layout`（workspace.rs）同一套容错：持久化文件可能被手工
+        // 编辑，旧版本也可能把工具窗 id 写在另一个锚点。id 只在锚点匹配时
+        // 生效，尺寸统一 clamp 到当前区间，避免非法值把分栏拖出屏幕。
+        self.active_left = ToolWindow::from_id(&layout.active_left)
+            .filter(|tool| tool.anchor() == DockAnchor::Left)
+            .unwrap_or(ToolWindow::Project);
         self.active_bottom = layout
             .active_bottom
             .as_deref()
-            .and_then(ToolWindow::from_id);
-        self.active_right = layout.active_right.as_deref().and_then(ToolWindow::from_id);
+            .and_then(ToolWindow::from_id)
+            .filter(|tool| tool.anchor() == DockAnchor::Bottom);
+        self.active_right = layout
+            .active_right
+            .as_deref()
+            .and_then(ToolWindow::from_id)
+            .filter(|tool| tool.anchor() == DockAnchor::Right);
         self.left_visible = layout.left_visible;
-        self.bottom_visible = layout.bottom_visible;
-        self.right_visible = layout.right_visible;
-        self.left_width = layout.left_width;
-        self.right_width = layout.right_width;
-        self.bottom_height = layout.bottom_height;
+        // 没有活动工具窗时不能保持“可见”：否则活动栏高亮空项、底部留出
+        // 一条没有内容的空白。判定与 `apply_layout` 保持一致。
+        self.bottom_visible = layout.bottom_visible && self.active_bottom.is_some();
+        self.right_visible = layout.right_visible && self.active_right.is_some();
+        self.left_width = layout.left_width.clamp(
+            layout::LEFT_PANEL_MIN_WIDTH.as_f32(),
+            layout::LEFT_PANEL_MAX_WIDTH.as_f32(),
+        );
+        self.right_width = layout.right_width.clamp(
+            layout::RIGHT_PANEL_MIN_WIDTH.as_f32(),
+            layout::RIGHT_PANEL_MAX_WIDTH.as_f32(),
+        );
+        self.bottom_height = layout.bottom_height.clamp(
+            layout::BOTTOM_PANEL_MIN_HEIGHT.as_f32(),
+            layout::BOTTOM_PANEL_MAX_HEIGHT.as_f32(),
+        );
         self.horizontal_state = cx.new(|_| ResizableState::default());
         self.layout_restored = true;
         // 会话和锚点布局来自同一份读取结果，恢复顺序统一交给工作台。
@@ -594,6 +641,8 @@ impl Workbench {
                     panel.refresh(window, panel_cx);
                 });
             }
+            // Problems 没有独立实体，刷新就是把语言服务当前的诊断快照重新读回。
+            ToolWindow::Problems => self.refresh_problems(cx),
             ToolWindow::Search => {
                 let root = self.project_root.clone().unwrap_or_default();
                 self.search.update(cx, |panel, panel_cx| {
@@ -881,10 +930,15 @@ impl Workbench {
             });
 
         if self.left_visible {
+            // fixed：左侧工具窗只由它自己的分隔线改宽度。gpui-kit 拖动某个
+            // handle 时会把被拖动 panel 之外的余量分给同组其它 panel；不标记
+            // fixed 的话，拖动右侧（Maven 等）分隔线把编辑区压到最小宽度后，
+            // 多出来的位移会落到左侧 panel 上，看起来就是项目树跟着一起缩。
             horizontal = horizontal.child(
                 resizable_panel()
                     .size(px(self.left_width))
                     .size_range(layout::LEFT_PANEL_MIN_WIDTH..layout::LEFT_PANEL_MAX_WIDTH)
+                    .fixed()
                     .child(div().size_full().pr(px(6.)).child(self.render_dock_panel(
                         self.active_left,
                         window,
@@ -900,10 +954,13 @@ impl Workbench {
         );
 
         if self.notifications_visible {
+            // 通知中心占用右栏的位置，和 Maven 等右侧工具窗同样只由自己的
+            // 分隔线改宽度，不从左侧工具窗借空间。
             horizontal = horizontal.child(
                 resizable_panel()
                     .size(px(self.right_width))
                     .size_range(layout::RIGHT_PANEL_MIN_WIDTH..layout::RIGHT_PANEL_MAX_WIDTH)
+                    .fixed()
                     .child(
                         div()
                             .size_full()
@@ -913,10 +970,13 @@ impl Workbench {
             );
         } else if self.right_visible {
             if let Some(tool) = self.active_right {
+                // 同上：右栏固定宽度，拖动它时只让编辑区让出/收回空间，
+                // 反过来也不允许左侧分隔线把右栏挤窄。
                 horizontal = horizontal.child(
                     resizable_panel()
                         .size(px(self.right_width))
                         .size_range(layout::RIGHT_PANEL_MIN_WIDTH..layout::RIGHT_PANEL_MAX_WIDTH)
+                        .fixed()
                         .child(
                             div()
                                 .size_full()
@@ -940,6 +1000,7 @@ impl Workbench {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        let tokens = current_tokens(cx);
         let mut column = v_flex().size_full().min_h(px(0.)).min_w(px(0.)).child(
             div()
                 .flex_1()
@@ -965,6 +1026,10 @@ impl Workbench {
             .min_h(px(0.))
             .min_w(px(0.))
             .p(px(4.))
+            // 编辑器四周（左右留白、状态栏上方、工具窗之间的缝隙）与编辑器内容
+            // 同底色：这些留白由本容器的 padding 与面板间的 gap 组成，露出的是
+            // 本容器的背景，不能用窗口底色，否则编辑区会被一圈异色边框包住。
+            .bg(tokens.editor)
             .on_drag_move(cx.listener(Self::on_bottom_resize_drag))
             .child(column)
             .child(BottomResizeCommit {

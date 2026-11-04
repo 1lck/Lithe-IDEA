@@ -1,22 +1,30 @@
-//! 工具条、标题栏、批量选择动作与 more 弹出菜单。
+//! 标题栏、动作工具条、批量选择动作与 more 弹出菜单。
+//!
+//! 逐项对齐 macOS `RunView`：
+//! - `toolWindowHeader`：`Run` 标题 + more 菜单 + 隐藏按钮，41pt；
+//! - `runToolbar`：批量组 → Run/Restart → Stop → Rescan → 软换行 →
+//!   分隔线 → Console / Configuration details → 服务地址，36pt；
+//! - `runOptionsMenu`：Rescan services / Use soft wraps /
+//!   Select configurations for batch actions / Clear run output。
 
+use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
-use gpui_kit::component::{
-    Disableable as _, Icon, IconName, Selectable as _, Sizable as _, h_flex,
-};
-use gpui_kit::prelude::FluentBuilder as _;
+use gpui_kit::component::{h_flex, Disableable as _, Icon, Selectable as _, Sizable as _};
 use gpui_kit::{
-    AnyElement, ClickEvent, Context, DismissEvent, EventEmitter as _, Focusable as _, FontWeight,
-    InteractiveElement as _, IntoElement, ParentElement as _, SharedString,
-    StatefulInteractiveElement as _, Styled as _, Window, anchored, deferred, div, px,
+    anchored, deferred, div, px, AnyElement, ClickEvent, Context, DismissEvent,
+    Focusable as _, FontWeight, InteractiveElement as _, IntoElement, ParentElement as _,
+    SharedString, Styled as _, Window,
 };
 use lithe_ui::i18n::tr;
-use lithe_ui::{LitheIcon, LitheMetrics, LitheTokens, icon};
+use lithe_ui::{icon, LitheIcon, LitheMetrics, LitheTokens};
 
-use super::model::RunExecution;
 use super::state::SessionState;
-use super::{RunPanel, RunPanelEvent, TOOLBAR_HEIGHT};
+use super::{RunPanel, RunPanelEvent, HEADER_HEIGHT, TOOLBAR_HEIGHT};
+
+/// 标题栏与工具条图标按钮的点击区域。对齐 macOS `toolbarIconButtonSize`。
+const HEADER_BUTTON_SIZE: f32 = 26.0;
+const TOOLBAR_ICON_SIZE: f32 = 16.0;
 
 impl RunPanel {
     /// 隐藏按钮：面板不改工作台布局，只发出请求，由工作台收起底部 dock 并持久化。
@@ -99,12 +107,13 @@ impl RunPanel {
         // 勾选状态先取值再进闭包：闭包是 `move` 的，直接读 `self` 会把面板整体移走。
         let wraps_currently_on = self.wrap_output;
         let batch_currently_on = self.batch_selection;
+        let clear_enabled = self.selected_has_output();
 
         let popup = PopupMenu::build(window, cx, move |menu, _window, _cx| {
-            menu.min_w(px(220.0))
+            menu.min_w(px(240.0))
                 .item(
                     PopupMenuItem::new(tr("Rescan services")).on_click(move |_, _window, cx| {
-                        let _ = rescan.update(cx, |this, cx| this.reload(cx));
+                        let _ = rescan.update(cx, |this, cx| this.rescan(cx));
                     }),
                 )
                 .item(
@@ -132,9 +141,11 @@ impl RunPanel {
                 )
                 .separator()
                 .item(
-                    PopupMenuItem::new(tr("Clear run output")).on_click(move |_, _window, cx| {
-                        let _ = clear.update(cx, |this, cx| this.clear_output(cx));
-                    }),
+                    PopupMenuItem::new(tr("Clear run output"))
+                        .disabled(!clear_enabled)
+                        .on_click(move |_, _window, cx| {
+                            let _ = clear.update(cx, |this, cx| this.clear_output(cx));
+                        }),
                 )
         });
 
@@ -155,22 +166,84 @@ impl RunPanel {
         cx.notify();
     }
 
-    /// 36pt 动作工具条。按钮顺序对齐 macOS `RunView.runToolbar`：
-    /// 批量勾选组 → Run/Restart → Stop → Rescan → 软换行 → 分隔线 →
-    /// Console / 详情（图标 tab）→ 服务地址外链。
-    fn render_toolbar(&self, tokens: LitheTokens, cx: &mut Context<Self>) -> AnyElement {
+    /// 41pt 标题栏：`Run` + more 菜单 + 隐藏按钮。
+    ///
+    /// 对齐 macOS `RunView.toolWindowHeader`；运行控制全部在下方工具条，
+    /// 标题栏不再重复放置播放/停止按钮。
+    pub(super) fn render_header(&self, tokens: LitheTokens, cx: &mut Context<Self>) -> AnyElement {
+        h_flex()
+            .id("lithe-run-header")
+            .w_full()
+            .flex_shrink_0()
+            .items_center()
+            .gap(px(8.0))
+            .h(px(HEADER_HEIGHT))
+            .pl(px(12.0))
+            .pr(px(8.0))
+            .bg(tokens.tool_header)
+            .border_b_1()
+            .border_color(tokens.divider)
+            .child(
+                div()
+                    .min_w(px(0.0))
+                    .truncate()
+                    .text_size(px(13.0))
+                    .font_weight(FontWeight::BOLD)
+                    .text_color(tokens.primary_text)
+                    .child(tr("Run")),
+            )
+            .child(div().flex_1())
+            .child(
+                Button::new("lithe-run:more")
+                    .ghost()
+                    .with_size(px(HEADER_BUTTON_SIZE))
+                    .child(
+                        Icon::new(IconName::EllipsisVertical)
+                            .with_size(px(TOOLBAR_ICON_SIZE))
+                            .text_color(tokens.tool_window_button_text),
+                    )
+                    .tooltip(tr("More Run actions"))
+                    .accessibility_label(tr("More Run actions"))
+                    .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
+                        let position = match event {
+                            ClickEvent::Mouse(mouse) => mouse.up.position,
+                            _ => Default::default(),
+                        };
+                        this.toggle_more_menu(position, window, cx);
+                    })),
+            )
+            .child(
+                Button::new("lithe-run:hide")
+                    .ghost()
+                    .with_size(px(HEADER_BUTTON_SIZE))
+                    .child(
+                        Icon::new(IconName::Minus)
+                            .with_size(px(TOOLBAR_ICON_SIZE))
+                            .text_color(tokens.tool_window_button_text),
+                    )
+                    .tooltip(tr("Hide Run tool window"))
+                    .accessibility_label(tr("Hide Run tool window"))
+                    .on_click(cx.listener(|this, _, _window, cx| this.hide_panel(cx))),
+            )
+            .into_any_element()
+    }
+
+    /// 36pt 动作工具条。按钮顺序与可用性对齐 macOS `RunView.runToolbar`。
+    pub(super) fn render_toolbar(&self, tokens: LitheTokens, cx: &mut Context<Self>) -> AnyElement {
         let selected_running = self.selected_is_running();
         let selected_starting = self
             .selected_id
             .as_ref()
             .and_then(|id| self.sessions.get(id))
             .is_some_and(|session| session.starting);
-        let has_configurations = !self.configurations.is_empty();
+        let has_configurations = self.has_runnable_configurations();
         let checked_count = self.checked.len();
+        let selected_runnable = self.selected_runnable_configuration().is_some();
         let service_url = self
             .selected_id
             .as_ref()
             .and_then(|id| self.sessions.get(id))
+            .filter(|session| session.running)
             .and_then(|session| session.service_url.clone());
 
         let mut toolbar = h_flex()
@@ -244,7 +317,11 @@ impl RunPanel {
                             .selected_id
                             .clone()
                             .or_else(|| this.default_id.clone())
-                            .or_else(|| this.configurations.first().map(|item| item.id.clone()));
+                            .or_else(|| {
+                                this.runnable_configurations()
+                                    .first()
+                                    .map(|item| item.id.clone())
+                            });
                         if let Some(id) = id {
                             if this.sessions.get(&id).is_some_and(SessionState::is_active) {
                                 this.restart_configuration(id, cx);
@@ -274,13 +351,13 @@ impl RunPanel {
                     .icon(icon(LitheIcon::Refresh))
                     .tooltip(tr("Rescan services"))
                     .disabled(self.loading)
-                    .on_click(cx.listener(move |this, _, _window, cx| this.reload(cx))),
+                    .on_click(cx.listener(move |this, _, _window, cx| this.rescan(cx))),
             )
             .child(
                 Button::new("lithe-run:wrap")
                     .ghost()
                     .small()
-                    .child(Icon::new(IconName::Menu).with_size(px(16.0)))
+                    .icon(icon(LitheIcon::WrapText))
                     .tooltip(tr("Use soft wraps"))
                     .selected(self.wrap_output)
                     .on_click(cx.listener(move |this, _, _window, cx| {
@@ -288,19 +365,20 @@ impl RunPanel {
                         this.emit(cx);
                         cx.notify();
                     })),
-            )
-            .child(div().flex_1());
+            );
 
-        // 选中配置后出现 Console / 详情两个图标 tab；分隔线与 macOS 的
-        // `ActionToolbar.separator` 对齐。
-        if self.selected_configuration().is_some() {
+        // 选中可运行配置后出现 Console / Configuration details 两个 tab；
+        // 分隔线与 macOS 的 `ActionToolbar.separator` 对齐。
+        if selected_runnable {
             toolbar = toolbar
                 .child(div().w(px(1.0)).h(px(20.0)).mx(px(6.0)).bg(tokens.divider))
                 .child(
                     Button::new("lithe-run:console")
                         .ghost()
                         .small()
+                        .h(px(28.0))
                         .icon(icon(LitheIcon::Terminal))
+                        .label(tr("Console"))
                         .tooltip(tr("Console"))
                         .selected(!self.show_details)
                         .on_click(cx.listener(move |this, _, _window, cx| {
@@ -312,7 +390,9 @@ impl RunPanel {
                     Button::new("lithe-run:details")
                         .ghost()
                         .small()
+                        .h(px(28.0))
                         .icon(icon(LitheIcon::Settings))
+                        .label(tr("Configuration details"))
                         .tooltip(tr("Configuration details"))
                         .selected(self.show_details)
                         .on_click(cx.listener(move |this, _, _window, cx| {
@@ -327,11 +407,13 @@ impl RunPanel {
             toolbar = toolbar.child(
                 Button::new("lithe-run:service-url")
                     .ghost()
-                    .small()
-                    .icon(icon(LitheIcon::References))
-                    .max_w(px(260.0))
-                    .label(label)
-                    .tooltip(tr("Open service in browser"))
+                    .with_size(px(HEADER_BUTTON_SIZE))
+                    .child(
+                        Icon::new(IconName::SquareArrowOutUpRight)
+                            .with_size(px(TOOLBAR_ICON_SIZE))
+                            .text_color(tokens.tool_window_button_text),
+                    )
+                    .tooltip(label)
                     .on_click(cx.listener(move |_, _, _window, _cx| {
                         let _ = lithe_platform::current().open_url(&url);
                     })),
@@ -342,166 +424,16 @@ impl RunPanel {
     }
 
     fn can_start_selected(&self) -> bool {
-        self.selected_configuration()
-            .is_some_and(|configuration| configuration.execution != RunExecution::Group)
-            || self
-                .configurations
-                .iter()
-                .any(|configuration| configuration.execution != RunExecution::Group)
-    }
-
-    /// 单层标题栏（完全对齐 Tauri `RunPane` Header：`▷ 运行 <项目名>` + 右侧操作按钮组）。
-    pub(super) fn render_header(
-        &mut self,
-        tokens: LitheTokens,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let is_running = self.is_running();
-        let project_name = self
-            .root
-            .as_ref()
-            .and_then(|r| r.file_name())
-            .and_then(|n| n.to_str())
-            .unwrap_or("");
-        let title_text = if project_name.is_empty() {
-            tr("Run").to_string()
-        } else {
-            format!("{} {project_name}", tr("Run"))
-        };
-
-        h_flex()
-            .id("lithe-run-header")
-            .w_full()
-            .flex_shrink_0()
-            .items_center()
-            .gap(px(4.0))
-            .h(px(34.0))
-            .pl(px(12.0))
-            .pr(px(8.0))
-            .bg(tokens.tool_header)
-            .border_b_1()
-            .border_color(tokens.divider)
-            .child(
-                Icon::new(IconName::Play)
-                    .with_size(px(14.0))
-                    .text_color(tokens.success),
-            )
-            .child(
-                div()
-                    .min_w(px(0.0))
-                    .truncate()
-                    .text_size(px(LitheMetrics::SETTINGS_FONT_SIZE))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(tokens.primary_text)
-                    .child(title_text),
-            )
-            .child(div().flex_1())
-            // 右侧操作图标组：运行/停止、重新扫描、滚动到底部、软换行、清空、收起
-            .child(
-                Button::new("lithe-run:play")
-                    .ghost()
-                    .small()
-                    .child(
-                        Icon::new(if is_running {
-                            IconName::Square
-                        } else {
-                            IconName::Play
-                        })
-                        .with_size(px(13.0))
-                        .text_color(if is_running {
-                            tokens.warning
-                        } else {
-                            tokens.success
-                        }),
-                    )
-                    .tooltip(tr(if is_running { "Stop run" } else { "Run" }))
-                    .on_click(cx.listener(|this, _, _window, cx| {
-                        if this.is_running() {
-                            this.stop_selected(cx);
-                        } else {
-                            this.run_selected(cx);
-                        }
-                    })),
-            )
-            .child(
-                Button::new("lithe-run:more-services")
-                    .ghost()
-                    .small()
-                    .child(Icon::new(IconName::Ellipsis).with_size(px(13.0)))
-                    .tooltip(tr("Choose services"))
-                    .on_click(cx.listener(|this, event: &ClickEvent, window, cx| {
-                        // 点击处即菜单左上角；键盘触发的点击退回工具条右侧。
-                        let position = match event {
-                            ClickEvent::Mouse(mouse) => mouse.up.position,
-                            _ => Default::default(),
-                        };
-                        this.toggle_more_menu(position, window, cx);
-                    })),
-            )
-            .child(
-                Button::new("lithe-run:rescan")
-                    .ghost()
-                    .small()
-                    .child(Icon::new(IconName::RotateCw).with_size(px(13.0)))
-                    .tooltip(tr("Rescan services"))
-                    .disabled(self.loading)
-                    .on_click(cx.listener(|this, _, _window, cx| this.reload(cx))),
-            )
-            .child(
-                Button::new("lithe-run:scroll-end")
-                    .ghost()
-                    .small()
-                    .child(
-                        Icon::new(gpui_kit::assets::IconName::ArrowDownToLine).with_size(px(13.0)),
-                    )
-                    .tooltip(tr("Scroll to end"))
-                    .on_click(cx.listener(move |this, _, _window, cx| this.scroll_to_latest(cx))),
-            )
-            .child(
-                Button::new("lithe-run:wrap")
-                    .ghost()
-                    .small()
-                    .icon(icon(LitheIcon::WrapText))
-                    .tooltip(tr("Use soft wraps"))
-                    .selected(self.wrap_output)
-                    .on_click(cx.listener(move |this, _, _window, cx| {
-                        this.wrap_output = !this.wrap_output;
-                        this.emit(cx);
-                        cx.notify();
-                    })),
-            )
-            .child(
-                Button::new("lithe-run:clear")
-                    .ghost()
-                    .small()
-                    .child(Icon::new(gpui_kit::assets::IconName::Trash).with_size(px(13.0)))
-                    .tooltip(tr("Clear output"))
-                    .on_click(cx.listener(|this, _, _window, cx| {
-                        let id = this.selected_id.clone().or_else(|| this.default_id.clone());
-                        if let Some(id) = id {
-                            if let Some(session) = this.sessions.get_mut(&id) {
-                                session.clear();
-                            }
-                            this.console.reset();
-                            this.console_follow_tail = true;
-                            cx.notify();
-                        }
-                    })),
-            )
-            .child(
-                Button::new("lithe-run:hide")
-                    .ghost()
-                    .small()
-                    .child(Icon::new(IconName::Minus).with_size(px(13.0)))
-                    .tooltip(tr("Minimize"))
-                    .on_click(cx.listener(|this, _, _window, cx| this.hide_panel(cx))),
-            )
-            .into_any_element()
+        self.selected_configuration().is_some_and(|configuration| {
+            configuration.execution != super::model::RunExecution::Group
+        }) || self.has_runnable_configurations()
     }
 
     /// 把「…」创建的 PopupMenu 渲染到窗口前景层。
     ///
-    /// 之前菜单实体只创建不渲染，工具条菜单从未显示过。
+    /// 菜单必须叠加在面板之上，而不是替换面板：之前这里直接返回菜单的
+    /// `deferred` 元素，打开菜单时整个 Run 面板会从布局中消失（表现为
+    /// 点击「更多」后下半区塌陷），关闭菜单后才重新出现。
     pub(super) fn with_floating_menu(
         &self,
         element: AnyElement,
@@ -510,18 +442,25 @@ impl RunPanel {
         let Some((popup, position)) = &self.more_menu else {
             return element;
         };
-        deferred(
-            anchored().position(*position).snap_to_window().child(
-                div()
-                    .occlude()
-                    .on_mouse_down_out(cx.listener(move |this, _, _, cx| {
-                        if this.more_menu.take().is_some() {
-                            cx.notify();
-                        }
-                    }))
-                    .child(popup.clone()),
-            ),
-        )
-        .into_any_element()
+        div()
+            .relative()
+            .size_full()
+            .min_w(px(0.0))
+            .min_h(px(0.0))
+            .child(element)
+            .child(deferred(
+                anchored().position(*position).snap_to_window().child(
+                    div()
+                        .occlude()
+                        .on_mouse_down_out(cx.listener(move |this, _, _, cx| {
+                            if this.more_menu.is_some() {
+                                this.close_more_menu();
+                                cx.notify();
+                            }
+                        }))
+                        .child(popup.clone()),
+                ),
+            ))
+            .into_any_element()
     }
 }

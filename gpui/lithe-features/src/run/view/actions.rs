@@ -19,8 +19,8 @@ use super::model::{RunConfiguration, RunExecution, RunScope};
 use super::session::{self, RunMode, SessionEvent};
 use super::state::SessionState;
 use super::{
-    CONFIGURATION_LIST_DEFAULT_WIDTH, CONSOLE_CONTEXT, CopySelection, OUTPUT_FLUSH_INTERVAL,
-    RunPanel, RunPanelEvent,
+    CopySelection, RunPanel, RunPanelEvent, CONFIGURATION_LIST_DEFAULT_WIDTH, CONSOLE_CONTEXT,
+    OUTPUT_FLUSH_INTERVAL,
 };
 use crate::language::{JavaLanguageServiceEvent, JavaLanguageServiceModel};
 
@@ -58,8 +58,10 @@ impl RunPanel {
             configurations: Vec::new(),
             default_id: None,
             selected_id: None,
+            selected_language: None,
             scope: RunScope::All,
             pinned: HashSet::new(),
+            collapsed_scope: false,
             sessions: BTreeMap::new(),
             diagnostics: Vec::new(),
             loading: false,
@@ -76,8 +78,8 @@ impl RunPanel {
             collapsed_groups: HashSet::new(),
             more_menu: None,
             _more_menu_subscription: None,
-            selected_language: None,
             console: ConsoleScroll::new(),
+            console_layout_key: None,
             console_follow_tail: true,
             console_focus: cx.focus_handle(),
             pending_output: BTreeMap::new(),
@@ -132,9 +134,17 @@ impl RunPanel {
         self.configurations.clear();
         self.default_id = None;
         self.selected_id = None;
+        self.selected_language = None;
         self.diagnostics.clear();
         self.sessions.clear();
         self.pending_output.clear();
+        // 固定项与勾选都按配置 id 记录；换项目后 id 不再有意义，必须一起清掉，
+        // 否则 Pinned 作用域会显示上一个项目的残留 id。
+        self.pinned.clear();
+        self.checked.clear();
+        self.batch_selection = false;
+        self.scope = RunScope::All;
+        self.collapsed_scope = false;
         self.error = None;
         self.loading = false;
         self.pending_run = false;
@@ -343,8 +353,20 @@ impl RunPanel {
         });
     }
 
-    /// 后台读取/生成/解析运行配置。
+    /// 后台读取运行配置（复用已有生成结果）。
     pub(super) fn reload(&mut self, cx: &mut Context<Self>) {
+        self.load_configurations(false, cx);
+    }
+
+    /// 用户点击「重新识别服务」：强制 Core 重新扫描项目并生成配置。
+    ///
+    /// 与 [`Self::reload`] 的区别只在生成阶段：普通刷新在文档 ready 且指纹
+    /// 未变时直接复用旧结果，重新识别必须真的重新扫描。
+    pub(super) fn rescan(&mut self, cx: &mut Context<Self>) {
+        self.load_configurations(true, cx);
+    }
+
+    fn load_configurations(&mut self, force_generate: bool, cx: &mut Context<Self>) {
         let Some(root) = self.root.clone() else {
             self.configurations.clear();
             self.loading = false;
@@ -365,7 +387,13 @@ impl RunPanel {
         let client = self.client;
         cx.spawn(async move |this, cx| {
             let result = cx
-                .background_spawn(async move { config::load_configurations(&client, &root) })
+                .background_spawn(async move {
+                    if force_generate {
+                        config::rescan_configurations(&client, &root)
+                    } else {
+                        config::load_configurations(&client, &root)
+                    }
+                })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 if this.generation != generation {
@@ -399,6 +427,12 @@ impl RunPanel {
                 .clone()
                 .or_else(|| self.configurations.first().map(|item| item.id.clone()));
         }
+        // 对齐 macOS `synchronizeCheckedConfigurations` / `retainConfigurations`：
+        // 重新识别配置后，已消失的 id 不能继续留在固定项或批量勾选里。
+        self.checked
+            .retain(|id| self.configurations.iter().any(|item| &item.id == id));
+        self.pinned
+            .retain(|id| self.configurations.iter().any(|item| &item.id == id));
         self.pending_initial_load = false;
         self.emit(cx);
         cx.notify();
@@ -547,9 +581,8 @@ impl RunPanel {
         if !appended {
             return;
         }
-        // 行数变化交给虚拟化列表；是否跟随末尾由 `FollowMode::Tail` 自己决定，
-        // 用户上翻后框架会暂停跟随，回到底部时自动恢复，不需要再比对偏移量。
-        self.sync_console_lines();
+        // 行数变化交给下一次渲染统一入账：软换行下每行高度要重新测量，
+        // 只能拿到 `Window` 的渲染阶段做，这里只请求重绘。
         // 顶栏只关心服务地址这类结构性变化，普通日志不惊动工作台。
         if service_url_changed {
             self.emit(cx);

@@ -5,8 +5,8 @@ use std::sync::Arc;
 use gpui_kit::SharedString;
 use lithe_git_host::ProcessTree;
 
-use super::MAX_OUTPUT_LINES;
 use super::session::RunMode;
+use super::MAX_OUTPUT_LINES;
 
 /// 一个配置的当前会话状态。
 pub(super) struct SessionState {
@@ -182,7 +182,7 @@ fn is_exit_system_line(line: &str) -> bool {
 }
 
 /// 去掉常见 ANSI CSI/OSC 序列；运行控制台只显示文本。
-fn strip_ansi(text: &str) -> String {
+pub(super) fn strip_ansi(text: &str) -> String {
     let mut output = String::with_capacity(text.len());
     let mut characters = text.chars().peekable();
     while let Some(character) = characters.next() {
@@ -303,11 +303,9 @@ mod tests {
         assert!(session.is_system_line(1));
         assert_eq!(session.line_at(0), "app log line");
         assert_eq!(session.line_at(1), "Process finished with exit code 0");
-        assert!(
-            session
-                .full_text()
-                .contains("Process finished with exit code 0")
-        );
+        assert!(session
+            .full_text()
+            .contains("Process finished with exit code 0"));
     }
 
     #[test]

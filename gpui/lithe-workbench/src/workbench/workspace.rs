@@ -76,7 +76,9 @@ impl Workbench {
         self.clear_editor(window, cx);
         self.status_message = None;
 
-        self.branch = SharedString::from(tr("main"));
+        // 分支名等 `git.status` 返回后再显示；非 Git 项目保持空值，
+        // 顶栏不渲染分支入口。
+        self.branch = SharedString::default();
         self.git_change_count = 0;
         self.branch_refresh_generation = self.branch_refresh_generation.wrapping_add(1);
         self.branch_refresh_pending = false;
@@ -152,14 +154,7 @@ impl Workbench {
         self.maven.update(cx, |panel, panel_cx| {
             panel.set_root(root.clone(), window, panel_cx)
         });
-        self.terminal.update(cx, |panel, panel_cx| {
-            panel.set_root(root.clone(), window, panel_cx)
-        });
-        if let Some(panel) = self.terminal_secondary.clone() {
-            panel.update(cx, |panel, panel_cx| {
-                panel.set_root(root.clone(), window, panel_cx);
-            });
-        }
+        self.sync_terminal_roots(root.clone(), window, cx);
         self.agent
             .update(cx, |panel, panel_cx| panel.set_root(root, window, panel_cx));
     }
@@ -189,6 +184,14 @@ impl Workbench {
             .update(cx, |model, cx| model.stop(cx));
         self.persist_layout_now(&root);
         self.layout_root = None;
+        // 对齐 macOS `AppModel.swift:994` 的 `hideAllToolWindows()`：关闭项目后
+        // 回到欢迎页，工具窗不再属于任何工作区。正常路径先落盘再收起，下次
+        // 打开该项目时由 `apply_layout` 恢复它自己的布局；这里不写盘。
+        self.left_visible = false;
+        self.bottom_visible = false;
+        self.right_visible = false;
+        self.active_bottom = None;
+        self.active_right = None;
         // 关项目必须与 `open_project` 对称：标签、编辑器文档、右分栏、Markdown
         // 预览和导航历史都属于上一个工作区。留下任何一项，新项目都会看到旧
         // 文件内容，`sync_editor_secondary` 还会对已关闭的文件继续发指令。
@@ -199,6 +202,14 @@ impl Workbench {
         self.status_message = None;
         self.branch_refresh_generation = self.branch_refresh_generation.wrapping_add(1);
         self._branch_task = Task::ready(());
+        // 项目关闭后没有分支：清空顶栏分支入口与弹窗缓存，避免新工作区
+        // 看到上一个仓库的分支名。
+        self.branch = SharedString::default();
+        self.branch_menu_visible = false;
+        self.branches.clear();
+        self.branches_loading = false;
+        self.branch_error = None;
+        self.branch_generation = self.branch_generation.wrapping_add(1);
         cx.notify();
     }
 
@@ -334,9 +345,8 @@ impl Workbench {
         self.git.update(cx, |_, cx| cx.notify());
         self.git_log.update(cx, |_, cx| cx.notify());
         self.search.update(cx, |_, cx| cx.notify());
-        self.terminal.update(cx, |_, cx| cx.notify());
-        if let Some(panel) = self.terminal_secondary.clone() {
-            panel.update(cx, |_, cx| cx.notify());
+        for session in &self.terminal_sessions {
+            session.panel.update(cx, |_, cx| cx.notify());
         }
         self.agent.update(cx, |_, cx| cx.notify());
         self.run_panel.update(cx, |_, cx| cx.notify());

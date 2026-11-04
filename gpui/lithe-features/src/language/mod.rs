@@ -4,6 +4,7 @@
 //! 状态栏与 Run 面板只消费同一份快照。
 
 pub mod java;
+pub mod problems;
 pub mod status;
 
 mod diagnostics;
@@ -12,3 +13,4 @@ pub use java::{
     JavaBuildFailure, JavaBuildReport, JavaLanguageServiceEvent, JavaLanguageServiceModel,
     JavaLaunchTarget,
 };
+pub use problems::{PreviewFailure, ProblemPreview, ProblemsPanelState, ProblemsScope};

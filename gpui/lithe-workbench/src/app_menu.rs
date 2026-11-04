@@ -42,13 +42,17 @@ pub(crate) const OPEN_RECENT_PREFIX: &str = "file.openRecent:";
 /// 生成菜单所需的只读工作台状态快照。
 ///
 /// 这里刻意只包含菜单外观会读取的字段，菜单构建不接触工作台实体本身。
-pub(crate) struct MenuState {
+///
+/// 动态数据（最近项目、主题表）一律借用工作台已有的字段或静态表：
+/// [`MenuState::signature`] 在每次工作台重绘时都会跑一遍，这里不能复制
+/// `Vec<PathBuf>` 或重新分配主题列表。
+pub(crate) struct MenuState<'a> {
     /// 是否已打开项目。
     pub(crate) has_project: bool,
     /// 当前是否存在活动编辑器标签。
     pub(crate) has_active_tab: bool,
     /// 最近打开的项目路径，按最近优先排序。
-    pub(crate) recent_projects: Vec<PathBuf>,
+    pub(crate) recent_projects: &'a [PathBuf],
     /// 左侧 dock 是否可见。
     pub(crate) left_visible: bool,
     /// 底部 dock 是否可见。
@@ -86,19 +90,22 @@ pub(crate) struct MenuState {
     /// 当前界面语言标识，来自 `lithe_ui::i18n::language()`。
     pub(crate) language: &'static str,
     /// 注册的主题列表：`(id, 显示名)`，来自 `lithe_ui::theme::registered_themes`，供 Theme 子菜单动态生成。
-    pub(crate) themes: Vec<(SharedString, SharedString)>,
+    pub(crate) themes: &'static [(SharedString, SharedString)],
     /// 是否有运行会话在跑（Run 面板任一配置启动中或运行中）。
     pub(crate) run_running: bool,
-    /// 终端是否已有分屏（即已有 2 个会话，达到终端模型上限）。New
-    /// Terminal 在达到上限时禁用，保证「能点就一定新建了会话」。
-    pub(crate) terminal_has_split: bool,
+    /// 终端会话是否已达到上限（16 个）。New Terminal 在达到上限时禁用，
+    /// 保证「能点就一定新建了会话」。
+    pub(crate) terminal_at_capacity: bool,
 }
 
-impl MenuState {
+impl MenuState<'_> {
     /// 菜单标签、勾选和禁用状态所依赖的全部字段的哈希。
     ///
     /// 工作台缓存上一次的签名；签名变化（含语言切换、主题切换、最近项目变化、
     /// 运行会话增删）时才重建菜单，避免每帧重复构造。
+    ///
+    /// 这个函数在每次工作台重绘时都会调用，因此只做哈希、不做任何分配
+    /// （最近项目和主题表都是借用的切片）。
     pub(crate) fn signature(&self) -> u64 {
         let mut hasher = DefaultHasher::new();
         self.has_project.hash(&mut hasher);
@@ -124,7 +131,7 @@ impl MenuState {
         self.language.hash(&mut hasher);
         self.themes.hash(&mut hasher);
         self.run_running.hash(&mut hasher);
-        self.terminal_has_split.hash(&mut hasher);
+        self.terminal_at_capacity.hash(&mut hasher);
         hasher.finish()
     }
 }
@@ -927,17 +934,35 @@ fn terminal_menu(state: &MenuState) -> MenuSpec {
     let terminal_active = state.bottom_visible && state.active_bottom == Some("terminal");
 
     MenuSpec::new(tr("Terminal")).items([
-        // New Terminal 真正新建会话（见 Workbench::new_terminal）；已有两个
-        // 会话（终端模型上限）时禁用，避免「点了没反应」。
+        // New Terminal 真正新建会话（见 Workbench::new_terminal）；会话数达到
+        // 上限（16 个）时禁用，避免「点了没反应」。
         item_state(
             "New Terminal",
             "terminal.new",
             None,
             false,
-            state.terminal_has_split,
+            state.terminal_at_capacity,
         ),
-        item("Split Terminal Right", "terminal.split", Some("⌘D")),
-        item("Split Terminal Down", "terminal.splitDown", Some("⇧⌘D")),
+        // 分屏会新建一个会话；达到上限时同样禁用，避免「点了没反应」。
+        //
+        // 两项都不标 ⌘D / ⇧⌘D：GPUI 在 `workbench/mod.rs` 的 `bind_keys` 里
+        // 没有注册这两个键（编辑器与终端共用同一全局键上下文，⌘D 还会被
+        // Duplicate Line 抢占）。菜单文案只能写真实绑定，见 `menus.rs` 的
+        // 同类约定；终端获得独立 key context 后再补键位。
+        item_state(
+            "Split Terminal Right",
+            "terminal.split",
+            None,
+            false,
+            state.terminal_at_capacity,
+        ),
+        item_state(
+            "Split Terminal Down",
+            "terminal.splitDown",
+            None,
+            false,
+            state.terminal_at_capacity,
+        ),
         item_state(
             "Clear Terminal",
             "terminal.clear",
@@ -1062,11 +1087,11 @@ mod tests {
         lithe_ui::i18n::tr(key)
     }
 
-    fn state() -> MenuState {
+    fn state() -> MenuState<'static> {
         MenuState {
             has_project: false,
             has_active_tab: false,
-            recent_projects: Vec::new(),
+            recent_projects: &[],
             left_visible: true,
             bottom_visible: false,
             right_visible: false,
@@ -1085,13 +1110,9 @@ mod tests {
             can_reopen_closed: false,
             menu_bar_visible: true,
             language: "en-US",
-            themes: vec![
-                ("lithe".into(), "Lithe".into()),
-                ("codex".into(), "Codex".into()),
-                ("linear".into(), "Linear".into()),
-            ],
+            themes: lithe_ui::registered_themes(),
             run_running: false,
-            terminal_has_split: false,
+            terminal_at_capacity: false,
         }
     }
 
@@ -1229,7 +1250,7 @@ mod tests {
         assert!(is_disabled(github));
     }
 
-    /// Terminal > New Terminal 真正新建会话：达到两会话上限时禁用，否则可用，
+    /// Terminal > New Terminal 真正新建会话：达到会话上限时禁用，否则可用，
     /// 保持「能点就一定新建了会话」。
     #[test]
     fn new_terminal_disabled_when_session_cap_reached() {
@@ -1238,10 +1259,15 @@ mod tests {
         let new_terminal = action(&menus[4], "terminal.new").expect("new terminal item");
         assert!(!is_disabled(new_terminal));
 
-        state.terminal_has_split = true;
+        state.terminal_at_capacity = true;
         let menus = build_menus(&state);
         let new_terminal = action(&menus[4], "terminal.new").expect("new terminal item");
         assert!(is_disabled(new_terminal));
+        // 分屏也会新建一个会话，达到上限时同样必须禁用。
+        let split_right = action(&menus[4], "terminal.split").expect("split right item");
+        let split_down = action(&menus[4], "terminal.splitDown").expect("split down item");
+        assert!(is_disabled(split_right));
+        assert!(is_disabled(split_down));
     }
 
     /// Theme 子菜单来自注册表：命令 id 由 `view.theme.{id}` 生成，显示名是

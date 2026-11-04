@@ -9,10 +9,13 @@ pub mod model;
 pub mod view;
 
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::Arc;
+use std::time::Duration;
 
+use gpui_kit::component::v_flex;
 use gpui_kit::{
-    AnyElement, AppContext as _, Context, FocusHandle, IntoElement, ParentElement, Render,
+    AnyElement, App, AppContext as _, Context, FocusHandle, IntoElement, ParentElement, Render,
     SharedString, Styled, Window, div, px,
 };
 use lithe_terminal::{
@@ -20,7 +23,7 @@ use lithe_terminal::{
     TerminalSize,
 };
 use lithe_ui::i18n::tr;
-use lithe_ui::{LitheMetrics, current_tokens};
+use lithe_ui::{LitheMetrics, LitheTokens, current_tokens};
 
 use self::model::TerminalModel;
 
@@ -29,20 +32,32 @@ const DEFAULT_ROWS: u16 = 24;
 const DEFAULT_COLS: u16 = 80;
 /// 默认回滚行数。
 const DEFAULT_SCROLLBACK: u32 = 5000;
+/// PTY 输出合批窗口：与运行控制台一致，避免每个数据块都触发一次整屏重排。
+const OUTPUT_FLUSH_INTERVAL: Duration = Duration::from_millis(16);
+/// 合批缓冲上限；一次输出超过它时立即刷新，避免缓冲区无界增长。
+const MAX_PENDING_OUTPUT: usize = 1 << 20;
 
 /// 内部事件流消息。
+///
+/// 每条事件都带 `generation`：每次启动新 PTY 递增，用于丢弃旧会话的迟到事件。
+/// 用代数而不是会话 ID 字符串，避免在 PTY 输出这种高频路径上逐条分配 `String`。
 enum PanelEvent {
     /// PTY 输出字节。
-    Output(Vec<u8>),
+    Output { generation: u64, data: Vec<u8> },
     /// PTY 错误。
     TerminalError(String),
     /// 子进程退出。
     Exit {
+        /// 来源会话代次；重启后用于丢弃旧会话的迟到事件。
+        generation: u64,
         exit_code: Option<u32>,
         signal: Option<String>,
     },
     /// PTY 关闭。
-    Closed,
+    Closed {
+        /// 来源会话代次；重启后用于丢弃旧会话的迟到事件。
+        generation: u64,
+    },
     /// 用户键盘输入字节。
     Input(Vec<u8>),
     /// 视口尺寸变化。
@@ -80,6 +95,16 @@ pub struct TerminalPanel {
     manager: Arc<TerminalManager>,
     /// 当前活跃终端 ID。
     terminal_id: Option<String>,
+    /// 会话代次：每次启动新 PTY 递增，用于识别并丢弃旧会话的迟到事件。
+    session_generation: u64,
+    /// 尚未合入 VT 状态机的 PTY 输出。
+    pending_output: Vec<u8>,
+    /// 是否已经排定一次合批刷新。
+    output_flush_scheduled: bool,
+    /// 最近一次启动失败的原因；用于画布上的居中提示。
+    launch_error: Option<SharedString>,
+    /// 关闭会话回调；由工作台注入，标签菜单的 Close Terminal 复用同一入口。
+    close_handler: Option<Rc<dyn Fn(&mut Window, &mut App)>>,
     /// 事件泵是否已启动。
     pump_started: bool,
     /// 终端会话是否已排定启动。
@@ -150,6 +175,11 @@ impl TerminalPanel {
             scroll_sender,
             manager: Arc::new(TerminalManager::new()),
             terminal_id: None,
+            session_generation: 0,
+            pending_output: Vec::new(),
+            output_flush_scheduled: false,
+            launch_error: None,
+            close_handler: None,
             pump_started: false,
             terminal_started: false,
             saw_exit: false,
@@ -190,14 +220,7 @@ impl TerminalPanel {
             return;
         }
         self.shell = shell;
-        if let Some(id) = self.terminal_id.take() {
-            let _ = self.manager.close_terminal(&id);
-        }
-        self.terminal_started = false;
-        self.pending_command = None;
-        self.saw_exit = false;
-        self.status = None;
-        self.model.clear();
+        self.reset_session();
         cx.notify();
     }
 
@@ -208,15 +231,8 @@ impl TerminalPanel {
 
     /// 切换工作区根目录。
     pub fn set_root(&mut self, root: PathBuf, _window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(id) = self.terminal_id.take() {
-            let _ = self.manager.close_terminal(&id);
-        }
         self.root = root;
-        self.terminal_started = false;
-        self.saw_exit = false;
-        self.status = None;
-        self.pending_command = None;
-        self.model.clear();
+        self.reset_session();
         cx.notify();
     }
 
@@ -232,8 +248,84 @@ impl TerminalPanel {
         cx.notify();
     }
 
-    /// 兼容接口：纯原生不再需要 WebView 隐藏 hack。
-    pub fn set_webview_visible(&mut self, _visible: bool, _cx: &mut Context<Self>) {}
+    /// 关闭当前 PTY、清空屏幕与状态，下一帧自动重新启动一个会话。
+    pub fn restart(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        // 不在这里直接启动：交给下一帧的 `ensure_started`，避免在事件回调或渲染期间重入。
+        self.reset_session();
+        cx.notify();
+    }
+
+    /// 关闭当前 PTY、清空屏幕，并让旧会话的在途事件全部失效。
+    ///
+    /// 重启、换 shell、换工作区目录都要求“旧会话不再影响新会话”：关闭 PTY 后
+    /// 把 `session_generation` 加一，已经在事件通道里的旧输出 / 退出 / 关闭事件
+    /// 会被 `is_stale_generation` 丢弃，不会写进刚清空的屏幕或清掉新会话 ID。
+    fn reset_session(&mut self) {
+        if let Some(id) = self.terminal_id.take() {
+            let _ = self.manager.close_terminal(&id);
+        }
+        self.session_generation = self.session_generation.wrapping_add(1);
+        self.terminal_started = false;
+        self.saw_exit = false;
+        self.status = None;
+        self.pending_command = None;
+        self.pending_output.clear();
+        self.launch_error = None;
+        self.model.clear();
+    }
+
+    /// 向当前 PTY 发送 Ctrl+C（ETX，0x03），不关闭会话。
+    pub fn interrupt(&mut self, cx: &mut Context<Self>) {
+        let Some(id) = self.terminal_id.clone() else {
+            return;
+        };
+        // 直接发送单个控制字节，无需经过 UTF-8 文本转换。
+        if let Err(error) = self
+            .manager
+            .write_to_terminal(&id, TerminalInput::Binary { data: vec![0x03] })
+        {
+            self.set_error(format!("{}: {error}", tr("Terminal unavailable")), cx);
+        }
+    }
+
+    /// 当前是否持有运行中的 PTY 会话。
+    pub fn is_running(&self) -> bool {
+        self.terminal_id.is_some()
+    }
+
+    /// 会话是否已经自行退出（shell 结束）。
+    ///
+    /// 工作台据此移除对应标签页，对齐 macOS `handleTerminalSessionEnded`
+    /// 在 shell 退出后关闭会话的行为。用户主动重启时 `reset_session` 会清掉
+    /// `saw_exit`，因此不会把「重启」误判成「退出」。
+    pub fn has_exited(&self) -> bool {
+        self.saw_exit && self.terminal_id.is_none()
+    }
+
+    /// 注入关闭回调。标签栏菜单的 Close Terminal 走工作台同一条关闭入口。
+    pub fn set_close_handler(&mut self, handler: Rc<dyn Fn(&mut Window, &mut App)>) {
+        self.close_handler = Some(handler);
+    }
+
+    /// 把文本写进 PTY（菜单里的 Paste）。
+    ///
+    /// 会话未运行时忽略：macOS 的粘贴同样只作用于当前运行中的终端。
+    pub fn paste_text(&mut self, text: &str, cx: &mut Context<Self>) {
+        if text.is_empty() {
+            return;
+        }
+        let Some(id) = self.terminal_id.clone() else {
+            return;
+        };
+        if let Err(error) = self.manager.write_to_terminal(
+            &id,
+            TerminalInput::Text {
+                data: text.to_string(),
+            },
+        ) {
+            self.set_error(format!("{}: {error}", tr("Terminal unavailable")), cx);
+        }
+    }
 
     /// 兼容接口：纯原生无需 WebView 调试工具。
     pub fn open_devtools(&mut self, _cx: &mut Context<Self>) {}
@@ -282,6 +374,41 @@ impl TerminalPanel {
             return;
         }
         self.write_command(&command, cx);
+    }
+
+    /// 把 PTY 输出放进合批缓冲，窗口到期后一次性写入 VT 状态机。
+    ///
+    /// `alacritty_terminal` 每次解析都可能触发整屏重排；编译输出或 `cat`
+    /// 大文件时逐块重排会把 UI 线程拖住，这里按 16ms 合并，一帧最多一次。
+    fn queue_output(&mut self, data: &[u8], cx: &mut Context<Self>) {
+        self.pending_output.extend_from_slice(data);
+        if self.pending_output.len() >= MAX_PENDING_OUTPUT {
+            self.flush_output(cx);
+            return;
+        }
+        if self.output_flush_scheduled {
+            return;
+        }
+        self.output_flush_scheduled = true;
+        cx.spawn(async move |this, cx| {
+            // 计时器在后台执行器上，不占用 UI 线程。
+            cx.background_executor().timer(OUTPUT_FLUSH_INTERVAL).await;
+            let _ = this.update(cx, |this, cx| {
+                this.output_flush_scheduled = false;
+                this.flush_output(cx);
+            });
+        })
+        .detach();
+    }
+
+    /// 一次性把合批缓冲写进 VT 状态机并请求重绘。
+    fn flush_output(&mut self, cx: &mut Context<Self>) {
+        if self.pending_output.is_empty() {
+            return;
+        }
+        let data = std::mem::take(&mut self.pending_output);
+        self.model.process_bytes(&data);
+        cx.notify();
     }
 
     fn ensure_started(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -342,14 +469,18 @@ impl TerminalPanel {
         };
 
         let sender = self.sender.clone();
+        self.session_generation += 1;
+        let generation = self.session_generation;
         let handler: TerminalEventHandler = Arc::new(move |_id, event| {
             let panel_event = match event {
-                TerminalEvent::Output { data } => PanelEvent::Output(data),
+                TerminalEvent::Output { data } => PanelEvent::Output { generation, data },
                 TerminalEvent::Error { message } => PanelEvent::TerminalError(message),
-                TerminalEvent::Exit { exit_code, signal } => {
-                    PanelEvent::Exit { exit_code, signal }
-                }
-                TerminalEvent::Closed => PanelEvent::Closed,
+                TerminalEvent::Exit { exit_code, signal } => PanelEvent::Exit {
+                    generation,
+                    exit_code,
+                    signal,
+                },
+                TerminalEvent::Closed => PanelEvent::Closed { generation },
             };
             let _ = sender.send_blocking(panel_event);
             true
@@ -358,10 +489,15 @@ impl TerminalPanel {
         match self.manager.create_terminal(config, handler) {
             Ok(terminal_id) => {
                 self.terminal_id = Some(terminal_id);
+                self.launch_error = None;
                 self.flush_pending_command(cx);
             }
             Err(error) => {
-                self.set_error(format!("{}: {error}", tr("Terminal unavailable")), cx);
+                // 启动失败要保留原始原因，画布上给出与 macOS 一致的居中提示，
+                // 而不是只留一行底部状态。
+                let message = error.to_string();
+                self.launch_error = Some(SharedString::from(message.clone()));
+                self.set_error(format!("{}: {message}", tr("Terminal unavailable")), cx);
             }
         }
         cx.notify();
@@ -369,9 +505,12 @@ impl TerminalPanel {
 
     fn handle_event(&mut self, event: PanelEvent, cx: &mut Context<Self>) {
         match event {
-            PanelEvent::Output(bytes) => {
-                self.model.process_bytes(&bytes);
-                cx.notify();
+            PanelEvent::Output { generation, data } => {
+                // 重启会先关掉旧 PTY；旧会话残留的输出不能写进新屏幕。
+                if self.is_stale_generation(generation) {
+                    return;
+                }
+                self.queue_output(&data, cx);
             }
             PanelEvent::Input(bytes) => {
                 if let Some(id) = &self.terminal_id {
@@ -401,7 +540,17 @@ impl TerminalPanel {
                 self.model.scroll(delta);
                 cx.notify();
             }
-            PanelEvent::Exit { exit_code, signal } => {
+            PanelEvent::Exit {
+                generation,
+                exit_code,
+                signal,
+            } => {
+                // 重启后旧会话的退出事件已无对应代次，直接丢弃，避免清空新会话。
+                if self.is_stale_generation(generation) {
+                    return;
+                }
+                // 退出码之前到达的输出必须完整写入，不能被合批窗口吞掉。
+                self.flush_output(cx);
                 self.saw_exit = true;
                 let message = match (exit_code, signal) {
                     (Some(code), _) => {
@@ -419,7 +568,12 @@ impl TerminalPanel {
                 self.terminal_id = None;
                 cx.notify();
             }
-            PanelEvent::Closed => {
+            PanelEvent::Closed { generation } => {
+                // 同上：忽略来自已关闭旧会话的迟到事件。
+                if self.is_stale_generation(generation) {
+                    return;
+                }
+                self.flush_output(cx);
                 if !self.saw_exit {
                     self.status = Some(StatusLine {
                         message: tr("Terminal closed").into(),
@@ -433,6 +587,16 @@ impl TerminalPanel {
                 self.set_error(error, cx);
             }
         }
+    }
+
+    /// 判断事件是否来自已被替换的旧会话。
+    ///
+    /// `start_terminal` 每建立一次 PTY 就把 `session_generation` 加一，事件在
+    /// 创建时记下当时的代次；重启后旧会话的退出、关闭和残留输出都会因为代次
+    /// 落后而被丢弃：前者能避免把新会话的 `terminal_id` 清掉，后者能避免旧
+    /// 输出写进已经清空的屏幕。
+    fn is_stale_generation(&self, generation: u64) -> bool {
+        generation != self.session_generation
     }
 
     fn set_error(&mut self, error: impl Into<SharedString>, cx: &mut Context<Self>) {
@@ -487,8 +651,12 @@ impl Render for TerminalPanel {
 
         let mut root = div().flex().flex_col().size_full().bg(tokens.editor);
 
-        if let Some(status_bar) = self.render_status_bar(cx) {
-            root = root.child(status_bar);
+        // 启动失败时只用画布上的居中提示，不再叠加底部状态条（macOS 同样
+        // 只有覆盖层，避免同一错误出现两次）。
+        if self.launch_error.is_none() {
+            if let Some(status_bar) = self.render_status_bar(cx) {
+                root = root.child(status_bar);
+            }
         }
 
         let content = view::render_terminal_surface(
@@ -501,9 +669,60 @@ impl Render for TerminalPanel {
             self.resize_sender.clone(),
             self.key_sender.clone(),
             self.scroll_sender.clone(),
+            self.close_handler.clone(),
             cx,
         );
 
-        root.child(div().flex_1().min_h(px(0.0)).child(content))
+        let mut area = div()
+            .relative()
+            .flex_1()
+            .min_h(px(0.0))
+            .child(content);
+        // 启动失败时在画布上居中提示，对齐 macOS `TerminalSurfaceView`
+        // 的 launchError 覆盖层：标题 + 原始错误 + 可执行的下一步。
+        if let Some(error) = self.launch_error.clone() {
+            area = area.child(render_launch_error(error, &tokens));
+        }
+
+        root.child(area)
     }
+}
+
+/// 终端启动失败的居中覆盖层。
+fn render_launch_error(error: SharedString, tokens: &LitheTokens) -> AnyElement {
+    div()
+        .absolute()
+        .inset_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .p(px(20.0))
+        .child(
+            v_flex()
+                .max_w(px(420.0))
+                .gap(px(8.0))
+                .items_center()
+                .child(
+                    div()
+                        .text_size(px(LitheMetrics::UI_FONT_SIZE))
+                        .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+                        .text_color(tokens.primary_text)
+                        .child(tr("Unable to start terminal")),
+                )
+                .child(
+                    div()
+                        .text_size(px(LitheMetrics::SMALL_FONT_SIZE))
+                        .text_color(tokens.secondary_text)
+                        .child(error),
+                )
+                .child(
+                    div()
+                        .text_size(px(LitheMetrics::SMALL_FONT_SIZE))
+                        .text_color(tokens.tertiary_text)
+                        .child(tr(
+                            "Detect installed shells and choose a shell from the New Terminal menu.",
+                        )),
+                ),
+        )
+        .into_any_element()
 }

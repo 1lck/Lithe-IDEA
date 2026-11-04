@@ -3,21 +3,26 @@
 //! 将 `TerminalModel` 中的字符单元格与光标绘制到 GPUI 画布上，
 //! 并处理鼠标滚轮、点击聚焦与键盘事件。
 
+use std::rc::Rc;
+
 use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::vte::ansi::CursorShape;
+use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenuItem};
 use gpui_kit::{
-    AnyElement, BorderStyle, Bounds, Context, Corners, Edges, FocusHandle, Font, FontWeight,
+    AnyElement, App, BorderStyle, Bounds, Context, Corners, Edges, FocusHandle, Font, FontWeight,
     InteractiveElement as _, IntoElement, KeyDownEvent, PaintQuad, ParentElement as _,
     Point as GpuiPoint, ScrollEvent, Styled as _, TextAlign, TextRun, canvas, div, point, px,
     transparent_black,
 };
 use lithe_ui::LitheTokens;
+use lithe_ui::i18n::tr;
 
 use super::color::to_hsla;
 use super::keys;
 use super::model::TerminalModel;
 
 /// 渲染终端内容视图。
+#[allow(clippy::too_many_arguments)]
 pub fn render_terminal_surface(
     model: &TerminalModel,
     focus_handle: &FocusHandle,
@@ -28,6 +33,7 @@ pub fn render_terminal_surface(
     resize_sender: async_channel::Sender<(u16, u16)>,
     key_sender: async_channel::Sender<Vec<u8>>,
     scroll_sender: async_channel::Sender<i32>,
+    close_handler: Option<Rc<dyn Fn(&mut gpui_kit::Window, &mut App)>>,
     cx: &mut Context<crate::terminal::TerminalPanel>,
 ) -> AnyElement {
     let content = model.renderable_content();
@@ -72,6 +78,7 @@ pub fn render_terminal_surface(
     let prepaint_font = font.clone();
     let on_key_sender = key_sender.clone();
     let on_scroll_sender = scroll_sender.clone();
+    let panel = cx.weak_entity();
 
     div()
         .id("terminal-native-view")
@@ -95,7 +102,19 @@ pub fn render_terminal_surface(
                 cx.notify();
             }
         }))
-        .on_key_down(cx.listener(move |_this, event: &KeyDownEvent, _window, cx| {
+        .on_key_down(cx.listener(move |this, event: &KeyDownEvent, _window, cx| {
+            // ⌘V / Ctrl+V：把剪贴板文本写进 PTY，对齐 macOS 终端原生的粘贴
+            // 键位。终端没有文本选择模型，因此不注册 ⌘C（不复制空内容）。
+            if event.keystroke.modifiers.platform
+                && event.keystroke.key.eq_ignore_ascii_case("v")
+            {
+                if let Some(item) = cx.read_from_clipboard() {
+                    if let Some(text) = item.text() {
+                        this.paste_text(&text, cx);
+                    }
+                }
+                return;
+            }
             if let Some(bytes) = keys::to_pty_bytes(event) {
                 let _ = on_key_sender.send_blocking(bytes);
                 cx.notify();
@@ -352,5 +371,39 @@ pub fn render_terminal_surface(
                 }
             },
         ))
+        // 画布右键菜单，对齐 macOS `TerminalSurfaceView.litheContextMenu`：
+        // Copy / Select All 需要文本选择模型，GPUI 终端还没有，先提供
+        // Paste / Clear / Restart / Close Terminal 四项。
+        .context_menu(move |menu, _window, _cx| {
+            let paste_owner = panel.clone();
+            let clear_owner = panel.clone();
+            let restart_owner = panel.clone();
+            let close = close_handler.clone();
+
+            menu.item(PopupMenuItem::new(tr("Paste")).on_click(move |_, _window, cx| {
+                if let Some(item) = cx.read_from_clipboard() {
+                    if let Some(text) = item.text() {
+                        let _ =
+                            paste_owner.update(cx, |panel, cx| panel.paste_text(&text, cx));
+                    }
+                }
+            }))
+            .item(PopupMenuItem::new(tr("Clear")).on_click(move |_, _window, cx| {
+                let _ = clear_owner.update(cx, |panel, cx| panel.clear(cx));
+            }))
+            .item(PopupMenuItem::new(tr("Restart")).on_click(move |_, window, cx| {
+                let _ = restart_owner.update(cx, |panel, cx| panel.restart(window, cx));
+            }))
+            .separator()
+            .item(
+                PopupMenuItem::new(tr("Close Terminal"))
+                    .disabled(close.is_none())
+                    .on_click(move |_, window, cx| {
+                        if let Some(handler) = close.as_ref() {
+                            handler(window, cx);
+                        }
+                    }),
+            )
+        })
         .into_any_element()
 }

@@ -120,6 +120,10 @@ fn en(key: &'static str) -> &'static str {
         "References" => "References",
         "Usages" => "Usages",
         "Problems" => "Problems",
+        // Problems 视图左侧 View Options 菜单的严重级别过滤词条。
+        "All severities" => "All severities",
+        "Information" => "Information",
+        "Hint" => "Hint",
         "Spring" => "Spring",
         "Spring Endpoints" => "Spring Endpoints",
         "Tests" => "Tests",
@@ -155,6 +159,11 @@ fn en(key: &'static str) -> &'static str {
         "Search…" => "Search…",
         "No changes" => "No changes",
         "No results" => "No results",
+        "No commits" => "No commits",
+        "No Git command history" => "No Git command history",
+        "Git commands report their result in the panel status line; this build keeps no execution journal, so no entries are listed here." => "Git commands report their result in the panel status line; this build keeps no execution journal, so no entries are listed here.",
+        "Show file tree" => "Show file tree",
+        "Show file list" => "Show file list",
 
         // 设置、主题与命令面板。
         "Appearance" => "Appearance",

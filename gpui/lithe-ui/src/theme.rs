@@ -47,6 +47,23 @@ pub fn install_theme(cx: &mut App, kind: LitheThemeKind, dark: bool) {
         theme.mono_font_size = px(LitheMetrics::CODE_FONT_SIZE);
         theme.radius = px(LitheMetrics::CONTROL_RADIUS);
         theme.radius_lg = px(LitheMetrics::PANE_RADIUS);
+
+        // 编辑器视觉对齐 VSCode/IDEA：当前行淡底、行号弱化但当前行更亮、
+        // 行号区与编辑区同底。`crates/component` 每帧会从这里投影
+        // `InputEditorStyle`，所以只改 highlight_theme 就能生效。
+        let highlight = std::sync::Arc::make_mut(&mut theme.highlight_theme);
+        highlight.appearance = if dark {
+            ThemeMode::Dark
+        } else {
+            ThemeMode::Light
+        };
+        highlight.style.editor_background = Some(tokens.editor);
+        highlight.style.editor_foreground = Some(tokens.primary_text);
+        highlight.style.editor_active_line = Some(tokens.primary_text.alpha(0.045));
+        highlight.style.editor_line_number = Some(tokens.tertiary_text);
+        highlight.style.editor_active_line_number = Some(tokens.secondary_text);
+        highlight.style.editor_invisible = Some(tokens.tertiary_text.alpha(0.45));
+        highlight.style.editor_gutter_background = Some(tokens.editor);
     });
 
     cx.set_global(LitheThemeState { kind, dark, tokens });
@@ -72,21 +89,30 @@ pub fn current_tokens(cx: &App) -> LitheTokens {
 /// 对齐 Tauri `useRegisteredThemes` 的固定内置主题表。稳定 id 与设置里的
 /// 主题名以及菜单命令 `view.theme.{id}` 一致；显示名是数据（主题名不做
 /// i18n 翻译），View > Theme 子菜单直接消费这一列表。
-pub fn registered_themes() -> Vec<(SharedString, SharedString)> {
-    vec![
-        (
-            SharedString::from(theme_id(LitheThemeKind::Lithe)),
-            SharedString::from("Lithe"),
-        ),
-        (
-            SharedString::from(theme_id(LitheThemeKind::Codex)),
-            SharedString::from("Codex"),
-        ),
-        (
-            SharedString::from(theme_id(LitheThemeKind::Linear)),
-            SharedString::from("Linear"),
-        ),
-    ]
+///
+/// 返回静态切片：菜单签名每帧都要读取这份数据（见 `MenuState::signature`），
+/// 不能每次调用都重新分配一份 `Vec`。
+pub fn registered_themes() -> &'static [(SharedString, SharedString)] {
+    static THEMES: std::sync::OnceLock<Vec<(SharedString, SharedString)>> =
+        std::sync::OnceLock::new();
+    THEMES
+        .get_or_init(|| {
+            vec![
+                (
+                    SharedString::from(theme_id(LitheThemeKind::Lithe)),
+                    SharedString::from("Lithe"),
+                ),
+                (
+                    SharedString::from(theme_id(LitheThemeKind::Codex)),
+                    SharedString::from("Codex"),
+                ),
+                (
+                    SharedString::from(theme_id(LitheThemeKind::Linear)),
+                    SharedString::from("Linear"),
+                ),
+            ]
+        })
+        .as_slice()
 }
 
 /// 主题类型的稳定 id；与 `theme_kind_for` 的解析端约定一致。

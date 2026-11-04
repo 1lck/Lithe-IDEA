@@ -43,23 +43,51 @@ fn diagnostic_item(path: &Path, item: &Value) -> Option<DiagnosticItem> {
         .pointer("/range/start/character")
         .and_then(Value::as_u64)
         .unwrap_or(0);
+    let message = item
+        .get("message")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let severity = panel_severity(item.get("severity").and_then(Value::as_i64));
+    let line = u32::try_from(line).unwrap_or(u32::MAX).saturating_add(1);
+    let column = u32::try_from(column)
+        .unwrap_or(u32::MAX)
+        .saturating_add(1);
     Some(DiagnosticItem {
+        id: DiagnosticItem::make_id(path, severity, line, column, &message),
         path: path.to_path_buf(),
-        severity: panel_severity(item.get("severity").and_then(Value::as_i64)),
-        message: item
-            .get("message")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string(),
-        line: u32::try_from(line).unwrap_or(u32::MAX).saturating_add(1),
-        column: u32::try_from(column)
-            .unwrap_or(u32::MAX)
-            .saturating_add(1),
+        severity,
+        message,
+        line,
+        column,
         source: item
             .get("source")
             .and_then(Value::as_str)
             .filter(|source| !source.is_empty())
             .map(str::to_string),
+        code: diagnostic_code(item.get("code")),
+        tags: diagnostic_tags(item.get("tags")),
+    })
+}
+
+/// LSP 的 `code` 可能是字符串或数字；空字符串按缺失处理。
+fn diagnostic_code(code: Option<&Value>) -> Option<String> {
+    match code? {
+        Value::String(text) if !text.is_empty() => Some(text.clone()),
+        Value::Number(number) => Some(number.to_string()),
+        _ => None,
+    }
+}
+
+/// LSP `DiagnosticTag` 数组转成 [`DiagnosticItem::tags`] 的位集合。
+fn diagnostic_tags(tags: Option<&Value>) -> u8 {
+    let Some(tags) = tags.and_then(Value::as_array) else {
+        return 0;
+    };
+    tags.iter().fold(0, |bits, tag| match tag.as_u64() {
+        Some(1) => bits | crate::editor::DIAGNOSTIC_TAG_UNNECESSARY,
+        Some(2) => bits | crate::editor::DIAGNOSTIC_TAG_DEPRECATED,
+        _ => bits,
     })
 }
 
@@ -304,6 +332,41 @@ mod tests {
         assert_eq!(items[0].path, path);
         assert_eq!(items[1].severity, SEVERITY_WARNING);
         assert_eq!(items[1].source, None);
+    }
+
+    #[test]
+    fn parses_code_and_tags_for_reason_summary() {
+        let event = json!({
+            "type": "diagnostics",
+            "uri": "file:///C:/repo/src/Main.java",
+            "diagnostics": [
+                {
+                    "range": { "start": { "line": 3, "character": 8 } },
+                    "severity": 2,
+                    "message": "unused import",
+                    "code": "100",
+                    "tags": [1]
+                },
+                {
+                    "range": { "start": { "line": 4, "character": 0 } },
+                    "severity": 4,
+                    "message": "deprecated API",
+                    "tags": [2]
+                }
+            ]
+        });
+        let (path, items) = diagnostics_event(&event).unwrap();
+        assert_eq!(items[0].code.as_deref(), Some("100"));
+        assert_eq!(items[0].tags, crate::editor::DIAGNOSTIC_TAG_UNNECESSARY);
+        assert_eq!(items[0].reason_summary(), Some("Unused code"));
+        assert_eq!(items[1].code, None);
+        assert_eq!(items[1].tags, crate::editor::DIAGNOSTIC_TAG_DEPRECATED);
+        assert_eq!(items[1].reason_summary(), Some("Deprecated API"));
+        // 同一位置与消息生成的 id 稳定，供 Problems 面板跟踪选中项。
+        assert_eq!(
+            items[0].id,
+            DiagnosticItem::make_id(&path, items[0].severity, 4, 9, "unused import")
+        );
     }
 
     #[test]

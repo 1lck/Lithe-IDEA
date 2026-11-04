@@ -25,6 +25,7 @@ use crate::editor::DiagnosticItem;
 use crate::run::model::{PreparationPhase, PreparationStatus, ProjectPreparation};
 
 use super::diagnostics::{diagnostics_event, SEVERITY_ERROR, SEVERITY_WARNING};
+use super::problems::ProblemsPanelState;
 
 /// Core 的轮询接口没有阻塞等待，空轮询也要有界，避免空转占满一个核心。
 const POLL_INTERVAL: Duration = Duration::from_millis(120);
@@ -164,6 +165,8 @@ pub struct JavaLanguageServiceModel {
     failure: Option<String>,
     /// 当前工作区的 Java 诊断快照，按文件增量更新后供 Problems 面板消费。
     diagnostics: Vec<DiagnosticItem>,
+    /// Problems 面板的会话状态（范围、过滤、选中与源码预览）。
+    problems_panel: ProblemsPanelState,
 }
 
 /// 语言服务状态变化；工作台与 Run 面板据此刷新。
@@ -186,6 +189,7 @@ impl JavaLanguageServiceModel {
             expanded: false,
             failure: None,
             diagnostics: Vec::new(),
+            problems_panel: ProblemsPanelState::default(),
         }
     }
 
@@ -201,6 +205,7 @@ impl JavaLanguageServiceModel {
         self.preparation = None;
         self.seen.clear();
         self.failure = None;
+        self.reset_problems_selection();
         self.diagnostics.clear();
         cx.notify();
         self.emit(cx);
@@ -278,6 +283,24 @@ impl JavaLanguageServiceModel {
         &self.diagnostics
     }
 
+    /// Problems 面板的会话状态。
+    pub fn problems_panel(&self) -> &ProblemsPanelState {
+        &self.problems_panel
+    }
+
+    /// Problems 面板的可变状态；调用方负责补 `cx.notify()`。
+    pub fn problems_panel_mut(&mut self) -> &mut ProblemsPanelState {
+        &mut self.problems_panel
+    }
+
+    /// 诊断快照整体失效（切换工作区、重启服务、重建索引）时清掉面板的
+    /// 选中项与预览文档，避免预览停留在已经不属于当前工作区的文件上。
+    fn reset_problems_selection(&mut self) {
+        self.problems_panel.selected = None;
+        self.problems_panel.collapsed_files.clear();
+        self.problems_panel.discard_preview();
+    }
+
     /// 让 JDT 为一次运行准备主类、构建与运行时 classpath。
     ///
     /// 与 macOS 一致：宿主只等待 Core 的操作结果，不自己跑 Maven。
@@ -325,6 +348,7 @@ impl JavaLanguageServiceModel {
         self.preparation = Some(ProjectPreparation::starting());
         self.seen.clear();
         self.failure = None;
+        self.reset_problems_selection();
         self.diagnostics.clear();
         cx.notify();
         self.emit(cx);
@@ -389,6 +413,7 @@ impl JavaLanguageServiceModel {
         self.preparation = Some(ProjectPreparation::starting());
         self.seen.clear();
         self.failure = None;
+        self.reset_problems_selection();
         self.diagnostics.clear();
         cx.notify();
         self.emit(cx);
@@ -465,11 +490,19 @@ impl JavaLanguageServiceModel {
                         .then(left.line.cmp(&right.line))
                         .then(left.column.cmp(&right.column))
                 });
+                // 预览跟踪的诊断被 JDT 撤回后清掉选中项，避免预览停留在不存在的条目上。
+                if let Some(selected) = self.problems_panel.selected.clone() {
+                    if !self.diagnostics.iter().any(|item| item.id == selected) {
+                        self.problems_panel.discard_preview();
+                        self.problems_panel.selected = None;
+                    }
+                }
                 cx.notify();
                 self.emit(cx);
             }
             JavaServiceEvent::Stopped => {
                 self.service = None;
+                self.reset_problems_selection();
                 self.diagnostics.clear();
                 if let Some(preparation) = self.preparation.as_mut() {
                     if preparation.status != PreparationStatus::Failed

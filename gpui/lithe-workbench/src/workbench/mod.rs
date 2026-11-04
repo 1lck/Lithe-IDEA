@@ -2,7 +2,9 @@
 //!
 //! 负责组装系统标题栏、40pt 顶栏、左右活动栏、锚点工具窗和状态栏。
 
+use std::cell::Cell;
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -14,7 +16,7 @@ use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::menu::PopupMenu;
 use gpui_kit::component::resizable::ResizableState;
 use gpui_kit::{
-    AnyElement, AppContext as _, Context, Entity, FocusHandle, InteractiveElement as _,
+    AnyElement, AppContext as _, Bounds, Context, Entity, FocusHandle, InteractiveElement as _,
     IntoElement, KeyBinding, ParentElement as _, Pixels, Point, Render, SharedString, Styled as _,
     Subscription, Task, Window, anchored, deferred, div, px,
 };
@@ -26,7 +28,7 @@ use lithe_features::quick_open::QuickFile;
 use lithe_features::{
     AgentPanel, AppSettings, CommitDiffView, EditorSurface, GitPanel, MarkdownPreview,
     MavenOutputPanel, MavenPanel, ProjectTree, RunPanel, RunPanelEvent, SearchPanel, SettingsView,
-    TerminalPanel, WelcomeView,
+    WelcomeView,
 };
 use lithe_platform::PlatformServices;
 use lithe_ui::components::menu_bar::{LitheMenuBar, MenuBarEvent};
@@ -51,7 +53,7 @@ pub(crate) use notifications::{NotificationEntry, NotificationFilter, Notificati
 use notifications::ToastEntry;
 pub(crate) use overlays::{PaletteMode, PromptAction};
 pub(crate) use tabs::OpenTab;
-pub(crate) use terminal::TerminalSplitAxis;
+pub(crate) use terminal::{TerminalSession, TerminalSplitAxis};
 
 use crate::commit_header::CommitTab;
 use crate::layout;
@@ -139,17 +141,26 @@ pub struct Workbench {
     java_language_started: bool,
     maven: Entity<MavenPanel>,
     maven_output: Entity<MavenOutputPanel>,
-    terminal: Entity<TerminalPanel>,
-    terminal_webview_visible: Option<bool>,
-    terminal_secondary: Option<Entity<TerminalPanel>>,
+    terminal_sessions: Vec<TerminalSession>,
+    /// 内容区第一个 pane 对应的会话 id；同时也是标签切换的主目标。
+    active_terminal: Option<SharedString>,
+    /// 分屏第二个 pane 的会话 id。
+    terminal_split_secondary: Option<SharedString>,
     terminal_split_axis: TerminalSplitAxis,
-    terminal_secondary_webview_visible: Option<bool>,
+    /// 键盘焦点是否在分屏的第二个 pane。
     terminal_focus_secondary: bool,
+    /// 会话 id 的下一个序号（只递增、不复用）。
+    terminal_next_id: usize,
+    /// Rename Terminal 弹窗当前要改名的会话。
+    terminal_rename_target: Option<SharedString>,
+    /// 会话右键/`⋯` 菜单的目标与打开位置。
+    terminal_menu: Option<(SharedString, Point<Pixels>)>,
+    /// 菜单实体与关闭订阅（与标签页右键菜单同一套做法）。
+    terminal_menu_popup: Option<Entity<PopupMenu>>,
+    _terminal_menu_subscription: Option<Subscription>,
     /// 终端 Profile 下拉菜单是否打开。
     ///
-    /// 终端正文是原生 WebView，绘制层级高于 GPUI 画布；GPUI 渲染的弹出菜单
-    /// 会被它整块盖住。菜单打开期间必须隐藏终端 WebView，与命令面板、设置
-    /// 面板等 GPUI 覆盖层已有的处理一致。
+    /// 与工作台其它覆盖层共用同一个「有浮层」判定，保证键盘与绘制行为一致。
     terminal_profile_menu_open: bool,
     agent: Entity<AgentPanel>,
     active_left: ToolWindow,
@@ -209,6 +220,9 @@ pub struct Workbench {
     cursor_line: u32,
     cursor_column: u32,
     problems: Vec<DiagnosticItem>,
+    /// Problems 面板的严重级别过滤位掩码：8 错误、4 警告、2 信息、1 提示。
+    /// 与 `DiagnosticItem::severity` 同一编码；默认显示全部级别。
+    problem_severity_filter: u8,
     /// 目标文档还在读盘时的跳行请求：(绝对路径, 1 基行号, 打开代次)。
     /// 由 `install_file` 在文档真正装上后消费，避免把行号发给上一个文档。
     pending_reveal: Option<(PathBuf, u32, u64)>,
@@ -253,6 +267,17 @@ pub struct Workbench {
     branch_generation: u64,
     _branches_task: Task<()>,
     _checkout_task: Task<()>,
+    /// 分支弹窗的搜索框与键盘导航状态；实体常驻，打开时清空查询并聚焦。
+    branch_palette: Entity<CommandState>,
+    /// 分支弹窗的列表视图（`Command` 宿主）。查询变化只重绘这个实体，
+    /// 不再 `notify` 整个工作台；模型按查询/数据版本缓存。
+    branch_menu: Entity<menus::BranchMenuView>,
+    /// 分支行 `⋯` 动作菜单（Checkout / Delete）与其锚点。
+    branch_row_menu: Option<(Entity<PopupMenu>, Point<Pixels>)>,
+    _branch_row_menu_subscription: Option<Subscription>,
+    /// 顶栏分支入口最后一帧的窗口坐标。分支弹窗按它锚定在按钮正下方，
+    /// 不再使用固定左偏移（项目名长度变化后固定偏移会指错位置）。
+    branch_trigger_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
     menu_bar: Entity<LitheMenuBar>,
     menu_open: bool,
     _menu_subscription: Option<Subscription>,
@@ -326,16 +351,16 @@ impl Workbench {
         let maven = cx.new(|maven_cx| MavenPanel::new(client, tree_root.clone(), window, maven_cx));
         let maven_output =
             cx.new(|output_cx| MavenOutputPanel::new(maven.clone(), window, output_cx));
-        let terminal = cx.new(|term_cx| TerminalPanel::new(tree_root.clone(), window, term_cx));
         let agent = cx.new(|agent_cx| AgentPanel::new(tree_root.clone(), window, agent_cx));
         let horizontal_state = cx.new(|_| ResizableState::default());
 
         let menu_bar = cx.new(|_| LitheMenuBar::new(Vec::new()));
         let menu_subscription =
-            cx.subscribe(&menu_bar, |this, _, event: &MenuBarEvent, cx| match event {
-                MenuBarEvent::OpenChanged(is_open) => {
-                    this.menu_open = *is_open;
-                    cx.notify();
+            cx.subscribe(&menu_bar, |this, _, event: &MenuBarEvent, cx| {
+                if let MenuBarEvent::OpenChanged(is_open) = event {
+                    // 菜单开合只影响原生 WebView 的可见性，直接同步即可，
+                    // 不为此重绘整个工作台（见 `set_menu_open`）。
+                    this.set_menu_open(*is_open, cx);
                 }
             });
 
@@ -344,6 +369,10 @@ impl Workbench {
         let notification_input = cx.new(|cx| {
             InputState::new(window, cx).placeholder(lithe_ui::i18n::tr("Search notifications"))
         });
+        // 分支弹窗的搜索/列表状态：与通知搜索一样随工作台常驻，输入即过滤，
+        // 键盘上下移动与回车确认由 gpui-kit `Command` 统一处理（对齐 Tauri
+        // GitBranchManager 的 Command 面）。
+        let branch_palette = cx.new(|cx| CommandState::new(window, cx));
         let notification_subscription = cx.subscribe_in(
             &notification_input,
             window,
@@ -356,6 +385,12 @@ impl Workbench {
         );
 
         let owner = cx.weak_entity();
+        // 分支弹窗列表宿主：与工作台分离，输入/过滤只重绘本实体。
+        let branch_menu = {
+            let owner = owner.clone();
+            let palette = branch_palette.clone();
+            cx.new(|cx| menus::BranchMenuView::new(owner, palette, cx))
+        };
         let settings_view = cx.new(|settings_cx| {
             let mut view = SettingsView::new(settings.clone(), window, settings_cx);
             view.on_change({
@@ -469,6 +504,21 @@ impl Workbench {
                     });
                 });
             }
+        }
+
+        // Git Log 标题栏的「最小化」：收起 Git Log 所在的 dock。
+        // 不硬编码左右锚点，直接沿用 ToolWindow 的 anchor（当前为 Bottom，
+        // 与 Tauri 标题栏 onClose → setIsBottomPaneVisible(false) 一致）。
+        {
+            let owner = owner.clone();
+            git_log.update(cx, |panel, _panel_cx| {
+                let owner = owner.clone();
+                panel.on_hide(move |_window, cx| {
+                    let _ = owner.update(cx, |this, cx| {
+                        this.set_dock_visible(ToolWindow::GitLog.anchor(), false, cx);
+                    });
+                });
+            });
         }
 
         // 点 Log 里的提交改动文件：在中央编辑区打开该提交的差异
@@ -607,6 +657,15 @@ impl Workbench {
             menu_key_binding("alt-f9", "alt-f9", "window.minimize"),
             menu_key_binding("alt-f10", "alt-f10", "window.zoom"),
             menu_key_binding("f11", "f11", "window.fullscreen"),
+            // 顶栏项目 / 分支下拉：Esc 关闭。分支弹窗里 gpui-kit `Command`
+            // 自己的 Escape 绑定优先（先清空查询，第二次再关闭），这里覆盖
+            // 焦点落在弹层本身（没有搜索框焦点）的情况。
+            KeyBinding::new("escape", DismissMenu, Some(TOP_MENU_CONTEXT)),
+            // 覆盖层（设置 / 关闭确认 / 命令面板 / 输入弹窗）统一 Esc 关闭。
+            // 各覆盖层根节点已经 `track_focus` 并声明 `OVERLAY_CONTEXT`，此前
+            // 只挂了 `on_action(DismissOverlay)` 却没有注册按键，Escape 实际无效。
+            // 更深的 key context（例如 `Command`、顶栏菜单）会先处理自己的 Esc。
+            KeyBinding::new("escape", DismissOverlay, Some(OVERLAY_CONTEXT)),
         ]);
 
         let mut workbench = Self {
@@ -643,12 +702,16 @@ impl Workbench {
             java_language_started: false,
             maven,
             maven_output,
-            terminal,
-            terminal_webview_visible: None,
-            terminal_secondary: None,
+            terminal_sessions: Vec::new(),
+            active_terminal: None,
+            terminal_split_secondary: None,
             terminal_split_axis: TerminalSplitAxis::Horizontal,
-            terminal_secondary_webview_visible: None,
             terminal_focus_secondary: false,
+            terminal_next_id: 1,
+            terminal_rename_target: None,
+            terminal_menu: None,
+            terminal_menu_popup: None,
+            _terminal_menu_subscription: None,
             terminal_profile_menu_open: false,
             agent,
             active_left: ToolWindow::Project,
@@ -696,6 +759,7 @@ impl Workbench {
             cursor_line: 1,
             cursor_column: 1,
             problems: Vec::new(),
+            problem_severity_filter: 0b1111,
             pending_reveal: None,
             open_generation: 0,
             _read_task: Task::ready(()),
@@ -717,7 +781,9 @@ impl Workbench {
             toasts: Vec::new(),
             synced_tree_active: None,
             toast_prune_pending: false,
-            branch: SharedString::from("main"),
+            // 分支名由 `git.status` 填充；没有仓库时保持空，顶栏据此隐藏
+            // 分支入口（对齐 Tauri 没有分支信息时不渲染分支控件）。
+            branch: SharedString::default(),
             branch_refresh_generation: 0,
             branch_refresh_pending: has_initial_root,
             git_change_count: 0,
@@ -731,6 +797,11 @@ impl Workbench {
             branch_generation: 0,
             _branches_task: Task::ready(()),
             _checkout_task: Task::ready(()),
+            branch_palette,
+            branch_menu,
+            branch_row_menu: None,
+            _branch_row_menu_subscription: None,
+            branch_trigger_bounds: Rc::new(Cell::new(None)),
             menu_bar,
             menu_open: false,
             _menu_subscription: Some(menu_subscription),
@@ -745,6 +816,10 @@ impl Workbench {
             tab_context_menu: None,
             _tab_context_menu_subscription: None,
         };
+
+        // 终端会话按需创建：`show_tool(Terminal)` / New Terminal / 分屏都会先
+        // `ensure_terminal_session`。启动时不建会话，避免用户从没打开终端
+        // 就为它分配 VT 网格与回滚缓冲。
 
         cx.subscribe(
             &workbench.run_panel,
@@ -884,8 +959,55 @@ impl Workbench {
     pub(crate) fn set_menu_open(&mut self, open: bool, cx: &mut Context<Self>) {
         if self.menu_open != open {
             self.menu_open = open;
-            cx.notify();
+            // `menu_open` 只参与 `overlay_open` 的判定，进而只影响原生子视图
+            // 的可见性；它不改变任何 GPUI 元素的布局。直接同步可见性，省掉
+            // 一次整窗重绘（菜单每次开合都会走到这里）。
+            self.sync_native_webview_visibility(cx);
         }
+    }
+
+    /// 把当前浮层状态同步到原生子视图的可见性。
+    ///
+    /// 菜单、浮层、toast 可见期间 GPUI 的绘制会被覆盖在窗口之上的原生 WebView
+    /// 挡住，所以只要 `overlay_open` 成立就必须隐藏编辑器 WebView。可见性只
+    /// 取决于状态字段，与渲染无关：交互路径（菜单开合）可以直接调用，避免为了
+    /// 一次可见性变化重绘整个工作台。
+    pub(crate) fn sync_native_webview_visibility(&mut self, cx: &mut Context<Self>) {
+        let overlay_open = self.settings_visible
+            || self.palette_visible
+            || self.notifications_visible
+            || !self.toasts.is_empty()
+            || self.prompt.is_some()
+            || self.menu_open
+            || self.project_menu_visible
+            || self.branch_menu_visible
+            || self.branch_row_menu.is_some()
+            || self.terminal_profile_menu_open
+            || self.tab_context_menu.is_some()
+            || self
+                .pending_close_tab
+                .as_ref()
+                .is_some_and(|id| self.tabs.iter().any(|tab| &tab.id == id));
+        let welcome_visible = self.project_root.is_none() && self.tabs.is_empty();
+        let preview_active = self.preview_visible && self.active_is_markdown();
+        let editor_visible = !overlay_open && !welcome_visible && !preview_active;
+        let editor_secondary_visible = editor_visible && self.editor_secondary.is_some();
+
+        if self.editor_webview_visible != Some(editor_visible) {
+            self.editor_webview_visible = Some(editor_visible);
+            self.editor.update(cx, |editor, editor_cx| {
+                editor.set_webview_visible(editor_visible, editor_cx);
+            });
+        }
+        if self.editor_secondary_webview_visible != Some(editor_secondary_visible) {
+            if let Some(secondary) = self.editor_secondary.clone() {
+                self.editor_secondary_webview_visible = Some(editor_secondary_visible);
+                secondary.update(cx, |editor, editor_cx| {
+                    editor.set_webview_visible(editor_secondary_visible, editor_cx);
+                });
+            }
+        }
+        // 终端是纯原生 GPUI 渲染，没有需要隐藏的原生 WebView。
     }
 
     /// 切换提交工具窗的分段（提交 / Stash）。
@@ -1125,11 +1247,18 @@ impl Render for Workbench {
             });
         }
 
-        let menu_signature = self.menu_state(cx).signature();
-        if !self.menu_installed || menu_signature != self.menu_signature {
-            if !self.menu_install_pending {
-                self.menu_install_pending = true;
-                cx.defer_in(window, |this, _window, cx| this.install_menus(cx));
+        // 菜单栏可见时菜单才参与绘制。隐藏时不必每帧重算 `MenuState` 的签名
+        // （它覆盖最近项目、主题表、运行会话等二十多个字段，编辑器滚动时整个
+        // 工作台每帧重绘，这份哈希就是纯粹的白跑）。重新显示菜单栏的入口
+        // （⌥M / 汉堡按钮 / `toggle_menu_bar`）都会直接调用 `install_menus`，
+        // 那时会重新取签名，隐藏期间不维护签名不会留下陈旧菜单。
+        if !self.menu_installed || self.menu_bar_visible {
+            let menu_signature = self.menu_state(cx).signature();
+            if !self.menu_installed || menu_signature != self.menu_signature {
+                if !self.menu_install_pending {
+                    self.menu_install_pending = true;
+                    cx.defer_in(window, |this, _window, cx| this.install_menus(cx));
+                }
             }
         }
 
@@ -1148,75 +1277,30 @@ impl Render for Workbench {
         }
 
         // Toast 过期清理：到点唤醒一次；渲染随时发生，先顺手清一遍。
-        self.prune_expired_toasts(cx);
-        if !self.toasts.is_empty() && !self.toast_prune_pending {
-            let wake_in = self.next_toast_expiry_in().unwrap_or(0).max(100) + 50;
-            self.toast_prune_pending = true;
-            cx.spawn(async move |this, cx| {
-                cx.background_executor()
-                    .timer(std::time::Duration::from_millis(wake_in))
-                    .await;
-                let _ = this.update(cx, |this, cx| {
-                    this.toast_prune_pending = false;
-                    this.prune_expired_toasts(cx);
-                });
-            })
-            .detach();
+        // 没有 toast 时既不必取时间戳，也不必遍历空列表。
+        if !self.toasts.is_empty() {
+            self.prune_expired_toasts(cx);
+            if !self.toasts.is_empty() && !self.toast_prune_pending {
+                let wake_in = self.next_toast_expiry_in().unwrap_or(0).max(100) + 50;
+                self.toast_prune_pending = true;
+                cx.spawn(async move |this, cx| {
+                    cx.background_executor()
+                        .timer(std::time::Duration::from_millis(wake_in))
+                        .await;
+                    let _ = this.update(cx, |this, cx| {
+                        this.toast_prune_pending = false;
+                        this.prune_expired_toasts(cx);
+                    });
+                })
+                .detach();
+            }
         }
 
         // toast 与菜单同级：GPUI 绘制会被原生 WebView 盖住，卡片可见期间
         // 隐藏编辑器/终端 webview，保证右下角实时输出不被遮挡。
-        let overlay_open = self.settings_visible
-            || self.palette_visible
-            || self.notifications_visible
-            || !self.toasts.is_empty()
-            || self.prompt.is_some()
-            || self.menu_open
-            || self.project_menu_visible
-            || self.branch_menu_visible
-            || self.terminal_profile_menu_open
-            || self.tab_context_menu.is_some()
-            || self
-                .pending_close_tab
-                .as_ref()
-                .is_some_and(|id| self.tabs.iter().any(|tab| &tab.id == id));
-        let welcome_visible = self.project_root.is_none() && self.tabs.is_empty();
-        let preview_active = self.preview_visible && self.active_is_markdown();
-        let editor_visible = !overlay_open && !welcome_visible && !preview_active;
-        let editor_secondary_visible = editor_visible && self.editor_secondary.is_some();
-        let terminal_visible = !overlay_open
-            && self.bottom_visible
-            && self.active_bottom == Some(ToolWindow::Terminal);
-        let terminal_secondary_visible = terminal_visible && self.terminal_secondary.is_some();
-
-        if self.editor_webview_visible != Some(editor_visible) {
-            self.editor_webview_visible = Some(editor_visible);
-            self.editor.update(cx, |editor, editor_cx| {
-                editor.set_webview_visible(editor_visible, editor_cx);
-            });
-        }
-        if self.editor_secondary_webview_visible != Some(editor_secondary_visible) {
-            if let Some(secondary) = self.editor_secondary.clone() {
-                self.editor_secondary_webview_visible = Some(editor_secondary_visible);
-                secondary.update(cx, |editor, editor_cx| {
-                    editor.set_webview_visible(editor_secondary_visible, editor_cx);
-                });
-            }
-        }
-        if self.terminal_webview_visible != Some(terminal_visible) {
-            self.terminal_webview_visible = Some(terminal_visible);
-            self.terminal.update(cx, |terminal, terminal_cx| {
-                terminal.set_webview_visible(terminal_visible, terminal_cx);
-            });
-        }
-        if self.terminal_secondary_webview_visible != Some(terminal_secondary_visible) {
-            if let Some(panel) = self.terminal_secondary.clone() {
-                self.terminal_secondary_webview_visible = Some(terminal_secondary_visible);
-                panel.update(cx, |panel, panel_cx| {
-                    panel.set_webview_visible(terminal_secondary_visible, panel_cx);
-                });
-            }
-        }
+        // 同一份判定也用于菜单开合等交互路径（见 `set_menu_open`），
+        // 这里复用避免两处条件漂移。
+        self.sync_native_webview_visibility(cx);
 
         let tokens = current_tokens(cx);
 
@@ -1261,8 +1345,10 @@ impl Render for Workbench {
             )
             .child(self.render_status_bar(window, cx))
             .children(self.render_top_menu(window, cx))
+            .children(self.render_branch_row_menu(cx))
             .children(self.render_toasts(cx))
             .children(self.render_tab_context_menu(cx))
+            .children(self.render_terminal_menu(cx))
             .children(self.render_java_preparation_panel(cx))
             .children(self.render_overlay(window, cx))
     }

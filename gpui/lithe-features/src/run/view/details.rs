@@ -2,18 +2,18 @@
 
 use gpui_kit::component::alert::Alert;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::{Icon, IconName, Sizable as _, h_flex, v_flex};
+use gpui_kit::component::{h_flex, v_flex, Disableable as _, Icon, IconName, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AnyElement, Context, FontWeight, InteractiveElement as _, IntoElement, ParentElement as _,
-    SharedString, StatefulInteractiveElement as _, Styled as _, div, px,
+    div, px, AnyElement, Context, FontWeight, InteractiveElement as _, IntoElement,
+    ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _,
 };
 use lithe_ui::i18n::tr;
-use lithe_ui::{LitheMetrics, LitheTokens, mono_font_family};
+use lithe_ui::{mono_font_family, LitheMetrics, LitheTokens};
 
 use super::java_decision;
 use super::model::{PreparationPhase, PreparationStatus};
-use super::{PANEL_PADDING, RunPanel};
+use super::{RunPanel, PANEL_PADDING};
 
 impl RunPanel {
     pub(super) fn render_details(&self, tokens: LitheTokens, cx: &mut Context<Self>) -> AnyElement {
@@ -50,6 +50,7 @@ impl RunPanel {
                             .rounded(px(6.0))
                             .secondary()
                             .label(tr("Edit Configuration…"))
+                            .disabled(self.loading)
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 this.invoke_open_settings(&edit_id, window, cx);
                             })),
@@ -70,6 +71,15 @@ impl RunPanel {
                 true,
             ),
         ];
+        // 运行中才显示服务地址，对齐 macOS `configurationDetail` 的 Address 行。
+        if let Some(url) = self
+            .sessions
+            .get(&configuration.id)
+            .filter(|session| session.running)
+            .and_then(|session| session.service_url.clone())
+        {
+            rows.push((tr("Address"), url, true));
+        }
         if let Some(module) = configuration
             .module()
             .filter(|value| !value.trim().is_empty())
@@ -106,21 +116,27 @@ impl RunPanel {
                 true,
             ));
         }
-        rows.push((
-            tr("Program arguments"),
-            configuration.program_arguments.join(" "),
-            true,
-        ));
-        rows.push((
-            tr("Environment"),
-            configuration
-                .env
-                .iter()
-                .map(|(key, value)| format!("{key}={value}"))
-                .collect::<Vec<_>>()
-                .join("\n"),
-            true,
-        ));
+        if !configuration.program_arguments.is_empty() {
+            rows.push((
+                tr("Program arguments"),
+                configuration.program_arguments.join(" "),
+                true,
+            ));
+        }
+        if !configuration.maven_profiles.is_empty() {
+            let mut profiles = configuration.maven_profiles.clone();
+            profiles.sort();
+            rows.push((tr("Active profiles"), profiles.join(", "), true));
+        }
+        // 没有 Java / VM / 程序参数 / Maven profile 覆盖时显示默认选项，
+        // 对齐 macOS 的 `Options: Default options` 行。
+        if configuration.java_home_path.trim().is_empty()
+            && configuration.jvm_arguments.is_empty()
+            && configuration.program_arguments.is_empty()
+            && configuration.maven_profiles.is_empty()
+        {
+            rows.push((tr("Options"), tr("Default options").to_string(), false));
+        }
         rows.push((
             tr("Source"),
             configuration.source_title().to_string(),

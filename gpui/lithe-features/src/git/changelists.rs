@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::radio::Radio;
 use gpui_kit::component::{Sizable as _, h_flex, v_flex};
 use gpui_kit::{
     AnyElement, AppContext as _, FontWeight, InteractiveElement as _, IntoElement,
@@ -248,7 +249,7 @@ impl GitPanel {
     pub(crate) fn request_changelist_name(
         &mut self,
         prompt: ChangelistPrompt,
-        _window: &mut gpui_kit::Window,
+        window: &mut gpui_kit::Window,
         cx: &mut gpui_kit::Context<Self>,
     ) {
         if self.pending_action.is_some() || self.committing {
@@ -256,6 +257,9 @@ impl GitPanel {
         }
         self.changelist_prompt = Some(prompt);
         self.changelist_input = None;
+        // 事件回调里已经拿到 Window，输入框在弹窗打开时创建一次；
+        // 不在 render 里补建，否则弹窗首帧会没有输入框。
+        self.ensure_changelist_input(window, cx);
         cx.notify();
     }
 
@@ -375,30 +379,23 @@ impl GitPanel {
                 // 构造，不能共享同一个捕获值。
                 let owner = owner.clone();
                 let id_for_click = id.clone();
+                // 互斥选择用 `Radio`，不用 `Checkbox`：读屏会把复选框播报成
+                // 可多选，而这里同一时间只能有一个目标。
                 dialog = dialog.child(
-                    h_flex()
-                        .gap(px(6.0))
-                        .items_center()
-                        .child(
-                            gpui_kit::component::checkbox::Checkbox::new(SharedString::from(
-                                format!("lithe-git:move-target:{id}"),
-                            ))
-                            .small()
-                            .checked(checked)
-                            .on_change(move |_: &bool, _window, cx| {
-                                // 单选语义：选择在 Confirm 时统一读取。
-                                let _ = owner.update(cx, |this, cx| {
-                                    this.move_target_id = Some(id_for_click.clone());
-                                    cx.notify();
-                                });
-                            }),
-                        )
-                        .child(
-                            div()
-                                .text_size(px(LitheMetrics::SETTINGS_FONT_SIZE))
-                                .text_color(tokens.primary_text)
-                                .child(name),
-                        ),
+                    Radio::new(SharedString::from(format!("lithe-git:move-target:{id}")))
+                        .small()
+                        .w_full()
+                        .checked(checked)
+                        .label(name)
+                        .on_change(move |checked: &bool, _window, cx| {
+                            if !checked {
+                                return;
+                            }
+                            let _ = owner.update(cx, |this, cx| {
+                                this.move_target_id = Some(id_for_click.clone());
+                                cx.notify();
+                            });
+                        }),
                 );
             }
             dialog = dialog.child(

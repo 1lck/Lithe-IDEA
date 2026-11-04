@@ -112,7 +112,7 @@ impl LitheMetrics {
     pub(crate) const TOOLBAR_ICON_SIZE: f32 = 16.0;
     /// 工具栏图标按钮圆角。依据 `LitheIconButtonStyle` 默认
     /// `cornerRadius = LitheTheme.Metrics.cornerRadius`（5pt，`LitheTheme.swift:985`）。
-    pub(crate) const TOOLBAR_ICON_BUTTON_RADIUS: f32 = 5.0;
+    pub const TOOLBAR_ICON_BUTTON_RADIUS: f32 = 5.0;
     /// 活动栏选中态的圆角。依据 `WorkbenchView.swift:42` 的 `cornerRadius: 6`。
     /// 活动栏在 `lithe-workbench` 里也参与绘制，因此保持 `pub`。
     pub const ACTIVITY_BUTTON_RADIUS: f32 = 6.0;

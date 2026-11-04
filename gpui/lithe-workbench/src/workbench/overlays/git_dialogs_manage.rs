@@ -208,16 +208,25 @@ impl GitDialogView {
                         .xsmall()
                         .label(tr("Delete"))
                         .disabled(busy || is_current)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            // deleteBranch 的语义见 Core：当前分支不能删除。
-                            this.run_write(
-                                serde_json::json!({
-                                    "operation": "deleteBranch",
-                                    "reference": name,
-                                    "referenceKind": "local",
-                                }),
-                                cx,
-                            );
+                        .on_click(cx.listener({
+                            let full_name = branch.full_name.clone();
+                            let short_name = branch.short_name.clone();
+                            move |this, _, _, cx| {
+                                // Core `deleteBranch` 走类型化 `gitReference`
+                                // （旧 `reference` 字段只是裸名字，会被
+                                // `local_branch_name` 以“仅支持本地分支”拒绝）。
+                                this.run_write(
+                                    serde_json::json!({
+                                        "operation": "deleteBranch",
+                                        "gitReference": {
+                                            "fullName": full_name,
+                                            "shortName": short_name,
+                                            "kind": "local",
+                                        },
+                                    }),
+                                    cx,
+                                );
+                            }
                         })),
                     ),
             );

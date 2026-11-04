@@ -19,11 +19,13 @@ use crate::git::execute_git_command;
 use crate::git::model::{command_failure_detail, parse_command};
 
 use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::{Disableable as _, Icon, Sizable as _, h_flex, v_flex};
+use gpui_kit::component::{
+    Disableable as _, Icon, Sizable as _, VirtualListScrollHandle, h_flex, v_flex, v_virtual_list,
+};
 use gpui_kit::{
     AnyElement, AppContext as _, ClickEvent, Context, FocusHandle, FontWeight,
-    InteractiveElement as _, IntoElement, KeyDownEvent, ParentElement as _, Render, SharedString,
-    StatefulInteractiveElement as _, Styled as _, Window, div, px,
+    InteractiveElement as _, IntoElement, KeyDownEvent, ParentElement as _, Pixels, Render, Size,
+    SharedString, StatefulInteractiveElement as _, Styled as _, Window, div, px, size,
 };
 use lithe_core_client::CoreClient;
 use lithe_ui::i18n::tr;
@@ -145,12 +147,21 @@ pub struct CommitDiffView {
     /// 当前展示的提交哈希与文件路径。
     commit: String,
     path: String,
+    /// 区间比较的基准引用（如 `HEAD`）。`Some` 时请求
+    /// `git.diff { reference: "<base>..<commit>" }`，用于 Compare with HEAD。
+    compare_base: Option<String>,
     /// 工作区差异来源；`Some(staged)` 时请求 `git.diff { staged }` 而不是
     /// `git.show <commit>`（Core `GitDiffRequest` 的 staged / 默认工作区模式）。
     working_tree_staged: Option<bool>,
     rows: Vec<DiffRow>,
     /// Core 返回的可独立应用的变更块；`id` 与 `DiffRow::hunk_id` 关联。
     hunks: Vec<DiffHunk>,
+    /// 差异行的虚拟列表滚动句柄。
+    scroll_handle: VirtualListScrollHandle,
+    /// 每行高度（hunk 头 24，其余 20），`v_virtual_list` 用它定位可视行。
+    item_sizes: Rc<Vec<Size<Pixels>>>,
+    /// 每个 hunk 首行记录其 id，其余为 `None`；渲染时不必每帧扫描 hunks。
+    row_hunk_ids: Vec<Option<String>>,
     /// 等待用户确认丢弃的变更块（对齐 macOS `pendingDiscardHunk`）。
     pending_discard_hunk: Option<DiffHunk>,
     /// 变更块写操作在飞：按钮全部禁用，避免重复提交。
@@ -176,9 +187,13 @@ impl CommitDiffView {
             root: None,
             commit: String::new(),
             path: String::new(),
+            compare_base: None,
             working_tree_staged: None,
             rows: Vec::new(),
             hunks: Vec::new(),
+            scroll_handle: VirtualListScrollHandle::new(),
+            item_sizes: Rc::new(Vec::new()),
+            row_hunk_ids: Vec::new(),
             pending_discard_hunk: None,
             busy: false,
             action_error: None,
@@ -205,12 +220,49 @@ impl CommitDiffView {
     pub fn set_root(&mut self, root: Option<PathBuf>, cx: &mut Context<Self>) {
         self.root = root;
         self.generation = self.generation.wrapping_add(1);
-        self.rows.clear();
-        self.hunks.clear();
+        self.clear_rows();
         self.pending_discard_hunk = None;
         self.action_error = None;
         self.error = None;
         cx.notify();
+    }
+
+    /// 清空行数据、虚拟列表尺寸与滚动位置。
+    fn clear_rows(&mut self) {
+        self.rows.clear();
+        self.hunks.clear();
+        self.item_sizes = Rc::new(Vec::new());
+        self.row_hunk_ids.clear();
+        self.scroll_handle
+            .set_offset(gpui_kit::point(px(0.0), px(0.0)));
+    }
+
+    /// 装入新的差异行，并为虚拟列表预计算行高与 hunk 首行索引。
+    fn set_rows(&mut self, rows: Vec<DiffRow>, hunks: Vec<DiffHunk>) {
+        self.rows = rows;
+        self.hunks = hunks;
+        let mut sizes: Vec<Size<Pixels>> = Vec::with_capacity(self.rows.len());
+        let mut row_hunk_ids: Vec<Option<String>> = Vec::with_capacity(self.rows.len());
+        let mut previous: Option<&str> = None;
+        for row in &self.rows {
+            let first = row
+                .hunk_id
+                .as_deref()
+                .filter(|id| previous != Some(*id));
+            previous = row.hunk_id.as_deref();
+            // 只有 Core 同时返回了 patch 的 hunk 才能渲染操作按钮；与旧实现
+            // 一致，缺失 patch 的 hunk 仍按普通行高度处理。
+            let hunk_id = first
+                .filter(|id| self.hunks.iter().any(|hunk| hunk.id == *id))
+                .map(str::to_string);
+            let height = if hunk_id.is_some() { 24.0 } else { 20.0 };
+            sizes.push(size(px(0.0), px(height)));
+            row_hunk_ids.push(hunk_id);
+        }
+        self.item_sizes = Rc::new(sizes);
+        self.row_hunk_ids = row_hunk_ids;
+        self.scroll_handle
+            .set_offset(gpui_kit::point(px(0.0), px(0.0)));
     }
 
     /// 清空差异页的全部内容与在途请求，但保留根目录。
@@ -222,9 +274,9 @@ impl CommitDiffView {
         self.generation = self.generation.wrapping_add(1);
         self.commit.clear();
         self.path.clear();
+        self.compare_base = None;
         self.working_tree_staged = None;
-        self.rows.clear();
-        self.hunks.clear();
+        self.clear_rows();
         self.pending_discard_hunk = None;
         self.busy = false;
         self.loading = false;
@@ -238,6 +290,7 @@ impl CommitDiffView {
         if self.commit == commit
             && self.path == path
             && self.working_tree_staged.is_none()
+            && self.compare_base.is_none()
             && !self.rows.is_empty()
         {
             cx.notify();
@@ -245,6 +298,33 @@ impl CommitDiffView {
         }
         self.commit = commit;
         self.path = path;
+        self.compare_base = None;
+        self.working_tree_staged = None;
+        self.reload(cx);
+    }
+
+    /// 展示两个引用之间的区间差异（对齐 Tauri `viewBranchDiff`）。
+    ///
+    /// `path` 为空表示该区间的全部文件，`reload` 会把它折算成 `"."`
+    /// pathspec（Core 要求 pathspec 非空）。
+    pub fn show_comparison(
+        &mut self,
+        base: String,
+        target: String,
+        path: String,
+        cx: &mut Context<Self>,
+    ) {
+        if self.compare_base.as_deref() == Some(base.as_str())
+            && self.commit == target
+            && self.path == path
+            && !self.rows.is_empty()
+        {
+            cx.notify();
+            return;
+        }
+        self.commit = target;
+        self.path = path;
+        self.compare_base = Some(base);
         self.working_tree_staged = None;
         self.reload(cx);
     }
@@ -257,6 +337,7 @@ impl CommitDiffView {
     pub fn show_working_tree(&mut self, staged: bool, path: String, cx: &mut Context<Self>) {
         if self.working_tree_staged == Some(staged)
             && self.path == path
+            && self.compare_base.is_none()
             && !self.rows.is_empty()
         {
             cx.notify();
@@ -264,6 +345,7 @@ impl CommitDiffView {
         }
         self.commit = String::from("working-tree");
         self.path = path;
+        self.compare_base = None;
         self.working_tree_staged = Some(staged);
         self.reload(cx);
     }
@@ -296,25 +378,38 @@ impl CommitDiffView {
         self.error = None;
         self.action_error = None;
         self.pending_discard_hunk = None;
-        self.rows.clear();
-        self.hunks.clear();
+        self.clear_rows();
         cx.notify();
 
         let client = self.client;
         let commit = self.commit.clone();
+        let compare_base = self.compare_base.clone();
         let working_tree_staged = self.working_tree_staged;
         let path = self.path.clone();
         cx.spawn(async move |this, cx| {
-            let payload = match working_tree_staged {
-                Some(staged) => serde_json::json!({
+            // Core 要求 pathspec 非空；空路径 = 整个差异页的所有文件，
+            // 用仓库根 "." 表达。
+            let pathspec = if path.is_empty() {
+                ".".to_string()
+            } else {
+                path
+            };
+            let payload = match (working_tree_staged, compare_base) {
+                (Some(staged), _) => serde_json::json!({
                     "root": root_text,
                     "staged": staged,
-                    "pathspecs": [path],
+                    "pathspecs": [pathspec],
                 }),
-                None => serde_json::json!({
+                (None, Some(base)) => serde_json::json!({
+                    "root": root_text,
+                    // Core 的 reference 区间：git diff <base>..<target>。
+                    "reference": format!("{base}..{commit}"),
+                    "pathspecs": [pathspec],
+                }),
+                (None, None) => serde_json::json!({
                     "root": root_text,
                     "commit": commit,
-                    "pathspecs": [path],
+                    "pathspecs": [pathspec],
                 }),
             };
             let raw = cx
@@ -328,8 +423,10 @@ impl CommitDiffView {
                 this.loading = false;
                 match raw {
                     Ok(value) => {
-                        this.rows = parse_diff_rows(&value);
-                        this.hunks = parse_diff_hunks(&value);
+                        this.set_rows(
+                            parse_diff_rows(&value),
+                            parse_diff_hunks(&value),
+                        );
                         if this.rows.is_empty() {
                             // 空 rows 通常是二进制文件。
                             this.error = Some(SharedString::from(tr("No textual changes")));
@@ -672,6 +769,15 @@ impl CommitDiffView {
             } else {
                 format!("{} · {}", self.path, tr("Working tree"))
             }
+        } else if let Some(base) = self.compare_base.as_deref() {
+            // 区间比较：标题与 Tauri `viewBranchDiff` 一致，用 base..target。
+            let base_short: String = base.chars().take(8).collect();
+            let range = format!("{base_short}..{short_commit}");
+            if self.path.is_empty() {
+                range
+            } else {
+                format!("{} · {range}", self.path)
+            }
         } else if self.path.is_empty() {
             tr("Commit Diff").to_string()
         } else {
@@ -776,109 +882,9 @@ impl CommitDiffView {
                 .into_any_element();
         }
 
-        let mut body = v_flex()
-            .id("lithe-commit-diff-body")
-            .flex_1()
-            .min_h(px(0.0))
-            .overflow_y_scroll()
-            .py(px(4.0))
-            .bg(tokens.editor);
-
-        // 每个 hunk 的第一行挂上该 hunk 的写操作按钮。Core 为每个 hunk 的
-        // `@@` 表头行也带 `hunkId`，因此按钮落在 hunk 头这一行，与 macOS
-        // 在 hunk 首行渲染 `DiffHunkActionsView` 的位置一致。
-        let mut previous_hunk_id: Option<&str> = None;
-        for (index, row) in self.rows.iter().enumerate() {
-            let hunk = row
-                .hunk_id
-                .as_deref()
-                .filter(|id| previous_hunk_id != Some(*id))
-                .and_then(|id| self.hunks.iter().find(|hunk| hunk.id == id));
-            previous_hunk_id = row.hunk_id.as_deref();
-
-            let background = if row.is_addition() {
-                Some(tokens.diff_inserted)
-            } else if row.is_removal() {
-                Some(tokens.diff_deleted)
-            } else {
-                None
-            };
-            let text = row.text();
-            let old_number = row
-                .old_line
-                .map(|value| value.to_string())
-                .unwrap_or_default();
-            let new_number = row
-                .new_line
-                .map(|value| value.to_string())
-                .unwrap_or_default();
-            let sign = if row.is_addition() {
-                "+"
-            } else if row.is_removal() {
-                "-"
-            } else {
-                " "
-            };
-
-            let mut line = h_flex()
-                .w_full()
-                // hunk 首行要放 22px 图标按钮，行高稍抬高，其余行保持原高度。
-                .h(px(if hunk.is_some() { 22.0 } else { 18.0 }))
-                .flex_shrink_0()
-                .items_center()
-                .font_family(MONO_FONT_FAMILY)
-                .text_size(px(12.0));
-            if let Some(background) = background {
-                line = line.bg(background);
-            }
-            line = line
-                .child(
-                    div()
-                        .w(px(44.0))
-                        .px(px(6.0))
-                        .text_color(tokens.tertiary_text)
-                        .child(old_number),
-                )
-                .child(
-                    div()
-                        .w(px(44.0))
-                        .px(px(6.0))
-                        .text_color(tokens.tertiary_text)
-                        .child(new_number),
-                )
-                .child(
-                    div()
-                        .w(px(12.0))
-                        .text_color(if row.is_addition() {
-                            tokens.success
-                        } else if row.is_removal() {
-                            tokens.error
-                        } else {
-                            tokens.tertiary_text
-                        })
-                        .child(sign),
-                )
-                .child(
-                    div()
-                        .min_w(px(0.0))
-                        .whitespace_nowrap()
-                        .text_color(if row.is_information() {
-                            tokens.tertiary_text
-                        } else {
-                            tokens.primary_text
-                        })
-                        .child(text),
-                );
-            if let Some(hunk) = hunk {
-                // 文本在前、按钮贴右：用弹性占位把按钮推到行尾。
-                line = line
-                    .child(div().flex_1())
-                    .child(self.render_hunk_actions(hunk, index, cx));
-            }
-            body = body.child(line);
-        }
-
-        // 变更块操作失败的一行提示放在滚动态上方，不遮住差异正文。
+        // 虚拟列表：只构建可视行。此前每帧都为整份 diff 创建全部行元素，
+        // 几千行的提交 diff 会明显卡顿；行高在 `set_rows` 里预计算，
+        // `v_virtual_list` 按滚动位置只取当前视口附近的行。
         let mut content = v_flex().flex_1().min_w(px(0.0)).min_h(px(0.0));
         if let Some(error) = self.action_error.clone() {
             content = content.child(
@@ -894,8 +900,189 @@ impl CommitDiffView {
                     .child(error),
             );
         }
-        content = content.child(body);
+        let item_sizes = self.item_sizes.clone();
+        let handle = self.scroll_handle.clone();
+        content = content.child(
+            div()
+                .relative()
+                .flex_1()
+                .min_w(px(0.0))
+                .min_h(px(0.0))
+                .child(
+                    v_virtual_list(
+                        cx.entity(),
+                        "lithe-commit-diff-lines",
+                        item_sizes,
+                        move |this, range, _window, cx| {
+                            range
+                                .map(|index| this.render_row(index, cx))
+                                .collect::<Vec<_>>()
+                        },
+                    )
+                    .track_scroll(&handle)
+                    .size_full(),
+                )
+                .child(crate::console::console_scrollbar(
+                    &self.scroll_handle,
+                    "lithe-commit-diff-scrollbar",
+                )),
+        );
         content.into_any_element()
+    }
+
+    /// 渲染虚拟列表中的一行（行高由 `set_rows` 预计算）。
+    fn render_row(&self, index: usize, cx: &mut Context<Self>) -> AnyElement {
+        let tokens = current_tokens(cx);
+        let Some(row) = self.rows.get(index) else {
+            return div().into_any_element();
+        };
+        let hunk = self
+            .row_hunk_ids
+            .get(index)
+            .and_then(|id| id.as_deref())
+            .and_then(|id| self.hunks.iter().find(|hunk| hunk.id == id));
+        let is_hunk_header = hunk.is_some();
+        let line_height = self
+            .item_sizes
+            .get(index)
+            .map(|size| size.height.as_f32())
+            .unwrap_or(20.0);
+
+        // 行底色按语义分档：新增 / 删除用主题的 diff 色，hunk 头用
+        // 修改色，"changed"（整行替换）用修改色的淡底，其余保持透明。
+        let background = if row.is_addition() {
+            Some(tokens.diff_inserted)
+        } else if row.is_removal() {
+            Some(tokens.diff_deleted)
+        } else if is_hunk_header {
+            Some(tokens.diff_modified)
+        } else if row.kind == "changed" {
+            Some(tokens.diff_modified.alpha(0.45))
+        } else {
+            None
+        };
+        // 行首的 2px 竖条：新增 / 删除的强提示，其余行用透明占位保持
+        // 文本列与行号列对齐。
+        let rail = if row.is_addition() {
+            tokens.success
+        } else if row.is_removal() {
+            tokens.error
+        } else if is_hunk_header {
+            tokens.link
+        } else {
+            tokens.divider.alpha(0.0)
+        };
+        let text = row.text();
+        let old_number = row
+            .old_line
+            .map(|value| value.to_string())
+            .unwrap_or_default();
+        let new_number = row
+            .new_line
+            .map(|value| value.to_string())
+            .unwrap_or_default();
+        let sign = if row.is_addition() {
+            "+"
+        } else if row.is_removal() {
+            "-"
+        } else {
+            ""
+        };
+        let gutter_text = if row.is_information() {
+            tokens.tertiary_text
+        } else {
+            tokens.secondary_text
+        };
+        let number_color = if row.is_addition() || row.is_removal() {
+            gutter_text
+        } else {
+            tokens.tertiary_text
+        };
+
+        let mut line = h_flex()
+            // 虚拟列表按视口宽度布局；长行在可视区内裁剪，避免为整份
+            // diff 计算横向宽度而重新引入全量测量。
+            .w_full()
+            .h(px(line_height))
+            .flex_shrink_0()
+            .items_center()
+            .font_family(MONO_FONT_FAMILY)
+            .text_size(px(12.0))
+            .line_height(px(line_height));
+        if let Some(background) = background {
+            line = line.bg(background);
+        }
+        line = line
+            // 左侧强调竖条。
+            .child(div().w(px(2.0)).h_full().flex_shrink_0().bg(rail))
+            // 旧行号（右对齐，等宽）。
+            .child(
+                div()
+                    .w(px(52.0))
+                    .h_full()
+                    .flex_shrink_0()
+                    .flex()
+                    .items_center()
+                    .justify_end()
+                    .pr(px(8.0))
+                    .text_color(number_color)
+                    .child(old_number),
+            )
+            // 新行号（右对齐，等宽）。
+            .child(
+                div()
+                    .w(px(52.0))
+                    .h_full()
+                    .flex_shrink_0()
+                    .flex()
+                    .items_center()
+                    .justify_end()
+                    .pr(px(8.0))
+                    .border_r_1()
+                    .border_color(tokens.divider)
+                    .text_color(number_color)
+                    .child(new_number),
+            )
+            // +/- 符号列：固定宽度，保证正文左缘在每一行对齐。
+            .child(
+                div()
+                    .w(px(18.0))
+                    .h_full()
+                    .flex_shrink_0()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .font_weight(FontWeight::BOLD)
+                    .text_color(if row.is_addition() {
+                        tokens.success
+                    } else if row.is_removal() {
+                        tokens.error
+                    } else {
+                        tokens.tertiary_text
+                    })
+                    .child(sign),
+            )
+            .child(
+                div()
+                    .min_w(px(0.0))
+                    .pr(px(8.0))
+                    .whitespace_nowrap()
+                    .text_color(if row.is_information() && !is_hunk_header {
+                        tokens.tertiary_text
+                    } else if is_hunk_header {
+                        tokens.secondary_text
+                    } else {
+                        tokens.primary_text
+                    })
+                    .child(text),
+            );
+        if let Some(hunk) = hunk {
+            // 文本在前、按钮贴右：用弹性占位把按钮推到行尾。
+            line = line
+                .child(div().flex_1())
+                .child(self.render_hunk_actions(hunk, index, cx));
+        }
+        line.into_any_element()
     }
 }
 

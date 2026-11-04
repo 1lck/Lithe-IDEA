@@ -48,9 +48,18 @@ impl GitPanel {
             .is_some_and(|reference| !reference.is_current);
         // 新建分支的起点：选中引用，缺省当前分支。
         let can_create = selected.is_some() || current.is_some();
+        // 定位 HEAD：有选中引用、当前分支或 status 报告的 head 任一即可；
+        // 真正的分支解析与兜底在 `goto_reference_head`。
+        let can_locate_head = selected.is_some()
+            || current.is_some()
+            || self
+                .status
+                .as_ref()
+                .and_then(|status| status.branch.as_deref())
+                .is_some();
 
         let action_stripe = v_flex()
-            .w(px(36.0))
+            .w(px(38.0))
             .h_full()
             .items_center()
             .gap(px(2.0))
@@ -61,11 +70,11 @@ impl GitPanel {
             .child(
                 Button::new("git-log-act:new-branch")
                     .ghost()
-                    .with_size(px(26.0))
+                    .with_size(px(30.0))
                     .rounded(px(4.0))
                     .tooltip(tr("New Branch"))
                     .disabled(busy || !can_create)
-                    .child(Icon::new(gpui_kit::assets::IconName::Plus).with_size(px(14.0)))
+                    .child(Icon::new(gpui_kit::assets::IconName::Plus).with_size(px(15.0)))
                     .on_click(cx.listener(|this, _, _window, cx| {
                         this.run_reference_action("createBranch", cx);
                     })),
@@ -73,12 +82,12 @@ impl GitPanel {
             .child(
                 Button::new("git-log-act:update")
                     .ghost()
-                    .with_size(px(26.0))
+                    .with_size(px(30.0))
                     .rounded(px(4.0))
                     .tooltip(tr("Update Selected"))
                     .disabled(busy || !can_update)
                     .child(
-                        Icon::new(gpui_kit::assets::IconName::ArrowDownToLine).with_size(px(14.0)),
+                        Icon::new(gpui_kit::assets::IconName::ArrowDownToLine).with_size(px(15.0)),
                     )
                     .on_click(cx.listener(|this, _, _window, cx| {
                         this.run_reference_action("update", cx);
@@ -87,11 +96,11 @@ impl GitPanel {
             .child(
                 Button::new("git-log-act:delete-branch")
                     .ghost()
-                    .with_size(px(26.0))
+                    .with_size(px(30.0))
                     .rounded(px(4.0))
                     .tooltip(tr("Delete Branch"))
                     .disabled(busy || !can_delete)
-                    .child(Icon::new(gpui_kit::assets::IconName::Trash).with_size(px(14.0)))
+                    .child(Icon::new(gpui_kit::assets::IconName::Trash).with_size(px(15.0)))
                     .on_click(cx.listener(|this, _, _window, cx| {
                         this.run_reference_action("deleteLocal", cx);
                     })),
@@ -99,11 +108,11 @@ impl GitPanel {
             .child(
                 Button::new("git-log-act:compare")
                     .ghost()
-                    .with_size(px(26.0))
+                    .with_size(px(30.0))
                     .rounded(px(4.0))
                     .tooltip(tr("Compare with current"))
                     .disabled(busy || !can_compare)
-                    .child(Icon::new(gpui_kit::assets::IconName::GitCompare).with_size(px(14.0)))
+                    .child(Icon::new(gpui_kit::assets::IconName::GitCompare).with_size(px(15.0)))
                     .on_click(cx.listener(|this, _, _window, cx| {
                         this.run_reference_action("compareWithCurrent", cx);
                     })),
@@ -113,39 +122,35 @@ impl GitPanel {
             .child(
                 Button::new("git-log-act:refresh")
                     .ghost()
-                    .with_size(px(26.0))
+                    .with_size(px(30.0))
                     .rounded(px(4.0))
                     .tooltip(tr("Refresh"))
                     .disabled(busy)
-                    .child(Icon::new(gpui_kit::assets::IconName::RotateCw).with_size(px(14.0)))
+                    .child(Icon::new(gpui_kit::assets::IconName::RotateCw).with_size(px(15.0)))
                     .on_click(cx.listener(|this, _, window, cx| this.refresh(window, cx))),
             )
             .child(
                 Button::new("git-log-act:head")
                     .ghost()
-                    .with_size(px(26.0))
+                    .with_size(px(30.0))
                     .rounded(px(4.0))
                     .tooltip(tr("Go to HEAD"))
-                    .disabled(self.current_reference_object().is_none())
-                    .child(Icon::new(gpui_kit::assets::IconName::Crosshair).with_size(px(14.0)))
-                    // 定位 HEAD：选中当前分支并请求该分支的历史。
+                    // 选中引用存在但当前分支对象缺失时仍可点击：goto 会先用
+                    // 选中引用，再回落到当前分支 / status head。
+                    .disabled(!can_locate_head)
+                    .child(Icon::new(gpui_kit::assets::IconName::Crosshair).with_size(px(15.0)))
+                    // 定位 HEAD：选中当前分支、重载它的历史，并滚动到 HEAD 提交行。
                     .on_click(cx.listener(|this, _, _window, cx| {
-                        if let Some(current) = this
-                            .references
-                            .iter()
-                            .find(|reference| reference.is_current)
-                        {
-                            this.select_reference(current.short_name.clone(), cx);
-                        }
+                        this.goto_reference_head(cx);
                     })),
             )
             .child(
                 Button::new("git-log-act:all-branches")
                     .ghost()
-                    .with_size(px(26.0))
+                    .with_size(px(30.0))
                     .rounded(px(4.0))
                     .tooltip(tr("All branches"))
-                    .child(Icon::new(gpui_kit::assets::IconName::ListFilter).with_size(px(14.0)))
+                    .child(Icon::new(gpui_kit::assets::IconName::ListFilter).with_size(px(15.0)))
                     // 回到全部分支视图：清空选中引用并重载。
                     .on_click(cx.listener(|this, _, _window, cx| {
                         this.select_reference(String::new(), cx);
@@ -156,11 +161,11 @@ impl GitPanel {
             .child(
                 Button::new("git-log-act:expand-all")
                     .ghost()
-                    .with_size(px(26.0))
+                    .with_size(px(30.0))
                     .rounded(px(4.0))
                     .tooltip(tr("Expand all"))
                     .child(
-                        Icon::new(gpui_kit::assets::IconName::ChevronsUpDown).with_size(px(14.0)),
+                        Icon::new(gpui_kit::assets::IconName::ChevronsUpDown).with_size(px(15.0)),
                     )
                     .on_click(cx.listener(|this, _, _window, cx| {
                         this.collapsed_groups.clear();
@@ -170,10 +175,10 @@ impl GitPanel {
             .child(
                 Button::new("git-log-act:collapse-all")
                     .ghost()
-                    .with_size(px(26.0))
+                    .with_size(px(30.0))
                     .rounded(px(4.0))
                     .tooltip(tr("Collapse all"))
-                    .child(Icon::new(gpui_kit::assets::IconName::Minimize2).with_size(px(14.0)))
+                    .child(Icon::new(gpui_kit::assets::IconName::Minimize2).with_size(px(15.0)))
                     .on_click(cx.listener(|this, _, _window, cx| {
                         this.collapse_all_groups();
                         cx.notify();
@@ -681,11 +686,85 @@ impl GitPanel {
         self.selected_reference = next;
         // 引用变化必须重载历史；generation 由 reload_all 统一管理。
         self.generation = self.generation.wrapping_add(1);
+        // 旧引用的游标不再消费：释放 Core 侧历史会话并清空分页状态。
+        self.close_history_cursor(cx);
         self.history.clear();
+        self.history_cursor = None;
+        self.history_has_more = false;
+        self.loading_more_history = false;
+        self.history_page_failed = false;
         self.selected_commit_hash = None;
         self.commit_files.clear();
         self.load_history(cx);
         cx.notify();
+    }
+
+    /// 「导航到所选分支 HEAD」。
+    ///
+    /// 语义对齐 Tauri `selectReference(currentReference)` + 定位首行：
+    ///
+    /// 1. 目标引用 = 引用树当前选中项；未选中（All branches）时回落到当前
+    ///    分支——不能直接取全局历史的 `first()`，那可能是别的分支更新的提交；
+    /// 2. 目标与当前过滤不同：切换引用并等历史回来后定位；
+    /// 3. 历史还在飞：记下定位标记，由 `load_history` 完成回调消费；
+    /// 4. 历史为空且不在 loading：真正触发一次加载，而不是静默无反应。
+    pub(crate) fn goto_reference_head(&mut self, cx: &mut Context<Self>) {
+        let Some(target) = self.goto_head_target_reference() else {
+            // 复用已有的本地化文案：当前没有任何可定位的分支引用。
+            self.notice = Some(SharedString::from(tr("No branches")));
+            cx.notify();
+            return;
+        };
+
+        // 选中的不是目标分支：切换过滤并让下一次历史加载完成后定位。
+        if self.selected_reference.as_deref() != Some(target.as_str()) {
+            self.select_reference(target, cx);
+            self.log_reveal_head_on_load = true;
+            cx.notify();
+            return;
+        }
+
+        // 历史还在加载：交给 load_history 的完成回调定位。
+        if self.loading_history {
+            self.log_reveal_head_on_load = true;
+            cx.notify();
+            return;
+        }
+
+        if let Some(head) = self.history.first().map(|commit| commit.hash.clone()) {
+            self.log_reveal_head_on_load = false;
+            self.log_reveal_index = Some(0);
+            self.select_commit(head, cx);
+            cx.notify();
+            return;
+        }
+
+        // 历史为空（首次打开 / 上一次加载失败）：真正重载，并挂上定位标记。
+        self.log_reveal_head_on_load = true;
+        self.load_history(cx);
+        cx.notify();
+    }
+
+    /// 解析「Go to HEAD」的目标引用短名。
+    ///
+    /// 优先引用树选中项，其次当前分支对象，最后用 `git.status` 的 head
+    /// 名回落到引用列表。三者都没有时返回 `None`，由调用方提示状态栏。
+    fn goto_head_target_reference(&self) -> Option<String> {
+        if let Some(reference) = self.selected_reference_object() {
+            return Some(reference.short_name.clone());
+        }
+        if let Some(reference) = self.current_reference_object() {
+            return Some(reference.short_name.clone());
+        }
+        let branch = self.status.as_ref()?.branch.as_deref()?;
+        self.references
+            .iter()
+            .find(|reference| {
+                reference.short_name == branch
+                    || reference.full_name == branch
+                    || reference.full_name.ends_with(&format!("/{branch}"))
+            })
+            .map(|reference| reference.short_name.clone())
     }
 
     pub(crate) fn toggle_group(&mut self, key: &str, cx: &mut Context<Self>) {
@@ -950,17 +1029,15 @@ impl GitPanel {
                 .placeholder(tr("Branch name"))
                 .default_value(initial)
         });
-        let subscription = cx.subscribe_in(
+        cx.subscribe_in(
             &input,
             window,
             |this: &mut Self, _input, event: &InputEvent, _window, cx| match event {
                 InputEvent::PressEnter { .. } => this.submit_branch_prompt(cx),
                 InputEvent::Change | InputEvent::Focus | InputEvent::Blur => {}
             },
-        );
-        // 订阅随实体一起保活；这里只为简化字段而丢弃句柄是安全的，因为
-        // `branch_input` 清空时弹窗已关闭，迟到的 Enter 事件找不到目标。
-        let _ = subscription;
+        )
+        .detach();
         self.branch_input = Some(input);
         cx.notify();
     }

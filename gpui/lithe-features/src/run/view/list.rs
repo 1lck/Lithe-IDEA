@@ -31,6 +31,28 @@ impl RunPanel {
             .collect()
     }
 
+    /// 可运行配置：排除 group 与「当前文件」配置，供工具栏批量运行/状态判断。
+    pub(super) fn runnable_configurations(&self) -> Vec<&RunConfiguration> {
+        self.configurations
+            .iter()
+            .filter(|configuration| configuration.execution != RunExecution::Group)
+            .filter(|configuration| !configuration.uses_current_editor_file())
+            .collect()
+    }
+
+    pub(super) fn has_runnable_configurations(&self) -> bool {
+        !self.runnable_configurations().is_empty()
+    }
+
+    pub(super) fn selected_runnable_configuration(&self) -> Option<&RunConfiguration> {
+        let id = self.selected_id.as_deref()?;
+        self.configurations.iter().find(|configuration| {
+            configuration.id == id
+                && configuration.execution != RunExecution::Group
+                && !configuration.uses_current_editor_file()
+        })
+    }
+
     /// 侧栏里实际有配置的语言分类，按 [`RunLanguage::ORDER`] 固定排序。
     fn visible_languages(&self) -> Vec<RunLanguage> {
         RunLanguage::ORDER

@@ -114,6 +114,26 @@ pub fn load_configurations(
     client: &CoreClient,
     root: &Path,
 ) -> Result<LoadedRunConfigurations, String> {
+    load_configurations_inner(client, root, false)
+}
+
+/// 用户显式「重新识别服务」：跳过指纹判断，强制 Core 扫描项目并重新生成。
+///
+/// [`load_configurations`] 在文档已 ready 且指纹未变时只复用现有生成结果，
+/// 用户主动要求重新识别时不能这样“什么都不做”，否则新增/删除的脚本、
+/// 启动类不会被发现。
+pub fn rescan_configurations(
+    client: &CoreClient,
+    root: &Path,
+) -> Result<LoadedRunConfigurations, String> {
+    load_configurations_inner(client, root, true)
+}
+
+fn load_configurations_inner(
+    client: &CoreClient,
+    root: &Path,
+    force_generate: bool,
+) -> Result<LoadedRunConfigurations, String> {
     let root_text = root.to_string_lossy().to_string();
     let paths = workspace_paths(client, root)?;
 
@@ -123,10 +143,11 @@ pub fn load_configurations(
         .execute_raw("runConfig.inspect", json!({ "root": root_text }))
         .unwrap_or_else(|_| json!({ "status": "missing" }));
 
-    let needs_generation = inspected
-        .get("status")
-        .and_then(Value::as_str)
-        .is_none_or(|status| status != "ready")
+    let needs_generation = force_generate
+        || inspected
+            .get("status")
+            .and_then(Value::as_str)
+            .is_none_or(|status| status != "ready")
         || inspected
             .get("diagnostics")
             .and_then(Value::as_array)

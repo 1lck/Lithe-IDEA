@@ -687,22 +687,48 @@ impl ConsoleScroll {
         self.handle.set_offset(point(px(0.0), px(0.0)));
     }
 
+    /// 丢弃行高缓存，但保留滚动句柄、插入符与选区。
+    ///
+    /// 切换软换行或控制台宽度变化后，旧的行高不再有效；下一帧按新的
+    /// 换行结果重新测量。选区与插入符按逻辑行存储，不需要清空。
+    pub fn invalidate_layout(&mut self) {
+        self.line_count = 0;
+        self.item_sizes = Rc::new(Vec::new());
+    }
+
     /// 同步行数；返回行数是否变化。
     ///
     /// 行尺寸只随行数变化。追加输出时只在尾部扩展，避免每次都对整个
     /// 行高表做一次 O(n) 重建：大输出持续追加时，重建本身会成为帧耗时。
     pub fn sync_line_count(&mut self, line_count: usize, line_height: f32) -> bool {
+        self.sync_line_count_with(line_count, |_| px(line_height))
+    }
+
+    /// 按行计算行高同步行数；软换行开启时每行可能占多行文本。
+    ///
+    /// 与 [`Self::sync_line_count`] 一样只在尾部扩展：`height` 只会为新
+    /// 增的行调用，已测量的行高被复用。
+    pub fn sync_line_count_with(
+        &mut self,
+        line_count: usize,
+        mut height: impl FnMut(usize) -> Pixels,
+    ) -> bool {
         if line_count == self.line_count {
             return false;
         }
-        let item = size(px(0.0), px(line_height));
         if line_count > self.line_count {
-            let extra = line_count - self.line_count;
+            let start = self.line_count;
             if let Some(sizes) = Rc::get_mut(&mut self.item_sizes) {
-                sizes.extend(std::iter::repeat_n(item, extra));
+                sizes.reserve(line_count - start);
+                for index in start..line_count {
+                    sizes.push(size(px(0.0), height(index)));
+                }
             } else {
                 let mut sizes = (*self.item_sizes).clone();
-                sizes.extend(std::iter::repeat_n(item, extra));
+                sizes.reserve(line_count - start);
+                for index in start..line_count {
+                    sizes.push(size(px(0.0), height(index)));
+                }
                 self.item_sizes = Rc::new(sizes);
             }
         } else {
@@ -716,6 +742,20 @@ impl ConsoleScroll {
 
     pub fn scroll_to_item(&self, index: usize, strategy: ScrollStrategy) {
         self.handle.scroll_to_item(index, strategy);
+    }
+
+    /// 更新某一行的行高；最后一行还在追加时折行高度会随时间变化。
+    pub fn set_line_height(&mut self, index: usize, height: Pixels) -> bool {
+        let sizes = Rc::make_mut(&mut self.item_sizes);
+        let Some(slot) = sizes.get_mut(index) else {
+            return false;
+        };
+        if slot.height == height {
+            return false;
+        }
+        let width = slot.width;
+        *slot = size(width, height);
+        true
     }
 
     /// 该行要绘制的插入符偏移。

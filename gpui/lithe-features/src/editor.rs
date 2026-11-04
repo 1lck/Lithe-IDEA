@@ -52,15 +52,76 @@ struct DocumentState {
     dirty: bool,
 }
 
+/// LSP `DiagnosticTag::Unnecessary` 在 [`DiagnosticItem::tags`] 中的位。
+pub const DIAGNOSTIC_TAG_UNNECESSARY: u8 = 1;
+/// LSP `DiagnosticTag::Deprecated` 在 [`DiagnosticItem::tags`] 中的位。
+pub const DIAGNOSTIC_TAG_DEPRECATED: u8 = 2;
+
 /// 一条编辑器诊断。
+///
+/// 行号与列号都是 1 基；`id` 是 Problems 列表用来跟踪选中项的稳定标识，
+/// 由文件、位置、级别与消息共同决定（与 macOS `EditorDiagnostic.id` 同用途）。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DiagnosticItem {
+    pub id: String,
     pub path: PathBuf,
     pub severity: u8,
     pub message: String,
     pub line: u32,
     pub column: u32,
     pub source: Option<String>,
+    /// LSP 诊断的 `code`（可能为空）。
+    pub code: Option<String>,
+    /// [`DIAGNOSTIC_TAG_UNNECESSARY`] / [`DIAGNOSTIC_TAG_DEPRECATED`] 的位集合。
+    pub tags: u8,
+}
+
+impl DiagnosticItem {
+    /// 生成稳定 id。同一文件、位置、级别与消息总是得到同一个 id。
+    pub fn make_id(
+        path: &Path,
+        severity: u8,
+        line: u32,
+        column: u32,
+        message: &str,
+    ) -> String {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let mut hasher = DefaultHasher::new();
+        path.to_string_lossy().hash(&mut hasher);
+        severity.hash(&mut hasher);
+        line.hash(&mut hasher);
+        column.hash(&mut hasher);
+        message.hash(&mut hasher);
+        format!("{:016x}", hasher.finish())
+    }
+
+    /// 诊断行尾的原因摘要，对齐 macOS `EditorDiagnostic.reasonSummary`：
+    /// 未使用代码优先，其次是已弃用 API，最后回落到 `code`。
+    pub fn reason_summary(&self) -> Option<&str> {
+        if self.is_unnecessary() {
+            return Some("Unused code");
+        }
+        if self.tags & DIAGNOSTIC_TAG_DEPRECATED != 0 {
+            return Some("Deprecated API");
+        }
+        self.code.as_deref()
+    }
+
+    /// LSP `tags` 或消息关键词表明这条诊断是"未使用/多余"代码。
+    fn is_unnecessary(&self) -> bool {
+        if self.tags & DIAGNOSTIC_TAG_UNNECESSARY != 0 {
+            return true;
+        }
+        let code = self.code.as_deref().unwrap_or_default();
+        let searchable = format!("{code} {}", self.message).to_lowercase();
+        searchable.contains("unused")
+            || searchable.contains("unnecessary")
+            || searchable.contains("never used")
+            || searchable.contains("not used")
+            || searchable.contains("never read")
+    }
 }
 
 /// 编辑器向工作台广播的事件。
@@ -132,6 +193,12 @@ pub struct EditorSurface {
     editor_font_size: f32,
     /// 编辑器字体族；`None` 使用内置等宽字体。
     editor_font_family: Option<String>,
+    /// `editor_font_family` 的共享字符串形式。
+    ///
+    /// 滚动时 `EditorSurface::render` 每帧都会重跑，直接在 render 里
+    /// `clone()` 字体名会每帧多一次 `String`/`SharedString` 分配。字体只在
+    /// 设置变化时改变，所以在 `set_font_family` 里预先算好并复用。
+    editor_font_family_shared: SharedString,
     editor_wrap: bool,
     editor_line_numbers: bool,
     editor_scroll_beyond_last_line: bool,
@@ -156,6 +223,7 @@ impl EditorSurface {
             error: None,
             editor_font_size: LitheMetrics::CODE_FONT_SIZE,
             editor_font_family: None,
+            editor_font_family_shared: SharedString::from(MONO_FONT_FAMILY),
             editor_wrap: false,
             editor_line_numbers: true,
             editor_scroll_beyond_last_line: false,
@@ -193,6 +261,10 @@ impl EditorSurface {
         if self.editor_font_family == family {
             return;
         }
+        self.editor_font_family_shared = family
+            .as_deref()
+            .map(SharedString::from)
+            .unwrap_or_else(|| SharedString::from(MONO_FONT_FAMILY));
         self.editor_font_family = family;
         cx.notify();
     }
@@ -994,6 +1066,7 @@ impl EditorSurface {
             let mut state = EditorState::new(window, cx)
                 .line_number(line_numbers)
                 .folding(true)
+                .indent_guides(true)
                 .soft_wrap(soft_wrap)
                 .show_whitespaces(show_whitespaces)
                 .scroll_beyond_last_line(scroll_beyond.then_some(1))
@@ -1145,14 +1218,14 @@ impl Render for EditorSurface {
         let tokens = current_tokens(cx);
         let error = self.error.clone();
         let font_size = self.editor_font_size;
-        let font_family = self
-            .editor_font_family
-            .clone()
-            .map(SharedString::from)
-            .unwrap_or_else(|| SharedString::from(MONO_FONT_FAMILY));
+        // 预计算好的共享字符串，滚动时每帧只做一次引用计数递增。
+        let font_family = self.editor_font_family_shared.clone();
 
         let content = match self.editor.as_ref() {
             Some(editor) => Editor::new(editor)
+                // 编辑器不是输入框：去掉 gpui-kit Input 的背景、圆角和边框，
+                // 由外层编辑区提供 `tokens.editor` 底色，视觉更接近 VSCode/IDEA。
+                .appearance(false)
                 .font_family(font_family)
                 .text_size(px(font_size))
                 .h_full()

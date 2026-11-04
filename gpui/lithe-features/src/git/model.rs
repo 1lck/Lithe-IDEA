@@ -7,18 +7,11 @@
 
 use std::path::{Path, PathBuf};
 
-use gpui_kit::{Hsla, Rgba};
+use gpui_kit::Hsla;
 use lithe_ui::i18n::tr;
 use serde_json::Value;
 
 use super::ChangeGroup;
-
-pub(crate) fn hex(hex: u32) -> Hsla {
-    let r = ((hex >> 16) & 0xff) as f32 / 255.0;
-    let g = ((hex >> 8) & 0xff) as f32 / 255.0;
-    let b = (hex & 0xff) as f32 / 255.0;
-    Rgba { r, g, b, a: 1.0 }.into()
-}
 
 // --- 视图内部派生尺寸 ------------------------------------------------------
 // LitheMetrics 是跨工具窗共享的刻度；下面这些只属于 Git 面板，因此留在本模块，
@@ -50,6 +43,8 @@ pub(crate) const CHANGES_TOOLBAR_HEIGHT: f32 = 40.0;
 pub(crate) const CHANGES_TOOLBAR_BUTTON_SIZE: f32 = 22.0;
 /// Stash 列表行高度。
 pub(crate) const STASH_ROW_HEIGHT: f32 = 36.0;
+/// 单页历史条数。Core 的 `git.historyPage` 默认值与 macOS 的首次加载一致（50）。
+pub(crate) const HISTORY_PAGE_SIZE: usize = 50;
 
 /// 一次「打开文件」回调。与 `ProjectTree` 保持同一形态。
 pub(crate) type OpenFileHandler = std::rc::Rc<dyn Fn(PathBuf, &mut gpui_kit::Window, &mut gpui_kit::App) + 'static>;
@@ -69,6 +64,21 @@ pub enum GitPanelMode {
     Changes,
     /// 提交记录：只有历史列表。
     Log,
+}
+
+/// Git Log 工具窗内的分段：提交日志与 Git 执行控制台（对齐 Tauri
+/// `git-log-tool-window` 的 `panel: "log" | "console"`）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GitLogPanel {
+    Log,
+    Console,
+}
+
+/// 提交详情里改动文件的呈现方式（树状 / 平铺列表）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CommitFilesView {
+    Tree,
+    List,
 }
 
 // --- Core 响应模型（只声明本视图消费的字段） --------------------------------
@@ -155,13 +165,24 @@ pub(crate) struct CoreCommit {
     pub(crate) date: String,
     pub(crate) subject: String,
     pub(crate) author_name: String,
+    /// Author email, shown in the commit detail line like macOS
+    /// `GitLogView.commitDetail` does (`<email>` after the author name).
+    pub(crate) author_email: String,
     pub(crate) decorations: String,
     pub(crate) parent_hashes: Vec<String>,
 }
 
+/// One cursor-based page of history (`git.historyPage`).
+///
+/// The cursor is opaque and single-use: Core consumes it when the next page is
+/// requested and returns a fresh one, so the panel keeps only the latest value.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct CoreHistoryPage {
     pub(crate) commits: Vec<CoreCommit>,
+    /// Whether Core reports another page after this one.
+    pub(crate) has_more: bool,
+    /// Cursor to pass back for the next page; `None` at the end of history.
+    pub(crate) next_cursor: Option<String>,
 }
 
 /// 一条 Git 引用（本地分支 / 远程分支 / 标签）。
@@ -304,7 +325,11 @@ pub(crate) fn parse_history_page(value: &Value) -> Result<CoreHistoryPage, Strin
         Some(Value::Null) | None => Vec::new(),
         Some(_) => return Err("Git history commits was not an array".to_string()),
     };
-    Ok(CoreHistoryPage { commits })
+    Ok(CoreHistoryPage {
+        commits,
+        has_more: bool_field(object.get("hasMore")),
+        next_cursor: optional_string(object.get("nextCursor")),
+    })
 }
 
 /// 解析 `git.references` 响应的 `references` 数组。
@@ -366,6 +391,7 @@ pub(crate) fn parse_commit(value: &Value) -> CoreCommit {
         date: string_field(value.get("date")),
         subject: string_field(value.get("subject")),
         author_name: string_field(value.get("authorName")),
+        author_email: string_field(value.get("authorEmail")),
         decorations: string_field(value.get("decorations")),
         parent_hashes,
     }

@@ -1,13 +1,19 @@
 use std::path::PathBuf;
+use std::rc::Rc;
 
-use gpui_kit::component::{Sizable as _, h_flex, v_flex};
+use gpui_kit::assets::IconName;
+use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::command::{Command, CommandEntry, CommandGroup, CommandItem, CommandState};
+use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
+use gpui_kit::component::{Disableable as _, Icon, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::private::serde_json::{self, Value};
 use gpui_kit::{
-    AnyElement, AppContext as _, ClickEvent, Context, FontWeight, InteractiveElement as _,
-    IntoElement, ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _,
-    WeakEntity, Window, div, px,
+    AnyElement, AppContext as _, ClickEvent, Context, DismissEvent, Entity, FontWeight,
+    InteractiveElement as _, IntoElement, ParentElement as _, Point, Render, SharedString,
+    StatefulInteractiveElement as _, Styled as _, WeakEntity, Window, anchored, deferred, div, px,
 };
+use lithe_features::git::GitDialogKind;
 use lithe_ui::i18n::tr;
 use lithe_ui::icons::{LitheIcon, icon};
 use lithe_ui::links;
@@ -19,19 +25,85 @@ use super::{TOP_MENU_CONTEXT, Workbench, theme_id_for, theme_kind_for};
 use crate::app_menu::{self, MenuCommand, MenuState};
 use crate::layout;
 
+/// 分支弹窗的一行数据（本地或远程跟踪分支）。
+///
+/// `kind` 保留 Core `GitReferenceResponse.kind` 的原始值（local / remote），
+/// checkout 时按类型化 `gitReference` 回传，不靠名字猜来源。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct BranchEntry {
     pub(super) full_name: String,
     pub(super) short_name: String,
+    pub(super) kind: String,
     pub(super) is_current: bool,
     pub(super) ahead: usize,
     pub(super) behind: usize,
 }
 
+impl BranchEntry {
+    /// 远程跟踪分支。Core 只对带上游的本地分支计算 ahead/behind，
+    /// 远程行因此不显示追踪计数（不伪造数据）。
+    fn is_remote(&self) -> bool {
+        self.kind == "remote"
+    }
+}
+
+/// 分支弹窗一行的动作目标。`Command` 过滤后仍按这里的原始下标回调，
+/// 所以创建行与分支行可以共用一个确认回调。
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum BranchMenuRow {
+    Create(String),
+    Checkout(BranchEntry),
+}
+
+/// 分支弹窗的列表视图（`Command` 的宿主）。
+///
+/// 搜索框 `CommandState` 与工作台常驻，但列表模型放在这个独立实体里：
+/// 输入变化只重绘本实体与它的列表，不再 `notify` 整个工作台（此前每敲一个
+/// 字符都会重建编辑器、项目树、工具窗等整棵树）。`CommandItem` 模型按
+/// 「查询 + 数据版本」缓存，同一查询下的重绘不再重建每个分支行。
+pub(crate) struct BranchMenuView {
+    owner: WeakEntity<Workbench>,
+    palette: Entity<CommandState>,
+    local: Vec<BranchEntry>,
+    remote: Vec<BranchEntry>,
+    current: SharedString,
+    loading: bool,
+    error: Option<SharedString>,
+    /// Core 是否报告当前项目是 Git 仓库；不是时管理器入口禁用。
+    has_repository: bool,
+    /// 数据快照版本；变化时让下面两层缓存失效。
+    revision: u64,
+    /// 本实体上一次构建的 CommandItem 行模型（按数据版本缓存，跨查询复用）。
+    items: Option<BranchItemCache>,
+    /// 本实体上一次构建的 `Command` 模型（按「查询 + 数据版本」缓存）。
+    cache: Option<BranchMenuCache>,
+}
+
+/// 与查询无关的行模型：分支数据不变时只构建一次，输入查询不会重建
+/// 每个分支行的 `CommandItem`（只重建「新建分支」那一行）。
+struct BranchItemCache {
+    revision: u64,
+    local_items: Vec<CommandItem>,
+    remote_items: Vec<CommandItem>,
+    local_rows: Rc<Vec<BranchMenuRow>>,
+    remote_rows: Rc<Vec<BranchMenuRow>>,
+}
+
+struct BranchMenuCache {
+    query: String,
+    revision: u64,
+    entries: Vec<CommandEntry>,
+    /// 本帧的「新建分支」目标名；`has_create` 决定 section 0 是创建行。
+    create_name: Option<String>,
+    has_create: bool,
+    local_rows: Rc<Vec<BranchMenuRow>>,
+    remote_rows: Rc<Vec<BranchMenuRow>>,
+}
+
 impl Workbench {
     pub(super) fn render_top_menu(
         &self,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         if !self.project_menu_visible && !self.branch_menu_visible {
@@ -40,10 +112,30 @@ impl Workbench {
 
         let tokens = current_tokens(cx);
         let backdrop_owner = cx.weak_entity();
-        let panel = if self.project_menu_visible {
-            self.render_project_menu(cx)
+        let anchor = self.branch_trigger_bounds.get();
+        // 项目菜单保持左对齐的固定位置；分支菜单锚定在分支按钮正下方，
+        // 不再借用项目按钮的左偏移（项目名变长后分支按钮会移动）。
+        let (panel, left, top, width) = if self.project_menu_visible {
+            (
+                self.render_project_menu(cx),
+                layout::TOP_MENU_LEFT,
+                px(LitheMetrics::TOP_BAR_HEIGHT + layout::TOP_MENU_TOP_GAP),
+                layout::TOP_MENU_WIDTH,
+            )
         } else {
-            self.render_branch_menu(cx)
+            let viewport = window.viewport_size().width;
+            // 窄窗口下不能让 375pt 的弹窗越过右边缘：先按窗口收缩，再夹左侧。
+            let width = layout::BRANCH_MENU_WIDTH.min((viewport - px(16.)).max(px(200.)));
+            let left = anchor
+                .map(|bounds| bounds.left())
+                .unwrap_or(layout::TOP_MENU_LEFT);
+            let left = left
+                .min((viewport - width - px(8.)).max(px(8.)))
+                .max(px(8.));
+            let top = anchor
+                .map(|bounds| bounds.bottom() + px(layout::TOP_MENU_TOP_GAP))
+                .unwrap_or(px(LitheMetrics::TOP_BAR_HEIGHT + layout::TOP_MENU_TOP_GAP));
+            (self.render_branch_menu(cx), left, top, width)
         };
 
         Some(
@@ -71,9 +163,9 @@ impl Workbench {
                         .id("lithe-top-menu-panel")
                         .occlude()
                         .absolute()
-                        .top(px(LitheMetrics::TOP_BAR_HEIGHT + layout::TOP_MENU_TOP_GAP))
-                        .left(layout::TOP_MENU_LEFT)
-                        .w(layout::TOP_MENU_WIDTH)
+                        .top(top)
+                        .left(left)
+                        .w(width)
                         .rounded(px(LitheMetrics::MENU_RADIUS))
                         .overflow_hidden()
                         .bg(tokens.raised)
@@ -151,64 +243,135 @@ impl Workbench {
             .into_any_element()
     }
 
-    pub(super) fn render_branch_menu(&self, cx: &mut Context<Self>) -> AnyElement {
-        let tokens = current_tokens(cx);
-        let mut list = v_flex()
-            .id("lithe-branch-menu-list")
-            .w_full()
-            .max_h(layout::TOP_MENU_LIST_MAX_HEIGHT)
-            .py(px(4.))
-            .overflow_y_scroll();
+    pub(super) fn render_branch_menu(&self, _cx: &mut Context<Self>) -> AnyElement {
+        // 列表交给独立实体渲染：查询变化只重绘它自己，工作台整棵树不参与。
+        self.branch_menu.clone().into_any_element()
+    }
 
-        if self.branches_loading {
-            list = list.child(menu_empty_row(tr("Loading…"), tokens));
-        }
-        if let Some(error) = &self.branch_error {
-            list = list.child(
-                div()
-                    .w_full()
-                    .px(px(12.))
-                    .py(px(8.))
-                    .text_size(px(LitheMetrics::SMALL_FONT_SIZE))
-                    .text_color(tokens.error)
-                    .child(error.clone()),
-            );
-        }
-        if self.branches.is_empty() {
-            if !self.branches_loading && self.branch_error.is_none() {
-                let empty = if self.project_root.is_some() {
-                    tr("No branches")
-                } else {
-                    tr("No project open")
-                };
-                list = list.child(menu_empty_row(empty, tokens));
-            }
-        } else {
-            for entry in &self.branches {
-                list = list.child(branch_menu_row(cx.weak_entity(), entry.clone(), tokens));
-            }
-        }
+    /// 把工作台的分支快照推给列表实体。只有内容变化才让列表缓存失效，
+    /// 避免 `git.status` 刷新导致每次重建全部分支行。
+    pub(super) fn sync_branch_menu(&self, cx: &mut Context<Self>) {
+        let (local, remote) = split_branches(&self.branches);
+        let current = self.branch.clone();
+        let loading = self.branches_loading;
+        let error = self.branch_error.clone();
+        // 与顶栏一致：有项目且已读到当前分支 = Core 报告的 Git 仓库。
+        let has_repository = self.project_root.is_some() && !self.branch.is_empty();
+        let view = self.branch_menu.clone();
+        view.update(cx, |view, cx| {
+            view.set_snapshot(local, remote, current, loading, error, has_repository, cx);
+        });
+    }
 
-        v_flex()
-            .w_full()
-            .child(
-                h_flex()
-                    .w_full()
-                    .items_center()
-                    .px(px(12.))
-                    .h(px(30.))
-                    .border_b(px(1.))
-                    .border_color(tokens.divider)
-                    .child(
-                        div()
-                            .text_size(px(LitheMetrics::SMALL_FONT_SIZE))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(tokens.secondary_text)
-                            .child(tr("Branches")),
-                    ),
+    /// 打开分支行的 `⋯` 动作菜单（对齐 Tauri `BranchRow` 的 DropdownMenu）。
+    /// 当前只提供 Checkout / Delete（Merge / Rebase 在 Git Log 引用面板里
+    /// 已有完整入口，这里不重复实现）。
+    pub(super) fn open_branch_row_menu(
+        &mut self,
+        entry: BranchEntry,
+        position: Point<gpui_kit::Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let owner = cx.weak_entity();
+        let popup =
+            PopupMenu::build(window, cx, move |menu, _window, _cx| {
+                let mut menu = menu.min_w(px(190.));
+                let checkout_entry = entry.clone();
+                let checkout_owner = owner.clone();
+                menu = menu.item(
+                    PopupMenuItem::new(tr("Checkout"))
+                        .disabled(entry.is_current)
+                        .on_click(move |_, window, cx| {
+                            let entry = checkout_entry.clone();
+                            let _ = checkout_owner.update(cx, |this, cx| {
+                                this.checkout_branch(entry, window, cx);
+                            });
+                        }),
+                );
+                // 删除只对本地分支开放：远程分支的删除要推送到远端，
+                // 不在这个入口伪造（Tauri footer 弹窗同样只列本地分支）。
+                if !entry.is_remote() {
+                    menu = menu.separator();
+                    let delete_entry = entry.clone();
+                    let delete_owner = owner.clone();
+                    menu = menu.item(
+                        PopupMenuItem::new(tr("Delete Branch"))
+                            .disabled(entry.is_current)
+                            .on_click(move |_, window, cx| {
+                                let entry = delete_entry.clone();
+                                let _ = delete_owner.update(cx, |this, cx| {
+                                    this.delete_branch(entry, window, cx);
+                                });
+                            }),
+                    );
+                }
+                menu
+            });
+
+        let subscription =
+            cx.subscribe_in(&popup, window, |this, _, _: &DismissEvent, _window, cx| {
+                this.branch_row_menu = None;
+                this._branch_row_menu_subscription = None;
+                cx.notify();
+            });
+        self.branch_row_menu = Some((popup, position));
+        self._branch_row_menu_subscription = Some(subscription);
+        cx.notify();
+    }
+
+    /// 分支行动作菜单的浮层（与标签页右键菜单同一套 `deferred + anchored`）。
+    pub(super) fn render_branch_row_menu(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        // 弹窗已经关闭时（打开文件、命令面板、设置等路径会直接隐藏弹窗）
+        // 不再画出孤立的行菜单。
+        if !self.branch_menu_visible {
+            return None;
+        }
+        let (popup, position) = self.branch_row_menu.as_ref()?;
+        let popup = popup.clone();
+        let position = *position;
+        Some(
+            deferred(
+                anchored().position(position).snap_to_window().child(
+                    div()
+                        .occlude()
+                        .on_mouse_down_out(cx.listener(move |this, _, _, cx| {
+                            if this.branch_row_menu.take().is_some() {
+                                this._branch_row_menu_subscription = None;
+                                cx.notify();
+                            }
+                        }))
+                        .child(popup),
+                ),
             )
-            .child(list)
-            .into_any_element()
+            .into_any_element(),
+        )
+    }
+
+    /// 从分支弹窗打开现有的 Git 管理器对话框（`Manage Branches…` /
+    /// `Manage Worktrees…`）。对话框本身由覆盖层实现，这里只负责把当前
+    /// 仓库根与 Git 面板句柄交给它。
+    pub(super) fn open_git_dialog(
+        &mut self,
+        kind: GitDialogKind,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.close_menus(cx);
+        let panel = self.git.clone();
+        let root = self.git.read(cx).repository_root().clone();
+        let client = self.client;
+        let workbench = cx.weak_entity();
+        crate::workbench::overlays::git_dialogs::GitDialogView::open(
+            kind,
+            client,
+            root,
+            Vec::new(),
+            panel.downgrade(),
+            workbench,
+            window,
+            cx,
+        );
     }
 
     pub(super) fn toggle_project_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -225,12 +388,29 @@ impl Workbench {
     pub(crate) fn toggle_branch_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.branch_menu_visible {
             self.branch_menu_visible = false;
-        } else {
-            self.project_menu_visible = false;
-            self.branch_menu_visible = true;
-            self.overlay_focus.focus(window, cx);
-            self.load_branches(window, cx);
+            self.branch_row_menu = None;
+            self._branch_row_menu_subscription = None;
+            cx.notify();
+            return;
         }
+        if self.project_root.is_none() {
+            self.status_message = Some(tr("Open a project first").into());
+            cx.notify();
+            return;
+        }
+        self.project_menu_visible = false;
+        self.branch_menu_visible = true;
+        // 重新打开时丢弃上次残留的行菜单。
+        self.branch_row_menu = None;
+        self._branch_row_menu_subscription = None;
+        self.overlay_focus.focus(window, cx);
+        // 每次打开都清空搜索并锁定搜索框（对齐 Tauri 打开时 select 查询词）。
+        let palette = self.branch_palette.clone();
+        palette.update(cx, |state, state_cx| {
+            state.set_query("", window, state_cx);
+            state.focus(window, state_cx);
+        });
+        self.load_branches(window, cx);
         cx.notify();
     }
 
@@ -238,6 +418,12 @@ impl Workbench {
         if self.tab_context_menu.is_some() {
             self.tab_context_menu = None;
             self._tab_context_menu_subscription = None;
+            cx.notify();
+        }
+        // 分支行的 `⋯` 菜单属于顶层菜单的一部分：一起关掉，避免弹窗关掉后
+        // 还残留一个孤立的动作菜单。
+        if self.branch_row_menu.take().is_some() {
+            self._branch_row_menu_subscription = None;
             cx.notify();
         }
         if self.project_menu_visible || self.branch_menu_visible {
@@ -249,8 +435,11 @@ impl Workbench {
 
     pub(super) fn refresh_branch(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(root) = self.project_root.clone() else {
-            self.branch = SharedString::from(tr("main"));
+            // 没有项目就没有分支；保持空值让顶栏隐藏分支入口。
+            self.branch = SharedString::default();
             self.git_change_count = 0;
+            self.branch_menu_visible = false;
+            self.sync_branch_menu(cx);
             cx.notify();
             return;
         };
@@ -264,7 +453,9 @@ impl Workbench {
             // 导致分支菜单报 invalid_request: missing field 'root'）。
             let payload = serde_json::json!({ "root": root.to_string_lossy() });
             let result = cx
-                .background_spawn(async move { client.execute_raw("git.status", payload) })
+                .background_spawn(async move {
+                    lithe_features::git::execute_git_command(&client, "git.status", payload)
+                })
                 .await;
 
             let _ = this.update_in(cx, |this, _window, cx| {
@@ -275,8 +466,14 @@ impl Workbench {
                     Ok(value) => {
                         // CoreClient 已解包响应的 `data`，分支和变更都在顶层；
                         // 之前误读 `data.branch`，顶部一直停留在 `main`。
-                        if let Some(branch) = value.get("branch").and_then(Value::as_str) {
-                            this.branch = SharedString::from(branch.to_string());
+                        let branch = value
+                            .get("branch")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default();
+                        this.branch = SharedString::from(branch.to_string());
+                        if this.branch.is_empty() {
+                            // 非 Git 仓库：顶栏不再显示一个不存在的 `main`。
+                            this.branch_menu_visible = false;
                         }
                         let changes = value
                             .get("changes")
@@ -285,10 +482,18 @@ impl Workbench {
                             .unwrap_or(0);
                         this.git_change_count = changes;
                     }
-                    Err(_) => {
+                    Err(error) => {
+                        this.branch = SharedString::default();
+                        this.branch_menu_visible = false;
                         this.git_change_count = 0;
+                        lithe_features::logging::log_event(
+                            lithe_features::logging::Level::Debug,
+                            "git",
+                            format!("git.status failed: {error}"),
+                        );
                     }
                 }
+                this.sync_branch_menu(cx);
                 cx.notify();
             });
         })
@@ -300,6 +505,7 @@ impl Workbench {
             self.branches.clear();
             self.branches_loading = false;
             self.branch_error = None;
+            self.sync_branch_menu(cx);
             cx.notify();
             return;
         };
@@ -308,6 +514,7 @@ impl Workbench {
         let generation = self.branch_generation;
         self.branches_loading = true;
         self.branch_error = None;
+        self.sync_branch_menu(cx);
         cx.notify();
 
         cx.spawn_in(window, async move |this, cx| {
@@ -316,7 +523,9 @@ impl Workbench {
             // 导致分支菜单报 invalid_request: missing field 'root'）。
             let payload = serde_json::json!({ "root": root.to_string_lossy() });
             let result = cx
-                .background_spawn(async move { client.execute_raw("git.references", payload) })
+                .background_spawn(async move {
+                    lithe_features::git::execute_git_command(&client, "git.references", payload)
+                })
                 .await;
 
             let _ = this.update_in(cx, |this, _window, cx| {
@@ -334,45 +543,244 @@ impl Workbench {
                         this.branch_error = Some(SharedString::from(error.to_string()));
                     }
                 }
+                this.sync_branch_menu(cx);
                 cx.notify();
             });
         })
         .detach();
     }
 
+    /// 切换到本地或远程跟踪分支。
+    ///
+    /// 走 Core 的 `git.write` + `operation: "checkout"` + 类型化
+    /// `gitReference`（与 Git Log 引用面板、Tauri `checkoutReference` 同一
+    /// 契约）。远程分支由 Core `switch_validated_reference` 建同名本地分支
+    /// （`--track -c <name> refs/remotes/<remote>/<branch>`），这里不自己拼
+    /// 本地分支名，也不伪造 ahead/behind。
     pub(super) fn checkout_branch(
         &mut self,
-        short_name: String,
+        entry: BranchEntry,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // 当前分支是 no-op（Tauri `handleBranchChange` 同款守卫）。
+        if entry.is_current || entry.short_name.is_empty() {
+            return;
+        }
+        let display = entry.short_name.clone();
         let Some(root) = self.project_root.clone() else {
             return;
         };
 
         self.close_menus(cx);
-        self.status_message = Some(format!("{} {short_name}…", tr("Checking out")).into());
+        self.status_message = Some(format!("{} {display}…", tr("Checking out")).into());
         cx.notify();
 
         cx.spawn_in(window, async move |this, cx| {
             let client = lithe_core_client::CoreClient::new();
             let payload = serde_json::json!({
-                "path": root.to_string_lossy(),
-                "branch": short_name,
+                "root": root.to_string_lossy(),
+                "operation": "checkout",
+                "gitReference": {
+                    "fullName": entry.full_name,
+                    "shortName": entry.short_name,
+                    "kind": entry.kind,
+                },
             });
             let result = cx
-                .background_spawn(async move { client.execute_raw("git.checkout", payload) })
+                .background_spawn(async move {
+                    lithe_features::git::execute_git_command(&client, "git.write", payload)
+                })
                 .await;
 
             let _ = this.update_in(cx, |this, window, cx| {
                 match result {
-                    Ok(_) => {
-                        this.status_message = None;
-                        this.refresh_branch(window, cx);
-                        this.refresh_project_tree(window, cx);
+                    Ok(value) => {
+                        let failed = value
+                            .get("exitCode")
+                            .and_then(Value::as_i64)
+                            .map(|code| code != 0)
+                            .unwrap_or(false);
+                        if failed {
+                            let message =
+                                super::overlays::git_dialogs::failure_detail(&value);
+                            this.status_message = Some(SharedString::from(message.clone()));
+                            this.push_notification(
+                                tr("Branches"),
+                                Some(message.into()),
+                                super::notifications::NotificationKind::Error,
+                            );
+                        } else {
+                            this.status_message = None;
+                            this.refresh_branch(window, cx);
+                            this.refresh_project_tree(window, cx);
+                        }
                     }
                     Err(error) => {
-                        this.status_message = Some(SharedString::from(error.to_string()));
+                        let message = error.to_string();
+                        this.status_message = Some(SharedString::from(message.clone()));
+                        this.push_notification(
+                            tr("Branches"),
+                            Some(message.into()),
+                            super::notifications::NotificationKind::Error,
+                        );
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 删除一个本地分支（Core `git.write` + `operation: "deleteBranch"`）。
+    ///
+    /// 请求体按 Core `GitWriteRequest` 使用类型化 `gitReference`（`reference`
+    /// 旧字段只会被当成裸名字，`local_branch_name` 会拒绝）。当前分支与远程
+    /// 分支在入口处就禁用，Core 也会再校验一次。
+    pub(super) fn delete_branch(
+        &mut self,
+        entry: BranchEntry,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if entry.is_current || entry.is_remote() || entry.short_name.is_empty() {
+            return;
+        }
+        let name = entry.short_name.clone();
+        let Some(root) = self.project_root.clone() else {
+            return;
+        };
+
+        self.status_message = Some(format!("{} {name}…", tr("Delete Branch")).into());
+        cx.notify();
+
+        cx.spawn_in(window, async move |this, cx| {
+            let client = lithe_core_client::CoreClient::new();
+            let payload = serde_json::json!({
+                "root": root.to_string_lossy(),
+                "operation": "deleteBranch",
+                "gitReference": {
+                    "fullName": entry.full_name,
+                    "shortName": entry.short_name,
+                    "kind": "local",
+                },
+            });
+            let result = cx
+                .background_spawn(async move {
+                    lithe_features::git::execute_git_command(&client, "git.write", payload)
+                })
+                .await;
+
+            let _ = this.update_in(cx, |this, window, cx| {
+                match result {
+                    Ok(value) => {
+                        let failed = value
+                            .get("exitCode")
+                            .and_then(Value::as_i64)
+                            .map(|code| code != 0)
+                            .unwrap_or(false);
+                        if failed {
+                            let message =
+                                super::overlays::git_dialogs::failure_detail(&value);
+                            this.status_message = Some(SharedString::from(message.clone()));
+                            this.push_notification(
+                                tr("Delete Branch"),
+                                Some(message.into()),
+                                super::notifications::NotificationKind::Error,
+                            );
+                        } else {
+                            this.status_message = None;
+                            this.load_branches(window, cx);
+                        }
+                    }
+                    Err(error) => {
+                        let message = error.to_string();
+                        this.status_message = Some(SharedString::from(message.clone()));
+                        this.push_notification(
+                            tr("Delete Branch"),
+                            Some(message.into()),
+                            super::notifications::NotificationKind::Error,
+                        );
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 以当前分支为起点创建本地分支（对齐 Tauri `handleCreateBranch`：
+    /// 只创建不切换，创建后刷新分支列表）。
+    pub(super) fn create_branch(
+        &mut self,
+        name: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let name = name.trim().to_string();
+        if name.is_empty() {
+            return;
+        }
+        let Some(root) = self.project_root.clone() else {
+            return;
+        };
+        let current = self.branch.to_string();
+        if current.is_empty() {
+            return;
+        }
+
+        self.close_menus(cx);
+        self.status_message = Some(format!("{} {name}…", tr("New Branch")).into());
+        cx.notify();
+
+        cx.spawn_in(window, async move |this, cx| {
+            let client = lithe_core_client::CoreClient::new();
+            let payload = serde_json::json!({
+                "root": root.to_string_lossy(),
+                "operation": "createBranch",
+                "name": name,
+                "gitReference": {
+                    "fullName": format!("refs/heads/{current}"),
+                    "shortName": current,
+                    "kind": "local",
+                },
+            });
+            let result = cx
+                .background_spawn(async move {
+                    lithe_features::git::execute_git_command(&client, "git.write", payload)
+                })
+                .await;
+
+            let _ = this.update_in(cx, |this, window, cx| {
+                match result {
+                    Ok(value) => {
+                        let failed = value
+                            .get("exitCode")
+                            .and_then(Value::as_i64)
+                            .map(|code| code != 0)
+                            .unwrap_or(false);
+                        if failed {
+                            let message =
+                                super::overlays::git_dialogs::failure_detail(&value);
+                            this.status_message = Some(SharedString::from(message.clone()));
+                            this.push_notification(
+                                tr("New Branch"),
+                                Some(message.into()),
+                                super::notifications::NotificationKind::Error,
+                            );
+                        } else {
+                            this.status_message = None;
+                            this.load_branches(window, cx);
+                        }
+                    }
+                    Err(error) => {
+                        let message = error.to_string();
+                        this.status_message = Some(SharedString::from(message.clone()));
+                        this.push_notification(
+                            tr("New Branch"),
+                            Some(message.into()),
+                            super::notifications::NotificationKind::Error,
+                        );
                     }
                 }
                 cx.notify();
@@ -416,11 +824,12 @@ impl Workbench {
         cx.notify();
     }
 
-    pub(super) fn menu_state(&self, cx: &Context<Self>) -> MenuState {
+    pub(super) fn menu_state(&self, cx: &Context<Self>) -> MenuState<'_> {
         MenuState {
             has_project: self.project_root.is_some(),
             has_active_tab: self.active_tab.is_some(),
-            recent_projects: self.recent_projects.clone(),
+            // 借用而不是复制：签名路径每次重绘都会跑一遍。
+            recent_projects: &self.recent_projects,
             left_visible: self.left_visible,
             bottom_visible: self.bottom_visible,
             right_visible: self.right_visible,
@@ -443,17 +852,31 @@ impl Workbench {
             themes: lithe_ui::registered_themes(),
             // Stop Debugging 映射为停止当前运行会话，菜单按会话状态启停。
             run_running: self.run_panel.read(cx).is_running(),
-            terminal_has_split: self.terminal_secondary.is_some(),
+            terminal_at_capacity: self.terminal_sessions.len()
+                >= super::terminal::MAX_TERMINAL_SESSIONS,
         }
     }
 
     pub(super) fn install_menus(&mut self, cx: &mut Context<Self>) {
         let state = self.menu_state(cx);
-        let menus = app_menu::build_menus(&state);
-        self.menu_bar
-            .update(cx, |bar, bar_cx| bar.set_menus(menus, bar_cx));
-        self.menu_signature = state.signature();
-        self.menu_installed = true;
+        let signature = state.signature();
+        // 签名没变：菜单内容、勾选与禁用状态都已经是最新的，保留现有菜单树
+        // 即可。此前每次显示菜单栏（⌥M / 汉堡按钮）都会无条件重建全部
+        // `MenuSpec` 并 `set_menus`，而 `set_menus` 会重置展开下标、丢掉已建好
+        // 的下拉浮层，再触发一次整窗重绘。
+        let menus = if self.menu_installed && signature == self.menu_signature {
+            None
+        } else {
+            Some(app_menu::build_menus(&state))
+        };
+        drop(state);
+
+        if let Some(menus) = menus {
+            self.menu_bar
+                .update(cx, |bar, bar_cx| bar.set_menus(menus, bar_cx));
+            self.menu_signature = signature;
+            self.menu_installed = true;
+        }
         self.menu_install_pending = false;
     }
 
@@ -663,16 +1086,14 @@ impl Workbench {
                 self.split_terminal(super::terminal::TerminalSplitAxis::Vertical, window, cx)
             }
             "terminal.clear" => {
-                self.terminal.update(cx, |p, pcx| p.clear(pcx));
-                if let Some(p) = self.terminal_secondary.clone() {
-                    p.update(cx, |p, pcx| p.clear(pcx));
+                if let Some(id) = self.active_terminal.clone() {
+                    self.clear_terminal_session(&id, cx);
                 }
             }
             "terminal.close" => {
-                if self.bottom_visible && self.active_bottom == Some(ToolWindow::Terminal) {
-                    self.set_dock_visible(DockAnchor::Bottom, false, cx);
+                if let Some(id) = self.active_terminal.clone() {
+                    self.close_terminal_session(&id, window, cx);
                 }
-                self.close_terminal_split(cx);
             }
             "run.run" => {
                 self.show_tool(ToolWindow::Run, window, cx);
@@ -763,8 +1184,12 @@ impl Workbench {
                 );
             }
             cmd if cmd.starts_with("view.tool.") => {
+                // View > Tool Windows 的每一项都是勾选项，对齐 macOS `openTool`
+                //（WorkbenchView.swift:1390）：已打开时再点一次关闭，而不是
+                // 只把可见性再置一次 true。`view.tool.run` 已在上面单独走
+                // toggle，这里覆盖其余工具窗。
                 if let Some(tool) = ToolWindow::from_id(&cmd["view.tool.".len()..]) {
-                    self.show_tool(tool, window, cx);
+                    self.toggle_tool(tool, window, cx);
                 }
             }
             cmd if cmd.starts_with("view.theme.") => {
@@ -817,6 +1242,396 @@ impl Workbench {
                 format!("Menu command had no effect: {menu_command}"),
             );
         }
+    }
+}
+
+impl BranchMenuView {
+    pub(super) fn new(
+        owner: WeakEntity<Workbench>,
+        palette: Entity<CommandState>,
+        _cx: &mut Context<Self>,
+    ) -> Self {
+        Self {
+            owner,
+            palette,
+            local: Vec::new(),
+            remote: Vec::new(),
+            current: SharedString::default(),
+            loading: false,
+            error: None,
+            has_repository: false,
+            revision: 0,
+            items: None,
+            cache: None,
+        }
+    }
+
+    /// 工作台推入最新快照；内容未变时不碰缓存，避免无谓重建。
+    pub(super) fn set_snapshot(
+        &mut self,
+        local: Vec<BranchEntry>,
+        remote: Vec<BranchEntry>,
+        current: SharedString,
+        loading: bool,
+        error: Option<SharedString>,
+        has_repository: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if self.local == local
+            && self.remote == remote
+            && self.current == current
+            && self.loading == loading
+            && self.error == error
+            && self.has_repository == has_repository
+        {
+            return;
+        }
+        self.local = local;
+        self.remote = remote;
+        self.current = current;
+        self.loading = loading;
+        self.error = error;
+        self.has_repository = has_repository;
+        self.revision = self.revision.wrapping_add(1);
+        cx.notify();
+    }
+
+    /// 取当前查询对应的模型；「查询 + 数据版本」都没变时复用缓存。
+    fn cache_for(&mut self, query: &str) -> &BranchMenuCache {
+        // 第一层：分支行模型只随数据版本变化。输入查询不重建每个
+        // `CommandItem`（自定义行内容的闭包、文案、关键字都在这里只做一次）。
+        let items_stale = self
+            .items
+            .as_ref()
+            .is_none_or(|items| items.revision != self.revision);
+        if items_stale {
+            let owner = self.owner.clone();
+            let loading = self.loading;
+            let local_rows: Rc<Vec<BranchMenuRow>> = Rc::new(
+                self.local
+                    .iter()
+                    .cloned()
+                    .map(BranchMenuRow::Checkout)
+                    .collect(),
+            );
+            let remote_rows: Rc<Vec<BranchMenuRow>> = Rc::new(
+                self.remote
+                    .iter()
+                    .cloned()
+                    .map(BranchMenuRow::Checkout)
+                    .collect(),
+            );
+            let local_items = local_rows
+                .iter()
+                .filter_map(|row| match row {
+                    BranchMenuRow::Checkout(entry) => {
+                        Some(branch_item(entry, &owner, loading, true))
+                    }
+                    BranchMenuRow::Create(_) => None,
+                })
+                .collect::<Vec<_>>();
+            let remote_items = remote_rows
+                .iter()
+                .filter_map(|row| match row {
+                    BranchMenuRow::Checkout(entry) => {
+                        Some(branch_item(entry, &owner, loading, false))
+                    }
+                    BranchMenuRow::Create(_) => None,
+                })
+                .collect::<Vec<_>>();
+            self.items = Some(BranchItemCache {
+                revision: self.revision,
+                local_items,
+                remote_items,
+                local_rows,
+                remote_rows,
+            });
+        }
+        let items = self
+            .items
+            .as_ref()
+            .expect("branch item cache is built on miss");
+
+        // 第二层：`Command` 模型只依赖「查询 + 数据版本」；例如窗口缩放
+        // 触发的重绘会直接命中这层缓存。
+        let fresh = self
+            .cache
+            .as_ref()
+            .is_some_and(|cache| cache.query == query && cache.revision == self.revision);
+        if !fresh {
+            let current = self.current.to_string();
+            // 「新建分支」行只在查询词能构成新分支名时出现（对齐 Tauri
+            // `getCreateBranchName`），并且必须排在最前（section 0）。
+            let create_name = creatable_branch_name(&self.local, &current, query);
+            let mut entries: Vec<CommandEntry> = Vec::new();
+            if let Some(name) = create_name.as_ref() {
+                entries.push(CommandEntry::Item(create_branch_item(
+                    name,
+                    self.loading,
+                )));
+            }
+            // 本地 / 远程两组始终写入模型，即便某组为空：`Command` 对空组
+            // 只是不渲染标题，却仍递增 section 下标，这样过滤不会打乱
+            // 确认回调的行定位。
+            entries.push(CommandEntry::Group(
+                CommandGroup::new()
+                    .label(tr("Local"))
+                    .items(items.local_items.clone()),
+            ));
+            entries.push(CommandEntry::Group(
+                CommandGroup::new()
+                    .label(tr("Remote"))
+                    .items(items.remote_items.clone()),
+            ));
+
+            self.cache = Some(BranchMenuCache {
+                query: query.to_string(),
+                revision: self.revision,
+                entries,
+                has_create: create_name.is_some(),
+                create_name,
+                local_rows: items.local_rows.clone(),
+                remote_rows: items.remote_rows.clone(),
+            });
+        }
+
+        self.cache
+            .as_ref()
+            .expect("branch menu cache is built on miss")
+    }
+}
+
+/// 把 `Command` 回调里的 (section, row) 还原成动作行。
+///
+/// 分组顺序固定为 [新建?] [本地] [远程]；空组也占一个 section，所以这里
+/// 只按「是否存在新建行」做偏移。
+fn branch_menu_row_at(
+    section: usize,
+    row: usize,
+    has_create: bool,
+    create_name: Option<&str>,
+    local_rows: &[BranchMenuRow],
+    remote_rows: &[BranchMenuRow],
+) -> Option<BranchMenuRow> {
+    if has_create && section == 0 {
+        return create_name.map(|name| BranchMenuRow::Create(name.to_string()));
+    }
+    let group = section.checked_sub(has_create as usize)?;
+    let rows = match group {
+        0 => local_rows,
+        1 => remote_rows,
+        _ => return None,
+    };
+    rows.get(row).cloned()
+}
+
+impl Render for BranchMenuView {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let tokens = current_tokens(cx);
+        let query = self.palette.read(cx).query(cx).trim().to_string();
+        let (entries, has_create, create_name, local_rows, remote_rows) = {
+            let cache = self.cache_for(&query);
+            (
+                cache.entries.clone(),
+                cache.has_create,
+                cache.create_name.clone(),
+                cache.local_rows.clone(),
+                cache.remote_rows.clone(),
+            )
+        };
+        let loading = self.loading;
+        let empty_error = self.error.clone();
+        let header_error = self.error.clone();
+        let empty_query = !query.is_empty();
+        let owner = self.owner.clone();
+        let query_owner = cx.weak_entity();
+        let cancel_owner = owner.clone();
+        let footer_owner = owner.clone();
+        let footer_local = self.local.clone();
+        let footer_current = self.current.to_string();
+        let footer_local_count = self.local.len();
+        let footer_remote_count = self.remote.len();
+        let has_repository = self.has_repository;
+
+        let mut command = Command::new(&self.palette)
+            .bordered(false)
+            .bg(tokens.raised)
+            .text_color(tokens.primary_text)
+            .placeholder(tr("Search branches"))
+            .max_h(layout::TOP_MENU_LIST_MAX_HEIGHT)
+            // 查询只重绘本实体：工作台（编辑器 / 项目树 / 工具窗）不再因为
+            // 输入一个字而整棵树重建。
+            .on_query(move |_, _, cx| {
+                let _ = query_owner.update(cx, |_view, cx| cx.notify());
+            })
+            .on_confirm(move |index, window, cx| {
+                // `Command` 的本地过滤只影响可见行；确认回调拿到的仍是原始
+                // (section, row)，按固定分组顺序映射回创建行或分支行。
+                let Some(row) = branch_menu_row_at(
+                    index.section,
+                    index.row,
+                    has_create,
+                    create_name.as_deref(),
+                    &local_rows,
+                    &remote_rows,
+                ) else {
+                    return;
+                };
+                let _ = owner.update(cx, |this, cx| match row {
+                    BranchMenuRow::Create(name) => this.create_branch(name, window, cx),
+                    BranchMenuRow::Checkout(entry) => this.checkout_branch(entry, window, cx),
+                });
+            })
+            .on_cancel(move |_window, cx| {
+                let _ = cancel_owner.update(cx, |this, cx| this.close_menus(cx));
+            })
+            .empty(move |_, _, _| {
+                let (message, color) = match (&empty_error, loading, empty_query) {
+                    (Some(error), _, _) => (error.clone(), tokens.error),
+                    (None, true, _) => (SharedString::from(tr("Loading…")), tokens.tertiary_text),
+                    (None, false, true) => (
+                        SharedString::from(tr("No matching branches")),
+                        tokens.tertiary_text,
+                    ),
+                    (None, false, false) => {
+                        (SharedString::from(tr("No branches")), tokens.tertiary_text)
+                    }
+                };
+                div()
+                    .w_full()
+                    .py(px(14.))
+                    .px(px(10.))
+                    .text_center()
+                    .text_size(px(12.))
+                    .text_color(color)
+                    .child(message)
+                    .into_any_element()
+            })
+            .footer(move |state, _window, cx| {
+                // 底部动作按点击当时的查询词求值（对齐 Tauri footer 的
+                // New Branch / Refresh）。
+                let query = state.query(cx).trim().to_string();
+                let create_name = creatable_branch_name(&footer_local, &footer_current, &query);
+                let new_owner = footer_owner.clone();
+                let refresh_owner = footer_owner.clone();
+                let manage_owner = footer_owner.clone();
+                let worktrees_owner = footer_owner.clone();
+                h_flex()
+                    .w_full()
+                    .items_center()
+                    .gap(px(4.))
+                    .px(px(8.))
+                    .h(px(34.))
+                    .border_t(px(1.))
+                    .border_color(tokens.divider)
+                    .child(branch_footer_action(
+                        "branch-footer-new",
+                        Some(LitheIcon::Plus),
+                        tr("New Branch"),
+                        create_name.is_some() && !loading,
+                        tokens,
+                        move |window, cx| {
+                            let Some(name) = create_name.clone() else {
+                                return;
+                            };
+                            let _ = new_owner
+                                .update(cx, |this, cx| this.create_branch(name, window, cx));
+                        },
+                    ))
+                    .child(branch_footer_action(
+                        "branch-footer-refresh",
+                        Some(LitheIcon::Refresh),
+                        tr("Refresh"),
+                        !loading,
+                        tokens,
+                        move |window, cx| {
+                            let _ =
+                                refresh_owner.update(cx, |this, cx| this.load_branches(window, cx));
+                        },
+                    ))
+                    // 工作树 / 分支管理器入口：打开工作台已有的 Git 对话框，
+                    // 弹窗内不重复实现工作树列表。宽度受限时这两个入口用图标
+                    // + tooltip（tooltip 同时作为无障碍标签）。
+                    .child(branch_footer_icon_action(
+                        "branch-footer-manage",
+                        LitheIcon::GitBranch,
+                        tr("Manage Branches"),
+                        has_repository,
+                        tokens,
+                        move |window, cx| {
+                            let _ = manage_owner.update(cx, |this, cx| {
+                                this.open_git_dialog(GitDialogKind::Branches, window, cx);
+                            });
+                        },
+                    ))
+                    .child(branch_footer_icon_action(
+                        "branch-footer-worktrees",
+                        LitheIcon::FolderOpen,
+                        tr("Manage Worktrees…"),
+                        has_repository,
+                        tokens,
+                        move |window, cx| {
+                            let _ = worktrees_owner.update(cx, |this, cx| {
+                                this.open_git_dialog(GitDialogKind::Worktrees, window, cx);
+                            });
+                        },
+                    ))
+                    .child(div().flex_1())
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .max_w(px(120.))
+                            .truncate()
+                            .text_size(px(11.))
+                            .text_color(tokens.tertiary_text)
+                            .child(branch_count_label(
+                                footer_local_count,
+                                footer_remote_count,
+                            )),
+                    )
+                    .into_any_element()
+            });
+
+        if footer_local_count > 0 || footer_remote_count > 0 {
+            if let Some(error) = header_error {
+                // 列表非空时（刷新失败但保留旧数据）也把错误暴露出来，不再
+                // 只在空列表分支里显示；空列表由 `empty` 槽单独展示。
+                command = command.header(move |_, _, cx| {
+                    let tokens = current_tokens(cx);
+                    h_flex()
+                        .w_full()
+                        .items_center()
+                        .gap(px(6.))
+                        .px(px(10.))
+                        .py(px(6.))
+                        .child(
+                            Icon::new(IconName::CircleAlert)
+                                .with_size(px(12.))
+                                .text_color(tokens.error),
+                        )
+                        .child(
+                            div()
+                                .min_w(px(0.))
+                                .flex_1()
+                                .truncate()
+                                .text_size(px(11.))
+                                .text_color(tokens.error)
+                                .child(error.clone()),
+                        )
+                        .into_any_element()
+                });
+            }
+        }
+
+        for entry in entries {
+            command = match entry {
+                CommandEntry::Item(item) => command.item(item),
+                CommandEntry::Group(group) => command.group(group),
+                CommandEntry::Separator => command.separator(),
+            };
+        }
+
+        v_flex().w_full().child(command).into_any_element()
     }
 }
 
@@ -900,75 +1715,265 @@ fn project_menu_row(
         .into_any_element()
 }
 
-fn branch_menu_row(
-    owner: WeakEntity<Workbench>,
-    entry: BranchEntry,
-    tokens: LitheTokens,
-) -> AnyElement {
-    let short_name = entry.short_name.clone();
-    let full_name = entry.full_name.clone();
-    h_flex()
-        .id(format!("lithe-branch-item:{full_name}"))
-        .w_full()
-        .items_center()
-        .justify_between()
-        .px(px(12.))
-        .py(px(6.))
-        .hover(|this| this.bg(tokens.hover))
-        .cursor_pointer()
-        .on_click(move |_event: &ClickEvent, window, cx| {
-            let short_name = short_name.clone();
-            let _ = owner.update(cx, |this, cx| {
-                this.checkout_branch(short_name, window, cx);
-            });
-        })
-        .child(
+/// 「新建分支」行：查询词能构成新分支名时排在列表最前（对齐 Tauri
+/// `createBranchName` + `CommandItemRow` 的 Plus 行）。
+fn create_branch_item(name: &str, disabled: bool) -> CommandItem {
+    let name = name.to_string();
+    let label = format!("{} “{}”", tr("New Branch"), name);
+    let child_name = name.clone();
+    CommandItem::new()
+        .label(label)
+        .keywords([name])
+        .child(move |_, cx| {
+            let tokens = current_tokens(cx);
+            let text = format!("{} “{}”", tr("New Branch"), child_name);
             h_flex()
+                .w_full()
                 .items_center()
                 .gap(px(6.))
-                .child(icon(LitheIcon::GitBranch).with_size(px(14.)).text_color(
-                    if entry.is_current {
-                        tokens.accent
-                    } else {
-                        tokens.secondary_text
-                    },
-                ))
+                .child(
+                    icon(LitheIcon::Plus)
+                        .with_size(px(13.))
+                        .text_color(tokens.secondary_text),
+                )
                 .child(
                     div()
-                        .text_size(px(LitheMetrics::SETTINGS_FONT_SIZE))
-                        .font_weight(if entry.is_current {
-                            FontWeight::SEMIBOLD
-                        } else {
-                            FontWeight::NORMAL
-                        })
+                        .min_w(px(0.))
+                        .truncate()
+                        .text_size(px(12.))
                         .text_color(tokens.primary_text)
-                        .child(entry.short_name),
-                ),
-        )
-        .child(
+                        .child(text),
+                )
+                .into_any_element()
+        })
+        .disabled(disabled)
+}
+
+/// 一个分支行：当前分支用对勾 + `Current` 徽标，本地非当前分支带 `⋯`
+/// 动作入口（Checkout / Delete）；远程分支用同一分支图标，只提供检出。
+fn branch_item(
+    entry: &BranchEntry,
+    owner: &WeakEntity<Workbench>,
+    disabled: bool,
+    offer_delete: bool,
+) -> CommandItem {
+    let entry = entry.clone();
+    let owner = owner.clone();
+    CommandItem::new()
+        .label(entry.short_name.clone())
+        .keywords([entry.full_name.clone()])
+        .child(move |_, cx| {
+            let tokens = current_tokens(cx);
+            let is_current = entry.is_current;
+            let leading = if is_current {
+                Icon::new(IconName::Check)
+                    .with_size(px(13.))
+                    .text_color(tokens.success)
+            } else {
+                icon(LitheIcon::GitBranch)
+                    .with_size(px(13.))
+                    .text_color(tokens.secondary_text)
+            };
             h_flex()
+                .w_full()
                 .items_center()
                 .gap(px(6.))
+                .child(leading)
+                .child(
+                    div()
+                        .min_w(px(0.))
+                        .truncate()
+                        .text_size(px(12.))
+                        .text_color(tokens.primary_text)
+                        .child(entry.short_name.clone()),
+                )
+                // ahead/behind 只来自 Core 对本地分支上游的计算；远程分支
+                // Core 返回 0，这里也不会显示 0/0。
                 .when(entry.ahead > 0 || entry.behind > 0, |this| {
                     this.child(
                         div()
-                            .text_size(px(LitheMetrics::SMALL_FONT_SIZE))
+                            .flex_shrink_0()
+                            .text_size(px(11.))
                             .text_color(tokens.secondary_text)
                             .child(format!("↑{} ↓{}", entry.ahead, entry.behind)),
                     )
                 })
-                .when(entry.is_current, |this| {
-                    this.child(
-                        div()
-                            .text_size(px(LitheMetrics::SMALL_FONT_SIZE))
-                            .text_color(tokens.accent)
-                            .child("✓"),
-                    )
-                }),
+                .child(div().flex_1())
+                .when(is_current, |this| this.child(current_badge(tokens)))
+                .when(!is_current && offer_delete, |this| {
+                    let entry = entry.clone();
+                    let owner = owner.clone();
+                    this.child(branch_row_actions(entry, owner, disabled, tokens))
+                })
+                .into_any_element()
+        })
+        .disabled(disabled)
+}
+
+/// 分支行尾的 `⋯` 按钮：打开 Checkout / Delete 动作菜单（对齐 Tauri
+/// `BranchRow` 的 DropdownMenu；Merge / Rebase 留在 Git Log 引用面板）。
+fn branch_row_actions(
+    entry: BranchEntry,
+    owner: WeakEntity<Workbench>,
+    disabled: bool,
+    tokens: LitheTokens,
+) -> AnyElement {
+    let id = SharedString::from(format!("branch-more:{}", entry.full_name));
+    div()
+        .id(id)
+        .flex_shrink_0()
+        .size(px(18.))
+        .rounded(px(3.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .when(!disabled, |this| {
+            this.cursor_pointer()
+                .hover(|style| style.bg(tokens.hover))
+                .on_click(move |event: &ClickEvent, window, cx| {
+                    // 行本身也是可点击的（确认 = checkout），这里必须先拦住
+                    // 冒泡，否则点 `⋯` 会顺带切分支。
+                    cx.stop_propagation();
+                    let entry = entry.clone();
+                    let _ = owner.update(cx, |this, cx| {
+                        this.open_branch_row_menu(entry, event.position(), window, cx);
+                    });
+                })
+        })
+        .child(
+            icon(LitheIcon::More)
+                .with_size(px(14.))
+                .text_color(tokens.tertiary_text),
         )
         .into_any_element()
 }
 
+fn current_badge(tokens: LitheTokens) -> AnyElement {
+    div()
+        .flex_shrink_0()
+        .h(px(16.))
+        .px(px(5.))
+        .rounded(px(3.))
+        .bg(tokens.success.alpha(0.14))
+        .text_size(px(10.))
+        .text_color(tokens.success)
+        .child(tr("Current"))
+        .into_any_element()
+}
+
+/// 分支弹窗底部的文字动作（New Branch / Refresh）。
+fn branch_footer_action(
+    id: &'static str,
+    icon_name: Option<LitheIcon>,
+    label: &'static str,
+    enabled: bool,
+    tokens: LitheTokens,
+    action: impl Fn(&mut Window, &mut gpui_kit::App) + 'static,
+) -> AnyElement {
+    let mut content = h_flex().items_center().gap(px(4.));
+    if let Some(icon_name) = icon_name {
+        content = content.child(icon(icon_name).with_size(px(13.)).text_color(if enabled {
+            tokens.secondary_text
+        } else {
+            tokens.tertiary_text
+        }));
+    }
+    content = content.child(
+        div()
+            .text_size(px(11.5))
+            .text_color(if enabled {
+                tokens.primary_text
+            } else {
+                tokens.tertiary_text
+            })
+            .child(label),
+    );
+
+    Button::new(id)
+        .ghost()
+        .h(px(24.))
+        .px(px(6.))
+        .rounded(px(4.))
+        .disabled(!enabled)
+        .child(content)
+        .on_click(move |_, window, cx| action(window, cx))
+        .into_any_element()
+}
+
+/// 分支弹窗底部的图标动作（管理分支 / 工作树）。文案走 tooltip，
+/// 375pt 的弹窗宽度里放得下两个图标入口。
+fn branch_footer_icon_action(
+    id: &'static str,
+    icon_name: LitheIcon,
+    tooltip: &'static str,
+    enabled: bool,
+    tokens: LitheTokens,
+    action: impl Fn(&mut Window, &mut gpui_kit::App) + 'static,
+) -> AnyElement {
+    Button::new(id)
+        .ghost()
+        .h(px(24.))
+        .px(px(6.))
+        .rounded(px(4.))
+        .disabled(!enabled)
+        .tooltip(tooltip)
+        .accessibility_label(tooltip)
+        .child(
+            icon(icon_name).with_size(px(14.)).text_color(if enabled {
+                tokens.secondary_text
+            } else {
+                tokens.tertiary_text
+            }),
+        )
+        .on_click(move |_, window, cx| action(window, cx))
+        .into_any_element()
+}
+
+/// 底部分支计数：只显示真实存在的本地 / 远程分支数量。
+fn branch_count_label(local: usize, remote: usize) -> String {
+    if remote == 0 {
+        format!("{local} {}", tr("Branches"))
+    } else {
+        format!("{local} {} · {remote} {}", tr("Local"), tr("Remote"))
+    }
+}
+
+/// 把分支列表拆成本地 / 远程两组（弹窗按组渲染）。
+fn split_branches(branches: &[BranchEntry]) -> (Vec<BranchEntry>, Vec<BranchEntry>) {
+    let mut local = Vec::new();
+    let mut remote = Vec::new();
+    for entry in branches {
+        if entry.is_remote() {
+            remote.push(entry.clone());
+        } else {
+            local.push(entry.clone());
+        }
+    }
+    (local, remote)
+}
+
+/// 查询词能直接创建的新分支名：非空、不是当前分支、也不与现有本地分支同名
+/// （大小写不敏感，对齐 Tauri `getCreateBranchName`）。远程分支同名不算冲突：
+/// Git 允许本地 `main` 与 `origin/main` 同时存在。
+fn creatable_branch_name(branches: &[BranchEntry], current: &str, query: &str) -> Option<String> {
+    let name = query.trim();
+    if name.is_empty() || name == current {
+        return None;
+    }
+    if branches
+        .iter()
+        .any(|branch| !branch.is_remote() && branch.short_name.eq_ignore_ascii_case(name))
+    {
+        return None;
+    }
+    Some(name.to_string())
+}
+
+/// 解析 `git.references` 的本地分支与远程跟踪分支。
+///
+/// 分组排序：本地在前（当前分支置顶，其余按名字），远程在后（按名字）。
+/// `fullName` 直接取 Core 的原值（`refs/remotes/origin/main` 这类带远端
+/// 前缀的完整引用不能靠短名重组）。
 pub(super) fn parse_branches(value: &Value) -> Vec<BranchEntry> {
     let mut entries = Vec::new();
     // Core `git.references` 响应：顶层 `references` 数组，字段 camelCase
@@ -979,10 +1984,15 @@ pub(super) fn parse_branches(value: &Value) -> Vec<BranchEntry> {
     };
 
     for item in references {
-        if item.get("kind").and_then(Value::as_str) != Some("local") {
+        let kind = item.get("kind").and_then(Value::as_str).unwrap_or_default();
+        if kind != "local" && kind != "remote" {
+            // 标签不在这个弹窗里出现（Git Log 引用面板负责）。
             continue;
         }
         let Some(short_name) = item.get("shortName").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(full_name) = item.get("fullName").and_then(Value::as_str) else {
             continue;
         };
         let is_current = item
@@ -993,18 +2003,21 @@ pub(super) fn parse_branches(value: &Value) -> Vec<BranchEntry> {
         let behind = item.get("behind").and_then(Value::as_u64).unwrap_or(0) as usize;
 
         entries.push(BranchEntry {
-            full_name: format!("refs/heads/{short_name}"),
+            full_name: full_name.to_string(),
             short_name: short_name.to_string(),
+            kind: kind.to_string(),
             is_current,
             ahead,
             behind,
         });
     }
 
-    entries.sort_by(|a, b| match (a.is_current, b.is_current) {
-        (true, false) => std::cmp::Ordering::Less,
-        (false, true) => std::cmp::Ordering::Greater,
-        _ => a.short_name.cmp(&b.short_name),
+    entries.sort_by(|a, b| {
+        (a.is_remote(), !a.is_current, &a.short_name).cmp(&(
+            b.is_remote(),
+            !b.is_current,
+            &b.short_name,
+        ))
     });
 
     entries

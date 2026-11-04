@@ -39,8 +39,7 @@ impl RunPanel {
 
         // JDT 还没导入完时主类与 classpath 都没有可靠答案；和 macOS 一样把
         // 启动挂起，等准备状态变化后再继续。
-        if configuration.uses_java_project_preparation()
-            && self.java_language.read(cx).blocks_run()
+        if configuration.uses_java_project_preparation() && self.java_language.read(cx).blocks_run()
         {
             self.pending_java_launch = Some(id.clone());
             self.selected_id = Some(id);
@@ -113,10 +112,9 @@ impl RunPanel {
                 match active_document.clone() {
                     Some(path) => Some(path),
                     None => {
-                        let message = lithe_ui::i18n::tr(
-                            "The current file is unavailable for this launch.",
-                        )
-                        .to_string();
+                        let message =
+                            lithe_ui::i18n::tr("The current file is unavailable for this launch.")
+                                .to_string();
                         let _ = this.update(cx, |this, cx| {
                             if this.generation != generation {
                                 return;
@@ -139,13 +137,7 @@ impl RunPanel {
                     if this.generation != generation {
                         return;
                     }
-                    this.launch_configuration(
-                        configuration,
-                        root,
-                        current_file,
-                        None,
-                        cx,
-                    );
+                    this.launch_configuration(configuration, root, current_file, None, cx);
                 });
                 return;
             }
@@ -153,8 +145,9 @@ impl RunPanel {
             let Some(source_path) =
                 source::resolve(&configuration, active_document.as_deref(), &files, &root)
             else {
-                let message = lithe_ui::i18n::tr("The Java source for {name} could not be resolved.")
-                    .replace("{name}", &configuration.name);
+                let message =
+                    lithe_ui::i18n::tr("The Java source for {name} could not be resolved.")
+                        .replace("{name}", &configuration.name);
                 let _ = this.update(cx, |this, cx| {
                     if this.generation != generation {
                         return;
@@ -180,10 +173,9 @@ impl RunPanel {
                     if this.generation != generation {
                         return None;
                     }
-                    Some(
-                        this.java_language
-                            .update(cx, |model, cx| model.prepare_launch(source_path, main_class, cx)),
-                    )
+                    Some(this.java_language.update(cx, |model, cx| {
+                        model.prepare_launch(source_path, main_class, cx)
+                    }))
                 })
                 .ok()
                 .flatten();
@@ -198,10 +190,7 @@ impl RunPanel {
                 .err()
                 .is_some_and(|error| error.contains("timed out"))
             {
-                crate::logging::log_info(
-                    "run",
-                    "Java launch preparation timed out; retrying once",
-                );
+                crate::logging::log_info("run", "Java launch preparation timed out; retrying once");
                 cx.background_executor()
                     .timer(std::time::Duration::from_secs(3))
                     .await;

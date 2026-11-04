@@ -47,13 +47,15 @@
 //! `fetching` / `stash_busy` / `commit_session` 分别对应提交、Fetch、stash 与
 //! 工作区提交流水线的在飞状态。
 
+use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::Mutex;
 
 use gpui_kit::component::input::{InputEvent, TextareaState};
 use gpui_kit::component::v_flex;
 use gpui_kit::{
-    App, AppContext as _, Context, Entity, InteractiveElement as _, IntoElement,
+    App, AppContext as _, Context, Entity, FocusHandle, InteractiveElement as _, IntoElement,
     ParentElement as _, Render, SharedString, Styled as _, Window, div,
 };
 use lithe_core_client::CoreClient;
@@ -65,7 +67,10 @@ pub(crate) mod actions;
 pub(crate) mod changelists;
 pub(crate) mod changes_view;
 pub(crate) mod commit_area;
+pub(crate) mod commit_files_view;
+pub(crate) mod graph;
 pub(crate) mod ignore;
+pub(crate) mod log_console;
 pub(crate) mod log_view;
 pub(crate) mod model;
 pub(crate) mod references;
@@ -76,7 +81,7 @@ pub(crate) mod stash_view;
 
 pub(crate) use changelists::{ChangelistPrompt, ChangelistStore};
 pub(crate) use commit_area::CommitSessionState;
-pub(crate) use model::{ChangeStatusCounts, CoreStash, GitPanelMode};
+pub(crate) use model::{ChangeStatusCounts, CommitFilesView, CoreStash, GitLogPanel, GitPanelMode};
 pub(crate) use stash_view::StashPushScope;
 
 /// 打开 Git 管理器对话框的意图（Push / Pull / Branch Manager / …）。
@@ -118,6 +123,9 @@ pub enum GitDialogKind {
 pub enum GitDiffSource {
     /// 已提交的差异（`git.show <hash>`）。
     Commit(String),
+    /// 两个引用之间的区间差异（`git.diff <base>..<target>`），用于
+    /// 「Compare with HEAD」这类不是单一提交的场景。
+    Comparison { base: String, target: String },
     /// 未提交的差异：`staged` 选择索引维度；`untracked` 让 Core 把未跟踪
     /// 路径展开为新增行。
     WorkingTree {
@@ -404,6 +412,18 @@ pub struct GitPanel {
     /// Shift 范围选择的锚点行。
     anchor: Option<Selection>,
     history: Vec<model::CoreCommit>,
+    /// 下一页历史的游标；`None` 表示还没加载或已经到底。Core 的游标是一次性的，
+    /// 每取一页都会返回新的游标（对齐 macOS `feature.canLoadMoreGitHistory`）。
+    history_cursor: Option<String>,
+    /// Core 是否报告还有下一页。
+    history_has_more: bool,
+    /// 正在加载下一页；滚动事件会重复触发，用它挡住重入。
+    loading_more_history: bool,
+    /// 下一页加载失败：列表底部显示重试入口，已有提交保持可见。
+    history_page_failed: bool,
+    /// 提交列表的键盘焦点：上下选择、回车打开差异（对齐 macOS
+    /// `onMoveCommand` + 选中行打开详情）。
+    log_focus: FocusHandle,
     /// 提交消息输入。`TextareaState::new` 需要 `&mut Window`，而公开构造签名
     /// 没有 window，因此延迟到首帧用 `defer_in` 创建。用多行输入对齐 Tauri
     /// 的 `Textarea`：提交说明允许换行，Ctrl/Cmd+Enter 才提交。
@@ -463,6 +483,16 @@ pub struct GitPanel {
     selected_commit_file: Option<String>,
     /// 提交文件树里折叠的目录路径。
     collapsed_commit_dirs: model::ExpandedSet,
+    /// 提交详情里改动文件的呈现方式：树状（默认）或平铺列表。
+    commit_files_view: CommitFilesView,
+    /// Git Log 顶部分段：提交日志 / Git 控制台。
+    log_panel: GitLogPanel,
+    /// 提交表的滚动句柄：定位分支 HEAD 与选中的提交时用。
+    log_scroll: gpui_kit::ScrollHandle,
+    /// 下一次渲染要滚动到的提交行下标（相对当前可见列表）。
+    log_reveal_index: Option<usize>,
+    /// 历史重载完成后把首行（分支 HEAD）选中并滚动到可视区。
+    log_reveal_head_on_load: bool,
     /// Git Log 左侧选中的分支或引用名称。
     selected_reference: Option<String>,
     /// `git.references` 返回的全部引用；Log 模式的引用树真数据源。
@@ -479,6 +509,9 @@ pub struct GitPanel {
     filter_input: Option<Entity<gpui_kit::component::input::InputState>>,
     /// 提交表是否显示分支/标签装饰胶囊。
     show_decorations: bool,
+    /// 右栏（提交详情）是否折叠；对齐 macOS 列表工具栏的「Show/Hide commit
+    /// details」按钮。折叠后提交列表独占宽度。
+    details_collapsed: bool,
     /// 正在执行的引用 / 历史写操作名称；非空时禁用所有引用动作按钮。
     reference_mutation: Option<&'static str>,
     /// 等待输入的分支操作（新建 / 重命名）及其来源引用。
@@ -574,6 +607,8 @@ pub struct GitPanel {
     /// 点提交改动文件时，在中央编辑区打开该提交的差异。
     on_open_commit_diff: Option<model::CommitDiffHandler>,
     on_open_file: Option<model::OpenFileHandler>,
+    /// 标题栏「最小化」按钮：收起本工具窗所在的 dock（工作台注册）。
+    on_hide: Option<model::OpenHandler>,
 }
 
 impl GitPanel {
@@ -591,7 +626,7 @@ impl GitPanel {
         client: CoreClient,
         root: PathBuf,
         mode: GitPanelMode,
-        _cx: &mut Context<Self>,
+        cx: &mut Context<Self>,
     ) -> Self {
         let root = model::normalize_root(root);
         Self {
@@ -604,6 +639,11 @@ impl GitPanel {
             multi_selected: std::collections::HashSet::new(),
             anchor: None,
             history: Vec::new(),
+            history_cursor: None,
+            history_has_more: false,
+            loading_more_history: false,
+            history_page_failed: false,
+            log_focus: cx.focus_handle(),
             commit_input: None,
             loading_status: false,
             loading_history: false,
@@ -631,6 +671,11 @@ impl GitPanel {
             loading_commit_files: false,
             selected_commit_file: None,
             collapsed_commit_dirs: model::ExpandedSet::new(),
+            commit_files_view: CommitFilesView::Tree,
+            log_panel: GitLogPanel::Log,
+            log_scroll: gpui_kit::ScrollHandle::new(),
+            log_reveal_index: None,
+            log_reveal_head_on_load: false,
             selected_reference: None,
             references: Vec::new(),
             loading_references: false,
@@ -639,6 +684,7 @@ impl GitPanel {
             commit_filter_scope: CommitFilterScope::Text,
             filter_input: None,
             show_decorations: true,
+            details_collapsed: false,
             reference_mutation: None,
             branch_prompt: None,
             branch_input: None,
@@ -686,6 +732,7 @@ impl GitPanel {
             on_open_git_settings: None,
             on_open_commit_diff: None,
             on_open_file: None,
+            on_hide: None,
         }
     }
 
@@ -714,6 +761,14 @@ impl GitPanel {
 
     pub fn on_open_file(&mut self, handler: impl Fn(PathBuf, &mut Window, &mut App) + 'static) {
         self.on_open_file = Some(Rc::new(handler));
+    }
+
+    /// 注册标题栏「最小化」回调：收起本工具窗所在的 dock。
+    ///
+    /// 与 Maven Output 的 `on_hide` 同形；GitPanel 不直接持有 dock 状态，
+    /// 由工作台接成 `set_dock_visible(<tool anchor>, false)`。
+    pub fn on_hide(&mut self, handler: impl Fn(&mut Window, &mut App) + 'static) {
+        self.on_hide = Some(Rc::new(handler));
     }
 
     /// 点提交区「AI 设置」齿轮时跳转设置页 AI & Commit。
@@ -792,9 +847,15 @@ impl GitPanel {
     /// 旧结果都会被丢弃。
     pub(crate) fn reload_all(&mut self, cx: &mut Context<Self>) {
         self.generation = self.generation.wrapping_add(1);
+        // 旧游标不再消费：先释放，避免 Core 保留一个没人读取的历史会话。
+        self.close_history_cursor(cx);
         self.status = None;
         self.selected = None;
         self.history.clear();
+        self.history_cursor = None;
+        self.history_has_more = false;
+        self.loading_more_history = false;
+        self.history_page_failed = false;
         self.loading_status = false;
         self.loading_history = false;
         // 若刷新发生在提交请求飞行期间，旧结果会因 generation 不匹配被丢弃；
@@ -811,6 +872,9 @@ impl GitPanel {
         self.loading_untracked.clear();
         self.error = None;
         self.notice = None;
+        // 刷新后旧的滚动定位目标已失效。
+        self.log_reveal_index = None;
+        self.log_reveal_head_on_load = false;
 
         if self.root.is_none() {
             return;
@@ -887,7 +951,7 @@ impl GitPanel {
             let mut payload = serde_json::json!({
                 "root": root_text,
                 "order": "date",
-                "limit": 50,
+                "limit": model::HISTORY_PAGE_SIZE,
             });
             // 选中引用时按它过滤历史；空 = 全部分支，Core 的 reference 可选。
             if let Some(full_name) = reference {
@@ -906,6 +970,21 @@ impl GitPanel {
                     Ok(value) => match model::parse_history_page(&value) {
                         Ok(page) => {
                             this.history = page.commits;
+                            this.history_cursor = page.next_cursor;
+                            this.history_has_more = page.has_more;
+                            this.loading_more_history = false;
+                            this.history_page_failed = false;
+                            // 「导航到所选分支 HEAD」在引用变化后等这一批历史回来，
+                            // 再把首行（该引用的 HEAD）选中并滚动到可视区。
+                            if this.log_reveal_head_on_load {
+                                this.log_reveal_head_on_load = false;
+                                if let Some(head) =
+                                    this.history.first().map(|commit| commit.hash.clone())
+                                {
+                                    this.log_reveal_index = Some(0);
+                                    this.select_commit(head, cx);
+                                }
+                            }
                         }
                         Err(message) => {
                             this.error = Some(SharedString::from(message));
@@ -921,8 +1000,116 @@ impl GitPanel {
         .detach();
     }
 
-    /// 把引用树的短名映射回 Core 需要的完整引用名。
+    /// 加载下一页历史（对齐 macOS `loadMoreGitHistory`）。
     ///
+    /// Core 的游标是一次性的：请求成功返回新的 `nextCursor`，失败时保留
+    /// 当前页并把 `history_page_failed` 置位，由列表底部给出重试入口。
+    /// 滚动监听会反复触发，这里用 `loading_more_history` 挡住重入。
+    pub(crate) fn load_more_history(&mut self, cx: &mut Context<Self>) {
+        if self.loading_more_history || self.loading_history || !self.history_has_more {
+            return;
+        }
+        let Some(cursor) = self.history_cursor.clone() else {
+            return;
+        };
+        let Some(root) = self.root.clone() else {
+            return;
+        };
+        let Some(root_text) = model::root_text(&root) else {
+            return;
+        };
+        let reference = self
+            .selected_reference
+            .as_ref()
+            .and_then(|short| self.full_reference_name(short));
+
+        let generation = self.generation;
+        let client = self.client;
+        self.loading_more_history = true;
+        self.history_page_failed = false;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let mut payload = serde_json::json!({
+                "root": root_text,
+                "order": "date",
+                "limit": model::HISTORY_PAGE_SIZE,
+                "cursor": cursor,
+            });
+            if let Some(full_name) = reference {
+                payload["reference"] = serde_json::Value::String(full_name);
+            }
+            let raw = cx
+                .background_spawn(async move {
+                    execute_git_command(&client, "git.historyPage", payload)
+                })
+                .await;
+
+            let _ = this.update(cx, |this, cx| {
+                if this.generation != generation {
+                    return;
+                }
+                this.loading_more_history = false;
+                match raw {
+                    Ok(value) => match model::parse_history_page(&value) {
+                        Ok(page) => {
+                            // 去重：Core 可能因为引用移动在两页之间返回同一提交。
+                            let mut known: std::collections::HashSet<String> = this
+                                .history
+                                .iter()
+                                .map(|commit| commit.hash.clone())
+                                .collect();
+                            for commit in page.commits {
+                                if known.insert(commit.hash.clone()) {
+                                    this.history.push(commit);
+                                }
+                            }
+                            this.history_cursor = page.next_cursor;
+                            this.history_has_more = page.has_more;
+                            this.history_page_failed = false;
+                        }
+                        Err(message) => {
+                            this.history_page_failed = true;
+                            this.error = Some(SharedString::from(message));
+                        }
+                    },
+                    Err(error) => {
+                        this.history_page_failed = true;
+                        this.error = Some(SharedString::from(error.to_string()));
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 释放不再消费的历史游标；失败只影响 Core 的会话回收，不回显给用户。
+    fn close_history_cursor(&mut self, cx: &mut Context<Self>) {
+        let Some(cursor) = self.history_cursor.take() else {
+            return;
+        };
+        let Some(root) = self.root.clone() else {
+            return;
+        };
+        let Some(root_text) = model::root_text(&root) else {
+            return;
+        };
+        let client = self.client;
+        cx.spawn(async move |_this, cx| {
+            let _ = cx
+                .background_spawn(async move {
+                    execute_git_command(
+                        &client,
+                        "git.historyCursorClose",
+                        serde_json::json!({ "root": root_text, "cursor": cursor }),
+                    )
+                })
+                .await;
+        })
+        .detach();
+    }
+
+    /// 把引用树的短名映射回 Core 需要的完整引用名。
     /// `git.references` 同时返回 `fullName`（refs/heads/test）和
     /// `shortName`（test），树的行 key 用短名，请求历史时换回全名。
     pub(crate) fn full_reference_name(&self, short_name: &str) -> Option<String> {
@@ -1035,10 +1222,17 @@ impl GitPanel {
 
     /// 聚焦提交消息输入（右键「Commit 所选」的焦点转移入口）。
     ///
-    /// `TextareaState` 没有公开的焦点句柄；先把错误行清空并让用户视线落回
-    /// 提交区（面板已知会重绘），下一步由用户自行点击输入框。
-    pub(crate) fn focus_commit_message(&mut self, cx: &mut Context<Self>) {
+    /// `TextareaState` 实现了 `focus(window, cx)`：把焦点真正交给提交输入框，
+    /// 用户可以直接输入提交信息，而不是只把视线落回提交区。
+    pub(crate) fn focus_commit_message(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.notice = None;
+        if let Some(input) = self.commit_input.clone() {
+            input.update(cx, |state, cx| state.focus(window, cx));
+        }
         cx.notify();
     }
 
@@ -1358,14 +1552,227 @@ fn fetch_tags_id(value: &str) -> &'static str {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Git 执行控制台（Git Log → Console）
+// ---------------------------------------------------------------------------
+
+/// 控制台保留的最大记录条数：环形缓冲，超出后丢弃最旧的一条。
+const GIT_CONSOLE_CAPACITY: usize = 200;
+/// 单条记录保留的输出行数 / 字节上限，避免长时间运行占住内存。
+const GIT_CONSOLE_OUTPUT_LINES: usize = 200;
+const GIT_CONSOLE_OUTPUT_BYTES: usize = 16 * 1024;
+
+/// 一条 Git 写命令的执行记录（Git Log → Console 的数据源）。
+///
+/// 只记录用户显式发起的写操作；高频只读查询（status / diff / history /
+/// references …）不进入控制台，避免刷屏。
+#[derive(Debug, Clone)]
+pub struct GitConsoleEntry {
+    /// 本地时间（`HH:MM:SS`）。
+    pub time: String,
+    /// Core 命令名，如 `git.write`。
+    pub command: String,
+    /// 仓库目录的最后一段（不展示完整路径）。
+    pub repository: String,
+    /// 参数摘要（patch 只显示长度）。
+    pub arguments: String,
+    /// 进程退出码；请求本身失败时为 -1。
+    pub exit_code: i32,
+    pub succeeded: bool,
+    /// 输出尾部，最多 200 行 / 16 KiB。
+    pub output: String,
+}
+
+/// 进程级环形缓冲：Core 调用来自后台线程，因此用 `Mutex` 串行化写入。
+static GIT_CONSOLE: Mutex<VecDeque<GitConsoleEntry>> = Mutex::new(VecDeque::new());
+
+/// 读取控制台快照（旧记录在前）。返回副本，调用方无需持锁。
+pub fn git_console_entries() -> Vec<GitConsoleEntry> {
+    match GIT_CONSOLE.lock() {
+        Ok(entries) => entries.iter().cloned().collect(),
+        Err(poisoned) => poisoned.into_inner().iter().cloned().collect(),
+    }
+}
+
+/// 是否为需要进入控制台的写命令。
+///
+/// 白名单而不是黑名单：新增只读命令默认不会污染控制台。
+fn is_git_write_command(command: &str) -> bool {
+    matches!(
+        command,
+        "git.write"
+            | "git.command"
+            | "git.apply"
+            | "git.patchApply"
+            | "git.initialize"
+            | "git.workspaceCommitPrepare"
+            | "git.workspaceCommitStep"
+    )
+}
+
+/// 仓库目录只保留最后一段（对齐控制台截图里的仓库名而不是完整路径）。
+fn git_console_repository(payload: &Value) -> String {
+    payload
+        .get("root")
+        .and_then(Value::as_str)
+        .map(|root| {
+            root.replace('\\', "/")
+                .rsplit('/')
+                .next()
+                .filter(|segment| !segment.is_empty())
+                .unwrap_or(root)
+                .to_string()
+        })
+        .unwrap_or_default()
+}
+
+/// 参数摘要：root 不展示；patch 只显示字节数；数组最多 3 项。
+fn git_console_arguments(payload: &Value) -> String {
+    let Some(object) = payload.as_object() else {
+        return String::new();
+    };
+    let mut parts = Vec::new();
+    for (key, value) in object {
+        if key == "root" {
+            continue;
+        }
+        let rendered = if key == "patch" || key == "patchText" {
+            match value.as_str() {
+                Some(patch) => format!("<{} bytes>", patch.len()),
+                None => continue,
+            }
+        } else {
+            summarize_git_console_value(value)
+        };
+        if rendered.is_empty() {
+            continue;
+        }
+        parts.push(format!("{key}={rendered}"));
+    }
+    truncate_git_console_text(&parts.join(" "), 600)
+}
+
+fn summarize_git_console_value(value: &Value) -> String {
+    match value {
+        Value::Null => String::new(),
+        Value::Bool(flag) => flag.to_string(),
+        Value::Number(number) => number.to_string(),
+        Value::String(text) => truncate_git_console_text(
+            &text.replace('\r', " ").replace('\n', " "),
+            120,
+        ),
+        Value::Array(items) => {
+            let mut rendered: Vec<String> = items
+                .iter()
+                .take(3)
+                .map(summarize_git_console_value)
+                .filter(|item| !item.is_empty())
+                .collect();
+            if items.len() > 3 {
+                rendered.push(format!("(+{} more)", items.len() - 3));
+            }
+            rendered.join(", ")
+        }
+        Value::Object(_) => truncate_git_console_text(&value.to_string(), 120),
+    }
+}
+
+fn truncate_git_console_text(text: &str, max_chars: usize) -> String {
+    let mut truncated: String = text.chars().take(max_chars).collect();
+    if text.chars().count() > max_chars {
+        truncated.push('…');
+    }
+    truncated
+}
+
+/// 命令输出：`output` 与 `stderr` 合并后只保留尾部。
+fn git_console_output(value: &Value) -> String {
+    let mut text = value
+        .get("output")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let stderr = value
+        .get("stderr")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if !stderr.trim().is_empty() {
+        if !text.is_empty() {
+            text.push('\n');
+        }
+        text.push_str(stderr);
+    }
+    git_console_output_tail(&text)
+}
+
+fn git_console_output_tail(text: &str) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    let start = lines.len().saturating_sub(GIT_CONSOLE_OUTPUT_LINES);
+    let mut tail = lines[start..].join("\n");
+    if tail.len() > GIT_CONSOLE_OUTPUT_BYTES {
+        let mut cut = tail.len() - GIT_CONSOLE_OUTPUT_BYTES;
+        // 不能切在 UTF-8 字符中间。
+        while cut < tail.len() && !tail.is_char_boundary(cut) {
+            cut += 1;
+        }
+        tail = tail[cut..].to_string();
+    }
+    tail
+}
+
+fn record_git_console(
+    command: &str,
+    repository: String,
+    arguments: String,
+    result: &Result<Value, lithe_core_client::CoreError>,
+) {
+    let (exit_code, succeeded, output) = match result {
+        Ok(value) => {
+            // 部分写命令（workspace commit）返回的不是 GitCommandResponse，
+            // 没有 exitCode 时按请求成功处理。
+            let exit_code = value
+                .get("exitCode")
+                .and_then(Value::as_i64)
+                .and_then(|code| i32::try_from(code).ok())
+                .unwrap_or(0);
+            (exit_code, exit_code == 0, git_console_output(value))
+        }
+        Err(error) => (-1, false, git_console_output_tail(&error.to_string())),
+    };
+    let entry = GitConsoleEntry {
+        time: chrono::Local::now().format("%H:%M:%S").to_string(),
+        command: command.to_string(),
+        repository,
+        arguments,
+        exit_code,
+        succeeded,
+        output,
+    };
+    let mut entries = match GIT_CONSOLE.lock() {
+        Ok(entries) => entries,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    if entries.len() >= GIT_CONSOLE_CAPACITY {
+        entries.pop_front();
+    }
+    entries.push_back(entry);
+}
+
 /// 统一的 Git 命令执行入口：把执行信封附加到 Core 请求上。
 ///
 /// 与 `CoreClient::execute_raw` 一样是阻塞调用，必须在
-/// `cx.background_spawn` 中执行。
+/// `cx.background_spawn` 中执行。写命令会进入 Git 控制台的环形缓冲。
 pub fn execute_git_command(
     client: &CoreClient,
     command: &str,
     payload: Value,
 ) -> Result<Value, lithe_core_client::CoreError> {
-    client.execute_raw_with_options(command, payload, Some(git_execution_envelope()))
+    // 参数摘要要在 payload 被移动前算好；只读命令不记录。
+    let console_context = is_git_write_command(command)
+        .then(|| (git_console_repository(&payload), git_console_arguments(&payload)));
+    let result = client.execute_raw_with_options(command, payload, Some(git_execution_envelope()));
+    if let Some((repository, arguments)) = console_context {
+        record_git_console(command, repository, arguments, &result);
+    }
+    result
 }

@@ -12,6 +12,7 @@
 //! 节点上绝对定位绘制，这样下拉层不会被 40pt 顶栏的高度裁剪。顶栏不持有
 //! 菜单状态，也不读取最近项目或 Git 分支。
 
+use std::cell::Cell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -22,10 +23,10 @@ use gpui_kit::component::toolbar::Toolbar;
 use gpui_kit::component::{Icon, Sizable as _, h_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AnyElement, App, Background, FontWeight, InteractiveElement as _, IntoElement, MouseButton,
-    ObjectFit, ParentElement as _, RenderOnce, SharedString, StatefulInteractiveElement as _,
-    Styled as _, StyledImage as _, Window, WindowControlArea, div, img, linear_color_stop,
-    linear_gradient, px, rgb, white,
+    AnyElement, App, Background, Bounds, FontWeight, InteractiveElement as _, IntoElement,
+    MouseButton, ObjectFit, ParentElement as _, Pixels, RenderOnce, SharedString,
+    StatefulInteractiveElement as _, Styled as _, StyledImage as _, Window, WindowControlArea, div,
+    img, linear_color_stop, linear_gradient, px, rgb, white,
 };
 use lithe_ui::{
     APP_LOGO_PATH, LitheIcon, LitheMetrics, LitheTokens, MONO_FONT_FAMILY, current_tokens,
@@ -98,7 +99,12 @@ pub(crate) struct TopBar {
     /// 当前项目绝对路径；没有项目时为 `None`。只用于头像颜色哈希，不参与
     /// 文案或文件 I/O。
     project_root: Option<PathBuf>,
-    branch: SharedString,
+    /// 当前分支。没有 Git 仓库或还没读到 `git.status` 时为 `None`，顶栏
+    /// 不渲染分支入口（对齐 Tauri 没有分支信息时不出现分支控件）。
+    branch: Option<SharedString>,
+    /// 分支入口在窗口中的最后一帧坐标；工作台用它把分支弹窗锚定到按钮
+    /// 正下方。这里只做几何观测，不触发通知或重绘。
+    branch_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
     /// 展开态的菜单栏元素。`Some` 时汉堡和项目 / 分支入口让位，菜单栏在
     /// 汉堡原来的位置原位展开（Tauri 紧凑菜单栏行为）。
     compact_menu: Option<AnyElement>,
@@ -120,9 +126,10 @@ impl TopBar {
         Self {
             project_name: tr("No Project").into(),
             project_root: None,
-            // 分支默认 main，工作台打开项目后从 `git.status` 的 `data.branch`
-            // 覆盖。
-            branch: tr("main").into(),
+            // 分支名由工作台从 `git.status` 的 `branch` 覆盖；读到之前不显示
+            // 分支入口，避免在没有仓库的欢迎页谎报 `main`。
+            branch: None,
+            branch_bounds: Rc::new(Cell::new(None)),
             compact_menu: None,
             project_menu_open: false,
             branch_menu_open: false,
@@ -146,10 +153,16 @@ impl TopBar {
         self
     }
 
-    /// 当前分支。由工作台从 `git.status` 的 `data.branch` 取得；取不到时保持
-    /// 默认 `main`，顶栏不额外显示错误。
-    pub(crate) fn branch(mut self, branch: impl Into<SharedString>) -> Self {
-        self.branch = branch.into();
+    /// 当前分支。由工作台从 `git.status` 的 `branch` 取得；`None` 时顶栏
+    /// 隐藏分支入口。
+    pub(crate) fn branch(mut self, branch: Option<SharedString>) -> Self {
+        self.branch = branch;
+        self
+    }
+
+    /// 分支入口几何观测槽；工作台在根节点按它锚定分支弹窗。
+    pub(crate) fn branch_bounds(mut self, bounds: Rc<Cell<Option<Bounds<Pixels>>>>) -> Self {
+        self.branch_bounds = bounds;
         self
     }
 
@@ -216,6 +229,7 @@ impl RenderOnce for TopBar {
             project_name,
             project_root,
             branch,
+            branch_bounds,
             compact_menu,
             project_menu_open,
             branch_menu_open,
@@ -266,12 +280,22 @@ impl RenderOnce for TopBar {
                             on_toggle_project_menu,
                             tokens,
                         ))
-                        .child(branch_entry(
-                            branch,
-                            branch_menu_open,
-                            on_toggle_branch_menu,
-                            tokens,
-                        )),
+                        .children(branch.map(|branch| {
+                            let bounds_slot = branch_bounds.clone();
+                            div()
+                                // 只记录几何，不 notify：否则每帧都会重绘。
+                                .on_children_prepainted(move |bounds, _, _| {
+                                    if let Some(bounds) = bounds.first() {
+                                        bounds_slot.set(Some(*bounds));
+                                    }
+                                })
+                                .child(branch_entry(
+                                    branch,
+                                    branch_menu_open,
+                                    on_toggle_branch_menu,
+                                    tokens,
+                                ))
+                        })),
                 )
         };
 

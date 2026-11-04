@@ -1,7 +1,9 @@
 //! Git Log 主区：标题栏、过滤工具条、提交表、右侧检查器（文件树 + 说明），
 //! 以及提交行的右键动作菜单。
 //!
-//! 拆分自原 `git.rs`。渲染结构对齐 Tauri `GitLogToolWindow` 的三栏工作台。
+//! 提交记录视图以 macOS `GitLogView` 为对齐目标（标题行、筛选条、三栏布局、
+//! 右键菜单、分页与键盘导航）；提交文件树和控制台分别拆到
+//! `commit_files_view.rs` 与 `log_console.rs`，保持本文件在 1500 行以内。
 
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
@@ -9,40 +11,71 @@ use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::{Disableable as _, Icon, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    Anchor, AnyElement, AppContext as _, ClickEvent, Context, FontWeight, InteractiveElement as _,
-    IntoElement, ParentElement as _, SharedString, Stateful, StatefulInteractiveElement as _,
-    Styled as _, Window, div, px,
+    Anchor, AnyElement, AppContext as _, Context, FontWeight, InteractiveElement as _,
+    IntoElement, KeyDownEvent, ParentElement as _, SharedString,
+    StatefulInteractiveElement as _, Styled as _, Window, div, px,
 };
 use lithe_ui::i18n::tr;
-use lithe_ui::{LitheIcon, LitheMetrics, LitheTokens, MONO_FONT_FAMILY, icon};
+use lithe_ui::{LitheMetrics, LitheTokens, MONO_FONT_FAMILY};
 
-use super::model::{ACTION_HORIZONTAL_PADDING, CoreCommit, CoreReference, LOG_ROW_HEIGHT, hex};
-use super::{CommitFilterScope, GitPanel, execute_git_command};
+use super::graph::{self, COMMIT_ROW_HEIGHT};
+use super::model::{ACTION_HORIZONTAL_PADDING, CoreCommit, CoreReference, LOG_ROW_HEIGHT};
+use super::{
+    CommitFilesView, CommitFilterScope, GitDiffSource, GitLogPanel, GitPanel, execute_git_command,
+};
 
 impl GitPanel {
-    /// 提交记录模式：对齐 Tauri GitLogToolWindow 的专业三栏工作台布局。
+    /// 提交记录模式：对齐 macOS `GitLogView` 的三栏工作台布局。
     pub(crate) fn render_log_view(
         &mut self,
         window: &mut Window,
         tokens: LitheTokens,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        // 无仓库：macOS 用 `GitRepositoryEmptyView` 给出「初始化仓库 / Git 设置」
+        // 两个出口，而不是把三栏空壳和错误行一起显示。等 status 返回后再判断，
+        // 避免首帧把「还没加载」误判成「没有仓库」。
+        if self.status.is_some() && !self.has_repository() {
+            return self.render_log_repository_empty(tokens, cx);
+        }
+        let header = self.render_log_header(tokens, cx);
+        // Log / Console 是真实的两个内容面：Console 不是只改高亮的分段。
+        let body = if self.log_panel == GitLogPanel::Console {
+            self.render_log_console(tokens)
+        } else {
+            h_flex()
+                .flex_1()
+                .min_w_0()
+                .min_h_0()
+                .child(self.render_log_references_panel(tokens, cx))
+                .child(self.render_log_table(window, tokens, cx))
+                .when(!self.details_collapsed, |this| {
+                    this.child(self.render_log_inspector(tokens, cx))
+                })
+                .into_any_element()
+        };
+
+        // Log 模式同样需要一条可见的状态行：历史 / 引用加载失败、以及
+        // 「Go to HEAD」找不到当前分支时的提示都落在这里。
+        let status_line = self
+            .error
+            .clone()
+            .map(|error| super::changes_view::status_line(tokens.error, error))
+            .or_else(|| {
+                self.notice
+                    .clone()
+                    .map(|notice| super::changes_view::status_line(tokens.success, notice))
+            });
+
         let content = v_flex()
             .id("lithe-git-log-view")
             .size_full()
             .min_w_0()
             .min_h_0()
             .bg(tokens.editor)
-            .child(self.render_log_header(tokens, cx))
-            .child(
-                h_flex()
-                    .flex_1()
-                    .min_w_0()
-                    .min_h_0()
-                    .child(self.render_log_references_panel(tokens, cx))
-                    .child(self.render_log_table(window, tokens, cx))
-                    .child(self.render_log_inspector(tokens, cx)),
-            );
+            .child(header)
+            .children(status_line)
+            .child(body);
 
         // 引用动作的确认弹窗与分支输入弹窗：与丢弃确认相同的模态覆盖模式。
         if let Some(confirm) = self.reference_confirm.clone() {
@@ -75,140 +108,307 @@ impl GitPanel {
         content.into_any_element()
     }
 
-    /// Git Log 标题栏与 Tab 切换（对齐 Tauri 单层顶栏与模式 Tab）。
+    /// Git 标题栏：单行 41pt，对齐 macOS `GitLogView.toolWindowHeader`
+    /// （左侧 `Git` 标题 + Log / Console 分段与引用切换，右侧更多菜单 + 隐藏）。
+    ///
+    /// 刷新同时存在于提交列表工具条（macOS `GitLogView.swift:1140`），
+    /// 这里不再单独放刷新按钮；设置入口收进「更多」菜单，保持标题行紧凑。
     fn render_log_header(&self, tokens: LitheTokens, cx: &mut Context<Self>) -> AnyElement {
-        let title_row = h_flex()
+        let fetch_owner = cx.weak_entity();
+        let refresh_owner = cx.weak_entity();
+        let settings_handler = self.on_open_git_settings.clone();
+
+        h_flex()
+            .id("lithe-git-log-header")
             .w_full()
-            .h(px(28.0))
+            .h(px(41.0))
+            .flex_shrink_0()
             .items_center()
-            .justify_between()
-            .px(px(8.0))
+            .gap(px(4.0))
+            .pl(px(12.0))
+            .pr(px(8.0))
             .bg(tokens.tool_header)
             .border_b_1()
             .border_color(tokens.divider)
             .child(
-                h_flex()
-                    .items_center()
-                    .gap(px(6.0))
+                div()
+                    .pr(px(8.0))
+                    .text_size(px(13.0))
+                    .font_weight(FontWeight::BOLD)
+                    .text_color(tokens.primary_text)
+                    .child(tr("Git")),
+            )
+            // macOS 的 Log / Worktrees / Console 三段里，Worktrees 还没有对应
+            // 的 GPUI 视图，这里只保留真正有内容的两段（见跨层待办）。
+            .child(self.render_log_tab(
+                "lithe-git-log:tab-log",
+                tr("Log"),
+                GitLogPanel::Log,
+                tokens,
+                cx,
+            ))
+            .child(self.render_log_tab(
+                "lithe-git-log:tab-console",
+                tr("Console"),
+                GitLogPanel::Console,
+                tokens,
+                cx,
+            ))
+            .when(self.log_panel == GitLogPanel::Log, |this| {
+                this.child(self.render_reference_switcher(tokens, cx))
+            })
+            .child(div().flex_1())
+            .child(
+                Button::new("lithe-git-log:more")
+                    .ghost()
+                    .with_size(px(26.0))
+                    .rounded(px(4.0))
+                    .tooltip(tr("Git tool window actions"))
                     .child(
-                        Icon::new(gpui_kit::assets::IconName::GitBranch)
-                            .with_size(px(13.0))
+                        Icon::new(gpui_kit::assets::IconName::EllipsisVertical)
+                            .with_size(px(14.0))
                             .text_color(tokens.primary_text),
                     )
-                    .child(
-                        div()
-                            .text_size(px(LitheMetrics::TOOL_WINDOW_TITLE_FONT_SIZE))
-                            .font_weight(FontWeight::BOLD)
-                            .text_color(tokens.primary_text)
-                            .child(tr("Git Log")),
-                    )
-                    .child(
-                        h_flex()
-                            .h(px(20.0))
-                            .px(px(6.0))
-                            .rounded(px(3.0))
-                            .bg(tokens.sidebar)
-                            .border_1()
-                            .border_color(tokens.panel_border)
-                            .items_center()
-                            .gap(px(3.0))
-                            .child(
-                                div()
-                                    .text_size(px(11.0))
-                                    .text_color(tokens.primary_text)
-                                    .child(tr("Log: All")),
-                            )
-                            .child(
-                                Icon::new(gpui_kit::assets::IconName::ChevronDown)
-                                    .with_size(px(9.0))
-                                    .text_color(tokens.secondary_text),
+                    .dropdown_menu_with_anchor(Anchor::BottomRight, move |menu, _window, _cx| {
+                        let fetch_owner = fetch_owner.clone();
+                        let menu = menu.item(
+                            PopupMenuItem::new(tr("Fetch")).on_click(
+                                move |_, _window, cx| {
+                                    let _ = fetch_owner.update(cx, |this, cx| {
+                                        this.fetch_changes(cx);
+                                    });
+                                },
                             ),
-                    ),
+                        );
+                        let refresh_owner = refresh_owner.clone();
+                        let menu = menu.item(
+                            PopupMenuItem::new(tr("Refresh")).on_click(
+                                move |_, window, cx| {
+                                    let _ = refresh_owner.update(cx, |this, cx| {
+                                        this.refresh(window, cx);
+                                    });
+                                },
+                            ),
+                        );
+                        let menu = menu.separator();
+                        let settings_handler = settings_handler.clone();
+                        menu.item(
+                            PopupMenuItem::new(tr("Settings")).on_click(
+                                move |_, window, cx| {
+                                    if let Some(handler) = settings_handler.clone() {
+                                        handler(window, cx);
+                                    }
+                                },
+                            ),
+                        )
+                    }),
+            )
+            .child(
+                // 隐藏 = 收起 Git Log 所在的 dock；回调由工作台注册为
+                // `set_dock_visible(GitLog 的 anchor, false)`。
+                Button::new("lithe-git-log:hide")
+                    .ghost()
+                    .with_size(px(26.0))
+                    .rounded(px(4.0))
+                    .tooltip(tr("Close"))
+                    .child(
+                        Icon::new(gpui_kit::assets::IconName::X)
+                            .with_size(px(13.0))
+                            .text_color(tokens.secondary_text),
+                    )
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        if let Some(handler) = this.on_hide.clone() {
+                            handler(window, cx);
+                        }
+                    })),
+            )
+            .into_any_element()
+    }
+
+    /// 无仓库空状态：对齐 macOS `GitRepositoryEmptyView` 的两个出口
+    /// （初始化仓库 / 打开 Git 设置）。
+    fn render_log_repository_empty(
+        &self,
+        tokens: LitheTokens,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let settings_handler = self.on_open_git_settings.clone();
+        v_flex()
+            .id("lithe-git-log-empty")
+            .size_full()
+            .min_h_0()
+            .bg(tokens.editor)
+            .items_center()
+            .justify_center()
+            .gap(px(10.0))
+            .child(
+                Icon::new(gpui_kit::assets::IconName::GitBranch)
+                    .with_size(px(30.0))
+                    .text_color(tokens.tertiary_text),
+            )
+            .child(
+                div()
+                    .text_size(px(13.0))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(tokens.primary_text)
+                    .child(tr("No Git repository")),
+            )
+            .child(
+                div()
+                    .max_w(px(360.0))
+                    .text_size(px(12.0))
+                    .text_color(tokens.secondary_text)
+                    .child(tr("Initialize a repository to browse its history.")),
             )
             .child(
                 h_flex()
                     .items_center()
-                    .gap(px(2.0))
+                    .gap(px(8.0))
                     .child(
-                        Button::new("lithe-git-log:refresh")
-                            .ghost()
+                        Button::new("lithe-git-log:init-repo")
                             .small()
-                            .child(
-                                Icon::new(gpui_kit::assets::IconName::RotateCw).with_size(px(12.0)),
-                            )
-                            .tooltip(tr("Refresh"))
-                            .on_click(cx.listener(|this, _, window, cx| this.refresh(window, cx))),
-                    )
-                    .child(
-                        Button::new("lithe-git-log:settings")
-                            .ghost()
-                            .small()
-                            .child(
-                                Icon::new(gpui_kit::assets::IconName::Settings).with_size(px(12.0)),
-                            )
-                            .tooltip(tr("Settings"))
-                            // 对齐 Tauri `openSettingsDialog("git")`：打开设置页的
-                            // Git 分类。回调由工作区在构造时注册。
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                if let Some(handler) = this.on_open_git_settings.clone() {
-                                    handler(window, cx);
-                                }
+                            .label(tr("Initialize Repository"))
+                            .on_click(cx.listener(|this, _, _window, cx| {
+                                this.initialize_repository(cx);
                             })),
                     )
                     .child(
-                        // 隐藏面板需要一个「请求收起底部 dock」的回调通道
-                        // （对齐 Maven Output 的 on_hide + 工作台
-                        // set_dock_visible(Bottom, false)）。回调字段还没落地，
-                        // 按规则先禁用，不做点了没反应的按钮。
-                        Button::new("lithe-git-log:minimize")
-                            .ghost()
+                        Button::new("lithe-git-log:empty-settings")
                             .small()
-                            .disabled(true)
-                            .child(Icon::new(gpui_kit::assets::IconName::Minus).with_size(px(12.0)))
-                            .tooltip(tr("Minimize")),
+                            .ghost()
+                            .label(tr("Settings"))
+                            .on_click(cx.listener(move |_this, _, window, cx| {
+                                if let Some(handler) = settings_handler.clone() {
+                                    handler(window, cx);
+                                }
+                            })),
                     ),
-            );
-
-        let tab_row = h_flex()
-            .w_full()
-            .h(px(24.0))
-            .px(px(10.0))
-            .items_center()
-            .gap(px(14.0))
-            .bg(tokens.tool_header)
-            .border_b_1()
-            .border_color(tokens.divider)
-            .child(
-                div()
-                    .h_full()
-                    .flex()
-                    .items_center()
-                    .border_b(px(2.0))
-                    .border_color(tokens.accent)
-                    .text_size(px(11.5))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(tokens.primary_text)
-                    .child(tr("Log")),
             )
-            // Git 执行控制台（Tauri `git-execution-console.tsx`）依赖客户端持有
-            // 命令流水记录；GPUI 构建目前没有执行记录 store，`git.consolePresentation`
-            // 只是对客户端上传 records 的纯展示函数（`git.executionInspect` 是
-            // 执行设置检查，不是日志）。这里保留为不可点击的占位标签，避免给出
-            // 一个点了没反应的分段。
+            .into_any_element()
+    }
+
+    /// 顶栏的「Log: All / Log: <branch>」下拉：切换提交历史的引用过滤。
+    fn render_reference_switcher(&self, tokens: LitheTokens, cx: &mut Context<Self>) -> AnyElement {
+        let owner = cx.weak_entity();
+        let references: Vec<CoreReference> = self.references.clone();
+        let loading_references = self.loading_references;
+        let selected = self.selected_reference.clone();
+        let is_all = selected.is_none();
+        let label = match selected.as_deref() {
+            Some(name) => format!("{}: {name}", tr("Log")),
+            None => tr("Log: All").to_string(),
+        };
+
+        Button::new("lithe-git-log:reference-filter")
+            .ghost()
+            .small()
+            .rounded(px(3.0))
+            .bg(tokens.sidebar)
+            .border_1()
+            .border_color(tokens.panel_border)
+            .tooltip(tr("Branch filter"))
             .child(
                 div()
-                    .h_full()
-                    .flex()
-                    .items_center()
-                    .text_size(px(11.5))
-                    .text_color(tokens.tertiary_text)
-                    .child(tr("Console")),
-            );
+                    .max_w(px(200.0))
+                    .truncate()
+                    .text_size(px(11.0))
+                    .text_color(tokens.primary_text)
+                    .child(label),
+            )
+            .child(
+                Icon::new(gpui_kit::assets::IconName::ChevronDown)
+                    .with_size(px(10.0))
+                    .text_color(tokens.secondary_text),
+            )
+            .dropdown_menu_with_anchor(Anchor::BottomLeft, move |menu, _window, _cx| {
+                let mut menu = menu.min_w(px(240.0));
+                let owner_all = owner.clone();
+                menu = menu.item(
+                    PopupMenuItem::new(tr("All branches"))
+                        .checked(is_all)
+                        .on_click(move |_, _, cx| {
+                            let _ = owner_all.update(cx, |this, cx| {
+                                this.select_reference(String::new(), cx);
+                            });
+                        }),
+                );
+                // 引用还没返回时给出真实的加载提示，别让菜单看起来只有
+                // 「All branches」这一项。
+                if loading_references && references.is_empty() {
+                    menu = menu.item(
+                        PopupMenuItem::new(format!("{} {}", tr("Loading…"), tr("Branches")))
+                            .disabled(true),
+                    );
+                }
+                let mut previous_kind: Option<String> = None;
+                for reference in references.iter() {
+                    // 本地 / 远程 / 标签之间加分割线，菜单与引用树同序。
+                    if previous_kind
+                        .as_deref()
+                        .is_some_and(|kind| kind != reference.kind)
+                    {
+                        menu = menu.separator();
+                    }
+                    previous_kind = Some(reference.kind.clone());
+                    let owner = owner.clone();
+                    let name = reference.short_name.clone();
+                    let checked = selected.as_deref() == Some(name.as_str());
+                    let name_for_click = name.clone();
+                    menu = menu.item(
+                        PopupMenuItem::new(name).checked(checked).on_click(
+                            move |_, _, cx| {
+                                let name = name_for_click.clone();
+                                let _ = owner.update(cx, |this, cx| {
+                                    this.select_reference(name, cx);
+                                });
+                            },
+                        ),
+                    );
+                }
+                menu
+            })
+            .into_any_element()
+    }
 
-        v_flex()
-            .w_full()
-            .child(title_row)
-            .child(tab_row)
+    /// 一个 Log / Console 分段标签（对齐 macOS `LitheToolWindowTabStyle`：
+    /// 选中项用浅色底，未选中只在悬停时着色）。
+    fn render_log_tab(
+        &self,
+        id: &'static str,
+        label: &'static str,
+        panel: GitLogPanel,
+        tokens: LitheTokens,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let active = self.log_panel == panel;
+        div()
+            .id(id)
+            .h(px(26.0))
+            .px(px(8.0))
+            .flex()
+            .items_center()
+            .rounded(px(4.0))
+            .when(active, |this| this.bg(tokens.selection))
+            .when(!active, |this| this.hover(|style| style.bg(tokens.hover)))
+            .text_size(px(12.0))
+            .font_weight(if active {
+                FontWeight::SEMIBOLD
+            } else {
+                FontWeight::NORMAL
+            })
+            .text_color(if active {
+                tokens.primary_text
+            } else {
+                tokens.tertiary_text
+            })
+            .cursor_pointer()
+            .child(tr(label))
+            .on_click(cx.listener(move |this, _, _window, cx| {
+                if this.log_panel != panel {
+                    this.log_panel = panel;
+                    cx.notify();
+                }
+            }))
             .into_any_element()
     }
 
@@ -258,23 +458,34 @@ impl GitPanel {
         let scope_for_menu = scope;
         let owner = cx.weak_entity();
 
-        // 顶部过滤工具条（对齐 Tauri `GitCommitTable` 顶部工具条）。
+        // 顶部过滤工具条（对齐 Tauri `GitCommitTable` 顶部工具条）：行高 36，
+        // 图标按钮 26、文字按钮 24（gpui-kit 的 `small`），避免出现贴着行边、
+        // 上下被压扁的小按钮。
         let filter_toolbar = h_flex()
             .w_full()
-            .h(px(32.0))
+            .h(px(36.0))
             .items_center()
-            .gap(px(8.0))
+            .gap(px(6.0))
             .px(px(8.0))
             .bg(tokens.editor)
             .border_b_1()
             .border_color(tokens.divider)
             .child(
-                div().w(px(180.0)).child(
-                    filter_input
-                        .clone()
-                        .map(|input| Input::new(&input).small().into_any_element())
-                        .unwrap_or_else(|| div().into_any_element()),
-                ),
+                filter_input
+                    .clone()
+                    .map(|input| {
+                        Input::new(&input)
+                            .small()
+                            .w(px(220.0))
+                            .cleanable(true)
+                            .prefix(
+                                Icon::new(gpui_kit::assets::IconName::Search)
+                                    .with_size(px(12.0))
+                                    .text_color(tokens.tertiary_text),
+                            )
+                            .into_any_element()
+                    })
+                    .unwrap_or_else(|| div().w(px(220.0)).into_any_element()),
             )
             // 过滤作用域选择（Text / Author / Branch，对齐 Tauri 的 scope 下拉）。
             .child(
@@ -284,7 +495,7 @@ impl GitPanel {
                     .rounded(px(4.0))
                     .label(scope.label())
                     .tooltip(tr("Filter scope"))
-                    .dropdown_menu_with_anchor(Anchor::TopLeft, move |menu, _window, _cx| {
+                    .dropdown_menu_with_anchor(Anchor::BottomLeft, move |menu, _window, _cx| {
                         let mut menu = menu.min_w(px(140.0));
                         for (value, label) in [
                             (CommitFilterScope::Text, tr("Text")),
@@ -317,8 +528,8 @@ impl GitPanel {
                     .rounded(px(4.0))
                     .label(branch_label)
                     .tooltip(tr("Branch filter"))
-                    .dropdown_menu_with_anchor(Anchor::TopLeft, move |menu, _window, _cx| {
-                        let mut menu = menu.min_w(px(200.0));
+                    .dropdown_menu_with_anchor(Anchor::BottomLeft, move |menu, _window, _cx| {
+                        let mut menu = menu.min_w(px(220.0));
                         let owner_all = owner.clone();
                         let is_all = selected.is_none();
                         menu = menu.item(
@@ -349,48 +560,82 @@ impl GitPanel {
                     })
             })
             .child(div().flex_1())
-            // 视图选项：装饰胶囊开关等（对齐 Tauri showDecorations）。
-            .child({
-                let owner = cx.weak_entity();
-                let decorations_on = self.show_decorations;
-                Button::new("git-log:view-options")
+            // 刷新入口（macOS 把刷新放在提交列表工具条，`GitLogView.swift:1140`）。
+            .child(
+                Button::new("git-log:refresh")
                     .ghost()
-                    .with_size(px(24.0))
+                    .with_size(px(26.0))
                     .rounded(px(4.0))
-                    .tooltip(tr("View options"))
-                    .child(Icon::new(gpui_kit::assets::IconName::Eye).with_size(px(14.0)))
-                    .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _window, _cx| {
-                        let owner = owner.clone();
-                        menu.min_w(px(200.0)).item(
-                            PopupMenuItem::new(tr("Show decorations"))
-                                .checked(decorations_on)
-                                .on_click(move |_, _, cx| {
-                                    let _ = owner.update(cx, |this, cx| {
-                                        this.show_decorations = !this.show_decorations;
-                                        cx.notify();
-                                    });
-                                }),
-                        )
+                    .tooltip(tr("Refresh"))
+                    .child(
+                        Icon::new(gpui_kit::assets::IconName::RotateCw)
+                            .with_size(px(14.0))
+                            .text_color(tokens.secondary_text),
+                    )
+                    .on_click(cx.listener(|this, _, window, cx| this.refresh(window, cx))),
+            )
+            // 详情栏折叠（对齐 macOS `sidebar.right` 按钮）。
+            .child(
+                Button::new("git-log:toggle-details")
+                    .ghost()
+                    .with_size(px(26.0))
+                    .rounded(px(4.0))
+                    .tooltip(if self.details_collapsed {
+                        tr("Show details")
+                    } else {
+                        tr("Hide details")
                     })
-            })
+                    .child(
+                        Icon::new(gpui_kit::assets::IconName::PanelRight)
+                            .with_size(px(14.0))
+                            .text_color(if self.details_collapsed {
+                                tokens.tertiary_text
+                            } else {
+                                tokens.primary_text
+                            }),
+                    )
+                    .on_click(cx.listener(|this, _, _window, cx| {
+                        this.details_collapsed = !this.details_collapsed;
+                        cx.notify();
+                    })),
+            )
+            // 装饰胶囊开关（对齐 Tauri `showDecorations` 的 Eye 切换）。
+            .child(
+                Button::new("git-log:decorations")
+                    .ghost()
+                    .with_size(px(26.0))
+                    .rounded(px(4.0))
+                    .tooltip(tr("Show decorations"))
+                    .child(
+                        Icon::new(if self.show_decorations {
+                            gpui_kit::assets::IconName::Eye
+                        } else {
+                            gpui_kit::assets::IconName::EyeOff
+                        })
+                        .with_size(px(14.0))
+                        .text_color(if self.show_decorations {
+                            tokens.primary_text
+                        } else {
+                            tokens.tertiary_text
+                        }),
+                    )
+                    .on_click(cx.listener(|this, _, _window, cx| {
+                        this.show_decorations = !this.show_decorations;
+                        cx.notify();
+                    })),
+            )
             .child(
                 Button::new("git-log:locate-head")
                     .ghost()
-                    .with_size(px(24.0))
+                    .with_size(px(26.0))
                     .rounded(px(4.0))
                     .tooltip(tr("Go to HEAD"))
                     .child(
-                        Icon::new(gpui_kit::assets::IconName::ArrowDownToLine).with_size(px(14.0)),
+                        Icon::new(gpui_kit::assets::IconName::Crosshair).with_size(px(14.0)),
                     )
-                    // 定位 HEAD：选中当前分支的历史，与左栏的 HEAD 按钮同一条路径。
+                    // 定位 HEAD：与左栏 HEAD 按钮同一条路径（选中分支 + 滚动到 HEAD 行）。
                     .on_click(cx.listener(|this, _, _window, cx| {
-                        if let Some(current) = this
-                            .references
-                            .iter()
-                            .find(|reference| reference.is_current)
-                        {
-                            this.select_reference(current.short_name.clone(), cx);
-                        }
+                        this.goto_reference_head(cx);
                     })),
             )
             .child(
@@ -403,33 +648,87 @@ impl GitPanel {
                     .child(format!("{}/{}", visible.len(), self.history.len())),
             );
 
-        // 提交数据表行（带彩色分支线和胶囊 Badge）
+        // 提交数据表：车道分支图（弯曲连线）+ 提交文本列。
         let mut commit_list = v_flex()
             .id("lithe-git-log-table")
             .flex_1()
             .min_h_0()
             .overflow_y_scroll()
+            .track_scroll(&self.log_scroll)
+            // 键盘导航与 macOS `onMoveCommand` 一致：上下移动选中行，
+            // 回车打开该提交的完整差异。
+            .track_focus(&self.log_focus)
+            .focusable()
+            .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                match event.keystroke.key.as_str() {
+                    "up" => this.move_commit_selection(-1, cx),
+                    "down" => this.move_commit_selection(1, cx),
+                    "enter" => this.open_selected_commit_diff(window, cx),
+                    _ => {}
+                }
+            }))
+            // 接近底部自动加载下一页（macOS `loadMoreGitHistory` 的滚动触发）。
+            // 底部仍保留失败重试入口，但加载本身不依赖按钮。
+            .on_scroll(cx.listener(|this, _event, _window, cx| {
+                let offset = this.log_scroll.offset().y;
+                let max = this.log_scroll.max_offset().y;
+                // offset 是负值，滚到底时 offset + max == 0；距底部 240px 内触发。
+                if max > px(0.0) && offset + max <= px(240.0) {
+                    this.load_more_history(cx);
+                }
+            }))
             .bg(tokens.editor);
 
-        let selected_hash = self
-            .selected_commit_hash
-            .clone()
-            .or_else(|| self.history.first().map(|c| c.hash.clone()));
+        // 定位请求（Go to HEAD / 选中的提交）：`scroll_to_item` 在 prepaint 阶段
+        // 按直接子元素序号滚动，这里只登记目标行。
+        if let Some(index) = self.log_reveal_index.take() {
+            self.log_scroll.scroll_to_item(index);
+        }
 
-        // 彩色轨道颜色池（对齐 IntelliJ 图谱：绿、紫、蓝、橙）
-        let graph_palette = [
-            hex(0x57965C), // 绿色
-            hex(0x9E6BD6), // 紫色
-            hex(0x3871E1), // 蓝色
-            hex(0xE8A033), // 橙色
-        ];
+        // 与 macOS 一致：没有显式选中时不把第一行伪装成选中；首次进入
+        // 详情栏显示占位，直到用户点击某一行或点「Go to HEAD」。
+        let selected_hash = self.selected_commit_hash.clone();
+
+        // 分支图：按父提交关系分配车道并绘制弯曲连线（对齐 macOS
+        // `GitGraphGeometry` / `GitGraphColor` 的视觉效果）。
+        let graph = graph::layout(
+            &visible,
+            gpui_kit::component::Theme::global(cx).is_dark(),
+            tokens.primary_text,
+        );
+        let graph_lanes = graph.lane_count;
+
+        if visible.is_empty() {
+            commit_list = commit_list.child(
+                div()
+                    .w_full()
+                    .p(px(16.0))
+                    .text_size(px(12.0))
+                    .text_color(tokens.secondary_text)
+                    .child(if self.loading_history {
+                        tr("Loading…")
+                    } else if self.history.is_empty() {
+                        tr("No commits")
+                    } else {
+                        tr("No results")
+                    }),
+            );
+        }
 
         for (index, commit) in visible.iter().enumerate() {
             let is_selected = selected_hash.as_deref() == Some(&commit.hash);
-            let track_color = graph_palette[index % graph_palette.len()];
             let hash = commit.hash.clone();
             let date_str = commit.date.clone();
             let commit_for_menu = (*commit).clone();
+            let row_graph = graph.rows.get(index);
+            // 装饰胶囊取该行节点色，保证同一分支的图线和胶囊同色。
+            let accent = row_graph
+                .map(|row| row.node_color())
+                .unwrap_or(tokens.secondary_text);
+            let graph_cell = match row_graph {
+                Some(row) => row.render(COMMIT_ROW_HEIGHT, graph_lanes, tokens.editor),
+                None => div().w(px(16.0)).into_any_element(),
+            };
 
             commit_list = commit_list.child(
                 h_flex()
@@ -438,14 +737,17 @@ impl GitPanel {
                         commit.hash
                     )))
                     .w_full()
-                    .h(px(22.0))
-                    .px(px(6.0))
+                    .h(px(COMMIT_ROW_HEIGHT))
+                    .pl(px(4.0))
+                    .pr(px(6.0))
                     .items_center()
                     .gap(px(4.0))
                     .when(is_selected, |this| this.bg(tokens.subtle_selection))
                     .when(!is_selected, |this| this.hover(|s| s.bg(tokens.hover)))
                     .cursor_pointer()
-                    .on_click(cx.listener(move |this, _, _window, cx| {
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        // 点击行同时把键盘焦点交给列表，上下键随后可用。
+                        window.focus(&this.log_focus, cx);
                         this.select_commit(hash.clone(), cx);
                     }))
                     // 右键：先选中该提交再打开动作菜单（对齐 Tauri onContextSelect）。
@@ -461,27 +763,8 @@ impl GitPanel {
                             );
                         }),
                     )
-                    // 彩色图轨单元格
-                    .child(
-                        div()
-                            .w(px(18.0))
-                            .h_full()
-                            .relative()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            // 垂直轨道连线
-                            .child(div().absolute().w(px(2.0)).h_full().bg(track_color))
-                            // 节点实心圆圈
-                            .child(
-                                div()
-                                    .size(px(6.0))
-                                    .rounded_full()
-                                    .border_1()
-                                    .border_color(tokens.editor)
-                                    .bg(track_color),
-                            ),
-                    )
+                    // 分支图单元格：多条车道、弯曲分叉 / 合并线。
+                    .child(graph_cell)
                     // 提交标题正文
                     .child(
                         div()
@@ -507,10 +790,10 @@ impl GitPanel {
                                     .py(px(0.5))
                                     .rounded(px(3.0))
                                     .border_1()
-                                    .border_color(track_color)
-                                    .bg(track_color.alpha(0.18))
+                                    .border_color(accent)
+                                    .bg(accent.alpha(0.18))
                                     .text_size(px(10.5))
-                                    .text_color(track_color)
+                                    .text_color(accent)
                                     .child(commit.decorations.clone()),
                             )
                         },
@@ -528,7 +811,7 @@ impl GitPanel {
                     // 日期（单行不折行）
                     .child(
                         div()
-                            .w(px(120.0))
+                            .w(px(130.0))
                             .truncate()
                             .text_size(px(11.5))
                             .text_color(tokens.tertiary_text)
@@ -537,22 +820,77 @@ impl GitPanel {
             );
         }
 
+        // 分页状态行：加载中 / 失败重试 / 「继续滚动加载」提示三者互斥。
+        // 它不是加载入口（加载由上面的滚动监听触发），只是状态反馈。
+        let footer = if self.loading_more_history {
+            Some(
+                h_flex()
+                    .w_full()
+                    .h(px(28.0))
+                    .flex_shrink_0()
+                    .items_center()
+                    .justify_center()
+                    .gap(px(6.0))
+                    .text_size(px(11.5))
+                    .text_color(tokens.secondary_text)
+                    .child(tr("Loading…"))
+                    .into_any_element(),
+            )
+        } else if self.history_page_failed {
+            Some(
+                h_flex()
+                    .w_full()
+                    .h(px(28.0))
+                    .flex_shrink_0()
+                    .items_center()
+                    .justify_center()
+                    .gap(px(6.0))
+                    .child(
+                        Button::new("git-log:retry-page")
+                            .ghost()
+                            .small()
+                            .label(tr("Retry"))
+                            .on_click(cx.listener(|this, _, _window, cx| {
+                                this.history_page_failed = false;
+                                this.load_more_history(cx);
+                            })),
+                    )
+                    .into_any_element(),
+            )
+        } else if self.history_has_more && self.history_cursor.is_some() {
+            Some(
+                h_flex()
+                    .w_full()
+                    .h(px(24.0))
+                    .flex_shrink_0()
+                    .items_center()
+                    .justify_center()
+                    .text_size(px(11.0))
+                    .text_color(tokens.tertiary_text)
+                    .child(tr("Scroll to load more commits"))
+                    .into_any_element(),
+            )
+        } else {
+            None
+        };
+
         v_flex()
             .flex_1()
             .h_full()
             .min_w_0()
             .child(filter_toolbar)
             .child(commit_list)
+            .children(footer)
             .into_any_element()
     }
 
     /// Git Log 右栏：改动文件树（上半部分） + 提交详细说明（下半部分）。
     fn render_log_inspector(&self, tokens: LitheTokens, cx: &mut Context<Self>) -> AnyElement {
+        // 与 macOS 一致：没有选中提交时显示占位，而不是默认把第一行当成选中。
         let selected_commit = self
             .selected_commit_hash
             .as_ref()
-            .and_then(|hash| self.history.iter().find(|c| &c.hash == hash))
-            .or_else(|| self.history.first());
+            .and_then(|hash| self.history.iter().find(|c| &c.hash == hash));
 
         let file_count = self.commit_files.len();
 
@@ -577,11 +915,11 @@ impl GitPanel {
                         tr("Select a commit to see its files.")
                     }),
             );
-        } else {
+        } else if self.commit_files_view == CommitFilesView::Tree {
             // 目录树：按 `/` 拆段建树，逐层缩进渲染文件夹与文件；
             // 折叠状态存于 `collapsed_commit_dirs`（对齐 Tauri 文件树的目录折叠）。
-            let tree_root = build_commit_file_tree(&self.commit_files);
-            file_tree = render_commit_tree_nodes(
+            let tree_root = super::commit_files_view::build_commit_file_tree(&self.commit_files);
+            file_tree = super::commit_files_view::render_commit_tree_nodes(
                 &tree_root,
                 0,
                 &self.collapsed_commit_dirs,
@@ -590,30 +928,63 @@ impl GitPanel {
                 cx,
                 file_tree,
             );
+        } else {
+            // 平铺列表：按路径排序，每行显示完整相对路径（对齐 macOS
+            // 文件列表呈现）；单击打开该提交的差异，双击打开工作区文件。
+            let mut files: Vec<&String> = self.commit_files.iter().collect();
+            files.sort_by(|left, right| left.to_lowercase().cmp(&right.to_lowercase()));
+            for path in files {
+                file_tree = file_tree.child(self.render_commit_file_list_row(
+                    path,
+                    tokens,
+                    cx,
+                ));
+            }
         }
 
+        // 文件面板工具条（对齐 macOS `commitFilesPane`：左侧 Compare changes
+        // 图标按钮，右侧保留 GPUI 的树/列表切换与文件计数）。
+        let compare_enabled = self.selected_commit_file.is_some();
         let files_header = h_flex()
             .w_full()
-            .h(px(28.0))
+            .h(px(32.0))
             .items_center()
-            .justify_between()
+            .gap(px(4.0))
             .px(px(8.0))
-            .bg(tokens.sidebar)
+            .bg(tokens.tool_header)
             .border_b_1()
             .border_color(tokens.divider)
             .child(
-                div()
-                    .text_size(px(12.0))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(tokens.primary_text)
-                    .child(tr("Commit files")),
+                Button::new("git-log:compare-file")
+                    .ghost()
+                    .with_size(px(24.0))
+                    .rounded(px(4.0))
+                    .tooltip(tr("Compare changes"))
+                    .disabled(!compare_enabled)
+                    .child(
+                        Icon::new(gpui_kit::assets::IconName::GitCompare)
+                            .with_size(px(13.0))
+                            .text_color(if compare_enabled {
+                                tokens.secondary_text
+                            } else {
+                                tokens.tertiary_text
+                            }),
+                    )
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        if let Some(path) = this.selected_commit_file.clone() {
+                            this.select_commit_file(path, window, cx);
+                        }
+                    })),
             )
+            .child(div().flex_1())
             .child(
                 div()
                     .text_size(px(11.0))
                     .text_color(tokens.secondary_text)
                     .child(format!("{} {}", file_count, tr("files"))),
-            );
+            )
+            // 树状 / 列表切换（GPUI 额外能力，macOS 只有树）。
+            .child(self.render_commit_files_view_toggle(tokens, cx));
 
         let files_half = v_flex()
             .flex_1()
@@ -625,14 +996,33 @@ impl GitPanel {
 
         // 下半部分：提交正文与元数据。差异本身在**中央编辑区**打开
         //（`CommitDiffView`），右栏只保留文件树与说明，避免把 diff 挤在窄栏里。
+        // 元数据行对齐 macOS `commitDetail`：`<shortHash> <author> <<email>> on <date>`
+        // 加一行引用标签。
         let message_half = v_flex()
             .id("lithe-git-log-message-half")
             .flex_1()
             .min_h_0()
             .overflow_y_scroll()
             .p(px(12.0))
-            .gap(px(8.0))
+            .gap(px(6.0))
             .when_some(selected_commit, |this, commit| {
+                let short_hash = if commit.short_hash.is_empty() {
+                    commit.hash.chars().take(8).collect::<String>()
+                } else {
+                    commit.short_hash.clone()
+                };
+                let author = if commit.author_email.is_empty() {
+                    commit.author_name.clone()
+                } else {
+                    format!("{} <{}>", commit.author_name, commit.author_email)
+                };
+                let labels: Vec<String> = commit
+                    .decorations
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|label| !label.is_empty())
+                    .map(String::from)
+                    .collect();
                 this.child(
                     div()
                         .text_size(px(13.0))
@@ -642,17 +1032,35 @@ impl GitPanel {
                 )
                 .child(
                     div()
+                        .text_size(px(11.5))
+                        .text_color(tokens.secondary_text)
+                        .child(format!("{short_hash} {author} on {}", commit.date)),
+                )
+                .when(!labels.is_empty(), |this| {
+                    this.child(
+                        h_flex()
+                            .flex_wrap()
+                            .gap(px(4.0))
+                            .pt(px(2.0))
+                            .children(labels.into_iter().map(|label| {
+                                div()
+                                    .px(px(4.0))
+                                    .py(px(1.0))
+                                    .rounded(px(3.0))
+                                    .bg(tokens.selection)
+                                    .text_size(px(10.5))
+                                    .text_color(tokens.secondary_text)
+                                    .child(label)
+                            })),
+                    )
+                })
+            })
+            .when(selected_commit.is_none(), |this| {
+                this.child(
+                    div()
                         .text_size(px(12.0))
                         .text_color(tokens.secondary_text)
-                        .child(format!("{} · {}", commit.author_name, commit.date)),
-                )
-                .child(
-                    div()
-                        .pt(px(4.0))
-                        .text_size(px(12.0))
-                        .font_family(MONO_FONT_FAMILY)
-                        .text_color(tokens.tertiary_text)
-                        .child(format!("commit {}", commit.hash)),
+                        .child(tr("Commit details")),
                 )
             });
 
@@ -687,7 +1095,6 @@ impl GitPanel {
         let popup =
             gpui_kit::component::menu::PopupMenu::build(window, cx, move |menu, _window, _cx| {
                 let short_hash: String = commit.hash.chars().take(8).collect();
-                let subject = commit.subject.clone();
 
                 let item = |menu: gpui_kit::component::menu::PopupMenu,
                             owner: &gpui_kit::WeakEntity<GitPanel>,
@@ -697,16 +1104,32 @@ impl GitPanel {
                  -> gpui_kit::component::menu::PopupMenu {
                     let owner = owner.clone();
                     menu.item(PopupMenuItem::new(label).disabled(disabled).on_click(
-                        move |_, _, cx| {
+                        move |_, window, cx| {
                             let _ = owner.update(cx, |this, cx| {
-                                this.run_commit_action(action, cx);
+                                this.run_commit_action(action, window, cx);
                             });
                         },
                     ))
                 };
 
-                // 打开提交差异 / 与 HEAD 比较：GPUI 的 diff 渲染面尚未接入，
-                // 这里按 Tauri 行为降级为加载该提交的文件列表。
+                // macOS 的提交菜单以「复制 hash」开头（GitGraphView.swift:57-77）。
+                let copy = |menu: gpui_kit::component::menu::PopupMenu,
+                            owner: &gpui_kit::WeakEntity<GitPanel>,
+                            label: &'static str,
+                            text: String|
+                 -> gpui_kit::component::menu::PopupMenu {
+                    let owner = owner.clone();
+                    menu.item(PopupMenuItem::new(label).on_click(move |_, window, cx| {
+                        let _ = owner.update(cx, |this, cx| {
+                            this.copy_text(&text.clone(), window, cx);
+                        });
+                    }))
+                };
+                let menu = copy(menu, &owner, tr("Copy Commit Hash"), commit.hash.clone());
+                let menu = copy(menu, &owner, tr("Copy Short Hash"), short_hash);
+
+                let menu = menu.separator();
+                // GPUI 额外入口：完整差异 / 与 HEAD 比较（macOS 由双击与详情区承担）。
                 let menu = item(menu, &owner, "openDiff", tr("Open Commit Diff"), false);
                 let menu = item(
                     menu,
@@ -715,13 +1138,8 @@ impl GitPanel {
                     tr("Compare with HEAD"),
                     false,
                 );
-                let menu = menu.separator();
 
-                // 历史改写（undo / edit / delete）需要预览确认；undo 仅限 HEAD。
-                let menu = item(menu, &owner, "undo", tr("Undo Commit"), busy || !is_head);
-                let menu = item(menu, &owner, "edit", tr("Edit Commit Message"), busy);
-                let menu = item(menu, &owner, "delete", tr("Delete Commit"), busy);
-                let menu = item(menu, &owner, "reset", tr("Reset to Commit"), busy);
+                let menu = menu.separator();
                 let menu = item(
                     menu,
                     &owner,
@@ -730,24 +1148,19 @@ impl GitPanel {
                     busy || is_head,
                 );
                 let menu = item(menu, &owner, "revert", tr("Revert Commit"), busy);
-                let menu = menu.separator();
+                let menu = item(
+                    menu,
+                    &owner,
+                    "reset",
+                    tr("Reset to Commit"),
+                    busy,
+                );
 
-                let copy = |menu: gpui_kit::component::menu::PopupMenu,
-                            owner: gpui_kit::WeakEntity<GitPanel>,
-                            text: String|
-                 -> gpui_kit::component::menu::PopupMenu {
-                    menu.item(PopupMenuItem::new(tr("Copy Commit Hash")).on_click(
-                        move |_, window, cx| {
-                            let _ = owner.update(cx, |this, cx| {
-                                this.copy_text(&text.clone(), window, cx);
-                            });
-                        },
-                    ))
-                };
-                let menu = copy(menu, owner.clone(), commit.hash.clone());
-                let menu = copy(menu, owner.clone(), short_hash.clone());
-                let menu = copy(menu, owner, subject);
-                menu
+                // 历史改写（undo / edit / delete）需要预览确认；undo 仅限 HEAD。
+                let menu = menu.separator();
+                let menu = item(menu, &owner, "undo", tr("Undo Commit"), busy || !is_head);
+                let menu = item(menu, &owner, "edit", tr("Edit Commit Message"), busy);
+                item(menu, &owner, "delete", tr("Delete Commit"), busy)
             });
 
         cx.subscribe_in(
@@ -764,16 +1177,45 @@ impl GitPanel {
     }
 
     /// 提交动作统一入口。
-    pub(crate) fn run_commit_action(&mut self, action: &str, cx: &mut Context<Self>) {
+    pub(crate) fn run_commit_action(
+        &mut self,
+        action: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(commit) = self.selected_commit() else {
             return;
         };
         let hash = commit.hash.clone();
         let subject = commit.subject.clone();
         match action {
-            // 差异视图未接入前，选中提交即加载文件列表（与点击行一致）。
-            "openDiff" | "compareWithHead" => {
-                self.select_commit(hash, cx);
+            // 打开该提交相对父提交的完整差异（Tauri `openCommitDiff`，path 为空
+            // = 全部文件）。差异页在中央编辑区，不在 Log 右栏。
+            "openDiff" => {
+                if let Some(handler) = self.on_open_commit_diff.clone() {
+                    handler(hash, String::new(), window, cx);
+                } else {
+                    self.notice = Some(SharedString::from(tr("Commit diff is not available")));
+                    cx.notify();
+                }
+            }
+            // 与 HEAD 比较：对齐 Tauri `viewBranchDiff(commit)`，区间为
+            // `<commit>..HEAD`（左侧是提交，右侧是当前分支）。
+            "compareWithHead" => {
+                if let Some(handler) = self.on_open_diff_source.clone() {
+                    handler(
+                        GitDiffSource::Comparison {
+                            base: hash,
+                            target: "HEAD".to_string(),
+                        },
+                        String::new(),
+                        window,
+                        cx,
+                    );
+                } else {
+                    self.notice = Some(SharedString::from(tr("Commit diff is not available")));
+                    cx.notify();
+                }
             }
             "undo" => self.begin_rewrite(super::RewriteOperation::UndoCommit, hash, cx),
             "edit" => self.begin_rewrite(super::RewriteOperation::EditCommitMessage, hash, cx),
@@ -808,6 +1250,66 @@ impl GitPanel {
             }
             _ => {}
         }
+    }
+
+    /// 当前过滤条件下的可见提交，供键盘导航复用。
+    ///
+    /// 过滤规则与 `commit_filter_scope` 的匹配一致；这里不参与渲染，避免与
+    /// 渲染期的可变状态（过滤输入框惰性创建）产生借用冲突。
+    pub(crate) fn filtered_history(&self) -> Vec<&CoreCommit> {
+        let filter = self.commit_filter.trim().to_lowercase();
+        let scope = self.commit_filter_scope;
+        self.history
+            .iter()
+            .filter(|commit| scope.matches(commit, &filter))
+            .collect()
+    }
+
+    /// 键盘上下移动提交选中（对齐 macOS `moveGitLogCommitSelection`）。
+    ///
+    /// 选中后把目标行登记到 `log_reveal_index`，下一次 prepaint 会滚动到它。
+    pub(crate) fn move_commit_selection(&mut self, delta: i32, cx: &mut Context<Self>) {
+        let target = {
+            let visible = self.filtered_history();
+            if visible.is_empty() {
+                None
+            } else {
+                let current = self.selected_commit_hash.as_deref();
+                let position = visible
+                    .iter()
+                    .position(|commit| Some(commit.hash.as_str()) == current)
+                    .unwrap_or(0);
+                let next = (position as i32 + delta).clamp(0, visible.len() as i32 - 1) as usize;
+                Some((visible[next].hash.clone(), next))
+            }
+        };
+        let Some((hash, index)) = target else {
+            return;
+        };
+        self.log_reveal_index = Some(index);
+        self.select_commit(hash, cx);
+        cx.notify();
+    }
+
+    /// 回车打开选中提交的完整差异（无选中时取列表第一行，与详情栏一致）。
+    pub(crate) fn open_selected_commit_diff(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let hash = self
+            .selected_commit_hash
+            .clone()
+            .or_else(|| self.history.first().map(|commit| commit.hash.clone()));
+        let Some(hash) = hash else {
+            return;
+        };
+        let Some(handler) = self.on_open_commit_diff.clone() else {
+            self.notice = Some(SharedString::from(tr("Commit diff is not available")));
+            cx.notify();
+            return;
+        };
+        handler(hash, String::new(), window, cx);
     }
 
     /// 当前选中的提交对象。
@@ -877,200 +1379,7 @@ impl GitPanel {
     }
 }
 
-// --- 提交文件树 ------------------------------------------------------------
-
-/// 提交文件树的节点：目录（含子节点）或文件。
-///
-/// `mod.rs` 重新导出该类型，供后续「提交树与变更树共用」的迭代使用；
-/// 当前只在 `log_view.rs` 内部构建与渲染。
-pub(crate) struct CommitTreeEntry {
-    /// 展示名（目录的一段名或文件名）。
-    name: String,
-    /// 相对仓库根的完整路径；目录与文件都用它作为折叠/选中 key。
-    path: String,
-    /// 目录的子节点；文件为空。
-    children: Vec<CommitTreeEntry>,
-    /// 是否为目录。
-    is_dir: bool,
-}
-
-/// 把扁平的提交文件列表按 `/` 拆成目录树。
-///
-/// 目录节点排在文件之前，同类按名字排序，结果稳定可复现。
-fn build_commit_file_tree(files: &[String]) -> Vec<CommitTreeEntry> {
-    fn insert(nodes: &mut Vec<CommitTreeEntry>, file: &str, segments: &[&str], prefix: &str) {
-        let Some((head, rest)) = segments.split_first() else {
-            return;
-        };
-        let path = if prefix.is_empty() {
-            (*head).to_string()
-        } else {
-            format!("{prefix}/{head}")
-        };
-        if rest.is_empty() {
-            nodes.push(CommitTreeEntry {
-                name: (*head).to_string(),
-                path,
-                children: Vec::new(),
-                is_dir: false,
-            });
-            return;
-        }
-        let index = match nodes
-            .iter()
-            .position(|node| node.is_dir && node.name == *head)
-        {
-            Some(index) => index,
-            None => {
-                nodes.push(CommitTreeEntry {
-                    name: (*head).to_string(),
-                    path: path.clone(),
-                    children: Vec::new(),
-                    is_dir: true,
-                });
-                nodes.len() - 1
-            }
-        };
-        insert(&mut nodes[index].children, file, rest, &path);
-    }
-
-    fn sort(nodes: &mut Vec<CommitTreeEntry>) {
-        nodes.sort_by(|a, b| {
-            b.is_dir
-                .cmp(&a.is_dir)
-                .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
-        });
-        for node in nodes.iter_mut() {
-            sort(&mut node.children);
-        }
-    }
-
-    let mut root = Vec::new();
-    for file in files {
-        let segments: Vec<&str> = file.split('/').filter(|s| !s.is_empty()).collect();
-        insert(&mut root, file, &segments, "");
-    }
-    sort(&mut root);
-    root
-}
-
-/// 递归渲染提交文件树节点。`Div` 的构建器是消费式的，因此按值进出。
-fn render_commit_tree_nodes(
-    nodes: &[CommitTreeEntry],
-    depth: usize,
-    collapsed: &super::model::ExpandedSet,
-    selected_file: Option<&str>,
-    tokens: LitheTokens,
-    cx: &mut Context<GitPanel>,
-    mut out: Stateful<gpui_kit::Div>,
-) -> Stateful<gpui_kit::Div> {
-    for node in nodes {
-        let indent = px(6.0 + depth as f32 * 12.0);
-        if node.is_dir {
-            let is_collapsed = collapsed.contains(&node.path);
-            let path = node.path.clone();
-            out = out.child(
-                h_flex()
-                    .id(SharedString::from(format!("git-log-dir-row:{}", node.path)))
-                    .w_full()
-                    .h(px(22.0))
-                    .pl(indent)
-                    .pr(px(6.0))
-                    .rounded(px(4.0))
-                    .items_center()
-                    .gap(px(4.0))
-                    .hover(|s| s.bg(tokens.hover))
-                    .cursor_pointer()
-                    .child(
-                        Icon::new(if is_collapsed {
-                            gpui_kit::assets::IconName::ChevronRight
-                        } else {
-                            gpui_kit::assets::IconName::ChevronDown
-                        })
-                        .with_size(px(10.0))
-                        .text_color(tokens.secondary_text),
-                    )
-                    .child(
-                        Icon::new(gpui_kit::assets::IconName::Folder)
-                            .with_size(px(13.0))
-                            .text_color(tokens.secondary_text),
-                    )
-                    .child(
-                        div()
-                            .truncate()
-                            .text_size(px(12.0))
-                            .text_color(tokens.secondary_text)
-                            .child(node.name.clone()),
-                    )
-                    .on_click(cx.listener(move |this, _, _window, cx| {
-                        if !this.collapsed_commit_dirs.remove(&path) {
-                            this.collapsed_commit_dirs.insert(path.clone());
-                        }
-                        cx.notify();
-                    })),
-            );
-            if !is_collapsed {
-                out = render_commit_tree_nodes(
-                    &node.children,
-                    depth + 1,
-                    collapsed,
-                    selected_file,
-                    tokens,
-                    cx,
-                    out,
-                );
-            }
-        } else {
-            let path_str = node.path.clone();
-            let path_for_open = node.path.clone();
-            let is_selected = selected_file == Some(node.path.as_str());
-            let icon_kind = if node.name.ends_with(".java") {
-                icon(LitheIcon::Java).with_size(px(13.0))
-            } else if node.name.ends_with(".xml") {
-                Icon::new(gpui_kit::assets::IconName::Code).with_size(px(13.0))
-            } else {
-                icon(LitheIcon::File).with_size(px(13.0))
-            };
-            out = out.child(
-                h_flex()
-                    .id(SharedString::from(format!(
-                        "git-log-file-row:{}",
-                        node.path
-                    )))
-                    .w_full()
-                    .h(px(22.0))
-                    .pl(indent + px(14.0))
-                    .pr(px(6.0))
-                    .rounded(px(4.0))
-                    .items_center()
-                    .gap(px(6.0))
-                    // 单击选中加载 diff；双击在编辑器打开工作区文件
-                    //（对齐 Tauri onOpen / onDoubleClick 分工）。
-                    .when(is_selected, |this| this.bg(tokens.subtle_selection))
-                    .when(!is_selected, |this| this.hover(|s| s.bg(tokens.hover)))
-                    .cursor_pointer()
-                    .child(icon_kind)
-                    .child(
-                        div()
-                            .truncate()
-                            .text_size(px(12.0))
-                            .text_color(tokens.primary_text)
-                            .child(node.name.clone()),
-                    )
-                    .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
-                        if event.click_count() >= 2 {
-                            // 双击：在编辑器打开工作区的真实文件。
-                            this.open_change(&path_for_open.clone(), window, cx);
-                        } else {
-                            // 单击：在中央编辑区打开该提交的差异。
-                            this.select_commit_file(path_str.clone(), window, cx);
-                        }
-                    })),
-            );
-        }
-    }
-    out
-}
+// 提交文件树的构建与渲染见 `commit_files_view.rs`。
 
 #[allow(dead_code)]
 fn render_log_row(commit: &CoreCommit, tokens: LitheTokens) -> AnyElement {

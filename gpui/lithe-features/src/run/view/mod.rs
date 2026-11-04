@@ -20,9 +20,7 @@ use std::time::Duration;
 
 use gpui_kit::component::menu::PopupMenu;
 use gpui_kit::component::resizable::ResizableState;
-use gpui_kit::{
-    App, Entity, EventEmitter, FocusHandle, SharedString, Subscription, Task, Window,
-};
+use gpui_kit::{App, Entity, EventEmitter, FocusHandle, SharedString, Subscription, Task, Window};
 use lithe_core_client::CoreClient;
 
 use crate::console::{ConsoleHost, ConsoleScroll};
@@ -31,9 +29,7 @@ use self::state::SessionState;
 // 把 run 的兄弟模块绑定到本模块，供子模块以 super:: 路径解析。
 use super::config;
 use super::java_decision::{self, JavaLaunchDecision};
-use super::model::{
-    self, RunConfiguration, RunDiagnostic, RunScope,
-};
+use super::model::{self, RunConfiguration, RunDiagnostic, RunScope};
 use super::session;
 
 use crate::language::{JavaLanguageServiceModel, JavaLaunchTarget};
@@ -60,8 +56,7 @@ impl ConsoleHost for RunPanel {
 /// 与 `GitPanel::on_open_file` 等回调同形，避免 `lithe-features` 反向依赖
 /// `lithe-workbench`。对齐 macOS `saveJavaWorkspaceForLaunch`：保存失败时
 /// 必须中止启动，不能带着旧 class 或旧 working copy 去构建。
-type BeforeLaunchHandler =
-    Rc<dyn Fn(&mut App) -> Task<Result<Option<PathBuf>, String>> + 'static>;
+type BeforeLaunchHandler = Rc<dyn Fn(&mut App) -> Task<Result<Option<PathBuf>, String>> + 'static>;
 
 /// 读取某个工作区的 Java 构建失败策略（`true` = 始终继续）。
 type JavaBuildPolicyHandler = Rc<dyn Fn(&mut App, &Path) -> bool + 'static>;
@@ -85,12 +80,15 @@ gpui_kit::actions!(
 const CONSOLE_CONTEXT: &str = "LitheRunConsole";
 
 /// 标题栏高度。对齐 macOS `LitheToolWindowHeader` 的 41pt。
-#[allow(dead_code)]
 const HEADER_HEIGHT: f32 = 41.0;
-#[allow(dead_code)]
+/// 动作工具条高度。对齐 macOS `RunView.runToolbar` 的 36pt。
 const TOOLBAR_HEIGHT: f32 = 36.0;
-#[allow(dead_code)]
+/// 作用域图标条宽度。对齐 macOS `LitheTheme.ActionStripe.width`。
 const SCOPE_RAIL_WIDTH: f32 = 36.0;
+/// 折叠后的作用域条宽度。对齐 macOS `RunServicesLayout.collapsedScopeWidth`。
+const SCOPE_RAIL_COLLAPSED_WIDTH: f32 = 32.0;
+/// 组行/配置行里复选框的尺寸；对齐 macOS `LitheTreeCheckbox` 的 14pt。
+const TREE_CHECKBOX_SIZE: f32 = 14.0;
 /// 配置列表默认宽度。对齐 macOS `lithe.run.configurationListWidth` 的 280。
 const CONFIGURATION_LIST_DEFAULT_WIDTH: f32 = 280.0;
 /// 配置列表最小宽度。对齐 macOS `RunServicesLayout.configurationMinimum`。
@@ -130,9 +128,16 @@ pub struct RunPanel {
     configurations: Vec<RunConfiguration>,
     default_id: Option<String>,
     selected_id: Option<String>,
-    #[allow(dead_code)]
+    /// 当前浏览的语言分类（Java / Go / Python 等），对齐 Tauri
+    /// `RunConfigurationBrowser` 的语言侧栏。
+    selected_language: Option<String>,
+    /// 左侧作用域条当前选中的作用域（全部 / 已固定 / 按执行类别）。
     scope: RunScope,
+    /// 已固定的配置 id；固定项在「Pinned」作用域里展示并带图钉标记。
     pinned: HashSet<String>,
+    /// 配置列表是否折叠；折叠后只保留 32pt 宽的作用域条（对齐
+    /// macOS `lithe.run.configurationListCollapsed`）。
+    collapsed_scope: bool,
     sessions: BTreeMap<String, SessionState>,
     diagnostics: Vec<RunDiagnostic>,
     loading: bool,
@@ -159,10 +164,11 @@ pub struct RunPanel {
     /// 工具条「…」弹出菜单与其触发位置；渲染期用 `anchored` 挂到前景层。
     more_menu: Option<(Entity<PopupMenu>, gpui_kit::Point<gpui_kit::Pixels>)>,
     _more_menu_subscription: Option<Subscription>,
-    /// 当前浏览的语言分类（Java / Go / Python 等），对齐 Tauri `RunConfigurationBrowser`。
-    selected_language: Option<String>,
     /// 控制台的虚拟化列表、平滑滚动与插入符状态。
     console: ConsoleScroll,
+    /// 当前控制台行高表对应的（软换行开关, 控制台宽度）。换行开关或
+    /// 面板宽度变化时行高表要整体重建，见 `sync_console_lines`。
+    console_layout_key: Option<(bool, i32)>,
     /// 是否跟随最新输出；跳转堆栈帧后暂停，「回到最新」恢复。
     console_follow_tail: bool,
     /// 控制台焦点：只有它获得焦点时才响应复制快捷键。

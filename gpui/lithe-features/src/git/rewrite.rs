@@ -332,7 +332,7 @@ impl GitPanel {
                     .placeholder(tr("Commit message"))
                     .default_value(initial)
             });
-            let subscription = cx.subscribe_in(
+            cx.subscribe_in(
                 &input,
                 window,
                 |this: &mut Self, _input, event: &InputEvent, _window, cx| match event {
@@ -341,8 +341,8 @@ impl GitPanel {
                     }
                     InputEvent::Change | InputEvent::Focus | InputEvent::Blur => {}
                 },
-            );
-            let _ = subscription;
+            )
+            .detach();
             self.branch_input = Some(input);
             cx.notify();
         }

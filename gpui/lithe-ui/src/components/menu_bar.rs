@@ -7,6 +7,8 @@
 //!
 //! 三端共用：这里没有任何 `cfg(target_os)` 分支，也没有系统原生菜单路径。
 
+use std::sync::Arc;
+
 use gpui_kit::component::InteractiveElementExt as _;
 use gpui_kit::component::h_flex;
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
@@ -140,7 +142,9 @@ impl MenuItemSpec {
 
 /// 自绘菜单栏状态。
 pub struct LitheMenuBar {
-    menus: Vec<MenuSpec>,
+    /// 声明式菜单树。用 `Arc` 共享：渲染与建浮层时只需克隆指针，
+    /// 不再每个触发器/每次展开都把整棵 `MenuSpec`（含全部菜单项）深拷贝一遍。
+    menus: Vec<Arc<MenuSpec>>,
     /// 当前展开的顶级菜单下标；`None` 表示全部收起。
     open: Option<usize>,
     /// 展开时捕获的动作上下文，用于把 `MenuCommand` 派发回工作台。
@@ -162,7 +166,10 @@ pub struct LitheMenuBar {
 impl LitheMenuBar {
     pub fn new(menus: Vec<MenuSpec>) -> Self {
         Self {
-            menus: menus.into_iter().map(sanitize_menu).collect(),
+            menus: menus
+                .into_iter()
+                .map(|menu| Arc::new(sanitize_menu(menu)))
+                .collect(),
             open: None,
             action_context: None,
             popup: None,
@@ -189,7 +196,10 @@ impl LitheMenuBar {
 
     /// 替换菜单树；展开中的菜单会被收起。
     pub fn set_menus(&mut self, menus: Vec<MenuSpec>, cx: &mut Context<Self>) {
-        self.menus = menus.into_iter().map(sanitize_menu).collect();
+        self.menus = menus
+            .into_iter()
+            .map(|menu| Arc::new(sanitize_menu(menu)))
+            .collect();
         self.open = None;
         self.action_context = None;
         self.popup = None;
@@ -285,7 +295,8 @@ impl LitheMenuBar {
             return;
         }
 
-        let Some(spec) = self.menus.get(ix).cloned() else {
+        // 共享 `Arc`：展开浮层不再深拷贝整棵菜单树，直接借用同一份 spec。
+        let Some(spec) = self.menus.get(ix).map(Arc::clone) else {
             return;
         };
 
@@ -310,11 +321,10 @@ impl LitheMenuBar {
                     this.just_dismissed = true;
                     this.close(cx);
                     // 本帧结束再清标记：同一帧内菜单栏触发器的按下事件仍能看到它。
-                    cx.defer_in(window, |this, _window, cx| {
-                        if this.just_dismissed {
-                            this.just_dismissed = false;
-                            cx.notify();
-                        }
+                    // 这里不 `cx.notify()`：该标记不参与渲染，清掉它不需要重绘，
+                    // 否则每次关闭/切换菜单都会多推一帧整窗重绘。
+                    cx.defer_in(window, |this, _window, _cx| {
+                        this.just_dismissed = false;
                     });
                 }),
             );
@@ -334,7 +344,9 @@ impl LitheMenuBar {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> gpui_kit::AnyElement {
-        let spec = self.menus[ix].clone();
+        // 只取标签：整个 `MenuSpec`（含全部菜单项与子菜单）挂在一个 `Arc`
+        // 里，触发器渲染不再深拷贝整棵菜单树。
+        let label = self.menus[ix].label.clone();
         let is_open = self.is_open(ix);
         let tokens = current_tokens(cx);
 
@@ -356,7 +368,7 @@ impl LitheMenuBar {
                     .id(("lithe-menu-trigger-button", ix))
                     .occlude()
                     .role(Role::Button)
-                    .aria_label(spec.label.clone())
+                    .aria_label(label.clone())
                     .flex()
                     .flex_row()
                     .items_center()
@@ -376,7 +388,7 @@ impl LitheMenuBar {
                             this.toggle(ix, window, cx);
                         }),
                     )
-                    .child(spec.label.clone()),
+                    .child(label),
             )
             .on_hover(cx.listener(move |this, hovered, _, cx| this.hover(ix, hovered, cx)))
             .when_some(popup, |this, popup| {

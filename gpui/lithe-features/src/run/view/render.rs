@@ -93,7 +93,7 @@ impl RunPanel {
                                 tr("Identify and generate")
                             })
                             .on_click(cx.listener(|this, _, _window, cx| {
-                                this.reload(cx);
+                                this.rescan(cx);
                             })),
                     ),
             )
@@ -168,7 +168,7 @@ impl Render for RunPanel {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.ensure_loaded(window, cx);
         // 输出行数变化在这里统一入账：列表只排版可视行，追加只改行数。
-        self.sync_console_lines();
+        self.sync_console_lines(window);
         let tokens = current_tokens(cx);
 
         let mut panel = v_flex()
@@ -221,6 +221,33 @@ fn status_line(color: Hsla, message: SharedString) -> AnyElement {
                 .truncate()
                 .text_size(px(LitheMetrics::SMALL_FONT_SIZE))
                 .text_color(color)
+                .child(message),
+        )
+        .into_any_element()
+}
+
+/// 控制台没有输出时的空状态（Tauri 的空态视觉：居中图标 + 说明）。
+pub(super) fn empty_output_state(
+    message: &'static str,
+    tokens: LitheTokens,
+) -> AnyElement {
+    v_flex()
+        .size_full()
+        .min_h(px(0.0))
+        .items_center()
+        .justify_center()
+        .gap(px(8.0))
+        .bg(tokens.editor)
+        .child(
+            Icon::new(IconName::Play)
+                .with_size(px(26.0))
+                .text_color(tokens.tertiary_text),
+        )
+        .child(
+            div()
+                .max_w(px(360.0))
+                .text_size(px(LitheMetrics::SETTINGS_FONT_SIZE))
+                .text_color(tokens.secondary_text)
                 .child(message),
         )
         .into_any_element()

@@ -41,16 +41,15 @@ impl Workbench {
         }
 
         if !self.tabs.is_empty() {
-            let items: Vec<EditorTabItem> = self
-                .tabs
-                .iter()
-                .map(|tab| {
-                    let mut item = EditorTabItem::new(tab.id.clone(), tab.title.clone());
-                    item.icon = Some(tab.icon);
-                    item.modified = tab.modified;
-                    item
-                })
-                .collect();
+            // 直接迭代标签，避免每帧先建一份中间 `Vec`（`EditorTabs::tabs`
+            // 自己会收集成一条标签条）。滚动时整个工作台每帧重绘，这条路径
+            // 会跟着跑，少一次分配少一次搬运。
+            let items = self.tabs.iter().map(|tab| {
+                let mut item = EditorTabItem::new(tab.id.clone(), tab.title.clone());
+                item.icon = Some(tab.icon);
+                item.modified = tab.modified;
+                item
+            });
 
             let select = cx.processor(|this, id: SharedString, window, cx| {
                 this.select_tab(id.as_ref(), window, cx)
@@ -202,6 +201,9 @@ impl Workbench {
             match source {
                 lithe_features::git::GitDiffSource::Commit(commit) => {
                     view.show(commit, path, diff_cx);
+                }
+                lithe_features::git::GitDiffSource::Comparison { base, target } => {
+                    view.show_comparison(base, target, path, diff_cx);
                 }
                 lithe_features::git::GitDiffSource::WorkingTree { staged, untracked } => {
                     // 未跟踪文件叠加在未提交维度里展示（Core 的 untracked
