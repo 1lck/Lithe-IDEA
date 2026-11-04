@@ -306,7 +306,10 @@ package final class LanguageToolingSessionManager: ObservableObject,
         let configuration = provider.configuration
         guard configuration.languageID == support.id,
               let ownerModuleID = support.languageServerModuleID,
-              !configuration.executableNames.isEmpty,
+              // A server its plugin backend launches names no executable
+              // until it starts.
+              !configuration.executableNames.isEmpty
+                  || configuration.launchSource?.resolvesLaunchWithBackend == true,
               // The module that owns this provider already stopped it.
               !provider.lifecycle.isRetired,
               let runtimeFactory else { return false }

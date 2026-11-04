@@ -97,6 +97,18 @@ final class PluginWorkspaceContexts {
         return .success(context)
     }
 
+    /// The local context whose workspace is the folder at `url`. Work that
+    /// starts from a folder, such as a language server's launch, uses it to
+    /// speak to a plugin backend in the window that shows the folder. Two
+    /// windows on one folder give the first in context ID order.
+    func localContext(forFolder url: URL) -> PluginWorkspaceContext? {
+        // Paths, not URLs: "/a/b" and "/a/b/" are one folder.
+        let path = url.standardizedFileURL.path
+        return contexts.first { context in
+            context.authority == .local && context.folders.contains { $0.localURL.standardizedFileURL.path == path }
+        }
+    }
+
     /// Opens or replaces the window's context. The same workspace again
     /// keeps the context unchanged, or moves it to the next generation when
     /// its folders or authority changed. Another workspace closes the old

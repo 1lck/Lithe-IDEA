@@ -133,12 +133,22 @@ public struct DeclarativeLanguageServerLaunchSource: Hashable, Sendable {
     public let manifest: Data
     /// Root of the installed, read-only plugin package.
     public let packageURL: URL
+    /// True when the plugin's backend names the process at each start
+    /// (`serverProcess` 3), so the host has no executable to look up first.
+    public let resolvesLaunchWithBackend: Bool
 
-    public init(pluginID: String, languageID: String, manifest: Data, packageURL: URL) {
+    public init(
+        pluginID: String,
+        languageID: String,
+        manifest: Data,
+        packageURL: URL,
+        resolvesLaunchWithBackend: Bool = false
+    ) {
         self.pluginID = pluginID
         self.languageID = languageID
         self.manifest = manifest
         self.packageURL = packageURL
+        self.resolvesLaunchWithBackend = resolvesLaunchWithBackend
     }
 }
 

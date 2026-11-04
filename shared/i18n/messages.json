@@ -29234,6 +29234,22 @@
       }
     },
     {
+      "id": "native.cannotStartInARemoteWorkspaceYet",
+      "description": "Native UI: %@ cannot start in a remote workspace yet.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ cannot start in a remote workspace yet.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
       "id": "native.cannotUseUsingTheProjectJDKInstead",
       "description": "Native UI: Cannot use %@; using the project JDK instead.",
       "platforms": [
@@ -46067,6 +46083,22 @@
       }
     },
     {
+      "id": "native.needsALaunchThisBuildOfLitheCannotResolve",
+      "description": "Native UI: %@ needs a launch this build of Lithe cannot resolve.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ needs a launch this build of Lithe cannot resolve.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
       "id": "native.needsNoExtraPermissions",
       "description": "Native UI: Needs no extra permissions.",
       "platforms": [
@@ -47261,6 +47293,17 @@
       ],
       "macos": {
         "key": "No notifications",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.noOpenWindowShowsThisWorkspaceSoThePluginCannotChooseHowToStartItsLanguageServer",
+      "description": "Native UI: No open window shows this workspace, so the plugin cannot choose how to start its language server.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No open window shows this workspace, so the plugin cannot choose how to start its language server.",
         "arguments": []
       }
     },
@@ -53520,6 +53563,22 @@
       },
       "parameters": {
         "arg1": "integer"
+      }
+    },
+    {
+      "id": "native.resolvesToAProgramInsideTheProjectWhichALanguageServerCannotStart",
+      "description": "Native UI: %@ resolves to a program inside the project, which a language server cannot start.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ resolves to a program inside the project, which a language server cannot start.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
       }
     },
     {

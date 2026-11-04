@@ -567,6 +567,13 @@ final class MacServiceContainer {
                         settingsStore: MacLanguageToolSettingsStore(store: store),
                         versionChecker: declarativePluginOperations
                     )
+                    // Servers whose plugin backend names the process each
+                    // start; the preparer asks that backend, so it shares
+                    // the application's backends.
+                    let backendLaunches = MacPluginBackendLaunchPreparer(
+                        backends: pluginBackends, contexts: .shared, resolver: pluginLaunchResolver,
+                        tools: providerTools, runtime: runtimeService, core: rustCore
+                    )
                     let runtimeFactory = StdioLanguageProviderRuntimeFactory(
                         runtimeService: runtimeService,
                         languageServerCore: rustCore,
@@ -582,6 +589,9 @@ final class MacServiceContainer {
                                     try await remotePluginLaunches.prepareLanguage(descriptor, workspaceURL: workspace,
                                         tools: providerTools, versionChecker: declarativePluginOperations)
                                 }, core: rustCore, processRegistry: processRegistry, pluginID: descriptor.launchSource?.pluginID, role: .languageServer)
+                        },
+                        backendLaunchPreparer: { source, root in
+                            try await backendLaunches.prepare(source, workspaceURL: root)
                         },
                         processRegistry: processRegistry
                     )
@@ -1455,7 +1465,8 @@ final class MacServiceContainer {
                         pluginID: descriptor.id.rawValue,
                         languageID: server.languageID,
                         manifest: descriptor.normalizedManifest,
-                        packageURL: installed.packageURL
+                        packageURL: installed.packageURL,
+                        resolvesLaunchWithBackend: server.backendLaunch != nil
                     )
                     : nil
                 // An unexpandable probe is left empty, so the server is found

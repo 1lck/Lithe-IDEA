@@ -16,6 +16,7 @@
 "%@ already exists. Choose another name or location." = "%@ 已存在，请更换名称或位置。";
 "%@ answered with status %lld. %@" = "%1$@ 返回状态 %2$lld。%3$@";
 "%@ build files changed" = "%@ 构建文件已更改";
+"%@ cannot start in a remote workspace yet." = "%@ 暂时还不能在远程工作区中启动。";
 "%@ could not be reached. Check your internet, proxy, or VPN connection and try again." = "无法连接 %@。请检查网络、代理或 VPN 后重试。";
 "%@ debug adapter is unavailable." = "%@ 调试适配器不可用。";
 "%@ did not answer: %@" = "%@ 未回答：%@";
@@ -47,11 +48,13 @@
 "%@ language server (installed on this Mac)" = "%@ 语言服务器（本机已安装）";
 "%@ language server (started by the plugin)" = "%@ 语言服务器（由插件启动）";
 "%@ memory" = "%@ 内存";
+"%@ needs a launch this build of Lithe cannot resolve." = "%@ 需要一种当前版本的 Lithe 还无法解析的启动方式。";
 "%@ now follows your local %@ configuration." = "%@ 现在跟随你本机的 %@ 配置。";
 "%@ of %@ is handled by %@." = "%2$@ 的 %1$@ 由 %3$@ 处理。";
 "%@ options" = "%@ 选项";
 "%@ provider (inside the plugin)" = "%@ Provider（插件内置）";
 "%@ provider (installed on this Mac)" = "%@ Provider（使用本机已安装的程序）";
+"%@ resolves to a program inside the project, which a language server cannot start." = "%@ 解析到了项目内的程序，语言服务器不能用它启动。";
 "%@ returned HTTP %@." = "%@ 返回了 HTTP %@。";
 "%@ returned an invalid language-server provider." = "%@ 返回了无效的语言服务器 Provider。";
 "%@ returned an unexpected response." = "%@ 返回了无法识别的响应。";
@@ -2651,6 +2654,7 @@
 "No navigation results" = "没有导航结果";
 "No new commits. Pushing creates the remote branch." = "没有新的提交。推送会创建远程分支。";
 "No notifications" = "暂无通知";
+"No open window shows this workspace, so the plugin cannot choose how to start its language server." = "没有已打开的窗口显示这个工作区，插件无法决定如何启动它的语言服务器。";
 "No paths" = "没有路径";
 "No paths resolved for this service" = "此服务没有已解析的路径";
 "No place to look yet. Open the file you want to debug, or choose the program yourself." = "还没有可查找的位置。请打开要调试的文件，或自行选择程序。";
@@ -5800,6 +5804,7 @@
 "native.cannotEncodeHookConfiguration" = "无法编码 Hook 配置。";
 "native.cannotEncodeTheHookLibrary" = "无法编码 Hook 资源库。";
 "native.cannotLocateTheAgentUserDirectory" = "无法定位 Agent 的用户目录。";
+"native.cannotStartInARemoteWorkspaceYet" = "%1$@ 暂时还不能在远程工作区中启动。";
 "native.cannotUseUsingTheProjectJDKInstead" = "无法使用 %1$@，已改用项目 JDK。";
 "native.category" = "分类";
 "native.changeTheValuesStoredInTheSelectedScopeChooseInheritToRemoveAnOverride" = "修改所选范围中保存的值。选择“继承”即可移除覆盖。";
@@ -7743,6 +7748,7 @@
 "native.navigateToTheNextEditorLocation" = "跳转到下一个编辑器位置";
 "native.navigateToThePreviousEditorLocation" = "跳转到上一个编辑器位置";
 "native.navigation" = "导航";
+"native.needsALaunchThisBuildOfLitheCannotResolve" = "%1$@ 需要一种当前版本的 Lithe 还无法解析的启动方式。";
 "native.needsNoExtraPermissions" = "不需要额外权限。";
 "native.needsRestart" = "需重启";
 "native.nestedException" = "嵌套异常";
@@ -7883,6 +7889,7 @@
 "native.noNavigationResults" = "没有导航结果";
 "native.noNewCommitsPushingCreatesTheRemoteBranch" = "没有新的提交。推送会创建远程分支。";
 "native.noNotifications" = "暂无通知";
+"native.noOpenWindowShowsThisWorkspaceSoThePluginCannotChooseHowToStartItsLanguageServer" = "没有已打开的窗口显示这个工作区，插件无法决定如何启动它的语言服务器。";
 "native.noPaths" = "没有路径";
 "native.noPathsResolvedForThisService" = "此服务没有已解析的路径";
 "native.noPlaceToLookYetOpenTheFileYouWantToDebugOrChooseTheProgramYourself" = "还没有可查找的位置。请打开要调试的文件，或自行选择程序。";
@@ -8579,6 +8586,7 @@
 "native.resizeDialog" = "调整对话框大小，%1$@";
 "native.resolveLldConflictedFileSStageTheResultThenContinue" = "请解决 %1$lld 个文件的冲突，暂存结果后再继续。";
 "native.resolveLldConflictedFileSStageThemThenContinue" = "请解决 %1$lld 个冲突文件并暂存，然后继续。";
+"native.resolvesToAProgramInsideTheProjectWhichALanguageServerCannotStart" = "%1$@ 解析到了项目内的程序，语言服务器不能用它启动。";
 "native.resolvingDependencies" = "正在解析依赖…";
 "native.resolvingPushDestination" = "正在确定推送目标…";
 "native.resolvingServicePaths" = "正在解析服务路径…";

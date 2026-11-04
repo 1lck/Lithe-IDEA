@@ -16,6 +16,7 @@
 "%@ already exists. Choose another name or location." = "%@ already exists. Choose another name or location.";
 "%@ answered with status %lld. %@" = "%@ answered with status %lld. %@";
 "%@ build files changed" = "%@ build files changed";
+"%@ cannot start in a remote workspace yet." = "%@ cannot start in a remote workspace yet.";
 "%@ could not be reached. Check your internet, proxy, or VPN connection and try again." = "%@ could not be reached. Check your internet, proxy, or VPN connection and try again.";
 "%@ debug adapter is unavailable." = "%@ debug adapter is unavailable.";
 "%@ did not answer: %@" = "%@ did not answer: %@";
@@ -47,11 +48,13 @@
 "%@ language server (installed on this Mac)" = "%@ language server (installed on this Mac)";
 "%@ language server (started by the plugin)" = "%@ language server (started by the plugin)";
 "%@ memory" = "%@ memory";
+"%@ needs a launch this build of Lithe cannot resolve." = "%@ needs a launch this build of Lithe cannot resolve.";
 "%@ now follows your local %@ configuration." = "%@ now follows your local %@ configuration.";
 "%@ of %@ is handled by %@." = "%@ of %@ is handled by %@.";
 "%@ options" = "%@ options";
 "%@ provider (inside the plugin)" = "%@ provider (inside the plugin)";
 "%@ provider (installed on this Mac)" = "%@ provider (installed on this Mac)";
+"%@ resolves to a program inside the project, which a language server cannot start." = "%@ resolves to a program inside the project, which a language server cannot start.";
 "%@ returned HTTP %@." = "%@ returned HTTP %@.";
 "%@ returned an invalid language-server provider." = "%@ returned an invalid language-server provider.";
 "%@ returned an unexpected response." = "%@ returned an unexpected response.";
@@ -2651,6 +2654,7 @@
 "No navigation results" = "No navigation results";
 "No new commits. Pushing creates the remote branch." = "No new commits. Pushing creates the remote branch.";
 "No notifications" = "No notifications";
+"No open window shows this workspace, so the plugin cannot choose how to start its language server." = "No open window shows this workspace, so the plugin cannot choose how to start its language server.";
 "No paths" = "No paths";
 "No paths resolved for this service" = "No paths resolved for this service";
 "No place to look yet. Open the file you want to debug, or choose the program yourself." = "No place to look yet. Open the file you want to debug, or choose the program yourself.";
@@ -5800,6 +5804,7 @@
 "native.cannotEncodeHookConfiguration" = "Cannot encode Hook configuration.";
 "native.cannotEncodeTheHookLibrary" = "Cannot encode the Hook library.";
 "native.cannotLocateTheAgentUserDirectory" = "Cannot locate the Agent user directory.";
+"native.cannotStartInARemoteWorkspaceYet" = "%1$@ cannot start in a remote workspace yet.";
 "native.cannotUseUsingTheProjectJDKInstead" = "Cannot use %1$@; using the project JDK instead.";
 "native.category" = "Category";
 "native.changeTheValuesStoredInTheSelectedScopeChooseInheritToRemoveAnOverride" = "Change the values stored in the selected scope. Choose Inherit to remove an override.";
@@ -7743,6 +7748,7 @@
 "native.navigateToTheNextEditorLocation" = "Navigate to the next editor location";
 "native.navigateToThePreviousEditorLocation" = "Navigate to the previous editor location";
 "native.navigation" = "Navigation";
+"native.needsALaunchThisBuildOfLitheCannotResolve" = "%1$@ needs a launch this build of Lithe cannot resolve.";
 "native.needsNoExtraPermissions" = "Needs no extra permissions.";
 "native.needsRestart" = "Needs restart";
 "native.nestedException" = "Nested exception";
@@ -7883,6 +7889,7 @@
 "native.noNavigationResults" = "No navigation results";
 "native.noNewCommitsPushingCreatesTheRemoteBranch" = "No new commits. Pushing creates the remote branch.";
 "native.noNotifications" = "No notifications";
+"native.noOpenWindowShowsThisWorkspaceSoThePluginCannotChooseHowToStartItsLanguageServer" = "No open window shows this workspace, so the plugin cannot choose how to start its language server.";
 "native.noPaths" = "No paths";
 "native.noPathsResolvedForThisService" = "No paths resolved for this service";
 "native.noPlaceToLookYetOpenTheFileYouWantToDebugOrChooseTheProgramYourself" = "No place to look yet. Open the file you want to debug, or choose the program yourself.";
@@ -8579,6 +8586,7 @@
 "native.resizeDialog" = "Resize dialog, %1$@";
 "native.resolveLldConflictedFileSStageTheResultThenContinue" = "Resolve %1$lld conflicted file(s), stage the result, then continue.";
 "native.resolveLldConflictedFileSStageThemThenContinue" = "Resolve %1$lld conflicted file(s), stage them, then continue.";
+"native.resolvesToAProgramInsideTheProjectWhichALanguageServerCannotStart" = "%1$@ resolves to a program inside the project, which a language server cannot start.";
 "native.resolvingDependencies" = "Resolving dependencies...";
 "native.resolvingPushDestination" = "Resolving push destination…";
 "native.resolvingServicePaths" = "Resolving service paths...";
