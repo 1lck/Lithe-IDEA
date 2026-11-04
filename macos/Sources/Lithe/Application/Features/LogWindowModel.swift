@@ -42,6 +42,9 @@ final class LogWindowModel: ObservableObject {
     static let maximumBookmarks = 50
     static let maximumChannels = 64
     static let maximumExpressionBytes = 1024
+    /// Bounds a saved column width. The table clamps its base widths the same
+    /// way, so what it lays out is what a reopened window restores.
+    static func columnWidth(_ width: Double) -> Double { min(2000, max(40, width)) }
     struct Snapshot {
         var records: [RustCoreBridge.LogQueryRecord] = []
         var channels: [String: RustCoreBridge.LogChannelCounts] = [:]
@@ -100,7 +103,7 @@ final class LogWindowModel: ObservableObject {
         self.logging = logging; self.preferences = preferences; self.sink = sink; self.save = save; self.delay = delay
         let columns: Set<String> = ["seq", "time", "level", "channel", "event", "message", "fields"]
         self.preferences.hidden.formIntersection(columns)
-        self.preferences.widths = preferences.widths.filter { columns.contains($0.key) && $0.value.isFinite }.mapValues { min(2000, max(40, $0)) }
+        self.preferences.widths = preferences.widths.filter { columns.contains($0.key) && $0.value.isFinite }.mapValues(Self.columnWidth)
         self.preferences.timeMode = min(2, max(0, preferences.timeMode))
         self.preferences.query.expression = Self.bounded(preferences.query.expression)
         self.preferences.query.channelPrefixes = Array(preferences.query.channelPrefixes.prefix(Self.maximumChannels))
@@ -408,7 +411,7 @@ final class LogWindowModel: ObservableObject {
     func setColumn(_ column: String, hidden: Bool) {
         if hidden { preferences.hidden.insert(column) } else { preferences.hidden.remove(column) }; persist()
     }
-    func setWidth(_ column: String, width: Double) { preferences.widths[column] = min(2000, max(40, width)); persist() }
+    func setWidth(_ column: String, width: Double) { preferences.widths[column] = Self.columnWidth(width); persist() }
     func saveBookmark(name: String) {
         guard !name.isEmpty, preferences.bookmarks.count < Self.maximumBookmarks else { return }
         var savedQuery = query; savedQuery.afterSequences = nil

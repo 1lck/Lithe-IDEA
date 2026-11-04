@@ -87,20 +87,9 @@ private struct LanguageServerLogOutput: View {
     @ObservedObject var logs: LogWindowModel
     let channelError: String?
     let retry: () -> Void
-
-    private var output: String {
-        logs.state.records.map { record in
-            let time = Date(timeIntervalSince1970: TimeInterval(record.epochMs) / 1000)
-                .formatted(date: .omitted, time: .standard)
-            // Structured identifiers: the shared console colors the level prefix.
-            // Upstream messages and field values are shown unchanged.
-            let fields = record.fields.sorted { $0.key < $1.key }
-                .map { "\($0.key)=\($0.value)" }
-                .joined(separator: " ")
-            return "[\(record.level)] \(time) \(record.msg)\(fields.isEmpty ? "" : "\n" + fields)\n"
-        }
-        .joined()
-    }
+    /// Formats each record once; a publish that leaves the records unchanged
+    /// formats nothing.
+    @StateObject private var text = LanguageServerLogText()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -115,7 +104,7 @@ private struct LanguageServerLogOutput: View {
                 .padding(.bottom, 6)
             }
             OutputTextView(
-                output: output,
+                output: text.update(logs.state.records),
                 searchRoots: [],
                 fileExists: { _ in false },
                 emptyMessage: L10n.string("No matching language server logs"),

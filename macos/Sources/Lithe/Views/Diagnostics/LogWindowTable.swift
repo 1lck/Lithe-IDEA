@@ -245,9 +245,8 @@ struct LogWindowTable: NSViewRepresentable {
         }
         func commitColumnWidths(previous: [NSUserInterfaceItemIdentifier: CGFloat]) {
             guard let table else { return }
-            for column in table.tableColumns where previous[column.identifier] != column.width {
-                table.preferredWidths[column.identifier] = column.width
-                model.setWidth(column.identifier.rawValue, width: column.width)
+            for (identifier, width) in table.adoptResizedWidths(previous: previous) {
+                model.setWidth(identifier.rawValue, width: width)
             }
             table.fitColumnsToViewport()
         }
@@ -403,24 +402,72 @@ final class LogTableView: NSTableView {
 
     /// Widths are presentation state: resizing never reloads records or persists
     /// the space added by the viewport. Narrow windows keep horizontal scrolling.
+    ///
+    /// `preferredWidths` holds base widths. Fixed columns show their base; the
+    /// expanding columns share the viewport's spare width in proportion to theirs.
     func fitColumnsToViewport() {
         guard !isFittingColumns, !isResizingColumns, !preferredWidths.isEmpty, let scroll = enclosingScrollView else { return }
         let visible = tableColumns.filter { !$0.isHidden }
         guard !visible.isEmpty else { return }
-        let flexible = visible.filter { ["event", "message", "fields"].contains($0.identifier.rawValue) }
-        let expanding = flexible.isEmpty ? Array(visible.suffix(1)) : flexible
-        let baseline = visible.reduce(CGFloat.zero) { $0 + (preferredWidths[$1.identifier] ?? $1.width) + intercellSpacing.width }
+        let expanding = expandingColumns(visible)
+        let baseline = visible.reduce(CGFloat.zero) { $0 + base($1) + intercellSpacing.width }
         let spare = max(0, scroll.contentSize.width - baseline)
-        let weight = expanding.reduce(CGFloat.zero) { $0 + (preferredWidths[$1.identifier] ?? $1.width) }
+        let weight = expanding.reduce(CGFloat.zero) { $0 + base($1) }
         isFittingColumns = true
         defer { isFittingColumns = false }
         for column in visible {
-            let preferred = preferredWidths[column.identifier] ?? column.width
+            let preferred = base(column)
             let extra = expanding.contains(column) ? spare * preferred / max(1, weight) : 0
             let width = preferred + extra
             if abs(column.width - width) > 0.1 { column.width = width }
         }
     }
+
+    /// Turns the widths a header drag left on screen into base widths, so the next
+    /// fit shows every dragged column where the user released it. Saving the
+    /// released width of an expanding column as its base would add its share of
+    /// the spare width again on top. Returns the bases that changed, to persist.
+    func adoptResizedWidths(previous: [NSUserInterfaceItemIdentifier: CGFloat]) -> [NSUserInterfaceItemIdentifier: CGFloat] {
+        let visible = tableColumns.filter { !$0.isHidden }
+        let expanding = expandingColumns(visible)
+        let resized = visible.filter { previous[$0.identifier] != $0.width }
+        var changed: [NSUserInterfaceItemIdentifier: CGFloat] = [:]
+        func adopt(_ column: NSTableColumn, _ width: CGFloat) {
+            let value = CGFloat(LogWindowModel.columnWidth(Double(width)))
+            preferredWidths[column.identifier] = value
+            changed[column.identifier] = value
+        }
+        // A fixed column shows its base. Adopt these first: they decide how much
+        // space the expanding columns share.
+        for column in resized where !expanding.contains(column) { adopt(column, column.width) }
+        let viewport = enclosingScrollView?.contentSize.width ?? 0
+        for column in resized where expanding.contains(column) {
+            let released = column.width
+            let others = expanding.filter { $0 !== column }
+            let otherBases = others.reduce(CGFloat.zero) { $0 + base($1) }
+            let shared = visible.reduce(viewport) { $0 - intercellSpacing.width - (expanding.contains($1) ? 0 : base($1)) }
+            // With base b, shared width S and the other expanding bases B, the column
+            // shows b·S/(b+B) while b+B < S, and b otherwise. A lone expanding column
+            // always fills the row, and a release past S-B leaves no spare width:
+            // in both cases the base is the released width.
+            guard otherBases > 0, released < shared - otherBases else { adopt(column, released); continue }
+            let exact = released * otherBases / (shared - released)
+            if exact >= column.minWidth { adopt(column, exact); continue }
+            // The base cannot go below the minimum width. Keep the released layout
+            // by giving the other expanding columns proportionally larger bases.
+            let scale = column.minWidth / exact
+            adopt(column, column.minWidth)
+            for other in others { adopt(other, base(other) * scale) }
+        }
+        return changed
+    }
+
+    private func expandingColumns(_ visible: [NSTableColumn]) -> [NSTableColumn] {
+        let flexible = visible.filter { ["event", "message", "fields"].contains($0.identifier.rawValue) }
+        return flexible.isEmpty ? Array(visible.suffix(1)) : flexible
+    }
+
+    private func base(_ column: NSTableColumn) -> CGFloat { preferredWidths[column.identifier] ?? column.width }
     override func keyDown(with event: NSEvent) {
         if event.modifierFlags.contains(.command), event.charactersIgnoringModifiers == "c" { owner?.copy(format: "json"); return }
         if event.keyCode == 53 { owner?.model.select([]); return }
