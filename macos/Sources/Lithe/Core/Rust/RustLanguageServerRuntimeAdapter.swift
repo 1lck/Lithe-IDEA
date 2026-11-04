@@ -456,6 +456,12 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
             .mapError(Self.runtimeFailure)
     }
 
+    func configurePluginFunctionRelay(
+        _ snapshot: PluginFunctionRelaySnapshot
+    ) -> Result<Void, LanguageServerRuntimeFailure> {
+        lspConfigureFunctionRelay(snapshot).mapError(Self.runtimeFailure)
+    }
+
     func updateWorkspaceConfiguration(
         sessionID: String,
         configuration: ToolingJSONValue

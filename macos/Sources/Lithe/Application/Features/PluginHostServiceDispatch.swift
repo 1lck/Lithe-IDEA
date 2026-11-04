@@ -260,8 +260,14 @@ final class PluginHostServiceDispatcher {
         Array(Set(uniqueHandlers.map(\.service))).sorted()
     }
 
+    /// Services Core answers itself. The host has no handler for them, but
+    /// the plugin is still granted them: a call between two plugins runs
+    /// inside Core, and the host only starts the callee's backend.
+    static let coreServedGrants: Set<String> = ["functions"]
+
     func supportedGrants(_ requested: [String]) -> [String] {
         requested.filter { grant in
+            if Self.coreServedGrants.contains(grant) { return true }
             if handlers[grant] != nil { return true }
             let legacy: [String]
             switch grant {
