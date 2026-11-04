@@ -8708,6 +8708,10 @@ fn workspace_file_changes_notification(
 }
 
 #[cfg(test)]
+#[path = "engine_function_relay_tests.rs"]
+mod function_relay_tests;
+
+#[cfg(test)]
 #[path = "engine_real_jdt_tests.rs"]
 mod real_jdt_tests;
 
@@ -8739,7 +8743,7 @@ mod tests {
         configuration
     }
 
-    fn start_request(server: &ScriptedServer) -> StartServerRequest {
+    pub(super) fn start_request(server: &ScriptedServer) -> StartServerRequest {
         let _ = server;
         StartServerRequest {
             // A non-Java provider keeps JDT argument adaptation out of the way;
