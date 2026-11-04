@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import SwiftUI
 
 struct RunView: View {
@@ -121,9 +122,9 @@ struct RunView: View {
                     HStack(spacing: 4) {
                         Text("—")
                             .foregroundStyle(LitheTheme.RunEmptyState.text)
-                        Button("Identify and Generate") {
+                        Button("Identify and Generate", action: UserActionTrace.action("run.configurations.generate") {
                             feature.requestRunConfigurationGeneration()
-                        }
+                        })
                         .buttonStyle(.plain)
                         .foregroundStyle(LitheTheme.RunEmptyState.link)
                     }
@@ -165,9 +166,9 @@ struct RunView: View {
                     .font(LitheTheme.uiFont(size: 12))
                     .foregroundStyle(LitheTheme.warning)
             } else if feature.recoveryAction != .none {
-                Button {
+                Button(action: UserActionTrace.action("run.configurations.generate") {
                     feature.requestRunConfigurationGeneration()
-                } label: {
+                }) {
                     Label(
                         feature.recoveryAction == .fixPermissions
                             ? runText("Retry Identification")
@@ -267,7 +268,8 @@ struct RunView: View {
             Text(notice.title).litheBannerTitle()
             Text(notice.message).lineLimit(2)
             if feature.configurationDiagnostics.contains(where: { $0.code == "staleFingerprint" }) {
-                Button("Identify Again") { feature.requestRunConfigurationGeneration() }
+                Button("Identify Again",
+                    action: UserActionTrace.action("run.configurations.generate") { feature.requestRunConfigurationGeneration() })
             } else if feature.blockingToolchainDiagnostic != nil {
                 Button("Project · JDK & Maven") { model.showSettings(category: .project) }
             }
@@ -365,7 +367,7 @@ struct RunView: View {
                     Text(String(format: runText("%lld selected"), Int64(browser.checkedIDs.count)))
                         .font(LitheTheme.uiFont(size: 11))
                         .foregroundStyle(LitheTheme.secondaryText)
-                    Button(action: runCheckedConfigurations) {
+                    Button(action: UserActionTrace.action("run.checked.start", runCheckedConfigurations)) {
                         LitheIDEAIcon(resourcePath: "expui/run/run.svg", size: 16,
                                       fallbackSystemImage: "play.fill", preservesOriginalColors: true)
                     }
@@ -374,11 +376,11 @@ struct RunView: View {
                     .help("Run checked configurations without restarting running services")
                     .disabled(feature.configurationStatus != .ready || feature.isLoadingProject)
 
-                    Button {
+                    Button(action: UserActionTrace.action("run.checked.stop") {
                         for session in feature.moduleSessions where browser.checkedIDs.contains(session.configurationID) && session.isRunning {
                             feature.stopModule(session)
                         }
-                    } label: {
+                    }) {
                         LitheIDEAIcon(resourcePath: "expui/run/stop.svg", size: 16,
                                       fallbackSystemImage: "stop.fill", preservesOriginalColors: true)
                     }
@@ -396,7 +398,7 @@ struct RunView: View {
                     .help("Clear selection")
                 }
 
-                Button {
+                Button(action: UserActionTrace.action("run.panel.start-or-restart") {
                     contentTab = .console
                     if let configuration = selectedRunnableConfiguration {
                         model.startRunConfiguration(configuration)
@@ -405,7 +407,7 @@ struct RunView: View {
                     } else {
                         model.runSelectedConfiguration()
                     }
-                } label: {
+                }) {
                     if selectedSessionHasRun {
                         LitheIDEAIcon(resourcePath: "expui/run/rerun_stroke.svg", size: 16,
                                       fallbackSystemImage: "arrow.clockwise")
@@ -422,7 +424,9 @@ struct RunView: View {
                 .disabled(feature.isLoadingProject)
 
                 if feature.hasBuildProviderRun && primaryOutputSelected && primaryRunMatchesSelection {
-                    Button { feature.saveBuildProviderConfiguration() } label: {
+                    Button(action: UserActionTrace.action("run.provider-configuration.save") {
+                        feature.saveBuildProviderConfiguration()
+                    }) {
                         Image(systemName: "square.and.arrow.down")
                     }
                     .buttonStyle(runActionButtonStyle)
@@ -431,13 +435,13 @@ struct RunView: View {
                     .disabled(feature.isLoadingProject)
                 }
 
-                Button {
+                Button(action: UserActionTrace.action("run.panel.stop") {
                     if let session = selectedModuleSession {
                         feature.stopModule(session)
                     } else {
                         model.stopSelectedRun()
                     }
-                } label: {
+                }) {
                     LitheIDEAIcon(resourcePath: "expui/run/stop.svg", size: 16,
                                   fallbackSystemImage: "stop.fill", preservesOriginalColors: true)
                 }
@@ -448,7 +452,7 @@ struct RunView: View {
                 .accessibilityLabel("Stop run")
 
                 if let session = selectedModuleSession, feature.canUpdateService(session) {
-                    Button { model.updateRunningService(session) } label: {
+                    Button(action: UserActionTrace.action("run.service.update") { model.updateRunningService(session) }) {
                         Image(systemName: "bolt.fill")
                     }
                     .buttonStyle(runActionButtonStyle)
@@ -458,9 +462,9 @@ struct RunView: View {
                     .accessibilityLabel("Update running service")
                 }
 
-                Button {
+                Button(action: UserActionTrace.action("run.configurations.generate") {
                     feature.requestRunConfigurationGeneration()
-                } label: {
+                }) {
                     LitheIDEAIcon(resourcePath: "expui/general/refresh.svg", size: 16,
                                   fallbackSystemImage: "arrow.clockwise", preservesOriginalColors: true)
                 }

@@ -2,6 +2,7 @@
 
 // The initial projection/routing IR is deliberately not command- or host-facing
 // until both native products can consume the same versioned contract.
+mod command_trace;
 mod commit_state;
 pub(crate) mod workspace_commit;
 pub use commit_state::{inspect as commit_state, GitCommitGitlink, GitCommitState};
@@ -1806,16 +1807,40 @@ fn capture_git_process(
 ) -> Result<GitProcessOutput, CoreError> {
     validate_windows_git_path(Path::new(root)).map_err(git_path_error)?;
     crate::protocol::cancellation::check()?;
-    if let Some(result) = remote_process::capture(
+    let mut trace = command_trace::Trace::begin(root, arguments, visible);
+    let result = match remote_process::capture(
         root,
         arguments,
         input.as_deref(),
         disable_optional_locks,
         environment,
         visible,
+        &mut trace,
     ) {
-        return result;
-    }
+        Some(result) => result,
+        None => capture_local_git_process(
+            root,
+            arguments,
+            input,
+            disable_optional_locks,
+            environment,
+            visible,
+            &mut trace,
+        ),
+    };
+    trace.finish(result.as_ref().err());
+    result
+}
+
+fn capture_local_git_process(
+    root: &str,
+    arguments: &[String],
+    input: Option<String>,
+    disable_optional_locks: bool,
+    environment: &[(String, String)],
+    visible: bool,
+    trace: &mut command_trace::Trace,
+) -> Result<GitProcessOutput, CoreError> {
     let mut process = git_process();
     let version = lithe_git_host::configuration::version(process.get_program(), || {
         crate::protocol::cancellation::check().is_err()
@@ -1946,6 +1971,7 @@ fn capture_git_process(
         .status
         .as_ref()
         .and_then(std::process::ExitStatus::code);
+    trace.observe(exit_code, &output.stderr);
     if let Some(invocation) = invocation.into_inner() {
         // Optional internal config reads use exit 1 for a missing key. Preserve
         // that actual code without presenting a normal preflight result as failure.
@@ -8569,13 +8595,14 @@ fn pathspec_batches(paths: &[String], budget: usize) -> Vec<&[String]> {
 }
 
 fn run_git(directory: &Path, arguments: &[&str]) -> Result<std::process::Output, CoreError> {
+    let arguments = arguments
+        .iter()
+        .map(|value| value.to_string())
+        .collect::<Vec<_>>();
     if crate::remote::workspace::is_remote() {
         let output = capture_git_process(
             &directory.to_string_lossy(),
-            &arguments
-                .iter()
-                .map(|value| value.to_string())
-                .collect::<Vec<_>>(),
+            &arguments,
             None,
             true,
             &[],
@@ -8601,15 +8628,21 @@ fn run_git(directory: &Path, arguments: &[&str]) -> Result<std::process::Output,
     // may otherwise refresh its optional index data while answering a query,
     // which emits `.git/index` events into the native watcher and can trigger
     // another status refresh.
-    git_process()
+    let mut trace = command_trace::Trace::begin(&directory.to_string_lossy(), &arguments, false);
+    let result = git_process()
         .env("GIT_OPTIONAL_LOCKS", "0")
-        .args(arguments)
+        .args(&arguments)
         .current_dir(directory)
         .output()
         .map_err(|error| {
             CoreError::new(ErrorCode::ProcessStartFailed, "Could not start Git")
                 .with_details(error.to_string())
-        })
+        });
+    if let Ok(output) = &result {
+        trace.observe(output.status.code(), &output.stderr);
+    }
+    trace.finish(result.as_ref().err());
+    result
 }
 
 fn parse_status(output: &[u8], include_index_only_changes: bool) -> Vec<GitChange> {

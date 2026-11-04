@@ -164,6 +164,12 @@ extension RustCoreBridge {
     func drainCoreLogEvents() throws -> CoreLogDrain {
         try executeResult(command: "diagnostics.drainCoreEvents", payload: [String: String]()).get()
     }
+    private struct CoreEventConfiguration: Encodable { let debug: Bool; let roots: [String]? }
+    /// Core skips building DEBUG facts the host would drop; `roots: nil` admits every root.
+    func configureCoreEvents(debug: Bool, roots: [String]?) throws {
+        let _: [String: String] = try executeResult(command: "diagnostics.configureCoreEvents",
+            payload: CoreEventConfiguration(debug: debug, roots: roots)).get()
+    }
 
     func encodeLogs(_ request: LogBatch) throws -> LogBatchResult {
         try executeResult(command: "diagnostics.encodeLogBatch", payload: request).get()

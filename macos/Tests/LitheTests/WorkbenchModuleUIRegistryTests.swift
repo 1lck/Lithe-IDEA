@@ -25,18 +25,18 @@ struct WorkbenchModuleUIRegistryTests {
             ])])
             #expect(registry.state(for: project, model: model).isEnabled)
             allowed = false
-            registry.performAction(id: project.actionID!, model: model)
-            registry.perform(project, model: model)
+            registry.performAction(id: project.actionID!, model: model, surface: nil)
+            registry.perform(project, model: model, surface: nil)
             #expect(invocations == 0)
             allowed = true
             visible = false
-            registry.perform(project, model: model)
+            registry.perform(project, model: model, surface: nil)
             #expect(invocations == 0)
             visible = true
             let stale = ModuleContribution(id: project.id, kind: project.kind, title: "Changed metadata", actionID: project.actionID)
-            registry.perform(stale, model: model)
+            registry.perform(stale, model: model, surface: nil)
             #expect(invocations == 0)
-            registry.perform(project, model: model)
+            registry.perform(project, model: model, surface: nil)
             #expect(invocations == 1)
         }
     }
@@ -68,7 +68,7 @@ struct WorkbenchModuleUIRegistryTests {
             settings.projectTreeRowHeight += 1
             #expect(renderer.contentIdentity(model) != identity)
             model.workbenchFeature.customizeContribution(search.id, placement: .rightSidebar)
-            model.workbenchUIRegistry.perform(search, model: model)
+            model.workbenchUIRegistry.perform(search, model: model, surface: nil)
             #expect(model.workbenchFeature.isVisible(.search))
             #expect(model.workbenchFeature.activeRightToolWindow == .search)
             #expect(model.workbenchFeature.activeLeftToolWindow == .project)
@@ -78,12 +78,12 @@ struct WorkbenchModuleUIRegistryTests {
                 try await container.services.moduleRuntime.setEnabled(false, for: .search)
             }
             #expect(model.workbenchFeature.activeRightToolWindow == nil)
-            model.workbenchUIRegistry.perform(search, model: model)
+            model.workbenchUIRegistry.perform(search, model: model, surface: nil)
             #expect(model.workbenchFeature.activeRightToolWindow == nil)
             #expect(!model.leftSidebarContributions.contains { $0.id == search.id })
             let pullRequests = try #require(model.workbenchContributions.first { $0.id == "github.pull-requests" })
             #expect(model.workbenchUIRegistry.renderer(for: pullRequests)?.isEnabled(model) == false)
-            model.workbenchUIRegistry.perform(pullRequests, model: model)
+            model.workbenchUIRegistry.perform(pullRequests, model: model, surface: nil)
             #expect(!model.workbenchFeature.isVisible(.pullRequests))
         }
     }

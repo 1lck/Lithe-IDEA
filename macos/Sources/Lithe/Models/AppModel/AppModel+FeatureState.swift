@@ -353,7 +353,7 @@ extension AppModel {
     }
 
     func performShortcutCommand(id: String) {
-        workbenchUIRegistry.performAction(id: id, model: self)
+        workbenchUIRegistry.performAction(id: id, model: self, surface: .shortcut)
     }
 
     func canPerformShortcutCommand(id: String) -> Bool {

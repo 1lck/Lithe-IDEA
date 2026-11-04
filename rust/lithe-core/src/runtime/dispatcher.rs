@@ -45,12 +45,26 @@ use serde_json::json;
 pub fn execute_json(request: &str) -> String {
     crate::diagnostics::helper_failures::install();
     let response = execute(request);
-    serde_json::to_string(&response).unwrap_or_else(|_| {
-        serde_json::to_string(&CoreResponse::failure(
+    encode(&response, crate::diagnostics::core_events::has_pending())
+}
+
+/// Encodes one envelope. `coreEventsPending` appears only while Core facts wait,
+/// so the host schedules a drain from the response instead of polling.
+fn encode(response: &CoreResponse, events_pending: bool) -> String {
+    let fallback = || {
+        CoreResponse::failure(
             None,
             CoreError::new(ErrorCode::Unknown, "Could not encode core response"),
-        ))
-        .expect("fallback response should encode")
+        )
+    };
+    let mut value = serde_json::to_value(response).unwrap_or_else(|_| {
+        serde_json::to_value(fallback()).expect("fallback response should encode")
+    });
+    if events_pending {
+        value["coreEventsPending"] = serde_json::Value::Bool(true);
+    }
+    serde_json::to_string(&value).unwrap_or_else(|_| {
+        serde_json::to_string(&fallback()).expect("fallback response should encode")
     })
 }
 
@@ -88,6 +102,14 @@ fn agent_response<T: serde::de::DeserializeOwned>(
     }
 }
 
+/// Host detailed-diagnostics state; `roots: None` enables DEBUG for every root.
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CoreEventConfiguration {
+    debug: bool,
+    roots: Option<Vec<String>>,
+}
+
 // Domain failures retain their unique numeric logging codes inside the existing Core envelope.
 fn log_v2_result<T: serde::Serialize>(
     result: Result<T, crate::diagnostics::channel::LogError>,
@@ -109,6 +131,14 @@ fn execute(request: &str) -> CoreResponse {
             );
         }
     };
+    // The trace spans every scope below and records once, after the final response.
+    let trace = crate::diagnostics::request_trace::Request::begin(&parsed);
+    let response = execute_parsed(parsed);
+    trace.finish(&response);
+    response
+}
+
+fn execute_parsed(parsed: CoreRequest) -> CoreResponse {
     let id = parsed.id.clone();
     let response_id = id.clone();
     let operation_id = parsed.operation_id.clone().or_else(|| id.clone());
@@ -3453,6 +3483,25 @@ fn execute(request: &str) -> CoreResponse {
             serde_json::to_value(crate::diagnostics::core_events::drain())
                 .expect("Core logs encode"),
         ),
+        CoreCommand::DiagnosticsConfigureCoreEvents => {
+            match serde_json::from_value::<CoreEventConfiguration>(parsed.payload) {
+                Ok(configuration) => {
+                    crate::diagnostics::core_events::configure(
+                        configuration.debug,
+                        configuration.roots,
+                    );
+                    CoreResponse::success(id, json!({}))
+                }
+                Err(error) => CoreResponse::failure(
+                    id,
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Core event configuration",
+                    )
+                    .with_details(error.to_string()),
+                ),
+            }
+        }
         CoreCommand::DiagnosticsEncodeLogBatch => {
             match serde_json::from_value::<crate::diagnostics::record::EncodeLogBatchRequest>(
                 parsed.payload,
@@ -3643,6 +3692,39 @@ fn execute(request: &str) -> CoreResponse {
 mod tests {
     use super::execute_json;
     use serde_json::{json, Value};
+
+    #[test]
+    fn envelope_flags_pending_core_events_only_when_some_wait() {
+        let response = crate::protocol::CoreResponse::success(Some("1".into()), json!({}));
+        let pending: Value = serde_json::from_str(&super::encode(&response, true)).unwrap();
+        assert_eq!(pending["coreEventsPending"], true);
+        assert_eq!(pending["ok"], true);
+        let idle: Value = serde_json::from_str(&super::encode(&response, false)).unwrap();
+        assert!(idle.get("coreEventsPending").is_none());
+    }
+
+    #[test]
+    fn configure_core_events_sets_the_debug_gate_and_rejects_unknown_fields() {
+        use crate::diagnostics::core_events::{accepts, configure};
+        use crate::diagnostics::record::LogLevel;
+        let send = |payload: Value| -> Value {
+            serde_json::from_str(&execute_json(
+                &json!({"command": "diagnostics.configureCoreEvents", "payload": payload})
+                    .to_string(),
+            ))
+            .unwrap()
+        };
+        assert_eq!(send(json!({"debug": true, "roots": ["vcs"]}))["ok"], true);
+        let scoped = (accepts(LogLevel::Debug, "vcs"), accepts(LogLevel::Debug, "app"));
+        let rejected = send(json!({"debug": true, "level": "debug"}));
+        // Restore the process default before asserting so a failure cannot leak DEBUG.
+        configure(false, None);
+        assert_eq!(scoped, (true, false));
+        assert_eq!(rejected["ok"], false);
+        assert_eq!(rejected["error"]["code"], "invalid_request");
+        assert!(!accepts(LogLevel::Debug, "vcs"));
+        assert!(accepts(LogLevel::Warn, "vcs"));
+    }
 
     #[test]
     fn routes_semantic_lsp_runtime_commands() {

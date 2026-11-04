@@ -414,9 +414,9 @@ struct NewProjectView: View {
             }
             .buttonStyle(LitheActionButtonStyle())
             .keyboardShortcut(.cancelAction)
-            Button(LocalizedStringKey("Create")) {
+            Button(LocalizedStringKey("Create"), action: UserActionTrace.action("workspace.project.create") {
                 feature.create { dismiss() }
-            }
+            })
             .buttonStyle(LitheActionButtonStyle(isPrimary: true))
             .keyboardShortcut(.defaultAction)
             .disabled(!feature.canCreate)

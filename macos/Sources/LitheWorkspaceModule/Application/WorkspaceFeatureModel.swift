@@ -428,7 +428,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
                 if !(error is CancellationError) { self.logSink?.emit(AppWorkspaceRollbackFailed(error: error)) }
             }
             guard isCurrent(), self.indexingOwnerID == ownerID else { throw CancellationError() }
-            let status = try await Task.detached(priority: .userInitiated) {
+            let status = try await UserActionContext.detached(priority: .userInitiated) {
                 try operations.configureIndexing(at: root, policy: policy, refresh: refresh, ownerID: ownerID)
             }.value
             guard isCurrent(), self.indexingOwnerID == ownerID else {
@@ -506,7 +506,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
                 guard isCurrent() else { return .stale }
                 indexingStatus = status
                 indexingIssue = nil
-                snapshot = try await Task.detached(priority: .userInitiated) {
+                snapshot = try await UserActionContext.detached(priority: .userInitiated) {
                     try operations.snapshot(at: workspaceURL, visibilityRules: rules).map { snapshot in
                         Self.listingTree(of: snapshot, reloading: previouslyLoaded, operations: operations, rules: rules)
                     }
@@ -863,10 +863,10 @@ package final class WorkspaceFeatureModel: ObservableObject {
         let fileOperations = self.fileOperations, logSink = self.logSink
         var movedByVersionControl = false
         if request.kind == .rename, let moveTrackedItem {
-            let exists = await Task.detached(priority: .userInitiated) { fileOperations.fileExists(at: destination) }.value
+            let exists = await UserActionContext.detached(priority: .userInitiated) { fileOperations.fileExists(at: destination) }.value
             if !exists { movedByVersionControl = await moveTrackedItem(request.targetURL, destination) }
         }
-        let errorMessage = movedByVersionControl ? nil : await Task.detached(priority: .userInitiated) { () -> String? in
+        let errorMessage = movedByVersionControl ? nil : await UserActionContext.detached(priority: .userInitiated) { () -> String? in
             guard !fileOperations.fileExists(at: destination) else {
                 return "An item named '\(name)' already exists"
             }
@@ -947,7 +947,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
             if workspaceGeneration == generation { isPerformingProjectItemOperation = false }
         }
         let fileOperations = self.fileOperations, logSink = self.logSink
-        let validationError = await Task.detached(priority: .userInitiated) {
+        let validationError = await UserActionContext.detached(priority: .userInitiated) {
             Self.projectMoveError(sources, to: target, workspace: workspace, files: fileOperations)
         }.value
         guard workspaceGeneration == generation, workspaceURL == workspace else { return }
@@ -972,12 +972,12 @@ package final class WorkspaceFeatureModel: ObservableObject {
             let previousMarks = directoryMarks
             var movedByVersionControl = false
             if let moveTrackedItem {
-                let preflight = await Task.detached(priority: .userInitiated) {
+                let preflight = await UserActionContext.detached(priority: .userInitiated) {
                     Self.projectMoveError([source], to: target, workspace: workspace, files: fileOperations)
                 }.value
                 if preflight == nil { movedByVersionControl = await moveTrackedItem(source, destination) }
             }
-            let error = movedByVersionControl ? nil : await Task.detached(priority: .userInitiated) { () -> String? in
+            let error = movedByVersionControl ? nil : await UserActionContext.detached(priority: .userInitiated) { () -> String? in
                 do {
                     // Recheck just before writing; the native move also refuses overwrite.
                     if let error = Self.projectMoveError([source], to: target, workspace: workspace, files: fileOperations) {
@@ -1057,7 +1057,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         let generation = workspaceGeneration
         guard let sources = validatedCopySources(urls, in: directory, workspace: operationWorkspaceURL) else { return false }
         let fileOperations = self.fileOperations, logSink = self.logSink
-        let result = await Task.detached(priority: .userInitiated) {
+        let result = await UserActionContext.detached(priority: .userInitiated) {
             Self.copyProjectItems(sources, in: directory, fileOperations: fileOperations, logSink: logSink)
         }.value
         guard workspaceURL == operationWorkspaceURL, workspaceGeneration == generation else { return false }
@@ -1121,7 +1121,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         isPerformingProjectItemOperation = true
         let destination = availableDuplicateURL(for: sourceURL)
         let fileOperations = self.fileOperations, logSink = self.logSink
-        let errorMessage = await Task.detached(priority: .userInitiated) { () -> String? in
+        let errorMessage = await UserActionContext.detached(priority: .userInitiated) { () -> String? in
             do {
                 try fileOperations.copyItem(at: sourceURL, to: destination)
                 return nil
@@ -1297,7 +1297,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
 
     package func readFile(at workspaceURL: URL, relativePath: String) async -> String? {
         let operations = self.operations
-        return await Task.detached(priority: .userInitiated) {
+        return await UserActionContext.detached(priority: .userInitiated) {
             operations.readFile(at: workspaceURL, relativePath: relativePath)
         }.value
     }
@@ -1807,7 +1807,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         let rules = visibilityRules
         let loaded = Self.loadedDirectoryPaths(in: root)
         let base = FileNode(url: root.url, isDirectory: true, children: nil)
-        let relisted = await Task.detached(priority: .userInitiated) {
+        let relisted = await UserActionContext.detached(priority: .userInitiated) {
             Self.listingTree(base, reloading: loaded, at: workspaceURL, operations: operations, rules: rules)
         }.value
         guard self.workspaceURL == workspaceURL, workspaceGeneration == generation,
@@ -1843,7 +1843,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
             let rules = visibilityRules
             let loaded = Self.loadedDirectoryPaths(in: currentRoot)
             let base = FileNode(url: currentRoot.url, isDirectory: true, children: nil)
-            let relisted = await Task.detached(priority: .userInitiated) {
+            let relisted = await UserActionContext.detached(priority: .userInitiated) {
                 Self.listingTree(base, reloading: loaded, at: workspaceURL, operations: operations, rules: rules)
             }.value
             guard workspaceGeneration == generation, self.workspaceURL == workspaceURL else { return }
@@ -1893,7 +1893,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
                 let rules = visibilityRules
                 let id = UUID()
                 let paths = missing.map { $0.url.standardizedFileURL.path }
-                let worker = Task.detached(priority: .userInitiated) {
+                let worker = UserActionContext.detached(priority: .userInitiated) {
                     guard !Task.isCancelled else { return nil as [String: [FileNode]]? }
                     let result = operations.childRows(of: missing, at: workspaceURL, visibilityRules: rules)
                     return Task.isCancelled ? nil : result

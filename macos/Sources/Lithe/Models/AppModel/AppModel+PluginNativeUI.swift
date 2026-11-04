@@ -47,7 +47,7 @@ extension AppModel {
                 }
                 try store.setState(data, pluginID: context.pluginID, windowID: context.windowID, workspaceURL: workspace)
             } catch { self.showNotification(error.localizedDescription, logReference: self.notificationFailure(error, operation: "plugin_native_ui")) }
-        })
+        }, pluginID: context.pluginID, logSink: services.logSink)
         guard services.pluginWebPages.registerNative(feature, windowID: contribution.id, pluginID: context.pluginID) else {
             feature.close()
             throw PluginWebBridgeFailure.unavailable("The plugin panel is disabled or already registered.")

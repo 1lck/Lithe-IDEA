@@ -536,6 +536,7 @@ struct LitheApp: App {
             }
         }
         self.applicationLogWriter = applicationLogWriter
+        UserActionTrace.applicationSink = applicationLogWriter
         _logWindowCoordinator = StateObject(wrappedValue: logWindowCoordinator)
         settings.logWindowSink = applicationLogWriter
         let logWindowModel = LogWindowModel(logging: applicationLogWriter, preferences: settings.logWindowPreferences,
@@ -664,6 +665,12 @@ struct LitheApp: App {
 
     private var model: AppModel { projectSessions.activeModel }
 
+    /// Menu items log under their command id. A menu item's own key equivalent
+    /// also fires here, so its surface stays `menu`.
+    private func menuAction(_ id: String, _ body: () -> Void) {
+        UserActionTrace.run(id, surface: .menu, sink: applicationLogWriter, body)
+    }
+
     private var restartApplication: ApplicationRestartAction {
         let appDelegate = appDelegate
         return ApplicationRestartAction { appDelegate.requestRestart() }
@@ -706,62 +713,66 @@ struct LitheApp: App {
         .windowStyle(.hiddenTitleBar)
         .commands {
             CommandGroup(after: .windowList) {
-                Button("Logs") { logWindowCoordinator.open() }
+                Button("Logs") { menuAction("show-logs") { logWindowCoordinator.open() } }
                     .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "show-logs"))
             }
             CommandGroup(replacing: .newItem) {
                 Button("Open Project…") {
-                    model.chooseProject()
+                    menuAction("open-project") { model.chooseProject() }
                 }
                 .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "open-project"))
 
                 Button("New Window") {
-                    projectSessions.ensurePrimaryWindowAvailable()
-                    projectWindowLauncher.presentPrimary()
+                    menuAction("new-window") {
+                        projectSessions.ensurePrimaryWindowAvailable()
+                        projectWindowLauncher.presentPrimary()
+                    }
                 }
             }
 
             CommandGroup(after: .saveItem) {
                 Button("Save") {
-                    model.saveActiveDocument()
+                    menuAction("save") { model.saveActiveDocument() }
                 }
                 .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "save"))
                 .disabled(model.activeDocument == nil)
 
                 Button("Close Project") {
-                    model.closeProject()
+                    menuAction("close-project") { model.closeProject() }
                 }
                 .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "close-project"))
                 .disabled(model.workspaceURL == nil)
 
                 Button("Close File") {
-                    model.closeStandaloneFile()
+                    menuAction("close-file") { model.closeStandaloneFile() }
                 }
                 .disabled(model.standaloneFileURL == nil)
             }
 
             CommandGroup(replacing: .appSettings) {
                 Button("Settings…") {
-                    model.showSettings()
+                    menuAction("settings") { model.showSettings() }
                 }
                 .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "settings"))
             }
 
             CommandGroup(after: .appInfo) {
                 Button("Check for Updates…") {
-                    Task { await updateChecker.checkForUpdates(manual: true, presentingDetails: true) }
+                    menuAction("check-for-updates") {
+                        Task { await updateChecker.checkForUpdates(manual: true, presentingDetails: true) }
+                    }
                 }
                 .disabled(updateChecker.isBusy)
 
                 Button("Export Diagnostics Bundle…") {
-                    model.openLogs(.init(presentsExport: true))
+                    menuAction("export-diagnostics-bundle") { model.openLogs(.init(presentsExport: true)) }
                 }
             }
 
             CommandMenu("Navigate") {
                 Group {
                     Button("Back") {
-                        model.navigateBack()
+                        menuAction("navigate-back") { model.navigateBack() }
                     }
                     .litheKeyboardShortcut(
                         model.keyboardShortcutFeature.primaryKeyPress(for: "navigate-back")
@@ -769,7 +780,7 @@ struct LitheApp: App {
                     .disabled(!model.canNavigateBack)
 
                     Button("Forward") {
-                        model.navigateForward()
+                        menuAction("navigate-forward") { model.navigateForward() }
                     }
                     .litheKeyboardShortcut(
                         model.keyboardShortcutFeature.primaryKeyPress(for: "navigate-forward")
@@ -779,13 +790,13 @@ struct LitheApp: App {
                     Divider()
 
                     Button("Find Action…") {
-                        model.openFindAction()
+                        menuAction("find-action") { model.openFindAction() }
                     }
                     .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "find-action"))
                     .disabled(!model.canPerformShortcutCommand(id: "find-action"))
 
                     Button("Search Everywhere…") {
-                        model.toggleSearchEverywhere()
+                        menuAction("search-everywhere") { model.toggleSearchEverywhere() }
                     }
                     .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "search-everywhere"))
                     .disabled(model.workspaceURL == nil)
@@ -793,31 +804,31 @@ struct LitheApp: App {
                     Divider()
 
                     Button("Find in File…") {
-                        model.showFindBar()
+                        menuAction("find-in-file") { model.showFindBar() }
                     }
                     .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "find-in-file"))
                     .disabled(model.activeDocument == nil)
 
                     Button("Replace in File…") {
-                        model.showReplaceBar()
+                        menuAction("replace-in-file") { model.showReplaceBar() }
                     }
                     .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "replace-in-file"))
                     .disabled(model.activeDocument == nil)
 
                     Button("Find Next") {
-                        model.navigateFind(offset: 1)
+                        menuAction("find-next") { model.navigateFind(offset: 1) }
                     }
                     .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "find-next"))
                     .disabled(!model.isFindBarVisible || model.findMatchCount == 0)
 
                     Button("Find Previous") {
-                        model.navigateFind(offset: -1)
+                        menuAction("find-previous") { model.navigateFind(offset: -1) }
                     }
                     .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "find-previous"))
                     .disabled(!model.isFindBarVisible || model.findMatchCount == 0)
 
                     Button("Go to Line…") {
-                        model.showGoToLine()
+                        menuAction("go-to-line") { model.showGoToLine() }
                     }
                     .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "go-to-line"))
                     .disabled(model.activeDocument == nil)
@@ -826,7 +837,7 @@ struct LitheApp: App {
                 Divider()
 
                 Button("Go to Definition") {
-                    model.goToDefinition()
+                    menuAction("go-to-definition") { model.goToDefinition() }
                 }
                 .litheKeyboardShortcut(
                     model.keyboardShortcutFeature.primaryKeyPress(for: "go-to-definition")
@@ -834,13 +845,13 @@ struct LitheApp: App {
                 .disabled(!model.canPerformShortcutCommand(id: "go-to-definition"))
 
                 Button("Go to Implementation") {
-                    model.goToImplementation()
+                    menuAction("go-to-implementation") { model.goToImplementation() }
                 }
                 .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "go-to-implementation"))
                 .disabled(!model.supportsLanguageServerFeature(.implementation))
 
                 Button("Find Usages") {
-                    model.findReferences()
+                    menuAction("find-usages") { model.findReferences() }
                 }
                 .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "find-usages"))
                 .disabled(!model.supportsLanguageServerFeature(.references))
@@ -848,13 +859,13 @@ struct LitheApp: App {
                 Divider()
 
                 Button("Find in Files…") {
-                    model.openProjectSearch()
+                    menuAction("search-in-project") { model.openProjectSearch() }
                 }
                 .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "search-in-project"))
                 .disabled(model.workspaceURL == nil)
 
                 Button("Replace in Files…") {
-                    model.openProjectReplace()
+                    menuAction("replace-in-project") { model.openProjectReplace() }
                 }
                 .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "replace-in-project"))
                 .disabled(model.workspaceURL == nil)
@@ -862,14 +873,14 @@ struct LitheApp: App {
 
             CommandMenu("History") {
                 Button("Show Local History…") {
-                    if let fileURL = model.activeDocument?.url {
-                        model.showLocalHistory(for: fileURL)
+                    menuAction("local-history") {
+                        if let fileURL = model.activeDocument?.url { model.showLocalHistory(for: fileURL) }
                     }
                 }
                 .disabled(model.activeDocument == nil)
 
                 Button("Show Project Local History…") {
-                    model.showProjectLocalHistory()
+                    menuAction("project-local-history") { model.showProjectLocalHistory() }
                 }
                 .disabled(model.workspaceURL == nil)
             }

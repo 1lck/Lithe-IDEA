@@ -147,9 +147,9 @@ struct ProjectSidebarView: View {
             titleVisibility: .visible,
             presenting: model.pendingProjectItemDeletion
         ) { request in
-            Button("Move to Trash", role: .destructive) {
+            Button("Move to Trash", role: .destructive, action: UserActionTrace.action("workspace.item.trash") {
                 Task { await model.confirmProjectItemDeletion(request) }
-            }
+            })
             .lithePointer()
             Button("Cancel", role: .cancel) {
                 model.cancelProjectItemDeletion()
@@ -227,9 +227,9 @@ struct ProjectSidebarView: View {
                     .help("Reveal Active File in Project Tree")
                 }
                 if selectedContent == .dependencies {
-                    Button {
+                    Button(action: UserActionTrace.action("workspace.dependencies.refresh") {
                         dependencyRefreshRevision &+= 1
-                    } label: {
+                    }) {
                         LitheSystemIcon(systemImage: "arrow.clockwise")
                     }
                     .litheIconButton()
@@ -242,9 +242,9 @@ struct ProjectSidebarView: View {
                         .help("Refreshing project")
                         .modifier(LitheToolWindowHoverAction())
                 } else {
-                    Button {
+                    Button(action: UserActionTrace.action("workspace.refresh") {
                         Task { await model.refreshWorkspace() }
-                    } label: {
+                    }) {
                         LitheIDEAIcon(
                             resourcePath: "expui/general/refresh.svg",
                             size: LitheTheme.Metrics.toolbarIconSize,

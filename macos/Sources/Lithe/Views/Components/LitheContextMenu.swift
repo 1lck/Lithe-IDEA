@@ -63,8 +63,10 @@ struct LitheContextMenuItem: Identifiable {
     }
 
     let id = UUID()
-    let kind: Kind
+    var kind: Kind
     let title: String
+    /// Catalog token for the action log when the i18n key is not specific enough.
+    var actionID: String? = nil
     var localizesTitle = true
     var description: String? = nil
     let systemImage: String?
@@ -80,11 +82,12 @@ struct LitheContextMenuItem: Identifiable {
     let shortcut: String?
     let role: Role
     var isEnabled: Bool
-    let action: () -> Void
+    var action: () -> Void
 
     static func action(
         _ title: String,
         localizesTitle: Bool = true,
+        actionID: String? = nil,
         description: String? = nil,
         systemImage: String? = nil,
         iconKind: LitheIconKind? = nil,
@@ -100,6 +103,7 @@ struct LitheContextMenuItem: Identifiable {
         Self(
             kind: .action,
             title: title,
+            actionID: actionID,
             localizesTitle: localizesTitle,
             description: description,
             systemImage: systemImage,
@@ -113,6 +117,37 @@ struct LitheContextMenuItem: Identifiable {
             isEnabled: isEnabled,
             action: action
         )
+    }
+
+    /// The action log names an item by its explicit id or its i18n key, never by
+    /// the localized title. An item whose title is user content (a branch, a
+    /// file, a session) logs under its submenu's id.
+    @MainActor
+    func traced(surface: UserActionSurface, parentID: String? = nil) -> Self {
+        let id = actionID ?? (localizesTitle ? Self.traceID(forKey: title) : parentID ?? "menu:item")
+        var item = self
+        switch kind {
+        case .submenu(let children):
+            item.kind = .submenu(children.map { $0.traced(surface: surface, parentID: id) })
+        case .action:
+            let perform = action
+            item.action = { UserActionTrace.run(id, surface: surface, sink: UserActionTrace.applicationSink, perform) }
+        case .separator:
+            break
+        }
+        return item
+    }
+
+    static func traceID(forKey key: String) -> String {
+        var slug = ""
+        for scalar in key.lowercased().unicodeScalars {
+            if scalar.isASCII, CharacterSet.alphanumerics.contains(scalar) { slug.unicodeScalars.append(scalar) }
+            else if !slug.isEmpty, slug.last != "-" { slug.append("-") }
+        }
+        while slug.last == "-" { slug.removeLast() }
+        slug = String(slug.prefix(59))
+        while slug.last == "-" { slug.removeLast() }
+        return slug.isEmpty ? "menu:item" : "menu:" + slug
     }
 
     static var separator: Self {
@@ -630,10 +665,12 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
         adjacentTo row: NSRect? = nil,
         parentWindow: NSWindow? = nil,
         trigger: NSView? = nil,
+        surface: UserActionSurface = .contextMenu,
         onDismiss: (() -> Void)? = nil
     ) {
         dismiss()
         guard !items.isEmpty else { return }
+        let items = items.map { $0.traced(surface: surface) }
         if items.contains(where: \.usesSystemMenu) {
             let menu = LitheSystemContextMenu.makeMenu(items: items)
             menu.appearance = appearance

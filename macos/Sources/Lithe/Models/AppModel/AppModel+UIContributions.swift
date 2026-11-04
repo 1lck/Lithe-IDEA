@@ -99,7 +99,7 @@ extension AppModel {
                 performToolWindowContribution(contribution, owner: owner, openOnly: true)
             } else if !workbenchFeature.isVisible(.init(rawValue: id)) {
                 // Host-owned setup entries can exist before an optional module is enabled.
-                workbenchUIRegistry.perform(contribution, model: self)
+                workbenchUIRegistry.perform(contribution, model: self, surface: nil)
             }
         }
     }

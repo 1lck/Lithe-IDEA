@@ -99,10 +99,13 @@ final class MacServiceContainer {
         let logSink = applicationLogging as? any LogSink
         let pluginWebPageLifecycle = providedPluginWebPageLifecycle ?? .shared
         let gitExecutionJournal = GitExecutionJournal()
-        let gitLifecycleLog = MacGitLifecycleLog(sink: logSink)
-        gitExecutionJournal.onLifecycleEvent = { gitLifecycleLog.receive($0) }
         let remoteWorkspaces = RemoteWorkspaceRegistry()
         let logStore = applicationLogging as? MacLogStore
+        // Core writes Git process and request facts into its own queue; any
+        // response that reports pending facts schedules the store's drain.
+        if let logStore {
+            RustCoreBridge.onCoreEventsPending = { [weak logStore] in logStore?.scheduleCoreDrain() }
+        }
         let rustCore = RustCoreBridge(coreLogSink: logSink,
                                       registerLogSession: { id, channel in logStore?.registerSession(id, channel: channel) },
                                       releaseLogSession: { id in logStore?.releaseSession(id) },

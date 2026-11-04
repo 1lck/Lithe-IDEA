@@ -1,4 +1,5 @@
 import Combine
+import LitheModuleAPI
 import Foundation
 
 public struct ProjectReplacementApplyResult: Sendable {
@@ -136,7 +137,7 @@ public final class SearchFeatureModel: ObservableObject {
         isSearching = true
         await indexMutationTask?.value
         let operations = self.operations
-        let results = await Task.detached(priority: .userInitiated) {
+        let results = await UserActionContext.detached(priority: .userInitiated) {
             operations.search(
                 at: workspaceURL,
                 query: query,
@@ -273,7 +274,7 @@ public final class SearchFeatureModel: ObservableObject {
     ) async -> [URL] {
         await indexMutationTask?.value
         let operations = self.operations
-        let results = await Task.detached(priority: .userInitiated) {
+        let results = await UserActionContext.detached(priority: .userInitiated) {
             operations.searchEverywhere(
                 at: workspaceURL,
                 query: query,
@@ -364,7 +365,7 @@ public final class SearchFeatureModel: ObservableObject {
         isLoadingProjectReplacement = true
         await indexMutationTask?.value
         let operations = self.operations
-        let results = await Task.detached(priority: .userInitiated) {
+        let results = await UserActionContext.detached(priority: .userInitiated) {
             operations.previewReplacement(
                 at: workspaceURL,
                 query: query,

@@ -698,6 +698,176 @@
       },
       "rate": 60,
       "owner": "lithe-core"
+    },
+    {
+      "id": "app.core.request.finished",
+      "channel": "app/core",
+      "level": "info",
+      "message": "Core request {method} finished",
+      "fields": {
+        "method": {
+          "type": "token",
+          "required": true,
+          "description": "Core protocol method name the host requested, e.g. git.write or workspace.repositories"
+        },
+        "operation": {
+          "type": "token",
+          "required": false,
+          "description": "Payload operation selector when the method multiplexes several actions, e.g. fetch for git.write"
+        },
+        "source": {
+          "type": "token",
+          "required": true,
+          "description": "Effective request source after merging the host origin and Git execution options: user, background or unknown"
+        },
+        "trigger": {
+          "type": "token",
+          "required": false,
+          "description": "Stable UI action id that the host reported as the cause of this request, never a localized title"
+        },
+        "path": {
+          "type": "path",
+          "required": false,
+          "description": "First absolute workspace, repository or project root named in the request payload"
+        },
+        "remote": {
+          "type": "bool",
+          "required": false,
+          "description": "Present and true when the request ran against a remote workspace host"
+        },
+        "duration": {
+          "type": "duration",
+          "required": true,
+          "description": "Wall time Core spent executing the request, from parsing to the final response"
+        },
+        "cancelled": {
+          "type": "bool",
+          "required": false,
+          "description": "Present and true when the request ended because the host cancelled it"
+        }
+      },
+      "rate": 600,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "app.core.request.traced",
+      "channel": "app/core",
+      "level": "debug",
+      "message": "Core request {method} traced",
+      "fields": {
+        "method": {
+          "type": "token",
+          "required": true,
+          "description": "Core protocol method name the host requested, e.g. git.write or workspace.repositories"
+        },
+        "operation": {
+          "type": "token",
+          "required": false,
+          "description": "Payload operation selector when the method multiplexes several actions, e.g. fetch for git.write"
+        },
+        "source": {
+          "type": "token",
+          "required": true,
+          "description": "Effective request source after merging the host origin and Git execution options: user, background or unknown"
+        },
+        "trigger": {
+          "type": "token",
+          "required": false,
+          "description": "Stable UI action id that the host reported as the cause of this request, never a localized title"
+        },
+        "path": {
+          "type": "path",
+          "required": false,
+          "description": "First absolute workspace, repository or project root named in the request payload"
+        },
+        "remote": {
+          "type": "bool",
+          "required": false,
+          "description": "Present and true when the request ran against a remote workspace host"
+        },
+        "duration": {
+          "type": "duration",
+          "required": true,
+          "description": "Wall time Core spent executing the request, from parsing to the final response"
+        },
+        "cancelled": {
+          "type": "bool",
+          "required": false,
+          "description": "Present and true when the request ended because the host cancelled it"
+        }
+      },
+      "rate": 600,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "app.core.request.failed",
+      "channel": "app/core",
+      "level": "warn",
+      "message": "Core request {method} failed",
+      "fields": {
+        "method": {
+          "type": "token",
+          "required": true,
+          "description": "Core protocol method name the host requested, e.g. git.write or workspace.repositories"
+        },
+        "operation": {
+          "type": "token",
+          "required": false,
+          "description": "Payload operation selector when the method multiplexes several actions, e.g. fetch for git.write"
+        },
+        "source": {
+          "type": "token",
+          "required": true,
+          "description": "Effective request source after merging the host origin and Git execution options: user, background or unknown"
+        },
+        "trigger": {
+          "type": "token",
+          "required": false,
+          "description": "Stable UI action id that the host reported as the cause of this request, never a localized title"
+        },
+        "path": {
+          "type": "path",
+          "required": false,
+          "description": "First absolute workspace, repository or project root named in the request payload"
+        },
+        "remote": {
+          "type": "bool",
+          "required": false,
+          "description": "Present and true when the request ran against a remote workspace host"
+        },
+        "duration": {
+          "type": "duration",
+          "required": true,
+          "description": "Wall time Core spent executing the request, from parsing to the final response"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Core error returned to the host for this request, with its stable code and domain"
+        }
+      },
+      "rate": 600,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "app.action.performed",
+      "channel": "app",
+      "level": "info",
+      "message": "User action {action} performed",
+      "fields": {
+        "action": {
+          "type": "token",
+          "required": true,
+          "description": "Stable id of the user action that started the work, never a localized menu or button title"
+        },
+        "surface": {
+          "type": "token",
+          "required": true,
+          "description": "UI surface that invoked the action: menu, shortcut, palette, toolbar, button, context_menu, notification or plugin"
+        }
+      },
+      "rate": 600,
+      "owner": "LitheModuleAPI"
     }
   ]
 }

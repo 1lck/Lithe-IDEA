@@ -193,13 +193,13 @@ struct DiagnosticsWorkflowTests {
                 case 3: writer.emit(LspTraceReceived(diagnostic: "Sending request", server: LogSegment("rust-analyzer")!, operationID: op))
                 case 4: writer.emit(LspStderrReceived(diagnostic: "Building workspace", server: LogSegment("jdtls")!, truncated: false, operationID: op))
                 case 5: writer.emit(LspSessionDegradationReceived(failureCode: "unavailable", server: LogSegment("invalid-3f9a0c2e")!, stage: "index", operationID: op))
-                case 6: writer.emit(VcsGitCommandFinished(command: "fetch", duration: .milliseconds(487), exitCode: 0, provider: LogSegment("git")!, operationID: op))
+                case 6: writer.emit(VcsGitCommandFinished(arguments: "fetch --prune origin", command: "fetch", duration: .milliseconds(487), exitCode: 0, source: "background", operationID: op))
                 case 7: writer.emit(PluginsHostMessageLogged(diagnostic: "Using mirror central", plugin: LogSegment("maven")!, severity: "info", operationID: op))
                 case 8: writer.emit(PluginsHostMessageLogged(diagnostic: "Process stopped", plugin: LogSegment("lldb")!, severity: "debug", operationID: op))
                 default: writer.emit(AppDiagnosticsExportFailed(error: LogFailure(domain: "render", code: "unavailable"), stage: "planning", operationID: op))
                 }
             }
-            for offset in 0..<6 { writer.emit(VcsGitCommandFinished(command: "fetch", duration: .milliseconds(480 + offset), exitCode: 0, provider: LogSegment("git")!, operationID: "render-selected")) }
+            for offset in 0..<6 { writer.emit(VcsGitCommandFinished(arguments: "fetch --prune origin", command: "fetch", duration: .milliseconds(480 + offset), exitCode: 0, source: "background", operationID: "render-selected")) }
             writer.emit(AppDiagnosticsExportFailed(error: NSError(domain: "render", code: 1, userInfo: [NSLocalizedDescriptionKey: "token=synthetic-render-secret"]), stage: "planning", operationID: "render-selected"))
             writer.emit(LspMessageLogged(diagnostic: "Workspace initialized", server: LogSegment("jdtls")!, severity: "info", operationID: "render-selected"))
             let model = LogWindowModel(logging: writer)
