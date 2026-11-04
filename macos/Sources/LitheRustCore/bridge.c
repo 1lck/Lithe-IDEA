@@ -54,6 +54,20 @@ void lithe_bridge_free_string(char *value) {
     lithe_core_free_string(value);
 }
 
+__attribute__((weak)) void lithe_core_install_log_waker(void (*callback)(void *), void *context) {
+    (void)callback; (void)context;
+}
+__attribute__((weak)) int32_t lithe_core_remove_log_waker(void *context) {
+    (void)context;
+    return 0;
+}
+void lithe_bridge_install_log_waker(void (*callback)(void *), void *context) {
+    lithe_core_install_log_waker(callback, context);
+}
+int32_t lithe_bridge_remove_log_waker(void *context) {
+    return lithe_core_remove_log_waker(context);
+}
+
 __attribute__((weak)) char *lithe_core_execute_json_with_events(const char *request, void (*callback)(const char *, void *), void *context) {
     (void)callback;
     (void)context;

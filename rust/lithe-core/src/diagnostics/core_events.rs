@@ -1,4 +1,6 @@
-//! Bounded process-owned handoff of catalog facts to the host's single log writer.
+//! Bounded process-owned handoff of catalog facts to the host's single log writer,
+//! with a coalesced wake so facts recorded without other host activity still
+//! reach the writer without polling.
 
 use super::catalog::event_by_id;
 use super::channel::LogError;
@@ -6,10 +8,27 @@ use super::record::{prepare_catalog_event, LogLevel, StructuredLogEvent};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, VecDeque};
-use std::sync::{Mutex, OnceLock};
+use std::ffi::c_void;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, MutexGuard, OnceLock};
 
 const MAX_EVENTS: usize = 256;
 static QUEUE: OnceLock<Mutex<CoreEventQueue>> = OnceLock::new();
+// One process writer may own the pending-fact signal; a later install replaces it.
+static WAKER: Mutex<Option<Waker>> = Mutex::new(None);
+// Set by the first change after a drain and cleared by the next drain, so a
+// burst of facts produces one host wakeup instead of one callback per fact.
+static WAKE_REQUESTED: AtomicBool = AtomicBool::new(false);
+
+/// Host callback that schedules the existing single writer to drain this queue.
+///
+/// `context` is an opaque host address. Core never dereferences it; it is only
+/// passed back to `callback` while the installation lock is held.
+#[derive(Clone, Copy)]
+struct Waker {
+    callback: unsafe extern "C" fn(*mut c_void),
+    context: usize,
+}
 
 /// Normalized fact ready for a host to assign its own session sequence.
 #[derive(Debug, Clone, Serialize)]
@@ -45,6 +64,10 @@ struct CoreEventQueue {
 }
 
 impl CoreEventQueue {
+    fn is_empty(&self) -> bool {
+        self.events.is_empty() && self.dropped == 0
+    }
+
     fn record(&mut self, event: CoreEvent) {
         // Repeated inaccessible-directory facts cannot fill the queue. The scan
         // is bounded by MAX_EVENTS and needs no second, independently growing set.
@@ -78,12 +101,62 @@ pub fn record(
     op: Option<String>,
 ) -> Result<(), LogError> {
     let fact = prepare(event, fields, op)?;
+    queue().record(fact);
+    wake();
+    Ok(())
+}
+
+fn queue() -> MutexGuard<'static, CoreEventQueue> {
     QUEUE
         .get_or_init(Mutex::default)
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .record(fact);
-    Ok(())
+}
+
+/// Signals the installed writer once per drain cycle. Must be called without
+/// the queue lock: the host callback may take its own writer lock.
+fn wake() {
+    if WAKE_REQUESTED.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    // Holding WAKER across the call serializes every callback with removal, so
+    // after `remove_waker` returns the host may release `context`.
+    let waker = WAKER.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(waker) = *waker {
+        // SAFETY: `install_waker`'s caller guarantees the callback is safe to
+        // invoke from any thread with `context` until `remove_waker` returns.
+        unsafe { (waker.callback)(waker.context as *mut c_void) }
+    }
+}
+
+/// Installs the process writer's pending-fact callback, replacing any previous
+/// writer. Facts already waiting are signaled immediately so a writer attached
+/// after early Core work does not wait for unrelated activity.
+///
+/// # Safety
+///
+/// `callback` must not unwind, must not call back into Core synchronously, and
+/// must be safe to run on any thread. `context` must stay valid until
+/// [`remove_waker`] returns for the same context or another install replaces it.
+pub(crate) unsafe fn install_waker(callback: unsafe extern "C" fn(*mut c_void), context: usize) {
+    *WAKER.lock().unwrap_or_else(|e| e.into_inner()) = Some(Waker { callback, context });
+    // A request raised while no writer was installed was never delivered.
+    WAKE_REQUESTED.store(false, Ordering::Release);
+    if !queue().is_empty() {
+        wake();
+    }
+}
+
+/// Removes the callback only when `context` still owns it. Returns whether it
+/// was removed; either way no callback for `context` is running afterward.
+pub(crate) fn remove_waker(context: usize) -> bool {
+    let mut waker = WAKER.lock().unwrap_or_else(|e| e.into_inner());
+    if waker.is_some_and(|current| current.context == context) {
+        *waker = None;
+        true
+    } else {
+        false
+    }
 }
 
 pub(super) fn prepare(
@@ -118,11 +191,11 @@ pub(super) fn prepare(
 
 /// Drains all pending facts and resets the overflow counter in one short lock.
 pub fn drain() -> DrainedCoreEvents {
-    QUEUE
-        .get_or_init(Mutex::default)
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .drain()
+    let mut queue = queue();
+    // Cleared under the queue lock: any fact recorded after this snapshot
+    // raises a new wakeup, so no fact can wait behind a stale request.
+    WAKE_REQUESTED.store(false, Ordering::Release);
+    queue.drain()
 }
 
 /// Records a known category-only cleanup fact; invalid declarations count as lost
@@ -166,12 +239,13 @@ pub(crate) fn directory_skipped(event: &str, path: &str, code: &crate::protocol:
     }
 }
 
-pub(super) fn note_dropped() {
-    let mut queue = QUEUE
-        .get_or_init(Mutex::default)
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
-    queue.dropped = queue.dropped.saturating_add(1);
+pub(crate) fn note_dropped() {
+    {
+        let mut queue = queue();
+        queue.dropped = queue.dropped.saturating_add(1);
+    }
+    // The drop summary is evidence too; it must reach disk without other activity.
+    wake();
 }
 
 /// Hands a category-only recovery failure to the host; callers own the decision

@@ -142,6 +142,8 @@ int32_t lithe_core_git_askpass(const char *prompt);
 char *lithe_core_lsp_provider_catalog_json(const char *workspace_root);
 int32_t lithe_core_cancel(const char *operation_id);
 void lithe_core_free_string(char *value);
+void lithe_core_install_log_waker(void (*callback)(void *), void *context);
+int32_t lithe_core_remove_log_waker(void *context);
 void *lithe_agent_open_json(const char *configuration, void (*callback)(const char *, void *), void *context);
 int32_t lithe_agent_send_json(void *handle, const char *command);
 void lithe_agent_close(void *handle);
@@ -5492,8 +5494,19 @@ facts increment a saturating `dropped` counter; draining resets the counter.
 The host converts `dropped` to `log.dropped` on its application channel.
 `record` accepts only catalog events whose owner is `lithe-core`: logging error
 `-32059` means Core event owner mismatch, exclusively; existing `-32053` through
-`-32058` retain their catalog and collection meanings. There is no second writer, file handle,
-or background task. The queue observes UTC at the Core event boundary; host
+`-32058` retain their catalog and collection meanings.
+
+`lithe_core_install_log_waker(callback, context)` registers the host's single
+log writer for a pending-fact signal; a later install replaces the earlier one
+and a null callback is ignored. Core invokes the callback at most once per drain
+cycle: when the first fact or drop is queued after a drain, and immediately at
+install when facts are already pending. It runs synchronously on the recording
+or installing thread, must not unwind or call back into Core, and only schedules
+the writer's existing drain. `lithe_core_remove_log_waker(context)` returns 1 when
+`context` owned the registration and 0 otherwise; after it returns, Core never
+invokes the callback with `context`. The waker belongs to the existing queue:
+there is no second writer, file handle, background task, or poller. The queue
+observes UTC at the Core event boundary; host
 session sequences are assigned at drain ingestion. Project skips retain only
 workspace-relative paths and stable error categories; cleanup facts retain
 only categories, excluding remote addresses, output, and scratch names.
@@ -5517,10 +5530,26 @@ resources. Validation probes cannot reference `${logDir}`. See the synchronized
 literal. Wire examples are exercised by
 `shared/fixtures/diagnostics/engine-logging-v2.json` and Core tests.
 
-macOS PR3 passes `CoreLogRecord` directly to the injected `LogSink`. The existing
-MacLogStore drain/flush/finish cadence calls `diagnostics.drainCoreEvents` once per
-drain, retaining source `ts`/`op` and allocating session `seq`. It creates no idle
-poller or second writer. `channelCategory` maps lsp to language, vcs to git and
+Plugin-owned sessions offer `litheLogging` 1 independently of other protocols.
+The negotiated `lithe/log` notification is validated in Core and enters the
+same bounded `diagnostics.drainCoreEvents` queue, with the installed plugin
+identity selecting `plugins/<id>/host`. It never copies notification JSON into
+legacy runtime detail. The four facts map to catalog INFO/ERROR/WARN/WARN,
+and a live wire request ID resolves to its original host `op`; no user content
+or backend-selected channel/level/message is accepted. See the
+[plugin logging contract](plugins/v1/README.md#structured-plugin-diagnostics-logging-protocol-1)
+and `plugins/v1/fixtures/plugin-logging.json`. Explicit upstream LSP message
+types retain their severity through separate catalog events; unclassified
+stderr is DEBUG and actual lifecycle failure is ERROR.
+
+macOS PR3 passes `CoreLogRecord` directly to the injected `LogSink`. Every
+MacLogStore drain, flush and finish calls `diagnostics.drainCoreEvents` once,
+retaining source `ts`/`op` and allocating session `seq`. Only the application
+writer installs the Core log waker; its callback schedules the same 100 ms
+one-shot drain that host events use, so Core and plugin facts recorded without
+host activity reach disk and live subscribers without an idle poller or second
+writer. Finishing the session removes the waker before the final drain.
+`channelCategory` maps lsp to language, vcs to git and
 plugin-host processes to plugins. The selected diagnostic category drives
 `lsp.setDetailedDiagnostics` for active sessions, newly registered sessions and
 a one-shot 15-minute expiry. A failed desired state is reported once with
