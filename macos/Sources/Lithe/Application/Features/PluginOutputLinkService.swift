@@ -72,8 +72,8 @@ final class PluginOutputLinkService {
             do {
                 links = try matching.links(scope: scope.rawValue, workspaceRoots: roots, sources: sources,
                                            lines: batch.map(\.text))
+            // log-exempt: the console text stays readable and the matchers were validated when the plugin was installed
             } catch {
-                // log-exempt: the console text stays readable and the matchers were validated when the plugin was installed
                 continue
             }
             marks += links.compactMap { Self.mark(for: $0, in: batch, fileExists: fileExists) }
@@ -180,6 +180,7 @@ extension PluginOutputLinkService.Question {
     }
 
     private static func decode(_ text: String) -> [String: String]? {
+        // log-exempt: a URL whose groups are not our JSON is not one of our links and is ignored
         try? JSONDecoder().decode([String: String].self, from: Data(text.utf8))
     }
 }

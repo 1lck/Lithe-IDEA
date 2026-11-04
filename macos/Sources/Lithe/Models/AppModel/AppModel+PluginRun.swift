@@ -114,6 +114,7 @@ extension AppModel: PluginRunWindowPort {
             }
             pluginRunSessions.runs[runID]?.debugSession = session
             showDebugToolWindow()
+        // log-exempt: the run was stopped or replaced while the debugger attached, which is no failure
         } catch is CancellationError {
             return
         } catch {
