@@ -30,7 +30,7 @@ export interface SearchFilesResponse {
   searched_files: number;
   searchable_files: number;
   files_with_matches: number;
-  next_file_offset: number;
+  next_file_offset: number | string;
   has_more: boolean;
   is_indexing: boolean;
   indexed_files: number;
@@ -46,7 +46,10 @@ export interface SearchFilesRequest {
   whole_word?: boolean;
   use_regex?: boolean;
   max_results?: number;
-  file_offset?: number;
+  file_offset?: number | string;
+  include_patterns?: string[];
+  exclude_patterns?: string[];
+  filter_root?: string;
   context_lines?: number;
 }
 
@@ -77,6 +80,8 @@ interface CoreSearchMatch {
   path: string;
   line: number | null;
   preview: string;
+  sourceLine?: string;
+  contentMatchRanges?: Array<{ start: number; length: number }>;
 }
 
 function coreData<T>(response: Awaited<ReturnType<typeof executeCore<T>>>): T {
@@ -84,95 +89,139 @@ function coreData<T>(response: Awaited<ReturnType<typeof executeCore<T>>>): T {
   throw new Error(response.error.message);
 }
 
+interface NativeSearchCursor {
+  rootIndex: number;
+  cursor: string | null;
+}
+
+/** One Core keyset page; the continuation also tracks which workspace root owns it. */
 export async function searchFilesContent(
   request: SearchFilesRequest,
 ): Promise<SearchFilesResponse> {
-  const maxResults = request.max_results ?? 500;
-  const responses = await Promise.all(
-    request.root_paths
-      .filter(
-        (root) =>
-          !request.scope_paths?.length ||
-          request.scope_paths.some(
-            (scope) => pathStartsWithRoot(scope, root) || pathStartsWithRoot(root, scope),
-          ),
-      )
-      .map(async (root) => {
-        await configureWorkspaceIndexing(root, [], false, request.workspaceId);
-        const response = await executeCore<{ matches: CoreSearchMatch[] }>({
-          id: crypto.randomUUID(),
-          command: "workspace.search",
-          payload: {
-            root,
-            workspaceRoots: request.root_paths,
-            query: request.query,
-            caseSensitive: request.case_sensitive ?? false,
-            wholeWords: request.whole_word ?? false,
-            regularExpression: request.use_regex ?? false,
-            maxResults,
-            maxFileResults: 0,
-            scopePaths: request.scope_paths
-              ?.filter(
-                (scope) => pathStartsWithRoot(scope, root) || pathStartsWithRoot(root, scope),
-              )
-              .map((scope) =>
-                pathStartsWithRoot(root, scope) ? "." : getRelativePath(scope, root),
-              ),
-            fileMask: "",
-          },
-        });
-        return { root, matches: coreData(response).matches };
-      }),
+  const roots = request.root_paths.filter(
+    (root) =>
+      !request.scope_paths?.length ||
+      request.scope_paths.some(
+        (scope) => pathStartsWithRoot(scope, root) || pathStartsWithRoot(root, scope),
+      ),
   );
-
-  const grouped = new Map<string, FileSearchResult>();
-  for (const { root, matches } of responses) {
-    for (const match of matches) {
-      if (match.kind !== "content") continue;
-      const filePath = joinPath(root, match.path);
-      const result = grouped.get(filePath) ?? {
-        file_path: filePath,
-        matches: [],
-        total_matches: 0,
-      };
-      const lineContent = match.preview;
-      const columnStart = Math.max(
-        0,
-        request.case_sensitive
-          ? lineContent.indexOf(request.query)
-          : lineContent.toLocaleLowerCase().indexOf(request.query.toLocaleLowerCase()),
-      );
-      result.matches.push({
-        line_number: match.line ?? 1,
-        line_content: lineContent,
-        column_start: columnStart,
-        column_end: columnStart + request.query.length,
-      });
-      result.total_matches += 1;
-      grouped.set(filePath, result);
+  let cursor: NativeSearchCursor = { rootIndex: 0, cursor: null };
+  if (typeof request.file_offset === "number" && request.file_offset !== 0)
+    throw { kind: "unknown" };
+  if (typeof request.file_offset === "string") {
+    let decoded: unknown;
+    try {
+      decoded = JSON.parse(request.file_offset);
+    } catch {
+      throw { kind: "unknown" };
     }
+    if (
+      !decoded ||
+      typeof decoded !== "object" ||
+      !Number.isSafeInteger((decoded as NativeSearchCursor).rootIndex) ||
+      (decoded as NativeSearchCursor).rootIndex < 0 ||
+      (decoded as NativeSearchCursor).rootIndex >= roots.length ||
+      !(
+        (decoded as NativeSearchCursor).cursor === null ||
+        typeof (decoded as NativeSearchCursor).cursor === "string"
+      )
+    ) {
+      throw { kind: "unknown" };
+    }
+    cursor = decoded as NativeSearchCursor;
   }
-
-  const results = [...grouped.values()].slice(0, maxResults);
+  const root = roots[cursor.rootIndex];
+  if (!root)
+    return {
+      results: [],
+      total_files: 0,
+      searched_files: 0,
+      searchable_files: 0,
+      files_with_matches: 0,
+      next_file_offset: 0,
+      has_more: false,
+      is_indexing: false,
+      indexed_files: 0,
+    };
+  await configureWorkspaceIndexing(root, [], false, request.workspaceId);
+  const response = await executeCore<{ matches: CoreSearchMatch[]; nextCursor: string | null }>({
+    id: crypto.randomUUID(),
+    command: "workspace.searchEverywhere",
+    payload: {
+      root,
+      workspaceRoots: request.root_paths,
+      query: request.query,
+      caseSensitive: request.case_sensitive ?? false,
+      wholeWords: request.whole_word ?? false,
+      regularExpression: request.use_regex ?? false,
+      pageSize: Math.max(1, Math.min(request.max_results ?? 140, 200)),
+      resultKinds: ["content"],
+      cursor: cursor.cursor,
+      scopePaths: request.scope_paths
+        ?.filter((scope) => pathStartsWithRoot(scope, root) || pathStartsWithRoot(root, scope))
+        .map((scope) => (pathStartsWithRoot(root, scope) ? "." : getRelativePath(scope, root))),
+      includePathPatterns: request.include_patterns ?? [],
+      excludePathPatterns: request.exclude_patterns ?? [],
+      pathFilterPrefix: getRelativePath(root, request.filter_root ?? root).replace(/\\/g, "/"),
+      includeContentRanges: true,
+    },
+  });
+  const page = coreData(response);
+  const grouped = new Map<string, FileSearchResult>();
+  for (const match of page.matches) {
+    if (match.kind !== "content") continue;
+    const filePath = joinPath(root, match.path);
+    const result = grouped.get(filePath) ?? { file_path: filePath, matches: [], total_matches: 0 };
+    const lineContent = match.sourceLine ?? match.preview;
+    const ranges =
+      match.contentMatchRanges?.map((range) => ({
+        start: range.start,
+        end: range.start + range.length,
+      })) ?? [];
+    const columnStart = ranges[0]?.start ?? 0;
+    result.matches.push({
+      line_number: match.line ?? 1,
+      line_content: lineContent,
+      column_start: columnStart,
+      column_end: ranges[0]?.end ?? columnStart,
+      match_ranges: ranges,
+    });
+    result.total_matches++;
+    grouped.set(filePath, result);
+  }
+  const next = page.nextCursor
+    ? { rootIndex: cursor.rootIndex, cursor: page.nextCursor }
+    : cursor.rootIndex + 1 < roots.length
+      ? { rootIndex: cursor.rootIndex + 1, cursor: null }
+      : null;
+  const results = [...grouped.values()];
   return {
     results,
     total_files: results.length,
     searched_files: results.length,
-    searchable_files: results.length,
+    searchable_files: 0,
     files_with_matches: results.length,
-    next_file_offset: results.length,
-    has_more: grouped.size > results.length,
+    next_file_offset: next ? JSON.stringify(next) : 0,
+    has_more: next !== null,
     is_indexing: false,
-    indexed_files: results.length,
+    indexed_files: 0,
   };
 }
 
-export async function fffEnsureWorkspaces(rootPaths: readonly string[], workspaceId?: string): Promise<void> {
+export async function fffEnsureWorkspaces(
+  rootPaths: readonly string[],
+  workspaceId?: string,
+): Promise<void> {
   await Promise.all(rootPaths.map((root) => listWorkspaceFiles(root, rootPaths, workspaceId)));
 }
 
-export async function fffScanStatus(rootPaths: readonly string[], workspaceId?: string): Promise<FffScanStatus> {
-  const files = await Promise.all(rootPaths.map((root) => listWorkspaceFiles(root, rootPaths, workspaceId)));
+export async function fffScanStatus(
+  rootPaths: readonly string[],
+  workspaceId?: string,
+): Promise<FffScanStatus> {
+  const files = await Promise.all(
+    rootPaths.map((root) => listWorkspaceFiles(root, rootPaths, workspaceId)),
+  );
   const count = files.reduce((total, entries) => total + entries.length, 0);
   return {
     is_scanning: false,
@@ -197,9 +246,15 @@ export async function fffSearchFiles(
     .map((file, index) => ({ ...file, score: limit - index }));
 }
 
-export async function fffListFiles(rootPaths: readonly string[], workspaceId?: string): Promise<FffIndexedFile[]> {
+export async function fffListFiles(
+  rootPaths: readonly string[],
+  workspaceId?: string,
+): Promise<FffIndexedFile[]> {
   const workspaces = await Promise.all(
-    rootPaths.map(async (root) => ({ root, files: await listWorkspaceFiles(root, rootPaths, workspaceId) })),
+    rootPaths.map(async (root) => ({
+      root,
+      files: await listWorkspaceFiles(root, rootPaths, workspaceId),
+    })),
   );
   return workspaces.flatMap(({ root, files }) =>
     files.map((relativePath) => ({

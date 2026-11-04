@@ -278,6 +278,10 @@ pub enum CoreCommand {
     WorkspaceSearchEverywhere,
     /// Previews replacements without writing files (`workspace.replacePreview`).
     WorkspaceReplacePreview,
+    /// Computes replacement on a supplied snapshot without writing (`workspace.replaceText`).
+    WorkspaceReplaceText,
+    /// Searches provider-owned text snapshots in one request (`workspace.searchTextBatch`).
+    WorkspaceSearchTextBatch,
     /// Reads one workspace-relative UTF-8 file (`file.read`).
     FileRead,
     /// Replaces one workspace-relative UTF-8 file (`file.write`).
@@ -813,6 +817,8 @@ impl CoreCommand {
             "workspace.search" => Some(Self::WorkspaceSearch),
             "workspace.searchEverywhere" => Some(Self::WorkspaceSearchEverywhere),
             "workspace.replacePreview" => Some(Self::WorkspaceReplacePreview),
+            "workspace.replaceText" => Some(Self::WorkspaceReplaceText),
+            "workspace.searchTextBatch" => Some(Self::WorkspaceSearchTextBatch),
             "file.read" => Some(Self::FileRead),
             "file.write" => Some(Self::FileWrite),
             "document.lifecycle" => Some(Self::DocumentLifecycle),

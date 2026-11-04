@@ -1,0 +1,104 @@
+{
+  "cases": [
+    {
+      "name": "replace whole words in a captured snapshot",
+      "command": "workspace.replaceText",
+      "payload": {
+        "text": "$foo foo\nfoo!",
+        "query": "foo",
+        "replacement": "bar",
+        "wholeWords": true
+      },
+      "expected": {
+        "text": "$foo bar\nbar!",
+        "count": 2
+      }
+    },
+    {
+      "name": "replace from a one-based UTF-16 position",
+      "command": "workspace.replaceText",
+      "payload": {
+        "text": "😀 foo foo",
+        "query": "foo",
+        "replacement": "bar",
+        "from": {
+          "line": 1,
+          "column": 9
+        }
+      },
+      "expected": {
+        "text": "😀 foo bar",
+        "count": 1
+      }
+    },
+    {
+      "name": "search a provider snapshot with context and UTF-16 ranges",
+      "command": "workspace.searchTextBatch",
+      "payload": {
+        "query": "foo",
+        "wholeWords": true,
+        "contextLines": 1,
+        "files": [
+          {
+            "path": "wsl://fixture/a",
+            "text": "before\n😀 $foo foo\nafter"
+          }
+        ]
+      },
+      "expected": {
+        "files": [
+          {
+            "path": "wsl://fixture/a",
+            "matches": [
+              {
+                "line": 2,
+                "lineText": "😀 $foo foo",
+                "ranges": [
+                  {
+                    "start": 8,
+                    "length": 3
+                  }
+                ],
+                "contextBefore": [
+                  "before"
+                ],
+                "contextAfter": [
+                  "after"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "filteredPage": {
+    "command": "workspace.searchEverywhere",
+    "payload": {
+      "query": "needle",
+      "pageSize": 1,
+      "resultKinds": [
+        "content"
+      ],
+      "includePathPatterns": [
+        "keep"
+      ],
+      "excludePathPatterns": [
+        "skip"
+      ],
+      "pathFilterPrefix": "module",
+      "includeContentRanges": true
+    },
+    "expected": {
+      "firstPath": "b-keep.txt",
+      "nextPath": "c-keep.txt",
+      "sourceLine": "  😀needle",
+      "contentMatchRanges": [
+        {
+          "start": 4,
+          "length": 6
+        }
+      ]
+    }
+  }
+}

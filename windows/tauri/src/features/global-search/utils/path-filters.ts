@@ -71,7 +71,7 @@ export function createPathFilterPredicate(
   }
 
   return (path: string) => {
-    const relativePath = getRelativePath(path, rootFolderPath);
+    const relativePath = getRelativePath(path, rootFolderPath).replace(/\\/g, "/");
 
     if (includeFilters.length > 0 && !pathMatchesAny(relativePath, includeFilters)) {
       return false;

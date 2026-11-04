@@ -54,10 +54,6 @@ function getSearchFailure(error: unknown): ContentSearchFailure {
   return { kind: "unknown" };
 }
 
-function hasPathFilters(includeQuery: string, excludeQuery: string): boolean {
-  return Boolean(includeQuery.trim() || excludeQuery.trim());
-}
-
 function mergeSearchResponses(
   previous: SearchFilesResponse | null,
   next: SearchFilesResponse,
@@ -193,12 +189,13 @@ export const useContentSearch = () => {
   );
 
   const requestSearchPage = useCallback(
-    async (fileOffset: number, currentRequestId: number): Promise<SearchFilesResponse | null> => {
+    async (fileOffset: number | string, currentRequestId: number): Promise<SearchFilesResponse | null> => {
       const searchRootPath = rootFolderPath;
       if (!searchRootPath || availability !== "ready") return null;
 
       if (canUseProviderContentSearch(searchRootPath)) {
-        const files = await getProviderFiles(searchRootPath, searchKey, fileOffset);
+        const providerOffset = typeof fileOffset === "number" ? fileOffset : 0;
+        const files = await getProviderFiles(searchRootPath, searchKey, providerOffset);
         if (!searchActions.isCurrentRequest(currentRequestId)) return null;
 
         return searchProviderFilesContent({
@@ -216,7 +213,7 @@ export const useContentSearch = () => {
           rootFolderPath: searchRootPath,
           options: searchOptions,
           maxResults: CONTENT_SEARCH_PAGE_SIZE,
-          fileOffset,
+          fileOffset: providerOffset,
           contextLines: CONTEXT_LINES,
           includeQuery: debouncedIncludeQuery,
           excludeQuery: debouncedExcludeQuery,
@@ -235,6 +232,9 @@ export const useContentSearch = () => {
         max_results: CONTENT_SEARCH_PAGE_SIZE,
         file_offset: fileOffset,
         context_lines: CONTEXT_LINES,
+        include_patterns: debouncedIncludeQuery.split(/[,\n]/).map((value) => value.trim()).filter(Boolean),
+        exclude_patterns: debouncedExcludeQuery.split(/[,\n]/).map((value) => value.trim()).filter(Boolean),
+        filter_root: rootFolderPath ?? undefined,
       });
     },
     [
@@ -255,13 +255,12 @@ export const useContentSearch = () => {
   );
 
   const requestVisibleSearchPage = useCallback(
-    async (fileOffset: number, currentRequestId: number): Promise<SearchFilesResponse | null> => {
+    async (fileOffset: number | string, currentRequestId: number): Promise<SearchFilesResponse | null> => {
       const matchesPathFilters = createPathFilterPredicate(
         rootFolderPath,
         debouncedIncludeQuery,
         debouncedExcludeQuery,
       );
-      const shouldSkipEmptyPages = hasPathFilters(debouncedIncludeQuery, debouncedExcludeQuery);
       let response: SearchFilesResponse | null = null;
       let nextOffset = fileOffset;
 
@@ -275,11 +274,12 @@ export const useContentSearch = () => {
         );
         response = mergeSearchResponses(response, page, visibleResults);
 
-        if (!shouldSkipEmptyPages || visibleResults.length > 0 || !page.has_more) {
+        if (visibleResults.length > 0 || !page.has_more) {
           return response;
         }
 
-        if (page.next_file_offset <= nextOffset) {
+        if (page.next_file_offset === nextOffset ||
+            (typeof page.next_file_offset === "number" && typeof nextOffset === "number" && page.next_file_offset <= nextOffset)) {
           return {
             ...response,
             has_more: false,
@@ -356,7 +356,7 @@ export const useContentSearch = () => {
       !debouncedQuery.trim() ||
       availability !== "ready" ||
       !hasMoreResults ||
-      nextFileOffset <= 0 ||
+      (typeof nextFileOffset === "number" && nextFileOffset <= 0) ||
       isSearching ||
       isLoadingMore
     ) {
