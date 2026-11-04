@@ -4,6 +4,7 @@ mod agent_configuration;
 mod commands;
 mod configuration;
 mod generation;
+pub(crate) use generation::{commit_input_budget, plan_commit_bounded, sensitive_path as is_sensitive_commit_path};
 
 pub use agent_configuration::parse_provider_configuration;
 pub use configuration::{parse_claude, parse_codex, DetectedConfiguration};

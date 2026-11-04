@@ -3649,6 +3649,7 @@
 "Select a stack frame to inspect variables" = "Select a stack frame to inspect variables";
 "Select a worktree" = "Select a worktree";
 "Select all" = "Select all";
+"Select at most 1,000 files for AI generation." = "Select at most 1,000 files for AI generation.";
 "Select branch" = "Select branch";
 "Select configurations for batch actions" = "Select configurations for batch actions";
 "Select conversation" = "Select conversation";
@@ -3870,6 +3871,7 @@
 "Some directories could not be scanned. Automatic project analysis was not refreshed." = "Some directories could not be scanned. Automatic project analysis was not refreshed.";
 "Some installation versions were not checked in time." = "Some installation versions were not checked in time.";
 "Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations." = "Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations.";
+"Some selected diffs could not be read. Refresh Git changes and retry." = "Some selected diffs could not be read. Refresh Git changes and retry.";
 "Some selected files belong to another version control root. Refresh and select them again." = "Some selected files belong to another version control root. Refresh and select them again.";
 "Some settings have unsupported values and were skipped." = "Some settings have unsupported values and were skipped.";
 "Some special files could not be copied" = "Some special files could not be copied";
@@ -4227,6 +4229,7 @@
 "The downloaded plugin archive does not match the plugin repository (SHA-256 %@, expected %@)." = "The downloaded plugin archive does not match the plugin repository (SHA-256 %@, expected %@).";
 "The downloaded update failed its SHA-256 verification. Do not install it; retry or use the Release page." = "The downloaded update failed its SHA-256 verification. Do not install it; retry or use the Release page.";
 "The downloaded update failed its checksum verification." = "The downloaded update failed its checksum verification.";
+"The draft changed while confirming. Your text has been kept." = "The draft changed while confirming. Your text has been kept.";
 "The edit stop changed. Refresh the session before amending." = "The edit stop changed. Refresh the session before amending.";
 "The end time must be after the start time." = "The end time must be after the start time.";
 "The environment snapshot could not be read. Refresh to try again." = "The environment snapshot could not be read. Refresh to try again.";
@@ -4381,6 +4384,7 @@
 "The selected branch diff is sent to the active AI provider when you generate." = "The selected branch diff is sent to the active AI provider when you generate.";
 "The selected branches have no textual changes to summarize." = "The selected branches have no textual changes to summarize.";
 "The selected built-in background is unavailable in this build." = "The selected built-in background is unavailable in this build.";
+"The selected changes changed. Generate again." = "The selected changes changed. Generate again.";
 "The selected changes changed. Reopen the rollback dialog and review them again." = "The selected changes changed. Reopen the rollback dialog and review them again.";
 "The selected file changed before generation finished" = "The selected file changed before generation finished";
 "The selected file has no textual diff to summarize." = "The selected file has no textual diff to summarize.";
@@ -4976,8 +4980,12 @@
 "ai.project" = "Project";
 "ai.settings" = "Settings";
 "ai.terminal" = "Terminal";
+"aiCommit.aiCOMMITDIFFFAILED" = "Some selected diffs could not be read. Refresh Git changes and retry.";
+"aiCommit.aiCOMMITDRAFTCHANGED" = "The draft changed while confirming. Your text has been kept.";
 "aiCommit.aiCOMMITINVALIDOPTIONS" = "Check the commit generation settings.";
 "aiCommit.aiCOMMITOUTPUTLIMIT" = "The provider exhausted its output budget before completing the message. Try lower reasoning effort or a smaller diff budget.";
+"aiCommit.aiCOMMITSTALE" = "The selected changes changed. Generate again.";
+"aiCommit.aiCOMMITTOOMANYFILES" = "Select at most 1,000 files for AI generation.";
 "aiCommit.outputTokenField" = "Output token field";
 "aiCommit.outputTokenFieldInfo" = "Lithe uses this field for commit requests. Choose max_tokens for older gateways.";
 "avg" = "avg";

@@ -429,6 +429,18 @@ struct CommitMessageTests {
     }
 
     @Test
+    func coreBoundedCommitEvidenceKeepsItsOriginalTruncationWarning() throws {
+        let provider = AIProviderProfile(name: "Example", endpoint: "https://example.test/v1", model: "fixture",
+            apiProtocol: .responses, requiresAPIKey: false)
+        var settings = CommitMessageAISettings.default
+        settings.maximumDiffCharacters = 8_000
+        let input = CommitMessageInput(files: [CommitMessageFileInput(path: "large.txt", changeKind: .modified,
+            diff: String(repeating: "界", count: 8_000), originalCharacters: 12_000)])
+        let plan = try RustCoreBridge().planCommit(input: input, settings: settings, provider: provider)
+        #expect(String(decoding: plan.body, as: UTF8.self).contains("Diff truncated"))
+    }
+
+    @Test
     func cancelledCommitGenerationDoesNotSendAnHTTPRequest() async throws {
         let profile = AIProviderProfile(name: "Example", endpoint: "https://example.test/v1", model: "fixture",
             apiProtocol: .responses, requiresAPIKey: false)

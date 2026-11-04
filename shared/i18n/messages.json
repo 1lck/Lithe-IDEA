@@ -4238,20 +4238,30 @@
       "id": "aiCommit.aiCOMMITDIFFFAILED",
       "description": "Windows UI: aiCommit.AI_COMMIT_DIFF_FAILED",
       "platforms": [
-        "windows"
+        "windows",
+        "macos"
       ],
       "windows": {
         "key": "aiCommit.AI_COMMIT_DIFF_FAILED"
+      },
+      "macos": {
+        "key": "Some selected diffs could not be read. Refresh Git changes and retry.",
+        "arguments": []
       }
     },
     {
       "id": "aiCommit.aiCOMMITDRAFTCHANGED",
       "description": "Windows UI: aiCommit.AI_COMMIT_DRAFT_CHANGED",
       "platforms": [
-        "windows"
+        "windows",
+        "macos"
       ],
       "windows": {
         "key": "aiCommit.AI_COMMIT_DRAFT_CHANGED"
+      },
+      "macos": {
+        "key": "The draft changed while confirming. Your text has been kept.",
+        "arguments": []
       }
     },
     {
@@ -4400,10 +4410,15 @@
       "id": "aiCommit.aiCOMMITSTALE",
       "description": "Windows UI: aiCommit.AI_COMMIT_STALE",
       "platforms": [
-        "windows"
+        "windows",
+        "macos"
       ],
       "windows": {
         "key": "aiCommit.AI_COMMIT_STALE"
+      },
+      "macos": {
+        "key": "The selected changes changed. Generate again.",
+        "arguments": []
       }
     },
     {
@@ -4420,10 +4435,15 @@
       "id": "aiCommit.aiCOMMITTOOMANYFILES",
       "description": "Windows UI: aiCommit.AI_COMMIT_TOO_MANY_FILES",
       "platforms": [
-        "windows"
+        "windows",
+        "macos"
       ],
       "windows": {
         "key": "aiCommit.AI_COMMIT_TOO_MANY_FILES"
+      },
+      "macos": {
+        "key": "Select at most 1,000 files for AI generation.",
+        "arguments": []
       }
     },
     {

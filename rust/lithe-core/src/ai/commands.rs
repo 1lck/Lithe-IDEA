@@ -1,7 +1,7 @@
 //! Credential-free JSON entry points for the shared commit generation rules.
 
-use super::generation::{commit_input_budget, plan_commit_with_truncation};
-use super::{decode_message, CommitFile, CommitOptions, Provider};
+use super::generation::commit_input_budget;
+use super::{decode_message, plan_commit_bounded, CommitFile, CommitOptions, Provider};
 use crate::protocol::{CoreError, ErrorCode};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -10,15 +10,7 @@ use serde_json::{json, Value};
 struct PlanRequest {
     provider: Provider,
     options: CommitOptions,
-    files: Vec<BoundedFile>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct BoundedFile {
-    #[serde(flatten)]
-    file: CommitFile,
-    original_characters: usize,
+    files: Vec<CommitFile>,
 }
 
 #[derive(Deserialize)]
@@ -47,18 +39,10 @@ pub(crate) fn plan_commit_command(payload: Value) -> Result<Value, CoreError> {
         .files
         .iter()
         .map(|file| file.original_characters)
-        .collect();
-    let budgets = commit_input_budget(request.options.maximum_diff_characters, &lengths)
-        .map_err(|code| CoreError::new(ErrorCode::InvalidRequest, code))?;
-    let mut truncated = Vec::with_capacity(budgets.len());
-    for (file, budget) in request.files.iter().zip(&budgets) {
-        if file.file.diff.chars().count() != budget.characters {
-            return Err(invalid_payload());
-        }
-        truncated.push(budget.truncated);
-    }
-    let files: Vec<CommitFile> = request.files.into_iter().map(|item| item.file).collect();
-    let plan = plan_commit_with_truncation(&request.provider, &request.options, &files, &truncated)
+        .collect::<Option<Vec<_>>>()
+        .ok_or_else(invalid_payload)?;
+    let files = request.files;
+    let plan = plan_commit_bounded(&request.provider, &request.options, &files, &lengths)
         .map_err(|code| CoreError::new(ErrorCode::InvalidRequest, code))?;
     Ok(json!({"url": plan.url, "body": plan.body}))
 }

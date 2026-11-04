@@ -30,6 +30,7 @@ import {
   generateCommitMessage,
 } from "../services/ai-commit-service";
 import { generateCommitDraft } from "../services/ai-commit-workflow";
+import { isCommitContextCurrent } from "../services/ai-commit-context";
 import { showConfirmDialog } from "@/ui/dialog";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import {
@@ -209,7 +210,8 @@ const GitCommitPanel = ({
       await generateCommitDraft({
         signal: controller.signal,
         current: () => currentDraft.current,
-        readFiles: () => collectCommitFiles(repoPath, selectedFiles, controller.signal),
+        readContext: () => collectCommitFiles(repoPath, selectedFiles, aiSettings.maximumDiffCharacters, controller.signal),
+        isCurrent: (context) => isCommitContextCurrent(context, controller.signal),
         generate: (files) => generateCommitMessage(aiSettings, files, controller.signal),
         confirmReplace: () => showConfirmDialog(t("aiCommit.replace")),
         apply: (message) => currentDraft.current.apply(message),

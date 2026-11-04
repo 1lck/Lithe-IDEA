@@ -35,7 +35,7 @@ impl PatchRepository {
         payload["root"] = json!(self.0);
         let request = json!({
             "id": format!("{}-{command}", self.1.file_name().unwrap().to_string_lossy()),
-            "timeoutMilliseconds": if command.starts_with("git.patch") { 15000 } else { 5000 }, "command": command, "payload": payload,
+            "timeoutMilliseconds": if command == "git.commitMessageContext" { 30000 } else if command.starts_with("git.patch") { 15000 } else { 5000 }, "command": command, "payload": payload,
         });
         serde_json::from_str(&execute_json(&request.to_string())).unwrap()
     }
@@ -1083,5 +1083,313 @@ fn shelf_restore_conflict_preserves_worktree_and_allows_retry_after_resolution()
     assert_eq!(
         fs::read(repository.0.join("text.txt")).unwrap(),
         b"first\nworking\n"
+    );
+}
+
+#[test]
+fn commit_message_context_rejects_new_index_content_at_the_same_path() {
+    let repository = PatchRepository::new("commit-message-stale-index");
+    repository.write("text.txt", b"first\nstaged one\n");
+    repository.git(&["add", "text.txt"]);
+    let selection =
+        json!([{ "root": repository.0, "files": [{"path":"text.txt", "changeKind":"modified"}] }]);
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/git/commit-message-context-v1.json"
+    ))
+    .unwrap();
+    let mut request = fixture["captureRequest"].clone();
+    request["repositories"] = selection.clone();
+    let captured = repository.data("git.commitMessageContext", request);
+    assert!(captured["files"][0]["diff"]
+        .as_str()
+        .unwrap()
+        .contains("staged one"));
+    repository.write("text.txt", b"first\nstaged two\n");
+    repository.git(&["add", "text.txt"]);
+    let checked = repository.data(
+        "git.commitMessageContext",
+        json!({
+            "action":"check", "mode":"staged", "repositories":selection, "token":captured["token"]
+        }),
+    );
+    assert_eq!(checked["isCurrent"], false);
+}
+
+#[test]
+fn commit_message_context_checks_uncached_worktree_without_changing_index() {
+    let repository = PatchRepository::new("commit-message-worktree");
+    repository.write("text.txt", b"first\nworking one\n");
+    let before = fs::read(repository.0.join(".git/index")).unwrap();
+    let selection =
+        json!([{ "root":repository.0, "files":[{"path":"text.txt", "changeKind":"modified"}]}]);
+    let captured = repository.data("git.commitMessageContext", json!({"action":"capture", "mode":"worktree", "repositories":selection, "maximumDiffCharacters":8000}));
+    assert!(captured["files"][0]["diff"]
+        .as_str()
+        .unwrap()
+        .contains("working one"));
+    assert_eq!(fs::read(repository.0.join(".git/index")).unwrap(), before);
+    let unchanged = repository.data("git.commitMessageContext", json!({"action":"check", "mode":"worktree", "repositories":selection, "token":captured["token"]}));
+    assert_eq!(unchanged["isCurrent"], true);
+    assert_eq!(fs::read(repository.0.join(".git/index")).unwrap(), before);
+    repository.write("text.txt", b"first\nworking two\n");
+    let checked = repository.data("git.commitMessageContext", json!({"action":"check", "mode":"worktree", "repositories":selection, "token":captured["token"]}));
+    assert_eq!(checked["isCurrent"], false);
+    assert_eq!(fs::read(repository.0.join(".git/index")).unwrap(), before);
+}
+
+#[test]
+fn commit_message_context_does_not_accept_partial_or_sensitive_evidence() {
+    let repository = PatchRepository::new("commit-message-incomplete");
+    repository.write("text.txt", b"first\nstaged\n");
+    repository.git(&["add", "text.txt"]);
+    let partial = repository.call("git.commitMessageContext", json!({"action":"capture", "mode":"staged", "maximumDiffCharacters":8000,
+        "repositories":[{"root":repository.0,"files":[{"path":"text.txt","changeKind":"modified"},{"path":"missing.txt","changeKind":"modified"}]}]}));
+    assert_eq!(partial["ok"], false, "{partial}");
+    let sensitive = repository.call("git.commitMessageContext", json!({"action":"capture", "mode":"staged", "maximumDiffCharacters":8000,
+        "repositories":[{"root":repository.0,"files":[{"path":"text.txt","originalPath":".env","changeKind":"renamed"}]}]}));
+    assert_eq!(sensitive["ok"], false, "{sensitive}");
+    assert_eq!(sensitive["error"]["message"], "AI_COMMIT_SENSITIVE_FILE");
+}
+
+#[test]
+fn commit_message_context_token_covers_content_beyond_the_prompt_budget() {
+    let repository = PatchRepository::new("commit-message-budget");
+    repository.write(
+        "text.txt",
+        format!("{}old tail\n", "界".repeat(10000)).as_bytes(),
+    );
+    repository.git(&["add", "text.txt"]);
+    let selection =
+        json!([{ "root":repository.0, "files":[{"path":"text.txt", "changeKind":"modified"}]}]);
+    let captured = repository.data("git.commitMessageContext", json!({"action":"capture", "mode":"staged", "repositories":selection, "maximumDiffCharacters":8000}));
+    let file = &captured["files"][0];
+    assert_eq!(file["truncated"], true);
+    assert_eq!(file["diff"].as_str().unwrap().chars().count(), 8000);
+    assert!(file["originalCharacters"].as_u64().unwrap() > 8000);
+    repository.write(
+        "text.txt",
+        format!("{}new tail\n", "界".repeat(10000)).as_bytes(),
+    );
+    repository.git(&["add", "text.txt"]);
+    let checked = repository.data("git.commitMessageContext", json!({"action":"check", "mode":"staged", "repositories":selection, "token":captured["token"]}));
+    assert_eq!(checked["isCurrent"], false);
+}
+
+#[test]
+fn commit_message_context_keeps_equal_names_from_different_repositories_distinct() {
+    let first = PatchRepository::new("commit-message-multi-a");
+    let second = PatchRepository::new("commit-message-multi-b");
+    first.write("text.txt", b"first\none\n");
+    first.git(&["add", "text.txt"]);
+    second.write("text.txt", b"first\ntwo\n");
+    second.git(&["add", "text.txt"]);
+    let selection = json!([
+        {"root":second.0, "files":[{"path":"text.txt","changeKind":"modified"}]},
+        {"root":first.0, "files":[{"path":"text.txt","changeKind":"modified"}]}
+    ]);
+    let captured = first.data("git.commitMessageContext", json!({"action":"capture", "mode":"staged", "repositories":selection, "maximumDiffCharacters":8000}));
+    assert_eq!(captured["files"].as_array().unwrap().len(), 2);
+    assert_eq!(captured["files"][0]["path"], "repository-1/text.txt");
+    assert_eq!(captured["files"][1]["path"], "repository-2/text.txt");
+    let checked = first.data("git.commitMessageContext", json!({"action":"check", "mode":"staged", "repositories":selection, "token":captured["token"]}));
+    assert_eq!(checked["isCurrent"], true);
+}
+
+#[test]
+fn commit_message_context_expands_untracked_directories_and_rejects_sensitive_children() {
+    let repository = PatchRepository::new("commit-message-directory");
+    fs::create_dir(repository.0.join("generated")).unwrap();
+    for index in 0..101 {
+        repository.write(&format!("generated/{index}.txt"), b"new file\n");
+    }
+    let selection =
+        json!([{ "root":repository.0, "files":[{"path":"generated/", "changeKind":"untracked"}]}]);
+    let captured = repository.data("git.commitMessageContext", json!({"action":"capture", "mode":"worktree", "repositories":selection, "maximumDiffCharacters":8000}));
+    assert_eq!(captured["files"].as_array().unwrap().len(), 101);
+    repository.write("generated/.env", b"secret\n");
+    let sensitive = repository.call("git.commitMessageContext", json!({"action":"capture", "mode":"worktree", "repositories":selection, "maximumDiffCharacters":8000}));
+    assert_eq!(sensitive["ok"], false, "{sensitive}");
+    assert_eq!(sensitive["error"]["message"], "AI_COMMIT_SENSITIVE_FILE");
+}
+
+#[test]
+fn commit_message_context_ignores_index_stat_refresh_without_content_change() {
+    let repository = PatchRepository::new("commit-message-index-stat");
+    repository.write("text.txt", b"first\nstaged\n");
+    repository.git(&["add", "text.txt"]);
+    let selection =
+        json!([{ "root":repository.0, "files":[{"path":"text.txt", "changeKind":"modified"}]}]);
+    let captured = repository.data("git.commitMessageContext", json!({"action":"capture", "mode":"staged", "repositories":selection, "maximumDiffCharacters":8000}));
+    repository.write("text.txt", b"first\nstaged\n");
+    repository.git(&["update-index", "--refresh"]);
+    let checked = repository.data("git.commitMessageContext", json!({"action":"check", "mode":"staged", "repositories":selection, "token":captured["token"]}));
+    assert_eq!(
+        checked["isCurrent"], true,
+        "index stat refresh must not invalidate unchanged evidence"
+    );
+}
+
+#[test]
+fn commit_message_context_detects_index_flag_changes() {
+    let repository = PatchRepository::new("commit-message-index-flags");
+    repository.write("text.txt", b"first\nstaged\n");
+    repository.git(&["add", "text.txt"]);
+    let selection =
+        json!([{ "root":repository.0, "files":[{"path":"text.txt", "changeKind":"modified"}]}]);
+    let captured = repository.data("git.commitMessageContext", json!({"action":"capture", "mode":"staged", "repositories":selection, "maximumDiffCharacters":8000}));
+    repository.git(&["update-index", "--assume-unchanged", "text.txt"]);
+    let checked = repository.data("git.commitMessageContext", json!({"action":"check", "mode":"staged", "repositories":selection, "token":captured["token"]}));
+    assert_eq!(
+        checked["isCurrent"], false,
+        "index flags belong to the reviewed state"
+    );
+}
+
+#[test]
+fn commit_message_context_handles_rename_and_binary_without_binary_payload() {
+    let repository = PatchRepository::new("commit-message-rename-binary");
+    repository.git(&["mv", "text.txt", "new 名称.txt"]);
+    repository.write("binary.bin", &[0, 255, 128, 0]);
+    repository.git(&["add", "binary.bin"]);
+    let selection = json!([{ "root":repository.0, "files":[
+        {"path":"new 名称.txt", "originalPath":"text.txt", "changeKind":"renamed"},
+        {"path":"binary.bin", "changeKind":"added"}
+    ]}]);
+    let captured = repository.data("git.commitMessageContext", json!({"action":"capture", "mode":"staged", "repositories":selection, "maximumDiffCharacters":8000}));
+    let files = captured["files"].as_array().unwrap();
+    let binary = files.iter().find(|f| f["path"] == "binary.bin").unwrap();
+    assert_eq!(binary["diff"], "[Binary file; content omitted.]");
+    let rename = files.iter().find(|f| f["path"] == "new 名称.txt").unwrap();
+    assert_eq!(rename["changeKind"], "renamed");
+    assert!(rename["diff"]
+        .as_str()
+        .unwrap()
+        .contains("rename from text.txt"));
+}
+
+#[test]
+fn commit_message_context_does_not_generate_from_binary_only_evidence() {
+    let repository = PatchRepository::new("commit-message-binary-only");
+    repository.write("binary.bin", &[0, 255, 128, 0]);
+    repository.git(&["add", "binary.bin"]);
+    let selection =
+        json!([{ "root":repository.0, "files":[{"path":"binary.bin", "changeKind":"added"}]}]);
+    let result = repository.call("git.commitMessageContext", json!({"action":"capture", "mode":"staged", "repositories":selection, "maximumDiffCharacters":8000}));
+    assert_eq!(result["ok"], false, "{result}");
+    assert_eq!(result["error"]["message"], "AI_COMMIT_EMPTY_DIFF");
+}
+
+#[test]
+fn commit_message_context_rejects_untracked_directory_above_file_limit() {
+    let repository = PatchRepository::new("commit-message-directory-limit");
+    fs::create_dir(repository.0.join("generated")).unwrap();
+    for index in 0..1001 {
+        repository.write(&format!("generated/{index}.txt"), b"x\n");
+    }
+    let selection =
+        json!([{ "root":repository.0, "files":[{"path":"generated/", "changeKind":"untracked"}]}]);
+    let result = repository.call("git.commitMessageContext", json!({"action":"capture", "mode":"worktree", "repositories":selection, "maximumDiffCharacters":8000}));
+    assert_eq!(result["ok"], false, "{result}");
+    assert_eq!(result["error"]["message"], "AI_COMMIT_TOO_MANY_FILES");
+}
+
+#[test]
+fn commit_message_context_preserves_selected_delete_and_add_detected_as_rename() {
+    let repository = PatchRepository::new("commit-message-detected-rename");
+    fs::rename(
+        repository.0.join("text.txt"),
+        repository.0.join("renamed.txt"),
+    )
+    .unwrap();
+    let selection = json!([{ "root":repository.0, "files":[
+        {"path":"text.txt", "changeKind":"deleted"},
+        {"path":"renamed.txt", "changeKind":"untracked"}
+    ]}]);
+    let captured = repository.data("git.commitMessageContext", json!({"action":"capture", "mode":"worktree", "repositories":selection, "maximumDiffCharacters":8000}));
+    let files = captured["files"].as_array().unwrap();
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0]["path"], "renamed.txt");
+    assert_eq!(files[0]["changeKind"], "renamed");
+    assert!(files[0]["diff"]
+        .as_str()
+        .unwrap()
+        .contains("rename from text.txt"));
+}
+
+#[test]
+fn commit_message_context_rejects_more_than_1000_selected_paths() {
+    let repository = PatchRepository::new("commit-message-selection-limit");
+    let files: Vec<Value> = (0..1001)
+        .map(|index| json!({"path":format!("f{index}.txt"), "changeKind":"modified"}))
+        .collect();
+    let response = repository.call("git.commitMessageContext", json!({"action":"capture", "mode":"staged", "repositories":[{"root":repository.0, "files":files}], "maximumDiffCharacters":8000}));
+    assert_eq!(response["error"]["message"], "AI_COMMIT_TOO_MANY_FILES");
+}
+
+#[test]
+fn commit_message_context_does_not_include_unselected_rename_source() {
+    let repository = PatchRepository::new("commit-message-unselected-rename-source");
+    fs::rename(
+        repository.0.join("text.txt"),
+        repository.0.join("renamed.txt"),
+    )
+    .unwrap();
+    let selection =
+        json!([{ "root":repository.0, "files":[{"path":"renamed.txt", "changeKind":"untracked"}]}]);
+    let captured = repository.data("git.commitMessageContext", json!({"action":"capture", "mode":"worktree", "repositories":selection, "maximumDiffCharacters":8000}));
+    let files = captured["files"].as_array().unwrap();
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0]["path"], "renamed.txt");
+    assert!(!files[0]["diff"]
+        .as_str()
+        .unwrap()
+        .contains("rename from text.txt"));
+    assert!(repository.0.join("renamed.txt").exists());
+}
+
+#[test]
+fn commit_message_context_invalidates_when_another_staged_file_changes() {
+    let repository = PatchRepository::new("commit-message-other-index-change");
+    repository.write("text.txt", b"first\nstaged\n");
+    repository.git(&["add", "text.txt"]);
+    let selection =
+        json!([{ "root":repository.0, "files":[{"path":"text.txt", "changeKind":"modified"}]}]);
+    let captured = repository.data("git.commitMessageContext", json!({"action":"capture", "mode":"staged", "repositories":selection, "maximumDiffCharacters":8000}));
+    repository.write("other.txt", b"other staged change\n");
+    repository.git(&["add", "other.txt"]);
+    let checked = repository.data("git.commitMessageContext", json!({"action":"check", "mode":"staged", "repositories":selection, "token":captured["token"]}));
+    assert_eq!(checked["isCurrent"], false);
+}
+
+#[test]
+fn commit_message_context_uses_staged_kind_when_worktree_status_differs() {
+    let repository = PatchRepository::new("commit-message-staged-kind");
+    repository.write("text.txt", b"first\nstaged modification\n");
+    repository.git(&["add", "text.txt"]);
+    fs::remove_file(repository.0.join("text.txt")).unwrap();
+    // The UI sees a worktree deletion, but the index contains a modification.
+    let selection =
+        json!([{ "root":repository.0, "files":[{"path":"text.txt", "changeKind":"deleted"}]}]);
+    let captured = repository.data("git.commitMessageContext", json!({"action":"capture", "mode":"staged", "repositories":selection, "maximumDiffCharacters":8000}));
+    assert_eq!(captured["files"][0]["changeKind"], "modified");
+    assert!(captured["files"][0]["diff"]
+        .as_str()
+        .unwrap()
+        .contains("staged modification"));
+}
+
+#[test]
+fn commit_message_context_staged_mode_ignores_unstaged_only_edits() {
+    let repository = PatchRepository::new("commit-message-unstaged-only");
+    repository.write("text.txt", b"first\nstaged\n");
+    repository.git(&["add", "text.txt"]);
+    let selection =
+        json!([{ "root":repository.0, "files":[{"path":"text.txt", "changeKind":"modified"}]}]);
+    let captured = repository.data("git.commitMessageContext", json!({"action":"capture", "mode":"staged", "repositories":selection, "maximumDiffCharacters":8000}));
+    repository.write("text.txt", b"first\nunstaged later\n");
+    let checked = repository.data("git.commitMessageContext", json!({"action":"check", "mode":"staged", "repositories":selection, "token":captured["token"]}));
+    assert_eq!(
+        checked["isCurrent"], true,
+        "unstaged bytes do not change a staged commit"
     );
 }
