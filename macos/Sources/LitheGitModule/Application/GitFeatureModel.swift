@@ -973,32 +973,36 @@ package final class GitFeatureModel: ObservableObject {
                 gitConflictFilterPaths.formIntersection(Set(changes.map(\.path)))
                 didChange = didChange || previousFilter != gitConflictFilterPaths
             }
-            let stashes = await stashesProvider(snapshot.repositoryRoot)
-            guard !Task.isCancelled, revision == changeRefreshRevision else { return }
-            if gitStashes != stashes {
-                gitStashes = stashes
-                didChange = true
-            }
-            let shelves = await shelveService?.entries(for: snapshot.repositoryRoot) ?? []
-            guard !Task.isCancelled, revision == changeRefreshRevision else { return }
-            if gitShelves != shelves {
-                gitShelves = shelves
-                didChange = true
-            }
-            let operationState = await operationStateProvider(snapshot.repositoryRoot)
-            guard !Task.isCancelled, revision == changeRefreshRevision else { return }
-            if gitOperationState != operationState {
-                gitOperationState = operationState
-                didChange = true
-            }
-            await interactiveRebase.refreshSession(at: snapshot.repositoryRoot)
-            guard !Task.isCancelled, revision == changeRefreshRevision else { return }
-            if let gitOperationState, deferredSavedChanges == nil,
-               let stash = gitStashes.first(where: { $0.message.contains("Lithe auto-stash before") }) {
-                deferredSavedChanges = GitDeferredSavedChanges(
-                    stashReference: stash.reference,
-                    operationTitle: gitOperationState.kind.title.lowercased()
-                )
+            // A retained status is not evidence that ancillary reads can safely
+            // replace stash or operation state for the failed checkout.
+            if observation.successfullyReadRepositoryRoots.contains(snapshot.repositoryRoot.standardizedFileURL) {
+                let stashes = await stashesProvider(snapshot.repositoryRoot)
+                guard !Task.isCancelled, revision == changeRefreshRevision else { return }
+                if gitStashes != stashes {
+                    gitStashes = stashes
+                    didChange = true
+                }
+                let shelves = await shelveService?.entries(for: snapshot.repositoryRoot) ?? []
+                guard !Task.isCancelled, revision == changeRefreshRevision else { return }
+                if gitShelves != shelves {
+                    gitShelves = shelves
+                    didChange = true
+                }
+                let operationState = await operationStateProvider(snapshot.repositoryRoot)
+                guard !Task.isCancelled, revision == changeRefreshRevision else { return }
+                if gitOperationState != operationState {
+                    gitOperationState = operationState
+                    didChange = true
+                }
+                await interactiveRebase.refreshSession(at: snapshot.repositoryRoot)
+                guard !Task.isCancelled, revision == changeRefreshRevision else { return }
+                if let gitOperationState, deferredSavedChanges == nil,
+                   let stash = gitStashes.first(where: { $0.message.contains("Lithe auto-stash before") }) {
+                    deferredSavedChanges = GitDeferredSavedChanges(
+                        stashReference: stash.reference,
+                        operationTitle: gitOperationState.kind.title.lowercased()
+                    )
+                }
             }
 
             for session in allDiffSessions where session.selectedChange != nil {

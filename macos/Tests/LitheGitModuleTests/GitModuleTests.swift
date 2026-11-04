@@ -1677,8 +1677,11 @@ struct GitModuleTests {
             second: [GitSnapshot(repositoryRoot: second, branch: "second", changes: [changes[1]]), nil,
                      GitSnapshot(repositoryRoot: second, branch: "second-new", changes: [])]
         ])
+        let stash = GitStash(reference: "stash@{0}", message: "kept", branch: "first", date: "")
+        let stashes = GitFailureStashes(stash: stash)
         let feature = GitFeatureModel(service: GitService(operations: TestGitOperations()),
             snapshotProvider: { root in await snapshots.next(for: root) },
+            stashesProvider: { _ in await stashes.next() },
             repositoryRootsProvider: { _ in [first, second] })
         defer { feature.reset() }
         feature.configure(workspaceURLProvider: { first.deletingLastPathComponent() },
@@ -1688,9 +1691,13 @@ struct GitModuleTests {
         #expect(feature.gitChanges == changes)
         #expect(feature.currentBranch == "first")
         #expect(feature.failedStatusRepositoryRoots == [first, second])
+        #expect(feature.gitStashes == [stash])
+        #expect(await stashes.readCount == 1)
         await feature.refreshGit()
         #expect(feature.gitChanges == [changes[0]])
         #expect(feature.failedStatusRepositoryRoots == [first])
+        #expect(feature.gitStashes == [stash])
+        #expect(await stashes.readCount == 1)
     }
 
     @Test(arguments: [Character("M"), Character("A")])
@@ -6415,6 +6422,16 @@ private final class GitReferencesLoadProbe: @unchecked Sendable {
             return nil
         }
         return resolved
+    }
+}
+
+private actor GitFailureStashes {
+    let stash: GitStash
+    private(set) var readCount = 0
+    init(stash: GitStash) { self.stash = stash }
+    func next() -> [GitStash] {
+        readCount += 1
+        return readCount == 1 ? [stash] : []
     }
 }
 
