@@ -361,6 +361,12 @@ pub async fn core_execute(window: tauri::WebviewWindow, request: String) -> Stri
     let owner = window.label().to_owned();
     let app = window.app_handle().clone();
     tauri::async_runtime::spawn_blocking(move || {
+        // The legacy Java, Maven, Spring and MyBatis commands are answered by
+        // the transitional crate (the Maven ones no longer exist in Core).
+        // It returns None for every other command, which continues to Core.
+        if let Some(response) = lithe_legacy_java::try_execute(&request) {
+            return response;
+        }
         let parsed = serde_json::from_str::<serde_json::Value>(&request).ok();
         let previous = parsed.as_ref().and_then(|value| {
             let root = canonical_indexing_root(value["payload"]["root"].as_str()?);
