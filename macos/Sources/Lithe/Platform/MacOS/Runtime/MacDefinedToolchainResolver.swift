@@ -98,3 +98,37 @@ final class MacDefinedToolchainResolver: DefinedToolchainResolving {
         return try JSONDecoder().decode(FixedToolchainSelection.self, from: JSONSerialization.data(withJSONObject: fixed))
     }
 }
+
+extension MacDefinedToolchainResolver: DefinedToolLaunching {
+    /// Core expands the template; this adapter only supplies the registry of the
+    /// installed definitions and the installation the user's layers selected.
+    func launch(of selection: ResolvedDefinedToolchain, tool: String, arguments: [String]) throws -> DefinedToolLaunch {
+        struct Payload: Encodable {
+            let registry: ToolingJSONValue
+            let tool: String
+            let executable: String
+            let home: String?
+            let runtimeArguments: [String]
+            let arguments: [String]
+        }
+        struct Expansion: Decodable {
+            struct Launch: Decodable { let executable: String; let arguments: [String] }
+            struct Rejection: Decodable { let code: String; let message: String }
+            let launch: Launch?
+            let error: Rejection?
+        }
+        guard let registry = ToolingJSONValue.fromFoundation(MacToolchainDiscovery.registry(of: sources())) else {
+            throw DefinedToolLaunchRejection(code: "plugin.toolchain.invalidParams", message: "The tool registry is invalid.")
+        }
+        let payload = Payload(registry: registry, tool: tool, executable: selection.executable.path,
+                              home: selection.home, runtimeArguments: [], arguments: arguments)
+        let expansion: Expansion = try RustCoreBridge().executeResult(
+            command: "toolchains.instantiateLaunch", payload: payload).get()
+        if let launch = expansion.launch {
+            return DefinedToolLaunch(executable: launch.executable, arguments: launch.arguments)
+        }
+        let error = expansion.error
+        throw DefinedToolLaunchRejection(code: error?.code ?? "plugin.toolchain.invalidParams",
+                                         message: error?.message ?? "The tool launch could not be expanded.")
+    }
+}
