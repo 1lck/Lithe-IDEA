@@ -8,7 +8,7 @@ import LitheModuleAPI
 @Suite("Log window review", .serialized)
 @MainActor
 struct LogWindowReviewTests {
-    @Test func serverSelectionUsesCoreChannelsAndKeepsOtherEvidenceOut() async throws {
+    @Test func serverTabShowsOneServerAndClearsOnlyThatServer() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let writer = MacLogStore(defaultDirectory: root)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -16,21 +16,46 @@ struct LogWindowReviewTests {
         writer.emit(LspMessageLogged(diagnostic: "Go initialization", server: LogSegment("go")!, severity: "info"))
         writer.emit(AppSessionStarted())
         let feature = LanguageServerLogsModel(logging: writer)
-        let loaded = TestGate()
-        let observation = feature.logs.$state.sink { if !$0.records.isEmpty { loaded.open() } }
-        defer { observation.cancel(); feature.stop() }
-        feature.apply(.init(providerID: "java", servers: []))
-        feature.start()
-        try #require(await loaded.waitUntilOpen())
-        #expect(feature.logs.state.records.allSatisfy { $0.channel == "lsp/java" })
-        let allLoaded = TestGate()
-        let all = feature.logs.$state.sink { state in
-            if Set(state.records.map(\.channel)) == ["lsp/java", "lsp/go"] { allLoaded.open() }
+        defer { feature.stop() }
+        // Levels start at Info and there is no "all servers" choice.
+        #expect(LanguageServerLogsModel.MinimumLevel.allCases == [.info, .warning, .error])
+        #expect(feature.logs.query.levels == ["INFO", "WARN", "ERROR"])
+
+        let java = try await showServer("java", channel: "lsp/java", in: feature)
+        #expect(feature.logs.query.channelPrefixes == ["lsp/java"])
+        feature.clear()
+        #expect(feature.logs.state.records.isEmpty && feature.logs.state.cleared)
+
+        // Clearing Java leaves Go untouched.
+        _ = try await showServer("go", channel: "lsp/go", in: feature)
+        #expect(feature.logs.query.channelPrefixes == ["lsp/go"])
+        #expect(!feature.logs.state.cleared)
+
+        // Back on Java the clear point still applies: only the newer row returns.
+        let returned = TestGate()
+        let observation = feature.logs.$state.sink { state in
+            if !state.records.isEmpty, state.records.allSatisfy({ $0.channel == "lsp/java" }) { returned.open() }
         }
-        defer { all.cancel() }
-        feature.select("")
-        try #require(await allLoaded.waitUntilOpen())
+        defer { observation.cancel() }
+        feature.select("java")
+        writer.emit(LspMessageLogged(diagnostic: "Java ready", server: LogSegment("java")!, severity: "info"))
+        try #require(await returned.waitUntilOpen())
+        #expect(feature.logs.query.channelPrefixes == ["lsp/java"])
+        #expect(Set(feature.logs.state.records.map(LogWindowModel.recordID)).isDisjoint(with: java))
         await writer.finishSession()
+    }
+
+    /// Selects `id` and waits until the tab shows only `channel`; returns the shown record IDs.
+    private func showServer(_ id: String, channel: String, in feature: LanguageServerLogsModel) async throws -> Set<String> {
+        let loaded = TestGate()
+        let observation = feature.logs.$state.sink { state in
+            if !state.records.isEmpty, state.records.allSatisfy({ $0.channel == channel }) { loaded.open() }
+        }
+        defer { observation.cancel() }
+        if feature.providerID.isEmpty { feature.open(providerID: id) } else { feature.select(id) }
+        try #require(await loaded.waitUntilOpen())
+        #expect(feature.providerID == id)
+        return Set(feature.logs.state.records.map(LogWindowModel.recordID))
     }
 
     /// Optional local review: read a task-owned copy of real user evidence, never fabricate records.
@@ -101,15 +126,16 @@ struct LogWindowReviewTests {
             try screenshot(try #require(panel.contentView), output: output, name: dark ? "final-settings-menu-dark.png" : "final-settings-menu-light.png")
             presenter.dismiss()
         }
-        let serverCoordinator = LanguageServerLogsCoordinator()
-        serverCoordinator.open(providerID: "java", servers: [.init(id: "java", displayName: "jdtls", status: .stopped, version: nil)])
         let serverFeature = LanguageServerLogsModel(logging: writer)
         serverFeature.logs.changeQuery { $0.session = "all" }
         let serverLoaded = TestGate()
-        let serverObservation = serverFeature.logs.$state.sink { if !$0.records.isEmpty { serverLoaded.open() } }
+        let serverObservation = serverFeature.logs.$state.sink { state in
+            if !state.records.isEmpty, state.records.allSatisfy({ $0.channel == "lsp/java" }) { serverLoaded.open() }
+        }
         defer { serverObservation.cancel(); serverFeature.stop() }
-        let host = NSHostingView(rootView: LanguageServerLogsView(feature: serverFeature, coordinator: serverCoordinator)
-            .environment(\.locale, settings.language.locale).environment(\.colorScheme, .light))
+        serverFeature.open(providerID: "java")
+        let host = NSHostingView(rootView: LanguageServerLogsView(feature: serverFeature).environmentObject(app)
+            .environmentObject(settings).environment(\.locale, settings.language.locale).environment(\.colorScheme, .light))
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 1400, height: 900),
             styleMask: [.titled, .resizable], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentView = host; window.makeKeyAndOrderFront(nil)

@@ -96859,35 +96859,46 @@
       }
     },
     {
-      "id": "logs.language.windowTitle",
-      "description": "Language server output window title",
+      "id": "logs.language.tabTitle",
+      "description": "Editor tab title for the language server logs view",
       "platforms": [
         "macos"
       ],
       "macos": {
-        "key": "Language Server Logs",
+        "key": "LSP Logs",
         "arguments": []
       }
     },
     {
-      "id": "logs.language.allServers",
-      "description": "All server selection in the dedicated LSP log window",
+      "id": "logs.language.minimumLevel",
+      "description": "Accessibility label of the minimum log level picker in the LSP Logs tab",
       "platforms": [
         "macos"
       ],
       "macos": {
-        "key": "All language servers",
+        "key": "Minimum level",
         "arguments": []
       }
     },
     {
       "id": "logs.language.outputHelp",
-      "description": "Explain dedicated upstream language server evidence",
+      "description": "Info tip explaining which language server evidence the LSP Logs tab shows",
       "platforms": [
         "macos"
       ],
       "macos": {
-        "key": "Shows the selected language server's session events, stderr and server messages. Application logs are available separately in Logs and Diagnostics.",
+        "key": "Shows the selected server's session events, stderr and server messages from the redacted diagnostic logs. Server Trace and RPC message capture are not available. Application logs are in Logs and Diagnostics.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "logs.language.clearHelp",
+      "description": "Tooltip of the Clear View button in the LSP Logs tab",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Clear only the selected server's visible logs. Collected diagnostic logs are kept.",
         "arguments": []
       }
     },

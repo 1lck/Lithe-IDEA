@@ -387,7 +387,7 @@ struct LogWindowTests {
         #expect(roundTrip.records == result.records)
         #expect(roundTrip.opSummary?.durationMs == 0)
     }
-    @Test func languageServerEntryOpensItsOwnWindowWithoutChangingApplicationLogs() async throws {
+    @Test func languageServerEntryOpensEditorTabWithoutChangingApplicationLogs() async throws {
         let directory = root()
         let writer = MacLogStore(defaultDirectory: directory)
         let store = WindowPreferenceStore()
@@ -395,19 +395,21 @@ struct LogWindowTests {
         let container = MacServiceContainer(store: store, settings: settings, moduleLaunchMode: .safeMode, applicationLogging: writer)
         defer { container.moduleLifecycleCoordinator.stop(); try? FileManager.default.removeItem(at: directory) }
         let model = AppModel(settings: settings, services: container.services)
-        let coordinator = LanguageServerLogsCoordinator()
-        container.services.languageServerLogsCoordinator = coordinator
         let applicationLogs = LogWindowCoordinator()
         container.services.logWindowCoordinator = applicationLogs
-        let opened = TestGate()
-        coordinator.present = { opened.open() }
         try await WorkbenchTestScope.withCleanup({ await model.shutdownProjectSession() }) { _ in
-            let tabs = model.editorTabItems
+            let feature = try #require(model.languageServerLogsFeature)
             model.showLanguageServerLogs(providerID: "c++")
-            #expect(await opened.waitUntilOpen())
-            #expect(coordinator.request?.providerID == "c++")
+            #expect(model.editorTabItems.filter { $0 == .languageLogs }.count == 1)
+            #expect(model.editorTabOrderFeature.focusedItem == .languageLogs)
+            #expect(feature.providerID == "c++")
             #expect(applicationLogs.request == nil)
-            #expect(model.editorTabItems == tabs)
+            // Opening again reuses the one tab and switches its server.
+            model.showLanguageServerLogs(providerID: "java")
+            #expect(model.editorTabItems.filter { $0 == .languageLogs }.count == 1)
+            #expect(feature.providerID == "java")
+            model.closeLanguageServerLogsTab()
+            #expect(!model.editorTabItems.contains(.languageLogs))
         }
         await writer.finishSession()
     }

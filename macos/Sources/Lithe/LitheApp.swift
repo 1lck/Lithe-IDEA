@@ -492,8 +492,6 @@ struct LitheApp: App {
     @StateObject private var logWindowCoordinator: LogWindowCoordinator
     @StateObject private var logWindowModel: LogWindowModel
     @StateObject private var logExportFeature: DiagnosticsFeatureModel
-    @StateObject private var languageServerLogsCoordinator: LanguageServerLogsCoordinator
-    @StateObject private var languageServerLogsModel: LanguageServerLogsModel
     private let applicationLogWriter: MacLogStore
 
     init() {
@@ -523,7 +521,6 @@ struct LitheApp: App {
             }
         )
         let logWindowCoordinator = LogWindowCoordinator()
-        let languageServerLogsCoordinator = LanguageServerLogsCoordinator()
         let applicationLogWriter = MacServiceContainer.makeApplicationLogWriter { [weak settings] in
             Task { @MainActor [weak settings] in settings?.setCustomLogDirectory(nil) }
         }
@@ -540,8 +537,6 @@ struct LitheApp: App {
         }
         self.applicationLogWriter = applicationLogWriter
         _logWindowCoordinator = StateObject(wrappedValue: logWindowCoordinator)
-        _languageServerLogsCoordinator = StateObject(wrappedValue: languageServerLogsCoordinator)
-        _languageServerLogsModel = StateObject(wrappedValue: LanguageServerLogsModel(logging: applicationLogWriter, sink: applicationLogWriter))
         settings.logWindowSink = applicationLogWriter
         let logWindowModel = LogWindowModel(logging: applicationLogWriter, preferences: settings.logWindowPreferences,
             sink: applicationLogWriter, save: { [weak settings] in settings?.logWindowPreferences = $0 })
@@ -590,7 +585,6 @@ struct LitheApp: App {
                         networkSessionProvider: networkSessionProvider
                     ).services
                 services.logWindowCoordinator = logWindowCoordinator
-                services.languageServerLogsCoordinator = languageServerLogsCoordinator
                 logWindowModel.environment = .init(appVersion: logWindowModel.environment.appVersion,
                     osVersion: logWindowModel.environment.osVersion, architecture: logWindowModel.environment.architecture,
                     plugins: services.pluginManager.snapshots.filter { $0.isEnabled }.map(\.id.rawValue))
@@ -919,15 +913,6 @@ struct LitheApp: App {
                 .id(settings.language)
         }
         .defaultSize(width: 1340, height: 786)
-        .windowResizability(.contentMinSize)
-
-        Window(L10n.string("Language Server Logs"), id: LitheWindowID.languageServerLogs) {
-            LanguageServerLogsView(feature: languageServerLogsModel, coordinator: languageServerLogsCoordinator)
-                .environment(\.locale, settings.language.locale)
-                .preferredColorScheme(settings.themePreference.preferredColorScheme)
-                .id(settings.language)
-        }
-        .defaultSize(width: 1100, height: 720)
         .windowResizability(.contentMinSize)
 
         Window(settingsWindowTitle(for: settings.language), id: LitheWindowID.settings) {

@@ -6,7 +6,6 @@ import SwiftUI
 
 enum LitheWindowID {
     static let logs = "logs"
-    static let languageServerLogs = "language-server-logs"
     static let welcome = "welcome"
     static let settings = "settings"
     static let project = "project"
@@ -297,7 +296,6 @@ private struct ActiveSessionChrome: View {
             )
             .onAppear {
                 session.services.logWindowCoordinator?.present = { openWindow(id: LitheWindowID.logs) }
-                session.services.languageServerLogsCoordinator?.present = { openWindow(id: LitheWindowID.languageServerLogs) }
             }
             .onReceive(session.workbenchFeature.$settingsCategoryRequest.dropFirst()) { _ in
                 SettingsWindowChrome.ownerWindow = NSApp.orderedWindows.first {

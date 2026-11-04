@@ -1,63 +1,127 @@
-import SwiftUI
 import LitheModuleAPI
+import SwiftUI
 
-/// Server output has its own window; application diagnostics keep their separate entry.
+/// Editor-area "LSP Logs" tab: one server at a time, read from the v2 log store.
 struct LanguageServerLogsView: View {
+    @EnvironmentObject private var model: AppModel
     @ObservedObject var feature: LanguageServerLogsModel
-    @ObservedObject var coordinator: LanguageServerLogsCoordinator
+
+    private var providerIDs: [String] {
+        Set(model.statusBarLanguageServers.map(\.id)
+            + (feature.providerID.isEmpty ? [] : [feature.providerID])).sorted()
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                LitheSettingsSelect(selection: Binding(get: { feature.providerID }, set: feature.select),
-                    options: [""] + feature.servers.map(\.id), width: 200,
-                    accessibilityLabel: "Language Server", title: serverTitle, localizesTitles: false)
-                Text("Server Logs").foregroundStyle(LitheTheme.accent)
-                LitheInfoTip("Shows the selected language server's session events, stderr and server messages. Application logs are available separately in Logs and Diagnostics.")
-                Spacer(minLength: 0)
-            }.padding(12).font(LitheTheme.uiFont(size: 12))
-            Divider()
-            if let error = feature.error { Text(error).foregroundStyle(LitheTheme.error).padding(8) }
-            LanguageServerLogOutput(model: feature.logs)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    serverPicker
+                    logChannel
+                    levelPicker
+                    Spacer(minLength: 0)
+                    clearButton
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) { serverPicker; Spacer(minLength: 0); clearButton }
+                    HStack(spacing: 8) { logChannel; Spacer(minLength: 0); levelPicker }
+                }
+            }
+            .font(LitheTheme.uiFont(size: 12))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            LanguageServerLogOutput(logs: feature.logs, channelError: feature.error, retry: feature.retry)
+                // Replacing a filtered buffer is a new viewport, not an append to
+                // another server's output. Native selection/scroll stays view-local.
+                .id(feature.providerID + ":" + feature.minimumLevel.rawValue)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .background(LitheTheme.editor)
-        .frame(minWidth: 720, minHeight: 400)
-        .onAppear {
-            if let request = coordinator.request { feature.apply(request) }
-            feature.start()
-        }
-        .onReceive(coordinator.$request) { request in
-            if let request { feature.apply(request) }
-        }
-        .onDisappear { feature.stop() }
+        .onAppear { selectInitialProvider() }
+        .onChange(of: providerIDs) { _ in selectInitialProvider() }
     }
-    private func serverTitle(_ id: String) -> String {
-        id.isEmpty ? L10n.string("All language servers") : feature.servers.first { $0.id == id }?.displayName ?? id
+
+    private var serverPicker: some View {
+        LitheSettingsSelect(selection: Binding(get: { feature.providerID }, set: feature.select),
+            options: providerIDs, width: 180,
+            accessibilityLabel: "Language Server", title: providerName, localizesTitles: false)
+    }
+
+    private var levelPicker: some View {
+        LitheSettingsSelect(selection: Binding(get: { feature.minimumLevel }, set: feature.setMinimumLevel),
+            options: LanguageServerLogsModel.MinimumLevel.allCases, width: 120,
+            accessibilityLabel: "Minimum level", title: levelTitle)
+    }
+
+    private var logChannel: some View {
+        HStack(spacing: 4) {
+            Text("Server Logs").foregroundStyle(LitheTheme.accent)
+            LitheInfoTip("Shows the selected server's session events, stderr and server messages from the redacted diagnostic logs. Server Trace and RPC message capture are not available. Application logs are in Logs and Diagnostics.")
+        }
+    }
+
+    private var clearButton: some View {
+        Button("Clear View") { feature.clear() }
+            .buttonStyle(.litheNoPress)
+            .help("Clear only the selected server's visible logs. Collected diagnostic logs are kept.")
+    }
+
+    private func selectInitialProvider() {
+        if feature.providerID.isEmpty, let first = providerIDs.first { feature.select(first) }
+    }
+
+    private func providerName(_ id: String) -> String {
+        model.statusBarLanguageServers.first { $0.id == id }?.displayName ?? id
+    }
+
+    private func levelTitle(_ level: LanguageServerLogsModel.MinimumLevel) -> String {
+        switch level {
+        case .info: "Info"
+        case .warning: "Warning"
+        case .error: "Error"
+        }
     }
 }
 
+/// Observes the inner log query separately so live batches redraw only the output.
 private struct LanguageServerLogOutput: View {
-    @ObservedObject var model: LogWindowModel
-    @State private var wrapsLines = false
+    @ObservedObject var logs: LogWindowModel
+    let channelError: String?
+    let retry: () -> Void
+
     private var output: String {
-        model.state.records.map { record in
-            let diagnostic = record.fields["diagnostic"] ?? record.fields["error"]
-            let detail = diagnostic.map { $0.isEmpty ? "" : "\n" + $0 } ?? ""
-            return "[\(record.level)] \(record.ts)  \(record.channel)  \(record.event)\n\(record.msg)\(detail)\n"
-        }.joined()
+        logs.state.records.map { record in
+            let time = Date(timeIntervalSince1970: TimeInterval(record.epochMs) / 1000)
+                .formatted(date: .omitted, time: .standard)
+            // Structured identifiers: the shared console colors the level prefix.
+            // Upstream messages and field values are shown unchanged.
+            let fields = record.fields.sorted { $0.key < $1.key }
+                .map { "\($0.key)=\($0.value)" }
+                .joined(separator: " ")
+            return "[\(record.level)] \(time) \(record.msg)\(fields.isEmpty ? "" : "\n" + fields)\n"
+        }
+        .joined()
     }
+
     var body: some View {
         VStack(spacing: 0) {
-            if let error = model.error {
-                HStack {
-                    Text(error).foregroundStyle(LitheTheme.error)
-                    Button("Retry") { model.retry() }
-                }.padding(8)
+            if let error = channelError ?? logs.error {
+                HStack(spacing: 8) {
+                    Text(error).foregroundStyle(LitheTheme.error).lineLimit(2)
+                    Button("Retry", action: retry).buttonStyle(.litheNoPress)
+                    Spacer(minLength: 0)
+                }
+                .font(LitheTheme.uiFont(size: 12))
+                .padding(.horizontal, 12)
+                .padding(.bottom, 6)
             }
-            OutputTextView(output: output, searchRoots: [], fileExists: { _ in false },
-                emptyMessage: L10n.string("No matching language server logs"), wrapsLines: wrapsLines,
-                showsConsoleToolbar: true, onClearOutput: model.clearDisplay,
-                onToggleWrapsLines: { wrapsLines.toggle() }, onOpenLocation: { _, _, _ in })
+            OutputTextView(
+                output: output,
+                searchRoots: [],
+                fileExists: { _ in false },
+                emptyMessage: L10n.string("No matching language server logs"),
+                fontSize: 12,
+                onOpenLocation: { _, _, _ in }
+            )
         }
     }
 }

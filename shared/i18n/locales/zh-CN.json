@@ -10050,9 +10050,10 @@
     "logs.window.startTime": "开始时间",
     "logs.window.endTime": "结束时间",
     "logs.window.reversedTime": "结束时间不能早于开始时间。",
-    "logs.language.windowTitle": "语言服务器日志",
-    "logs.language.allServers": "全部语言服务器",
-    "logs.language.outputHelp": "显示所选语言服务器的会话事件、标准错误输出和服务消息。应用日志请从“日志与诊断…”单独查看。",
+    "logs.language.tabTitle": "LSP 日志",
+    "logs.language.minimumLevel": "最低级别",
+    "logs.language.outputHelp": "显示所选服务器的会话事件、stderr 和服务器消息，来自已脱敏的诊断日志。不提供 Server Trace 和 RPC 消息捕获。应用日志在“日志与诊断”中查看。",
+    "logs.language.clearHelp": "仅清空所选服务器的可见日志，保留已采集的诊断日志。",
     "logs.language.outputTitle": "服务器日志",
     "logs.language.empty": "没有匹配的语言服务器日志"
   },

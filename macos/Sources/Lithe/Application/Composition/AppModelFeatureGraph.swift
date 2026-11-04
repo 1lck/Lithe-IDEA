@@ -39,6 +39,8 @@ final class AppModelFeatureGraph {
     let debugLaunchPreparation: DebugLaunchPreparationCoordinator
     let debugSessionCleanup: DebugSessionCleanupCoordinator
     let javaTestDebugWorkflow: JavaTestDebugWorkflowCoordinator
+    /// Nil only when the application has no log store (some tests).
+    let languageServerLogs: LanguageServerLogsModel?
 
     init(settings: AppSettings, services: AppServices) {
         keyboardShortcut = KeyboardShortcutFeatureModel(settings: settings)
@@ -126,11 +128,16 @@ final class AppModelFeatureGraph {
         debugLaunchPreparation = DebugLaunchPreparationCoordinator(notify: notify)
         debugSessionCleanup = DebugSessionCleanupCoordinator()
         javaTestDebugWorkflow = JavaTestDebugWorkflowCoordinator(notify: notify)
+        let languageServerLogs = services.logWindowLogging.map {
+            LanguageServerLogsModel(logging: $0, sink: services.logSink)
+        }
+        self.languageServerLogs = languageServerLogs
         editorSession = EditorSessionCoordinator(
             document: document,
             media: media,
             terminalPlacement: terminalPlacement,
-            tabOrder: editorTabOrder
+            tabOrder: editorTabOrder,
+            languageServerLogs: languageServerLogs
         )
     }
 }

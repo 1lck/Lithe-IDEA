@@ -323,7 +323,6 @@
 "All configurations" = "All configurations";
 "All conflicts resolved. Continue to finish, or abort to undo." = "All conflicts resolved. Continue to finish, or abort to undo.";
 "All conversations" = "All conversations";
-"All language servers" = "All language servers";
 "All messages" = "All messages";
 "All projects" = "All projects";
 "All projects · project can override" = "All projects · project can override";
@@ -738,6 +737,7 @@
 "Clear debug output" = "Clear debug output";
 "Clear log search" = "Clear log search";
 "Clear only the display; log files are kept" = "Clear only the display; log files are kept";
+"Clear only the selected server's visible logs. Collected diagnostic logs are kept." = "Clear only the selected server's visible logs. Collected diagnostic logs are kept.";
 "Clear path filter" = "Clear path filter";
 "Clear run output" = "Clear run output";
 "Clear search" = "Clear search";
@@ -2073,11 +2073,11 @@
 "Korean characters" = "Korean characters";
 "Kotlin Support" = "Kotlin Support";
 "LSP" = "LSP";
+"LSP Logs" = "LSP Logs";
 "Labels" = "Labels";
 "Labels and assignees" = "Labels and assignees";
 "Language" = "Language";
 "Language Server" = "Language Server";
-"Language Server Logs" = "Language Server Logs";
 "Language Server Settings..." = "Language Server Settings...";
 "Language Service" = "Language Service";
 "Language Services" = "Language Services";
@@ -2383,6 +2383,7 @@
 "Method Breakpoints" = "Method Breakpoints";
 "Microphone in use" = "Microphone in use";
 "Minimap" = "Minimap";
+"Minimum level" = "Minimum level";
 "Minimum version" = "Minimum version";
 "Missing" = "Missing";
 "Mixed Reset (Keep Changes Unstaged)" = "Mixed Reset (Keep Changes Unstaged)";
@@ -3799,7 +3800,7 @@
 "Showing available matches." = "Showing available matches.";
 "Showing the previous Java entries while the Java language service prepares the project." = "Showing the previous Java entries while the Java language service prepares the project.";
 "Shown across the entire workbench, including toolbars, project tree, editor, tabs, terminals, and status bar." = "Shown across the entire workbench, including toolbars, project tree, editor, tabs, terminals, and status bar.";
-"Shows the selected language server's session events, stderr and server messages. Application logs are available separately in Logs and Diagnostics." = "Shows the selected language server's session events, stderr and server messages. Application logs are available separately in Logs and Diagnostics.";
+"Shows the selected server's session events, stderr and server messages from the redacted diagnostic logs. Server Trace and RPC message capture are not available. Application logs are in Logs and Diagnostics." = "Shows the selected server's session events, stderr and server messages from the redacted diagnostic logs. Server Trace and RPC message capture are not available. Application logs are in Logs and Diagnostics.";
 "Side-by-side" = "Side-by-side";
 "Side-by-side view" = "Side-by-side view";
 "Sign in again" = "Sign in again";
@@ -5169,11 +5170,12 @@
 "logs.filter.regexTooLong" = "Regular expression is too long";
 "logs.filter.unterminatedQuote" = "Close the quoted value";
 "logs.filter.unterminatedRegex" = "Close the regular expression with /";
-"logs.language.allServers" = "All language servers";
+"logs.language.clearHelp" = "Clear only the selected server's visible logs. Collected diagnostic logs are kept.";
 "logs.language.empty" = "No matching language server logs";
-"logs.language.outputHelp" = "Shows the selected language server's session events, stderr and server messages. Application logs are available separately in Logs and Diagnostics.";
+"logs.language.minimumLevel" = "Minimum level";
+"logs.language.outputHelp" = "Shows the selected server's session events, stderr and server messages from the redacted diagnostic logs. Server Trace and RPC message capture are not available. Application logs are in Logs and Diagnostics.";
 "logs.language.outputTitle" = "Server Logs";
-"logs.language.windowTitle" = "Language Server Logs";
+"logs.language.tabTitle" = "LSP Logs";
 "logs.window.absoluteTime" = "absolute time";
 "logs.window.allChannels" = "all channels";
 "logs.window.autoOffIn" = "Auto-off in %1$@";

@@ -10050,9 +10050,10 @@
     "logs.window.startTime": "Start time",
     "logs.window.endTime": "End time",
     "logs.window.reversedTime": "The end time must be after the start time.",
-    "logs.language.windowTitle": "Language Server Logs",
-    "logs.language.allServers": "All language servers",
-    "logs.language.outputHelp": "Shows the selected language server's session events, stderr and server messages. Application logs are available separately in Logs and Diagnostics.",
+    "logs.language.tabTitle": "LSP Logs",
+    "logs.language.minimumLevel": "Minimum level",
+    "logs.language.outputHelp": "Shows the selected server's session events, stderr and server messages from the redacted diagnostic logs. Server Trace and RPC message capture are not available. Application logs are in Logs and Diagnostics.",
+    "logs.language.clearHelp": "Clear only the selected server's visible logs. Collected diagnostic logs are kept.",
     "logs.language.outputTitle": "Server Logs",
     "logs.language.empty": "No matching language server logs"
   },

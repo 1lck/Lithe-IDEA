@@ -323,7 +323,6 @@
 "All configurations" = "全部配置";
 "All conflicts resolved. Continue to finish, or abort to undo." = "冲突已全部解决。继续以完成操作，或中止以撤销。";
 "All conversations" = "全部会话";
-"All language servers" = "全部语言服务器";
 "All messages" = "全部消息";
 "All projects" = "所有项目";
 "All projects · project can override" = "所有项目 · 项目可覆盖";
@@ -738,6 +737,7 @@
 "Clear debug output" = "清除调试输出";
 "Clear log search" = "清除日志搜索";
 "Clear only the display; log files are kept" = "只清空显示，保留磁盘上的日志文件";
+"Clear only the selected server's visible logs. Collected diagnostic logs are kept." = "仅清空所选服务器的可见日志，保留已采集的诊断日志。";
 "Clear path filter" = "清除路径筛选";
 "Clear run output" = "清除运行输出";
 "Clear search" = "清除搜索";
@@ -2073,11 +2073,11 @@
 "Korean characters" = "韩文字符";
 "Kotlin Support" = "Kotlin 支持";
 "LSP" = "LSP";
+"LSP Logs" = "LSP 日志";
 "Labels" = "标签";
 "Labels and assignees" = "标签和负责人";
 "Language" = "语言";
 "Language Server" = "语言服务器";
-"Language Server Logs" = "语言服务器日志";
 "Language Server Settings..." = "语言服务器设置...";
 "Language Service" = "语言服务";
 "Language Services" = "语言服务";
@@ -2383,6 +2383,7 @@
 "Method Breakpoints" = "方法断点";
 "Microphone in use" = "麦克风使用中";
 "Minimap" = "代码缩略图";
+"Minimum level" = "最低级别";
 "Minimum version" = "最低版本";
 "Missing" = "缺失";
 "Mixed Reset (Keep Changes Unstaged)" = "混合重置（保留未暂存更改）";
@@ -3799,7 +3800,7 @@
 "Showing available matches." = "仍显示可用的匹配项。";
 "Showing the previous Java entries while the Java language service prepares the project." = "Java 语言服务正在准备项目，暂时显示上次的 Java 入口。";
 "Shown across the entire workbench, including toolbars, project tree, editor, tabs, terminals, and status bar." = "显示在整个工作台内，包括工具栏、项目文件树、编辑区、标签栏、终端和状态栏。";
-"Shows the selected language server's session events, stderr and server messages. Application logs are available separately in Logs and Diagnostics." = "显示所选语言服务器的会话事件、标准错误输出和服务消息。应用日志请从“日志与诊断…”单独查看。";
+"Shows the selected server's session events, stderr and server messages from the redacted diagnostic logs. Server Trace and RPC message capture are not available. Application logs are in Logs and Diagnostics." = "显示所选服务器的会话事件、stderr 和服务器消息，来自已脱敏的诊断日志。不提供 Server Trace 和 RPC 消息捕获。应用日志在“日志与诊断”中查看。";
 "Side-by-side" = "并排";
 "Side-by-side view" = "并排视图";
 "Sign in again" = "重新登录";
@@ -5169,11 +5170,12 @@
 "logs.filter.regexTooLong" = "正则表达式过长";
 "logs.filter.unterminatedQuote" = "请补齐引号";
 "logs.filter.unterminatedRegex" = "请用 / 结束正则表达式";
-"logs.language.allServers" = "全部语言服务器";
+"logs.language.clearHelp" = "仅清空所选服务器的可见日志，保留已采集的诊断日志。";
 "logs.language.empty" = "没有匹配的语言服务器日志";
-"logs.language.outputHelp" = "显示所选语言服务器的会话事件、标准错误输出和服务消息。应用日志请从“日志与诊断…”单独查看。";
+"logs.language.minimumLevel" = "最低级别";
+"logs.language.outputHelp" = "显示所选服务器的会话事件、stderr 和服务器消息，来自已脱敏的诊断日志。不提供 Server Trace 和 RPC 消息捕获。应用日志在“日志与诊断”中查看。";
 "logs.language.outputTitle" = "服务器日志";
-"logs.language.windowTitle" = "语言服务器日志";
+"logs.language.tabTitle" = "LSP 日志";
 "logs.window.absoluteTime" = "绝对时间";
 "logs.window.allChannels" = "全部通道";
 "logs.window.autoOffIn" = "自动关闭倒计时 %1$@";

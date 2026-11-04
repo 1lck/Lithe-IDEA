@@ -49,8 +49,31 @@ extension AppModel {
         )
     }
 
+    /// Opens the editor-area "LSP Logs" tab on `providerID`. The status menu's
+    /// bottom entry passes the first listed server.
     func showLanguageServerLogs(providerID: String) {
-        services.languageServerLogsCoordinator?.open(providerID: providerID, servers: statusBarLanguageServers)
+        guard let logs = languageServerLogsFeature else { return }
+        logs.open(providerID: providerID)
+        if !editorTabOrderFeature.contains(.languageLogs) { editorTabOrderFeature.moveToEnd(.languageLogs) }
+        selectLanguageServerLogsTab()
+    }
+
+    func selectLanguageServerLogsTab() {
+        guard editorTabOrderFeature.contains(.languageLogs) else { return }
+        terminalPlacementFeature.activateDocument()
+        mediaFeature.deactivate()
+        editorTabOrderFeature.repositoryDiffSelected = false
+        activeDocumentID = nil
+        editorNavigationTarget = nil
+        editorTabOrderFeature.focus(.languageLogs)
+    }
+
+    func closeLanguageServerLogsTab() {
+        let order = editorTabOrderFeature
+        let wasFocused = order.focusedItem == .languageLogs
+        order.remove(.languageLogs)
+        languageServerLogsFeature?.stop()
+        if wasFocused, let fallback = order.focusedItem ?? order.items.last { selectEditorTab(fallback) }
     }
 
     @discardableResult
