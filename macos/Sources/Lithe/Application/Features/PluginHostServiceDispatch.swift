@@ -49,6 +49,10 @@ enum PluginHostErrorCode: String, Sendable, CaseIterable {
     case rateLimited = "plugin.host.rateLimited"
     case cancelled = "plugin.host.cancelled"
     case timeout = "plugin.host.timeout"
+    /// The tool a run names (`{tool, reason}` in the details) has no usable
+    /// installation: `reason` is `notFound` when none is installed and
+    /// `unusable` when the chosen one cannot run.
+    case toolUnresolved = "plugin.host.toolUnresolved"
     /// The backend went away while the host worked on its request.
     case backendExited = "plugin.backend.exited"
     case failed = "plugin.host.failed"
