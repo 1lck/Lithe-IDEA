@@ -43,13 +43,13 @@ debug 权限，Core 目录把两者都拒绝。两处都已按新结构修正夹
 261 项与 62 项时不再复现，属于负载争用；契约、服务/Windows 边界、Notes、bundle 只读、i18n、
 功能矩阵、资源复用、Core 注释与日志事件 14 项静态检查通过。Windows 实机与正式发行仍未验收。
 
-仍然失败且在合并前的 `f0561be5d` 上同样失败的是 `RunEntryPointTests` 中 5 个“延后的 Run 在快照到达后
-重发”用例（`runWithExistingConfigurationLaunchesOnlyAfterTheSnapshotArrives` 等），每个在 31 秒左右超时。
-已定位的链路：重发的 Run 对 `javaMain` 配置走 `prepareCurrentProviderGeneration` →
-`prepareRunGenerationModels` → `BuildSystemService.prepareLanguageImport`，后者在检测未发布结果时等待 30 秒
-后以“language import preparation timed out”失败，Run 静默结束，测试等不到 launch plan。该套件使用顺序化的
-工作区替身，检测在其中不会完成；这是本分支把 `javaMain` 运行绑定到 Provider 生成事实后留下的夹具缺口，
-需要单独补齐（让替身发布检测结果，或在没有可用构建插件时跳过 Provider 生成准备），不属于合并回归。
+合并前的 `f0561be5d` 上已经失败的 `RunEntryPointTests` 5 个“延后的 Run 在快照到达后重发”用例
+（`runWithExistingConfigurationLaunchesOnlyAfterTheSnapshotArrives` 等）已修复。实际链路：重发的 Run 对
+`javaMain` 配置调用 `prepareCurrentProviderGeneration`；该套件没有启用任何构建插件，
+`buildSystemsFeatureIfActive` 为空，守卫直接抛出 `CancellationError`，Run 被当作取消静默结束，测试在自身
+约 31 秒的等待后失败。按代码路径，产品中没有可用构建插件时 `javaMain` 运行也会无提示地不启动（未在真机复现）。修复与
+`javaLanguageImportConfiguration` 的规则一致：没有可用构建插件时没有 Provider 模型需要刷新，跳过刷新，
+继续由 `validateProviderGeneration` 校验（无构建项目归属时直接放行）；有可用构建插件但功能未激活仍按取消处理。
 
 工具默认迁移的退出条件经核对不能单独在阶段 D 完成：旧 `toolchain.java.homePath` 等字段的
 空值同时表示“继承根默认”和“自动”，由 Run、Debug 与 JDT 启动（`ProjectRuntimeService`、

@@ -44,9 +44,14 @@ extension AppModel {
     func prepareCurrentProviderGeneration(configuration: RunConfiguration, identity: WorkspaceIdentity) async throws {
         guard configuration.requiresProviderGeneration else { return }
         try await prepareBuildLanguageImport()
-        guard let builds = buildSystemsFeatureIfActive, let run = runFeatureIfActive else { throw CancellationError() }
-        try await builds.prepareRunGenerationModels(workspace: identity.url)
-        guard isCurrentWorkspace(identity), !Task.isCancelled else { throw CancellationError() }
+        guard let run = runFeatureIfActive else { throw CancellationError() }
+        // No enabled build plugin means no Provider model to refresh; validation
+        // then finds no build-project ownership and lets the launch continue.
+        if hasAvailableBuildSystemPlugins {
+            guard let builds = buildSystemsFeatureIfActive else { throw CancellationError() }
+            try await builds.prepareRunGenerationModels(workspace: identity.url)
+            guard isCurrentWorkspace(identity), !Task.isCancelled else { throw CancellationError() }
+        }
         try run.validateProviderGeneration(for: configuration)
     }
 
