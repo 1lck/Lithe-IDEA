@@ -36,6 +36,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     private var environment: [String: String]
     private var initializationOptions: ToolingJSONValue?
     private var preparedWorkspaceConfiguration: ToolingJSONValue?
+    private var preparedSessionPolicy: ToolingJSONValue?
     private let prepareProcess: (@MainActor (URL) async throws -> PreparedLanguageServerProcess)?
     private var preparationTask: Task<Void, Never>?
     private var startingPreparedProcess = false
@@ -126,6 +127,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     package var releaseResources: (@Sendable () async -> Void)?
 
     package var onDiagnostics: ((URL, [LanguageServerDiagnostic]) -> Void)?
+    package var onPluginServerNotification: ((PluginServerNotification) -> Void)?
     package var onCoreLog: ((CoreLogRecord) -> Void)?
     package var onLog: ((LanguageServerLogLevel, String, String?, String?) -> Void)?
     package var onLogIssue: ((Bool, String, String, Int?, String?) -> Void)?
@@ -259,6 +261,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
                     self.environment = prepared.environment
                     self.initializationOptions = prepared.launch.initializationOptions
                     self.preparedWorkspaceConfiguration = prepared.launch.workspaceConfiguration
+                    self.preparedSessionPolicy = prepared.launch.sessionPolicy
                     self.core = prepared.core.loggingRuntime(role: self.logRole, logSubject: self.logSubject, pluginID: self.pluginID)
                     self.releaseResources = prepared.release
                     self.startingPreparedProcess = true
@@ -289,12 +292,14 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         var arguments = arguments
         var initializationOptions = initializationOptions
         var workspaceConfiguration = preparedWorkspaceConfiguration
+        var sessionPolicy = preparedSessionPolicy
         if let launchResolver {
             do {
                 let resolved = try launchResolver(normalizedRoot)
                 arguments = resolved.arguments
                 initializationOptions = resolved.initializationOptions
                 workspaceConfiguration = resolved.workspaceConfiguration
+                sessionPolicy = resolved.sessionPolicy
             } catch {
                 endStartupAttempt(throwing: error)
                 let message = "Language server launch could not be prepared: \(error.localizedDescription)"
@@ -334,6 +339,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         let resolvedArguments = arguments
         let resolvedOptions = initializationOptions
         let resolvedConfiguration = workspaceConfiguration
+        let resolvedPolicy = sessionPolicy
         let launch: @Sendable () -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> = {
             if let pluginID, !offeredKeymapImportProviders.isEmpty {
                 core.startPluginKeymapImportBackend(
@@ -368,6 +374,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
                     rootURL: normalizedRoot,
                     initializationOptions: resolvedOptions,
                     workspaceConfiguration: resolvedConfiguration,
+                    sessionPolicy: resolvedPolicy,
                     hostServices: hostServices,
                     hostIntegrationLaunch: hostIntegrationLaunch,
                     cacheDirectoryURL: cacheDirectoryURL,
@@ -1089,6 +1096,78 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         }
     }
 
+    /// Sends one request of the owning plugin's backend to this server
+    /// (plan API-25). Core enforces the manifest's whitelist, gates and
+    /// timeout, and cancelling the calling task cancels the request.
+    package func requestPluginServer(
+        pluginID: String,
+        serverID: String,
+        method: String,
+        params: ToolingJSONValue,
+        timeout: TimeInterval?
+    ) async -> Result<ToolingJSONValue, PluginHostRequestFailure> {
+        guard let sessionID, state == .ready else { return .failure(.languageServerUnavailable) }
+        let operation: LanguageServerRuntimeOperation
+        switch await send(timeout: timeout ?? requestTimeout, { core in
+            core.pluginServerRequest(
+                sessionID: sessionID, pluginID: pluginID, serverID: serverID,
+                method: method, params: params, timeout: timeout
+            )
+        }) {
+        case .success(let started): operation = started
+        case .failure(let refusal):
+            sendsInFlight -= 1
+            return .failure(PluginHostRequestFailure(refusal: refusal))
+        }
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                registerPendingOperation(operation, name: method) { result in
+                    continuation.resume(returning: Self.pluginServerOutcome(of: result))
+                }
+                sendsInFlight -= 1
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.cancelOffMain(operation.operationID) }
+        }
+    }
+
+    /// Sends one notification of the owning plugin's backend to this server.
+    package func notifyPluginServer(
+        pluginID: String,
+        serverID: String,
+        method: String,
+        params: ToolingJSONValue
+    ) async -> Result<Bool, PluginHostRequestFailure> {
+        guard let sessionID, state == .ready else { return .failure(.languageServerUnavailable) }
+        let result = await send(timeout: requestTimeout) { core in
+            core.pluginServerNotify(
+                sessionID: sessionID, pluginID: pluginID, serverID: serverID, method: method, params: params
+            )
+        }
+        sendsInFlight -= 1
+        return result.mapError { PluginHostRequestFailure(refusal: $0) }
+    }
+
+    /// What a plugin-server request completed with, in the shape the backend
+    /// gets. A session that stopped first leaves the backend without a server.
+    private static func pluginServerOutcome(
+        of result: Result<LanguageServerRuntimeEvent, Error>
+    ) -> Result<ToolingJSONValue, PluginHostRequestFailure> {
+        switch result {
+        case .success(let event):
+            guard case .object(let object)? = event.result else { return .success(.null) }
+            return .success(object["value"] ?? .null)
+        case .failure(let error as LanguageServerRequestFailure):
+            return .failure(PluginHostRequestFailure(
+                completion: error.runtimeError, message: error.errorDescription ?? error.runtimeError.message
+            ))
+        case .failure(is CancellationError):
+            return .failure(PluginHostRequestFailure(message: "The request was cancelled.", code: "plugin.host.cancelled"))
+        case .failure:
+            return .failure(.languageServerUnavailable)
+        }
+    }
+
     /// Answers a host-service request. Core writes the answer to the
     /// backend's input, which a backend that stopped reading can block, so
     /// it is sent off the main actor like a request.
@@ -1183,6 +1262,12 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         onLogIssue?(true, "transport", "inputBlocked", nil, nil)
         onLog?(.warning, "Language server stopped reading its input", "Ending the process to free a blocked request.", nil)
         terminateProcess?()
+    }
+
+    private static func pluginServerNotification(of event: LanguageServerRuntimeEvent) -> PluginServerNotification? {
+        guard case .object(let object)? = event.result, case .string(let method)? = object["method"] else { return nil }
+        let truncated: Bool = if case .bool(true)? = object["truncated"] { true } else { false }
+        return PluginServerNotification(method: method, params: object["params"], truncated: truncated)
     }
 
     private static func functionFailure(_ error: Error) -> Error {
@@ -1650,6 +1735,9 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
             } else {
                 respond(to: id, with: .failure(PluginHostRequestFailure(message: "The host serves no requests of this process.")))
             }
+            return false
+        case "pluginServerNotification":
+            if let notification = Self.pluginServerNotification(of: event) { onPluginServerNotification?(notification) }
             return false
         case "hostRequestCancelled":
             if case .object(let object)? = event.result, case .string(let id)? = object["hostRequestID"] {

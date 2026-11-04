@@ -215,6 +215,9 @@ package struct LanguageServerRuntimeError: Equatable, Sendable {
     /// Plugin-defined code of a failed plugin function, for the plugin's own
     /// UI only; the host never branches on it.
     package let pluginErrorCode: String?
+    /// Structured facts of a failed plugin-server request. They travel to the
+    /// calling backend unchanged as the failure's details.
+    package let details: ToolingJSONValue?
 
     package init(
         code: String,
@@ -223,7 +226,8 @@ package struct LanguageServerRuntimeError: Equatable, Sendable {
         underlyingMessage: String?,
         processExitCode: Int?,
         javaBuildReport: JavaBuildReport? = nil,
-        pluginErrorCode: String? = nil
+        pluginErrorCode: String? = nil,
+        details: ToolingJSONValue? = nil
     ) {
         self.code = code
         self.stage = stage
@@ -232,6 +236,7 @@ package struct LanguageServerRuntimeError: Equatable, Sendable {
         self.processExitCode = processExitCode
         self.javaBuildReport = javaBuildReport
         self.pluginErrorCode = pluginErrorCode
+        self.details = details
     }
 }
 
@@ -584,6 +589,30 @@ package protocol LanguageServerRuntimeCore: Sendable {
         requestTimeout: TimeInterval,
         shutdownTimeout: TimeInterval
     ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure>
+    /// Starts a plugin-owned server together with the policy that lets the
+    /// plugin's backend reach it through the host (plan API-25). Core enforces
+    /// `sessionPolicy`: the requests the backend may send, the gates they wait
+    /// for and the server notifications it receives.
+    func startPluginLanguageServer(
+        pluginID: String,
+        providerID: String,
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String],
+        rootURL: URL,
+        initializationOptions: ToolingJSONValue?,
+        workspaceConfiguration: ToolingJSONValue?,
+        sessionPolicy: ToolingJSONValue?,
+        hostServices: [String],
+        hostIntegrationLaunch: LanguageServerHostIntegrationLaunch?,
+        cacheDirectoryURL: URL?,
+        workspaceFingerprint: String?,
+        mavenContext: MavenLaunchContext?,
+        javaGradle: JavaGradleImportConfiguration?,
+        initializeTimeout: TimeInterval,
+        requestTimeout: TimeInterval,
+        shutdownTimeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure>
     /// Starts a plugin backend that may request the host services named in
     /// `hostServices` (function protocol 2). Core checks every request
     /// against them before publishing a `hostRequest` event.
@@ -642,6 +671,28 @@ package protocol LanguageServerRuntimeCore: Sendable {
         context: PluginWorkspaceContextReference?,
         timeout: TimeInterval
     ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure>
+    /// Sends one LSP request of a plugin backend to its own server
+    /// (`lsp.pluginServerRequest`). Core checks the plugin's whitelist and
+    /// gates; the outcome arrives as one `requestCompleted` event with the
+    /// server's result under `result.value`. `timeout` nil keeps Core's default.
+    func pluginServerRequest(
+        sessionID: String,
+        pluginID: String,
+        serverID: String,
+        method: String,
+        params: ToolingJSONValue,
+        timeout: TimeInterval?
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure>
+    /// Sends one LSP notification of a plugin backend to its own server.
+    /// `true` when Core wrote it; `false` when the server is not initialized
+    /// yet and reads the stored configuration with `initialized` instead.
+    func pluginServerNotify(
+        sessionID: String,
+        pluginID: String,
+        serverID: String,
+        method: String,
+        params: ToolingJSONValue
+    ) -> Result<Bool, LanguageServerRuntimeFailure>
     func cancelLanguageServerOperation(sessionID: String, operationID: String)
     func pollLanguageServerEvents(sessionID: String) -> [LanguageServerRuntimeEvent]
     func destroyLanguageServer(sessionID: String)
@@ -871,6 +922,38 @@ package extension LanguageServerRuntimeCore {
         )
     }
 
+    /// Runtimes that cannot enforce a session policy start the server without
+    /// one, so the plugin's backend has no route to it.
+    func startPluginLanguageServer(
+        pluginID: String,
+        providerID: String,
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String],
+        rootURL: URL,
+        initializationOptions: ToolingJSONValue?,
+        workspaceConfiguration: ToolingJSONValue?,
+        sessionPolicy _: ToolingJSONValue?,
+        hostServices: [String],
+        hostIntegrationLaunch: LanguageServerHostIntegrationLaunch?,
+        cacheDirectoryURL: URL?,
+        workspaceFingerprint: String?,
+        mavenContext: MavenLaunchContext?,
+        javaGradle: JavaGradleImportConfiguration?,
+        initializeTimeout: TimeInterval,
+        requestTimeout: TimeInterval,
+        shutdownTimeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> {
+        startPluginLanguageServer(
+            pluginID: pluginID, providerID: providerID, executableURL: executableURL, arguments: arguments,
+            environment: environment, rootURL: rootURL, initializationOptions: initializationOptions,
+            workspaceConfiguration: workspaceConfiguration, hostServices: hostServices,
+            hostIntegrationLaunch: hostIntegrationLaunch, cacheDirectoryURL: cacheDirectoryURL,
+            workspaceFingerprint: workspaceFingerprint, mavenContext: mavenContext, javaGradle: javaGradle,
+            initializeTimeout: initializeTimeout, requestTimeout: requestTimeout, shutdownTimeout: shutdownTimeout
+        )
+    }
+
     /// Runtimes without plugin configuration support ignore it.
     func startPluginLanguageServer(
         pluginID: String,
@@ -997,6 +1080,33 @@ package extension LanguageServerRuntimeCore {
             message: "Plugin functions are not supported by this runtime."
         ))
     }
+
+    func pluginServerRequest(
+        sessionID _: String,
+        pluginID _: String,
+        serverID _: String,
+        method _: String,
+        params _: ToolingJSONValue,
+        timeout _: TimeInterval?
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
+        .failure(LanguageServerRuntimeFailure(
+            code: "not_supported",
+            message: "Plugin language server requests are not supported by this runtime."
+        ))
+    }
+
+    func pluginServerNotify(
+        sessionID _: String,
+        pluginID _: String,
+        serverID _: String,
+        method _: String,
+        params _: ToolingJSONValue
+    ) -> Result<Bool, LanguageServerRuntimeFailure> {
+        .failure(LanguageServerRuntimeFailure(
+            code: "not_supported",
+            message: "Plugin language server notifications are not supported by this runtime."
+        ))
+    }
 }
 
 /// A host-service request a plugin backend sent, after Core checked its
@@ -1032,6 +1142,45 @@ package struct PluginHostRequestFailure: Error, Equatable, Sendable {
         self.message = message
         self.code = code
         self.details = details
+    }
+}
+
+package extension PluginHostRequestFailure {
+    /// The backend's own server is not there to answer: stopped, still
+    /// starting, or never started with a session policy.
+    static let languageServerUnavailable = PluginHostRequestFailure(
+        message: "The language server is not running.", code: "plugin.host.languageServerUnavailable"
+    )
+
+    /// Core refused the call before it reached the server. Core puts the
+    /// stable `plugin.host.*` code in `details`; any other diagnostic there
+    /// never becomes the code the backend sees.
+    init(refusal failure: LanguageServerRuntimeFailure) {
+        let code = failure.details.flatMap { $0.hasPrefix("plugin.host.") ? $0 : nil }
+        self.init(message: failure.message, code: code ?? "plugin.host.languageServerUnavailable")
+    }
+
+    /// The server's answer was an error. Core already mapped its code to a
+    /// `plugin.host.*` code and put the server's own `{ code, message }` in
+    /// `details`; the backend receives both unchanged.
+    init(completion error: LanguageServerRuntimeError, message: String) {
+        let code = error.code.hasPrefix("plugin.host.") ? error.code : "plugin.host.languageServerUnavailable"
+        self.init(message: message, code: code, details: error.details)
+    }
+}
+
+/// A server notification Rust Core forwarded because the plugin's manifest
+/// lists its method in `forwardNotifications`. `params` is nil when the
+/// payload was too large; the backend then asks the server for the state.
+package struct PluginServerNotification: Equatable, Sendable {
+    package let method: String
+    package let params: ToolingJSONValue?
+    package let truncated: Bool
+
+    package init(method: String, params: ToolingJSONValue?, truncated: Bool) {
+        self.method = method
+        self.params = params
+        self.truncated = truncated
     }
 }
 

@@ -174,7 +174,8 @@ struct MacPluginLanguageServerLaunchResolver {
         return ResolvedLanguageServerLaunch(
             arguments: plan.arguments,
             initializationOptions: plan.initializationOptions,
-            workspaceConfiguration: plan.workspaceConfiguration
+            workspaceConfiguration: plan.workspaceConfiguration,
+            sessionPolicy: plan.sessionPolicy
         )
     }
 

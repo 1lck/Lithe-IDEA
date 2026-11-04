@@ -10,15 +10,20 @@ package struct ResolvedLanguageServerLaunch: Equatable, Sendable {
     /// What the server reads through `workspace/configuration`; plugin
     /// settings with `effect: immediate` change it without a restart.
     package let workspaceConfiguration: ToolingJSONValue?
+    /// What the plugin lets its backend ask of the running server. Rust Core
+    /// built it and enforces it; the host passes it to `lsp.startServer`.
+    package let sessionPolicy: ToolingJSONValue?
 
     package init(
         arguments: [String],
         initializationOptions: ToolingJSONValue?,
-        workspaceConfiguration: ToolingJSONValue? = nil
+        workspaceConfiguration: ToolingJSONValue? = nil,
+        sessionPolicy: ToolingJSONValue? = nil
     ) {
         self.arguments = arguments
         self.initializationOptions = initializationOptions
         self.workspaceConfiguration = workspaceConfiguration
+        self.sessionPolicy = sessionPolicy
     }
 }
 
