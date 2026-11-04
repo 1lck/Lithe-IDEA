@@ -75540,6 +75540,27 @@
       ]
     },
     {
+      "id": "workbench.build",
+      "description": "Windows UI: workbench.build",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.title",
+      "description": "Windows UI: build.title",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.idle",
+      "description": "Windows UI: build.idle",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
       "id": "workbench.run",
       "description": "Windows UI: workbench.run",
       "platforms": [

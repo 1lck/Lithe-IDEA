@@ -2,6 +2,7 @@ import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isBackendCapabilityAvailable } from "@/config/backend-capabilities";
 import DebuggerView from "@/features/debugger/components/debugger-view";
+import BuildPane from "@/features/build/components/build-pane";
 import DiagnosticsBuffer from "@/features/diagnostics/components/diagnostics-buffer";
 import MavenRunPane from "@/features/maven/components/maven-run-pane";
 import RunPane from "@/features/run/components/run-pane";
@@ -286,6 +287,12 @@ const BottomPane = () => {
         {bottomPaneActiveTab === "run" && isBackendCapabilityAvailable("run") && (
           <div className="h-full">
             <RunPane />
+          </div>
+        )}
+
+        {bottomPaneActiveTab === "build" && (
+          <div className="h-full">
+            <BuildPane />
           </div>
         )}
 

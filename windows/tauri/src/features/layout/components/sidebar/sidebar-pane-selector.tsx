@@ -21,6 +21,7 @@ import {
   ProblemsToolWindowIcon,
   RunToolWindowIcon,
   TerminalWindowIcon,
+  WrenchIcon,
 } from "@/ui/icons";
 import Tooltip from "@/ui/tooltip";
 import { cn } from "@/utils/cn";
@@ -72,6 +73,8 @@ interface SidebarPaneSelectorProps {
   isDiagnosticsActive?: boolean;
   onRunClick?: () => void;
   isRunActive?: boolean;
+  onBuildClick?: () => void;
+  isBuildActive?: boolean;
   compact?: boolean;
   showLabels?: boolean;
   orientation?: "horizontal" | "vertical";
@@ -93,6 +96,8 @@ export const SidebarPaneSelector = ({
   isDiagnosticsActive = false,
   onRunClick,
   isRunActive = false,
+  onBuildClick,
+  isBuildActive = false,
   compact = false,
   showLabels = false,
   orientation = "horizontal",
@@ -234,6 +239,22 @@ export const SidebarPaneSelector = ({
             } satisfies SidebarPaneItem,
           ]
         : []),
+      ...(onBuildClick
+        ? [
+            {
+              id: "build",
+              label: showLabels ? t("workbench.build") : undefined,
+              icon: <WrenchIcon className={iconClassName} />,
+              isActive: isBuildActive,
+              onClick: onBuildClick,
+              ariaLabel: t("workbench.build"),
+              tooltip: {
+                content: t("workbench.build"),
+                side: tooltipSide,
+              },
+            } satisfies SidebarPaneItem,
+          ]
+        : []),
     ],
     [
       coreFeatures.diagnostics,
@@ -254,6 +275,8 @@ export const SidebarPaneSelector = ({
       isDiagnosticsActive,
       onRunClick,
       isRunActive,
+      onBuildClick,
+      isBuildActive,
       onViewChange,
       showLabels,
       t,

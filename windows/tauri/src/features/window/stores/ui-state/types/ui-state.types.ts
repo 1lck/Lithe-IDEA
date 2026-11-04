@@ -25,6 +25,9 @@ export type BottomPaneTab =
   | "references"
   | "buffers"
   | "run"
+  // Build groups the Java project import progress and build status that used to
+  // sit on top of the Run panel, mirroring IDEA's Build tool window.
+  | "build"
   // Maven task output is independent from the right-side Maven navigation tool window.
   | "maven"
   | "gitLog"
