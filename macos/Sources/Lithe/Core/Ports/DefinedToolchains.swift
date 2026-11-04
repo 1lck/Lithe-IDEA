@@ -8,6 +8,9 @@ struct ResolvedDefinedToolchain: Sendable {
     let environment: [String: String]
     let projectCode: Bool
     let version: String?
+    /// The installation root the selection came from; the definition's `launch`
+    /// template can name it as `${home}`. Nil when the tool was chosen by executable.
+    var home: String? = nil
 }
 
 /// Installation dependencies consume version and exports; they do not invoke
