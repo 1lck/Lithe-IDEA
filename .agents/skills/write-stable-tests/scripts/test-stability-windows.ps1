@@ -78,6 +78,9 @@ function Invoke-TimedRustTests {
             # These cases start real Git and the production TypeScript module
             # in Node. One Node startup hit its old 10s local deadline on CI.
             $arguments += @("--test-budget", "git_paths_roundtrip_=60000")
+            # A real remote and repeated Git configuration/fetch subprocesses
+            # took 12.5s on Lithe-dev; retain a bounded allowance for CI jitter.
+            $arguments += @("--test-budget", "git::configuration::inherited_tag_tests::inspection_matches_git_when_tags_are_forced_or_configuration_is_invalid=30000")
             # Integration tests that create multiple real repositories or push
             # through Git subprocesses need a bounded allowance on Windows.
             foreach ($prefix in @(

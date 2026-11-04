@@ -575,6 +575,7 @@
 "Cannot be used: %@" = "Cannot be used: %@";
 "Cannot copy a directory into itself" = "Cannot copy a directory into itself";
 "Cannot create a new conversation: %@" = "Cannot create a new conversation: %@";
+"Cannot determine; check Git configuration" = "Cannot determine; check Git configuration";
 "Cannot encode Hook configuration." = "Cannot encode Hook configuration.";
 "Cannot encode the Hook library." = "Cannot encode the Hook library.";
 "Cannot locate the Agent user directory." = "Cannot locate the Agent user directory.";
@@ -2466,6 +2467,7 @@
 "Moved" = "Moved";
 "Moved from %@" = "Moved from %@";
 "Moving…" = "Moving…";
+"Multiple sources" = "Multiple sources";
 "Mute Camera" = "Mute Camera";
 "Mute Line Breakpoints" = "Mute Line Breakpoints";
 "Mute Microphone" = "Mute Microphone";
@@ -2674,6 +2676,7 @@
 "No remembered choices. Check “Remember my choice” in the quit dialog to skip the question for a kind of service next time." = "No remembered choices. Check “Remember my choice” in the quit dialog to skip the question for a kind of service next time.";
 "No remote" = "No remote";
 "No remote URL" = "No remote URL";
+"No remote is available for Fetch" = "No remote is available for Fetch";
 "No resolver is registered for toolchain %@." = "No resolver is registered for toolchain %@.";
 "No revisions" = "No revisions";
 "No run services configured" = "No run services configured";
@@ -4874,6 +4877,7 @@
 "User-facing sentence for release notes" = "User-facing sentence for release notes";
 "User-unhandled" = "User-unhandled";
 "Username" = "Username";
+"Uses a custom tag refspec" = "Uses a custom tag refspec";
 "Uses the claude.ai account signed in to Claude Code. Sign in with /login in Claude Code if the Agent asks." = "Uses the claude.ai account signed in to Claude Code. Sign in with /login in Claude Code if the Agent asks.";
 "Uses your local ChatGPT account." = "Uses your local ChatGPT account.";
 "Using the PATH saved last time" = "Using the PATH saved last time";
@@ -5176,6 +5180,10 @@
 "git.changelists.invalidName" = "Use a unique, nonempty name of at most 100 characters.";
 "git.diff.repositoryPreviewEmptyTitle" = "Repository Diff";
 "git.diff.repositoryPreviewTitle" = "Repository Diff: %1$@";
+"git.fetch.behavior.custom" = "Uses a custom tag refspec";
+"git.fetch.behavior.noRemotes" = "No remote is available for Fetch";
+"git.fetch.behavior.source.multiple" = "Multiple sources";
+"git.fetch.behavior.unavailable" = "Cannot determine; check Git configuration";
 "git.log.branchNameAlreadyExists" = "Branch name %1$@ already exists";
 "git.log.branchNameClashesWithBranchPrefix" = "Branch name %1$@ conflicts with existing local branch %2$@";
 "git.log.branchNameClashesWithDirectory" = "Branch name %1$@ conflicts with local branch directory with the same name";

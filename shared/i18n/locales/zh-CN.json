@@ -10121,7 +10121,21 @@
     "github.prCheckoutConfirmTitle": "检出拉取请求？",
     "github.prCheckoutConfirmDescription": "获取拉取请求并创建本地分支。现有分支不会被重置。",
     "github.prCheckoutBranchLabel": "本地分支：",
-    "github.prCheckoutInspectFailed": "无法检查拉取请求检出操作。请检查仓库后重试。"
+    "github.prCheckoutInspectFailed": "无法检查拉取请求检出操作。请检查仓库后重试。",
+    "git.fetch.behavior.reachable": "获取指向已获取提交的标签",
+    "git.fetch.behavior.remoteDependent": "遵循各远程仓库的标签设置",
+    "git.fetch.behavior.custom": "使用自定义标签 refspec",
+    "git.fetch.behavior.noRemotes": "没有可用于获取的远程仓库",
+    "git.fetch.behavior.unavailable": "无法确定；请检查 Git 配置",
+    "git.fetch.behavior.source.local": "仓库 Git 配置",
+    "git.fetch.behavior.source.global": "全局 Git 配置",
+    "git.fetch.behavior.source.system": "系统 Git 配置",
+    "git.fetch.behavior.source.worktree": "工作树 Git 配置",
+    "git.fetch.behavior.source.command": "Git 命令配置",
+    "git.fetch.behavior.source.unknown": "Git 配置",
+    "git.fetch.behavior.source.git": "Git 默认值",
+    "git.fetch.behavior.source.lithe": "Lithe 默认值",
+    "git.fetch.behavior.source.multiple": "多个来源"
   },
   "overrides": {
     "macos": {

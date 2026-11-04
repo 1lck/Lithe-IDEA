@@ -59,6 +59,11 @@ module and Bun cases by their JUnit class or suite.
 
 History-rewrite integration tests create and rewrite real repositories with many
 Git subprocesses, sometimes rebuilding several repositories in one case. The
+Fetch configuration integration case also gets a 30-second process budget: it
+creates a real remote and exercises multiple configuration and dry-run Fetch
+scenarios, taking 12.5 seconds on Lithe-dev. Its individual Core requests keep
+their own five-second deadlines.
+The
 SharedRust lane assigns the `tests::git_history_rewrite::` module and the older
 `tests::git::git_write_squashes_`, `git_write_deletes_a_local_commit_`, and
 `git_write_edits_a_local_commit_message_` scenarios a 30-second process budget.

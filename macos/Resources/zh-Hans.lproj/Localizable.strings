@@ -575,6 +575,7 @@
 "Cannot be used: %@" = "无法使用：%@";
 "Cannot copy a directory into itself" = "不能将目录复制到其自身或子目录中";
 "Cannot create a new conversation: %@" = "无法新建对话：%@";
+"Cannot determine; check Git configuration" = "无法确定；请检查 Git 配置";
 "Cannot encode Hook configuration." = "无法编码 Hook 配置。";
 "Cannot encode the Hook library." = "无法编码 Hook 资源库。";
 "Cannot locate the Agent user directory." = "无法定位 Agent 的用户目录。";
@@ -2466,6 +2467,7 @@
 "Moved" = "移动";
 "Moved from %@" = "从 %@ 移动";
 "Moving…" = "正在移动…";
+"Multiple sources" = "多个来源";
 "Mute Camera" = "暂停摄像头";
 "Mute Line Breakpoints" = "暂停行断点";
 "Mute Microphone" = "静音麦克风";
@@ -2674,6 +2676,7 @@
 "No remembered choices. Check “Remember my choice” in the quit dialog to skip the question for a kind of service next time." = "暂无已记住的选择。在退出对话框中勾选“记住对这类服务的选择”后，下次遇到同类服务就不再询问。";
 "No remote" = "无远程仓库";
 "No remote URL" = "没有远程地址";
+"No remote is available for Fetch" = "没有可用于获取的远程仓库";
 "No resolver is registered for toolchain %@." = "没有为工具链 %@ 注册解析器。";
 "No revisions" = "没有修订版本";
 "No run services configured" = "未配置运行服务";
@@ -4874,6 +4877,7 @@
 "User-facing sentence for release notes" = "适合发布说明的面向用户句子";
 "User-unhandled" = "用户未处理";
 "Username" = "用户名";
+"Uses a custom tag refspec" = "使用自定义标签 refspec";
 "Uses the claude.ai account signed in to Claude Code. Sign in with /login in Claude Code if the Agent asks." = "使用 Claude Code 中登录的 claude.ai 账号；如提示未登录，请在 Claude Code 中用 /login 登录。";
 "Uses your local ChatGPT account." = "使用本机 ChatGPT 账号。";
 "Using the PATH saved last time" = "仍在使用上次保存的 PATH";
@@ -5176,6 +5180,10 @@
 "git.changelists.invalidName" = "请输入不重名、非空且不超过 100 个字符的名称。";
 "git.diff.repositoryPreviewEmptyTitle" = "仓库差异";
 "git.diff.repositoryPreviewTitle" = "仓库差异: %1$@";
+"git.fetch.behavior.custom" = "使用自定义标签 refspec";
+"git.fetch.behavior.noRemotes" = "没有可用于获取的远程仓库";
+"git.fetch.behavior.source.multiple" = "多个来源";
+"git.fetch.behavior.unavailable" = "无法确定；请检查 Git 配置";
 "git.log.branchNameAlreadyExists" = "分支名称 %1$@ 已存在";
 "git.log.branchNameClashesWithBranchPrefix" = "分支名称 %1$@ 与现有本地分支 %2$@ 冲突";
 "git.log.branchNameClashesWithDirectory" = "分支名称 %1$@ 与同名的本地分支目录冲突";
