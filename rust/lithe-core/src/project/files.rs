@@ -1648,17 +1648,19 @@ fn visible_child(
     nested_worktrees: &mut Vec<PathBuf>,
 ) -> Option<(PathBuf, bool)> {
     let child_path = entry.path();
-    let metadata = fs::symlink_metadata(&child_path).ok()?;
-    if metadata.file_type().is_symlink()
-        || rules.is_hidden(&relative_path(&child_path, root), metadata.is_dir())
+    // Both native and remote readDir already supplied the non-following type;
+    // re-statting every file would cost one network round trip per entry.
+    let file_type = entry.file_type().ok()?;
+    if file_type.is_symlink()
+        || rules.is_hidden(&relative_path(&child_path, root), file_type.is_dir())
     {
         return None;
     }
-    if metadata.is_dir() && is_nested_linked_worktree(&child_path) {
+    if file_type.is_dir() && is_nested_linked_worktree(&child_path) {
         nested_worktrees.push(child_path);
         return None;
     }
-    Some((child_path, metadata.is_dir()))
+    Some((child_path, file_type.is_dir()))
 }
 
 /// A `.git` pointer file is a single `gitdir:` line; anything larger is not one.

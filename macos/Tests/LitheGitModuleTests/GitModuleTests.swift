@@ -5610,7 +5610,7 @@ struct GitModuleTests {
 
 
     @Test
-    func workingTreeComparisonMergesTrackedAndUntrackedFiles() async {
+    func workingTreeComparisonUsesTheCoreResultWithoutAnotherSnapshot() async {
         let root = URL(fileURLWithPath: "/workspace")
         let reference = GitReference(
             fullName: "refs/heads/main",
@@ -5637,15 +5637,16 @@ struct GitModuleTests {
             ),
             GitChange(
                 repositoryRoot: root,
-                path: "qa-untracked.txt",
+                path: "must-not-merge.txt",
                 originalPath: nil,
                 indexStatus: "?",
                 workTreeStatus: "?"
             )
         ])
         let trackedComparison = GitBranchComparison(reference: reference, files: [
-            GitBranchComparisonFile(status: "D", path: "src/UserRepository.java"),
-            GitBranchComparisonFile(status: "M", path: "README.md")
+            GitBranchComparisonFile(status: "M", path: "README.md"),
+            GitBranchComparisonFile(status: "A", path: "qa-untracked.txt", isUntracked: true),
+            GitBranchComparisonFile(status: "D", path: "src/UserRepository.java")
         ])
         let service = GitService(operations: TestGitOperations(
             snapshotValue: snapshot,

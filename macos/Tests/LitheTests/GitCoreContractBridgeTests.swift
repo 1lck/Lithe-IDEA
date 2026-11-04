@@ -12,6 +12,31 @@ struct GitCoreContractBridgeTests {
     private let core = RustCoreBridge()
 
     @Test(.enabled(if: RustCoreBridge().isAvailable, "Requires the linked Rust Core integration library"))
+    func worktreeComparisonDecodesUntrackedIdentityFromCore() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-comparison-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        func run(_ arguments: [String]) async throws {
+            let result = try await TestProcess.run(executableURL: URL(fileURLWithPath: "/usr/bin/git"),
+                arguments: arguments, currentDirectoryURL: root)
+            try #require(result.terminationStatus == 0, "git \(arguments) failed")
+        }
+        try await run(["init", "--template=", "-q"])
+        try "before\n".write(to: root.appendingPathComponent("tracked.txt"), atomically: true, encoding: .utf8)
+        try await run(["add", "tracked.txt"])
+        try await run(["-c", "user.name=Lithe Test", "-c", "user.email=test@example.invalid",
+                       "commit", "--no-gpg-sign", "-qm", "initial"])
+        try await run(["branch", "-M", "main"])
+        try "after\n".write(to: root.appendingPathComponent("tracked.txt"), atomically: true, encoding: .utf8)
+        try "new\n".write(to: root.appendingPathComponent("new.txt"), atomically: true, encoding: .utf8)
+        let reference = GitReference(fullName: "refs/heads/main", shortName: "main", kind: .local,
+                                     peelsToCommit: true, isCurrent: true, upstreamShortName: nil)
+        let result = try #require(RustGitOperations(core: core).comparison(for: reference, at: root))
+        #expect(result.files.map(\.path) == ["new.txt", "tracked.txt"])
+        #expect(result.files.map(\.isUntracked) == [true, false])
+    }
+
+    @Test(.enabled(if: RustCoreBridge().isAvailable, "Requires the linked Rust Core integration library"))
     func branchNamePreviewDecodesTheSharedContract() throws {
         try #require(core.isAvailable)
         let operations = RustGitOperations(core: core)

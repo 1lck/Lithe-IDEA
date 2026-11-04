@@ -13,7 +13,20 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 // consumers (for example snapshot hashing) can still read larger files.
 const MAX_READ_BYTES: u64 = 32 * 1024 * 1024;
 
+#[cfg(test)]
+thread_local! { static STAT_REQUESTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+
+/// Counts stat requests on the current test thread without retaining paths.
+#[cfg(test)]
+pub(crate) fn stat_requests_for_test() -> usize {
+    STAT_REQUESTS.with(std::cell::Cell::get)
+}
+
 fn rpc<T: DeserializeOwned>(host: &Host, method: &str, params: Value) -> io::Result<T> {
+    #[cfg(test)]
+    if method == methods::FS_STAT {
+        STAT_REQUESTS.with(|count| count.set(count.get() + 1));
+    }
     crate::protocol::cancellation::check().map_err(|error| io::Error::other(error.message))?;
     let result = super::workspace_host::request_cancellable(
         &host.connection.session,

@@ -64,6 +64,18 @@ struct RustWorkspaceOperations: WorkspaceOperations, Sendable {
         }.childRows(of: rows)
     }
 
+    func rootRows(at rootURL: URL, visibilityRules: FileVisibilityRules) -> [FileNode]? {
+        guard let entries = listDirectories([rootURL], at: rootURL, visibilityRules: visibilityRules)?[rootURL.standardizedFileURL.path] else {
+            return nil
+        }
+        let insideSourceRoot = LitheIcons.isSourceRootDirectory(rootURL)
+        return entries.map { entry in
+            FileNode(url: entry.url, isDirectory: entry.isDirectory,
+                     children: entry.isEmptyDirectory ? [] : nil,
+                     isInsideSourceRoot: entry.isDirectory && insideSourceRoot)
+        }
+    }
+
     private func listDirectories(
         _ directories: [URL],
         at rootURL: URL,
@@ -82,6 +94,8 @@ struct RustWorkspaceOperations: WorkspaceOperations, Sendable {
             hiddenDirectoryNames: visibilityRules.hiddenDirectoryNames,
             hiddenFilePatterns: visibilityRules.hiddenFilePatterns
         ) else {
+            // A remote placeholder is never a fallback filesystem when its host fails.
+            if core.remoteWorkspaces?.binding(forRoot: rootURL) != nil { return nil }
             return FileSystemWorkspaceSnapshotBuilder().listDirectories(
                 directories,
                 at: rootURL,

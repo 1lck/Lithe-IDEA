@@ -261,6 +261,70 @@ impl Drop for HostFixture {
 }
 
 #[test]
+fn remote_directory_listing_uses_host_paths_visibility_and_natural_order() {
+    let host = HostFixture::new();
+    let root = host.root.join("host");
+    std::fs::create_dir(root.join("src")).unwrap();
+    std::fs::create_dir(root.join("hidden")).unwrap();
+    std::fs::create_dir_all(root.join(".git/worktrees/nested")).unwrap();
+    std::fs::create_dir(root.join("nested")).unwrap();
+    std::fs::write(
+        root.join("nested/.git"),
+        "gitdir: ../.git/worktrees/nested\n",
+    )
+    .unwrap();
+    std::fs::write(root.join("src/remote.txt"), "remote").unwrap();
+    std::fs::write(root.join("v0.1.12.md"), "").unwrap();
+    std::fs::write(root.join("v0.1.4.md"), "").unwrap();
+    std::fs::write(host.root.join("placeholder/local-only.txt"), "sentinel").unwrap();
+
+    let response = host.call(
+        "workspace.listDirectories",
+        json!({"paths": ["", "src", "nested"], "hiddenDirectoryNames": ["hidden"]}),
+    );
+    let directories = response["directories"].as_array().unwrap();
+    let names = |index: usize| -> Vec<&str> {
+        directories[index]["children"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| entry["name"].as_str().unwrap())
+            .collect()
+    };
+    assert_eq!(names(0), ["src", "v0.1.4.md", "v0.1.12.md"]);
+    assert_eq!(names(1), ["remote.txt"]);
+    assert_eq!(directories.len(), 2, "nested worktrees cannot be expanded");
+    assert_eq!(directories[0]["nestedWorktrees"], json!(["nested"]));
+    assert_eq!(
+        std::fs::read_to_string(host.root.join("placeholder/local-only.txt")).unwrap(),
+        "sentinel"
+    );
+    // File type already arrives with readDir. Growing the number of regular
+    // files must not add one network round trip per file.
+    let count = crate::remote::workspace_io::stat_requests_for_test;
+    let before = count();
+    host.call("workspace.listDirectories", json!({"paths": [""]}));
+    let baseline_stats = count() - before;
+    assert!(
+        baseline_stats > 0,
+        "the test must observe remote metadata requests"
+    );
+    for index in 0..64 {
+        std::fs::write(root.join(format!("additional-{index}.txt")), "").unwrap();
+    }
+    let before = count();
+    host.call("workspace.listDirectories", json!({"paths": [""]}));
+    let expanded_stats = count() - before;
+    eprintln!(
+        "remote directory stat requests: baseline={baseline_stats}, plus 64 files={expanded_stats}"
+    );
+    assert_eq!(
+        expanded_stats, baseline_stats,
+        "regular files must not add stat RPCs"
+    );
+}
+
+#[test]
 fn remote_search_reads_host_content_and_applies_incremental_updates_without_local_cache_leaks() {
     let host = HostFixture::new();
     std::fs::create_dir(host.root.join("host/src")).unwrap();

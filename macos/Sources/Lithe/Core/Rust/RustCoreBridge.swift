@@ -1283,6 +1283,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         struct File: Decodable, Sendable {
             let status: String
             let path: String
+            let isUntracked: Bool?
         }
 
         let files: [File]
@@ -2396,6 +2397,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let reference: String?
         let gitReference: GitReferenceRequest?
         let targetGitReference: GitReferenceRequest?
+        let includeUntracked: Bool
     }
 
     private struct GitStashesRequest: Encodable {
@@ -3560,7 +3562,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         at rootURL: URL,
         reference: String? = nil,
         gitReference: GitReference? = nil,
-        targetGitReference: GitReference? = nil
+        targetGitReference: GitReference? = nil,
+        includeUntracked: Bool = false
     ) -> GitComparisonPayload? {
         execute(
             command: "git.comparison",
@@ -3568,7 +3571,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 root: rootURL.standardizedFileURL.path,
                 reference: reference,
                 gitReference: gitReference.map(GitReferenceRequest.init),
-                targetGitReference: targetGitReference.map(GitReferenceRequest.init)
+                targetGitReference: targetGitReference.map(GitReferenceRequest.init),
+                includeUntracked: includeUntracked
             )
         )
     }

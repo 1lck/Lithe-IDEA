@@ -810,6 +810,9 @@ pub struct GitComparisonRequest {
     /// Optional typed target for a comparison between two references.
     #[serde(default)]
     pub target_git_reference: Option<GitReferenceRequest>,
+    /// Include untracked worktree files; incompatible with reference-to-reference comparisons.
+    #[serde(default)]
+    pub include_untracked: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2863,6 +2866,18 @@ pub fn commit_files(request: GitCommitFilesRequest) -> Result<GitFilesResponse, 
 /// Computes ahead/behind counts and changed files for a reference comparison.
 pub fn comparison(request: GitComparisonRequest) -> Result<GitComparisonResponse, CoreError> {
     let root = validate_root(&request.root)?;
+    if request.include_untracked
+        && (request.target_git_reference.is_some()
+            || request
+                .reference
+                .as_deref()
+                .is_some_and(|value| value.contains("..")))
+    {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Untracked files require a worktree comparison",
+        ));
+    }
     let reference = typed_reference_range(
         &root,
         request.git_reference.as_ref(),
@@ -2872,7 +2887,7 @@ pub fn comparison(request: GitComparisonRequest) -> Result<GitComparisonResponse
     .ok_or_else(|| CoreError::new(ErrorCode::InvalidRequest, "Missing Git reference"))?;
     validate_revision(&reference)?;
     let response = readonly_command(GitCommandRequest {
-        root,
+        root: root.clone(),
         arguments: vec![
             "-c".to_string(),
             "core.quotepath=false".to_string(),
@@ -2890,8 +2905,35 @@ pub fn comparison(request: GitComparisonRequest) -> Result<GitComparisonResponse
                 .with_details(response.output),
         );
     }
+    let files = parse_name_status(&response.output);
+    if !request.include_untracked {
+        return Ok(GitComparisonResponse { files });
+    }
+    let snapshot = status(GitStatusRequest {
+        root,
+        include_index_only_changes: false,
+        repository_roots: Vec::new(),
+        summarize_untracked_directories: false,
+    })?;
+    let mut by_path: std::collections::BTreeMap<_, _> = files
+        .into_iter()
+        .map(|file| (file.path.clone(), file))
+        .collect();
+    for change in snapshot
+        .changes
+        .into_iter()
+        .filter(|change| change.untracked)
+    {
+        by_path
+            .entry(change.path.clone())
+            .or_insert(GitFileResponse {
+                status: "A".into(),
+                path: change.path,
+                is_untracked: true,
+            });
+    }
     Ok(GitComparisonResponse {
-        files: parse_name_status(&response.output),
+        files: by_path.into_values().collect(),
     })
 }
 
@@ -7899,6 +7941,7 @@ fn parse_name_status(output: &str) -> Vec<GitFileResponse> {
             Some(GitFileResponse {
                 status: columns[0].to_string(),
                 path: columns.last().unwrap_or(&"").to_string(),
+                is_untracked: false,
             })
         })
         .collect()

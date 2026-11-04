@@ -828,6 +828,9 @@ pub struct GitFileResponse {
     /// Normalized name-status code such as `A`, `M`, `D`, or `R`.
     pub status: String,
     pub path: String,
+    /// True only for a worktree comparison entry absent from the index.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub is_untracked: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
