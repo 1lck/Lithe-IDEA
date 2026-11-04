@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-安装、更新、回退、卸载、启用、停用一个插件时，只有“它的每一项贡献在宿主里都有运行期实现”的插件才免重启生效。判断由宿主后端决定，写在 `PluginDescriptor.canActivateWithoutRestart`，不是 `plugin.json` 里的字段，所以插件契约没有变化，也不需要同步 lithe-plugin-docs。这条规则目前落地了两类：第一阶段的“纯调试适配器插件”（只贡献 `debugAdapters`，以及它声明的语言和设置，没有后端、没有其他模块），和第二阶段的“纯语法高亮插件”（只贡献带 `grammar` 或编辑配置的语言，见 [独立插件编辑器 API](2026-10-31-plugin-editor-extension-apis.md)）。两者也可以出现在同一个插件里。
+安装、更新、回退、卸载、启用、停用一个插件时，只有“它的每一项贡献在宿主里都有运行期实现”的插件才免重启生效。判断由宿主后端决定，写在 `PluginDescriptor.canActivateWithoutRestart`，不是 `plugin.json` 里的字段，所以插件契约没有变化，也不需要同步 lithe-plugin-docs。这条规则目前落地了四类：第一阶段的“纯调试适配器插件”（只贡献 `debugAdapters`，以及它声明的语言和设置，没有后端、没有其他模块），第二阶段的“纯语法高亮插件”（只贡献带 `grammar` 或编辑配置的语言，见 [独立插件编辑器 API](2026-10-31-plugin-editor-extension-apis.md)），以及“纯项目生成器插件”和“纯工具定义插件”（见[插件注入的新建项目向导](../feature/2026-10-23-plugin-project-generators.md)的工具字段一节）。这几类也可以出现在同一个插件里。
 
 满足条件的插件不进模块图，而是登记在一个**内存实时注册表**（`MacLivePluginRegistry`）里。注册表用后台线程扫描已安装目录，主线程只读取扫描结果快照。其他插件的路径完全不变：仍然写成 `.updateStaged`，等重启才生效。
 
@@ -23,7 +23,7 @@
 
 ### 1. 由后端能力决定，不是清单字段
 
-`canActivateWithoutRestart` 现在的定义是：没有 `backend` 声明、模块列表非空，且每个模块都是 `debugAdaptersExtension(<插件 id>)` 或 `grammarsExtension(<插件 id>)`，并且没有其他贡献。语法模块只承载启用状态，它的运行期登记、撤回和查找由 `MacPluginEditorLanguages` 完成（编辑器每次变化都收到完整的语言列表，撤回就是从列表里拿掉）。
+`canActivateWithoutRestart` 现在的定义是：没有 `backend` 声明、模块列表非空，且每个模块都是 `debugAdaptersExtension`、`grammarsExtension`、`projectGeneratorsExtension` 或 `toolchainsExtension`（参数都是插件 id）之一，并且没有其他贡献。语法模块只承载启用状态，它的运行期登记、撤回和查找由 `MacPluginEditorLanguages` 完成（编辑器每次变化都收到完整的语言列表，撤回就是从列表里拿掉）。生成器和工具定义同样只是数据：`MacServiceContainer` 把启动时登记的插件和实时注册表里的插件合并成“当前生效的插件”，新建项目的生成器列表、工具链发现和工具 pin 的只读目录检查每次调用都读它；新建项目窗口监听 `pluginRegistrationChanges`，插件变化时重新载入条目。
 
 - 正确做法：新增一种贡献（例如语言服务器）的热激活时，先实现它的运行期登记和撤回，再在这个谓词里放行。
 - 错误做法：在 `plugin.json` 里加 `restartRequired: false` 让插件作者声明。作者不了解宿主哪些贡献有运行期实现；声明错了，用户看到的是“装上了但没生效”。
@@ -97,7 +97,9 @@
 5. 传给 Core 的 `registrationGeneration` 是准备调试适配器时注册表的 `generation`，Core 只比较是否相等，不解释数值。
 6. `stopSessions(ofPlugin:)` 只停该插件拥有的会话。会话记录的所有者是创建时选中的插件；同一个语言下另一个插件的会话继续运行。
 7. debug-only 声明里的文件扩展名会并入语言；扩展名集合变化会让该语言的服务器按原有规则重启。
-8. 目前仍然需要重启的贡献：语言服务器、运行/测试、编辑器动作后端（因为它依赖 `backend`）、构建系统、VCS、项目生成器、界面贡献、`backend`、网页窗口。后续阶段按“先有运行期登记和撤回，再放进谓词”的顺序逐类加入，每类单独验证。
+8. 目前仍然需要重启的贡献：语言服务器、运行/测试、编辑器动作后端（因为它依赖 `backend`）、构建系统、VCS、界面贡献、`backend`、网页窗口。后续阶段按“先有运行期登记和撤回，再放进谓词”的顺序逐类加入，每类单独验证。
+9. 设置里的工具链页面不会在热激活工具定义插件时自动刷新：它在打开时读取一次，重新打开才看到新增或移除的定义。新建项目窗口已经会刷新。
+10. 只含生成器或工具定义的插件属于热激活范围，安装、更新、卸载它们不再设置“需要重启”标记；同时含语言服务器等其他贡献的插件（例如 Java Support）仍然不满足谓词。
 
 ## 验证
 
