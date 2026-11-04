@@ -82,7 +82,9 @@ fn user_git_command_records_redacted_argv_under_the_action_operation() {
     assert_eq!(request.op.as_deref(), Some("action-1"));
     assert_eq!(request.fields["method"], "git.command");
     assert_eq!(request.fields["trigger"], "vcs.commit");
-    assert_eq!(request.fields["path"], "<PATH>");
+    // A temporary directory under the home directory scrubs to `<HOME>\...` on Windows runners.
+    let path = request.fields["path"].as_str().unwrap();
+    assert!(path == "<PATH>" || path.starts_with("<HOME>"), "{path}");
 
     let serialized = serde_json::to_string(&events).unwrap();
     assert!(!serialized.contains("secret"), "{serialized}");

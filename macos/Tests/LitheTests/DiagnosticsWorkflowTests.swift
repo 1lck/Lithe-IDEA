@@ -10,6 +10,11 @@ private struct WorkflowLogDirectory: LogDirectoryProviding {
     let defaultLogDirectory: URL
 }
 
+/// AppKit shrinks titled windows to the visible screen, and CI displays are smaller than the mockup.
+private final class ScreenUnconstrainedWindow: NSWindow {
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
+}
+
 /// Real filesystem adapter with task-owned staging, never the user's cache.
 private struct WorkflowDiskStorage: FileStorage {
     let root: URL
@@ -245,7 +250,7 @@ struct DiagnosticsWorkflowTests {
                 .environmentObject(settings).environment(\.colorScheme, scheme)
                 .environment(\.locale, Locale(identifier: language))
                 .task { mounted.open() })
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1340, height: 786), styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+            let window = ScreenUnconstrainedWindow(contentRect: NSRect(x: 0, y: 0, width: 1340, height: 786), styleMask: [.titled, .resizable], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
             window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
             window.contentView = host; window.makeKeyAndOrderFront(nil)
