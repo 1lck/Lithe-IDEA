@@ -31,6 +31,10 @@ Issue #790 要求像 IDEA 一样在 Java 编辑器行号旁显示运行按钮：
   `vscode.java.resolveMainMethod`（VS Code 的 “Run | Debug” 也用它），返回方法名所在
   范围和 `mainClass`。`mainClass` 与 `javaEntrypoints` 生成的运行配置一致，点击后直接
   运行那条配置，不新建第二种启动方式。
+- 配置复用由 Core 的 `runConfig.selectContextConfiguration` 根据提供者给出的源码与入口
+  身份统一决定：排除禁用项，优先当前选中项，再优先用户编辑项；同等次序保持原列表顺序。
+  Windows 按平台路径规则忽略大小写与分隔符差异，macOS 保持大小写敏感。Windows 的
+  异步查询返回时必须确认工作区、配置快照和选中项没有变化，不能启动或编辑过期结果。
 - 测试：沿用已有的 `javaTestItems`（Java Test 插件）。类的范围覆盖整个类体，方法的
   范围从方法名到方法体结束，所以“光标在哪个测试里”可以精确判断。
 - JDT 只给出 `main` 方法名的位置，不给类体范围，所以 `main` 只在方法那一行画图标，

@@ -1,6 +1,8 @@
 import Foundation
 
 protocol JavaMavenOperations: RunServerPortParsing, Sendable {
+    /// Selects an existing configuration for a provider-supplied entry identity.
+    func selectContextConfiguration(_ request: RunContextSelectionRequest) -> String?
     /// Core's shared projection of JDT answers and test outcomes into editor
     /// Run markers; `nil` when Core rejected the input.
     func javaRunMarkers(
@@ -43,6 +45,8 @@ protocol JavaMavenOperations: RunServerPortParsing, Sendable {
 }
 
 extension JavaMavenOperations {
+    func selectContextConfiguration(_: RunContextSelectionRequest) -> String? { nil }
+
     func javaRunMarkers(
         mainMethods _: [JavaMainMethod],
         testItems _: [JavaTestItem],
@@ -67,6 +71,22 @@ extension JavaMavenOperations {
         files: [URL],
         textOverrides: [URL: String] = [:]
     ) -> MybatisIndexResult? { nil }
+}
+
+struct RunContextSelectionRequest: Encodable, Sendable {
+    struct Candidate: Encodable, Sendable {
+        let id: String
+        let sourcePath: String?
+        let symbol: String?
+        let generated: Bool
+        let disabled: Bool
+    }
+
+    let sourcePath: String
+    let symbol: String
+    let preferredId: String?
+    let caseInsensitivePaths: Bool
+    let candidates: [Candidate]
 }
 
 enum JavaWorkspaceChangeKind: String, Sendable {
@@ -120,6 +140,14 @@ struct RustJavaMavenOperations: JavaMavenOperations, Sendable {
                 let standardized = url.standardizedFileURL
                 if !values.contains(standardized) { values.append(standardized) }
             }
+    }
+
+    func selectContextConfiguration(_ request: RunContextSelectionRequest) -> String? {
+        struct Response: Decodable { let configurationId: String? }
+        let response: Response? = try? core.executeResult(
+            command: "runConfig.selectContextConfiguration", payload: request
+        ).get()
+        return response?.configurationId
     }
 
     func javaWorkspacePolicy(

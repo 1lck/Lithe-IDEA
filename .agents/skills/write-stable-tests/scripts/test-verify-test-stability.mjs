@@ -830,6 +830,8 @@ try {
     .includes(`"--test-budget", "${linkedBudget}"`));
   assert.ok(readFileSync(path.join(repositoryRoot, ".agents/skills/write-stable-tests/scripts/test-stability-windows.ps1"), "utf8")
     .includes('"--test-budget", "tests::git_patch_exchange::shelf_clean_and_retry_restore_preserve_staged_working_and_untracked=60000"'));
+  assert.ok(readFileSync(path.join(repositoryRoot, ".agents/skills/write-stable-tests/scripts/test-stability-windows.ps1"), "utf8")
+    .includes('"--test-budget", "tests::git_patch_exchange::shelf_restore_conflict_preserves_worktree_and_allows_retry_after_resolution=60000"'));
   assert.ok(readFileSync(path.join(repositoryRoot, ".github/workflows/ci-windows.yml"), "utf8")
     .includes("--test-prefix lsp::interface::engine::real_jdt_tests::"));
   const report = path.join(budgetFixtureRoot, "budget.json");

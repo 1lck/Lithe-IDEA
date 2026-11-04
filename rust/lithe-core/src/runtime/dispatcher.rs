@@ -2437,6 +2437,24 @@ fn execute_parsed(parsed: CoreRequest) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::RunConfigSelectContextConfiguration => {
+            match serde_json::from_value::<crate::execution::ContextSelectionRequest>(
+                parsed.payload,
+            ) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    serde_json::json!({"configurationId": crate::execution::select_context_configuration(request)}),
+                ),
+                Err(error) => CoreResponse::failure(
+                    id,
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid context configuration request",
+                    )
+                    .with_details(error.to_string()),
+                ),
+            }
+        }
         CoreCommand::RunConfigUpdateOptions => {
             match serde_json::from_value::<crate::execution::UpdateOptionsRequest>(parsed.payload)
                 .map_err(|error| {

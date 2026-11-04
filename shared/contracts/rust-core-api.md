@@ -161,6 +161,10 @@ without a Windows-only setting. The planner requires a Java executable and a
 known JDK feature version of at least 9, obtained through
 `java_feature_version_from_release`; other launches remain unchanged. It stops
 at the application target (class, JAR, or module), preserving all program arguments.
+JSON hosts may instead supply `javaReleaseContents`, an array of host-read
+release files ordered nearest first. Core reads the first `JAVA_VERSION` entry;
+an unrecognized version remains unknown rather than falling back to an ancestor.
+An explicit `javaFeatureVersion` takes precedence over the supplied contents.
 Core owns the Unicode argument-file text and quoting. The Windows host encodes
 that text losslessly using the launcher's actual system code page, independently
 of the JDK feature version: JEP 400 does not make native launcher arguments UTF-8.
@@ -1252,6 +1256,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `runConfig.projectToolchain` | Read saved project tool paths for one Provider root, with the nearest path override |
 | `runConfig.generate` | Generate deterministic Java/Maven configurations and toolchain requirements |
 | `runConfig.resolve` | Merge generated, project, and local layers and return diagnostics |
+| `runConfig.selectContextConfiguration` | Choose a matching effective configuration for a provider-supplied source and entry identity |
 | `runConfig.updateOptions` | Apply typed option edits and return an updated project or local document |
 | `runConfig.updateToolPreferences` | Replace only generic preferences in a captured local Run document, preserving legacy defaults and unrelated metadata |
 | `runConfig.argumentText` | Format a batch of exact argument vectors as reversible editor text |
@@ -3846,6 +3851,16 @@ independent nested reactors retain their own reactor working directory and
 module selector. Generated fingerprints include both project inputs and the
 detector revision; either changing marks the detected layer stale and requires
 regeneration.
+
+`runConfig.selectContextConfiguration` accepts a provider-supplied `sourcePath`
+and opaque `symbol`, a `preferredId`, platform path-comparison policy, and an
+ordered list of effective candidate IDs, identities, disabled state, and
+generated state. It returns `{configurationId}` (null when none match).
+Disabled or differently identified entries never match; an existing preferred
+match wins, followed by an edited configuration, with input order breaking ties.
+Windows compares paths case-insensitively and treats both separators alike;
+case-sensitive hosts compare the supplied path exactly. Discovery remains with
+the provider, and clients must reject results made stale by workspace changes.
 
 `runConfig.resolve` accepts `root`, optional local `toolchainCandidates`, and
 optional `localDocument` / `teamDocument`. A supplied document replaces that layer

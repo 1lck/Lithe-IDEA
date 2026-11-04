@@ -62,43 +62,35 @@ describe("configuration for a main marker", () => {
     expect(openSettings).not.toHaveBeenCalled();
   });
 
-  const sourcePath = "src/main/java/demo/App.java";
-
-  test("matches both the class and the source file", () => {
-    const configurations = [
-      configuration({ id: "other-module", sourcePath: "other/src/main/java/demo/App.java" }),
-      configuration({ id: "generated-app" }),
-    ];
-    expect(javaMainConfiguration(configurations, null, sourcePath, "demo.App")?.id).toBe(
-      "generated-app",
-    );
-    expect(javaMainConfiguration(configurations, null, sourcePath, "demo.Other")).toBeNull();
-  });
-
-  test("reuses an edited copy over the generated entry, and the selection over both", () => {
+  test("passes provider identity and configuration metadata to Core", async () => {
     const configurations = [
       configuration({ id: "generated-app" }),
       configuration({ id: "local-app", source: "local" }),
-      configuration({ id: "project-app", source: "project" }),
+      configuration({ id: "disabled", disabled: true }),
     ];
-    expect(javaMainConfiguration(configurations, null, sourcePath, "demo.App")?.id).toBe(
-      "local-app",
+    const select = mock(async () => "local-app");
+    const result = await javaMainConfiguration(
+      configurations, "generated-app", "SRC\\demo\\App.java", "demo.App", select,
     );
-    expect(javaMainConfiguration(configurations, "generated-app", sourcePath, "demo.App")?.id).toBe(
-      "generated-app",
-    );
+    expect(result?.id).toBe("local-app");
+    expect(select).toHaveBeenCalledWith({
+      sourcePath: "SRC\\demo\\App.java", symbol: "demo.App", preferredId: "generated-app",
+      caseInsensitivePaths: true,
+      candidates: [
+        { id: "generated-app", sourcePath: "src/main/java/demo/App.java", symbol: "demo.App", generated: true, disabled: false },
+        { id: "local-app", sourcePath: "src/main/java/demo/App.java", symbol: "demo.App", generated: false, disabled: false },
+        { id: "disabled", sourcePath: "src/main/java/demo/App.java", symbol: "demo.App", generated: true, disabled: true },
+      ],
+    });
   });
 
-  test("never picks a disabled configuration", () => {
-    expect(
-      javaMainConfiguration(
-        [configuration({ id: "disabled", disabled: true })],
-        "disabled",
-        sourcePath,
-        "demo.App",
-      ),
-    ).toBeNull();
+  test("does not manufacture a configuration when Core finds no match", async () => {
+    const result = await javaMainConfiguration(
+      [configuration({ id: "only" })], null, "other.java", "Other", async () => null,
+    );
+    expect(result).toBeNull();
   });
+
 });
 
 describe("on-demand Java main configuration", () => {
@@ -127,6 +119,7 @@ describe("on-demand Java main configuration", () => {
     store.setState({ actions: { ...store.getState().actions, generate } });
     const dependencies = {
       runStore: () => store,
+      selectConfiguration: async ({ candidates }: { candidates: Array<{ id: string }> }): Promise<string | null> => candidates[0]?.id ?? null,
       fileStore: () => {
         throw new Error("workspace root already known");
       },
@@ -180,6 +173,30 @@ describe("on-demand Java main configuration", () => {
     expect(h.generate).not.toHaveBeenCalled();
     expect(h.dependencies.prepare).not.toHaveBeenCalled();
   });
+  test("does not launch a stale selection after the configuration list changes", async () => {
+    const h = await harness();
+    h.store.setState({ configurations: [configuration({ id: "old" })] });
+    let resolveSelection!: (value: string | null) => void;
+    h.dependencies.selectConfiguration = async () => {
+      return await new Promise<string | null>((resolve) => { resolveSelection = resolve; });
+    };
+    const result = h.resolve();
+    h.store.setState({ configurations: [configuration({ id: "new" })] });
+    resolveSelection("old");
+    await expect(result).rejects.toThrow();
+    expect(h.generate).not.toHaveBeenCalled();
+  });
+  test("does not overwrite a newer selection while Core is resolving", async () => {
+    const h = await harness();
+    h.store.setState({ configurations: [configuration({ id: "old" })], selectedConfigurationId: "old" });
+    let resolveSelection!: (value: string | null) => void;
+    h.dependencies.selectConfiguration = async () =>
+      await new Promise<string | null>((resolve) => { resolveSelection = resolve; });
+    const result = h.resolve();
+    h.store.setState({ selectedConfigurationId: "new" });
+    resolveSelection("old");
+    await expect(result).rejects.toThrow();
+  });
   test("a stale editor marker cannot invent a runnable Java class", async () => {
     const h = await harness();
     h.dependencies.mainMethods.mockImplementation(async () => ({
@@ -200,14 +217,5 @@ describe("on-demand Java main configuration", () => {
     await expect(h.resolve()).rejects.toThrow("workspace changed");
     expect(h.generate).not.toHaveBeenCalled();
   });
-  test("matches Windows source casing without confusing modules", () => {
-    expect(
-      javaMainConfiguration(
-        [configuration({ sourcePath: "SRC\\DEMO\\App.java" })],
-        null,
-        "src/demo/App.java",
-        "demo.App",
-      )?.id,
-    ).toBe("generated-app");
-  });
+
 });

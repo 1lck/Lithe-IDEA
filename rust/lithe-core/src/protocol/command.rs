@@ -467,6 +467,8 @@ pub enum CoreCommand {
     RunConfigArgumentText,
     /// Merges configuration layers and toolchains (`runConfig.resolve`).
     RunConfigResolve,
+    /// Selects a configuration for a provider-supplied context identity.
+    RunConfigSelectContextConfiguration,
     /// Persists editable run options (`runConfig.updateOptions`).
     RunConfigUpdateOptions,
     /// Replaces generic local tool preferences while preserving existing Run data.
@@ -902,6 +904,9 @@ impl CoreCommand {
             "runConfig.generate" => Some(Self::RunConfigGenerate),
             "runConfig.argumentText" => Some(Self::RunConfigArgumentText),
             "runConfig.resolve" => Some(Self::RunConfigResolve),
+            "runConfig.selectContextConfiguration" => {
+                Some(Self::RunConfigSelectContextConfiguration)
+            }
             "runConfig.updateOptions" => Some(Self::RunConfigUpdateOptions),
             "runConfig.updateToolPreferences" => Some(Self::RunConfigUpdateToolPreferences),
             "runConfig.saveEditorChanges" => Some(Self::RunConfigSaveEditorChanges),

@@ -116,6 +116,9 @@ function Invoke-TimedRustTests {
             # This Shelf clean/restore and retry roundtrip exceeded 15s twice on
             # hosted Windows; a complete cloud Windows run passed in 17.025s.
             $arguments += @("--test-budget", "tests::git_patch_exchange::shelf_clean_and_retry_restore_preserve_staged_working_and_untracked=60000")
+            # The conflict/resolve roundtrip hit the hosted 15s deadline and
+            # passed on the Windows cloud host in 15.111s with a bounded budget.
+            $arguments += @("--test-budget", "tests::git_patch_exchange::shelf_restore_conflict_preserves_worktree_and_allows_retry_after_resolution=60000")
             # Two repositories, three confirmation previews and two pushes invoke
             # 287 Git processes; this integration case measured 49.9s on Windows.
             $arguments += @("--test-budget", "tests::git_workspace_commit::git_workspace_commit_push_confirms_each_repository_separately=60000")
