@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "reference": {
+    "pluginID": "dev.example.engine",
+    "buildSystemID": "engine",
+    "root": "app",
+    "run": "serve",
+    "projectID": "opaque/project:1",
+    "targetID": "opaque/target:2",
+    "execution": "service",
+    "userArguments": [
+      "legacy argument"
+    ]
+  },
+  "choices": {
+    "runtimeArguments": [
+      "--opaque=one two",
+      "",
+      "雪",
+      "quote\"\\literal"
+    ],
+    "entrypoint": "opaque/entry:雪",
+    "options": {
+      "features": [
+        "a",
+        "雪"
+      ],
+      "strict": false,
+      "empty": []
+    },
+    "tools": {
+      "dev.example.engine:compiler": {
+        "executable": "/fixture/tools/team compiler"
+      },
+      "dev.example.engine:vm": {
+        "home": "C:/Fixture Kits/team vm"
+      }
+    }
+  },
+  "changed": {
+    "runtimeArguments": [
+      "--next=value"
+    ],
+    "entrypoint": "",
+    "options": {},
+    "tools": {
+      "dev.example.engine:compiler": {
+        "executable": "/fixture/tools/local compiler"
+      },
+      "dev.example.engine:vm": null
+    }
+  },
+  "arguments": [
+    "--application=one two",
+    "雪"
+  ],
+  "environment": {
+    "EXAMPLE": "value"
+  },
+  "workingDirectory": "app/work",
+  "expected": {
+    "buildSystemID": "engine",
+    "execution": "service",
+    "tools": {
+      "dev.example.engine:compiler": {
+        "executable": "/fixture/tools/local compiler"
+      }
+    }
+  }
+}

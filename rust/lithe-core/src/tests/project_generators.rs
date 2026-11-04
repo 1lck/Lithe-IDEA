@@ -44,6 +44,12 @@ fn java_language_only() -> Value {
     let mut manifest = json(OFFICIAL_JAVA);
     let object = manifest.as_object_mut().unwrap();
     object.remove("projectGenerators");
+    object.remove("debugAdapters");
+    object["requires"]
+        .as_object_mut()
+        .unwrap()
+        .remove("debugAdapters");
+    object["activationEvents"] = json!(["onLanguage:java"]);
     object["requires"]
         .as_object_mut()
         .unwrap()
@@ -58,7 +64,7 @@ fn official_package_path() -> PathBuf {
 
 fn host() -> Value {
     json!({"languages": [1], "languageServers": [1, 2], "serverProcess": [1], "settings": [1, 2],
-           "buildSystems": [1], "projectGenerators": [1], "packageTrust": [1]})
+           "buildSystems": [1], "projectGenerators": [1], "debugAdapters": [1], "packageTrust": [1], "toolDefinitions": [1], "executableResolution": [1, 2]})
 }
 
 #[test]
@@ -90,6 +96,10 @@ fn golden_project_plans_match() {
 
 #[test]
 fn catalog_lists_generators_with_requirement_providers() {
+    let language = java_language_only();
+    let admission =
+        validate_command(json!({"manifest":language,"hostCapabilities":host()})).unwrap();
+    assert_eq!(admission["status"], "ok", "{admission}");
     let result = project_generator_catalog_command(json!({
         "plugins": [
             {"manifest": json(FIXTURE), "enabled": true},

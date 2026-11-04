@@ -8,8 +8,16 @@ reuses each enabled provider's plugin backend, sends `toolchains/query` through
 `lsp.toolchainRequest`, passes every raw reply with native facts to `decodeReply`,
 runs the definition's version probe on executables Core returns from
 `candidates`, and shows the result. Any change to a watched input reloads the
-whole snapshot. Nothing is saved, and no build, run or language-server launch
-uses the result yet. Windows is not connected.
+whole snapshot. Nothing is saved by these pages. The pinned Stage D integration
+adds a separate fresh-resolution adapter for macOS Build and Provider Run;
+settings detections are never used as launch permits. Existing Java and
+language-server consumers still use their previous adapters. Windows now has
+native Build plumbing for directory pins, declared scans, shell candidates and
+operation-owned provider queries through Core's LSP transport. A window-bound
+cancellation owner covers preparation and backend cleanup; this does not provide
+a general background services host. Publisher signatures provide independent
+origin evidence when present; legacy unsigned records never do. Windows product
+capability admission remains closed.
 The [broader proposal](proposals/toolchains/README.md) still describes unsupported
 consumer migration, native lifecycle, persistence and manager-plugin work.
 The active shape is [plugin-manifest.schema.json](plugin-manifest.schema.json),
@@ -23,6 +31,9 @@ not the proposal envelopes.
 `backend.launch` / `toolchains.provide`. Capability lists are exact: missing or
 unused capabilities reject the manifest. A definition/provider alone is a valid
 contribution. Old executable candidate sets retain their strict source types.
+Build consumers may also require executableResolution 2 for their existing
+`toolchain` candidate without contributing a definition; they do not gain
+definition-owned candidate fields.
 
 Definitions own IDs, labels/icons, `executableLayouts`, ordered `executables`,
 `version`, `homeLayouts`, `discovery`, `homeVariable`, `commands`, `wrappers`,
@@ -46,6 +57,16 @@ not grant arbitrary command replacement, installation, network or workspace-code
 execution. Short definition IDs require independently verified official origin;
 community definitions use `<own-plugin-id>:<local-id>`. Community providers may
 answer short IDs. No host-owned tool table, name alias or manager parser is added.
+
+A native Build consumer that directly executes a tool currently accepts only
+`["${executable}", "${arguments}"]`: its tool context carries a program and
+separate Build arguments. Extra launch flags or `${home}` tokens are refused
+before probing, rather than dropped. An installation dependency instead consumes
+checked version evidence and declared exports; it does not instantiate the tool's
+entry-launch recipe. For example a runtime can declare a JAR recipe while a build
+engine consumes only that runtime's installation and environment. Such a dependency
+is not published as a direct executable binding. Entry processes continue to use
+their own declared process recipe; supporting more direct templates remains pending.
 
 ## Two installation routes
 
@@ -113,6 +134,10 @@ the host-owned session, not a provider claim. `platform` is `macos`, `windows` o
 generation,providerID,authority:{kind:"local"},context,workspace,tools}}`.
 `context` is `{contextID,generation}` or `null`; workspace queries require it.
 `workspace` is `{rootID,root,directory}` or `null` for global-only queries.
+The JSON-RPC `id` is a positive integer or a nonempty string of at most 128
+UTF-8 bytes without control characters; the reply preserves its exact type and
+value. Core's LSP transport uses string IDs. Numeric `1` and string `"1"` are
+distinct identities and cannot acknowledge each other's request.
 `directory` is normalized workspace-relative, with `.` for the opened root.
 Tools are unique and sorted. This envelope is validated as inert data; no query
 is dispatched and no protocol capability is negotiated by this command.
@@ -168,7 +193,7 @@ Saving, conflict protection and `.lithe/.gitignore` updates are not implemented.
 platform,workspaceRoot,filesystem}` and accepts `workspaceRoots`,
 `filesystemCaseSensitive`, `local`, `minimumVersion`, `probes`, `queries`,
 `systemInstallations`, `globalDefault`, `environment`, `commandHomes`,
-`projectCodeAllowed` and `providerChoices`. `local` defaults to an empty v1
+`projectCodeAllowed`, `providerChoices` and `fixed`. `local` defaults to an empty v1
 document. Probes are host observations `{executable,output,exitCode}` keyed by the
 canonical executable a selection reports; system installations are `{tool,home}`.
 Shell environment home variables and `commandHomes` come from the native login-shell
@@ -191,6 +216,18 @@ recorded only for a query that asked about this tool; `provider` is qualified an
 that could not answer. Safety, identity and cancellation
 failures are not converted to missing tools. A valid explicit pin does not need
 lower-layer provider answers at all.
+
+A consumer may supply `fixed:{home}` or `fixed:{executable}` for one operation.
+Each object has exactly one field, an absolute native path bounded to 4,096 UTF-8
+bytes, without traversal or control characters. It contains no version, environment,
+provider or execution grant. This explicit choice precedes directory pins and fails
+terminally if invalid; lower scans and providers cannot replace it. Installation
+choices use the definition's layouts and exports. An executable choice preserves
+its lexical launcher path, has no inferred home, and omits home exports and PATH
+entries. It requires a fresh successful version probe even without a minimum.
+A definition whose launch requires `${home}` cannot use that choice. A lexical or
+canonical executable inside the workspace requires the current explicit action
+before it becomes a probe target. Directory pins and packages stay unchanged.
 
 Four layers apply: fixed nearest pin; nearest project source (wrapper > environment
 > declaration, native reader before compatible reader of the same source);
@@ -229,12 +266,16 @@ are 256 roots, 4096 entries and 64 ancestors for the host adapter.
 automatic layers without resolving a directory. It requires `{registry,tool,
 platform,workspaceRoot,filesystem}` and accepts `workspaceRoots`,
 `filesystemCaseSensitive`, `minimumVersion`, `probes`, `systemInstallations`,
-`providerInstallations` and `environment`, with the same meaning and checks as in
+`providerInstallations`, `environment`, `fixed` and `projectCodeAllowed`, with the same meaning and checks as in
 `resolve`. `providerInstallations` (at most 512) are `{tool,home,provider}` rows a
 host copies from `decodeReply` snapshots; `provider` must name a registry provider
 `pluginID:providerID` declaring the tool, and the row keeps that attribution when
 a scan reports the same canonical home. The output is
 `{tool,shell,installations,skipped,selected,conflicts}`:
+A checked `fixed` choice without a version contributes a `probeFailed` skipped row
+with its executable for the native probe. An unauthorized workspace program never
+contributes such a target. This candidate report itself grants no authority.
+
 
 - `shell` lists each declared home variable present in `environment` as
   `{candidateID,variable,home,executable?,version?|reason?}`, checked through

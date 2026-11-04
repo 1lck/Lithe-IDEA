@@ -28,10 +28,10 @@ macOS 设置窗口现在可以由插件“注册”页面：插件在 `plugin.js
 `PluginSettingsRegistry`（`macos/Sources/Lithe/Application/Features/PluginSettingsRegistry.swift`）从插件快照推导出侧栏页面：
 
 - 已启用插件为某语言提供语言服务器，或把设置/按钮放到 `{"languageID": …}`，就出现“语言与框架 › <语言>”页。
-- 设置/按钮放到 `{"buildSystemID": …}`，就出现“构建、执行、部署 › <构建系统>”页。
+- 设置/按钮放到 `{"buildSystemID": …}`，或构建系统声明公共原生配置投影，就出现“构建、执行、部署 › <构建系统>”页。
 - 没有 `page` 的设置只留在插件详情的“设置”标签页。
 
-页面由 `ContributedSettingsPageView` 统一绘制：语言页先显示通用的语言服务状态卡（状态、按项目开关、重启），然后按插件列出它放到这一页的设置和按钮。控件由 `PluginSettingsSection` 根据设置类型选择，按 `section` 分组。
+页面由 `ContributedSettingsPageView` 统一绘制：语言页先显示通用的语言服务状态卡（状态、按项目开关、重启），然后按插件列出它放到这一页的设置和按钮。控件由 `PluginSettingsSection` 根据设置类型选择，按 `section` 分组。原生配置由公共 `buildProviders: 7` 声明，使用同页的通用来源/草稿/保存控件，不进入插件偏好双层存储；来源、冲突保护和上游回读见 [真实配置编辑](2026-10-25-settings-native-configuration-editing.md)。
 
 正确做法：Elixir 插件想在 Elixir 页加“重建 PLT”按钮，就在清单里声明 `settingActions`，指向自己的插件函数。
 

@@ -707,6 +707,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 displayName: $0.displayName,
                 adapterID: $0.adapterID ?? $0.id,
                 requests: Set($0.requests.compactMap(DebugRequestKind.init(rawValue:))),
+                configurationTypes: $0.configurationTypes,
                 languageIDs: $0.languageIDs,
                 fileLaunchLanguageIDs: $0.fileLaunchLanguageIDs,
                 consoleCommands: $0.consoleCommands,
@@ -1196,6 +1197,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             let displayName: String
             let adapterID: String?
             let requests: [String]
+            let configurationTypes: [String]
             let selectors: [Selector]
             let capabilities: Capabilities?
             let console: Console?
@@ -1241,6 +1243,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 // Rust Core fills in `launch` when the manifest omits `requests`;
                 // the same default keeps a hand-built descriptor consistent.
                 requests = try values.decodeIfPresent([String].self, forKey: .requests) ?? ["launch"]
+                configurationTypes = try values.decodeIfPresent([String].self, forKey: .configurationTypes) ?? []
                 selectors = try values.decodeIfPresent([Selector].self, forKey: .selectors) ?? []
                 capabilities = try values.decodeIfPresent(Capabilities.self, forKey: .capabilities)
                 console = try values.decodeIfPresent(Console.self, forKey: .console)
@@ -1248,7 +1251,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             }
 
             private enum CodingKeys: String, CodingKey {
-                case id, displayName, adapterID, requests, selectors, capabilities, console, configurations
+                case configurationTypes, id, displayName, adapterID, requests, selectors, capabilities, console, configurations
             }
         }
 
@@ -1269,6 +1272,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 let requiresUserArguments: Bool
                 let description: String?
                 let category: [String]
+                let preparation: DeclarativeBuildSystem.TaskPreparation?
 
                 init(from decoder: Decoder) throws {
                     let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -1282,11 +1286,12 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                         ?? false
                     description = try values.decodeIfPresent(String.self, forKey: .description)
                     category = try values.decodeIfPresent([String].self, forKey: .category) ?? []
+                    preparation = try values.decodeIfPresent(DeclarativeBuildSystem.TaskPreparation.self, forKey: .preparation)
                 }
 
                 private enum CodingKeys: String, CodingKey {
                     case id, displayName, group, scopes, fromModel, targetTags, requiresUserArguments, description
-                    case category
+                    case category, preparation
                 }
             }
             /// Only where the window offers the option; Core resolves the rest.
@@ -1294,20 +1299,25 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 let id: String
                 let presentation: String?
                 let icon: PluginUIIcon?
+                let scope: DeclarativeBuildSystem.OptionScope?
             }
             struct ProviderRun: Decodable {
-                struct Debug: Decodable { let adapter: String }
+                struct Debug: Decodable { let adapter: String?; let configurationType: String? }
                 let debug: Debug?
                 struct Targets: Decodable { let tags: [String] }
                 let id: String
                 let source: String?
                 let name: String?
+                let execution: BuildExecution?
                 let fromTargets: Targets?
             }
             struct Test: Decodable {
+                let selectorKinds: [String]?
+                struct Results: Decodable { let decoder: String }
                 let scopes: [BuildScope]
                 let targetTags: [String]?
                 let discovery: Bool?
+                let results: Results?
             }
 
             let id: String
@@ -1319,6 +1329,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             let test: Test?
             let run: [ProviderRun]
             let dependencies: Source?
+            let nativeConfiguration: Bool
             let declaresProvider: Bool
             let sharesModel: Bool
             let modelInputs: [DeclarativeBuildSystem.ModelInput]
@@ -1334,13 +1345,14 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 test = try values.decodeIfPresent(Test.self, forKey: .test)
                 run = try values.decodeIfPresent([ProviderRun].self, forKey: .run) ?? []
                 dependencies = try values.decodeIfPresent(Source.self, forKey: .dependencies)
+                nativeConfiguration = values.contains(.configuration)
                 declaresProvider = values.contains(.provider)
                 sharesModel = values.contains(.modelSharing)
                 modelInputs = try values.decodeIfPresent([DeclarativeBuildSystem.ModelInput].self, forKey: .modelInputs) ?? []
             }
 
             private enum CodingKeys: String, CodingKey {
-                case id, displayName, icon, options, model, tasks, test, dependencies, provider, run, modelSharing, modelInputs
+                case id, displayName, icon, options, model, tasks, test, dependencies, provider, run, modelSharing, modelInputs, configuration
             }
 
             func declaration() -> DeclarativeBuildSystem {
@@ -1353,7 +1365,8 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                         .init(
                             id: $0.id,
                             presentation: $0.presentation.flatMap(DeclarativeBuildSystem.OptionPresentation.init),
-                            icon: $0.icon
+                            icon: $0.icon,
+                            scope: $0.scope ?? .workspace
                         )
                     },
                     tasks: tasks.map {
@@ -1361,7 +1374,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                             id: $0.id, displayName: $0.displayName, group: $0.group, scopes: $0.scopes,
                             fromModel: $0.fromModel, targetTags: $0.targetTags,
                             requiresUserArguments: $0.requiresUserArguments, description: $0.description,
-                            category: $0.category
+                            category: $0.category, preparation: $0.preparation
                         )
                     },
                     testScopes: test?.scopes ?? [],
@@ -1372,8 +1385,10 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                     declaresProvider: declaresProvider,
                     testDiscovery: test?.discovery ?? false,
                     providerRuns: run.filter { $0.source == "provider" }.map {
-                        .init(id: $0.id, displayName: $0.name ?? $0.id, targetTags: $0.fromTargets?.tags ?? [], debugAdapter: $0.debug?.adapter)
-                    }, sharesModel: sharesModel, modelInputs: modelInputs
+                        .init(id: $0.id, displayName: $0.name ?? $0.id, targetTags: $0.fromTargets?.tags ?? [], debugAdapter: $0.debug?.adapter, debugConfigurationType: $0.debug?.configurationType, execution: $0.execution ?? .application)
+                    }, sharesModel: sharesModel, modelInputs: modelInputs, nativeConfiguration: nativeConfiguration,
+                    providerTestReports: test?.results?.decoder == "provider",
+                    testSelectorKinds: test?.selectorKinds ?? []
                 )
             }
         }
@@ -1447,6 +1462,8 @@ public struct DeclarativeDebugAdapter: Equatable, Sendable {
     /// The `adapterID` of the DAP `initialize` request.
     public let adapterID: String
     public let requests: Set<DebugRequestKind>
+    /// Public registry aliases advertised by this adapter.
+    public let configurationTypes: [String]
     /// Every language a selector of the adapter names, whatever the request or
     /// target kind. It says which languages the plugin has a debugger for, so a
     /// debug-only declaration is recognised; it does not choose the adapter for
@@ -1475,6 +1492,7 @@ public struct DeclarativeDebugAdapter: Equatable, Sendable {
         displayName: String,
         adapterID: String,
         requests: Set<DebugRequestKind> = [.launch, .attach],
+        configurationTypes: [String] = [],
         languageIDs: [String],
         fileLaunchLanguageIDs: [String]? = nil,
         consoleCommands: [DebugConsoleCommand] = [],
@@ -1486,6 +1504,7 @@ public struct DeclarativeDebugAdapter: Equatable, Sendable {
         self.displayName = displayName
         self.adapterID = adapterID
         self.requests = requests
+        self.configurationTypes = configurationTypes
         self.languageIDs = languageIDs
         self.fileLaunchLanguageIDs = fileLaunchLanguageIDs ?? languageIDs
         self.consoleCommands = consoleCommands
@@ -1585,10 +1604,12 @@ public struct DeclarativeDebugStartRequest: Equatable, Sendable {
     public enum Request: String, Sendable { case launch, attach }
 
     public let request: Request
-    /// What the target is: `file` or `process`.
+    /// The registry target kind, including `file`, `executable`, `process` and `connection`.
     public let targetKind: String
     public let path: String?
     public let processID: Int?
+    public let host: String?
+    public let port: UInt16?
     public let workingDirectory: String?
     /// The program the host found for a launch whose adapter binds `program` to
     /// `target.executable`; an absolute path the host has checked is runnable.
@@ -1600,6 +1621,7 @@ public struct DeclarativeDebugStartRequest: Equatable, Sendable {
 
     public init(
         request: Request, targetKind: String, path: String? = nil, processID: Int? = nil,
+        host: String? = nil, port: UInt16? = nil,
         workingDirectory: String? = nil, executable: String? = nil,
         registrationGeneration: Int, currentRegistrationGeneration: Int,
         arguments: [String]? = nil, environment: [String: String]? = nil
@@ -1608,6 +1630,7 @@ public struct DeclarativeDebugStartRequest: Equatable, Sendable {
         self.targetKind = targetKind
         self.path = path
         self.processID = processID
+        self.host = host; self.port = port
         self.workingDirectory = workingDirectory
         self.executable = executable
         self.arguments = arguments

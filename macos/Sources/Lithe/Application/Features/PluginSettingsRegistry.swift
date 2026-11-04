@@ -24,6 +24,7 @@ struct ContributedSettingsPage: Identifiable, Equatable, Sendable {
         let actions: [DeclarativePluginSettingAction]
         /// The plugin runs a language server for this page's language.
         let providesLanguageServer: Bool
+        var nativeBuildSystemIDs: [String] = []
 
         var id: PluginID { pluginID }
     }
@@ -84,6 +85,7 @@ enum PluginSettingsRegistry {
             var placements: [ContributedSettingsPage.Placement] = declared.languageServerIDs.map { .language($0) }
             placements += plugin.settings.compactMap { $0.declaration.page.map(placement) }
             placements += declared.actions.compactMap { $0.page.map(placement) }
+            placements += declared.buildSystems.filter(\.nativeConfiguration).map { .buildSystem($0.id) }
             var seen = Set<ContributedSettingsPage.Placement>()
             for page in placements where seen.insert(page).inserted {
                 contributions[page, default: []].append(ContributedSettingsPage.Contribution(
@@ -91,7 +93,10 @@ enum PluginSettingsRegistry {
                     pluginName: plugin.manifest.displayName,
                     settings: plugin.settings.filter { $0.declaration.page.map(placement) == page },
                     actions: declared.actions.filter { $0.page.map(placement) == page },
-                    providesLanguageServer: page.languageID.map(declared.languageServerIDs.contains) ?? false
+                    providesLanguageServer: page.languageID.map(declared.languageServerIDs.contains) ?? false,
+                    nativeBuildSystemIDs: declared.buildSystems.filter {
+                        $0.nativeConfiguration && page == .buildSystem($0.id)
+                    }.map(\.id)
                 ))
             }
         }

@@ -64,7 +64,7 @@ struct RemoteRuntimeDiscoveryTests {
         let host = FixtureRuntimeHost()
         let remote = MacRemoteRuntimeLocator(binding: Self.binding, host: host)
         let local = FixtureLocalRuntimeLocator()
-        let service = ProjectRuntimeService(runtimeLocator: local, store: FixtureRuntimeStore(),
+        let service = ProjectRuntimeService(runtimeLocator: local, settingsStore: InMemoryProjectRuntimeSettingsStore(),
             workspaceRuntime: { $0 == Self.binding.root ? (remote, remote) : nil })
         defer { service.closeProject() }
         service.openProject(at: Self.binding.root)

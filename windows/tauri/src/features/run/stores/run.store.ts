@@ -7,6 +7,10 @@ import { supportsDevToolsUpdate, updateJavaService } from "../services/java-serv
 import type { JavaServiceUpdateContext } from "../types/run.types";
 import { createStore } from "zustand/vanilla";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { createTranslator } from "@/i18n/locale";
+import { startWindowsBuildProviderRun } from "@/platform/build-provider-run";
+import type { ProviderDebugOptions } from "@/features/debugger/services/build-provider-debug";
+import type { BuildProviderRunHandle } from "../services/build-provider-run-launch";
 import { saveWorkspaceBeforeLaunch } from "@/features/editor/services/save-workspace-before-launch";
 import { createWorkspaceScopedStore } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
@@ -26,6 +30,7 @@ import {
   stopRunProcess,
   writeRunDocuments,
   writeRunStdin,
+  saveBuildProviderRun,
 } from "../api/run-host-api";
 import {
   CURRENT_FILE_ID,
@@ -44,6 +49,7 @@ import {
   type RunSaveScope,
   type RunSession,
   type RunProcessInstance,
+  type BuildProviderRunReference,
 } from "../types/run.types";
 import {
   blockingToolchainDiagnosticForConfiguration,
@@ -53,6 +59,7 @@ import {
   recoveryActionForError,
   recoveryPathFromMessage,
   configurationUsesMaven,
+  runOptionsFromConfiguration,
   runSessionId,
 } from "../utils/run-configuration";
 import { editorSaveFailureMessage, runEditorSaveWorkflow } from "../services/run-editor-save";
@@ -98,6 +105,8 @@ export interface JavaLaunchDecision {
  */
 export type JavaDiscoveryStatus = "idle" | "loading" | "ready" | "stale" | "failed";
 
+export interface ProviderDebugLaunch { options: ProviderDebugOptions; assertCurrent: () => void }
+
 interface RunState {
   root: string | null;
   javaDiscovery: JavaDiscoveryStatus;
@@ -142,6 +151,7 @@ interface RunState {
   globalToolchain: GlobalToolchain;
   effectiveRuntimeExecutablePaths: Record<string, string>;
   actions: {
+    runBuildTarget: (root: string, reference: BuildProviderRunReference, name: string, assertCurrent: () => void, signal?: AbortSignal, debug?: ProviderDebugLaunch) => Promise<RunProcessInstance | null>;
     loadProject: (root: string) => Promise<void>;
     /**
      * Identifies the project's run entries. `automatic` marks identification
@@ -164,6 +174,7 @@ interface RunState {
       id: string,
       currentFile?: string,
       debugPort?: number,
+      providerDebug?: ProviderDebugLaunch,
     ) => Promise<RunProcessInstance | null>;
     continueJavaLaunch: (sessionId: string, decisionId: string, remember: boolean) => void;
     cancelJavaLaunch: (sessionId: string, decisionId?: string) => void;
@@ -179,11 +190,13 @@ interface RunState {
     ) => Promise<boolean>;
     writeStdin: (sessionId: string, input: string) => Promise<void>;
     appendOutput: (sessionId: string, chunk: string) => void;
-    finishProcess: (sessionId: string, exitCode: number) => void;
+    finishProcess: (sessionId: string, exitCode: number) => void | boolean;
   };
 }
 
 export interface RunStoreDependencies {
+  saveBuildProviderRun?: typeof saveBuildProviderRun;
+  startBuildProviderRun?: typeof startWindowsBuildProviderRun;
   inspectRunConfiguration?: typeof inspectRunConfiguration;
   resolveConfigurations?: typeof resolveConfigurations;
   createLaunchPlan: typeof createLaunchPlan;
@@ -214,6 +227,7 @@ function seedMavenLocalConfiguration(workspaceId: string, settings: Partial<Mave
 }
 
 const defaultRunStoreDependencies: RunStoreDependencies = {
+  startBuildProviderRun: startWindowsBuildProviderRun,
   createLaunchPlan,
   mavenLaunchContextForWorkspace,
   resolveRunLaunch,
@@ -350,16 +364,7 @@ function mavenProcessPaths(
 }
 
 function optionsFromConfiguration(configuration: RunConfiguration): RunOptions {
-  return {
-    javaHomePath: configuration.javaHomePath,
-    mavenExecutablePath: configuration.mavenExecutablePath,
-    mavenJavaHomePath: configuration.mavenJavaHomePath,
-    mavenSkipTests: configuration.mavenSkipTests,
-    workingDirectoryPath: configuration.cwd,
-    vmArguments: configuration.jvmArguments.join(" "),
-    programArguments: configuration.programArguments.join(" "),
-    environment: configuration.env,
-  };
+  return runOptionsFromConfiguration(configuration);
 }
 
 async function readRunProjectSnapshot(
@@ -451,6 +456,8 @@ export const createRunStore = (
     dependencies.rebuildJavaIndexForWorkspace ?? rebuildJavaIndexForWorkspace;
   const presentJavaLaunchDecision = dependencies.presentJavaLaunchDecision ?? openRunDecisionPane;
   const executions = new Map<string, string>();
+  const providerRuns = new Map<string, { executionId: string; handle: BuildProviderRunHandle; preparing: boolean }>();
+  const targetRuns = new Map<string, Set<Promise<RunProcessInstance | null>>>();
   const pendingJavaLaunchDecisions = new Map<
     string,
     { decisionId: string; executionId: string; resolve: (proceed: boolean) => void }
@@ -555,7 +562,59 @@ export const createRunStore = (
     globalToolchain: EMPTY_GLOBAL_TOOLCHAIN,
     effectiveRuntimeExecutablePaths: {},
     actions: {
+      runBuildTarget: (root, reference, name, assertCurrent, signal, debug) => {
+        reference = structuredClone(reference);
+        const task = (async () => {
+          const revision = projectLoadRevision;
+          const current = () => {
+            signal?.throwIfAborted();
+            debug?.assertCurrent();
+            assertCurrent();
+            if (revision !== projectLoadRevision || (get().root !== null && get().root !== root)) throw new DOMException("Aborted", "AbortError");
+          };
+          current();
+          const id = await (dependencies.saveBuildProviderRun ?? saveBuildProviderRun)(root, structuredClone(reference), name);
+          current();
+          // This refresh only reads the saved selectors. It neither regenerates
+          // old Maven entries nor cancels another service's preparation.
+          const snapshot = await readRunProjectSnapshot(root, workspaceId, dependencies, false);
+          current();
+          const saved = snapshot.status === "ready" && snapshot.configurations.find(item => item.id === id)?.buildProvider;
+          if (!saved || ["pluginID", "buildSystemID", "root", "run", "projectID", "targetID"].some(key => saved[key as keyof BuildProviderRunReference] !== reference[key as keyof BuildProviderRunReference])
+            || (saved.execution ?? "application") !== (reference.execution ?? "application")
+            || JSON.stringify(saved.userArguments) !== JSON.stringify(reference.userArguments)) {
+            throw new Error(createTranslator(useSettingsStore.getState().settings.displayLanguage)("build.errors.inputsChanged"));
+          }
+          set({ root, ...readyRunState(snapshot as Extract<RunProjectSnapshot, { status: "ready" }>, id), saveError: null });
+          const running = get().actions.runConfigurationInstance(id, undefined, undefined, debug);
+          const sessionID = (reference.execution ?? "application") === "service" ? id : PRIMARY_SESSION_ID;
+          const executionID = executions.get(sessionID);
+          let stopping: Promise<void> | undefined;
+          const cancel = () => {
+            if (executionID) {
+              stopping ??= get().actions.stop(sessionID, executionID);
+              // Keep the rejection observed while native preparation drains;
+              // awaiting the same promise below still reports cleanup failure.
+              void stopping.catch(() => {});
+            }
+          };
+          signal?.addEventListener("abort", cancel, { once: true });
+          if (signal?.aborted) cancel();
+          try { return await running; }
+          finally { signal?.removeEventListener("abort", cancel); await stopping; }
+        })();
+        const pending = targetRuns.get(root) ?? new Set(); targetRuns.set(root, pending); pending.add(task);
+        const release = () => { pending.delete(task); if (!pending.size && targetRuns.get(root) === pending) targetRuns.delete(root); };
+        void task.then(release, release); return task;
+      },
       loadProject: async (root) => {
+        // Opening Run while a Build target is saving must not revoke that very
+        // launch. A different project still supersedes it immediately.
+        const beforeTargets = projectLoadRevision;
+        if (get().root === null || get().root === root) {
+          while (targetRuns.get(root)?.size) await Promise.allSettled([...targetRuns.get(root)!]);
+          if (projectLoadRevision !== beforeTargets) return;
+        }
         cancelEntrypointCheck();
         const sameProject = get().root === root;
         if (sameProject) {
@@ -578,6 +637,15 @@ export const createRunStore = (
           pendingJavaLaunchDecisions.clear();
         }
         const revision = ++projectLoadRevision;
+        const obsolete = [...providerRuns].filter(([, entry]) => !sameProject || entry.preparing);
+        if (obsolete.length) {
+          const stopped = await Promise.allSettled(obsolete.map(async ([id, entry]) => {
+            await entry.handle.stop(); if (providerRuns.get(id) === entry) providerRuns.delete(id);
+          }));
+          const failed = stopped.find((outcome): outcome is PromiseRejectedResult => outcome.status === "rejected");
+          if (failed) throw failed.reason;
+        }
+        if (revision !== projectLoadRevision) return;
         set({
           root,
           isLoading: true,
@@ -822,7 +890,8 @@ export const createRunStore = (
         return instance?.sessionId ?? null;
       },
 
-      runConfigurationInstance: async (id, currentFile, debugPort) => {
+      runConfigurationInstance: async (id, currentFile, debugPort, providerDebug) => {
+        if (providerDebug) providerDebug = { ...providerDebug, options: structuredClone(providerDebug.options) };
         const state = get();
         const root = state.root;
         const configuration = state.configurations.find((item) => item.id === id);
@@ -912,6 +981,11 @@ export const createRunStore = (
         resetOutputStamper(sessionId);
         await dependencies.stopRunProcess(sessionId).catch(() => undefined);
         try {
+          const previousProvider = providerRuns.get(sessionId);
+          if (previousProvider) {
+            await previousProvider.handle.stop();
+            if (providerRuns.get(sessionId) === previousProvider) providerRuns.delete(sessionId);
+          }
           if (!isCurrent()) return null;
           let save = workspaceSaveInFlight.get(workspaceId);
           if (!save) {
@@ -925,6 +999,43 @@ export const createRunStore = (
           }
           await save;
           if (!isCurrent()) return null;
+          if (configuration.buildProvider) {
+            if (debugPort !== undefined) {
+              throw new Error(createTranslator(useSettingsStore.getState().settings.displayLanguage)("build.errors.unsupportedSource"));
+            }
+            if (sessionId !== PRIMARY_SESSION_ID) set((current) => ({ selectedSessionId: sessionId,
+              sessions: [...current.sessions.filter(session => session.id !== sessionId), { id: sessionId, configurationId: configuration.id,
+                executionId, title: configuration.name, output: "", isRunning: false, isPreparing: true, exitCode: null }] }));
+            const stopPresentation = () => {
+              if (!isCurrent()) return;
+              executions.delete(sessionId);
+              if (sessionId === PRIMARY_SESSION_ID) set({ primaryRunning: false, primaryPreparing: false });
+              else set((current) => ({ sessions: current.sessions.map(session => session.id === sessionId && session.executionId === executionId
+                ? { ...session, isRunning: false, isPreparing: false } : session) }));
+            };
+            const startProvider = dependencies.startBuildProviderRun ?? startWindowsBuildProviderRun;
+            const handle = startProvider({ workspaceId, root, configurationId: configuration.id, name: configuration.name,
+              reference: configuration.buildProvider,
+              sessionId, executionId,
+              debug: providerDebug?.options,
+              isCurrent: () => {
+                if (!isCurrent()) return false;
+                try { providerDebug?.assertCurrent(); return true; } catch { return false; }
+              }, onRevoked: stopPresentation,
+              onOutput: text => { if (isCurrent()) get().actions.appendOutput(sessionId, text); },
+              onReady: launch => {
+                if (!isCurrent()) return;
+                get().actions.appendOutput(sessionId, `$ ${launch.executable.split(/[\\/]/).pop()} ${launch.arguments.join(" ")}\n\n`);
+                if (sessionId === PRIMARY_SESSION_ID) set({ primaryRunning: true, primaryPreparing: false });
+                else set((current) => ({ sessions: current.sessions.map(session => session.id === sessionId && session.executionId === executionId
+                  ? { ...session, isRunning: true, isPreparing: false } : session) }));
+              },
+            });
+            const owned = { executionId, handle, preparing: true }; providerRuns.set(sessionId, owned);
+            try { await handle.completion; } finally { owned.preparing = false; }
+            return isCurrent() ? { sessionId, executionId } : null;
+          }
+          if (providerDebug) throw new Error(createTranslator(useSettingsStore.getState().settings.displayLanguage)("build.errors.unsupportedSource"));
           const mavenContext = configurationUsesMaven(configuration)
             ? await dependencies.mavenLaunchContextForWorkspace(root, [], workspaceId)
             : null;
@@ -1355,6 +1466,11 @@ export const createRunStore = (
         const ownedExecution = executions.get(target);
         const ownsSlot = !executionId || executionId === ownedExecution;
         if (ownsSlot) executions.delete(target);
+        const provider = providerRuns.get(target);
+        if (provider && (!executionId || provider.executionId === executionId)) {
+          await provider.handle.stop();
+          if (providerRuns.get(target) === provider) providerRuns.delete(target);
+        }
         // Native ownership remains authoritative after a workspace store is disposed/recreated.
         await dependencies
           .stopRunProcess(target, executionId ?? ownedExecution)
@@ -1484,6 +1600,17 @@ export const createRunStore = (
       },
 
       finishProcess: (sessionId, exitCode) => {
+        const provider = providerRuns.get(sessionId);
+        if (provider) {
+          void Promise.resolve().then(() => provider.handle.finished()).then(() => {
+            if (providerRuns.get(sessionId) === provider) providerRuns.delete(sessionId);
+          }, error => {
+            // Keep failed ownership for Stop/restart/close to retry. An old
+            // exit cleanup must not append its error to a replacement run.
+            if (executions.get(sessionId) === provider.executionId) get().actions.appendOutput(sessionId,
+              `${error instanceof Error ? error.message : String(error)}\n`);
+          });
+        }
         if (sessionId === PRIMARY_SESSION_ID) {
           set({
             primaryRunning: false,
@@ -1491,7 +1618,7 @@ export const createRunStore = (
             primaryExitCode: exitCode,
             primaryOutput: flushStampedOutput(sessionId, get().primaryOutput),
           });
-          return;
+          return Boolean(provider);
         }
         set((current) => ({
           sessions: current.sessions.map((session) =>
@@ -1506,6 +1633,7 @@ export const createRunStore = (
               : session,
           ),
         }));
+        return Boolean(provider);
       },
     },
   }));

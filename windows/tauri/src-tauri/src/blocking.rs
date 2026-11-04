@@ -15,9 +15,19 @@ where
     F: FnOnce() -> Result<T, String> + Send + 'static,
     T: Send + 'static,
 {
+    run_blocking_result(work).await
+}
+
+/// Keeps structured native failures intact while using the same blocking pool.
+pub async fn run_blocking_result<T, E, F>(work: F) -> Result<T, E>
+where
+    F: FnOnce() -> Result<T, E> + Send + 'static,
+    T: Send + 'static,
+    E: From<String> + Send + 'static,
+{
     tauri::async_runtime::spawn_blocking(work)
         .await
-        .map_err(|error| format!("Host task failed: {error}"))?
+        .map_err(|error| E::from(format!("Host task failed: {error}")))?
 }
 
 #[cfg(test)]

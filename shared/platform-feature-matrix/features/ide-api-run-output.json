@@ -2,7 +2,7 @@
   "id": "ide-api-run-output",
   "area": "AI",
   "group": "IDE MCP",
-  "capability": "插件与 MCP 列举运行配置、启动重启，按执行 ID 读取增量输出和停止",
+  "capability": "插件与 MCP 列举运行配置、启动重启，按执行 ID 查询和停止 Run 及 macOS 插件 Build 输出",
   "macos": {
     "implementationStatus": "implemented",
     "verificationStatus": "pending",
@@ -24,5 +24,5 @@
     ]
   },
   "owner": "Agent",
-  "verification": "运行服务、读增量输出、清空日志验证 reset、重启后拒绝旧 ID，停止正确进程，检查退出码及资源清理。 运行前后对比安装目录文件清单与哈希；当前 Linux 仅执行共享协议及前端验证，原生运行待验证。"
+  "verification": "运行服务、读增量输出、清空日志验证 reset、重启后拒绝旧 ID，停止正确进程，检查退出码及资源清理。 运行前后对比安装目录文件清单与哈希；当前 Linux 仅执行共享协议及前端验证，原生运行待验证。 macOS Build 快照保留完成后的身份、退出码和任务输出；模型/依赖控制台日志不混入该任务，新运行或工作区重开后旧 ID 返回 OPERATION_EXPIRED，旧停止不得取消替换操作。"
 }

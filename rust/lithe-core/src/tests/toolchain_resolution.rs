@@ -77,6 +77,139 @@ fn query(input: &Value) -> Value {
 }
 
 #[test]
+fn consumer_fixed_installation_precedes_directory_pins_without_granting_a_fallback() {
+    let mut value = input();
+    installation(&mut value, HOME, "21.0.4");
+    installation(&mut value, OLD, "17.0.12");
+    value["local"] = json!({"version":1,"toolchains":{},"pins":{".":{"java":{"home":HOME,"version":"21","provider":"host:manual"}}}});
+    value["fixed"] = json!({"home":OLD});
+    // Broken lower-layer answers have no authority over this explicit choice.
+    value["queries"] = json!([{"invalid":"lower layer"}]);
+    let selected = resolve(&value);
+    assert_eq!(selected["outcome"]["selection"]["home"], OLD);
+    assert_eq!(selected["trace"][0]["candidateID"], "consumerFixed");
+    value["fixed"] = json!({"home":"/opt/lithe-fixtures/missing"});
+    assert_eq!(resolve(&value)["outcome"]["kind"], "terminalFailure");
+}
+
+#[test]
+fn consumer_fixed_executable_preserves_its_argv_identity_and_has_no_invented_home() {
+    let mut value = input();
+    let executable = "/opt/lithe-fixtures/custom tools/launcher";
+    value["fixed"] = json!({"executable":executable});
+    value["filesystem"]
+        .as_array_mut()
+        .unwrap()
+        .push(fact(executable, "file", true));
+    let candidates = candidates_command(value_for_candidates(&value)).unwrap();
+    assert_eq!(candidates["status"], "ok", "{candidates}");
+    assert!(candidates["candidates"]["skipped"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|value| value["reason"] == "probeFailed" && value["executable"] == executable));
+    value["probes"] =
+        json!([{"executable":executable,"output":"openjdk version \"21.0.4\"","exitCode":0}]);
+    let result = resolve(&value);
+    let selected = &result["outcome"]["selection"];
+    assert_eq!(selected["executable"], executable);
+    assert_eq!(selected["version"], "21.0.4");
+    assert!(selected["home"].is_null());
+    assert_eq!(
+        selected["environment"],
+        json!({"LITHE_JAVA_PATH":executable})
+    );
+    assert_eq!(selected["pathPrepend"], json!([]));
+    value["minimumVersion"] = json!("23");
+    assert_eq!(
+        resolve(&value)["outcome"]["reason"]["code"],
+        "versionUnsatisfied"
+    );
+}
+
+fn value_for_candidates(value: &Value) -> Value {
+    let mut result = json!({});
+    for key in [
+        "registry",
+        "tool",
+        "platform",
+        "filesystemCaseSensitive",
+        "workspaceRoot",
+        "workspaceRoots",
+        "filesystem",
+        "minimumVersion",
+        "probes",
+        "systemInstallations",
+        "environment",
+        "fixed",
+        "projectCodeAllowed",
+    ] {
+        if let Some(value) = value.get(key) {
+            result[key] = value.clone();
+        }
+    }
+    result
+}
+
+#[test]
+fn consumer_fixed_project_files_require_the_current_action_before_any_version_probe() {
+    for alias in [false, true] {
+        let mut value = input();
+        let inside = format!("{WORKSPACE}/scripts/launcher");
+        let executable = if alias {
+            "/opt/lithe-fixtures/alias"
+        } else {
+            &inside
+        };
+        value["fixed"] = json!({"executable":executable});
+        value["filesystem"].as_array_mut().unwrap().push(
+            json!({"path":executable,"canonicalPath":inside,"kind":"file","executable":true}),
+        );
+        let candidates = candidates_command(value_for_candidates(&value)).unwrap();
+        assert_eq!(candidates["status"], "ok", "{candidates}");
+        assert!(!candidates["candidates"]["skipped"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["executable"] == executable));
+        assert_eq!(
+            resolve(&value)["outcome"]["reason"]["code"],
+            "projectCodeRequiresAction"
+        );
+        value["projectCodeAllowed"] = json!(true);
+        value["probes"] =
+            json!([{"executable":executable,"output":"openjdk version \"21.0.4\"","exitCode":0}]);
+        assert_eq!(resolve(&value)["outcome"]["selection"]["projectCode"], true);
+    }
+}
+
+#[test]
+fn consumer_fixed_choices_reject_ambiguous_relative_and_authority_smuggling_fields() {
+    for fixed in [
+        Value::Null,
+        json!({}),
+        json!({"home":HOME,"executable":"/opt/tool"}),
+        json!({"executable":"relative/tool"}),
+        json!({"home":"/opt/../tool"}),
+        json!({"executable":"/opt/tool","version":"21"}),
+        json!({"home":HOME,"provider":"host:official"}),
+    ] {
+        let mut value = input();
+        value["fixed"] = fixed.clone();
+        assert_eq!(
+            resolve_command(value.clone()).unwrap()["status"],
+            "rejected",
+            "{fixed}"
+        );
+        assert_eq!(
+            candidates_command(value_for_candidates(&value)).unwrap()["status"],
+            "rejected",
+            "{fixed}"
+        );
+    }
+}
+
+#[test]
 fn toolchain_resolution_pins_inherit_nearest_ancestor_without_sibling_prefixes() {
     let mut value = input();
     let manual = "/opt/lithe-fixtures/manual/java/17.0.12";

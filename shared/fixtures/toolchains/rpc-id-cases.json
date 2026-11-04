@@ -1,0 +1,44 @@
+{
+  "cases": [
+    {
+      "id": 1,
+      "accepted": true
+    },
+    {
+      "id": "1",
+      "accepted": true
+    },
+    {
+      "id": "rpc:雪-2",
+      "accepted": true
+    },
+    {
+      "id": 0,
+      "accepted": false
+    },
+    {
+      "id": -1,
+      "accepted": false
+    },
+    {
+      "id": null,
+      "accepted": false
+    },
+    {
+      "id": true,
+      "accepted": false
+    },
+    {
+      "id": "",
+      "accepted": false
+    },
+    {
+      "id": "bad\n",
+      "accepted": false
+    },
+    {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "accepted": false
+    }
+  ]
+}

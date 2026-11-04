@@ -962,6 +962,8 @@ package protocol LanguageServerSession: AnyObject {
     func javaEntrypoints(
         completion: @escaping (Result<JavaEntrypoints, Error>) -> Void
     ) throws
+    /// Awaited launch discovery owns cancellation of its queued Core operation.
+    func javaEntrypoints() async throws -> JavaEntrypoints
     /// Prepares one saved source through Core's shared Java launch operation.
     func prepareJavaLaunch(fileURL: URL, mainClass: String?) async throws -> JavaLaunchPreparation
     /// Test classes and methods JDT reports for one source file.
@@ -1168,6 +1170,15 @@ package extension LanguageServerSession {
         }
     }
     var serverInfo: LanguageServerInfo? { nil }
+    func javaEntrypoints() async throws -> JavaEntrypoints {
+        try Task.checkCancellation()
+        let value: JavaEntrypoints = try await withCheckedThrowingContinuation { continuation in
+            do { try javaEntrypoints { continuation.resume(with: $0) } }
+            catch { continuation.resume(throwing: error) }
+        }
+        try Task.checkCancellation()
+        return value
+    }
     var onServerInfoChange: ((LanguageServerInfo?) -> Void)? {
         get { nil }
         set {}

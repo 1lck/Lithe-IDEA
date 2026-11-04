@@ -9,7 +9,7 @@ import LitheModuleAPI
 /// Every reply passes `toolchains.decodeReply` with native facts read here, so a provider
 /// never decides what a path is. Providers are only asked; nothing here installs or trusts.
 extension MacToolchainDiscovery {
-    private struct Provider {
+    struct Provider {
         let pluginID: String
         let id: String
         let tools: [String]
@@ -143,7 +143,7 @@ extension MacToolchainDiscovery {
         }
     }
 
-    private enum Outcome {
+    enum Outcome {
         /// The decoded snapshot, its `decodeReply` input without `filesystem`, and the paths read for it.
         case success([String: Any], input: [String: Any], paths: [String])
         /// No answer in time, or no backend to answer: the error reply's `decodeReply` input,
@@ -153,7 +153,7 @@ extension MacToolchainDiscovery {
     }
 
     /// One query and its validation. `scope` is `nil` for a global-only query.
-    private func query(
+    func query(
         _ provider: Provider, operation: String, generation: UInt64,
         scope: (directory: String, context: WorkspaceContext)?, registry: [String: Any],
         tools: [[String: Any]], root: String, caseSensitive: Bool
@@ -176,7 +176,7 @@ extension MacToolchainDiscovery {
         var hostFailure: String?
         do {
             let value = try await queryProvider(provider.pluginID, provider.id, wire, Self.queryTimeout)
-            guard let object = value.foundationObject as? [String: Any], object["id"] is NSNumber,
+            guard let object = value.foundationObject as? [String: Any], (object["id"] is NSNumber || object["id"] is String),
                   let response = object["response"] as? [String: Any]
             else { return .failure(L10n.string("The reply could not be read.")) }
             reply = ["id": object["id"]!, "response": response]
@@ -258,7 +258,7 @@ extension MacToolchainDiscovery {
     }
 
     /// Providers of enabled definitions, each with the sorted tools it may be asked about.
-    private static func providers(of tools: [[String: Any]]) -> [Provider] {
+    static func providers(of tools: [[String: Any]]) -> [Provider] {
         var byProvider: [String: Set<String>] = [:]
         for tool in tools {
             guard let id = tool["tool"] as? String else { continue }

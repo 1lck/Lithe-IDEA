@@ -13,6 +13,49 @@ import Testing
 struct PluginDebugAdapterTests {
     private struct ResolveFailure: Error, Equatable {}
 
+    @Test(arguments: ["unchanged", "disabled", "replaced", "generation"])
+    func providerConnectionUsesTheOwningRegistryEntryAndRevokesStaleBindings(change: String) throws {
+        let fixture = DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("Plugins/mac/Official/JavaSupport/plugin.json")
+        let descriptor = try DeclarativePluginTestSupport.operations.validate(manifest: Data(contentsOf: fixture))
+        let package = InstalledPluginPackage(descriptor: descriptor, installation: PluginInstallationRecord(
+            pluginID: descriptor.id, activeVersion: descriptor.pluginManifest.version, origin: .marketplace, status: .installed),
+            packageURL: URL(fileURLWithPath: "/fixture/java-support"))
+        let entry = try #require(PluginDebugAdapterEntry.qualifiedIndex(of: [package]).values.first)
+        var entries = [entry.providerID: entry]
+        var generation = 7
+        let resolver = MacBuildConnectionDebugResolver(planner: DeclarativePluginTestSupport.operations,
+            entries: { entries }, generation: { generation })
+        let prepared = try resolver.prepare(configurationType: "java", preferredAdapterID: nil, port: 51235)
+        #expect(prepared.options.adapterID == entry.providerID)
+        #expect(prepared.options.target.kind == "connection")
+        #expect(prepared.configuration.adapterProviderID == entry.providerID)
+        #expect(prepared.configuration.arguments["hostName"] == .string("127.0.0.1"))
+        #expect(prepared.configuration.arguments["port"] == .integer(51235))
+        #expect(prepared.isCurrent())
+        if change == "disabled" { entries = [:] }
+        if change == "generation" { generation += 1 }
+        if change == "replaced" {
+            let replacement = InstalledPluginPackage(descriptor: descriptor, installation: package.installation,
+                packageURL: URL(fileURLWithPath: "/fixture/replacement"))
+            entries[entry.providerID] = PluginDebugAdapterEntry(plugin: replacement, adapter: entry.adapter)
+        }
+        #expect(prepared.isCurrent() == (change == "unchanged"))
+        // Explicit old language IDs and a missing alias never select built-in adapters.
+        #expect(throws: DebugLaunchConfigurationResolutionError.providerDebugUnavailable) {
+            try resolver.prepare(configurationType: "java", preferredAdapterID: "java", port: 51235)
+        }
+        #expect(throws: DebugLaunchConfigurationResolutionError.providerDebugUnavailable) {
+            try resolver.prepare(configurationType: "missing", preferredAdapterID: nil, port: 51235)
+        }
+        entries["another/adapter"] = entry
+        if change == "unchanged" {
+            #expect(throws: DebugLaunchConfigurationResolutionError.providerDebugUnavailable) {
+                try resolver.prepare(configurationType: "java", preferredAdapterID: nil, port: 51235)
+            }
+            #expect(try resolver.prepare(configurationType: "java", preferredAdapterID: entry.providerID, port: 51235).isCurrent())
+        }
+    }
+
     @Test(arguments: ["valid", "not-executable", "withdrawn", "replaced", "program-alias", "instance-alias"])
     func providerDebugHandoffRechecksFilesAndCurrentPackage(change: String) throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("provider-debug-\(UUID().uuidString)", isDirectory: true)

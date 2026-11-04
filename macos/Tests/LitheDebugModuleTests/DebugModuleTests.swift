@@ -7,6 +7,28 @@ import Testing
 
 @MainActor
 struct DebugModuleTests {
+    @Test
+    func terminalStateIsReportedForAnInactiveSessionWithoutChangingTheSelection() throws {
+        let provider = DebugProviderDescriptor(id: "python", displayName: "Python", fileExtensions: ["py"])
+        var created: [DeferredInspectionDebugSession] = []
+        let manager = DebugAdapterSessionManager(providers: [provider]) { _, _ in
+            let session = DeferredInspectionDebugSession(); created.append(session); return session
+        }
+        let feature = GenericDebugFeatureModel(sessions: manager)
+        defer { feature.reset() }
+        var ended: [DebugSessionID] = []
+        feature.onSessionStateChanged = { id, state in if state == .failed { ended.append(id) } }
+        let root = URL(fileURLWithPath: "/workspace")
+        let configuration = DebugLaunchConfiguration(name: "Service", request: .launch, arguments: [:])
+        #expect(feature.startAdditional(fileURL: root.appendingPathComponent("a.py"), rootURL: root, configuration: configuration))
+        let first = try #require(feature.activeSessionID)
+        #expect(feature.startAdditional(fileURL: root.appendingPathComponent("b.py"), rootURL: root, configuration: configuration))
+        let second = try #require(feature.activeSessionID), state = feature.state
+        created[0].transition(to: .failed)
+        #expect(ended == [first])
+        #expect(feature.activeSessionID == second && feature.state == state)
+    }
+
     @Test(arguments: [DebugRequestKind.launch, .attach], [false, true])
     func explicitEndpointUsesItsFactoryAndPreservesTheDAPRequest(request: DebugRequestKind, explicit: Bool) throws {
         let descriptor = DebugProviderDescriptor(id: "python", displayName: "Python", fileExtensions: ["py"])

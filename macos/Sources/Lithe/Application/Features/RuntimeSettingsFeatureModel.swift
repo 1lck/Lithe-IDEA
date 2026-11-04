@@ -1,12 +1,18 @@
 import Combine
 import Foundation
 import LitheCoreContracts
+import LitheModuleAPI
 
 /// UI-facing projection for project runtime settings and discovery.
 @MainActor
 final class RuntimeSettingsFeatureModel: ObservableObject {
     private let service: ProjectRuntimeService
     private var observation: AnyCancellable?
+    private var baseline = ProjectRuntimeSettings()
+    private var draftSnapshot: ProjectRuntimeSettingsSnapshot?
+    @Published private(set) var settingsError: String?
+    @Published private(set) var isSaving = false
+    var hasChanges: Bool { settings != baseline }
 
     @Published private(set) var javaRuntimes: [JavaRuntimeCandidate]
     @Published private(set) var mavenRuntimes: [MavenRuntimeCandidate]
@@ -28,24 +34,30 @@ final class RuntimeSettingsFeatureModel: ObservableObject {
             self.mavenRuntimes = self.service.mavenRuntimes
             self.javaEnvironmentReport = self.service.javaEnvironmentReport
             self.isDiscovering = self.service.isDiscovering
-            self.settings = self.service.settings
+            self.settingsError = self.service.settingsError
         }
     }
 
-    func openProject(at url: URL) { service.openProject(at: url) }
+    func openProject(at url: URL) {
+        service.openProject(at: url)
+        settings = service.settings
+        baseline = settings
+        draftSnapshot = nil
+        isSaving = false
+        settingsError = service.settingsError
+    }
     func closeProject() {
         service.closeProject()
         subprojects = []
+        settings = ProjectRuntimeSettings()
+        baseline = settings
+        draftSnapshot = nil
+        isSaving = false
+        settingsError = nil
     }
     func refreshAvailableRuntimes() async { await service.refreshAvailableRuntimes() }
     func ensureRuntimesDiscovered() async { await service.ensureRuntimesDiscovered() }
     func activeJavaRuntime() -> JavaRuntimeCandidate? { service.activeJavaRuntime() }
-    func activeMavenRuntime(for project: MavenProject) -> MavenRuntimeCandidate? {
-        service.activeMavenRuntime(for: project)
-    }
-    func mavenExecutable(for project: MavenProject) -> URL? {
-        service.mavenExecutable(for: project)
-    }
     func executableCandidates(_ command: String) -> [RuntimeToolCandidate] {
         service.executableCandidates(command)
     }
@@ -81,51 +93,90 @@ final class RuntimeSettingsFeatureModel: ObservableObject {
         service.hasDiscoveredRuntimes ? service.javaRuntimes : nil
     }
 
-    func adoptProjectToolchain(_ toolchain: ProjectToolchainSelection) {
-        service.adoptProjectToolchain(toolchain)
-        settings = service.settings
-    }
-
     func prepare(
         workspaceName: String,
         workspaceURL: URL?,
         files: [URL],
-        mavenProject: MavenProject?,
-        toolchain: ProjectToolchainSelection?,
-        mavenSettingsPath: String?,
-        mavenLocalRepositoryPath: String?,
-        mavenExecutablePath: String?,
-        mavenJavaHomePath: String?
+        buildSources: [ProjectRuntimeInventory.BuildSource] = [],
+        languageSupports: [LanguageSupportDeclaration] = []
     ) {
+        guard !isSaving else { return }
         guard let workspaceURL else {
             subprojects = []
             return
         }
-        service.mergeImportedSettings(
-            toolchain: toolchain,
-            mavenSettingsPath: mavenSettingsPath,
-            mavenLocalRepositoryPath: mavenLocalRepositoryPath,
-            mavenExecutablePath: mavenExecutablePath,
-            mavenJavaHomePath: mavenJavaHomePath
-        )
+        service.reloadSettings()
         subprojects = ProjectRuntimeInventory.subprojects(
             workspaceName: workspaceName,
             workspaceURL: workspaceURL,
             files: files,
-            mavenProject: mavenProject
+            buildSources: buildSources,
+            languageSupports: languageSupports
         )
         settings = service.settings
+        baseline = settings
+        draftSnapshot = service.settingsSnapshot
+        settingsError = service.settingsError
+    }
+
+    /// Refreshes canonical tool selections without loading a build model or
+    /// replacing an open settings draft. Provider-owned configuration has a separate editor.
+    func reloadToolchainSettings() -> Bool {
+        guard !isSaving, !hasChanges else { return false }
+        guard service.reloadSettings() else {
+            settingsError = service.settingsError
+            return false
+        }
+        let current = service.settings
+        settings = current
+        baseline = current
+        draftSnapshot = service.settingsSnapshot
+        settingsError = service.settingsError
+        return draftSnapshot != nil
+    }
+
+    @discardableResult
+    func saveSettings() -> Bool {
+        guard !isSaving else {
+            settingsError = L10n.string("Project environment settings are being saved. Wait before saving again.")
+            return false
+        }
+        isSaving = true
+        guard let draftSnapshot, service.updateSettings(settings, expecting: draftSnapshot) else {
+            settingsError = service.settingsError
+            isSaving = false
+            return false
+        }
+        let saved = service.settings
+        settings = saved
+        self.draftSnapshot = service.settingsSnapshot
+        return true
+    }
+
+    func finishSaving(error: String? = nil) {
+        isSaving = false
+        settingsError = error
+        if error == nil { baseline = settings }
+    }
+
+    func cancelChanges() {
+        guard !isSaving else { return }
+        guard service.reloadSettings() else {
+            settingsError = service.settingsError
+            return
+        }
+        let current = service.settings
+        settings = current
+        baseline = current
+        draftSnapshot = service.settingsSnapshot
+        settingsError = nil
     }
 
     func updateSettings(_ mutate: (inout ProjectRuntimeSettings) -> Void) {
+        guard !isSaving else { return }
         var next = settings
         mutate(&next)
-        service.updateSettings(next)
-        settings = service.settings
-    }
-
-    var projectToolchainSelection: ProjectToolchainSelection {
-        settings.projectToolchainSelection()
+        settings = next
     }
 
     func javaRuntimeTitle(for path: String, automaticTitle: String) -> String {

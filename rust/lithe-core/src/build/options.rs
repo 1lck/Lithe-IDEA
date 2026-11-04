@@ -256,7 +256,7 @@ pub(crate) fn describe(
                         _ => Value::Null,
                     })
             };
-            json!({
+            let mut value = json!({
                 "id": option.id,
                 "displayName": option.display_name,
                 "kind": option.kind,
@@ -264,7 +264,11 @@ pub(crate) fn describe(
                 "source": source,
                 "choices": choices,
                 "allowCustom": option.allow_custom,
-            })
+            });
+            if option.scope == super::manifest::OptionScope::Instance {
+                value["scope"] = json!("instance");
+            }
+            value
         })
         .collect();
     json!({

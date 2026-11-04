@@ -41,7 +41,7 @@ enum WorkbenchModuleUIComposition {
                 if model.genericDebugFeatureIfActive?.isSessionActive == true { model.stopDebugging() }
                 else { model.stopSelectedRun() }
             }, state: { model in
-                let active = model.genericDebugFeatureIfActive?.isSessionActive == true
+                let active = model.isPreparingExecution || model.genericDebugFeatureIfActive?.isSessionActive == true
                     || model.runFeatureIfActive?.isSelectedConfigurationRunning == true
                 return .init(isVisible: active, isEnabled: active)
             })

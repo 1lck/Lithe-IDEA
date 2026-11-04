@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "toolchain": {
+    "javaHomePath": "/fixture/project-jdk",
+    "pathOverrides": {
+      "services/a": {
+        "javaHomePath": "/fixture/a-jdk",
+        "mavenExecutablePath": "/fixture/a maven/bin/mvn",
+        "mavenJavaHomePath": ""
+      },
+      "services/b": {
+        "javaHomePath": "",
+        "mavenExecutablePath": "./mvnw",
+        "mavenJavaHomePath": "/fixture/b-maven-jdk"
+      }
+    }
+  },
+  "invalidRoots": [
+    "",
+    ".",
+    "..",
+    "../outside",
+    "/absolute",
+    "a/../b",
+    "a/./b",
+    "a//b",
+    "a/",
+    "C:/absolute",
+    "a\\b"
+  ],
+  "expected": {
+    "pathOverrides": {
+      "services/a": {
+        "javaHomePath": "/fixture/a-jdk",
+        "mavenExecutablePath": "/fixture/a maven/bin/mvn",
+        "mavenJavaHomePath": ""
+      },
+      "services/b": {
+        "javaHomePath": "",
+        "mavenExecutablePath": "./mvnw",
+        "mavenJavaHomePath": "/fixture/b-maven-jdk"
+      }
+    }
+  }
+}

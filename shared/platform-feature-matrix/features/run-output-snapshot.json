@@ -18,9 +18,14 @@
       "windows/tauri/src/features/run/components/run-output-text.tsx",
       "windows/tauri/src/features/run/utils/run-output-snapshot.ts",
       "windows/tauri/src/features/run/utils/run-output-snapshot.test.ts",
-      "windows/tauri/src/features/run/components/run-output-text.test.tsx"
+      "windows/tauri/src/features/run/components/run-output-text.test.tsx",
+      "windows/tauri/src/features/run/hooks/use-run-process-events.ts",
+      "windows/tauri/src/features/run/hooks/use-run-process-events.test.ts",
+      "windows/tauri/src/features/run/services/build-provider-run-launch.ts",
+      "windows/tauri/src-tauri/src/run.rs"
     ]
   },
   "owner": "Run",
-  "verification": "Windows：运行持续输出的服务，在输出区右键选择「快照当前输出」，确认编辑器区出现以捕获时间命名的只读标签，内容与当时的缓冲一致；继续产生输出并使其超过环形上限后，快照内容不变且可搜索、复制；连续创建多个快照各自独立成标签；把 maxOpenTabs 调小并打开大量其他文件，快照标签不被自动淘汰，仅用户手动关闭后消失；无输出时右键菜单不显示快照项。macOS：待实现后按同等场景验证。"
+  "verification": "Windows：运行持续输出的服务，在输出区右键选择「快照当前输出」，确认编辑器区出现以捕获时间命名的只读标签，内容与当时的缓冲一致；继续产生输出并使其超过环形上限后，快照内容不变且可搜索、复制；连续创建多个快照各自独立成标签；把 maxOpenTabs 调小并打开大量其他文件，快照标签不被自动淘汰，仅用户手动关闭后消失；无输出时右键菜单不显示快照项。macOS：待实现后按同等场景验证。",
+  "notes": " Windows Native Run 输出与退出事件携带执行 ID，只有匹配当前执行才追加输出或完成会话；同步重启后不能被旧退出解除工作区绑定。Provider 准备进度使用有界输出与单调偏移追加现有面板，不重复复制模型/报告。前端回归通过，Windows 原生验收仍 pending。"
 }

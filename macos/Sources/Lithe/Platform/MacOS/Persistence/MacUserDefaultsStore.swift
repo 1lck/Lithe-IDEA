@@ -26,4 +26,8 @@ final class MacUserDefaultsStore: KeyValueStore {
     func set(_ value: Any?, forKey key: String) {
         defaults.set(value, forKey: key)
     }
+
+    func keys(withPrefix prefix: String) -> [String]? {
+        defaults.dictionaryRepresentation().keys.filter { $0.hasPrefix(prefix) }.sorted()
+    }
 }

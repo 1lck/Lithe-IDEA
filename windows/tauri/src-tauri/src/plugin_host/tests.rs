@@ -190,6 +190,30 @@ fn scan_accepts_valid_packages_and_quarantines_broken_ones() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+#[test]
+fn scan_never_confers_publisher_origin_on_records_or_an_invalid_signature() {
+    let root = unique_temp_root("publisher-origin");
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup { fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); } }
+    let _cleanup = Cleanup(root.clone());
+    let manifest = read_fixture("language-packaged-server.plugin.json");
+    std::fs::write(root.join("plugin.json"), manifest.to_string()).unwrap();
+    let accepted = scan_package_at(&root, None);
+    assert_eq!(accepted.entry.status, "accepted");
+    assert!(accepted.publisher.is_none());
+    assert!(super::trust::current(&accepted));
+    let mut forged = accepted.clone();
+    forged.publisher = Some(lithe_project::plugin_signature::VerifiedPublisher {
+        key_id: "lithe-official-plugins-v2".into(), content_digest: "0".repeat(64),
+    });
+    assert!(!super::trust::current(&forged), "A removed signature cannot fall back to unsigned admission");
+    std::fs::write(root.join(lithe_project::plugin_signature::SIGNATURE_FILE), "{}").unwrap();
+    let rejected = scan_package_at(&root, None);
+    assert_eq!(rejected.entry.status, "rejected");
+    assert_eq!(rejected.entry.rejection.unwrap().code, super::trust::INVALID_SIGNATURE);
+    assert!(!super::trust::current(&accepted), "A newly invalid signature revokes a cached scan");
+}
+
 /// Missing or invalid installation records quarantine the package instead of
 /// loading it, even when its manifest is valid.
 #[test]

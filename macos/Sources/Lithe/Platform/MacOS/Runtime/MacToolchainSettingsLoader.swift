@@ -21,13 +21,14 @@ struct ToolchainSettingsSavedPin: Equatable, Sendable {
 }
 
 enum ToolchainSettingsLoadError: LocalizedError, Equatable {
-    case readFailed, invalidLocal, invalidDeclarations
+    case readFailed, invalidLocal, invalidDeclarations, sourceChanged
 
     var errorDescription: String? {
         switch self {
         case .readFailed: L10n.string("Could not read toolchain settings.")
         case .invalidLocal: L10n.string("The saved toolchain settings are invalid.")
         case .invalidDeclarations: L10n.string("The installed toolchain declarations are invalid.")
+        case .sourceChanged: L10n.string("Toolchain settings changed while loading. Refresh and try again.")
         }
     }
 }
@@ -42,6 +43,7 @@ struct MacToolchainSettingsLoader: ToolchainSettingsLoading {
     static let rowBudget = 4_096
 
     private let readLocalData: @Sendable (URL) throws -> Data?
+    private let readPreferenceData: @Sendable (URL) throws -> Data?
     private let sources: @MainActor @Sendable () -> [ToolchainSettingsPluginSource]
     private let resolvePin: @Sendable (Data, String, String) throws -> ToolchainSettingsSavedPin?
     private let directories: @MainActor @Sendable (URL?) -> [String]
@@ -62,6 +64,7 @@ struct MacToolchainSettingsLoader: ToolchainSettingsLoading {
         fileExists: @escaping @Sendable (URL) -> Bool = Self.regularFileExists,
         isExecutable: @escaping @Sendable (String) -> Bool = Self.executableExists,
         readLocalData: (@Sendable (URL) throws -> Data?)? = nil,
+        readPreferenceData: @escaping @Sendable (URL) throws -> Data? = Self.safeNativePreferenceRead,
         discover: @escaping @Sendable (MacToolchainDiscovery.Request) async -> MacToolchainDiscovery.Result = {
             await MacToolchainDiscovery().discover($0)
         }
@@ -69,6 +72,7 @@ struct MacToolchainSettingsLoader: ToolchainSettingsLoading {
         // FileStorage's generic prefix reader may open special files; production
         // reads use a checked nonblocking native descriptor instead.
         self.readLocalData = readLocalData ?? Self.safeNativeRead
+        self.readPreferenceData = readPreferenceData
         self.sources = sources
         self.directories = directories
         self.resolvePin = resolvePin
@@ -87,10 +91,18 @@ struct MacToolchainSettingsLoader: ToolchainSettingsLoading {
         }
         let installed = await sources()
         let directoryIDs = await directories(workspace)
-        let io = IO(readLocalData: readLocalData, resolvePin: resolvePin, environment: environment,
+        let io = IO(readLocalData: readLocalData, readPreferenceData: readPreferenceData, resolvePin: resolvePin, environment: environment,
                     fileExists: fileExists, isExecutable: isExecutable, discover: discover)
         let worker = Task.detached(priority: .userInitiated) {
-            try await Self.snapshot(workspace: workspace, sources: installed, directoryIDs: directoryIDs, io: io)
+            do {
+                return try await Self.snapshot(workspace: workspace, sources: installed, directoryIDs: directoryIDs, io: io)
+            } catch ToolchainSettingsLoadError.sourceChanged {
+                // A first load has no input observation yet. Retry once with
+                // fresh bytes; continuous edits produce a visible refreshable
+                // error rather than a blank idle page or an unbounded loop.
+                try Task.checkCancellation()
+                return try await Self.snapshot(workspace: workspace, sources: installed, directoryIDs: directoryIDs, io: io)
+            }
         }
         return try await withTaskCancellationHandler {
             let snapshot = try await worker.value
@@ -103,6 +115,7 @@ struct MacToolchainSettingsLoader: ToolchainSettingsLoading {
 
     private struct IO: Sendable {
         let readLocalData: @Sendable (URL) throws -> Data?
+        let readPreferenceData: @Sendable (URL) throws -> Data?
         let resolvePin: @Sendable (Data, String, String) throws -> ToolchainSettingsSavedPin?
         let environment: @Sendable () -> [String: String]
         let fileExists: @Sendable (URL) -> Bool
@@ -165,6 +178,26 @@ struct MacToolchainSettingsLoader: ToolchainSettingsLoading {
         }
         guard definitions.count <= 256 else { throw ToolchainSettingsLoadError.invalidDeclarations }
         definitions.sort { $0.id < $1.id }
+        var consumers: [String: [ToolchainSettingsSnapshot.Tool.Consumer]] = [:]
+        for source in enabled {
+            let manifest = try JSONSerialization.jsonObject(with: source.manifest) as? [String: Any] ?? [:]
+            for build in try contribution(manifest, key: "buildSystems", maximum: 32) {
+                guard let id = text(build["id"], maximum: 64), let title = text(build["displayName"], maximum: 128) else {
+                    throw ToolchainSettingsLoadError.invalidDeclarations
+                }
+                let target = BuildSystemTarget(manifest: source.manifest, buildSystemID: id)
+                // The shared invocation plan owns platform filtering and tool
+                // references. Reading metadata must never probe or start a task.
+                guard let plan = try? RustBuildSystemOperations(core: RustCoreBridge()).invocationPlan(target, root: ".") else { continue }
+                let tools = Set((plan.executables + plan.runtimeDependencies.flatMap(\.executables)).compactMap { candidate -> String? in
+                    if case .toolchain(let id, _) = candidate { return id }
+                    return nil
+                })
+                for tool in tools where knownTools.contains(tool) {
+                    consumers[tool, default: []].append(.init(id: source.pluginID + "/" + id, title: title, pluginName: source.name))
+                }
+            }
+        }
         // Disabled definitions also disappear from provider tool capsules; no provider is invoked.
         providers = providers.map { provider in
             var result = provider
@@ -175,13 +208,18 @@ struct MacToolchainSettingsLoader: ToolchainSettingsLoading {
             return .init(providers: providers)
         }
         let document = try localDocument(workspace: workspace, readLocalData: io.readLocalData)
+        let preferenceURL = workspace.appendingPathComponent(".lithe/run/local.json")
+        let preferenceBytes = try io.readPreferenceData(preferenceURL)
+        let preferenceDirectories: [String]
+        do { preferenceDirectories = try Self.preferenceDirectories(preferenceBytes) }
+        catch { throw ToolchainSettingsLoadError.invalidLocal }
         // Core validates every dormant pin as well as the requested directory.
         if let document { _ = try io.resolvePin(document, ".", "toolchain-settings-validation") }
         let pinDirectories = document.flatMap {
             (try? JSONSerialization.jsonObject(with: $0) as? [String: Any])?["pins"] as? [String: Any]
         }.map { Array($0.keys) } ?? []
         guard directoryIDs.count <= 1_024 else { throw ToolchainSettingsLoadError.invalidLocal }
-        for id in directoryIDs + pinDirectories {
+        for id in directoryIDs + pinDirectories + preferenceDirectories {
             guard validDirectory(id) else { throw ToolchainSettingsLoadError.invalidLocal }
         }
         var diagnostics: [String] = []
@@ -189,7 +227,7 @@ struct MacToolchainSettingsLoader: ToolchainSettingsLoading {
                                      fileExists: io.fileExists, diagnostics: &diagnostics)
         // Only directories with their own facts are listed, with the ancestors that connect them.
         var listed: Set<String> = ["."]
-        for id in Array(found.keys) + pinDirectories {
+        for id in Array(found.keys) + pinDirectories + preferenceDirectories {
             var current = id
             while current != "." {
                 listed.insert(current)
@@ -206,7 +244,7 @@ struct MacToolchainSettingsLoader: ToolchainSettingsLoading {
             ToolchainSettingsSnapshot.Directory(id: id,
                 title: id == "." ? workspace.lastPathComponent : String(id.split(separator: "/").last ?? ""),
                 depth: id == "." ? 0 : id.split(separator: "/").count,
-                versionFiles: found[id] ?? [])
+                versionFiles: found[id] ?? [], hasToolPreferences: preferenceDirectories.contains(id))
         }
         let environment = io.environment()
         let candidates = definitions.map { candidate(for: $0, environment: environment, isExecutable: io.isExecutable) }
@@ -215,6 +253,7 @@ struct MacToolchainSettingsLoader: ToolchainSettingsLoading {
                                       directories: ["."] + found.keys.filter { $0 != "." }.sorted(by: treeOrder),
                                       local: document))
         try Task.checkCancellation()
+        guard try io.readPreferenceData(preferenceURL) == preferenceBytes else { throw ToolchainSettingsLoadError.sourceChanged }
         diagnostics += discovered.diagnostics
         for definition in definitions where discovered.unchecked.contains(definition.id) {
             diagnostics.append(L10n.string("Installations of \(definition.name) could not be checked."))
@@ -246,7 +285,7 @@ struct MacToolchainSettingsLoader: ToolchainSettingsLoading {
                     versionFiles: files, requirements: discovered.requirements[queried]?[definition.id] ?? [],
                     globalRequirements: discovered.globalRequirements[definition.id] ?? [],
                     candidate: candidate, detection: discovered.detections[definition.id],
-                    resolution: discovered.resolutions[resolved]?[definition.id]))
+                    resolution: discovered.resolutions[resolved]?[definition.id], consumers: consumers[definition.id] ?? []))
             }
         }
         let queried = providers.map { provider in
@@ -254,8 +293,44 @@ struct MacToolchainSettingsLoader: ToolchainSettingsLoading {
             result.queryState = discovered.providerStates[provider.id] ?? .notQueried
             return result
         }
+        try Task.checkCancellation()
+        guard try io.readPreferenceData(preferenceURL) == preferenceBytes else { throw ToolchainSettingsLoadError.sourceChanged }
         return .init(workspaceURL: workspace, directories: directories, tools: rows, providers: queried,
-                     diagnostics: diagnostics, watch: discovered.watch)
+                     diagnostics: diagnostics, watch: Array(Set(discovered.watch + [preferenceURL.path])).sorted())
+    }
+
+    /// Directory metadata uses the same inert document validator as consumers;
+    /// Run parameters and environment values never become settings rows.
+    private static func preferenceDirectories(_ bytes: Data?) throws -> [String] {
+        guard let bytes else { return [] }
+        guard bytes.count <= 2_097_152 else { throw ToolchainSettingsLoadError.invalidLocal }
+        guard case .object(let run) = try JSONDecoder().decode(ToolingJSONValue.self, from: bytes),
+              let version = run["version"], [.integer(1), .integer(2), .number(1), .number(2)].contains(version) else {
+            throw ToolchainSettingsLoadError.invalidLocal
+        }
+        guard let raw = run["toolchain"] else { return [] }
+        guard case .object(let toolchain) = raw else { throw ToolchainSettingsLoadError.invalidLocal }
+        guard let document = toolchain["preferences"] else { return [] }
+        struct Outcome: Decodable { let status: String }
+        let result: Result<Outcome, RustCoreBridge.CoreCallError> = RustCoreBridge().executeResult(
+            command: "toolchains.resolveConsumerPreferences", payload: ToolingJSONValue.object([
+                "document": document, "tool": .string("toolchain-settings-validation"), "directory": .string(".")]))
+        guard try result.get().status == "ok", case .object(let root) = document else { throw ToolchainSettingsLoadError.invalidLocal }
+        if case .object(let directories) = root["directories"] { return directories.keys.sorted() }
+        return []
+    }
+
+    @Sendable static func safeNativePreferenceRead(_ url: URL) throws -> Data? {
+        let root = url.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        do {
+            var status = stat()
+            if stat(root.path, &status) == 0 {
+                try MacRunConfigurationStore.validateLocalPreferenceTarget(url, root: root, immutableRoots: [Bundle.main.bundleURL])
+            }
+            return try safeNativeRead(url, maximumBytes: 2_097_152)
+        } catch is CancellationError { throw CancellationError() }
+        catch let error as ToolchainSettingsLoadError { throw error }
+        catch { throw ToolchainSettingsLoadError.readFailed }
     }
 
     /// Literal provider watch files that exist as regular files; glob patterns stay with the provider.
@@ -386,6 +461,13 @@ struct MacToolchainSettingsLoader: ToolchainSettingsLoading {
 
     /// Refuses links and special files before any read, including FIFO targets.
     static func safeNativeRead(_ url: URL) throws -> Data? {
+        try safeNativeRead(url, maximumBytes: 1_048_576)
+    }
+
+    /// Run documents also contain unrelated configurations. Their native
+    /// document owner permits 2 MiB; pin files retain their smaller limit.
+    static func safeNativeRead(_ url: URL, maximumBytes: Int) throws -> Data? {
+        guard maximumBytes > 0, maximumBytes <= 2_097_152 else { throw ToolchainSettingsLoadError.invalidLocal }
         try Task.checkCancellation()
         let descriptor = url.withUnsafeFileSystemRepresentation { path -> Int32 in
             guard let path else { return -1 }
@@ -400,12 +482,12 @@ struct MacToolchainSettingsLoader: ToolchainSettingsLoading {
         guard fstat(descriptor, &status) == 0, status.st_mode & S_IFMT == S_IFREG else {
             throw ToolchainSettingsLoadError.readFailed
         }
-        guard status.st_size <= 1_048_576 else { throw ToolchainSettingsLoadError.invalidLocal }
+        guard status.st_size <= maximumBytes else { throw ToolchainSettingsLoadError.invalidLocal }
         var data = Data()
         var buffer = [UInt8](repeating: 0, count: 65_536)
-        while data.count <= 1_048_576 {
+        while data.count <= maximumBytes {
             try Task.checkCancellation()
-            let wanted = min(buffer.count, 1_048_577 - data.count)
+            let wanted = min(buffer.count, maximumBytes + 1 - data.count)
             let count = buffer.withUnsafeMutableBytes { Darwin.read(descriptor, $0.baseAddress, wanted) }
             if count < 0 {
                 if errno == EINTR { continue }

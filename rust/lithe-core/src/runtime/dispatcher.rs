@@ -345,6 +345,16 @@ fn execute_parsed(parsed: CoreRequest) -> CoreResponse {
         CoreCommand::ToolchainsResolvePins => {
             plugin_response(id, parsed.payload, crate::toolchain::resolve_pins_command)
         }
+        CoreCommand::ToolchainsResolveConsumerPreferences => plugin_response(
+            id,
+            parsed.payload,
+            crate::toolchain::resolve_consumer_preferences_command,
+        ),
+        CoreCommand::ToolchainsEditConsumerPreferences => plugin_response(
+            id,
+            parsed.payload,
+            crate::toolchain::edit_consumer_preferences_command,
+        ),
         CoreCommand::ToolchainsResolve => {
             plugin_response(id, parsed.payload, crate::toolchain::resolve_command)
         }
@@ -360,6 +370,19 @@ fn execute_parsed(parsed: CoreRequest) -> CoreResponse {
         CoreCommand::BuildDetect => {
             plugin_response(id, parsed.payload, crate::build::build_detect_command)
         }
+        CoreCommand::BuildProjectOptions => {
+            plugin_response(id, parsed.payload, crate::build::project_options_command)
+        }
+        CoreCommand::BuildResolveStoredOptions => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::resolve_stored_options_command,
+        ),
+        CoreCommand::BuildEditStoredOption => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_edit_stored_option_command,
+        ),
         CoreCommand::BuildInvocationPlan => plugin_response(
             id,
             parsed.payload,
@@ -395,6 +418,26 @@ fn execute_parsed(parsed: CoreRequest) -> CoreResponse {
             id,
             parsed.payload,
             crate::build::build_resolve_model_inputs_command,
+        ),
+        CoreCommand::BuildConfigurationEditPlan => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_configuration_edit_plan_command,
+        ),
+        CoreCommand::BuildDecodeConfigurationEdit => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_decode_configuration_edit_command,
+        ),
+        CoreCommand::BuildConfigurationPlan => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_configuration_plan_command,
+        ),
+        CoreCommand::BuildDecodeConfiguration => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_decode_configuration_command,
         ),
         CoreCommand::BuildPrepareRunPlan => plugin_response(
             id,
@@ -2320,6 +2363,23 @@ fn execute_parsed(parsed: CoreRequest) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::RunConfigProjectToolchain => {
+            match serde_json::from_value::<crate::execution::ProjectToolchainRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid project toolchain request",
+                )
+                .with_details(error.to_string())
+            })
+            .and_then(crate::execution::project_toolchain)
+            {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::RunConfigGenerate => {
             match serde_json::from_value::<crate::execution::GenerateRequest>(parsed.payload)
                 .map_err(|error| {
@@ -2362,6 +2422,23 @@ fn execute_parsed(parsed: CoreRequest) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::RunConfigUpdateToolPreferences => {
+            match serde_json::from_value::<crate::execution::UpdateToolPreferencesRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid tool preferences request",
+                )
+                .with_details(error.to_string())
+            })
+            .and_then(crate::execution::update_tool_preferences)
+            {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::RunConfigSaveEditorChanges => {
             match serde_json::from_value::<crate::execution::UpdateOptionsRequest>(parsed.payload)
                 .map_err(|error| {
@@ -2389,6 +2466,23 @@ fn execute_parsed(parsed: CoreRequest) -> CoreResponse {
                 .with_details(error.to_string())
             })
             .and_then(crate::execution::create_user_configuration)
+            {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::RunConfigProviderLaunchInputs => {
+            match serde_json::from_value::<crate::execution::ProviderLaunchInputsRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid provider launch input request",
+                )
+                .with_details(error.to_string())
+            })
+            .and_then(crate::execution::provider_launch_inputs)
             {
                 Ok(data) => CoreResponse::success(id, data),
                 Err(error) => CoreResponse::failure(id, error),
@@ -2693,19 +2787,37 @@ fn execute_parsed(parsed: CoreRequest) -> CoreResponse {
         }
         CoreCommand::GitWorkspaceStatusMerge => {
             match serde_json::from_value::<git::workspace_status::Request>(parsed.payload)
-                .map_err(|error| CoreError::new(ErrorCode::InvalidRequest, "Invalid workspace Git status request").with_details(error.to_string()))
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid workspace Git status request",
+                    )
+                    .with_details(error.to_string())
+                })
                 .and_then(git::workspace_status::plan)
             {
-                Ok(data) => CoreResponse::success(id, serde_json::to_value(data).expect("Git workspace status plan should encode")),
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Git workspace status plan should encode"),
+                ),
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
         CoreCommand::GitResolveFileContext => {
             match serde_json::from_value::<git::file_context::Request>(parsed.payload)
-                .map_err(|error| CoreError::new(ErrorCode::InvalidRequest, "Invalid Git file context request").with_details(error.to_string()))
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Git file context request",
+                    )
+                    .with_details(error.to_string())
+                })
                 .and_then(git::file_context::resolve)
             {
-                Ok(data) => CoreResponse::success(id, serde_json::to_value(data).expect("Git file context should encode")),
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Git file context should encode"),
+                ),
                 Err(error) => CoreResponse::failure(id, error),
             }
         }

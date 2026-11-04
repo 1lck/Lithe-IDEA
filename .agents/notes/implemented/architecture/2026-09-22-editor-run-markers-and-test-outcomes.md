@@ -7,7 +7,7 @@
 Issue #790 要求像 IDEA 一样在 Java 编辑器行号旁显示运行按钮：`main` 方法旁一个 ▶，
 测试类旁一个双三角，测试方法旁一个 ▶，跑过的测试显示通过（绿勾）或失败（红色）。
 决定是：**哪些声明能运行由 JDT 回答，图标和状态怎么算由 Rust Core 统一计算，
-逐方法的结果从 Maven 写出的 XML 报告里读取**。两端只负责画图标、弹菜单和调用
+逐方法的结果来自实际测试运行的报告**。两端只负责画图标、弹菜单和调用
 已有的运行、测试、调试流程。开发者以后改标记规则时只改 Core 的
 `java.runMarkers`，不要在 Windows 或 macOS 里各写一份。
 
@@ -36,25 +36,41 @@ Issue #790 要求像 IDEA 一样在 Java 编辑器行号旁显示运行按钮：
 - JDT 只给出 `main` 方法名的位置，不给类体范围，所以 `main` 只在方法那一行画图标，
   不在类名那一行画；光标规则用“这一行的 `main`，否则文件里第一个 `main`”兜底。
 
-### 状态来自 XML 报告
+### 状态来自当前操作的后端报告
 
-- `maven.testResults` 增加可选的 `reports` 参数：模块目录（或测试文件路径，由 Core
-  找最近的 `pom.xml`）、所选类名、运行开始时间。Core 读取 Surefire/Failsafe
-  写出的 `TEST-<类名>.xml`，按方法汇总为 `testCases`。
-- **只读本次运行写的报告**：修改时间早于运行开始时间的报告属于上一次运行，一律忽略。
-  这取代了原来“XML 报告由平台自己读”的约定，因为两端都需要，而解析和汇总是确定性
-  规则，属于 Core。
-- 方法耗时同样来自 XML 的 `testcase time`，通过可选 `durationMillis` 传给平台和通用构建结果；重复/参数化调用累加真实耗时。任一次缺失、负值、非有限值、无法表示或总和溢出时省略整个方法耗时，零值保留。界面只按完整“类名#方法名”取值，不把控制台整次摘要复制给每个方法，也不按短方法名跨类回填。
-- 参数化测试的 `name(Type)[1]`、`name[2]` 合并到同一个方法，最严重的结果为准；
-  以显示名开头、无法对应方法的记录丢弃。报告的数量、大小和方法数都有上限。
-- 平台保存“每个方法最近一次结果”：整类运行替换该类（含内部类）的结果；单方法运行
-  只替换所选类中的所选方法，保留同类其他方法及内部类的历史结果。因此重跑一个通过
-  的方法不会清除另一个方法的失败，也不会让类图标错误地变绿。
-- Windows 启动指定测试类前，重新向 JDT 查询该文件并验证类归属。同文件内多个顶层类
-  和内部类都使用 JDT 返回的类名；目标已消失时拒绝启动，不回退到文件名推导出的另一类。
-- Windows 的发现结果与投影结果绑定到同一文档代次。编辑、切换文件或语言服务状态变化
-  后立即禁用旧标记；延迟响应及失败响应不能恢复旧位置。Monaco 内容变化时同步清除
-  点击目标和打开的菜单，避免装饰已移动而点击仍按旧行号查找。
+macOS 的 Maven 测试已切换到 Build Provider：JDT 仍提供类和方法标识，Maven 插件
+通过 Apache Surefire parser 读取实际配置目录中的本次报告。宿主不再调用
+`maven.testResults`、扫描固定 XML 目录或根据测试源码寻找 POM。Windows 还在使用
+旧共享命令；删除它们前须先迁移当前 Windows 消费者，这不代表 macOS 保留回退。
+
+报告按工程／类／方法保留状态、参数化调用次数和耗时；相同方法的重复调用取最严重
+状态，仅在所有调用都有安全的毫秒数时显示总耗时。缺失、负值、非有限值或无法安全
+表示的时间不能伪造为零。macOS 结果树和编辑器标记按当前 Provider 模型的工程身份
+隔离同名类，重跑仅替换本次返回的规范方法结果，不解释一个不透明测试标识来清空
+其他方法的失败。
+
+macOS 服务、结果树和 Java 行标记边界直接消费通用报告 `BuildTestResults`，不再转换成
+`MavenTestResults`。多份报告保留并相加规范结果的 `summary`，不在 Swift 重新解释统计口径；
+`invocations` 独立保留，重复调用的聚合仍由后端和 Core 完成。套件和用例名称完整保留，括号及参数后缀不由
+宿主解析；耗时只读报告的 `durationMillis`，不再读取 Surefire 控制台摘要。
+现有 JDT 适配器提供独立的报告名称关联，执行标识仍原样转发；通用 UI 仅按完整字段
+匹配，工程、套件和用例分开作键，名称中的 `#`、冒号或括号不会合并不同结果。
+精确重跑引用单独按报告用例关联；清空当前结果时清空引用和来源根，历史行标记保留。
+历史按语言提供者隔离，Node 等提供者的同名用例不能覆盖 Java 的编辑器状态。
+结果树合并精确的语义关联与全部报告节点；只有部分源码匹配时，也不能丢弃其余
+报告用例。来源不明确或关联重复的节点保留为报告节点，不据名称猜测 Debug 源码。
+Java 行标记操作接受通用 `suite`／`case`，为现有 Windows 调用保留旧字段别名。
+
+整类重跑按后端明确返回的覆盖范围清除旧方法；单方法重跑保留兄弟方法和其他工程。
+没有覆盖范围时只替换报告中的精确用例，不能从选择器猜测执行范围。
+
+报告节点保留插件、实例、当前工程 ID 与 suite/case；没有源码关联仍可重新请求原
+后端运行，但 Debug 必须有 JDT 提供的源码关联。保存、模型/配置变化、工作区切换和
+取消保留同一操作身份；旧输出、PID 或报告不能覆盖新运行。协议、资源边界和
+Surefire 精确选择证据见 [原生执行决策](2026-10-26-build-provider-task-execution.md)。
+
+Windows 启动指定测试类前继续重新向 JDT 查询文件并验证类归属；编辑、切换文件或
+语言服务状态变化立即撤销旧标记。不能从类名或文件名推导另一个启动目标。
 
 ### 投影在 Core
 
@@ -68,7 +84,7 @@ Issue #790 要求像 IDEA 一样在 Java 编辑器行号旁显示运行按钮：
 macOS 顶栏保存完整的 `LanguageTestScope`（工作区、文件、类/方法）与 provider ID；测试面板切换范围后覆盖旧目标，顶栏 Run/Debug 按同一 scope 分派，不能把工作区或文件重建成上一次单方法目标。名称由 scope 生成，文件或单方法调试准备完成后采用 JDT 解析出的启动名称并保留原 scope，避免顶栏 Pause/Resume 的名称关联丢失；用户已切换目标时迟到结果不能覆盖新选择。顶栏 Run 在有测试目标时优先走测试分派，即使底层普通配置还在运行也不能重启它，运行图标和背景也按当前目标呈现。选择普通运行配置时清除测试目标。是否支持该范围的调试仍由既有测试调试准备流程判断。顶栏 Debug 在已有运行或暂停会话时仍先比较当前测试目标；目标改变就重新准备所选测试，只有同一目标才重启旧会话。
 
 
-Tests 结果树只展示当前运行的 `results`，且仅投影到 `activePlan.providerID` 对应分组；状态和耗时也不能跨提供者使用。关闭或清空当前结果后恢复完整发现列表，供编辑器标记使用的 `testOutcomes` 历史缓存继续保留，但不得用它恢复结果树。Tests 结果树的渲染、选中查询和默认选中共用节点集合，报告合成出的类/方法必须能按完整标识重跑；已有 JDT 节点继续保留源码关联。报告本身不能证明源码归属，缺少关联时禁用 Debug，不能从类名猜路径后启动另一个测试。
+Tests 结果树只展示当前运行的 `results`，且仅投影到 `activePlan.providerID` 对应分组；状态和耗时也不能跨提供者使用。关闭或清空当前结果后恢复完整发现列表，供编辑器标记使用的 `testOutcomesByProviderID` 历史缓存继续保留，但不得用它恢复结果树。Tests 结果树的渲染、选中查询和默认选中共用节点集合，报告合成出的类/方法必须能按完整标识重跑；已有 JDT 节点继续保留源码关联。报告本身不能证明源码归属，缺少关联时禁用 Debug，不能从类名猜路径后启动另一个测试。
 
 | | Windows（React/Monaco） | macOS（WKWebView 中的共享 Monaco） |
 | --- | --- | --- |
@@ -108,20 +124,20 @@ intellij-community 的 `runConfigurations/testState` 图标（Apache 2.0）。
 
 - 收益：两端标记规则相同；Java 新写法只需升级 JDT；测试结果精确到方法，包括
   参数化测试和内部类。
-- 代价：每次停止输入后多一次 `resolveMainMethod` 请求；Core 需要读取模块下的报告目录；
-  POM 里用无法解析的属性配置 `reportsDirectory` 时读不到报告，只显示普通 ▶。
-- 跑完测试后如果报告被修改时间更早的文件覆盖（例如时钟回拨），状态不会更新，
-  这是按时间识别“本次报告”的已知限制。
+- 代价：每次停止输入后多一次 `resolveMainMethod` 请求；Maven 插件需要捕获上游实际配置的本次报告；
+  报告读取失败会明确终结当前操作，不用旧文件补成成功。
+- macOS 当前 Maven 路径按实际 Mojo 的操作前后内容变化捕获，不再只按修改时间判断；
+  Windows 的旧 Core 报告读取器仍保留时间戳限制，需在 Provider 宿主迁移时删除。
 
 ## 验证
 
 - `./scripts/rust-core/verify-rust-core.sh`：`java_main_methods`、`java_run_markers`、
   `maven_test_reports` 单元测试，`shared/fixtures/java/run-markers-v1.json` 兼容性
-  fixture，以及可选的真实 JDT 冒烟测试（设置 `LITHE_JDTLS_SMOKE_ROOT` 时断言 Java 25
+  fixture（同时覆盖旧字段与通用报告字段），以及可选的真实 JDT 冒烟测试（设置 `LITHE_JDTLS_SMOKE_ROOT` 时断言 Java 25
   实例 `main` 有标记、`private main` 没有）。
 - `./scripts/architecture/verify-shared-contracts.sh`
 - `./scripts/windows/verify/verify-windows-boundaries.sh`
-- `./scripts/macos/test/test-macos.sh`：`MavenTestOutcomeTests` 与测试服务报告请求断言。
+- `./scripts/macos/test/test-macos.sh`：`ExecutionModuleTests`、`BuildSystemServiceTests`、`LanguageTestPresentationTests`、`LanguageIntelligenceModuleTests` 与真实 Maven Provider 回归。
 
 ## 适用范围
 
@@ -133,3 +149,4 @@ intellij-community 的 `runConfigurations/testState` 图标（Apache 2.0）。
 - `frontend/editor/src/run-markers.ts`
 - `macos/Sources/Lithe/Models/AppModel/AppModel+JavaRunMarkers.swift`
 - `macos/Sources/LitheExecutionModule/Services/LanguageTestService.swift`
+- `shared/fixtures/build-provider/test-results-v1.json`

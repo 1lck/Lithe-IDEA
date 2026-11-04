@@ -46,6 +46,7 @@ final class AppServices {
     var projectGeneratorSources: (@MainActor () -> [ProjectGeneratorPluginSource])?
     /// Read-only plugin toolchain projection; absent until platform composition.
     var toolchainSettingsLoader: (any ToolchainSettingsLoading)?
+    var toolchainPreferences: (any ToolchainPreferencesStoring)?
     var toolchainInputWatcher: (any ToolchainInputWatching)?
     /// Existing workspace tree projection; settings must not start a second filesystem scan.
     var toolchainSettingsDirectories: (@MainActor () -> [String])?

@@ -3,22 +3,181 @@
   "id": "dev.lithe.plugin.java-support",
   "displayName": "Java Support",
   "version": "1.1.0",
-  "pluginAPIVersion": 3,
-  "requires": {"languages": 1, "languageServers": 1, "serverProcess": 1, "settings": 2, "projectGenerators": 1, "packageTrust": 1},
+  "pluginAPIVersion": 4,
+  "requires": {"debugAdapters": 1, "languages": 1, "languageServers": 1, "serverProcess": 1, "settings": 2, "projectGenerators": 1, "packageTrust": 1, "toolDefinitions": 1, "executableResolution": 2},
   "vendor": {
     "id": "dev.lithe",
     "displayName": "Lithe",
     "signatureRequirement": "publisherPackage",
     "bundledSignatureRequirement": "sameTeamAsHost"
   },
-  "permissions": ["languageServer.launch", "project.generate"],
-  "activationEvents": ["onLanguage:java"],
+  "permissions": ["languageServer.launch", "project.generate", "debug.launch", "debug.attach"],
+  "activationEvents": ["onLanguage:java", "onDebug:java"],
+  "toolDefinitions": [
+    {
+      "id": "java",
+      "displayName": "JDK",
+      "icon": {
+        "host": "plugin"
+      },
+      "executableLayouts": [
+        {
+          "path": "bin/java",
+          "platforms": [
+            "macos",
+            "linux"
+          ]
+        },
+        {
+          "path": "bin/java.exe",
+          "platforms": [
+            "windows"
+          ]
+        }
+      ],
+      "executables": [
+        {
+          "id": "pinned",
+          "kind": "setting",
+          "settingID": "executable",
+          "layer": "project"
+        },
+        {
+          "id": "project-request",
+          "kind": "toolchain",
+          "scope": "project"
+        },
+        {
+          "id": "default",
+          "kind": "setting",
+          "settingID": "executable",
+          "layer": "global"
+        },
+        {
+          "id": "global-request",
+          "kind": "toolchain",
+          "scope": "global"
+        },
+        {
+          "id": "home",
+          "kind": "environment",
+          "variable": "JAVA_HOME",
+          "path": "bin/java",
+          "platforms": [
+            "macos",
+            "linux"
+          ]
+        },
+        {
+          "id": "home-windows",
+          "kind": "environment",
+          "variable": "JAVA_HOME",
+          "path": "bin/java.exe",
+          "platforms": [
+            "windows"
+          ]
+        },
+        {
+          "id": "shell",
+          "kind": "command",
+          "command": "java"
+        },
+        {
+          "id": "detected",
+          "kind": "toolchain",
+          "scope": "installed"
+        }
+      ],
+      "version": {
+        "arguments": [
+          "-version"
+        ],
+        "pattern": "version \\\"(?:1\\.)?(\\d+(?:\\.\\d+)*)"
+      },
+      "homeLayouts": [
+        {
+          "match": "*.jdk",
+          "home": "Contents/Home",
+          "platforms": [
+            "macos"
+          ]
+        },
+        {
+          "match": "*",
+          "home": "."
+        }
+      ],
+      "discovery": [
+        {
+          "root": {
+            "kind": "absolute",
+            "path": "/Library/Java/JavaVirtualMachines"
+          },
+          "pattern": "*.jdk",
+          "platforms": [
+            "macos"
+          ]
+        },
+        {
+          "root": {
+            "kind": "home"
+          },
+          "pattern": "Library/Java/JavaVirtualMachines/*.jdk",
+          "platforms": [
+            "macos"
+          ]
+        }
+      ],
+      "homeVariable": "JAVA_HOME",
+      "commands": [
+        "java"
+      ],
+      "wrappers": [],
+      "exports": [
+        {
+          "name": "JAVA_HOME",
+          "value": "${home}"
+        },
+        {
+          "name": "LITHE_JAVA_PATH",
+          "value": "${executable}"
+        }
+      ],
+      "pathPrepend": [
+        "${home}/bin"
+      ],
+      "launch": [
+        "${executable}",
+        "${runtimeArguments}",
+        "-jar",
+        "${entry}",
+        "${arguments}"
+      ]
+    }
+  ],
   "languages": [
     {
       "id": "java",
       "displayName": "Java",
       "fileExtensions": ["java"],
       "projectFileNames": ["pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"]
+    }
+  ],
+  "debugAdapters": [
+    {
+      "id": "java",
+      "displayName": "Java Debugger",
+      "adapterID": "java",
+      "configurationTypes": ["java"],
+      "requests": ["attach"],
+      "selectors": [{"targetKinds": ["connection"], "languageIDs": ["java"]}],
+      "launch": {
+        "transport": "tcpLanguageServer",
+        "endpoint": {"languageID": "java", "command": "vscode.java.startDebugSession"}
+      },
+      "configurations": {
+        "attach": {"targetBindings": {"connection": {"host": "hostName", "port": "port"}}}
+      }
     }
   ],
   "settings": [

@@ -161,6 +161,7 @@ pub async fn begin(app: &AppHandle, plugin_id: &str) -> Result<Mutation, String>
     };
     state.revoke(plugin_id);
     state.wait_native(plugin_id).await?;
+    super::build_configuration::forget_plugin(app, plugin_id);
     super::web::close_plugin_windows(app, plugin_id)?;
     let mut senders = HashMap::new();
     let mut receivers = Vec::new();

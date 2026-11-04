@@ -334,8 +334,10 @@
           "const": "2.0"
         },
         "id": {
-          "type": "integer",
-          "minimum": 1
+          "oneOf": [
+            { "type": "integer", "minimum": 1 },
+            { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[^\\u0000-\\u001f\\u007f]*$" }
+          ]
         },
         "method": {
           "const": "toolchains/query"
@@ -358,8 +360,10 @@
           "const": "2.0"
         },
         "id": {
-          "type": "integer",
-          "minimum": 1
+          "oneOf": [
+            { "type": "integer", "minimum": 1 },
+            { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[^\\u0000-\\u001f\\u007f]*$" }
+          ]
         },
         "result": {
           "$ref": "#/$defs/result"
@@ -379,8 +383,10 @@
           "const": "2.0"
         },
         "id": {
-          "type": "integer",
-          "minimum": 1
+          "oneOf": [
+            { "type": "integer", "minimum": 1 },
+            { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[^\\u0000-\\u001f\\u007f]*$" }
+          ]
         },
         "error": {
           "type": "object",

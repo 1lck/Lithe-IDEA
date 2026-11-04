@@ -56,6 +56,38 @@ fn toolchain_queries_decode_installed_contract_reply_without_native_io() {
     assert_eq!(outcome["diagnostics"], json!([]));
 }
 
+/// Core transport uses string JSON-RPC IDs; matching includes both type and value.
+#[test]
+fn toolchain_queries_preserve_bounded_string_and_numeric_wire_identities() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/toolchains/rpc-id-cases.json"
+    ))
+    .unwrap();
+    for case in fixture["cases"].as_array().unwrap() {
+        let mut value = input();
+        value["request"]["id"] = case["id"].clone();
+        value["response"]["id"] = case["id"].clone();
+        assert_eq!(
+            query::decode(&value).is_ok(),
+            case["accepted"].as_bool().unwrap(),
+            "{case}"
+        );
+    }
+    for (request, response) in [
+        (json!(1), json!("1")),
+        (json!("1"), json!(1)),
+        (json!("one"), json!("two")),
+    ] {
+        let mut value = input();
+        value["request"]["id"] = request;
+        value["response"]["id"] = response;
+        assert_eq!(
+            query::decode(&value).unwrap_err().code,
+            "plugin.toolchain.invalidReply"
+        );
+    }
+}
+
 #[test]
 fn toolchain_queries_uninstalled_request_is_structured_unmet_data() {
     let mut value = input();

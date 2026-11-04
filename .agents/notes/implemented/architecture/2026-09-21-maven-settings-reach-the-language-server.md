@@ -14,6 +14,11 @@ Lithe 以前只把 `settings.xml` 这一个字段转给 JDT LS（Eclipse 的 Jav
 会读的设置。** 开发者以后新增任何影响依赖解析的 Maven 配置项，都要同时回答
 “它怎么到达语言服务”，否则命令行和语言服务会再次分叉。
 
+macOS 已删除旧 Maven 服务和配置副本的生产读写。Build Provider 的实例配置、canonical 工具链及
+受保护的原生配置流程提供唯一输入；Java 导入、Run 和 Debug 不再读取旧服务的 launch context。
+Debug 在异步准备前等待当前 Build 输入，输入代次变化（包括改走又改回）会废弃准备结果。
+旧配置字段只由一次性迁移 adapter 读取，目标读回后才清理；下文较早的服务接线说明用于解释历史问题。
+
 ## 问题
 
 三个独立缺陷叠在一起，表现为同一个现象。
@@ -189,26 +194,48 @@ Windows 保存项目环境在默认值和 Maven 本机配置写入后即视为�
 随后的运行配置刷新可能要等进行中的识别，因此单独返回并在结束后报告失败，不能让
 保存本身等待识别。
 
-macOS 的项目 JDK、Maven 与 Maven JDK 以 `.lithe/run/local.json` 为唯一真源，
-UserDefaults 中的项目运行时设置只是它的镜像，供 Maven 进程和环境检查使用。
-`runConfig.inspect` 返回的本机 `toolchain` 在未生成配置时也会读取；运行功能读完
-项目文档后，镜像以它为准覆盖这三个字段。本机层尚未保存过默认值（`toolchain`
-为空）时保留现有镜像，下一次保存再写入本机层；文档无法解析时两边都不改。错误
-做法是「镜像为空才补」：旧版服务编辑器只写本机层，镜像里的旧值会在关闭设置时
-反向覆盖运行实际使用的 JDK。
+macOS 的项目默认 JDK、Maven 与 Maven JDK 直接经 `runConfig.inspect`
+读取 `.lithe/run/local.json` 的 `toolchain`。`MacProjectRuntimeSettingsStore`
+负责平台文件和旧偏好的迁移，运行时服务在选择工具前只读刷新；不再持久化
+UserDefaults 副本，也不再用 `adoptProjectToolchain` 在两个副本间同步。
+子项目工具路径也已迁到同一 `toolchain.pathOverrides`，按规范化工作区相对根保存。
+旧偏好中的 `moduleOverrides` 只有在目标尚未保存这部分选择时才迁入；已有映射（包括
+显式清空）优先。重复路径、未知字段或越界根会保留旧数据并明确报错，避免迁移时丢失内容。
+Maven 自己的旧本机配置仍有待阶段 D 迁移的每个 reactor 覆盖，不能把本次项目默认值
+迁移当成 Maven 全配置迁移完成。
 
-Core 的服务编辑器保存每次都会重写本机层 `toolchain`，因此编辑器必须传有效默认值：
-本机层已保存的默认值，未保存过时用镜像（`RunService.saveEditorChanges` 以
-`savedProjectToolchain ?? 镜像` 选取）。错误做法是传解析结果 `projectToolchain`：
-本机层没有默认值时它是空值，写入后「从未保存」变成「显式自动」，镜像随之被清空，
-运行改用自动检测的 JDK。
+项目设置的子项目清单已改为消费 Build Provider 的项目路径、名称和父子关系；
+未加载模型时，仅使用已安装语言插件声明的项目标记提供目录选择，不推断 Maven 模块。
+同一目录保持稳定的路径标识，已加载模型覆盖其范围内的文件标记；未声明的文件名不会
+被当作工程。这里不再读取旧 `MavenProject`，也没有 `pom.xml`/`package.json` 专属扫描。
+项目设置对 Maven 路径和原生配置的其余旧消费仍须在阶段 D 中继续切换。
 
-macOS 的项目设置表单必须在运行功能读完当前项目文档后再填入初始值，关闭设置时的
-自动保存也只在 `ProjectLoadState.hasLoadedDocuments(for:)` 成立时写入。运行功能
-加载中持有的是空工具链；此时保存会把用户已保存的项目 JDK 覆盖成空值。
-表单在填入初始值之前保持禁用，关闭设置时也只在准备完成后才保存，与 Windows 加载期间
-禁用表单一致：准备期间的修改无法写入本机层，读完文档后以本机层为准会把它静默还原；
-尚未合并 Maven 配置的表单值也不能写回 Maven 本机设置。
+已实现一次性 Maven 配置数据转移器，但尚未接入生产切换入口。它仅能在旧配置读写方
+撤下后启用：共享选择进入 Build 团队默认值，未选中的自定义候选也保留；每个已知
+reactor 的文件/仓库覆盖与工具路径进入各自的规范位置，已有目标选择优先。
+暂未出现的 reactor 的旧本机文件保留，待该根再次出现时迁移。所有目标读回后才按原
+字节移除源文件；部分发布的来源指纹保留在平台偏好中，以便失败重试。若源文件在
+部分发布后被外部修改，则阻止自动删除，不能把迁移写出的旧值误当成新的用户选择。
+`LegacyMavenConfigurationMigrationTests` 验证转移、已有显式自动、空选择、自定义候选、
+暂缺根、部分失败重试、外部修改以及损坏/未知版本/越界链接保留。测试通过不代表
+MavenService、Run/Test/Debug 和 Agent 的剩余消费者已完成切换。
+
+工作区首次激活时，只有本机层没有 `toolchain`、旧偏好里又有明确选择，才通过
+Core 的现有工具链分支生成目标文档。已有选择（包括显式自动）优先；读取或写入
+失败保留源。目标重新读取并核对后才清除旧偏好中的项目默认字段，其他旧字段
+保留到其领域迁移。设置页打开只读取，不触发迁移或生成空文档。
+
+Core 的服务编辑器保存会重写本机层 `toolchain`，因此 `RunService.saveEditorChanges`
+在保存前重新 inspect 当前本机选择。没有保存过选择时使用自动选择，不能从其他表单
+或过时的 `savedProjectToolchain` 缓存补回旧值。项目创建时明确选定的 JDK 也写入同一
+本机层；写入失败向创建流程传播，不能静默记到另一处。
+
+macOS 项目设置在填入初始值之前保持禁用。用户输入只更新草稿，点保存才写入
+明确标注的 `.lithe/run/local.json`；取消、失焦和离页不写。保存使用读取时的
+内容标识和平台条件替换，外部文件或剩余偏好已变时保留草稿并报告冲突，成功后
+再读回。运行过程即使刷新了工具选择，也不能替换打开中的表单草稿基线。
+Maven settings/仓库覆盖暂时继续调用旧 Maven 持有方，原生 XML 编辑与完整配置
+所有权迁移仍待阶段 D 后续工作，不据此声称 #818 或 #1493 全部完成。
 
 不要在设置中复制一套运行参数解析或另存一份配置。正确做法是设置页复用运行
 功能模型及原有编辑表单；错误做法是在运行面板和设置各保留一个独立草稿入口。
@@ -405,6 +432,15 @@ profile 变化、失败或超时期间变更补跑、握手前无设置变化的
 `LanguageIntelligenceModuleTests`、`ExecutionModuleTests` 覆盖原地更新、回退重启和
 设置实时同步。
 
+## 阶段 D 删除后的验证
+
+`stage-d-retire-maven-project-load.{json,html,junit.xml}` 的 315 项原生回归通过，覆盖
+Provider 模型消失后撤销 Run 投影、官方根被动检测后的受保护迁移、配置变更的 ABA 代次、
+旧数据/未知字段/显式自动保护，以及真实 Maven Agent 编译、输出与包清单检查。
+已删除旧服务的扫描/重载测试，保留并复用 `BuildSystemServiceTests` 中对应的 Provider
+合并等待、模型/配置失效、取消及工作区隔离场景；Run 原生进程与加载并发测试继续执行。
+这些测试不代替完整 Java/JDT UI、正式插件包或 Windows 原生验收。
+
 ## 验证
 
 mvnd 的 Core 定向验证应包含整个 `tests::languages::`：除 mvnd 根目录、`bin`、
@@ -476,8 +512,32 @@ macOS 使用 `MacRuntimeDiscoveryTests`、`MacRuntimeProbeCacheTests` 和
 运行配置刷新完成前返回、刷新失败与 Maven 写入失败的报告。macOS 运行 `./scripts/macos/test/test-macos.sh`，
   `RunConfigurationIntegrationTests` 覆盖未生成配置时保存、Git 忽略规则逐条补齐且
   重复保存不改动文件、不支持版本的识别拦截，只有读完当前项目文档后才允许保存
-项目默认值，未生成配置时读取本机默认值，以及服务编辑器保存写入有效默认值；`MavenRuntimeTests` 覆盖镜像以本机层
-为准且不改动其他 Maven 设置。
+项目默认值，未生成配置时读取本机默认值，以及服务编辑器保存写入有效默认值；`ProjectRuntimePersistenceTests` 覆盖旧偏好迁移、显式自动优先、损坏文件保留、
+失败保留源、非 Data 偏好拒绝读取且不迁移、不回退自动选择，草稿/取消/条件保存/读回与外部编辑冲突；`MavenRuntimeTests` 覆盖
+直接刷新当前项目选择及配置读取失败时拒绝启动。完整原生 UI 与 Maven 配置迁移仍待验收。
+
+### Java 导入停用旧设置回退（2026-10-29）
+
+macOS 的 Java 启动和热更新现在只读取当前 Build 插件发布的导入配置；删除
+AppModel 对 `MavenService.launchContext` 的补值，以及语言会话管理器中独立的旧
+Maven 配置回调。Run 的 Maven 准备也改从 Build 服务读取同一代输入，按保存的
+reactor 根精确选择，不使用工作区默认根替代另一个独立工程。检测尚未完成或失败
+时明确拒绝，不能因为新结果为空而把旧服务的
+Profiles、settings 或仓库重新带回 JDT。没有启用 Build 插件时不注入 Lithe 的
+构建覆盖，JDT 仍按上游默认导入。
+
+插件确认移除 Maven 输入时，原有会话收到空配置以清除旧值；一次读取失败不能
+被当作移除，必须保留会话的输入所有权，以便恢复后完成清除。测试覆盖首次启动、
+热更新、失败后恢复、插件移除及同路径重新启动。这里没有把 Java/JDT 领域逻辑
+迁入插件后端；Run 的工程模型、配置生成和 Maven 启动规划仍待迁移，旧 Maven 的
+Agent 与设置消费者也仍在。后续切换仍要
+完成一次性数据迁移，当前未激活迁移器，不能删除用户的旧配置。
+
+迁移器还覆盖早期运行偏好中的 settings/仓库字段。它只移除这两个字段，保留
+JDK 和未知偏好；非空值成为本机 Build 默认值，空值继续表示没有覆盖。原有
+团队/逐根选择优先，之后检测到的 reactor 继承同一默认值。此来源独立于 Maven
+文件事务：先验证其目标，再清理对应偏好；私有收据记录原始字节身份，部分写入
+后源被外部修改时拒绝自动重试清理。没有检测到 reactor 时保留此来源。
 
 ## 适用范围
 
@@ -494,7 +554,7 @@ macOS 使用 `MacRuntimeDiscoveryTests`、`MacRuntimeProbeCacheTests` 和
 - Windows 前端：`windows/tauri/src/features/maven/services/resolve-maven-toolchain.ts`、
   `windows/tauri/src/features/maven/stores/maven.store.ts`
 - Windows 宿主：`windows/tauri/src-tauri/src/run.rs`（`maven_resolve_installation`）
-- macOS：`macos/Sources/LitheExecutionModule/Services/MavenService.swift`
+- macOS：`macos/Sources/LitheExecutionModule/Services/BuildSystemService.swift`
 - 项目环境与运行配置设置入口：
   - Rust Core：`rust/lithe-core/src/execution/configuration.rs`（`runConfig.inspect`、
     `runConfig.updateOptions` 工具链分支）
@@ -505,7 +565,7 @@ macOS 使用 `MacRuntimeDiscoveryTests`、`MacRuntimeProbeCacheTests` 和
     `macos/Sources/LitheExecutionModule/Services/RunService.swift`（`saveProjectToolchain`）、
     `macos/Sources/Lithe/Platform/MacOS/RunConfiguration/MacRunConfigurationStore.swift`、
     `macos/Sources/Lithe/Models/AppModel/AppModel+FeatureState.swift`（项目设置填充与保存）、
-    `macos/Sources/Lithe/Services/Java/ProjectRuntimeService.swift`（`adoptProjectToolchain`、
+    `macos/Sources/Lithe/Services/Java/ProjectRuntimeService.swift`（`reloadSettings`、
     `chooseJavaHome` 等解析链）、
     `macos/Sources/Lithe/Views/App/EffectiveRuntimeLabel.swift`
   - Windows：`windows/tauri/src/features/settings/components/project-environment-settings.tsx`、

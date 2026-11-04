@@ -212,6 +212,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     var languageServerLogsFeature: LanguageServerLogsModel? { featureGraph.languageServerLogs }
     let debugLaunchConfigurationResolver: DebugLaunchConfigurationResolver
     let debugPortAvailabilityChecker: any DebugPortAvailabilityChecking
+    var providerDebugRunObservation: AnyCancellable?
+    var providerDebugSession: (operation: String, session: DebugSessionID)?
     var workspaceFeature: WorkspaceFeatureModel { featureGraph.workspace }
     var githubFeature: GitHubFeatureModel { featureGraph.github }
     var editorTabOrderFeature: EditorTabOrderFeatureModel { featureGraph.editorTabOrder }
@@ -728,7 +730,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
 
     func shutdownProjectSession() async {
         isProjectSessionClosed = true
-        toolchainSettingsFeature.close()
+        await toolchainSettingsFeature.closeAndDrain()
         commitFileDeletion.reset()
         // Native window close can retain this model through Settings without
         // closing its workspace. Revoke page requests before teardown can yield.
@@ -787,7 +789,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         cancelJavaTestWorkflows()
         debugModuleCoordinator.stopFeature(genericDebugFeatureIfActive)
         executionModuleCoordinator.stopFeatures(
-            maven: mavenFeatureIfActive,
             run: runFeatureIfActive
         )
         languageToolingSessionsIfActive?.stopLanguageServer(providerID: "java")
@@ -979,7 +980,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         languageIntelligenceModuleCoordinator.resetWorkspaceState(languageToolingFeature)
         runtimeFeature.openProject(at: normalizedURL)
         executionModuleCoordinator.resetFeatures(
-            maven: mavenFeatureIfActive,
             run: runFeatureIfActive,
             tests: languageTestServiceIfActive,
             buildSystems: buildSystemsFeatureIfActive
@@ -1054,7 +1054,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         runtimeFeature.closeProject()
         toolchainSettingsFeature.close()
         executionModuleCoordinator.resetFeatures(
-            maven: mavenFeatureIfActive,
             run: runFeatureIfActive,
             tests: languageTestServiceIfActive,
             buildSystems: buildSystemsFeatureIfActive

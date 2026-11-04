@@ -81,8 +81,8 @@ pub(crate) const TOOLCHAIN_PROVIDERS: &str = "toolchainProviders";
 pub const SUPPORTED_CAPABILITIES: &[(&str, &[u32])] = &[
     (BACKEND, &[1, 2]),
     (BUILD_MODEL_INPUTS, &[1]),
-    (BUILD_PROVIDERS, &[1, 2, 3, 4, 5, 6]),
-    (BUILD_SYSTEMS, &[1, 2]),
+    (BUILD_PROVIDERS, &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]),
+    (BUILD_SYSTEMS, &[1, 2, 3, 4]),
     (DEBUG_ADAPTERS, &[1, 2]),
     (EXECUTION_PROVIDERS, &[1]),
     (EXECUTABLE_RESOLUTION, &[1, 2]),

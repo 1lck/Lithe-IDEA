@@ -2,7 +2,7 @@ import Foundation
 
 package struct RunSession: Identifiable, Hashable, Sendable {
     /// Stable for one execution; replacing the output slot creates a new identity.
-    package let executionID = UUID().uuidString
+    package let executionID: String
     package let id: String
     package let configurationID: String
     package let title: String
@@ -14,6 +14,7 @@ package struct RunSession: Identifiable, Hashable, Sendable {
     package var javaUpdateSource: URL?
 
     package init(
+        executionID: String = UUID().uuidString,
         id: String,
         configurationID: String,
         title: String,
@@ -21,6 +22,7 @@ package struct RunSession: Identifiable, Hashable, Sendable {
         isRunning: Bool,
         exitCode: Int32? = nil
     ) {
+        self.executionID = executionID
         self.id = id
         self.configurationID = configurationID
         self.title = title
@@ -153,7 +155,10 @@ package enum RunConfigurationKind: Hashable, Identifiable, Sendable {
         switch self {
         case .currentFile, .javaMain:
             return [.workingDirectory, .arguments, .environment, .javaRuntime, .javaVMArguments, .jdwpDebug]
-        case .mavenModule, .mavenFramework:
+        case .mavenModule:
+            return [.workingDirectory, .arguments, .environment, .javaRuntime,
+                    .javaVMArguments, .mavenProfiles, .mavenSkipTests]
+        case .mavenFramework:
             return [
                 .workingDirectory, .arguments, .environment, .javaRuntime,
                 .javaVMArguments, .mavenProfiles, .mavenSkipTests, .jdwpDebug
@@ -246,12 +251,27 @@ package struct RunConfiguration: Identifiable, Hashable, Sendable {
     package let debugAdapter: String?
     package let disabled: Bool
     package let buildProvider: BuildProviderRunReference?
+    package let buildProject: RunBuildProjectReference?
 
     package var usesCurrentEditorFile: Bool { kind == .currentFile }
 
+    /// These persisted configurations depend on current Provider generation facts.
+    package var requiresProviderGeneration: Bool {
+        guard buildProvider == nil else { return false }
+        switch kind {
+        case .javaMain, .mavenModule, .mavenFramework: return true
+        case .currentFile, .process: return false
+        }
+    }
+
     /// Only launches backed by a JDT project wait for workspace preparation.
     package var usesJavaProjectPreparation: Bool {
-        (kind == .javaMain || kind == .springBoot) && mavenReactorPath != nil
+        (kind == .javaMain || (kind == .springBoot && sourcePath?.lowercased().hasSuffix(".java") == true)) && (buildProject != nil || mavenReactorPath != nil)
+    }
+
+    /// Saved provider services may attach through their declared registry type.
+    package var usesProviderConnectionDebug: Bool {
+        buildProvider?.execution == .service
     }
 
     package init(
@@ -265,7 +285,8 @@ package struct RunConfiguration: Identifiable, Hashable, Sendable {
         mavenReactorPath: String? = nil,
         debugAdapter: String? = nil,
         disabled: Bool = false,
-        buildProvider: BuildProviderRunReference? = nil
+        buildProvider: BuildProviderRunReference? = nil,
+        buildProject: RunBuildProjectReference? = nil
     ) {
         self.id = id
         self.name = name
@@ -278,6 +299,7 @@ package struct RunConfiguration: Identifiable, Hashable, Sendable {
         self.debugAdapter = debugAdapter
         self.disabled = disabled
         self.buildProvider = buildProvider
+        self.buildProject = buildProject
     }
 
     package var systemImage: String { kind.systemImage }

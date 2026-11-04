@@ -11,6 +11,31 @@ export type RunSaveScope = "local" | "project";
 export type RunConfigurationSource = "generated" | "project" | "local";
 export type RunExecution = "application" | "service" | "task" | "group";
 
+export interface BuildProviderRunReference {
+  pluginID: string; buildSystemID: string; root: string; run: string; projectID: string; targetID: string;
+  execution?: "application" | "service" | "task"; userArguments: string[];
+}
+
+export interface RunBuildProjectReference {
+  pluginID: string; buildSystemID: string; root: string; projectID: string;
+}
+
+export type FixedToolchainSelection = { home: string } | { executable: string };
+
+export interface BuildProviderRunOptions {
+  runtimeArguments: string[];
+  entrypoint: string;
+  options: Record<string, unknown>;
+  tools?: Record<string, FixedToolchainSelection | null>;
+}
+
+export interface BuildProviderLaunchInputs {
+  buildSystemID: string; provider: string; projectPath: string;
+  launchOptions: import("@/features/build/services/build-provider-types").BuildLaunchOptions;
+  optionOverrides: Record<string, unknown>; reference?: BuildProviderRunReference;
+  tools?: Record<string, FixedToolchainSelection>;
+}
+
 export interface RunDiagnostic {
   id?: string;
   code: string;
@@ -25,6 +50,9 @@ export interface RunConfiguration {
   id: string;
   name: string;
   provider: string;
+  buildProvider?: BuildProviderRunReference;
+  buildProject?: RunBuildProjectReference;
+  providerRunOptions?: BuildProviderRunOptions;
   kindTitle: string;
   iconKey?: RunIconKey;
   execution: RunExecution;
@@ -50,6 +78,7 @@ export interface RunConfiguration {
 }
 
 export interface RunOptions {
+  providerRunOptions?: BuildProviderRunOptions;
   javaHomePath: string;
   mavenExecutablePath: string;
   mavenJavaHomePath: string;
@@ -208,6 +237,8 @@ export interface CoreResolvedConfiguration {
     adapter?: string;
   };
   extensions?: {
+    build?: BuildProviderRunReference;
+    "build-run"?: Partial<BuildProviderRunOptions>;
     npm?: { manager?: string; framework?: string; server?: string };
     gradle?: { plugin?: string };
     python?: { framework?: string };
@@ -226,6 +257,9 @@ export interface CoreResolvedConfiguration {
       mavenJavaHomePath?: string;
       source?: string;
       sourceSet?: string;
+      module?: string;
+      mainClass?: string;
+      build?: RunBuildProjectReference;
     };
   };
 }

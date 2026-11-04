@@ -1,11 +1,23 @@
 import { invoke } from "@/platform/tauri-core";
 import { getRunWindowLabel } from "../utils/run-window-context";
+import { createTranslator } from "@/i18n/locale";
+import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import type {
   GenericRuntime,
   GlobalToolchain,
   JavaRuntime,
   MavenRuntime,
+  BuildProviderRunReference,
 } from "../types/run.types";
+
+/** Native CAS save keeps the source Run document out of the WebView. */
+export async function saveBuildProviderRun(root: string, reference: BuildProviderRunReference, name: string) {
+  try { return await invoke<string>("declarative_plugins_build_save_run", { workspacePath: root, reference, name }); }
+  catch (cause) {
+    const key = (cause as { code?: string })?.code === "build.configuration.conflict" ? "build.targets.saveConflict" : "build.targets.saveFailed";
+    throw Object.assign(new Error(createTranslator(useSettingsStore.getState().settings.displayLanguage)(key)), { cause });
+  }
+}
 
 export function listJavaSources(root: string) {
   return invoke<string[]>("run_list_java_sources", { root });

@@ -1,5 +1,6 @@
 import LitheModuleAPI
 import Foundation
+import Darwin
 
 enum MacRunConfigurationStoreError: LocalizedError, Sendable {
     case invalidProject
@@ -24,16 +25,19 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
     private let documentMutator: any RunConfigurationDocumentMutating
     private let storage: any FileStorage
     private let preferences: any KeyValueStore
+    private let immutableRoots: [URL]
 
     init(
         core: RustCoreBridge,
         storage: any FileStorage,
         preferences: any KeyValueStore,
-        documentMutator: (any RunConfigurationDocumentMutating)? = nil
+        documentMutator: (any RunConfigurationDocumentMutating)? = nil,
+        immutableRoots: [URL] = []
     ) {
         self.core = core
         self.storage = storage
         self.preferences = preferences
+        self.immutableRoots = [Bundle.main.bundleURL] + immutableRoots
         self.documentMutator = documentMutator ?? RustRunConfigurationDocumentMutator(core: core)
     }
 
@@ -46,24 +50,44 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
         checkFingerprint: Bool,
         javaEntrypoints: JavaEntrypoints?
     ) -> ProjectRunConfigurationInspection {
+        inspect(at: projectURL, checkFingerprint: checkFingerprint, javaEntrypoints: javaEntrypoints, projectOwnership: nil)
+    }
+
+    func inspectProviderGeneration(at projectURL: URL, projectOwnership: [RunProjectOwnership]) -> ProjectRunConfigurationInspection {
+        inspect(at: projectURL, checkFingerprint: false, javaEntrypoints: nil, projectOwnership: projectOwnership)
+    }
+
+    func inspectProviderGeneration(at projectURL: URL, projectOwnership: [RunProjectOwnership], providerRuns: [RunProviderConfiguration]) -> ProjectRunConfigurationInspection {
+        inspect(at: projectURL, checkFingerprint: false, javaEntrypoints: nil, projectOwnership: projectOwnership, providerRuns: providerRuns)
+    }
+
+    private func inspect(at projectURL: URL, checkFingerprint: Bool, javaEntrypoints: JavaEntrypoints?,
+                         projectOwnership: [RunProjectOwnership]?, providerRuns: [RunProviderConfiguration]? = nil) -> ProjectRunConfigurationInspection {
         switch core.inspectRunConfiguration(
             at: projectURL,
             checkFingerprint: checkFingerprint,
-            javaEntrypoints: javaEntrypoints
+            javaEntrypoints: javaEntrypoints,
+            projectOwnership: projectOwnership, providerRuns: providerRuns
         ) {
         case .success(let payload):
             return ProjectRunConfigurationInspection(
                 status: payload.status == "ready" ? .ready : .missing,
                 diagnostics: diagnostics(from: payload.diagnostics),
                 recoveryAction: payload.status == "ready" ? .none : .regenerate,
-                projectToolchain: payload.toolchain.map { toolchain in
+                projectToolchain: payload.toolchain.flatMap { toolchain -> ProjectToolchainSelection? in
+                    // Generic preferences do not prove legacy defaults were migrated.
+                    guard toolchain.java != nil || toolchain.maven != nil || toolchain.pathOverrides != nil else { return nil }
+                    return
                     ProjectToolchainSelection(
                         javaHomePath: toolchain.java?.homePath ?? "",
                         mavenExecutablePath: toolchain.maven?.executablePath ?? "",
-                        mavenJavaHomePath: toolchain.maven?.javaHomePath ?? ""
+                        mavenJavaHomePath: toolchain.maven?.javaHomePath ?? "",
+                        pathOverrides: toolchain.pathOverrides ?? [:]
                     )
                 },
+                hasSavedToolchainPathOverrides: payload.toolchain?.pathOverrides != nil,
                 requiresGeneration: payload.requiresGeneration ?? (payload.status == "missing")
+
             )
         case .failure(let error):
             return ProjectRunConfigurationInspection(
@@ -75,14 +99,38 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
         }
     }
 
-    /// Identifies the project's run entries. Core keeps the result in memory
-    /// and in the application cache; nothing is written into the workspace.
+    func generate(at projectURL: URL, files: [URL], modulePaths: [String], javaEntrypoints: JavaEntrypoints?,
+                  projectOwnership: [RunProjectOwnership]?, providerRuns: [RunProviderConfiguration]) throws -> RunConfigurationGenerationResult {
+        try generateCurrent(at: projectURL, files: files, modulePaths: modulePaths, javaEntrypoints: javaEntrypoints,
+            projectOwnership: projectOwnership, providerRuns: providerRuns)
+    }
+
+    func generate(at projectURL: URL, files: [URL], modulePaths: [String], javaEntrypoints: JavaEntrypoints?,
+                  projectOwnership: [RunProjectOwnership]?, providerRuns: [RunProviderConfiguration],
+                  models: [BuildModel], lease: RunConfigurationGenerationLease) throws -> RunConfigurationGenerationResult {
+        try generateCurrent(at: projectURL, files: files, modulePaths: modulePaths, javaEntrypoints: javaEntrypoints,
+            projectOwnership: projectOwnership, providerRuns: providerRuns, models: models, lease: lease)
+    }
+
+    /// Identifies the project's run entries in memory and the application cache.
+    /// The isolated legacy adapter may convert existing user Run documents.
     func generate(
         at projectURL: URL,
         files: [URL],
         modulePaths: [String],
-        javaEntrypoints: JavaEntrypoints?
+        javaEntrypoints: JavaEntrypoints?,
+        projectOwnership: [RunProjectOwnership]? = nil
     ) throws -> RunConfigurationGenerationResult {
+        try generateCurrent(at: projectURL, files: files, modulePaths: modulePaths, javaEntrypoints: javaEntrypoints,
+            projectOwnership: projectOwnership, providerRuns: nil)
+    }
+
+    private func generateCurrent(at projectURL: URL, files: [URL], modulePaths: [String], javaEntrypoints: JavaEntrypoints?,
+                                 projectOwnership: [RunProjectOwnership]?, providerRuns: [RunProviderConfiguration]?,
+                                 models: [BuildModel] = [], lease suppliedLease: RunConfigurationGenerationLease? = nil) throws -> RunConfigurationGenerationResult {
+        let lease = suppliedLease ?? RunConfigurationGenerationLease()
+        defer { if suppliedLease == nil { lease.invalidate() } }
+        try lease.check()
         let root = projectURL.standardizedFileURL
         guard storage.metadata(for: root)?.isDirectory == true else { throw MacRunConfigurationStoreError.invalidProject }
         let paths = files.compactMap { file -> String? in
@@ -90,13 +138,30 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
             guard value.path.hasPrefix(root.path + "/") else { return nil }
             return String(value.path.dropFirst(root.path.count + 1))
         }
+        let migration = MacLegacyMavenRunConfigurationMigration(storage: storage, preferences: preferences, immutableRoots: immutableRoots)
+        try lease.check()
         let result = try core.generateRunConfiguration(
             at: root,
             paths: paths,
             modulePaths: modulePaths,
             javaEntrypoints: javaEntrypoints,
+            projectOwnership: projectOwnership, providerRuns: providerRuns,
             cacheDirectoryURL: storage.cacheDirectory()
+
         ).get()
+        try lease.check()
+        let plan = try providerRuns.map { try migration.prepare(workspace: root, projects: projectOwnership ?? [], runs: $0,
+            models: models, generatedDocument: JSONEncoder().encode(result.generated), lease: lease) }
+        if let plan, !plan.writes.isEmpty {
+            let decoder = JSONDecoder()
+            let team = try plan.teamDocument.map { try decoder.decode(ToolingJSONValue.self, from: $0) }
+            let local = try plan.localDocument.map { try decoder.decode(ToolingJSONValue.self, from: $0) }
+            // Validate both prepared layers against the same generated snapshot
+            // before any user document is published. Core performs no writes.
+            _ = try core.resolveRunConfiguration(at: root, toolchainCandidates: [], teamDocument: team, localDocument: local).get()
+            try lease.check()
+            try migration.apply(plan, workspace: root, lease: lease)
+        }
         return RunConfigurationGenerationResult(entryCount: result.entryCount)
     }
 
@@ -119,24 +184,26 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
                     name: value.name,
                     kind: kind,
                     execution: value.execution.flatMap(RunConfigurationExecution.init(rawValue:)),
-                    modulePath: maven?.module == "." ? nil : maven?.module,
-                    mainClass: maven?.mainClass,
+                    modulePath: (maven?.module ?? java?.module) == "." ? nil : (maven?.module ?? java?.module),
+                    mainClass: maven?.mainClass ?? java?.mainClass,
                     sourcePath: java?.source,
                     mavenReactorPath: maven?.reactorPath,
                     debugAdapter: value.debug?.adapter,
                     disabled: value.disabled,
-                    buildProvider: value.extensions?.build
+                    buildProvider: value.extensions?.build,
+                    buildProject: java?.build
                 ),
                 options: RunOptions(
                     javaHomePath: java?.homePath ?? "",
                     workingDirectoryPath: (value.cwd ?? ".") == "." ? "" : (value.cwd ?? "."),
-                    vmArguments: (maven?.jvmArguments ?? []).joined(separator: " "),
-                    programArguments: (maven?.programArguments ?? value.args ?? []).joined(separator: " "),
+                    vmArguments: RunArgumentText.format(maven?.jvmArguments ?? []),
+                    programArguments: RunArgumentText.format(maven?.programArguments ?? value.args ?? []),
                     activeProfiles: Set(maven?.profiles ?? []),
                     mavenSkipTests: maven?.skipTests,
                     mavenExecutablePath: java?.mavenExecutablePath ?? "",
                     mavenJavaHomePath: java?.mavenJavaHomePath ?? "",
-                    environment: value.env ?? [:]
+                    environment: value.env ?? [:],
+                    providerRunOptions: value.extensions?.buildRun
                 ),
                 source: RunConfigurationSource(rawValue: value.source ?? "generated") ?? .generated
             )
@@ -148,9 +215,17 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
             projectToolchain: ProjectToolchainSelection(
                 javaHomePath: payload.toolchain?.java?.homePath ?? "",
                 mavenExecutablePath: payload.toolchain?.maven?.executablePath ?? "",
-                mavenJavaHomePath: payload.toolchain?.maven?.javaHomePath ?? ""
+                mavenJavaHomePath: payload.toolchain?.maven?.javaHomePath ?? "",
+                pathOverrides: payload.toolchain?.pathOverrides ?? [:]
             )
         )
+    }
+
+    func providerLaunchInputs(at projectURL: URL, configurationID: String, providerRoot: String) throws -> ProviderLaunchInputs {
+        switch core.providerLaunchInputs(at: projectURL, configurationID: configurationID, providerRoot: providerRoot) {
+        case .success(let value): return value
+        case .failure(let error): throw RunConfigurationOperationFailure(message: error.userMessage)
+        }
     }
 
     func launchPlan(
@@ -251,7 +326,17 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
     }
 
     func saveProjectToolchain(_ toolchain: ProjectToolchainSelection, at projectURL: URL) throws {
+        let url = projectURL.appendingPathComponent(".lithe/run/local.json")
+        let expected = storage.fileExists(at: url) ? try storage.readData(from: url, options: []) : nil
+        try saveProjectToolchain(toolchain, at: projectURL, expecting: expected)
+    }
+
+    func saveProjectToolchain(_ toolchain: ProjectToolchainSelection, at projectURL: URL, expecting expected: Data?) throws {
+        try Task.checkCancellation()
         let root = projectURL.standardizedFileURL
+        let url = root.appendingPathComponent(".lithe/run/local.json")
+        let current = storage.fileExists(at: url) ? try storage.readData(from: url, options: []) : nil
+        guard current == expected else { throw ProjectRuntimeSettingsStoreError.conflict }
         let payload = try core.updateRunConfigurationOptions(
             at: root,
             configurationID: "",
@@ -264,12 +349,72 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
         }
         // Settings can be saved before generation creates the normal ignore file.
         // Protect machine paths before making the local document visible to Git.
+        try Task.checkCancellation()
         try ensureLocalRunIgnored(at: root)
-        try writeMutation(
-            RunConfigurationDocumentMutation(configurationID: nil, document: data),
-            to: root.appendingPathComponent(".lithe/run/local.json"),
-            root: root
-        )
+        try validateWriteTarget(url, root: root)
+        try storage.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Task.checkCancellation()
+        guard try storage.replaceDataPreservingMetadata(data, at: url, expecting: expected) else {
+            throw ProjectRuntimeSettingsStoreError.conflict
+        }
+        MacFileWriteEventSuppression.markWritten(url)
+    }
+
+    /// The generic editor replaces only preferences; it must not generate any
+    /// legacy language/build defaults or claim those sources were migrated.
+    func saveToolPreferences(_ preferences: ToolingJSONValue, at projectURL: URL, expecting expected: Data?) throws {
+        try Task.checkCancellation()
+        let root = projectURL.standardizedFileURL
+        let url = root.appendingPathComponent(".lithe/run/local.json")
+        try Self.validateLocalPreferenceTarget(url, root: root, immutableRoots: immutableRoots)
+        let current = try MacToolchainSettingsLoader.safeNativeRead(url, maximumBytes: 2_097_152)
+        guard current == expected else { throw ProjectRuntimeSettingsStoreError.conflict }
+        let local = try expected.map { try JSONDecoder().decode(ToolingJSONValue.self, from: $0) }
+            ?? .object(["version": .integer(2), "configurations": .array([])])
+        struct Mutation: Decodable { let document: String }
+        let payload: ToolingJSONValue = .object(["localDocument": local, "preferences": preferences])
+        let result: Result<Mutation, RustCoreBridge.CoreCallError> = core.executeResult(command: "runConfig.updateToolPreferences", payload: payload)
+        let data = Data(try result.get().document.utf8)
+        guard data.count <= 2_097_152 else { throw ToolchainPreferenceError.invalid }
+        if data == expected { return }
+        try Task.checkCancellation()
+        try ensureLocalRunIgnored(at: root)
+        try Self.validateLocalPreferenceTarget(url, root: root, immutableRoots: immutableRoots)
+        try storage.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Task.checkCancellation()
+        try Self.validateLocalPreferenceTarget(url, root: root, immutableRoots: immutableRoots)
+        guard try storage.replaceDataPreservingMetadata(data, at: url, expecting: expected) else { throw ProjectRuntimeSettingsStoreError.conflict }
+        MacFileWriteEventSuppression.markWritten(url)
+    }
+
+    /// Foundation does not resolve an existing parent link when the leaf is
+    /// absent. Inspect each existing component through the shared no-follow
+    /// path adapter so a missing `run` directory cannot hide such an alias.
+    static func validateLocalPreferenceTarget(_ url: URL, root: URL, immutableRoots: [URL]) throws {
+        let root = root.standardizedFileURL
+        let canonical = root.resolvingSymlinksInPath().path
+        let source = url.standardizedFileURL.path
+        guard source.hasPrefix(root.path + "/") else { throw ToolchainPreferenceError.invalid }
+        let relative = String(source.dropFirst(root.path.count + 1))
+        let components = try MacWorkspaceSecurePath.components(of: relative)
+        let target = canonical + "/" + relative
+        guard !immutableRoots.contains(where: {
+            let path = $0.standardizedFileURL.resolvingSymlinksInPath().path
+            return canonical == path || canonical.hasPrefix(path + "/") || target == path || target.hasPrefix(path + "/")
+        }) else { throw ToolchainPreferenceError.invalid }
+        var descriptor = try MacWorkspaceSecurePath.openRoot(root)
+        defer { Darwin.close(descriptor) }
+        do {
+            for component in components.dropLast() {
+                let next = try MacWorkspaceSecurePath.openDirectory([component][...], below: descriptor)
+                Darwin.close(descriptor); descriptor = next
+            }
+            if let name = components.last {
+                let status = try MacWorkspaceSecurePath.status(of: name, in: descriptor)
+                guard MacWorkspaceSecurePath.kind(of: status) == .file else { throw ToolchainPreferenceError.invalid }
+            }
+            // log-exempt: 预期的缺失：Run 本机文件或其父目录尚不存在时，无需校验最终路径
+        } catch PluginWorkspaceFileError.notFound { return }
     }
 
     func saveEditorChanges(
@@ -405,7 +550,7 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
             return RunConfigurationDiagnostic(
                 configurationID: value["id"],
                 code: code,
-                message: message,
+                message: code == "staleProviderModel" ? L10n.string("Build provider model changed. Regenerate Run configurations before running.") : message,
                 toolchain: value["toolchain"]
             )
         }
@@ -589,6 +734,12 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
                 "Refusing to write outside the project directory."
             )
         }
+        let resolvedTarget = url.standardizedFileURL.resolvingSymlinksInPath().path
+        guard resolvedTarget.hasPrefix(resolvedRoot + "/"), !immutableRoots.contains(where: {
+            let immutable = $0.standardizedFileURL.resolvingSymlinksInPath().path
+            return resolvedRoot == immutable || resolvedRoot.hasPrefix(immutable + "/")
+                || resolvedTarget == immutable || resolvedTarget.hasPrefix(immutable + "/")
+        }) else { throw ProjectRuntimeSettingsStoreError.conflict }
     }
 
     private func configurationKind(_ value: String) -> RunConfigurationKind {

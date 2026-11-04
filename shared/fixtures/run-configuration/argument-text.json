@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "values": [],
+      "text": ""
+    },
+    {
+      "values": [
+        "validate",
+        "雪"
+      ],
+      "text": "validate 雪"
+    },
+    {
+      "values": [
+        "",
+        "two words",
+        "quote\"",
+        "single'quote",
+        "C:\\fixture\\path",
+        "line\nvalue"
+      ],
+      "text": "\"\" \"two words\" \"quote\\\"\" \"single'quote\" \"C:\\\\fixture\\\\path\" \"line\nvalue\""
+    },
+    {
+      "values": [
+        "ab",
+        "e f",
+        "\\",
+        "\"\""
+      ],
+      "text": "\"ab\" \"e f\" \"\\\\\" \"\\\"\\\"\""
+    }
+  ],
+  "expected": {
+    "exactArgv": true,
+    "shellExpansion": false
+  }
+}

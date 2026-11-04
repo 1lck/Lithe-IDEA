@@ -11,6 +11,39 @@ struct RustBuildSystemOperationsTests {
     private let operations = RustBuildSystemOperations(core: RustCoreBridge())
 
     @Test
+    func descriptorPreservesGenericPreparationWithoutPrescribingTaskIDs() throws {
+        let source = try Self.source("build-provider-preparation")
+        let tasks = try #require(source.buildSystems.first?.tasks)
+        #expect(tasks.map(\.id) == ["prepare-assets", "prepare-specs"])
+        #expect(tasks.map(\.preparation) == [
+            .init(purpose: "run", sourceRoles: ["generatedSource", "source"]),
+            .init(purpose: "run", sourceRoles: ["generatedTestSource", "testSource"])
+        ])
+    }
+
+    @Test
+    func providerReportsTravelInlineAndKeepRepeatedCasesInTheirProject() throws {
+        let source = try Self.source("build-provider-reports")
+        let target = BuildSystemTarget(manifest: source.manifest, buildSystemID: "gradle")
+        #expect(source.buildSystems.first?.providerTestReports == true)
+        let workspace = FileManager.default.temporaryDirectory.appendingPathComponent("provider-reports-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: workspace) }
+        let report = try JSONDecoder().decode(ToolingJSONValue.self, from: Data(#"{"format":"litheTestResults","version":1,"tests":[{"project":"a","suite":"Same","case":"checks","status":"failed"},{"project":"b","suite":"Same","case":"checks","status":"passed"}]}"#.utf8))
+        let request = BuildTestResultsRequest(workspaceURL: workspace, root: ".", project: nil, projects: [],
+            output: "", notBefore: nil, suite: nil, result: report)
+        let result = try operations.decodeTestResults(target, request: request)
+        #expect(result.summary.total == 2)
+        #expect(result.summary.failed == 1)
+        #expect(Set(result.tests.map(\.id)).count == 2)
+        #expect(result.tests.map(\.project) == ["a", "b"])
+        #expect(throws: (any Error).self) {
+            try operations.decodeTestResults(target, request: BuildTestResultsRequest(workspaceURL: workspace,
+                root: ".", project: nil, projects: [], output: "", notBefore: nil, suite: nil))
+        }
+    }
+
+    @Test
     func descriptorDeclaresBuildSystemsAndTheirModule() throws {
         let descriptor = try Self.descriptor("build-static-file")
         let cargo = try #require(descriptor.buildSystems.first)
@@ -121,6 +154,39 @@ struct RustBuildSystemOperationsTests {
     }
 
     @Test
+    func providerServiceOptionsRoundTripThroughRealCoreAndRejectMissingChoices() throws {
+        let descriptor = try Self.descriptor("build-provider-run-options")
+        #expect(descriptor.buildSystems.first?.providerRuns.first?.execution == .service)
+        let target = try Self.target("build-provider-run-options", "gradle")
+        let workspace = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: workspace) }
+        for path in ["app", "tools"] { try FileManager.default.createDirectory(at: workspace.appendingPathComponent(path), withIntermediateDirectories: true) }
+        struct Fixture: Decodable { let launchOptions: BuildLaunchOptions; let result: ToolingJSONValue }
+        let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/build-run-options.json")))
+        let planner: any BuildSystemPlanning = operations
+        let project = BuildSelection(name: "app", path: "app")
+        let selected = BuildSelection(name: "Main", path: "app", tags: ["application"])
+        let plan = try planner.prepareRunPlan(target, context: BuildPlanContext(root: "app", options: [:]), run: "service",
+            project: project, selectedTarget: selected, userArguments: [], workspaceURL: workspace, launchOptions: fixture.launchOptions)
+        guard case .object(let params) = plan.params else { Issue.record("Missing provider params"); return }
+        let optionsJSON = try JSONDecoder().decode(ToolingJSONValue.self, from: JSONEncoder().encode(fixture.launchOptions))
+        #expect(params["launchOptions"] == optionsJSON)
+        let launch = try planner.decodeRunPreparation(target, workspaceURL: workspace, root: "app", result: fixture.result, launchOptions: fixture.launchOptions)
+        #expect(launch.workingDirectory == "tools")
+        #expect(launch.arguments == ["--file", "app/pom.xml", "framework:run"])
+        #expect(throws: (any Error).self) {
+            try planner.prepareRunPlan(target, context: BuildPlanContext(root: "app", options: [:]), run: "service",
+                project: project, selectedTarget: selected, userArguments: [])
+        }
+        #expect(throws: (any Error).self) { try planner.decodeRunPreparation(target, workspaceURL: workspace, root: "app", result: fixture.result) }
+        try FileManager.default.removeItem(at: workspace.appendingPathComponent("tools"))
+        #expect(throws: (any Error).self) {
+            try planner.decodeRunPreparation(target, workspaceURL: workspace, root: "app", result: fixture.result, launchOptions: fixture.launchOptions)
+        }
+    }
+
+    @Test
     func providerRunPreparationRoundTripsThroughRealCore() throws {
         let descriptor = try Self.descriptor("build-provider-run-preparation")
         #expect(descriptor.buildSystems.first?.providerRuns.map(\.id) == ["application"])
@@ -141,6 +207,49 @@ struct RustBuildSystemOperationsTests {
         #expect(launch.executable.value == "project-jdk")
         #expect(launch.arguments == ["Main", "a b"])
         #expect(launch.workingDirectory == "app")
+    }
+
+    @Test
+    func savedApplicationArgumentsKeepTheProtocolFourChannelThroughRealCore() throws {
+        struct Fixture: Decodable {
+            struct Expected: Decodable { let applicationReferenceUsesLaunchOptions: Bool }
+            let reference: BuildProviderRunReference
+            let expected: Expected
+        }
+        let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot
+            .appendingPathComponent("shared/fixtures/run-configuration/build-provider.json")))
+        let inputs = ProviderLaunchInputs(buildSystemID: fixture.reference.buildSystemID, provider: fixture.reference.run,
+            projectPath: fixture.reference.root, launchOptions: BuildLaunchOptions(execution: .application, arguments: fixture.reference.userArguments),
+            reference: fixture.reference)
+        let arguments = try #require(inputs.opaqueReferenceArguments)
+        let options = inputs.opaqueReferenceArguments == nil ? inputs.launchOptions : nil
+        #expect((options != nil) == fixture.expected.applicationReferenceUsesLaunchOptions)
+        let target = try Self.target("build-provider-run-preparation", "gradle")
+        let workspace = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: workspace) }
+        try FileManager.default.createDirectory(at: workspace.appendingPathComponent("app"), withIntermediateDirectories: true)
+        let plan = try operations.prepareRunPlan(target, context: BuildPlanContext(root: "app", options: [:]),
+            run: "application", project: BuildSelection(name: "app", path: "app"),
+            selectedTarget: BuildSelection(name: "Main", path: "app", tags: ["application"]),
+            userArguments: arguments, workspaceURL: workspace, launchOptions: options)
+        guard case .object(let params) = plan.params else { Issue.record("Missing provider params"); return }
+        #expect(params["userArguments"] == .array(fixture.reference.userArguments.map(ToolingJSONValue.string)))
+        #expect(params["launchOptions"] == nil)
+    }
+
+    @Test
+    func typedSavedApplicationOverridesRemainVersionGatedByRealCore() throws {
+        let reference = BuildProviderRunReference(pluginID: "dev.example.gradle", buildSystemID: "gradle", root: ".",
+            run: "application", projectID: "app", targetID: "main", userArguments: ["a b"])
+        let inputs = ProviderLaunchInputs(buildSystemID: "gradle", provider: "application", projectPath: "app",
+            launchOptions: BuildLaunchOptions(execution: .application, runtimeArguments: ["-Xmx64m"], arguments: reference.userArguments), reference: reference)
+        #expect(inputs.opaqueReferenceArguments == nil)
+        let target = try Self.target("build-provider-run-preparation", "gradle")
+        #expect(throws: (any Error).self) {
+            try operations.prepareRunPlan(target, context: BuildPlanContext(root: ".", options: [:]), run: "application",
+                project: BuildSelection(name: "app", path: "app"), selectedTarget: BuildSelection(name: "Main", path: "app", tags: ["application"]),
+                userArguments: inputs.opaqueReferenceArguments ?? [], launchOptions: inputs.launchOptions)
+        }
     }
 
     @Test

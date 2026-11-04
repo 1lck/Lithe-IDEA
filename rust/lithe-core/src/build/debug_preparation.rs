@@ -18,7 +18,11 @@ pub(crate) fn adapter<'a>(
     let invalid = || {
         plans::invalid_selection("Native debug preparation needs a same-plugin launch adapter with program, cwd, args and env target bindings, without overriding defaults.")
     };
-    let id = &run.debug.as_ref().ok_or_else(invalid)?.adapter;
+    let id = run
+        .debug
+        .as_ref()
+        .and_then(|debug| debug.adapter.as_ref())
+        .ok_or_else(invalid)?;
     let adapter = adapters
         .iter()
         .find(|adapter| &adapter.id == id)
@@ -30,6 +34,9 @@ pub(crate) fn adapter<'a>(
         .ok_or_else(invalid)?;
     let bindings = configuration.target_bindings.as_ref().ok_or_else(invalid)?;
     if run.source != TaskSource::Provider
+        || run
+            .execution
+            .is_some_and(|kind| kind != super::manifest::BuildExecution::Application)
         || !adapter.requests.contains(&DebugRequest::Launch)
         || bindings.program.as_deref() != Some("target.path")
         || bindings.cwd.as_deref() != Some("target.workingDirectory")
@@ -56,12 +63,14 @@ pub(crate) fn plan(
     build: &BuildSystemDeclaration,
     request: &PrepareRunRequest,
 ) -> Validation<Value> {
-    let mut value = run_preparation::plan(build, request)?;
-    if !build
-        .run
-        .iter()
-        .any(|run| run.id == request.run && run.debug.is_some())
-    {
+    let mut value = run_preparation::plan(build, request, 5)?;
+    if !build.run.iter().any(|run| {
+        run.id == request.run
+            && run
+                .debug
+                .as_ref()
+                .is_some_and(|debug| debug.adapter.is_some())
+    }) {
         return Err(plans::unavailable(build, "debug preparation"));
     }
     value["provider"]["method"] = json!("lithe/build/prepareDebug");
@@ -86,7 +95,13 @@ pub(crate) fn decode(
     let run = build
         .run
         .iter()
-        .find(|run| run.id == request.run && run.debug.is_some())
+        .find(|run| {
+            run.id == request.run
+                && run
+                    .debug
+                    .as_ref()
+                    .is_some_and(|debug| debug.adapter.is_some())
+        })
         .ok_or_else(|| plans::unavailable(build, "debug preparation"))?;
     let invalid = || decode::invalid_output("Invalid provider native debug preparation result.");
     let object = request.base.result.as_object().ok_or_else(invalid)?;
@@ -110,6 +125,9 @@ pub(crate) fn decode(
             .read_path(&program)
             .is_some_and(|path| path.is_file() && path.starts_with(&instance))
     {
+        return Err(invalid());
+    }
+    if request.base.launch_options.is_some() {
         return Err(invalid());
     }
     let validated = run_preparation::process_fields(&request.base)?;

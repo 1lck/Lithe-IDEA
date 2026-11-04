@@ -1,4 +1,5 @@
 import Foundation
+import LitheCoreContracts
 import LitheModuleAPI
 import UniformTypeIdentifiers
 import SwiftUI
@@ -56,7 +57,7 @@ struct RunConfigurationEditorView: View {
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Button("Reset") {
-                    options = RunOptions()
+                    options = configuration.buildProvider == nil ? RunOptions() : options.resettingProviderRunOptions()
                     environmentText = ""
                 }
                 .buttonStyle(.litheNoPress)
@@ -78,11 +79,8 @@ struct RunConfigurationEditorView: View {
                 Button("Save") {
                     options.environment = Self.environment(from: environmentText)
                     guard let scopedOptions = scopedOptionsForSave() else { return }
-                    // The runtime settings mirror the project defaults and are
-                    // their source until `.lithe/run/local.json` saves them.
                     if feature.saveEditorChanges(
                         scopedOptions,
-                        toolchain: model.runtimeFeature.projectToolchainSelection,
                         for: configuration,
                         scope: saveScope
                     ) {
@@ -354,7 +352,9 @@ struct RunConfigurationEditorView: View {
 
     private var argumentsSection: some View {
         section(title: "Arguments") {
-            if effectiveCapabilities.contains(.javaVMArguments) {
+            if configuration.buildProvider != nil {
+                ProviderRunOptionsEditor(value: $options.providerRunOptions)
+            } else if effectiveCapabilities.contains(.javaVMArguments) {
                 argumentField(
                     title: "VM options",
                     placeholder: "-Xmx1g -Dserver.port=8080",

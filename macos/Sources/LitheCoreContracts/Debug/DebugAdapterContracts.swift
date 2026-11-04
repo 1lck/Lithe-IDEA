@@ -233,18 +233,40 @@ public struct JavaDebugLaunchTarget: Codable, Hashable, Sendable {
     public let projectName: String?
     public let modulePaths: [String]
     public let classPaths: [String]
+    /// The host completed the current build provider preparation before JDT launch resolution.
+    public let buildPrepared: Bool
+
+    public init(mainClass: String, projectName: String?, modulePaths: [String] = [], classPaths: [String] = []) {
+        self.init(mainClass: mainClass, projectName: projectName, modulePaths: modulePaths, classPaths: classPaths, buildPrepared: false)
+    }
 
     public init(
         mainClass: String,
         projectName: String?,
         modulePaths: [String] = [],
-        classPaths: [String] = []
+        classPaths: [String] = [],
+        buildPrepared: Bool
     ) {
         self.mainClass = mainClass
         self.projectName = projectName
         self.modulePaths = modulePaths
         self.classPaths = classPaths
+        self.buildPrepared = buildPrepared
     }
+
+    private enum CodingKeys: String, CodingKey { case mainClass, projectName, modulePaths, classPaths, buildPrepared }
+
+    /// Core's shared Java preparation has no host resource receipt. An absent
+    /// receipt must retain Maven preparation rather than bypass it.
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(mainClass: try values.decode(String.self, forKey: .mainClass),
+            projectName: try values.decodeIfPresent(String.self, forKey: .projectName),
+            modulePaths: try values.decode([String].self, forKey: .modulePaths),
+            classPaths: try values.decode([String].self, forKey: .classPaths),
+            buildPrepared: try values.decodeIfPresent(Bool.self, forKey: .buildPrepared) ?? false)
+    }
+
 }
 
 /// Java test runner family reported by the JDT LS Java Test extension.

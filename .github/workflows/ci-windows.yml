@@ -273,6 +273,9 @@ jobs:
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-code-actions.json -- src/features/editor/lsp/lsp-client-code-actions.test.ts src/features/editor/engines/monaco/code-action-diagnostics.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           bun test src/platform
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-build.json -- src/features/build/services src/features/build/components src/platform/build-provider-sessions.test.ts src/platform/build-tool-preparation.test.ts src/platform/build-core-api.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-language-detection.json -- src/features/editor/utils/language-detection.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 120000 --report .artifacts/test-stability/windows-documents.json -- src/features/editor/stores/editor-app.store.test.ts src/features/editor/services/document-external-change-workflow.test.ts src/features/editor/services/document-save-lifecycle.test.ts src/features/editor/services/document-watch-controller.test.ts
@@ -297,7 +300,7 @@ jobs:
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-debug-events.json -- src/features/debugger/services/debug-adapter-events.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # The event bridge mocks the adapter module; run the real adapter tests in a separate process.
-          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-debug-service.json -- src/features/debugger/services/debug-adapter-service.test.ts
+          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-debug-service.json -- src/features/debugger/services/debug-adapter-service.test.ts src/features/debugger/services/build-provider-debug.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 120000 --report .artifacts/test-stability/windows-maven-run-markers.json -- --preload ./src/test-utils/vite-assets.ts src/features/maven/stores/maven.store.test.ts src/features/maven/services/java-test-discovery.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -326,7 +329,7 @@ jobs:
         run: |
           $runner = ".agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs"
           # Native/event and presentation mocks must not leak between suites.
-          $pluginSuites = @('declarative-plugin-lifecycle', 'declarative-plugin-run', 'declarative-plugin-ui', 'plugin-lifecycle-listener', 'plugin-web-open-file', 'plugin-web-appearance')
+          $pluginSuites = @('declarative-plugin-lifecycle', 'declarative-plugin-run', 'declarative-plugin-ui', 'plugin-lifecycle-listener', 'plugin-web-open-file', 'plugin-web-appearance', 'plugin-native-errors')
           foreach ($suite in $pluginSuites) {
             node $runner --suite-timeout-ms 60000 --report ".artifacts/test-stability/windows-$suite.json" -- "src/features/plugins/$suite.test.ts"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

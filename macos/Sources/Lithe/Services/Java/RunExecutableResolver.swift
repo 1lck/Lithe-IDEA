@@ -1,4 +1,5 @@
 import Foundation
+import LitheModuleAPI
 
 @MainActor
 final class RunExecutableResolver: RunExecutableResolving {
@@ -6,18 +7,34 @@ final class RunExecutableResolver: RunExecutableResolving {
     private let runtimeService: ProjectRuntimeService
     private let toolchainRegistry: RunToolchainRegistry
     private let metadataResolver: (any RunToolchainMetadataResolving)?
+    private let definedTools: (any DefinedToolchainResolving)?
     private var metadataByProject: [String: [String: RunToolchainMetadata]] = [:]
 
     init(
         runtimeService: ProjectRuntimeService,
         toolchainRegistry: RunToolchainRegistry? = nil,
         metadataResolver: (any RunToolchainMetadataResolving)? = nil,
-        environmentResolver: any RunLaunchEnvironmentResolving
+        environmentResolver: any RunLaunchEnvironmentResolving,
+        definedTools: (any DefinedToolchainResolving)? = nil
     ) {
         self.environmentResolver = environmentResolver
         self.runtimeService = runtimeService
         self.toolchainRegistry = toolchainRegistry ?? .standard()
         self.metadataResolver = metadataResolver
+        self.definedTools = definedTools
+    }
+
+    func prepare(_ plan: SharedLaunchPlan, projectURL: URL, options: RunOptions) async throws -> ResolvedRunExecutable? {
+        guard case .toolchain(let id) = plan.executable, !toolchainRegistry.contains(identifier: id) else { return nil }
+        let environment = runtimeService.processEnvironment().merging(plan.environment) { _, new in new }
+            .merging(options.environment) { _, new in new }
+        guard let definedTools, let selected = try await definedTools.resolve(tool: id, directory: plan.workingDirectory,
+            workspace: projectURL, environment: environment, minimumVersion: nil, projectCodeAllowed: true) else {
+            throw RunExecutableResolutionError(message: L10n.string("The selected toolchain is unavailable."))
+        }
+        try Task.checkCancellation()
+        return try finalize(ResolvedRunExecutable(executableURL: selected.executable, environment: selected.environment),
+                            plan: plan, projectURL: projectURL, options: options)
     }
 
     func resolve(
@@ -25,11 +42,12 @@ final class RunExecutableResolver: RunExecutableResolving {
         projectURL: URL,
         options: RunOptions
     ) throws -> ResolvedRunExecutable {
-        let planEnvironment = plan.environment.merging(options.environment) { _, userValue in userValue }
-
         let resolved: ResolvedRunExecutable
         switch plan.executable {
         case .toolchain(let id):
+            if !toolchainRegistry.contains(identifier: id) {
+                throw RunExecutableResolutionError(message: L10n.string("The selected toolchain is unavailable."))
+            }
             let toolchainProjectURL = id == "project-maven" && plan.workingDirectory != "."
                 ? projectURL.appending(path: plan.workingDirectory, directoryHint: .isDirectory)
                 : projectURL
@@ -56,6 +74,12 @@ final class RunExecutableResolver: RunExecutableResolving {
             )
         }
 
+        return try finalize(resolved, plan: plan, projectURL: projectURL, options: options)
+    }
+
+    private func finalize(_ resolved: ResolvedRunExecutable, plan: SharedLaunchPlan, projectURL: URL,
+                          options: RunOptions) throws -> ResolvedRunExecutable {
+        let planEnvironment = plan.environment.merging(options.environment) { _, userValue in userValue }
         let identifier: String?
         if case .toolchain(let id) = plan.executable { identifier = id } else { identifier = nil }
         let environment = try environmentResolver.resolveLaunchEnvironment(

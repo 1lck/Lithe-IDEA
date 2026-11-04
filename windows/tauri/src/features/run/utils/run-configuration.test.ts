@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import argumentFixture from "../../../../../../shared/fixtures/run-configuration/argument-text.json";
+import ownershipFixture from "../../../../../../shared/fixtures/run-configuration/provider-project-ownership.json";
+import choicesFixture from "../../../../../../shared/fixtures/run-configuration/build-provider-options.json";
 import {
   configurationsForExecution,
   infrastructureConfigurations,
@@ -12,9 +15,67 @@ import {
   projectScopedPath,
   selectedToolchainCandidates,
   workspaceRelativePath,
+  joinArguments,
+  runOptionsFromConfiguration,
 } from "./run-configuration";
 
 describe("run configuration mapping", () => {
+  test("maps an exact language project owner without Maven extension data", () => {
+    const owner = { pluginID: "dev.example.compiler", buildSystemID: "example", root: "projects", projectID: "opaque-app" };
+    const configuration = mapCoreConfiguration({ id: "java-main:demo.Main", name: "Main", provider: "java.main",
+      toolchains: { java: "project-jdk" }, extensions: { java: {
+        module: "app", mainClass: "demo.Main", source: "projects/app/checks/Main.java", sourceSet: "test", build: owner,
+      } } });
+    expect(configuration.modulePath).toBe("app");
+    expect(configuration.mainClass).toBe("demo.Main");
+    expect(configuration.buildProject).toEqual(owner);
+    owner.projectID = "changed";
+    expect(configuration.buildProject?.projectID).toBe("opaque-app");
+    expect(configuration.mavenReactorPath).toBeUndefined();
+    expect(configuration.toolchains.maven).toBeUndefined();
+    for (const expected of ownershipFixture.expected.configurations) {
+      const id = expected.id;
+      const owner = ownershipFixture.projectOwnership.find(project => id.endsWith(":" + project.path));
+      expect(owner).toBeDefined();
+      const mapped = mapCoreConfiguration({ id, name: "Main", provider: "java.main", cwd: expected.cwd,
+        extensions: { java: { module: expected.module, mainClass: "demo.Main", sourceSet: expected.sourceSet, build: owner!.build } } });
+      expect(mapped.buildProject).toEqual(owner!.build);
+      expect(mapped.mainClass).toBe("demo.Main");
+      expect(mapped.modulePath).toBe(expected.module);
+      expect(mapped.mavenReactorPath).toBeUndefined();
+    }
+  });
+
+  test("argument editor text matches the shared argv grammar", () => {
+    for (const entry of argumentFixture.cases) expect(joinArguments(entry.values)).toBe(entry.text);
+  });
+
+  test("portable Provider choices survive mapping and independent editor drafts", () => {
+    const choices = structuredClone(choicesFixture.choices);
+    const configuration = mapCoreConfiguration({ id: "imported:service", name: "Service", provider: "build.provider", execution: "service",
+      args: choicesFixture.arguments, extensions: { build: { ...choicesFixture.reference, execution: "service" }, "build-run": choices } });
+    const draft = runOptionsFromConfiguration(configuration);
+    choices.runtimeArguments.length = 0;
+    expect(draft.providerRunOptions).toEqual(choicesFixture.choices);
+    expect(draft.programArguments).toBe(joinArguments(choicesFixture.arguments));
+    draft.providerRunOptions!.runtimeArguments.length = 0;
+    expect(configuration.providerRunOptions).toEqual(choicesFixture.choices);
+    draft.providerRunOptions!.tools!["dev.example.engine:compiler"] = null;
+    expect(configuration.providerRunOptions!.tools).toEqual(choicesFixture.choices.tools);
+    const cleared = mapCoreConfiguration({ id: "user:cleared", name: "Cleared", provider: "build.provider", extensions: { "build-run": choicesFixture.changed } });
+    expect(cleared.providerRunOptions?.tools?.["dev.example.engine:vm"]).toBeNull();
+    expect(runOptionsFromConfiguration(mapCoreConfiguration({ id: "user:old", name: "Old", provider: "build.provider" })).providerRunOptions).toBeUndefined();
+  });
+  test("saved Provider references retain their exact selector and execution without inventing process data", () => {
+    const reference = { pluginID: "dev.example.build", buildSystemID: "example", root: "reactor", run: "serve",
+      projectID: "app", targetID: "exact-target", execution: "service" as const, userArguments: ["", "two words"] };
+    const configuration = mapCoreConfiguration({ id: "user:service", name: "Saved service", provider: "build.provider", execution: "service", extensions: { build: reference } });
+    reference.userArguments.length = 0;
+    expect(configuration.buildProvider).toEqual({ ...reference, userArguments: ["", "two words"] });
+    expect(configuration.execution).toBe("service"); expect(configuration.toolchains).toEqual({}); expect(configuration.env).toEqual({});
+    expect(configuration.mainClass).toBeUndefined();
+  }, 5000);
+
   test("maps a Spring Boot service and keeps the main class", () => {
     const configuration = mapCoreConfiguration({
       id: "spring-boot.maven:demo",

@@ -1,0 +1,220 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lithe.dev/contracts/toolchain-consumer-preferences-v1.schema.json",
+  "title": "Lithe consumer tool preferences v1",
+  "description": "Inert machine-local inputs. An inherited choice is a reference, never a cached installation or launch permit.",
+  "type": "object",
+  "required": [
+    "version"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "workspace": {
+      "$ref": "#/$defs/workspace"
+    },
+    "directories": {
+      "type": "object",
+      "maxProperties": 256,
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2048,
+        "pattern": "^(?!\\.\\.?($|/))[^\\\\/:\\x00-\\x1f]+(?:/(?!\\.\\.?($|/))[^\\\\/:\\x00-\\x1f]+)*$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/directory"
+      }
+    }
+  },
+  "$defs": {
+    "fixed": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "home"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "home": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "description": "Absolute native path; Core rejects traversal and control characters before use."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "executable"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "executable": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "description": "Absolute native path; Core rejects traversal and control characters before use."
+            }
+          }
+        }
+      ]
+    },
+    "workspaceReference": {
+      "type": "object",
+      "required": [
+        "inherit"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "inherit": {
+          "const": "workspace"
+        }
+      }
+    },
+    "consumerReference": {
+      "type": "object",
+      "required": [
+        "inherit"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "inherit": {
+          "enum": [
+            "workspace",
+            "consumer",
+            "tool"
+          ]
+        }
+      }
+    },
+    "fixedTools": {
+      "type": "object",
+      "maxProperties": 64,
+      "additionalProperties": {
+        "$ref": "#/$defs/fixed"
+      },
+      "propertyNames": {
+        "$ref": "#/$defs/toolID"
+      }
+    },
+    "workspaceTools": {
+      "type": "object",
+      "maxProperties": 64,
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/fixed"
+          },
+          {
+            "$ref": "#/$defs/workspaceReference"
+          }
+        ]
+      },
+      "propertyNames": {
+        "$ref": "#/$defs/toolID"
+      }
+    },
+    "consumerTools": {
+      "type": "object",
+      "maxProperties": 64,
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/fixed"
+          },
+          {
+            "$ref": "#/$defs/consumerReference"
+          }
+        ]
+      },
+      "propertyNames": {
+        "$ref": "#/$defs/toolID"
+      }
+    },
+    "workspace": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tools": {
+          "$ref": "#/$defs/fixedTools"
+        },
+        "consumers": {
+          "type": "object",
+          "maxProperties": 128,
+          "additionalProperties": {
+            "$ref": "#/$defs/workspaceConsumerTools"
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/consumerID"
+          }
+        }
+      }
+    },
+    "directory": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tools": {
+          "$ref": "#/$defs/workspaceTools"
+        },
+        "consumers": {
+          "type": "object",
+          "maxProperties": 128,
+          "additionalProperties": {
+            "$ref": "#/$defs/consumerTools"
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/consumerID"
+          }
+        }
+      }
+    },
+    "toolID": {
+      "type": "string",
+      "maxLength": 192,
+      "pattern": "^(?:[a-z][a-z0-9-]{0,63}|[a-z0-9]+(?:[.-][a-z0-9]+)*:[a-z][a-z0-9-]{0,63})$"
+    },
+    "consumerID": {
+      "type": "string",
+      "maxLength": 256,
+      "pattern": "^(?!\\.{1,2}/)[a-z0-9.-]+/[a-z][a-z0-9-]{0,63}$"
+    },
+    "workspaceConsumerReference": {
+      "type": "object",
+      "required": [
+        "inherit"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "inherit": {
+          "enum": [
+            "workspace",
+            "tool"
+          ]
+        }
+      }
+    },
+    "workspaceConsumerTools": {
+      "type": "object",
+      "maxProperties": 64,
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/fixed"
+          },
+          {
+            "$ref": "#/$defs/workspaceConsumerReference"
+          }
+        ]
+      },
+      "propertyNames": {
+        "$ref": "#/$defs/toolID"
+      }
+    }
+  }
+}

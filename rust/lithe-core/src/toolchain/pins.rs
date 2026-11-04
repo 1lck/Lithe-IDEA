@@ -138,7 +138,7 @@ fn validate_pin(value: &Value, field: &str) -> Validation<()> {
 }
 
 /// Accepts the root marker or normalized portable directory components.
-fn valid_directory(value: &str) -> bool {
+pub(super) fn valid_directory(value: &str) -> bool {
     value == "."
         || (!value.is_empty()
             && !value
@@ -150,7 +150,7 @@ fn valid_directory(value: &str) -> bool {
 }
 
 /// Checks both reserved short IDs and plugin-qualified IDs, not registry membership.
-fn valid_tool_id(value: &str) -> bool {
+pub(super) fn valid_tool_id(value: &str) -> bool {
     value.len() <= 192
         && match value.split_once(':') {
             Some((namespace, id)) => valid_namespace(namespace) && valid_local_id(id),
@@ -170,7 +170,7 @@ fn valid_namespace(value: &str) -> bool {
 }
 
 /// Checks the bounded local portion of a tool or provider ID.
-fn valid_local_id(value: &str) -> bool {
+pub(super) fn valid_local_id(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 64
         && value.as_bytes()[0].is_ascii_lowercase()
@@ -180,7 +180,7 @@ fn valid_local_id(value: &str) -> bool {
 }
 
 /// Recognizes POSIX, drive-rooted Windows, and UNC paths on either build platform.
-fn valid_native_path(value: &str) -> bool {
+pub(crate) fn valid_native_path(value: &str) -> bool {
     if value.chars().any(char::is_control) {
         return false;
     }

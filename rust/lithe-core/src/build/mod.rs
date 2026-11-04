@@ -16,6 +16,7 @@
 //! Note: the contract is recorded in .agents/notes/implemented/architecture/2026-10-17-build-system-plugin-contract.md
 
 mod commands;
+mod configuration;
 mod debug_preparation;
 mod decode;
 mod detect;
@@ -28,8 +29,10 @@ mod model_inputs;
 mod options;
 mod outputs;
 mod plans;
+mod project_options;
 mod run_preparation;
 mod select;
+mod stored_options;
 mod template;
 mod test_discovery;
 
@@ -39,3 +42,5 @@ pub(crate) use manifest::{
     activation_event, programs, validate_declarations, BuildSystemDeclaration, DeclarationContext,
     ProviderProcess,
 };
+pub(crate) use project_options::project_options_command;
+pub(crate) use stored_options::resolve_stored_options_command;

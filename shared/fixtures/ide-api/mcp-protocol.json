@@ -2,7 +2,20 @@
   "version": 1,
   "legacyProtocolVersion": "2025-11-25",
   "modernProtocolVersion": "2026-07-28",
-  "cachePolicy": { "ttlMs": 0, "cacheScope": "private" },
-  "toolCount": 13,
-  "modes": ["legacy", "modern", "modern-after-initialize"]
+  "cachePolicy": {
+    "ttlMs": 0,
+    "cacheScope": "private"
+  },
+  "toolCount": 17,
+  "modes": [
+    "legacy",
+    "modern",
+    "modern-after-initialize"
+  ],
+  "providerTools": [
+    "lithe_build_inspect",
+    "lithe_build_reload",
+    "lithe_build_configure",
+    "lithe_build_execute"
+  ]
 }

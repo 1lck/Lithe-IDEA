@@ -58,15 +58,18 @@ struct DebugLaunchSourceResolver {
             .sorted { $0.path < $1.path }
         guard !javaFiles.isEmpty else { return nil }
 
+        // Provider projects carry a generic instance root. Their module paths
+        // are relative to that root, just like the legacy reactor projection.
+        let ownerRoot = configuration.buildProject?.root ?? configuration.mavenReactorPath
         let moduleFiles = filesInSelectedModule(
             javaFiles,
             modulePath: configuration.modulePath,
-            workspaceURL: configuration.mavenReactorPath.map {
+            workspaceURL: ownerRoot.map {
                 workspaceURL.appendingPathComponent($0, isDirectory: true)
             } ?? workspaceURL
         )
-        // A detected Maven owner must never fall back to another reactor's class.
-        let isOwned = configuration.mavenReactorPath != nil
+        // A detected owner must never fall back to another instance's class.
+        let isOwned = ownerRoot != nil
         let preferredFiles = moduleFiles.isEmpty && !isOwned ? javaFiles : moduleFiles
 
         if let sourceSuffix = sourceSuffix(for: configuration.mainClass),

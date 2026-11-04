@@ -3,8 +3,10 @@
 //! No manager configuration, native scanning or process lifecycle belongs here.
 
 pub(crate) mod definitions;
+pub(crate) mod fixed;
 pub(crate) mod paths;
 pub(crate) mod pins;
+pub(crate) mod preferences;
 pub(crate) mod query;
 mod resolution;
 
@@ -49,6 +51,16 @@ pub fn failure_reply_command(input: Value) -> Result<Value, CoreError> {
 /// Reads the nearest directory pin without opening or writing native files.
 pub fn resolve_pins_command(input: Value) -> Result<Value, CoreError> {
     command(input, pins::resolve, "resolution")
+}
+
+/// Resolves inert consumer choices without materializing symbolic inheritance.
+pub fn resolve_consumer_preferences_command(input: Value) -> Result<Value, CoreError> {
+    command(input, preferences::resolve, "preferences")
+}
+
+/// Changes one inert consumer preference without native writes or side effects.
+pub fn edit_consumer_preferences_command(input: Value) -> Result<Value, CoreError> {
+    command(input, preferences::edit, "edit")
 }
 
 /// Resolves one tool using the same validated registry and candidate snapshot.
