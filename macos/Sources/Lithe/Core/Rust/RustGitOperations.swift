@@ -245,6 +245,19 @@ struct RustGitOperations: GitOperations, Sendable {
         write(at: rootURL, operation: "createBranch", reference: reference, name: name, checkout: false)
     }
 
+    func shelfCapture(at rootURL: URL) -> Result<GitShelfSnapshot, GitPatchFailure> {
+        core.gitShelfCapture(at: rootURL).mapError { GitPatchFailure($0.userMessage) }
+    }
+    func shelfPlan(at rootURL: URL, phase: GitShelfPhase) -> Result<GitShelfPlan, GitPatchFailure> {
+        core.gitShelfPlan(at: rootURL, phase: phase).mapError { GitPatchFailure($0.userMessage) }
+    }
+    func shelfStep(at rootURL: URL, phase: GitShelfPhase, layer: GitShelfLayer, snapshot: GitShelfSnapshot) -> GitProcessResult? {
+        switch core.gitShelfStep(at: rootURL, phase: phase, layer: layer, snapshot: snapshot) {
+        case .success: return GitProcessResult(output: "", exitCode: 0)
+        case .failure(let error): return GitProcessResult(output: error.userMessage, exitCode: 1)
+        }
+    }
+
     func exportPatch(at rootURL: URL, source: GitPatchSource, paths: [String], base: String?, target: String?, metadataOnly: Bool) -> Result<GitPatchExport, GitPatchFailure> {
         core.gitPatchExport(at: rootURL, source: source, paths: paths, base: base, target: target, metadataOnly: metadataOnly)
             .mapError { GitPatchFailure($0.userMessage) }

@@ -481,6 +481,8 @@ pub enum CoreCommand {
     GitReconcileDeletedSelection,
     /// Reduces local ChangeList metadata and projects membership and commit scope.
     GitChangelists,
+    /// Captures or applies one guarded Shelf layer (`git.shelf`).
+    GitShelf,
     /// Projects retained Git console records without executing Git (`git.consolePresentation`).
     GitConsolePresentation,
     /// Reads an optional remote URL without a visible command (`git.remoteUrl`).
@@ -856,6 +858,7 @@ impl CoreCommand {
             "git.prepareCommitSelection" => Some(Self::GitPrepareCommitSelection),
             "git.reconcileDeletedSelection" => Some(Self::GitReconcileDeletedSelection),
             "git.changelists" => Some(Self::GitChangelists),
+            "git.shelf" => Some(Self::GitShelf),
             "git.consolePresentation" => Some(Self::GitConsolePresentation),
             "git.remoteUrl" => Some(Self::GitRemoteUrl),
             "git.fetchPlan" => Some(Self::GitFetchPlan),

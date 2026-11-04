@@ -927,3 +927,161 @@ fn saved_patch_metadata_is_read_only_during_merge_and_never_authorizes_apply() {
     );
     assert_eq!(normal["ok"], false);
 }
+
+#[test]
+fn shelf_clean_keeps_new_edits_after_capture_and_retains_both_layers() {
+    let repository = PatchRepository::new("shelf-guard-new-edit");
+    repository.write("text.txt", b"first\nstaged\n");
+    repository.git(&["add", "text.txt"]);
+    repository.write("text.txt", b"first\nworking\n");
+    let snapshot = repository.data("git.shelf", json!({"action":"capture"}));
+    repository.write("text.txt", b"first\nnew edit after saving\n");
+    let clean = repository.call(
+        "git.shelf",
+        json!({"action":"clean", "layer":"working", "snapshot":snapshot}),
+    );
+    assert_eq!(clean["ok"], false, "{clean}");
+    assert_eq!(
+        fs::read(repository.0.join("text.txt")).unwrap(),
+        b"first\nnew edit after saving\n"
+    );
+    assert_eq!(repository.git(&["show", ":text.txt"]), "first\nstaged\n");
+}
+
+#[test]
+fn shelf_clean_and_retry_restore_preserve_staged_working_and_untracked() {
+    let repository = PatchRepository::new("shelf-step-roundtrip");
+    repository.write("text.txt", b"first\nstaged\n");
+    repository.git(&["add", "text.txt"]);
+    repository.write("text.txt", b"first\nworking\n");
+    repository.write("new.txt", b"new content\n");
+    let index_before_capture = fs::read(repository.0.join(".git/index")).unwrap();
+    let snapshot = repository.data("git.shelf", json!({"action":"capture"}));
+    assert_eq!(snapshot["paths"], json!(["new.txt", "text.txt"]));
+    assert_eq!(
+        fs::read(repository.0.join(".git/index")).unwrap(),
+        index_before_capture,
+        "capture must not refresh the real index"
+    );
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/git/shelf-v1.json"
+    ))
+    .unwrap();
+    assert_eq!(
+        repository.data("git.shelf", json!({"action":"plan", "phase":"clean"})),
+        fixture["cleanPlan"]
+    );
+    assert_eq!(
+        repository.data("git.shelf", json!({"action":"plan", "phase":"restore"})),
+        fixture["restorePlan"]
+    );
+    for layer in ["working", "staged"] {
+        let result = repository.call(
+            "git.shelf",
+            json!({"action":"clean", "layer":layer, "snapshot":snapshot}),
+        );
+        assert_eq!(result["ok"], true, "clean {layer}: {result}");
+        let before = fs::read(repository.0.join(".git/index")).unwrap();
+        repository.data("git.shelf", json!({"action":"capture"}));
+        assert_eq!(
+            fs::read(repository.0.join(".git/index")).unwrap(),
+            before,
+            "capture after {layer} changed index"
+        );
+    }
+    assert!(repository.git(&["status", "--porcelain"]).is_empty());
+    repository.data(
+        "git.shelf",
+        json!({"action":"restore", "layer":"staged", "snapshot":snapshot}),
+    );
+    // A retry must recognise the restored index and continue with the worktree layer.
+    repository.data(
+        "git.shelf",
+        json!({"action":"restore", "layer":"staged", "snapshot":snapshot}),
+    );
+    repository.data(
+        "git.shelf",
+        json!({"action":"restore", "layer":"working", "snapshot":snapshot}),
+    );
+    assert_eq!(repository.git(&["show", ":text.txt"]), "first\nstaged\n");
+    assert_eq!(
+        fs::read(repository.0.join("text.txt")).unwrap(),
+        b"first\nworking\n"
+    );
+    assert_eq!(
+        fs::read(repository.0.join("new.txt")).unwrap(),
+        b"new content\n"
+    );
+    // Retry after a storage deletion failure must also recognise both layers.
+    for layer in ["staged", "working"] {
+        repository.data(
+            "git.shelf",
+            json!({"action":"restore", "layer":layer, "snapshot":snapshot}),
+        );
+    }
+}
+
+#[test]
+fn shelf_staged_clean_refuses_new_worktree_edit_between_layers() {
+    let repository = PatchRepository::new("shelf-edit-between-layers");
+    repository.write("text.txt", b"first\nstaged\n");
+    repository.git(&["add", "text.txt"]);
+    repository.write("text.txt", b"first\nworking\n");
+    let snapshot = repository.data("git.shelf", json!({"action":"capture"}));
+    repository.data(
+        "git.shelf",
+        json!({"action":"clean", "layer":"working", "snapshot":snapshot}),
+    );
+    repository.write("late.txt", b"newly created\n");
+    let clean = repository.call(
+        "git.shelf",
+        json!({"action":"clean", "layer":"staged", "snapshot":snapshot}),
+    );
+    assert_eq!(clean["ok"], false, "{clean}");
+    assert_eq!(repository.git(&["show", ":text.txt"]), "first\nstaged\n");
+    assert_eq!(
+        fs::read(repository.0.join("late.txt")).unwrap(),
+        b"newly created\n"
+    );
+}
+
+#[test]
+fn shelf_restore_conflict_preserves_worktree_and_allows_retry_after_resolution() {
+    let repository = PatchRepository::new("shelf-retry-conflict");
+    repository.write("text.txt", b"first\nstaged\n");
+    repository.git(&["add", "text.txt"]);
+    repository.write("text.txt", b"first\nworking\n");
+    let snapshot = repository.data("git.shelf", json!({"action":"capture"}));
+    for layer in ["working", "staged"] {
+        repository.data(
+            "git.shelf",
+            json!({"action":"clean", "layer":layer, "snapshot":snapshot}),
+        );
+    }
+    repository.data(
+        "git.shelf",
+        json!({"action":"restore", "layer":"staged", "snapshot":snapshot}),
+    );
+    repository.write("text.txt", b"first\nconflicting edit\n");
+    let result = repository.call(
+        "git.shelf",
+        json!({"action":"restore", "layer":"working", "snapshot":snapshot}),
+    );
+    assert_eq!(result["ok"], false, "{result}");
+    assert_eq!(
+        fs::read(repository.0.join("text.txt")).unwrap(),
+        b"first\nconflicting edit\n"
+    );
+    assert_eq!(repository.git(&["show", ":text.txt"]), "first\nstaged\n");
+    repository.write("text.txt", b"first\nstaged\n");
+    for layer in ["staged", "working"] {
+        repository.data(
+            "git.shelf",
+            json!({"action":"restore", "layer":layer, "snapshot":snapshot}),
+        );
+    }
+    assert_eq!(
+        fs::read(repository.0.join("text.txt")).unwrap(),
+        b"first\nworking\n"
+    );
+}

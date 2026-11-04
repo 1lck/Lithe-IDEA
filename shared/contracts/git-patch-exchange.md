@@ -89,3 +89,29 @@ advertise a global transaction or automatic rollback of unrelated edits.
 The older `git.apply` Shelf modes retain their existing behavior. In particular,
 `worktreeCheck` and `restoreIndexCheck` remain reverse checks for Shelf retry
 detection and are not aliases for the new forward preview.
+
+## Shelf capture, cleanup, and restoration
+
+`git.shelf` shares the two-layer Shelf workflow between hosts. `capture` returns
+`stagedPatch`, `workingPatch`, and sorted `paths`; the working patch is exported
+relative to the real index with untracked files included. An unresolved index
+conflict fails capture. Platforms own the existing versioned record and must
+persist the complete capture before beginning cleanup.
+
+`plan` with `phase: clean` or `restore` returns the ordered `layers` array in
+[`shelf-v1.json`](../fixtures/git/shelf-v1.json). Before every step the host must
+check its workspace lifetime and unsaved-buffer policy. Each `clean` step takes
+the saved `snapshot` and a `layer`; Core reviews a reverse patch, verifies the
+captured layers against a fresh snapshot, and applies only while the review token
+still matches. A changed snapshot fails with `SHELF_CHANGED`. The first step
+verifies both layers even if the working patch is empty; the second requires the
+saved staged layer and an unchanged clean worktree layer. Index conflict checks
+and capture must not refresh the real index.
+
+Each `restore` step applies the saved layer and, on failure, uses a read-only
+reverse check to recognize a layer completed by a previous attempt. The staged
+retry check examines the index independently of the worktree. Hosts delete the
+record only after every step succeeds; they retain it on partial failure,
+cancellation, or deletion failure. The token protects the reviewed Git state,
+but external processes and filesystem failures can still interrupt a workflow;
+this is not a global transaction or rollback of concurrent unrelated work.
